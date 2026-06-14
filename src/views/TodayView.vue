@@ -1,7 +1,6 @@
 <script setup>
 import { useFeedStore } from '@/stores/feed.js'
 import FeedItem from '@/components/FeedItem.vue'
-import CkBtn from '@/components/ui/CkBtn.vue'
 import CkIcon from '@/components/ui/CkIcon.vue'
 
 const feed = useFeedStore()
