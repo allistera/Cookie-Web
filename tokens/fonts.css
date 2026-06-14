@@ -1,0 +1,8 @@
+/* Cookie webfonts.
+   Display + body: Figtree — a warm geometric-humanist sans that matches the
+   "Cookie" wordmark (circular bowls, double-story a, friendly terminals).
+   Mono: JetBrains Mono — for timestamps, integration labels, and condensed data.
+   NOTE: Figtree is a flagged substitute for the exact Canva wordmark face —
+   see readme.md "Typography". Loaded from Google Fonts so consumers need only
+   link styles.css. */
+@import url("https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=JetBrains+Mono:wght@400;500;600&display=swap");

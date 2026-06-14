@@ -1,0 +1,132 @@
+/* ============================================================
+   Cookie — Color tokens
+   Brand DNA: deep forest green (logo), sage/mint, warm cream "paper".
+   Calm, focused, readable. Green-forward and warm-neutral, never cold.
+   ============================================================ */
+:root {
+  /* ---- Forest (primary brand green, from the logo #0E271D) ---- */
+  --forest-950: #081a12;
+  --forest-900: #0e271d; /* brand core */
+  --forest-800: #143427;
+  --forest-700: #1c4636;
+  --forest-600: #265c47;
+  --forest-500: #327056;
+  --forest-400: #4e9173;
+  --forest-300: #82b49d;
+  --forest-200: #b6d3c5;
+  --forest-100: #dcebe3;
+
+  /* ---- Sage / mint (secondary — the logo's inner dot #D7E1DC) ---- */
+  --sage-400: #9db6a8;
+  --sage-300: #bbcdc3;
+  --sage-200: #d7e1dc;
+  --sage-100: #e8efea;
+  --sage-50:  #f1f5f2;
+
+  /* ---- Cream "paper" (warm neutral, ties to the Cookie name) ---- */
+  --cream-50:  #fbfaf5;
+  --cream-100: #f6f4ec;
+  --cream-200: #ece8dc;
+  --cream-300: #ddd8c8;
+
+  /* ---- Warm neutral ink + lines ---- */
+  --neutral-900: #0e271d; /* = forest core, primary ink */
+  --neutral-700: #34433c;
+  --neutral-500: #5d6b63;
+  --neutral-400: #828e87;
+  --neutral-300: #aab4ad;
+  --neutral-200: #d9d6cb; /* warm border */
+  --neutral-100: #eceadf;
+  --white: #ffffff;
+
+  /* ---- Signal green (automation / "ready" / positive action accent) ---- */
+  --signal-600: #138a5e;
+  --signal-500: #18a06d;
+  --signal-400: #36b487;
+  --signal-100: #d6f0e4;
+
+  /* ---- Semantic status (muted, warm, to match the calm palette) ---- */
+  --success-600: #138a5e;
+  --success-500: #18a06d;
+  --success-100: #d6f0e4;
+
+  --warning-600: #b3792a;
+  --warning-500: #d29a3e;
+  --warning-100: #f6ead1;
+
+  --danger-600:  #b1463a;
+  --danger-500:  #c75a4c;
+  --danger-100:  #f4dcd7;
+
+  --info-600: #2f6f80;
+  --info-500: #3e8597;
+  --info-100: #d8ebef;
+
+  /* =========================================================
+     Semantic aliases — use these in components, not raw scales
+     ========================================================= */
+  /* Surfaces (light theme = the default Cookie product surface) */
+  --surface-page:    var(--cream-50);
+  --surface-card:    var(--white);
+  --surface-sunken:  var(--cream-100);
+  --surface-raised:  var(--white);
+  --surface-inverse: var(--forest-900);
+  --surface-accent:  var(--sage-100);
+
+  /* Text */
+  --text-primary:   var(--neutral-900);
+  --text-secondary: var(--neutral-500);
+  --text-tertiary:  var(--neutral-400);
+  --text-on-forest: var(--cream-50);
+  --text-on-accent: var(--forest-800);
+  --text-brand:     var(--forest-700);
+  --text-link:      var(--forest-600);
+
+  /* Borders */
+  --border-subtle:  var(--neutral-200);
+  --border-default: var(--neutral-300);
+  --border-strong:  var(--forest-900);
+  --border-accent:  var(--sage-300);
+
+  /* Interactive (primary = forest, accent = signal green) */
+  --action-primary:        var(--forest-900);
+  --action-primary-hover:  var(--forest-800);
+  --action-primary-press:  var(--forest-950);
+  --action-on-primary:     var(--cream-50);
+
+  --action-accent:         var(--signal-500);
+  --action-accent-hover:   var(--signal-600);
+  --action-on-accent:      var(--white);
+
+  --focus-ring: var(--forest-500);
+
+  /* Status aliases */
+  --status-success: var(--success-500);
+  --status-warning: var(--warning-500);
+  --status-danger:  var(--danger-500);
+  --status-info:    var(--info-500);
+  --status-automated: var(--signal-500);
+}
+
+/* ---- Inverse / forest scope: forest surface, light text ---- */
+.cookie-on-forest,
+[data-theme="forest"] {
+  --surface-page:   var(--forest-900);
+  --surface-card:   var(--forest-800);
+  --surface-sunken: var(--forest-950);
+  --surface-accent: var(--forest-700);
+
+  --text-primary:   var(--cream-50);
+  --text-secondary: var(--sage-300);
+  --text-tertiary:  var(--forest-300);
+  --text-brand:     var(--sage-200);
+  --text-link:      var(--sage-200);
+
+  --border-subtle:  var(--forest-700);
+  --border-default: var(--forest-600);
+  --border-accent:  var(--forest-500);
+
+  --action-primary:       var(--sage-200);
+  --action-primary-hover: var(--sage-100);
+  --action-on-primary:    var(--forest-900);
+}
