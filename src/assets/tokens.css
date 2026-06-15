@@ -1,82 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/@fontsource/open-sauce-one@5.2.5/latin.css');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* ---- Color tokens ---- */
 :root {
-  --forest-950: #081a12;
-  --forest-900: #0e271d;
-  --forest-800: #143427;
-  --forest-700: #1c4636;
-  --forest-600: #265c47;
-  --forest-500: #327056;
-  --forest-400: #4e9173;
-  --forest-300: #82b49d;
-  --forest-200: #b6d3c5;
-  --forest-100: #dcebe3;
-  --sage-400: #9db6a8;
-  --sage-300: #bbcdc3;
-  --sage-200: #d7e1dc;
-  --sage-100: #e8efea;
-  --sage-50: #f1f5f2;
-  --cream-50: #fbfaf5;
-  --cream-100: #f6f4ec;
-  --cream-200: #ece8dc;
-  --cream-300: #ddd8c8;
-  --neutral-900: #0e271d;
-  --neutral-700: #34433c;
-  --neutral-500: #5d6b63;
-  --neutral-400: #828e87;
-  --neutral-300: #aab4ad;
-  --neutral-200: #d9d6cb;
-  --neutral-100: #eceadf;
-  --white: #ffffff;
-  --signal-600: #138a5e;
-  --signal-500: #18a06d;
-  --signal-400: #36b487;
-  --signal-100: #d6f0e4;
-  --success-600: #138a5e;
-  --success-500: #18a06d;
-  --success-100: #d6f0e4;
-  --warning-600: #b3792a;
-  --warning-500: #d29a3e;
-  --warning-100: #f6ead1;
-  --danger-600: #b1463a;
-  --danger-500: #c75a4c;
-  --danger-100: #f4dcd7;
-  --info-600: #2f6f80;
-  --info-500: #3e8597;
-  --info-100: #d8ebef;
+  --color-primary: #0e271d;
 
-  /* Semantic */
-  --surface-page: var(--cream-50);
-  --surface-card: var(--white);
-  --surface-sunken: var(--cream-100);
-  --surface-raised: var(--white);
-  --surface-inverse: var(--forest-900);
-  --surface-accent: var(--sage-100);
-  --text-primary: var(--neutral-900);
-  --text-secondary: var(--neutral-500);
-  --text-tertiary: var(--neutral-400);
-  --text-on-forest: var(--cream-50);
-  --text-on-accent: var(--forest-800);
-  --text-brand: var(--forest-700);
-  --text-link: var(--forest-600);
-  --border-subtle: var(--neutral-200);
-  --border-default: var(--neutral-300);
-  --border-strong: var(--forest-900);
-  --border-accent: var(--sage-300);
-  --action-primary: var(--forest-900);
-  --action-primary-hover: var(--forest-800);
-  --action-primary-press: var(--forest-950);
-  --action-on-primary: var(--cream-50);
-  --action-accent: var(--signal-500);
-  --action-accent-hover: var(--signal-600);
-  --action-on-accent: var(--white);
-  --focus-ring: var(--forest-500);
-  --status-automated: var(--signal-500);
+  --color-background: #faf8f3;
+  --color-surface: #fffdf8;
+  --color-surface-alt: #edf5ee;
+  --color-surface-muted: #ebebeb;
+
+  --color-action: #bfe8cf;
+  --color-action-hover: #a7dcc0;
+
+  --color-pop: #ff7a6b;
+  --color-highlight-yellow: #fff1b8;
+  --color-highlight-blue: #dcecff;
+  --color-highlight-lavender: #eadfff;
+
+  --color-text: #20362c;
+  --color-text-muted: #6d7c72;
+  --color-border: #d7dfd7;
+
+  --color-success: #7fc89b;
+  --color-warning: #ffc482;
+  --color-error: #ff8f8f;
 
   /* Typography */
-  --font-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Figtree', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Open Sauce One', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Open Sauce One', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --weight-regular: 400;
   --weight-medium: 500;
@@ -139,7 +90,7 @@
   --shadow-md: 0 4px 12px rgba(14, 39, 29, 0.08), 0 2px 4px rgba(14, 39, 29, 0.05);
   --shadow-lg: 0 12px 32px rgba(14, 39, 29, 0.1), 0 4px 8px rgba(14, 39, 29, 0.05);
   --shadow-xl: 0 24px 56px rgba(14, 39, 29, 0.14), 0 8px 16px rgba(14, 39, 29, 0.06);
-  --shadow-focus: 0 0 0 3px rgba(50, 112, 86, 0.3);
+  --shadow-focus: 0 0 0 3px rgba(83, 100, 92, 0.35);
 
   /* Motion */
   --ease-standard: cubic-bezier(0.32, 0.08, 0.24, 1);
@@ -152,23 +103,4 @@
   /* Layout */
   --container-max: 1200px;
   --sidebar-width: 264px;
-}
-
-.cookie-on-forest,
-[data-theme='forest'] {
-  --surface-page: var(--forest-900);
-  --surface-card: var(--forest-800);
-  --surface-sunken: var(--forest-950);
-  --surface-accent: var(--forest-700);
-  --text-primary: var(--cream-50);
-  --text-secondary: var(--sage-300);
-  --text-tertiary: var(--forest-300);
-  --text-brand: var(--sage-200);
-  --text-link: var(--sage-200);
-  --border-subtle: var(--forest-700);
-  --border-default: var(--forest-600);
-  --border-accent: var(--forest-500);
-  --action-primary: var(--sage-200);
-  --action-primary-hover: var(--sage-100);
-  --action-on-primary: var(--forest-900);
 }

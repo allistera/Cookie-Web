@@ -42,11 +42,9 @@ function isActive(id) {
     </nav>
 
     <div class="sidebar__user">
-      <CkAvatar name="Allister Antosik" size="sm" tone="var(--forest-600)" />
-      <div style="flex: 1">
-        <div class="nm">Allister Antosik</div>
-      </div>
-      <CkIconBtn name="settings" label="Settings" @click="router.push({ name: 'settings' })" />
+      <div class="sidebar__avatar">👨</div>
+      <div style="flex: 1" />
+      <CkIconBtn name="life-buoy" label="Help" />
     </div>
   </aside>
 </template>

@@ -49,52 +49,52 @@
   width: 100%;
 }
 .ck-btn--primary {
-  background: var(--action-primary);
-  color: var(--action-on-primary);
+  background: var(--color-primary);
+  color: var(--color-background);
 }
 .ck-btn--primary:hover:not(:disabled) {
-  background: var(--action-primary-hover);
+  background: color-mix(in srgb, var(--color-primary) 85%, black);
 }
 .ck-btn--primary:active:not(:disabled) {
-  background: var(--action-primary-press);
+  background: color-mix(in srgb, var(--color-primary) 70%, black);
 }
 .ck-btn--accent {
-  background: var(--action-accent);
-  color: var(--action-on-accent);
+  background: var(--color-pop);
+  color: #fff;
 }
 .ck-btn--accent:hover:not(:disabled) {
-  background: var(--action-accent-hover);
+  background: color-mix(in srgb, var(--color-pop) 85%, black);
 }
 .ck-btn--secondary {
-  background: var(--sage-100);
-  color: var(--text-on-accent);
-  border-color: var(--border-accent);
+  background: var(--color-action);
+  color: var(--color-primary);
+  border-color: var(--color-surface-alt);
 }
 .ck-btn--secondary:hover:not(:disabled) {
-  background: var(--sage-200);
+  background: var(--color-action-hover);
 }
 .ck-btn--ghost {
   background: transparent;
-  color: var(--text-primary);
+  color: var(--color-text);
 }
 .ck-btn--ghost:hover:not(:disabled) {
-  background: var(--sage-100);
+  background: var(--color-action);
 }
 .ck-btn--outline {
   background: transparent;
-  color: var(--text-primary);
-  border-color: var(--border-default);
+  color: var(--color-text);
+  border-color: var(--color-border);
 }
 .ck-btn--outline:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--sage-50);
+  border-color: var(--color-primary);
+  background: var(--color-background);
 }
 .ck-btn--danger {
-  background: var(--danger-500);
+  background: var(--color-pop);
   color: #fff;
 }
 .ck-btn--danger:hover:not(:disabled) {
-  background: var(--danger-600);
+  background: color-mix(in srgb, var(--color-pop) 85%, black);
 }
 
 /* ---- IconButton ---- */
@@ -107,7 +107,7 @@
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-standard),
@@ -115,8 +115,8 @@
     transform var(--dur-fast) var(--ease-standard);
 }
 .ck-iconbtn:hover:not(:disabled) {
-  background: var(--sage-100);
-  color: var(--text-primary);
+  background: var(--color-action);
+  color: var(--color-text);
 }
 .ck-iconbtn:active:not(:disabled) {
   transform: scale(0.94);
@@ -135,12 +135,12 @@
   border-radius: var(--radius-sm);
 }
 .ck-iconbtn--solid {
-  background: var(--action-primary);
-  color: var(--action-on-primary);
+  background: var(--color-primary);
+  color: var(--color-background);
 }
 .ck-iconbtn--solid:hover:not(:disabled) {
-  background: var(--action-primary-hover);
-  color: var(--action-on-primary);
+  background: color-mix(in srgb, var(--color-primary) 85%, black);
+  color: var(--color-background);
 }
 
 /* ---- Switch ---- */
@@ -162,7 +162,7 @@
   width: 42px;
   height: 24px;
   border-radius: var(--radius-pill);
-  background: var(--neutral-300);
+  background: var(--color-border);
   transition: background var(--dur-base) var(--ease-standard);
   flex: none;
   position: relative;
@@ -180,7 +180,7 @@
   transition: left var(--dur-base) var(--ease-out);
 }
 .ck-switch input:checked + .ck-switch__track {
-  background: var(--signal-500);
+  background: var(--color-primary);
 }
 .ck-switch input:checked + .ck-switch__track .ck-switch__thumb {
   left: 21px;
@@ -190,19 +190,19 @@
 }
 .ck-switch__label {
   font: var(--type-body-sm);
-  color: var(--text-primary);
+  color: var(--color-text);
 }
 
 /* ---- Card ---- */
 .ck-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: var(--space-5);
 }
 .ck-card--sunken {
-  background: var(--surface-sunken);
+  background: var(--color-surface-muted);
   box-shadow: none;
 }
 .ck-card--interactive {
@@ -214,13 +214,13 @@
 }
 .ck-card--interactive:hover {
   box-shadow: var(--shadow-md);
-  border-color: var(--border-default);
+  border-color: var(--color-border);
 }
 .ck-card--interactive:active {
   transform: translateY(1px);
 }
 .ck-card--accent {
-  border-left: 3px solid var(--signal-500);
+  border-left: 3px solid var(--color-primary);
 }
 
 /* ---- Badge ---- */
@@ -234,8 +234,8 @@
   line-height: 1;
   padding: 4px 9px;
   border-radius: var(--radius-pill);
-  background: var(--sage-100);
-  color: var(--text-on-accent);
+  background: var(--color-action);
+  color: var(--color-primary);
   white-space: nowrap;
 }
 .ck-badge--dot::before {
@@ -246,32 +246,32 @@
   background: currentColor;
 }
 .ck-badge--signal {
-  background: var(--signal-100);
-  color: var(--signal-600);
+  background: var(--color-action);
+  color: var(--color-primary);
 }
 .ck-badge--success {
-  background: var(--success-100);
-  color: var(--success-600);
+  background: var(--color-success);
+  color: var(--color-primary);
 }
 .ck-badge--warning {
-  background: var(--warning-100);
-  color: var(--warning-600);
+  background: var(--color-warning);
+  color: var(--color-primary);
 }
 .ck-badge--danger {
-  background: var(--danger-100);
-  color: var(--danger-600);
+  background: var(--color-error);
+  color: var(--color-primary);
 }
 .ck-badge--info {
-  background: var(--info-100);
-  color: var(--info-600);
+  background: var(--color-highlight-blue);
+  color: var(--color-primary);
 }
 .ck-badge--neutral {
-  background: var(--cream-200);
-  color: var(--text-secondary);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
 }
 .ck-badge--forest {
-  background: var(--forest-900);
-  color: var(--cream-50);
+  background: var(--color-primary);
+  color: var(--color-background);
 }
 
 /* ---- Tag ---- */
@@ -284,23 +284,23 @@
   font-size: var(--text-xs);
   padding: 5px 6px 5px 11px;
   border-radius: var(--radius-pill);
-  background: var(--cream-100);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-background);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
 }
 .ck-tag__x {
   display: inline-flex;
   cursor: pointer;
   border-radius: 50%;
   padding: 2px;
-  color: var(--text-tertiary);
+  color: var(--color-text-muted);
   transition:
     background var(--dur-fast),
     color var(--dur-fast);
 }
 .ck-tag__x:hover {
-  background: var(--neutral-200);
-  color: var(--text-primary);
+  background: var(--color-border);
+  color: var(--color-text);
 }
 
 /* ---- Avatar ---- */
@@ -311,8 +311,8 @@
   border-radius: 50%;
   overflow: hidden;
   flex: none;
-  background: var(--forest-700);
-  color: var(--cream-50);
+  background: var(--color-primary);
+  color: var(--color-background);
   font-family: var(--font-sans);
   font-weight: var(--weight-semibold);
 }
@@ -350,8 +350,8 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  background: var(--forest-900);
-  color: var(--cream-50);
+  background: var(--color-primary);
+  color: var(--color-background);
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
   box-shadow: var(--shadow-lg);
@@ -361,7 +361,7 @@
   display: flex;
   flex: none;
   margin-top: 1px;
-  color: var(--signal-400);
+  color: var(--color-action);
 }
 .ck-toast__body {
   display: flex;
@@ -371,16 +371,16 @@
 .ck-toast__title {
   font: var(--type-label);
   font-size: var(--text-sm);
-  color: var(--cream-50);
+  color: var(--color-background);
 }
 .ck-toast__msg {
   font: var(--type-body-sm);
   font-size: var(--text-xs);
-  color: var(--sage-300);
+  color: var(--color-border);
 }
 .ck-toast__close {
   margin-left: auto;
-  color: var(--sage-300);
+  color: var(--color-border);
   background: none;
   border: none;
   cursor: pointer;
@@ -388,7 +388,7 @@
   display: flex;
 }
 .ck-toast__close:hover {
-  color: var(--cream-50);
+  color: var(--color-background);
 }
 
 /* ---- EmptyState ---- */
@@ -404,8 +404,8 @@
   width: 56px;
   height: 56px;
   border-radius: var(--radius-lg);
-  background: var(--sage-100);
-  color: var(--forest-500);
+  background: var(--color-action);
+  color: var(--color-text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -416,6 +416,6 @@
 }
 .ck-empty__text {
   font: var(--type-body-sm);
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   max-width: 320px;
 }

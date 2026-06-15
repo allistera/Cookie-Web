@@ -1,10 +1,10 @@
 /* ============================================================
    Cookie — Typography tokens
-   Figtree (display + text) · JetBrains Mono (data / metadata)
+   Open Sauce One (display + text) · JetBrains Mono (data / metadata)
    ============================================================ */
 :root {
-  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Open Sauce One", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Open Sauce One", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   /* Weights */
