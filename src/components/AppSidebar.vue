@@ -2,7 +2,6 @@
 import { useRouter, useRoute } from 'vue-router'
 import { useFeedStore } from '@/stores/feed.js'
 import CkIcon from './ui/CkIcon.vue'
-import CkAvatar from './ui/CkAvatar.vue'
 import CkIconBtn from './ui/CkIconBtn.vue'
 
 const router = useRouter()
