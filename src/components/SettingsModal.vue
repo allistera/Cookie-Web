@@ -1,10 +1,10 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import { useAuth0 } from '@auth0/auth0-vue'
+import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
-const { user, getAccessTokenSilently } = useAuth0()
+const { user, getAccessTokenSilently } = useAuth()
 
 const isOpen = computed(() => store.activeModal === 'settings')
 

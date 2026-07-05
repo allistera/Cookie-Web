@@ -4,12 +4,12 @@ import { useRoute } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
 import SettingsModal from './components/SettingsModal.vue'
-import { useAuth0 } from '@auth0/auth0-vue'
+import { useAuth } from './composables/useAuth'
 
 const store = useInboxStore()
 const route = useRoute()
 
-const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth0()
+const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 
 // Header Search
