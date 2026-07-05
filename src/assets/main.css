@@ -425,6 +425,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
   box-shadow: var(--shadow-sm);
   transition: background-color var(--transition-normal);
 }
@@ -837,24 +838,6 @@ body {
   font-size: 20px;
 }
 
-.ni-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: none;
-  border-radius: 50%;
-  color: var(--ni-accent);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.ni-icon-btn:hover {
-  background: var(--bg-hover);
-}
-
 /* Filter chips */
 .ni-chips {
   display: flex;
@@ -1044,6 +1027,192 @@ body {
 
 .ni-action-btn.starred {
   color: #f4b400;
+}
+
+.ni-row.selected {
+  background: var(--bg-hover);
+}
+
+/* Reading panel */
+.ni-reader {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(760px, 82%);
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-color);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.14);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 28px 24px;
+  overflow-y: auto;
+}
+
+.ni-slide-enter-active,
+.ni-slide-leave-active {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ni-slide-enter-from,
+.ni-slide-leave-to {
+  transform: translateX(105%);
+}
+
+.ni-reader-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.ni-reader-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ni-reader-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-reader-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ni-reader-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ni-reader-subject {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+.ni-reader-labels {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.ni-reader-addlabel {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.ni-label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ni-label-chip .material-symbols-outlined {
+  font-size: 15px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.ni-email-card {
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 18px 22px;
+  box-shadow: var(--shadow-sm);
+}
+
+.ni-email-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ni-email-sender {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-right: 8px;
+}
+
+.ni-email-address {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.ni-email-to {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.ni-email-to .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.ni-email-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ni-email-time {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.ni-email-body {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.7;
+  padding: 8px 4px 16px;
+}
+
+.ni-email-signoff {
+  margin-top: 24px;
+  color: var(--text-secondary);
+}
+
+.ni-reader-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.ni-reader-footer .ni-pill-btn {
+  margin-right: 0;
+}
+
+.ni-reader-footer .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--text-secondary);
 }
 
 /* Right Workspace Sidebar */

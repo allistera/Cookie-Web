@@ -60,3 +60,23 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   await page.locator('.logout-btn').click()
   expect(pageErrors).toEqual([])
 })
+
+test('Clicking an inbox email slides in the reading panel', async ({ page }) => {
+  await page.goto('/inbox')
+
+  // Header no longer has display/settings/refresh icon buttons
+  await expect(page.locator('.ni-header .ni-icon-btn')).toHaveCount(0)
+
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+  await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
+
+  // Next moves to the following email
+  await reader.locator('[title="Next"]').click()
+  await expect(reader.locator('.ni-reader-subject')).toContainText('Claim #99281')
+
+  // Close slides the panel away
+  await reader.locator('.ni-reader-close').click()
+  await expect(page.locator('.ni-reader')).toHaveCount(0)
+})

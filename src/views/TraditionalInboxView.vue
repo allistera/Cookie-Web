@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
@@ -20,6 +20,8 @@ const emailGroups = computed(() => {
   return groups
 })
 
+const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
+
 function markRead(email) {
   if (email.unread) {
     email.unread = false
@@ -35,11 +37,65 @@ function toggleStar(email) {
 
 function removeEmail(email) {
   markRead(email)
+  if (openEmail.value === email) {
+    openEmail.value = null
+  }
   const index = store.traditionalEmails.indexOf(email)
   if (index > -1) {
     store.traditionalEmails.splice(index, 1)
   }
 }
+
+// --- Reading panel ---
+const openEmail = ref(null)
+
+function openReader(email) {
+  markRead(email)
+  openEmail.value = email
+}
+
+function closeReader() {
+  openEmail.value = null
+}
+
+const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
+
+function prevEmail() {
+  if (openIndex.value > 0) {
+    openReader(flatEmails.value[openIndex.value - 1])
+  }
+}
+
+function nextEmail() {
+  if (openIndex.value > -1 && openIndex.value < flatEmails.value.length - 1) {
+    openReader(flatEmails.value[openIndex.value + 1])
+  }
+}
+
+function archiveOpenEmail() {
+  if (openEmail.value) {
+    removeEmail(openEmail.value)
+  }
+}
+
+function replyToOpenEmail() {
+  closeReader()
+  store.openComposer(null)
+}
+
+function senderAddress(email) {
+  const slug = email.sender.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  return `no-reply@${slug}.com`
+}
+
+function onKeydown(e) {
+  if (e.key === 'Escape' && openEmail.value) {
+    closeReader()
+  }
+}
+
+onMounted(() => document.addEventListener('keydown', onKeydown))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -54,15 +110,6 @@ function removeEmail(email) {
         <button class="ni-pill-btn">
           <span class="material-symbols-outlined ni-red">error</span>
           <span>Auto label</span>
-        </button>
-        <button class="ni-icon-btn" title="Display">
-          <span class="material-symbols-outlined">filter_list</span>
-        </button>
-        <button class="ni-icon-btn" title="Settings">
-          <span class="material-symbols-outlined">tune</span>
-        </button>
-        <button class="ni-icon-btn" title="Refresh" @click="store.refreshInbox">
-          <span class="material-symbols-outlined">refresh</span>
         </button>
       </div>
     </div>
@@ -106,8 +153,8 @@ function removeEmail(email) {
           v-for="email in group.emails"
           :key="email.id"
           class="ni-row"
-          :class="{ unread: email.unread }"
-          @click="markRead(email)"
+          :class="{ unread: email.unread, selected: openEmail === email }"
+          @click="openReader(email)"
         >
           <div class="ni-lead">
             <span class="material-symbols-outlined ni-checkbox">check_box_outline_blank</span>
@@ -143,5 +190,97 @@ function removeEmail(email) {
         </div>
       </template>
     </div>
+
+    <!-- Reading panel -->
+    <Transition name="ni-slide">
+      <div class="ni-reader" v-if="openEmail">
+        <div class="ni-reader-topbar">
+          <div class="ni-reader-nav">
+            <button class="ni-reader-btn ni-reader-close" title="Close" @click="closeReader">
+              <span class="material-symbols-outlined">keyboard_double_arrow_right</span>
+            </button>
+            <button
+              class="ni-reader-btn"
+              title="Previous"
+              :disabled="openIndex <= 0"
+              @click="prevEmail"
+            >
+              <span class="material-symbols-outlined">keyboard_arrow_up</span>
+            </button>
+            <button
+              class="ni-reader-btn"
+              title="Next"
+              :disabled="openIndex >= flatEmails.length - 1"
+              @click="nextEmail"
+            >
+              <span class="material-symbols-outlined">keyboard_arrow_down</span>
+            </button>
+          </div>
+          <div class="ni-reader-nav">
+            <button class="ni-reader-btn" title="Snooze">
+              <span class="material-symbols-outlined">schedule</span>
+            </button>
+            <button class="ni-reader-btn" title="Archive" @click="archiveOpenEmail">
+              <span class="material-symbols-outlined">archive</span>
+            </button>
+            <button class="ni-reader-btn" title="Delete" @click="archiveOpenEmail">
+              <span class="material-symbols-outlined">delete</span>
+            </button>
+            <button class="ni-reader-btn" title="More">
+              <span class="material-symbols-outlined">more_horiz</span>
+            </button>
+          </div>
+        </div>
+
+        <h2 class="ni-reader-subject">{{ openEmail.subject }}</h2>
+
+        <div class="ni-reader-labels">
+          <span class="ni-reader-addlabel">Add label</span>
+          <span class="ni-label-chip">
+            Updates
+            <span class="material-symbols-outlined">close</span>
+          </span>
+        </div>
+
+        <div class="ni-email-card">
+          <div class="ni-email-card-header">
+            <div class="ni-email-meta">
+              <div>
+                <span class="ni-email-sender">{{ openEmail.sender }}</span>
+                <span class="ni-email-address">{{ senderAddress(openEmail) }}</span>
+              </div>
+              <div class="ni-email-to">
+                To me
+                <span class="material-symbols-outlined">unfold_more</span>
+              </div>
+            </div>
+            <div class="ni-email-header-right">
+              <button class="ni-reader-btn" title="Reply" @click="replyToOpenEmail">
+                <span class="material-symbols-outlined">reply</span>
+              </button>
+              <button class="ni-reader-btn" title="Forward">
+                <span class="material-symbols-outlined">forward</span>
+              </button>
+              <span class="ni-email-time">{{ openEmail.date }}</span>
+            </div>
+          </div>
+          <div class="ni-email-body">
+            <p>{{ openEmail.snippet }}</p>
+            <p class="ni-email-signoff">Kind regards,<br />{{ openEmail.sender }}</p>
+          </div>
+        </div>
+
+        <div class="ni-reader-footer">
+          <button class="ni-pill-btn" @click="replyToOpenEmail">
+            <span class="material-symbols-outlined">reply</span>
+            <span>Reply</span>
+          </button>
+          <button class="ni-pill-btn">
+            <span class="material-symbols-outlined">forward</span>
+            <span>Forward</span>
+          </button>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
