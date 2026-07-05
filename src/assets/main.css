@@ -769,143 +769,281 @@ body {
   background-color: var(--bg-hover);
 }
 
-/* Traditional Inbox View styles */
-.inbox-controls {
+/* Traditional Inbox View (Notion Mail style) */
+:root {
+  --ni-accent: #2383e2;
+  --ni-accent-bg: rgba(35, 131, 226, 0.1);
+}
+
+[data-theme='dark'] {
+  --ni-accent: #7fcfff;
+  --ni-accent-bg: rgba(127, 207, 255, 0.12);
+}
+
+.ni-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  font-size: 13px;
+  padding: 20px 24px 12px;
 }
 
-.controls-left,
-.controls-right {
+.ni-title {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 
-.controls-left span.material-symbols-outlined,
-.controls-right span.material-symbols-outlined {
-  cursor: pointer;
-}
-
-.checkbox-placeholder {
-  color: var(--text-secondary);
-}
-
-.inbox-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 24px;
-  cursor: pointer;
-  border-bottom: 3px solid transparent;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 500;
-  transition: all var(--transition-fast);
-  min-width: 160px;
-}
-
-.tab:hover {
-  background-color: var(--bg-hover);
-}
-
-.tab.active {
-  color: var(--text-blue);
-  border-bottom-color: var(--text-blue);
-}
-
-/* Email list layout */
-.email-list {
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-}
-
-.email-item {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-color);
-  font-size: 14px;
-  cursor: pointer;
-  transition:
-    background-color var(--transition-fast),
-    box-shadow var(--transition-fast);
-  color: var(--text-secondary);
-}
-
-.email-item:hover {
-  background-color: var(--bg-hover);
-  box-shadow: inset 1px 0 0 var(--text-blue);
-}
-
-.email-item.unread {
+.ni-title h1 {
+  font-size: 22px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.email-item.unread .email-subject {
-  color: var(--text-primary);
+.ni-title-icon {
+  color: #e5484d;
+  font-size: 26px;
 }
 
-.email-select {
-  margin-right: 12px;
-  cursor: pointer;
-}
-
-.email-star {
-  margin-right: 16px;
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-
-.email-star.starred {
-  color: #f4b400;
-}
-
-.email-sender {
-  width: 180px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.email-content-block {
-  flex-grow: 1;
+.ni-header-actions {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  overflow: hidden;
-  white-space: nowrap;
+  align-items: center;
+  gap: 4px;
 }
 
-.email-subject {
+.ni-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-right: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--transition-fast);
+}
+
+.ni-pill-btn:hover {
+  background: var(--bg-hover);
+}
+
+.ni-red {
+  color: #e5484d;
+  font-size: 20px;
+}
+
+.ni-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  color: var(--ni-accent);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-icon-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* Filter chips */
+.ni-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 24px 16px;
+}
+
+.ni-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-chip .material-symbols-outlined {
+  font-size: 19px;
+  color: var(--text-secondary);
+}
+
+.ni-chip:hover {
+  background: var(--bg-hover);
+}
+
+.ni-chip-active {
+  background: var(--ni-accent-bg);
+  color: var(--ni-accent);
+}
+
+.ni-chip-active .material-symbols-outlined {
+  color: var(--ni-accent);
+}
+
+.ni-chip-active:hover {
+  background: var(--ni-accent-bg);
+  filter: brightness(0.97);
+}
+
+/* Email list */
+.ni-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0 8px 24px;
+}
+
+.ni-group-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 28px 16px 10px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+}
+
+.ni-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-size: 15.5px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-row:hover {
+  background: var(--bg-hover);
+}
+
+.ni-lead {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.ni-checkbox {
+  display: none;
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.ni-row:hover .ni-checkbox {
+  display: inline-block;
+}
+
+.ni-row:hover .ni-dot {
+  display: none;
+}
+
+.ni-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ni-accent);
+  flex-shrink: 0;
+}
+
+.ni-sender {
+  width: 210px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.ni-subject {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.ni-row.unread .ni-sender,
+.ni-row.unread .ni-subject {
+  font-weight: 700;
   color: var(--text-primary);
 }
 
-.email-snippet {
-  font-weight: 400;
+.ni-date {
+  flex-shrink: 0;
+  font-size: 14px;
   color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.email-date {
-  width: 80px;
-  text-align: right;
-  font-size: 12px;
-  flex-shrink: 0;
+/* Hover action toolbar */
+.ni-actions {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+}
+
+.ni-row:hover .ni-actions {
+  display: flex;
+}
+
+.ni-row:hover .ni-date {
+  opacity: 0;
+}
+
+.ni-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ni-action-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.ni-action-btn.starred {
+  color: #f4b400;
 }
 
 /* Right Workspace Sidebar */
