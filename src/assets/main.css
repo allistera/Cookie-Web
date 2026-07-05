@@ -291,8 +291,6 @@ body {
 .profile-container {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  overflow: hidden;
   cursor: pointer;
   margin-left: 8px;
 }
@@ -301,6 +299,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
 }
 
 /* App Body (Sidebar + Content + Workspace) */
@@ -1830,6 +1829,30 @@ body {
   height: 1px;
   background-color: var(--border-color);
   margin: 12px 0;
+}
+
+.dropdown-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.dropdown-menu-btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.dropdown-menu-btn .material-symbols-outlined {
+  font-size: 20px;
 }
 
 .logout-btn {

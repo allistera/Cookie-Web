@@ -12,6 +12,11 @@ const route = useRoute()
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 
+function openSettings() {
+  showLogoutMenu.value = false
+  store.activeModal = 'settings'
+}
+
 // Header Search
 const searchInputVal = ref('')
 const isSearchSuggestionsActive = ref(false)
@@ -216,9 +221,6 @@ onMounted(() => {
         <button class="icon-btn" title="Help">
           <span class="material-symbols-outlined">help</span>
         </button>
-        <button class="icon-btn" title="Settings" @click="store.activeModal = 'settings'">
-          <span class="material-symbols-outlined">settings</span>
-        </button>
         <button class="icon-btn gemini-badge-btn" title="Gemini Status">
           <span class="material-symbols-outlined gemini-color">auto_awesome</span>
         </button>
@@ -229,12 +231,16 @@ onMounted(() => {
           <img :src="user?.picture || '/rose_avatar.jpg'" :alt="user?.name || 'Allister'" class="profile-img" />
           
           <!-- Dropdown/Logout menu -->
-          <div class="profile-dropdown" v-if="showLogoutMenu">
+          <div class="profile-dropdown" v-if="showLogoutMenu" @click.stop>
             <div class="dropdown-user-info">
               <span class="user-name">{{ user?.name || 'Allister' }}</span>
               <span class="user-email">{{ user?.email || 'allistera@gmail.com' }}</span>
             </div>
             <div class="dropdown-divider"></div>
+            <button class="dropdown-menu-btn" @click="openSettings">
+              <span class="material-symbols-outlined">settings</span>
+              <span>Settings</span>
+            </button>
             <button class="logout-btn" @click="logout({ logoutParams: { returnTo: window.location.origin } })">
               <span class="material-symbols-outlined">logout</span>
               <span>Log out</span>

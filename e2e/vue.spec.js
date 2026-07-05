@@ -29,3 +29,25 @@ test('Visits Gmail AI Inbox and performs task checkoff', async ({ page }) => {
   const marketplaceRow = page.locator('#todo-marketplace')
   await expect(marketplaceRow).toBeVisible()
 })
+
+test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  // Settings cog is no longer in the header
+  await expect(page.locator('.header-right .icon-btn[title="Settings"]')).toHaveCount(0)
+
+  // Clicking the avatar opens the dropdown
+  await page.locator('.profile-container').click()
+  const settingsItem = page.locator('.dropdown-menu-btn', { hasText: 'Settings' })
+  const logoutItem = page.locator('.logout-btn', { hasText: 'Log out' })
+  await expect(settingsItem).toBeVisible()
+  await expect(logoutItem).toBeVisible()
+
+  // Settings item opens the settings modal and closes the dropdown
+  await settingsItem.click()
+  await expect(page.locator('.settings-modal-container')).toBeVisible()
+  await expect(page.locator('.profile-dropdown')).toHaveCount(0)
+  await expect(page.locator('.settings-modal-container')).toContainText('Passkeys')
+})
