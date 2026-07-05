@@ -33,6 +33,9 @@ test('Visits Gmail AI Inbox and performs task checkoff', async ({ page }) => {
 test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
   page,
 }) => {
+  const pageErrors = []
+  page.on('pageerror', (err) => pageErrors.push(err.message))
+
   await page.goto('/')
 
   // Settings cog is no longer in the header
@@ -50,4 +53,10 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   await expect(page.locator('.settings-modal-container')).toBeVisible()
   await expect(page.locator('.profile-dropdown')).toHaveCount(0)
   await expect(page.locator('.settings-modal-container')).toContainText('Passkeys')
+
+  // Log out must not throw (regression: window is not accessible in template scope)
+  await page.locator('.settings-modal-container .btn-secondary').click()
+  await page.locator('.profile-container').click()
+  await page.locator('.logout-btn').click()
+  expect(pageErrors).toEqual([])
 })

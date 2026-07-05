@@ -17,6 +17,10 @@ function openSettings() {
   store.activeModal = 'settings'
 }
 
+function handleLogout() {
+  logout({ logoutParams: { returnTo: window.location.origin } })
+}
+
 // Header Search
 const searchInputVal = ref('')
 const isSearchSuggestionsActive = ref(false)
@@ -241,7 +245,7 @@ onMounted(() => {
               <span class="material-symbols-outlined">settings</span>
               <span>Settings</span>
             </button>
-            <button class="logout-btn" @click="logout({ logoutParams: { returnTo: window.location.origin } })">
+            <button class="logout-btn" @click="handleLogout">
               <span class="material-symbols-outlined">logout</span>
               <span>Log out</span>
             </button>
