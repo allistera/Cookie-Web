@@ -27,7 +27,7 @@ function triggerAction(todo) {
     <div class="ai-header">
       <div class="beta-badge">Beta</div>
       <h1 class="ai-greeting" id="aiGreeting">
-        Hi Rose 👋 You have
+        Hi Allister 👋 You have
         <span class="counter-text" id="todoCounter">{{ totalActiveCount }} to-dos</span>
         and
         <span class="counter-text" id="topicCounter">4 topics</span>

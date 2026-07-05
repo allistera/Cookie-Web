@@ -70,7 +70,7 @@ export const useInboxStore = defineStore('inbox', {
         sender: 'City Construction',
         subject: 'Revised Floor Plan - Natural Light adjustments',
         snippet:
-          'Hi Rose, following up on our call yesterday, we modified the bay window design...',
+          'Hi Allister, following up on our call yesterday, we modified the bay window design...',
         date: '10:04 AM',
         unread: true,
         starred: false,
@@ -90,7 +90,7 @@ export const useInboxStore = defineStore('inbox', {
         sender: 'Coach Mike',
         subject: 'Soccer Snacks - June 6th Scrimmage',
         snippet:
-          'Hey parents, just a reminder that tomorrow we play the Green Eagles. Rose has snacks...',
+          'Hey parents, just a reminder that tomorrow we play the Green Eagles. Allister has snacks...',
         date: 'Yesterday',
         unread: true,
         starred: false,
@@ -118,7 +118,7 @@ export const useInboxStore = defineStore('inbox', {
         id: 6,
         sender: 'Palm House Hotel',
         subject: 'Your reservation upgrade is confirmed',
-        snippet: 'Dear Rose, we have upgraded your room to Deluxe. Click here to see detail...',
+        snippet: 'Dear Allister, we have upgraded your room to Deluxe. Click here to see detail...',
         date: 'Jun 2',
         unread: false,
         starred: true,
@@ -305,7 +305,7 @@ export const useInboxStore = defineStore('inbox', {
       this.geminiDraftPreview = ''
 
       const draftText =
-        "Hi City Tile and Stone,\n\nI confirm the selection of the White Subway Tiles for our kitchen renovation. Please proceed with the order so we stay aligned with the contractor's installation timeline.\n\nBest,\nRose"
+        "Hi City Tile and Stone,\n\nI confirm the selection of the White Subway Tiles for our kitchen renovation. Please proceed with the order so we stay aligned with the contractor's installation timeline.\n\nBest,\nAllister"
 
       let i = 0
       const interval = setInterval(() => {

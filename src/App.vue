@@ -194,8 +194,8 @@ onMounted(() => {
         <button class="icon-btn" title="Google apps">
           <span class="material-symbols-outlined">apps</span>
         </button>
-        <div class="profile-container" title="Google Account: Rose">
-          <img src="/rose_avatar.jpg" alt="Rose" class="profile-img" />
+        <div class="profile-container" title="Google Account: Allister">
+          <img src="/rose_avatar.jpg" alt="Allister" class="profile-img" />
         </div>
       </div>
     </header>
@@ -330,7 +330,7 @@ onMounted(() => {
               <tr>
                 <td>June 6 (Tomorrow)</td>
                 <td>Green Eagles</td>
-                <td class="cell-highlight">Rose (You)</td>
+                <td class="cell-highlight">Allister (You)</td>
                 <td>
                   <input type="text" v-model="store.sheetSnackText" class="sheet-inline-input" />
                 </td>

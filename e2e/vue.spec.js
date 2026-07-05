@@ -3,9 +3,9 @@ import { test, expect } from '@playwright/test'
 test('Visits Gmail AI Inbox and performs task checkoff', async ({ page }) => {
   await page.goto('/')
   
-  // 1. Check greeting contains Rose
+  // 1. Check greeting contains Allister
   const greeting = page.locator('#aiGreeting')
-  await expect(greeting).toContainText('Hi Rose')
+  await expect(greeting).toContainText('Hi Allister')
   
   // 2. Check initial to-do count
   const counter = page.locator('#todoCounter')
