@@ -52,7 +52,7 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   await settingsItem.click()
   await expect(page.locator('.settings-modal-container')).toBeVisible()
   await expect(page.locator('.profile-dropdown')).toHaveCount(0)
-  await expect(page.locator('.settings-modal-container')).toContainText('Passkeys')
+  await expect(page.locator('.settings-modal-container')).toContainText('Notifications')
 
   // Log out must not throw (regression: window is not accessible in template scope)
   await page.locator('.settings-modal-container .btn-secondary').click()

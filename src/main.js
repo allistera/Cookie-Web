@@ -40,14 +40,8 @@ if (!isE2E) {
     createAuth0({
       domain: import.meta.env.VITE_AUTH0_DOMAIN,
       clientId: import.meta.env.VITE_AUTH0_CLIENT_ID,
-      useRefreshTokens: true,
       authorizationParams: {
         redirect_uri: window.location.origin,
-        // Request MyAccount API access up front so the settings modal can
-        // enroll and manage passkeys without a cross-site silent-auth iframe.
-        audience: `https://${import.meta.env.VITE_AUTH0_DOMAIN}/me/`,
-        scope:
-          'openid profile email offline_access create:me:authentication_methods read:me:authentication_methods delete:me:authentication_methods',
       },
     })
   )

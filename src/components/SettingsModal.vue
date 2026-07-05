@@ -4,7 +4,7 @@ import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
-const { user, getAccessTokenSilently } = useAuth()
+const { user } = useAuth()
 
 const isOpen = computed(() => store.activeModal === 'settings')
 
@@ -19,6 +19,12 @@ function toggleDarkMode() {
 // --- Notification preferences (persisted locally) ---
 const PREFS_KEY = 'cookie-settings-prefs'
 
+const defaultPrefs = {
+  emailSummaries: true,
+  todoReminders: true,
+  aiSuggestions: true,
+}
+
 function loadPrefs() {
   try {
     return { ...defaultPrefs, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }
@@ -27,180 +33,10 @@ function loadPrefs() {
   }
 }
 
-const defaultPrefs = {
-  emailSummaries: true,
-  todoReminders: true,
-  aiSuggestions: true,
-}
-
 const prefs = reactive(loadPrefs())
 
 watch(prefs, (val) => {
   localStorage.setItem(PREFS_KEY, JSON.stringify(val))
-})
-
-// --- Passkeys (Auth0 MyAccount API + WebAuthn) ---
-const AUTH0_DOMAIN = import.meta.env.VITE_AUTH0_DOMAIN
-const MY_ACCOUNT_AUDIENCE = `https://${AUTH0_DOMAIN}/me/`
-
-const passkeys = ref([])
-const passkeysLoading = ref(false)
-const passkeyBusy = ref(false)
-const passkeyMessage = ref('')
-const passkeyError = ref('')
-
-const webAuthnSupported =
-  typeof window !== 'undefined' && !!(navigator.credentials && window.PublicKeyCredential)
-
-function base64UrlToBuffer(value) {
-  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
-  const raw = atob(base64)
-  const buffer = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i)
-  return buffer.buffer
-}
-
-function bufferToBase64Url(buffer) {
-  const bytes = new Uint8Array(buffer)
-  let raw = ''
-  for (const b of bytes) raw += String.fromCharCode(b)
-  return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-async function getMeToken(scope) {
-  return getAccessTokenSilently({
-    authorizationParams: { audience: MY_ACCOUNT_AUDIENCE, scope },
-    cacheMode: 'off',
-  })
-}
-
-async function loadPasskeys() {
-  if (!webAuthnSupported) return
-  passkeysLoading.value = true
-  passkeyError.value = ''
-  try {
-    const token = await getMeToken('read:me:authentication_methods')
-    const res = await fetch(`https://${AUTH0_DOMAIN}/me/v1/authentication-methods`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) throw new Error(`Auth0 returned ${res.status}`)
-    const data = await res.json()
-    const methods = Array.isArray(data) ? data : data.authentication_methods || []
-    passkeys.value = methods.filter((m) => m.type === 'passkey')
-  } catch (err) {
-    passkeyError.value = describePasskeyError(err)
-  } finally {
-    passkeysLoading.value = false
-  }
-}
-
-async function setupPasskey() {
-  passkeyBusy.value = true
-  passkeyMessage.value = ''
-  passkeyError.value = ''
-  try {
-    const token = await getMeToken('create:me:authentication_methods')
-
-    // 1. Ask Auth0 for a WebAuthn registration challenge
-    const enrollRes = await fetch(`https://${AUTH0_DOMAIN}/me/v1/authentication-methods`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'passkey' }),
-    })
-    if (!enrollRes.ok) {
-      const body = await enrollRes.json().catch(() => ({}))
-      throw new Error(body.detail || body.title || `Auth0 returned ${enrollRes.status}`)
-    }
-    const enrollment = await enrollRes.json()
-    const params = enrollment.authn_params_public_key
-
-    // 2. Create the credential with the platform authenticator
-    const publicKey = {
-      ...params,
-      challenge: base64UrlToBuffer(params.challenge),
-      user: { ...params.user, id: base64UrlToBuffer(params.user.id) },
-      excludeCredentials: (params.excludeCredentials || []).map((c) => ({
-        ...c,
-        id: base64UrlToBuffer(c.id),
-      })),
-    }
-    const credential = await navigator.credentials.create({ publicKey })
-
-    // 3. Send the attestation back to Auth0 for verification
-    const verifyRes = await fetch(
-      `https://${AUTH0_DOMAIN}/me/v1/authentication-methods/passkey|new/verify`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          auth_session: enrollment.auth_session,
-          authn_response: {
-            id: credential.id,
-            rawId: bufferToBase64Url(credential.rawId),
-            type: credential.type,
-            authenticatorAttachment: credential.authenticatorAttachment,
-            response: {
-              clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
-              attestationObject: bufferToBase64Url(credential.response.attestationObject),
-            },
-          },
-        }),
-      },
-    )
-    if (!verifyRes.ok) {
-      const body = await verifyRes.json().catch(() => ({}))
-      throw new Error(body.detail || body.title || `Verification failed (${verifyRes.status})`)
-    }
-
-    passkeyMessage.value = 'Passkey created successfully.'
-    await loadPasskeys()
-  } catch (err) {
-    passkeyError.value = describePasskeyError(err)
-  } finally {
-    passkeyBusy.value = false
-  }
-}
-
-async function removePasskey(id) {
-  passkeyBusy.value = true
-  passkeyError.value = ''
-  try {
-    const token = await getMeToken('delete:me:authentication_methods')
-    const res = await fetch(
-      `https://${AUTH0_DOMAIN}/me/v1/authentication-methods/${encodeURIComponent(id)}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
-    )
-    if (!res.ok && res.status !== 204) throw new Error(`Auth0 returned ${res.status}`)
-    passkeyMessage.value = 'Passkey removed.'
-    await loadPasskeys()
-  } catch (err) {
-    passkeyError.value = describePasskeyError(err)
-  } finally {
-    passkeyBusy.value = false
-  }
-}
-
-function describePasskeyError(err) {
-  const msg = err?.message || String(err)
-  if (err?.name === 'NotAllowedError') {
-    return 'Passkey prompt was dismissed or timed out.'
-  }
-  if (
-    err?.error === 'consent_required' ||
-    err?.error === 'login_required' ||
-    /consent|audience|access is denied|service not (found|enabled)/i.test(msg)
-  ) {
-    return 'Passkeys are not enabled for this Auth0 tenant yet. Enable the MyAccount API and passkey authentication in the Auth0 dashboard, then try again.'
-  }
-  return msg
-}
-
-// Refresh passkey list whenever the modal opens
-watch(isOpen, (open) => {
-  if (open) {
-    passkeyMessage.value = ''
-    loadPasskeys()
-  }
 })
 </script>
 
@@ -265,47 +101,6 @@ watch(isOpen, (open) => {
             </div>
             <input type="checkbox" class="settings-switch" v-model="prefs.aiSuggestions" />
           </label>
-        </section>
-
-        <!-- Security -->
-        <section class="settings-section">
-          <h3 class="settings-section-title">Security</h3>
-
-          <div class="settings-row">
-            <div class="settings-row-text">
-              <span>Passkeys</span>
-              <small>Sign in with Touch ID, Face ID, or a security key</small>
-            </div>
-            <button
-              class="btn btn-primary settings-passkey-btn"
-              :disabled="!webAuthnSupported || passkeyBusy"
-              @click="setupPasskey"
-            >
-              <span class="material-symbols-outlined font-sm">fingerprint</span>
-              {{ passkeyBusy ? 'Working…' : 'Set up passkey' }}
-            </button>
-          </div>
-
-          <p v-if="!webAuthnSupported" class="settings-hint">
-            This browser does not support passkeys.
-          </p>
-
-          <div v-if="passkeysLoading" class="settings-hint">Loading passkeys…</div>
-          <ul v-else-if="passkeys.length" class="settings-passkey-list">
-            <li v-for="pk in passkeys" :key="pk.id" class="settings-passkey-item">
-              <span class="material-symbols-outlined text-blue">passkey</span>
-              <div class="settings-row-text">
-                <span>{{ pk.key_name || pk.credential_device_type || 'Passkey' }}</span>
-                <small v-if="pk.created_at">Added {{ new Date(pk.created_at).toLocaleDateString() }}</small>
-              </div>
-              <button class="btn btn-text-sm" :disabled="passkeyBusy" @click="removePasskey(pk.id)">
-                Remove
-              </button>
-            </li>
-          </ul>
-
-          <p v-if="passkeyMessage" class="settings-hint settings-hint-success">{{ passkeyMessage }}</p>
-          <p v-if="passkeyError" class="settings-hint settings-hint-error">{{ passkeyError }}</p>
         </section>
       </div>
 

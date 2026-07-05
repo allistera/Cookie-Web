@@ -47,10 +47,9 @@ describe('SettingsModal', () => {
     await wrapper.vm.$nextTick()
 
     const titles = wrapper.findAll('.settings-section-title').map((n) => n.text())
-    expect(titles).toEqual(['Account', 'Appearance', 'Notifications', 'Security'])
+    expect(titles).toEqual(['Account', 'Appearance', 'Notifications'])
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
     expect(wrapper.find('.settings-account-email').text()).toBe('allisteraall@gmail.com')
-    expect(wrapper.find('.settings-passkey-btn').exists()).toBe(true)
   })
 
   it('persists notification preferences to localStorage', async () => {
