@@ -126,7 +126,7 @@ onMounted(() => {
             <path d="M22 6l-10 7L2 6" fill="#CFD8DC" />
             <path d="M2 6v1.5l10 6.5 10-6.5V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2z" fill="#F44336" />
           </svg>
-          <span class="logo-text">Gmail</span>
+          <span class="logo-text">Cookie</span>
         </div>
       </div>
 
@@ -136,7 +136,7 @@ onMounted(() => {
           <input
             type="text"
             class="search-input"
-            placeholder="Ask Gmail..."
+            placeholder="Ask Cookie..."
             v-model="searchInputVal"
             @focus="isSearchSuggestionsActive = true"
             @keypress.enter="handleSearchEnter"
@@ -209,6 +209,10 @@ onMounted(() => {
         </button>
 
         <nav class="sidebar-nav">
+          <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
+            <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
+            <span class="nav-text">AI Inbox</span>
+          </router-link>
           <router-link
             to="/inbox"
             class="nav-item"
@@ -217,10 +221,6 @@ onMounted(() => {
             <span class="material-symbols-outlined">inbox</span>
             <span class="nav-text">Inbox</span>
             <span class="nav-badge">{{ store.unreadInboxCount }}</span>
-          </router-link>
-          <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
-            <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
-            <span class="nav-text">AI Inbox</span>
           </router-link>
           <a href="#" class="nav-item">
             <span class="material-symbols-outlined">star</span>
@@ -356,7 +356,7 @@ onMounted(() => {
         <div class="modal-footer">
           <button class="btn btn-secondary" @click="store.closeTodoModal">Cancel</button>
           <button class="btn btn-success" @click="store.saveSoccerSheet">
-            Save & Sync to Gmail
+            Save & Sync to Cookie
           </button>
         </div>
       </div>

@@ -337,7 +337,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.activeTodoId) {
         this.completeTodo(this.activeTodoId)
       }
-      alert('Soccer Snacks Signup updated successfully! Saving details and updating Gmail.')
+      alert('Soccer Snacks Signup updated successfully! Saving details and updating Cookie.')
     },
 
     submitWaiver() {
