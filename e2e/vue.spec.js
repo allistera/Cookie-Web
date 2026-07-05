@@ -79,4 +79,10 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   // Close slides the panel away
   await reader.locator('.ni-reader-close').click()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
+
+  // Clicking outside the panel also closes it
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await expect(page.locator('.ni-reader')).toBeVisible()
+  await page.locator('.ni-title h1').click()
+  await expect(page.locator('.ni-reader')).toHaveCount(0)
 })

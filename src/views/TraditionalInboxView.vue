@@ -94,8 +94,21 @@ function onKeydown(e) {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onUnmounted(() => document.removeEventListener('keydown', onKeydown))
+function onDocumentClick(e) {
+  if (!openEmail.value) return
+  // Clicks inside the panel keep it open; clicks on rows are handled by openReader
+  if (e.target.closest('.ni-reader') || e.target.closest('.ni-row')) return
+  closeReader()
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  document.addEventListener('click', onDocumentClick)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('click', onDocumentClick)
+})
 </script>
 
 <template>
