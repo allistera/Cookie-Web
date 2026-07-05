@@ -3,9 +3,13 @@ import { ref, watch, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
+import { useAuth0 } from '@auth0/auth0-vue'
 
 const store = useInboxStore()
 const route = useRoute()
+
+const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth0()
+const showLogoutMenu = ref(false)
 
 // Header Search
 const searchInputVal = ref('')
@@ -96,12 +100,41 @@ onMounted(() => {
     if (searchContainer && !searchContainer.contains(e.target)) {
       isSearchSuggestionsActive.value = false
     }
+
+    // Close profile dropdown when clicking outside
+    const profileContainer = document.querySelector('.profile-container')
+    if (profileContainer && !profileContainer.contains(e.target)) {
+      showLogoutMenu.value = false
+    }
   })
 })
 </script>
 
 <template>
-  <div class="app-container">
+  <!-- Loading State -->
+  <div v-if="isLoading" class="auth-loading-container">
+    <div class="spinner"></div>
+    <p>Loading Cookie...</p>
+  </div>
+
+  <!-- Login/Landing State -->
+  <div v-else-if="!isAuthenticated" class="auth-login-container">
+    <div class="login-card">
+      <div class="login-logo">
+        <!-- SVG Cookie / Query logo -->
+        <svg viewBox="0 0 24 24" width="48" height="48">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" fill="#0b57d0" />
+        </svg>
+      </div>
+      <h1 class="login-title">Cookie</h1>
+      <p class="login-subtitle">Workspace Intelligence & Automation</p>
+      <button @click="loginWithRedirect" class="login-btn">Log In with Auth0</button>
+    </div>
+  </div>
+
+  <!-- Authenticated App -->
+  <template v-else>
+    <div class="app-container">
     <!-- TOP HEADER -->
     <header class="app-header">
       <div class="header-left">
@@ -194,8 +227,21 @@ onMounted(() => {
         <button class="icon-btn" title="Google apps">
           <span class="material-symbols-outlined">apps</span>
         </button>
-        <div class="profile-container" title="Google Account: Allister">
-          <img src="/rose_avatar.jpg" alt="Allister" class="profile-img" />
+        <div class="profile-container" :title="`Google Account: ${user?.name || 'Allister'}`" @click="showLogoutMenu = !showLogoutMenu">
+          <img :src="user?.picture || '/rose_avatar.jpg'" :alt="user?.name || 'Allister'" class="profile-img" />
+          
+          <!-- Dropdown/Logout menu -->
+          <div class="profile-dropdown" v-if="showLogoutMenu">
+            <div class="dropdown-user-info">
+              <span class="user-name">{{ user?.name || 'Allister' }}</span>
+              <span class="user-email">{{ user?.email || 'allistera@gmail.com' }}</span>
+            </div>
+            <div class="dropdown-divider"></div>
+            <button class="logout-btn" @click="logout({ logoutParams: { returnTo: window.location.origin } })">
+              <span class="material-symbols-outlined">logout</span>
+              <span>Log out</span>
+            </button>
+          </div>
         </div>
       </div>
     </header>
@@ -448,4 +494,5 @@ onMounted(() => {
       </button>
     </div>
   </div>
+  </template>
 </template>

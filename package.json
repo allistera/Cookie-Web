@@ -15,6 +15,7 @@
     "format": "oxfmt src/"
   },
   "dependencies": {
+    "@auth0/auth0-vue": "^2.8.0",
     "@sentry/vue": "^10.63.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.38",
