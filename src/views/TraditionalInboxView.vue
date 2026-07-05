@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
@@ -48,14 +48,24 @@ function removeEmail(email) {
 
 // --- Reading panel ---
 const openEmail = ref(null)
+const isReplyOpen = ref(false)
+const replyText = ref('')
+const replySent = ref(false)
+const replyTextareaRef = ref(null)
+let replySentTimer = null
 
 function openReader(email) {
   markRead(email)
   openEmail.value = email
+  isReplyOpen.value = false
+  replyText.value = ''
+  replySent.value = false
 }
 
 function closeReader() {
   openEmail.value = null
+  isReplyOpen.value = false
+  replyText.value = ''
 }
 
 const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
@@ -79,8 +89,24 @@ function archiveOpenEmail() {
 }
 
 function replyToOpenEmail() {
-  closeReader()
-  store.openComposer(null)
+  isReplyOpen.value = true
+  replySent.value = false
+  nextTick(() => replyTextareaRef.value?.focus())
+}
+
+function discardReply() {
+  isReplyOpen.value = false
+  replyText.value = ''
+}
+
+function sendReply() {
+  isReplyOpen.value = false
+  replyText.value = ''
+  replySent.value = true
+  clearTimeout(replySentTimer)
+  replySentTimer = setTimeout(() => {
+    replySent.value = false
+  }, 2500)
 }
 
 function senderAddress(email) {
@@ -283,6 +309,28 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Inline reply box -->
+        <Transition name="ni-reply">
+          <div class="ni-reply-box" v-if="isReplyOpen">
+            <div class="ni-reply-header">
+              <span class="material-symbols-outlined">reply</span>
+              <span>Reply to {{ openEmail.sender }}</span>
+            </div>
+            <textarea
+              ref="replyTextareaRef"
+              v-model="replyText"
+              class="ni-reply-textarea"
+              placeholder="Write your reply..."
+            ></textarea>
+            <div class="ni-reply-footer">
+              <button class="btn btn-primary" :disabled="!replyText.trim()" @click="sendReply">
+                Send
+              </button>
+              <button class="btn btn-text" @click="discardReply">Discard</button>
+            </div>
+          </div>
+        </Transition>
+
         <div class="ni-reader-footer">
           <button class="ni-pill-btn" @click="replyToOpenEmail">
             <span class="material-symbols-outlined">reply</span>
@@ -292,6 +340,10 @@ onUnmounted(() => {
             <span class="material-symbols-outlined">forward</span>
             <span>Forward</span>
           </button>
+          <span class="ni-reply-sent" v-if="replySent">
+            <span class="material-symbols-outlined">check_circle</span>
+            Reply sent
+          </span>
         </div>
       </div>
     </Transition>

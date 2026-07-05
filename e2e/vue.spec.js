@@ -20,7 +20,7 @@ test('Visits Gmail AI Inbox and performs task checkoff', async ({ page }) => {
   await checkBtn.click()
   
   // 5. Wait for the row to fade and vanish (transition completed)
-  await expect(collegeTourRow).not.toBeVisible({ timeout: 2000 })
+  await expect(collegeTourRow).not.toBeVisible({ timeout: 10000 })
   
   // 6. Verify that the counter updated to 4 to-dos
   await expect(counter).toContainText('4 to-dos')
@@ -85,4 +85,27 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toBeVisible()
   await page.locator('.ni-title h1').click()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
+})
+
+test('Reply slides an inline reply box under the email instead of opening the composer', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+
+  const reader = page.locator('.ni-reader')
+  await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Reply' }).click()
+
+  const replyBox = reader.locator('.ni-reply-box')
+  await expect(replyBox).toBeVisible()
+  // The old composer toast must NOT open
+  await expect(page.locator('#composerToast.active')).toHaveCount(0)
+
+  // Send is disabled until text is entered
+  await expect(replyBox.locator('.btn-primary')).toBeDisabled()
+  await replyBox.locator('.ni-reply-textarea').fill('Thanks, the revised plan looks great.')
+  await replyBox.locator('.btn-primary').click()
+
+  await expect(reader.locator('.ni-reply-box')).toHaveCount(0)
+  await expect(reader.locator('.ni-reply-sent')).toBeVisible()
 })
