@@ -52,7 +52,7 @@ export default defineComponent({
       >
         <div className="drawer-header">
           <div className="drawer-title">
-            <span className="material-symbols-outlined gemini-color">spark</span>
+            <span className="material-symbols-outlined gemini-color">auto_awesome</span>
             <span>Gemini Workspace</span>
           </div>
           <button

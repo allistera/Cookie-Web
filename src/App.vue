@@ -132,7 +132,7 @@ onMounted(() => {
 
       <div class="header-center">
         <div class="search-bar-container" id="searchBarContainer">
-          <span class="material-symbols-outlined search-icon glow-ai">spark</span>
+          <span class="material-symbols-outlined search-icon glow-ai">auto_awesome</span>
           <input
             type="text"
             class="search-input"
@@ -189,7 +189,7 @@ onMounted(() => {
           <span class="material-symbols-outlined">settings</span>
         </button>
         <button class="icon-btn gemini-badge-btn" title="Gemini Status">
-          <span class="material-symbols-outlined gemini-color">spark</span>
+          <span class="material-symbols-outlined gemini-color">auto_awesome</span>
         </button>
         <button class="icon-btn" title="Google apps">
           <span class="material-symbols-outlined">apps</span>
@@ -219,7 +219,7 @@ onMounted(() => {
             <span class="nav-badge">{{ store.unreadInboxCount }}</span>
           </router-link>
           <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
-            <span class="material-symbols-outlined fill-icon gemini-color">spark</span>
+            <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
             <span class="nav-text">AI Inbox</span>
           </router-link>
           <a href="#" class="nav-item">
@@ -422,7 +422,7 @@ onMounted(() => {
       <div class="composer-gemini-box" :class="{ active: store.isGeminiDraftActive }">
         <div class="gemini-draft-header">
           <div class="gemini-badge">
-            <span class="material-symbols-outlined gemini-color font-sm">spark</span>
+            <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
             <span>Gemini Drafted</span>
           </div>
           <div class="gemini-draft-actions">
@@ -443,7 +443,7 @@ onMounted(() => {
     <div class="composer-footer">
       <button class="btn btn-primary" @click="store.sendEmail">Send</button>
       <button class="btn btn-text" @click="store.triggerGeminiDraft">
-        <span class="material-symbols-outlined gemini-color font-sm">spark</span>
+        <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
         <span>Help me write</span>
       </button>
     </div>
