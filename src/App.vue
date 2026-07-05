@@ -218,18 +218,8 @@ onMounted(() => {
       </div>
 
       <div class="header-right">
-        <!-- Theme Switcher -->
-        <button class="icon-btn theme-toggle-btn" @click="store.toggleTheme" title="Toggle theme">
-          <span class="material-symbols-outlined">dark_mode</span>
-        </button>
-        <button class="icon-btn" title="Help">
-          <span class="material-symbols-outlined">help</span>
-        </button>
         <button class="icon-btn gemini-badge-btn" title="Gemini Status">
           <span class="material-symbols-outlined gemini-color">auto_awesome</span>
-        </button>
-        <button class="icon-btn" title="Google apps">
-          <span class="material-symbols-outlined">apps</span>
         </button>
         <div class="profile-container" :title="`Google Account: ${user?.name || 'Allister'}`" @click="showLogoutMenu = !showLogoutMenu">
           <img :src="user?.picture || '/rose_avatar.jpg'" :alt="user?.name || 'Allister'" class="profile-img" />
