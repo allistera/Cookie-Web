@@ -1611,6 +1611,183 @@ body {
   transform: translateY(0);
 }
 
+/* Settings Modal */
+.settings-modal-container {
+  max-width: 520px;
+  width: 92%;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.settings-account-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.settings-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.settings-account-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-account-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-account-email {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.settings-account-provider {
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-row-text span {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.settings-row-text small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.settings-switch {
+  appearance: none;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border-color);
+  position: relative;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-dialog);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast);
+}
+
+.settings-switch:checked {
+  background: var(--text-blue);
+}
+
+.settings-switch:checked::after {
+  transform: translateX(20px);
+}
+
+.settings-passkey-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.settings-passkey-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-passkey-list {
+  list-style: none;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-passkey-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.settings-passkey-item .settings-row-text {
+  flex: 1;
+}
+
+.settings-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.settings-hint-success {
+  color: #188038;
+}
+
+.settings-hint-error {
+  color: #d93025;
+}
+
+[data-theme='dark'] .settings-hint-success {
+  color: #81c995;
+}
+
+[data-theme='dark'] .settings-hint-error {
+  color: #f28b82;
+}
+
 /* Profile Dropdown styling */
 .profile-container {
   position: relative;

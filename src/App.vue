@@ -3,6 +3,7 @@ import { ref, watch, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
+import SettingsModal from './components/SettingsModal.vue'
 import { useAuth0 } from '@auth0/auth0-vue'
 
 const store = useInboxStore()
@@ -215,7 +216,7 @@ onMounted(() => {
         <button class="icon-btn" title="Help">
           <span class="material-symbols-outlined">help</span>
         </button>
-        <button class="icon-btn" title="Settings">
+        <button class="icon-btn" title="Settings" @click="store.activeModal = 'settings'">
           <span class="material-symbols-outlined">settings</span>
         </button>
         <button class="icon-btn gemini-badge-btn" title="Gemini Status">
@@ -348,6 +349,9 @@ onMounted(() => {
     </div>
 
     <!-- MODAL OVERLAYS -->
+    <!-- 0. Settings Modal -->
+    <SettingsModal />
+
     <!-- 1. Google Sheets Modal -->
     <div class="modal-overlay" :class="{ active: store.activeModal === 'sheets' }">
       <div class="modal-container sheets-modal-container">
