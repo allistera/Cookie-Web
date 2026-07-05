@@ -98,6 +98,10 @@ onMounted(() => {
     }
   })
 })
+
+function triggerTestError() {
+  throw new Error('Sentry Test Error: This is an intentional error triggered to test Sentry integration.')
+}
 </script>
 
 <template>
@@ -178,6 +182,10 @@ onMounted(() => {
       </div>
 
       <div class="header-right">
+        <!-- Sentry Test Error -->
+        <button class="icon-btn test-error-btn" @click="triggerTestError" title="Trigger Test Sentry Error" style="color: #ea4335;">
+          <span class="material-symbols-outlined">bug_report</span>
+        </button>
         <!-- Theme Switcher -->
         <button class="icon-btn theme-toggle-btn" @click="store.toggleTheme" title="Toggle theme">
           <span class="material-symbols-outlined">dark_mode</span>
