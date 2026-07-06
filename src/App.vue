@@ -335,49 +335,8 @@ onMounted(() => {
         <router-view />
       </main>
 
-      <!-- RIGHT SIDEBAR (WORKSPACE ICONS) -->
-      <aside class="right-sidebar-panel">
-        <div class="workspace-icons">
-          <button class="ws-icon-btn active" title="Calendar">
-            <img
-              src="https://ssl.gstatic.com/calendar/images/dynamiclogo_2020q4/calendar_31_2x.png"
-              alt="Calendar"
-              class="ws-icon-img"
-            />
-          </button>
-          <button class="ws-icon-btn" title="Keep">
-            <img
-              src="https://www.gstatic.com/images/branding/product/2x/keep_2020q4_48dp.png"
-              alt="Keep"
-              class="ws-icon-img"
-            />
-          </button>
-          <button class="ws-icon-btn" title="Tasks">
-            <img
-              src="https://www.gstatic.com/images/branding/product/2x/tasks_2020q4_48dp.png"
-              alt="Tasks"
-              class="ws-icon-img"
-            />
-          </button>
-          <button class="ws-icon-btn" title="Contacts">
-            <img
-              src="https://www.gstatic.com/images/branding/product/2x/contacts_2020q4_48dp.png"
-              alt="Contacts"
-              class="ws-icon-img"
-            />
-          </button>
-          <button class="ws-icon-btn" title="Voice">
-            <span class="material-symbols-outlined text-green voice-icon-size">call</span>
-          </button>
-          <div class="ws-separator"></div>
-          <button class="ws-icon-btn" title="Get Add-ons">
-            <span class="material-symbols-outlined text-gray">add</span>
-          </button>
-        </div>
-
-        <!-- Render Gemini JSX Chat Drawer -->
-        <GeminiChatDrawer />
-      </aside>
+      <!-- Gemini JSX Chat Drawer -->
+      <GeminiChatDrawer />
     </div>
 
     <!-- MODAL OVERLAYS -->
