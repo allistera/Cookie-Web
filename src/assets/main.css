@@ -309,65 +309,152 @@ body {
   overflow: hidden;
 }
 
-/* Left Sidebar */
+/* Left Sidebar (Notion Mail style) */
 .left-sidebar {
   width: 256px;
-  padding: 8px;
+  padding: 12px 8px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  border-right: 1px solid transparent;
+  gap: 4px;
+  border-right: 1px solid var(--border-color);
   flex-shrink: 0;
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme='dark'] .left-sidebar {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.sb-account {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 8px 12px;
+}
+
+.sb-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: #eb5757;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.sb-account-info {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.sb-account-name {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sb-account-name .material-symbols-outlined {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.sb-account-email {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .compose-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 12px;
-  background-color: #c2e7ff;
-  border: none;
-  border-radius: 16px;
-  padding: 16px 24px;
-  cursor: pointer;
-  font-family: var(--font-stack);
-  font-size: 14px;
-  font-weight: 500;
-  color: #001d35;
-  box-shadow: var(--shadow-sm);
-  transition:
-    box-shadow var(--transition-fast),
-    background-color var(--transition-fast);
-  align-self: flex-start;
-  margin-left: 8px;
-  margin-top: 8px;
 }
 
 .compose-btn:hover {
-  background-color: #b3dbf7;
-  box-shadow: var(--shadow-md);
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.compose-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.sb-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-stack);
+  font-size: 14.5px;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.sb-search:hover {
+  background-color: var(--bg-hover);
+}
+
+.sb-search .material-symbols-outlined {
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.sb-section-label {
+  padding: 14px 8px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .sidebar-nav {
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 24px;
-  height: 36px;
-  border-radius: 0 100px 100px 0;
+  gap: 10px;
+  padding: 0 8px;
+  height: 32px;
+  border-radius: 6px;
   text-decoration: none;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 400;
-  transition:
-    background-color var(--transition-fast),
-    font-weight var(--transition-fast);
+  transition: background-color var(--transition-fast);
   position: relative;
-  margin-right: 12px;
+}
+
+.nav-item .material-symbols-outlined {
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.nav-icon-red {
+  color: #eb5757 !important;
 }
 
 .nav-item:hover {
@@ -375,58 +462,30 @@ body {
 }
 
 .nav-item.active {
-  background-color: var(--bg-sidebar-active);
+  background-color: rgba(0, 0, 0, 0.055);
   font-weight: 600;
-  color: var(--text-blue-dark);
 }
 
-.nav-item.active .material-symbols-outlined {
-  font-variation-settings: 'FILL' 1;
+[data-theme='dark'] .nav-item.active {
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .nav-badge {
   position: absolute;
-  right: 16px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.sidebar-labels {
-  padding: 8px 24px;
-  border-top: 1px solid var(--border-color);
-  margin-top: auto;
-}
-
-.labels-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-  font-weight: 600;
+  right: 10px;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--text-secondary);
-  text-transform: uppercase;
-}
-
-.add-label-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
 }
 
 /* Main Content Panel */
 .main-content {
   flex-grow: 1;
   background-color: var(--bg-card);
-  border-radius: 24px;
-  margin: 8px 8px 8px 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  box-shadow: var(--shadow-sm);
   transition: background-color var(--transition-normal);
 }
 

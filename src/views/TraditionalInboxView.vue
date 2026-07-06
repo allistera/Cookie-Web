@@ -5,17 +5,24 @@ import { useInboxStore } from '../stores/inbox'
 const store = useInboxStore()
 
 const emailGroups = computed(() => {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const DAY = 24 * 60 * 60 * 1000
   const today = []
   const yesterday = []
+  const lastSevenDays = []
   const earlier = []
   for (const email of store.traditionalEmails) {
-    if (/am|pm/i.test(email.date)) today.push(email)
-    else if (email.date === 'Yesterday') yesterday.push(email)
+    const sentAt = new Date(email.sentAt).getTime()
+    if (sentAt >= startOfToday) today.push(email)
+    else if (sentAt >= startOfToday - DAY) yesterday.push(email)
+    else if (sentAt >= startOfToday - 7 * DAY) lastSevenDays.push(email)
     else earlier.push(email)
   }
   const groups = []
   if (today.length) groups.push({ label: null, emails: today })
   if (yesterday.length) groups.push({ label: 'Yesterday', emails: yesterday })
+  if (lastSevenDays.length) groups.push({ label: 'Last seven days', emails: lastSevenDays })
   if (earlier.length) groups.push({ label: 'Earlier', emails: earlier })
   return groups
 })
@@ -154,12 +161,6 @@ onUnmounted(() => {
       <div class="ni-title">
         <span class="material-symbols-outlined ni-title-icon">inbox</span>
         <h1>Inbox</h1>
-      </div>
-      <div class="ni-header-actions">
-        <button class="ni-pill-btn">
-          <span class="material-symbols-outlined ni-red">error</span>
-          <span>Auto label</span>
-        </button>
       </div>
     </div>
 

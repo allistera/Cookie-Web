@@ -48,6 +48,10 @@ function selectSuggestion(query) {
   store.askGemini(query)
 }
 
+function focusHeaderSearch() {
+  document.querySelector('#searchBarContainer .search-input')?.focus()
+}
+
 function handleSearchEnter() {
   const query = searchInputVal.value.trim()
   if (query) {
@@ -276,10 +280,26 @@ onMounted(() => {
     <div class="app-body">
       <!-- LEFT SIDEBAR -->
       <aside class="left-sidebar">
-        <button class="compose-btn" @click="store.openComposer(null)">
-          <span class="material-symbols-outlined">edit</span>
-          <span class="compose-text">Compose</span>
+        <div class="sb-account">
+          <div class="sb-avatar">{{ (user?.name || 'A').charAt(0).toUpperCase() }}</div>
+          <div class="sb-account-info">
+            <div class="sb-account-name">
+              <span>{{ user?.name || 'Allister' }}</span>
+              <span class="material-symbols-outlined">expand_more</span>
+            </div>
+            <div class="sb-account-email">{{ user?.email }}</div>
+          </div>
+          <button class="compose-btn" title="Compose" @click="store.openComposer(null)">
+            <span class="material-symbols-outlined">edit_square</span>
+          </button>
+        </div>
+
+        <button class="sb-search" @click="focusHeaderSearch">
+          <span class="material-symbols-outlined">search</span>
+          <span>Search</span>
         </button>
+
+        <div class="sb-section-label">Views</div>
 
         <nav class="sidebar-nav">
           <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
@@ -291,7 +311,7 @@ onMounted(() => {
             class="nav-item"
             :class="{ active: route.name === 'traditional-inbox' }"
           >
-            <span class="material-symbols-outlined">inbox</span>
+            <span class="material-symbols-outlined nav-icon-red">inbox</span>
             <span class="nav-text">Inbox</span>
             <span class="nav-badge">{{ store.unreadInboxCount }}</span>
           </router-link>
@@ -316,15 +336,6 @@ onMounted(() => {
             <span class="nav-text">More</span>
           </a>
         </nav>
-
-        <div class="sidebar-labels">
-          <div class="labels-header">
-            <span>Labels</span>
-            <button class="add-label-btn" title="Create new label">
-              <span class="material-symbols-outlined">add</span>
-            </button>
-          </div>
-        </div>
       </aside>
 
       <!-- MAIN CONTENT PANEL -->

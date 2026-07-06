@@ -2,20 +2,18 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 
-// "10:04 AM" for today, "Yesterday", then "Jun 3" — the shape the inbox
-// list groups and renders by.
+// "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000)
   if (sentAt >= startOfToday) {
-    return sentAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    return sentAt
+      .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      .toLowerCase()
+      .replace(' ', ' ')
   }
-  if (sentAt >= startOfYesterday) {
-    return 'Yesterday'
-  }
-  return sentAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return sentAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 export const useInboxStore = defineStore('inbox', {
@@ -174,6 +172,7 @@ export const useInboxStore = defineStore('inbox', {
           subject: message.subject,
           snippet: message.snippet,
           body: message.body_text,
+          sentAt: message.sent_at,
           date: formatEmailDate(message.sent_at),
           unread: message.is_unread,
           starred: message.is_starred,
