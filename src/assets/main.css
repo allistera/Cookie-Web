@@ -897,54 +897,6 @@ body {
   font-size: 20px;
 }
 
-/* Filter chips */
-.ni-chips {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 8px 24px 16px;
-}
-
-.ni-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: none;
-  border-radius: 10px;
-  background: none;
-  font-family: inherit;
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.ni-chip .material-symbols-outlined {
-  font-size: 19px;
-  color: var(--text-secondary);
-}
-
-.ni-chip:hover {
-  background: var(--bg-hover);
-}
-
-.ni-chip-active {
-  background: var(--ni-accent-bg);
-  color: var(--ni-accent);
-}
-
-.ni-chip-active .material-symbols-outlined {
-  color: var(--ni-accent);
-}
-
-.ni-chip-active:hover {
-  background: var(--ni-accent-bg);
-  filter: brightness(0.97);
-}
-
 /* Email list */
 .ni-list {
   display: flex;

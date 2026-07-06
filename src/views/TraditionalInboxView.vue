@@ -164,37 +164,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Filter chips -->
-    <div class="ni-chips">
-      <button class="ni-chip ni-chip-active">
-        <span class="material-symbols-outlined">bookmark</span>
-        <span>Categories: Not Promotions, S...</span>
-        <span class="material-symbols-outlined">expand_more</span>
-      </button>
-      <button class="ni-chip ni-chip-active">
-        <span class="material-symbols-outlined">bookmark</span>
-        <span>Labels: Not Newsletters/Spam</span>
-        <span class="material-symbols-outlined">expand_more</span>
-      </button>
-      <button class="ni-chip">
-        <span class="material-symbols-outlined">mark_email_unread</span>
-        <span>Is unread</span>
-      </button>
-      <button class="ni-chip">
-        <span class="material-symbols-outlined">archive</span>
-        <span>Show archived</span>
-      </button>
-      <button class="ni-chip ni-chip-active">
-        <span class="material-symbols-outlined">person</span>
-        <span>From: Not "github.com"</span>
-        <span class="material-symbols-outlined">expand_more</span>
-      </button>
-      <button class="ni-chip">
-        <span class="material-symbols-outlined">add</span>
-        <span>Filter</span>
-      </button>
-    </div>
-
     <!-- Email list -->
     <div class="ni-list">
       <template v-for="group in emailGroups" :key="group.label || 'today'">
