@@ -1826,14 +1826,29 @@ body {
   gap: 6px;
   font-size: 17px;
   font-weight: 600;
+  flex-grow: 1;
+  min-width: 0;
 }
 
 .composer-draft-label {
   color: #6cbf6c;
 }
 
-.composer-draft-recipient {
+.composer-draft-to {
   color: var(--text-primary);
+}
+
+.composer-to-inline {
+  flex-grow: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-stack);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: 0;
 }
 
 .composer-window-actions {

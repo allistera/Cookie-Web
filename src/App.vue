@@ -12,6 +12,22 @@ const route = useRoute()
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 
+// Compose window: focus the inline To field for a blank draft, or the
+// subject line when the recipient is prefilled (e.g. reply to-dos).
+const composerToRef = ref(null)
+const composerSubjectRef = ref(null)
+watch(
+  () => store.isComposerActive,
+  (active) => {
+    if (active) {
+      nextTick(() => {
+        const target = store.composerTo ? composerSubjectRef.value : composerToRef.value
+        target?.focus()
+      })
+    }
+  },
+)
+
 function openSettings() {
   showLogoutMenu.value = false
   store.activeModal = 'settings'
@@ -479,9 +495,13 @@ onMounted(() => {
     <div class="composer-draft-row">
       <div class="composer-draft-title">
         <span class="composer-draft-label">Draft</span>
-        <span v-if="store.composerTo" class="composer-draft-recipient">
-          to {{ store.composerTo.split('@')[0] }}
-        </span>
+        <span class="composer-draft-to">to</span>
+        <input
+          ref="composerToRef"
+          v-model="store.composerTo"
+          class="composer-to-inline"
+          type="email"
+        />
       </div>
       <div class="composer-window-actions">
         <button class="composer-icon-btn" title="Pop out">
@@ -494,17 +514,9 @@ onMounted(() => {
     </div>
     <div class="composer-field-row">
       <input
-        v-model="store.composerTo"
-        class="composer-field-input"
-        type="email"
-        placeholder="To"
-      />
-    </div>
-    <div class="composer-field-row">
-      <input
+        ref="composerSubjectRef"
         v-model="store.composerSubject"
         class="composer-field-input composer-subject-input"
-        placeholder="Subject"
       />
     </div>
     <div class="composer-body">
