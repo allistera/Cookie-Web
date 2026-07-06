@@ -1,0 +1,25 @@
+name: Migrate Database
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+  workflow_dispatch:
+
+concurrency:
+  group: migrate-database
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./migrations/migrate.sh
