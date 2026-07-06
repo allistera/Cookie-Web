@@ -462,6 +462,18 @@ onMounted(() => {
     </div>
   </div>
 
+  <!-- Toast notifications -->
+  <div class="toast-container">
+    <TransitionGroup name="toast">
+      <div v-for="toast in store.toasts" :key="toast.id" class="toast" :class="`toast-${toast.kind}`">
+        <span class="toast-message">{{ toast.message }}</span>
+        <button class="toast-close" title="Dismiss" @click="store.dismissToast(toast.id)">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+    </TransitionGroup>
+  </div>
+
   <!-- Inline Composer Toast -->
   <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast">
     <div class="composer-draft-row">

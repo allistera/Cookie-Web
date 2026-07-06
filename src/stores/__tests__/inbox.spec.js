@@ -105,6 +105,29 @@ describe('Inbox Store', () => {
     expect(store.isRefreshing).toBe(false)
   })
 
+  it('shows a toast and auto-dismisses it', () => {
+    vi.useFakeTimers()
+    const store = useInboxStore()
+
+    store.notify('Reply sent.')
+    expect(store.toasts).toHaveLength(1)
+    expect(store.toasts[0]).toMatchObject({ message: 'Reply sent.', kind: 'info' })
+
+    vi.advanceTimersByTime(4000)
+    expect(store.toasts).toHaveLength(0)
+    vi.useRealTimers()
+  })
+
+  it('dismisses a toast manually', () => {
+    vi.useFakeTimers()
+    const store = useInboxStore()
+
+    store.notify('Failed to send email.', 'error')
+    store.dismissToast(store.toasts[0].id)
+    expect(store.toasts).toHaveLength(0)
+    vi.useRealTimers()
+  })
+
   it('sends mail through the API with the access token', async () => {
     vi.stubGlobal(
       'fetch',

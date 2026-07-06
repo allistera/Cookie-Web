@@ -50,16 +50,13 @@ function removeEmail(email) {
 const openEmail = ref(null)
 const isReplyOpen = ref(false)
 const replyText = ref('')
-const replySent = ref(false)
 const replyTextareaRef = ref(null)
-let replySentTimer = null
 
 function openReader(email) {
   markRead(email)
   openEmail.value = email
   isReplyOpen.value = false
   replyText.value = ''
-  replySent.value = false
 }
 
 function closeReader() {
@@ -90,7 +87,6 @@ function archiveOpenEmail() {
 
 function replyToOpenEmail() {
   isReplyOpen.value = true
-  replySent.value = false
   nextTick(() => replyTextareaRef.value?.focus())
 }
 
@@ -112,14 +108,10 @@ async function sendReply() {
     })
   } catch (error) {
     console.error('Failed to send reply:', error)
-    alert('Failed to send reply. Please try again.')
+    store.notify('Failed to send reply. Please try again.', 'error')
     return
   }
-  replySent.value = true
-  clearTimeout(replySentTimer)
-  replySentTimer = setTimeout(() => {
-    replySent.value = false
-  }, 2500)
+  store.notify('Reply sent.')
 }
 
 function senderAddress(email) {
@@ -358,10 +350,6 @@ onUnmounted(() => {
             <span class="material-symbols-outlined">forward</span>
             <span>Forward</span>
           </button>
-          <span class="ni-reply-sent" v-if="replySent">
-            <span class="material-symbols-outlined">check_circle</span>
-            Reply sent
-          </span>
         </div>
       </div>
     </Transition>

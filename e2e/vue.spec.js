@@ -107,5 +107,5 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await replyBox.locator('.btn-primary').click()
 
   await expect(reader.locator('.ni-reply-box')).toHaveCount(0)
-  await expect(reader.locator('.ni-reply-sent')).toBeVisible()
+  await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })

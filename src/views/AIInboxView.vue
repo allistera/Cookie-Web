@@ -16,7 +16,7 @@ function triggerAction(todo) {
   } else if (todo.action === 'open-sheet') {
     store.openTodoModal('sheets', todo.id)
   } else {
-    alert(`Opening ${todo.title} link...`)
+    store.notify(`Opening ${todo.title} link...`)
     store.completeTodo(todo.id)
   }
 }

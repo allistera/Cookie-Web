@@ -101,6 +101,10 @@ export const useInboxStore = defineStore('inbox', {
     geminiDraftPreview: '',
     activeTodoId: null,
 
+    // Toast notifications
+    toasts: [],
+    nextToastId: 1,
+
     // Modals
     activeModal: null, // 'sheets' or 'waiver'
 
@@ -188,6 +192,19 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadEmails()
     },
 
+    notify(message, kind = 'info') {
+      const id = this.nextToastId++
+      this.toasts.push({ id, message, kind })
+      setTimeout(() => this.dismissToast(id), 4000)
+    },
+
+    dismissToast(id) {
+      const index = this.toasts.findIndex((t) => t.id === id)
+      if (index > -1) {
+        this.toasts.splice(index, 1)
+      }
+    },
+
     async sendMail({ to, subject, text }) {
       const headers = { 'Content-Type': 'application/json' }
       const auth0 = getAuth0()
@@ -273,14 +290,14 @@ export const useInboxStore = defineStore('inbox', {
         })
       } catch (error) {
         console.error('Failed to send email:', error)
-        alert('Failed to send email. Please try again.')
+        this.notify('Failed to send email. Please try again.', 'error')
         return
       }
       if (this.activeTodoId) {
         this.completeTodo(this.activeTodoId)
       }
       this.closeComposer()
-      alert('Email sent successfully!')
+      this.notify('Email sent.')
     },
 
     saveSoccerSheet() {
@@ -288,7 +305,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.activeTodoId) {
         this.completeTodo(this.activeTodoId)
       }
-      alert('Soccer Snacks Signup updated successfully! Saving details and updating Cookie.')
+      this.notify('Soccer Snacks Signup updated.')
     },
 
     submitWaiver() {
@@ -296,7 +313,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.activeTodoId) {
         this.completeTodo(this.activeTodoId)
       }
-      alert('Liability Waiver signed and submitted to the University of State! Checkmark complete.')
+      this.notify('Waiver signed and submitted.')
     },
 
     askGemini(query) {
