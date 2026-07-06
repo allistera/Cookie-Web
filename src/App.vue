@@ -48,10 +48,6 @@ function selectSuggestion(query) {
   store.askGemini(query)
 }
 
-function focusHeaderSearch() {
-  document.querySelector('#searchBarContainer .search-input')?.focus()
-}
-
 function handleSearchEnter() {
   const query = searchInputVal.value.trim()
   if (query) {
@@ -280,23 +276,9 @@ onMounted(() => {
     <div class="app-body">
       <!-- LEFT SIDEBAR -->
       <aside class="left-sidebar">
-        <div class="sb-account">
-          <div class="sb-avatar">{{ (user?.name || 'A').charAt(0).toUpperCase() }}</div>
-          <div class="sb-account-info">
-            <div class="sb-account-name">
-              <span>{{ user?.name || 'Allister' }}</span>
-              <span class="material-symbols-outlined">expand_more</span>
-            </div>
-            <div class="sb-account-email">{{ user?.email }}</div>
-          </div>
-          <button class="compose-btn" title="Compose" @click="store.openComposer(null)">
-            <span class="material-symbols-outlined">edit_square</span>
-          </button>
-        </div>
-
-        <button class="sb-search" @click="focusHeaderSearch">
-          <span class="material-symbols-outlined">search</span>
-          <span>Search</span>
+        <button class="compose-btn" @click="store.openComposer(null)">
+          <span class="material-symbols-outlined">edit_square</span>
+          <span>Compose</span>
         </button>
 
         <div class="sb-section-label">Views</div>
