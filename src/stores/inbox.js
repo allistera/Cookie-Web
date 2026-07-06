@@ -94,6 +94,8 @@ export const useInboxStore = defineStore('inbox', {
 
     // Composer state
     isComposerActive: false,
+    composerTo: '',
+    composerSubject: '',
     composerTextArea: '',
     isGeminiDraftActive: false,
     geminiDraftPreview: '',
@@ -223,11 +225,17 @@ export const useInboxStore = defineStore('inbox', {
     openComposer(todoId) {
       this.isComposerActive = true
       this.activeTodoId = todoId
+      if (todoId === 'todo-kitchen') {
+        this.composerTo = 'info@citytileandstone.com'
+        this.composerSubject = 'Re: Kitchen Renovation - Tile Selection Due'
+      }
     },
 
     closeComposer() {
       this.isComposerActive = false
       this.activeTodoId = null
+      this.composerTo = ''
+      this.composerSubject = ''
       this.composerTextArea = ''
       this.isGeminiDraftActive = false
       this.geminiDraftPreview = ''
@@ -259,8 +267,8 @@ export const useInboxStore = defineStore('inbox', {
     async sendEmail() {
       try {
         await this.sendMail({
-          to: 'info@citytileandstone.com',
-          subject: 'Re: Kitchen Renovation - Tile Selection Due',
+          to: this.composerTo,
+          subject: this.composerSubject,
           text: this.composerTextArea,
         })
       } catch (error) {
@@ -268,11 +276,10 @@ export const useInboxStore = defineStore('inbox', {
         alert('Failed to send email. Please try again.')
         return
       }
-      this.isComposerActive = false
       if (this.activeTodoId) {
         this.completeTodo(this.activeTodoId)
       }
-      this.composerTextArea = ''
+      this.closeComposer()
       alert('Email sent successfully!')
     },
 

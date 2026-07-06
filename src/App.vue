@@ -464,18 +464,34 @@ onMounted(() => {
 
   <!-- Inline Composer Toast -->
   <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast">
-    <div class="composer-header">
-      <span>New Message (Reply to Tile Vendor)</span>
-      <span class="material-symbols-outlined close-composer" @click="store.closeComposer"
-        >close</span
-      >
+    <div class="composer-from-row">
+      <div class="composer-from">
+        <span class="composer-from-name">{{ user?.name || 'Allister' }}</span>
+        <span class="composer-from-address">{{ user?.email }}</span>
+      </div>
+      <div class="composer-window-actions">
+        <button class="composer-icon-btn" title="Minimize" @click="store.closeComposer">
+          <span class="material-symbols-outlined">remove</span>
+        </button>
+        <button class="composer-icon-btn" title="Close" @click="store.closeComposer">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
     </div>
-    <div class="composer-fields">
-      <div>To: <strong>info@citytileandstone.com</strong></div>
-      <div>Subject: <strong>Re: Kitchen Renovation - Tile Selection Due</strong></div>
+    <div class="composer-field-row">
+      <input
+        v-model="store.composerTo"
+        class="composer-field-input"
+        type="email"
+        placeholder="Add recipient"
+      />
+      <span class="composer-ccbcc">Cc/Bcc</span>
+    </div>
+    <div class="composer-field-row composer-field-row-last">
+      <input v-model="store.composerSubject" class="composer-field-input" placeholder="Subject" />
     </div>
     <div class="composer-body">
-      <textarea v-model="store.composerTextArea" placeholder="Write reply here..."></textarea>
+      <textarea v-model="store.composerTextArea"></textarea>
 
       <!-- Inline Gemini drafting box -->
       <div class="composer-gemini-box" :class="{ active: store.isGeminiDraftActive }">
@@ -500,11 +516,35 @@ onMounted(() => {
       </div>
     </div>
     <div class="composer-footer">
-      <button class="btn btn-primary" @click="store.sendEmail">Send</button>
-      <button class="btn btn-text" @click="store.triggerGeminiDraft">
-        <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
-        <span>Help me write</span>
-      </button>
+      <div class="composer-send-group">
+        <button
+          class="composer-send-btn"
+          :disabled="!store.composerTo.includes('@') || !store.composerTextArea.trim()"
+          @click="store.sendEmail"
+        >
+          Send
+        </button>
+        <button class="composer-send-caret" title="Send options">
+          <span class="material-symbols-outlined">keyboard_arrow_down</span>
+        </button>
+      </div>
+      <div class="composer-tools">
+        <button class="composer-icon-btn" title="Help me write" @click="store.triggerGeminiDraft">
+          <span class="material-symbols-outlined">stylus_note</span>
+        </button>
+        <button class="composer-icon-btn" title="Attach file">
+          <span class="material-symbols-outlined">attach_file</span>
+        </button>
+        <button class="composer-icon-btn" title="Insert variable">
+          <span class="material-symbols-outlined">data_object</span>
+        </button>
+        <button class="composer-icon-btn" title="Schedule send">
+          <span class="material-symbols-outlined">calendar_today</span>
+        </button>
+        <button class="composer-icon-btn" title="Discard" @click="store.closeComposer">
+          <span class="material-symbols-outlined">delete</span>
+        </button>
+      </div>
     </div>
   </div>
   </template>
