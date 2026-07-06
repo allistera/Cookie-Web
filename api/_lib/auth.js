@@ -23,6 +23,7 @@ export async function verifyAccessToken(req) {
     issuer: `https://${domain}/`,
     audience,
     algorithms: ['RS256'],
+    clockTolerance: 5,
   })
   return payload
 }

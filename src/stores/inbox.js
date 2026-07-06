@@ -186,6 +186,24 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadEmails()
     },
 
+    async sendMail({ to, subject, text }) {
+      const headers = { 'Content-Type': 'application/json' }
+      const auth0 = getAuth0()
+      if (auth0) {
+        const token = await auth0.getAccessTokenSilently()
+        headers.Authorization = `Bearer ${token}`
+      }
+      const response = await fetch('/api/send', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ to, subject, text }),
+      })
+      if (!response.ok) {
+        throw new Error(`POST /api/send responded ${response.status}`)
+      }
+      return response.json()
+    },
+
     toggleTheme() {
       const currentTheme = document.documentElement.getAttribute('data-theme')
       const newTheme = currentTheme === 'dark' ? 'light' : 'dark'
@@ -238,7 +256,18 @@ export const useInboxStore = defineStore('inbox', {
       this.isGeminiDraftActive = false
     },
 
-    sendEmail() {
+    async sendEmail() {
+      try {
+        await this.sendMail({
+          to: 'info@citytileandstone.com',
+          subject: 'Re: Kitchen Renovation - Tile Selection Due',
+          text: this.composerTextArea,
+        })
+      } catch (error) {
+        console.error('Failed to send email:', error)
+        alert('Failed to send email. Please try again.')
+        return
+      }
       this.isComposerActive = false
       if (this.activeTodoId) {
         this.completeTodo(this.activeTodoId)

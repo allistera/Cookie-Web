@@ -105,6 +105,39 @@ describe('Inbox Store', () => {
     expect(store.isRefreshing).toBe(false)
   })
 
+  it('sends mail through the API with the access token', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'msg-1' }) }),
+    )
+
+    const store = useInboxStore()
+    const result = await store.sendMail({
+      to: 'someone@example.com',
+      subject: 'Re: Hello',
+      text: 'Hi there',
+    })
+
+    expect(fetch).toHaveBeenCalledWith('/api/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ to: 'someone@example.com', subject: 'Re: Hello', text: 'Hi there' }),
+    })
+    expect(result).toEqual({ id: 'msg-1' })
+  })
+
+  it('throws when sending mail fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }))
+
+    const store = useInboxStore()
+    await expect(
+      store.sendMail({ to: 'someone@example.com', subject: 'S', text: 'T' }),
+    ).rejects.toThrow('POST /api/send responded 502')
+  })
+
   it('reports the inbox as unavailable when the API fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
     vi.spyOn(console, 'error').mockImplementation(() => {})

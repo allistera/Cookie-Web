@@ -99,9 +99,22 @@ function discardReply() {
   replyText.value = ''
 }
 
-function sendReply() {
+async function sendReply() {
+  const email = openEmail.value
+  const text = replyText.value
   isReplyOpen.value = false
   replyText.value = ''
+  try {
+    await store.sendMail({
+      to: senderAddress(email),
+      subject: `Re: ${email.subject}`,
+      text,
+    })
+  } catch (error) {
+    console.error('Failed to send reply:', error)
+    alert('Failed to send reply. Please try again.')
+    return
+  }
   replySent.value = true
   clearTimeout(replySentTimer)
   replySentTimer = setTimeout(() => {

@@ -20,13 +20,24 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/emails.js')
     await handler(req, res)
   }
+  const handleSend = async (req, res) => {
+    if (mode === 'e2e') {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ id: 'e2e-fixture' }))
+      return
+    }
+    const { default: handler } = await import('./api/send.js')
+    await handler(req, res)
+  }
   return {
     name: 'local-api',
     configureServer(server) {
       server.middlewares.use('/api/emails', handleEmails)
+      server.middlewares.use('/api/send', handleSend)
     },
     configurePreviewServer(server) {
       server.middlewares.use('/api/emails', handleEmails)
+      server.middlewares.use('/api/send', handleSend)
     },
   }
 }
