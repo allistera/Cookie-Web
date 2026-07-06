@@ -29,16 +29,24 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/send.js')
     await handler(req, res)
   }
+  const handleMessages = async (req, res) => {
+    if (mode === 'e2e') {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
+    const { default: handler } = await import('./api/messages.js')
+    await handler(req, res)
+  }
+  const mount = (server) => {
+    server.middlewares.use('/api/emails', handleEmails)
+    server.middlewares.use('/api/send', handleSend)
+    server.middlewares.use('/api/messages', handleMessages)
+  }
   return {
     name: 'local-api',
-    configureServer(server) {
-      server.middlewares.use('/api/emails', handleEmails)
-      server.middlewares.use('/api/send', handleSend)
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use('/api/emails', handleEmails)
-      server.middlewares.use('/api/send', handleSend)
-    },
+    configureServer: mount,
+    configurePreviewServer: mount,
   }
 }
 

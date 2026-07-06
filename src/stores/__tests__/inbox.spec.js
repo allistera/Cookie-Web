@@ -162,6 +162,47 @@ describe('Inbox Store', () => {
     ).rejects.toThrow('POST /api/send responded 502')
   })
 
+  it('persists read state and updates the unread count', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.traditionalEmails = [email, { id: 'def-456', unread: true }]
+    store.unreadInboxCount = 2
+
+    store.setUnread(email, false)
+    expect(email.unread).toBe(false)
+    expect(store.unreadInboxCount).toBe(1)
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+
+    expect(fetch).toHaveBeenCalledWith('/api/messages', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'abc-123', is_unread: false }),
+    })
+  })
+
+  it('reverts read state when persistence fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.traditionalEmails = [email]
+    store.unreadInboxCount = 1
+
+    store.setUnread(email, false)
+    await vi.waitFor(() => expect(email.unread).toBe(true))
+    expect(store.unreadInboxCount).toBe(1)
+    expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
+  })
+
   it('reports the inbox as unavailable when the API fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
     vi.spyOn(console, 'error').mockImplementation(() => {})

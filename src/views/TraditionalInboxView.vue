@@ -30,12 +30,7 @@ const emailGroups = computed(() => {
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 
 function markRead(email) {
-  if (email.unread) {
-    email.unread = false
-    if (store.unreadInboxCount > 0) {
-      store.unreadInboxCount--
-    }
-  }
+  store.setUnread(email, false)
 }
 
 function toggleStar(email) {
@@ -199,8 +194,14 @@ onUnmounted(() => {
             <button class="ni-action-btn" title="Delete" @click="removeEmail(email)">
               <span class="material-symbols-outlined">delete</span>
             </button>
-            <button class="ni-action-btn" title="Mark done" @click="markRead(email)">
-              <span class="material-symbols-outlined">check_box</span>
+            <button
+              class="ni-action-btn"
+              :title="email.unread ? 'Mark as read' : 'Mark as unread'"
+              @click="store.setUnread(email, !email.unread)"
+            >
+              <span class="material-symbols-outlined">{{
+                email.unread ? 'mark_email_read' : 'mark_email_unread'
+              }}</span>
             </button>
             <button class="ni-action-btn" title="Snooze">
               <span class="material-symbols-outlined">schedule</span>

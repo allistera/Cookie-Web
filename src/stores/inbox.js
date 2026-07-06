@@ -191,6 +191,37 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadEmails()
     },
 
+    async updateMessage(id, changes) {
+      const headers = { 'Content-Type': 'application/json' }
+      const auth0 = getAuth0()
+      if (auth0) {
+        const token = await auth0.getAccessTokenSilently()
+        headers.Authorization = `Bearer ${token}`
+      }
+      const response = await fetch('/api/messages', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ id, ...changes }),
+      })
+      if (!response.ok) {
+        throw new Error(`PATCH /api/messages responded ${response.status}`)
+      }
+      return response.json()
+    },
+
+    // Optimistically flips read state and persists it; reverts on failure.
+    setUnread(email, unread) {
+      if (email.unread === unread) return
+      email.unread = unread
+      this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
+      this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
+        console.error('Failed to update read state:', error)
+        email.unread = !unread
+        this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
+        this.notify('Failed to update read state.', 'error')
+      })
+    },
+
     notify(message, kind = 'info') {
       const id = this.nextToastId++
       this.toasts.push({ id, message, kind })

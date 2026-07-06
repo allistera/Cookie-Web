@@ -3,19 +3,7 @@ import process from 'node:process'
 import { Resend } from 'resend'
 
 import { verifyAccessToken } from './_lib/auth.js'
-
-// Vercel parses JSON bodies into req.body; the local Vite middleware hands us
-// the raw stream. Support both.
-async function readJsonBody(req) {
-  if (req.body !== undefined) {
-    return typeof req.body === 'string' ? JSON.parse(req.body) : req.body
-  }
-  let raw = ''
-  for await (const chunk of req) {
-    raw += chunk
-  }
-  return raw ? JSON.parse(raw) : {}
-}
+import { readJsonBody } from './_lib/body.js'
 
 // POST /api/send — send an email through Resend as the app's mailbox address.
 export default async function handler(req, res) {
