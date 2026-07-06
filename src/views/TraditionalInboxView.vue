@@ -110,8 +110,13 @@ function sendReply() {
 }
 
 function senderAddress(email) {
+  if (email.address) return email.address
   const slug = email.sender.toLowerCase().replace(/[^a-z0-9]+/g, '')
   return `no-reply@${slug}.com`
+}
+
+function bodyParagraphs(email) {
+  return (email.body || email.snippet).split('\n\n')
 }
 
 function onKeydown(e) {
@@ -304,7 +309,7 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="ni-email-body">
-            <p>{{ openEmail.snippet }}</p>
+            <p v-for="(paragraph, i) in bodyParagraphs(openEmail)" :key="i">{{ paragraph }}</p>
             <p class="ni-email-signoff">Kind regards,<br />{{ openEmail.sender }}</p>
           </div>
         </div>

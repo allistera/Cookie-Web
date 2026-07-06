@@ -1,10 +1,15 @@
 import { setActivePinia, createPinia } from 'pinia'
-import { describe, beforeEach, it, expect } from 'vitest'
+import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { useInboxStore } from '../inbox'
 
 describe('Inbox Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('completes a todo and promotes the next hidden todo', () => {
@@ -41,9 +46,68 @@ describe('Inbox Store', () => {
 
   it('decrements unread inbox count upon completion', () => {
     const store = useInboxStore()
-    expect(store.unreadInboxCount).toBe(14)
+    store.unreadInboxCount = 5
 
     store.completeTodo('todo-kitchen')
-    expect(store.unreadInboxCount).toBe(13)
+    expect(store.unreadInboxCount).toBe(4)
+  })
+
+  it('loads emails from the API and maps them for the inbox list', async () => {
+    const sentAt = new Date()
+    sentAt.setHours(10, 4, 0, 0)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [
+            {
+              id: 'abc-123',
+              from_name: 'City Construction',
+              from_address: 'updates@cityconstruction.com',
+              subject: 'Revised Floor Plan',
+              snippet: 'Hi Allister, following up...',
+              body_text: 'Hi Allister, following up on our call.\n\nThe revised plan is attached.',
+              sent_at: sentAt.toISOString(),
+              is_unread: true,
+              is_starred: false,
+            },
+          ],
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.loadEmails()
+
+    expect(fetch).toHaveBeenCalledWith('/api/emails')
+    expect(store.traditionalEmails).toEqual([
+      {
+        id: 'abc-123',
+        sender: 'City Construction',
+        address: 'updates@cityconstruction.com',
+        subject: 'Revised Floor Plan',
+        snippet: 'Hi Allister, following up...',
+        body: 'Hi Allister, following up on our call.\n\nThe revised plan is attached.',
+        date: '10:04 AM',
+        unread: true,
+        starred: false,
+      },
+    ])
+    expect(store.unreadInboxCount).toBe(1)
+    expect(store.statusTime).toBe('Updated just now')
+    expect(store.isRefreshing).toBe(false)
+  })
+
+  it('reports the inbox as unavailable when the API fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const store = useInboxStore()
+    await store.loadEmails()
+
+    expect(store.traditionalEmails).toEqual([])
+    expect(store.statusTime).toBe('Inbox unavailable')
+    expect(store.isRefreshing).toBe(false)
   })
 })

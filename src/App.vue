@@ -105,6 +105,8 @@ watch(
 
 // Document level click listener to close search dropdown
 onMounted(() => {
+  store.loadEmails()
+
   document.addEventListener('click', (e) => {
     const searchContainer = document.getElementById('searchBarContainer')
     if (searchContainer && !searchContainer.contains(e.target)) {

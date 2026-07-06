@@ -1,5 +1,21 @@
 import { defineStore } from 'pinia'
 
+// "10:04 AM" for today, "Yesterday", then "Jun 3" — the shape the inbox
+// list groups and renders by.
+function formatEmailDate(isoString) {
+  const sentAt = new Date(isoString)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000)
+  if (sentAt >= startOfToday) {
+    return sentAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+  if (sentAt >= startOfYesterday) {
+    return 'Yesterday'
+  }
+  return sentAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export const useInboxStore = defineStore('inbox', {
   state: () => ({
     todos: [
@@ -64,142 +80,9 @@ export const useInboxStore = defineStore('inbox', {
         completed: false,
       },
     ],
-    traditionalEmails: [
-      {
-        id: 1,
-        sender: 'City Construction',
-        subject: 'Revised Floor Plan - Natural Light adjustments',
-        snippet:
-          'Hi Allister, following up on our call yesterday, we modified the bay window design...',
-        date: '10:04 AM',
-        unread: true,
-        starred: false,
-      },
-      {
-        id: 2,
-        sender: "Homeowner's Insurance",
-        subject: 'Claim #99281 - Processing Update',
-        snippet:
-          'We are pleased to inform you that your insurance claim has been processed. You will hear...',
-        date: '9:42 AM',
-        unread: true,
-        starred: true,
-      },
-      {
-        id: 3,
-        sender: 'Coach Mike',
-        subject: 'Soccer Snacks - June 6th Scrimmage',
-        snippet:
-          'Hey parents, just a reminder that tomorrow we play the Green Eagles. Allister has snacks...',
-        date: 'Yesterday',
-        unread: true,
-        starred: false,
-      },
-      {
-        id: 4,
-        sender: 'Univ of State Tours',
-        subject: 'Confirmation: June 12th guided tour',
-        snippet:
-          'Thank you for scheduling a campus visit. Please complete the waiver in the link...',
-        date: 'Yesterday',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 5,
-        sender: 'Resale Marketplace',
-        subject: 'Item Sold! Baby winter coat bundle',
-        snippet: 'Congratulations, your listing was purchased for $15. Print the label and mail...',
-        date: 'Jun 3',
-        unread: true,
-        starred: false,
-      },
-      {
-        id: 6,
-        sender: 'Palm House Hotel',
-        subject: 'Your reservation upgrade is confirmed',
-        snippet: 'Dear Allister, we have upgraded your room to Deluxe. Click here to see detail...',
-        date: 'Jun 2',
-        unread: false,
-        starred: true,
-      },
-      {
-        id: 7,
-        sender: 'Sarah Miller',
-        subject: 'RE: Neighborhood Block Party',
-        snippet: 'I can bring the paper plates and napkins! Do we need cups too?',
-        date: 'May 30',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 8,
-        sender: 'Electric Co.',
-        subject: 'Your May billing statement is ready',
-        snippet: 'Account ending in 4991. Total due: $112.40. Auto-pay will process on...',
-        date: 'May 28',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 9,
-        sender: 'Netflix',
-        subject: 'New Shows for June 2026',
-        snippet:
-          'Here is your curated list of movies and television series launching this month...',
-        date: 'May 27',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 10,
-        sender: 'Lincoln High',
-        subject: 'FAFSA Deadlines and College Prep guidance',
-        snippet:
-          'Parents of juniors, the FAFSA deadline has been shifted. Please review the new calendar...',
-        date: 'May 25',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 11,
-        sender: 'Target Shop',
-        subject: '20% Off Patio Furniture this weekend only',
-        snippet: 'Upgrade your backyard space before summer begins. Exclusions apply...',
-        date: 'May 24',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 12,
-        sender: 'Lincoln Counselors',
-        subject: 'Scholarships for the Arts program',
-        snippet: "We noticed your daughter's excellent fine arts GPA. She may qualify for...",
-        date: 'May 22',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 13,
-        sender: 'Resale Marketplace',
-        subject: 'Inquiry: Toddler shoe lot availability',
-        snippet: 'A buyer sent a message: Is the lot of shoes still available for pickup?',
-        date: 'May 20',
-        unread: false,
-        starred: false,
-      },
-      {
-        id: 14,
-        sender: 'Zoom Video',
-        subject: 'Invoice for subscription renewal',
-        snippet: 'Your annual Zoom Pro subscription has renewed. Amount charged: $149.90...',
-        date: 'May 19',
-        unread: false,
-        starred: false,
-      },
-    ],
-    unreadInboxCount: 14,
-    statusTime: 'Updated 3 minutes ago',
+    traditionalEmails: [],
+    unreadInboxCount: 0,
+    statusTime: 'Loading...',
     isRefreshing: false,
 
     // Chat state
@@ -261,14 +144,38 @@ export const useInboxStore = defineStore('inbox', {
       })
     },
 
-    refreshInbox() {
+    async loadEmails() {
       this.isRefreshing = true
-      this.statusTime = 'Syncing with Gemini...'
-
-      setTimeout(() => {
-        this.isRefreshing = false
+      this.statusTime = 'Syncing inbox...'
+      try {
+        const response = await fetch('/api/emails')
+        if (!response.ok) {
+          throw new Error(`GET /api/emails responded ${response.status}`)
+        }
+        const { emails } = await response.json()
+        this.traditionalEmails = emails.map((message) => ({
+          id: message.id,
+          sender: message.from_name || message.from_address,
+          address: message.from_address,
+          subject: message.subject,
+          snippet: message.snippet,
+          body: message.body_text,
+          date: formatEmailDate(message.sent_at),
+          unread: message.is_unread,
+          starred: message.is_starred,
+        }))
+        this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
         this.statusTime = 'Updated just now'
-      }, 1200)
+      } catch (error) {
+        console.error('Failed to load inbox:', error)
+        this.statusTime = 'Inbox unavailable'
+      } finally {
+        this.isRefreshing = false
+      }
+    },
+
+    refreshInbox() {
+      return this.loadEmails()
     },
 
     toggleTheme() {
