@@ -11,6 +11,7 @@ const route = useRoute()
 
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
+const showMoreNav = ref(false)
 
 // Compose window: focus the inline To field for a blank draft, or the
 // subject line when the recipient is prefilled (e.g. reply to-dos).
@@ -301,22 +302,26 @@ onMounted(() => {
             <span class="material-symbols-outlined">star</span>
             <span class="nav-text">Starred</span>
           </a>
-          <a href="#" class="nav-item">
-            <span class="material-symbols-outlined">schedule</span>
-            <span class="nav-text">Snoozed</span>
+          <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
+            <span class="material-symbols-outlined">{{
+              showMoreNav ? 'keyboard_arrow_up' : 'keyboard_arrow_down'
+            }}</span>
+            <span class="nav-text">{{ showMoreNav ? 'Less' : 'More' }}</span>
           </a>
-          <a href="#" class="nav-item">
-            <span class="material-symbols-outlined">send</span>
-            <span class="nav-text">Sent</span>
-          </a>
-          <a href="#" class="nav-item">
-            <span class="material-symbols-outlined">description</span>
-            <span class="nav-text">Drafts</span>
-          </a>
-          <a href="#" class="nav-item">
-            <span class="material-symbols-outlined">keyboard_arrow_down</span>
-            <span class="nav-text">More</span>
-          </a>
+          <template v-if="showMoreNav">
+            <a href="#" class="nav-item">
+              <span class="material-symbols-outlined">schedule</span>
+              <span class="nav-text">Snoozed</span>
+            </a>
+            <a href="#" class="nav-item">
+              <span class="material-symbols-outlined">send</span>
+              <span class="nav-text">Sent</span>
+            </a>
+            <a href="#" class="nav-item">
+              <span class="material-symbols-outlined">description</span>
+              <span class="nav-text">Drafts</span>
+            </a>
+          </template>
         </nav>
 
         <template v-if="store.allLabels.length">
