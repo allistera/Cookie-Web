@@ -1762,27 +1762,27 @@ body {
   display: flex;
 }
 
-.composer-from-row {
+.composer-draft-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px 6px;
+  padding: 20px 24px 8px;
 }
 
-.composer-from {
+.composer-draft-title {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 15px;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 600;
 }
 
-.composer-from-name {
-  font-weight: 500;
+.composer-draft-label {
+  color: #6cbf6c;
+}
+
+.composer-draft-recipient {
   color: var(--text-primary);
-}
-
-.composer-from-address {
-  color: var(--text-secondary);
 }
 
 .composer-window-actions {
@@ -1814,12 +1814,7 @@ body {
 .composer-field-row {
   display: flex;
   align-items: center;
-  padding: 6px 20px;
-}
-
-.composer-field-row-last {
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 12px;
+  padding: 4px 24px;
 }
 
 .composer-field-input {
@@ -1832,24 +1827,26 @@ body {
   color: var(--text-primary);
 }
 
-.composer-field-input::placeholder {
-  color: var(--text-secondary);
+.composer-subject-input {
+  font-size: 19px;
 }
 
-.composer-ccbcc {
-  font-size: 14px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
+.composer-field-input::placeholder {
+  color: #b8b8b8;
 }
 
 .composer-body {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  padding: 16px 20px;
+  padding: 12px 24px 16px;
   gap: 12px;
   overflow-y: auto;
+}
+
+.composer-body textarea::placeholder {
+  color: #b8b8b8;
+  letter-spacing: 2px;
 }
 
 .composer-body textarea {
@@ -1910,63 +1907,61 @@ body {
 }
 
 .composer-footer {
-  padding: 14px 20px 16px;
+  margin: 0 24px;
+  padding: 14px 0 18px;
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.composer-send-group {
-  display: flex;
-  align-items: stretch;
-  border-radius: 6px;
-  overflow: hidden;
-  background-color: #2383e2;
-}
-
-.composer-send-btn {
-  border: none;
-  background: transparent;
-  color: #ffffff;
-  font-family: var(--font-stack);
-  font-size: 14px;
-  font-weight: 500;
-  padding: 7px 14px;
-  cursor: pointer;
-}
-
-.composer-send-btn:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.composer-send-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.composer-send-caret {
-  border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.25);
-  background: transparent;
-  color: #ffffff;
-  padding: 0 6px;
-  cursor: pointer;
+.composer-send-actions {
   display: flex;
   align-items: center;
+  gap: 16px;
 }
 
-.composer-send-caret:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+.composer-text-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-stack);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.composer-send-caret .material-symbols-outlined {
-  font-size: 18px;
+.composer-text-btn:hover {
+  opacity: 1;
+}
+
+.composer-text-btn-primary {
+  color: var(--text-primary);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.composer-text-btn-primary:disabled {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: default;
 }
 
 .composer-tools {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.composer-ai-btn {
+  font-family: var(--font-stack);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 2px 4px;
 }
 
 /* Animations */

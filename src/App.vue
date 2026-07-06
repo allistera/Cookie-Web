@@ -464,14 +464,16 @@ onMounted(() => {
 
   <!-- Inline Composer Toast -->
   <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast">
-    <div class="composer-from-row">
-      <div class="composer-from">
-        <span class="composer-from-name">{{ user?.name || 'Allister' }}</span>
-        <span class="composer-from-address">{{ user?.email }}</span>
+    <div class="composer-draft-row">
+      <div class="composer-draft-title">
+        <span class="composer-draft-label">Draft</span>
+        <span v-if="store.composerTo" class="composer-draft-recipient">
+          to {{ store.composerTo.split('@')[0] }}
+        </span>
       </div>
       <div class="composer-window-actions">
-        <button class="composer-icon-btn" title="Minimize" @click="store.closeComposer">
-          <span class="material-symbols-outlined">remove</span>
+        <button class="composer-icon-btn" title="Pop out">
+          <span class="material-symbols-outlined">filter_none</span>
         </button>
         <button class="composer-icon-btn" title="Close" @click="store.closeComposer">
           <span class="material-symbols-outlined">close</span>
@@ -483,15 +485,18 @@ onMounted(() => {
         v-model="store.composerTo"
         class="composer-field-input"
         type="email"
-        placeholder="Add recipient"
+        placeholder="To"
       />
-      <span class="composer-ccbcc">Cc/Bcc</span>
     </div>
-    <div class="composer-field-row composer-field-row-last">
-      <input v-model="store.composerSubject" class="composer-field-input" placeholder="Subject" />
+    <div class="composer-field-row">
+      <input
+        v-model="store.composerSubject"
+        class="composer-field-input composer-subject-input"
+        placeholder="Subject"
+      />
     </div>
     <div class="composer-body">
-      <textarea v-model="store.composerTextArea"></textarea>
+      <textarea v-model="store.composerTextArea" placeholder="..."></textarea>
 
       <!-- Inline Gemini drafting box -->
       <div class="composer-gemini-box" :class="{ active: store.isGeminiDraftActive }">
@@ -516,30 +521,34 @@ onMounted(() => {
       </div>
     </div>
     <div class="composer-footer">
-      <div class="composer-send-group">
+      <div class="composer-send-actions">
         <button
-          class="composer-send-btn"
+          class="composer-text-btn composer-text-btn-primary"
           :disabled="!store.composerTo.includes('@') || !store.composerTextArea.trim()"
           @click="store.sendEmail"
         >
           Send
         </button>
-        <button class="composer-send-caret" title="Send options">
-          <span class="material-symbols-outlined">keyboard_arrow_down</span>
-        </button>
+        <button class="composer-text-btn">Send later</button>
+        <button class="composer-text-btn">Remind me</button>
+        <button class="composer-text-btn">Share draft</button>
       </div>
       <div class="composer-tools">
-        <button class="composer-icon-btn" title="Help me write" @click="store.triggerGeminiDraft">
-          <span class="material-symbols-outlined">stylus_note</span>
+        <button
+          class="composer-icon-btn composer-ai-btn"
+          title="Help me write"
+          @click="store.triggerGeminiDraft"
+        >
+          ai
         </button>
-        <button class="composer-icon-btn" title="Attach file">
-          <span class="material-symbols-outlined">attach_file</span>
+        <button class="composer-icon-btn" title="Schedule send">
+          <span class="material-symbols-outlined">calendar_month</span>
         </button>
         <button class="composer-icon-btn" title="Insert variable">
           <span class="material-symbols-outlined">data_object</span>
         </button>
-        <button class="composer-icon-btn" title="Schedule send">
-          <span class="material-symbols-outlined">calendar_today</span>
+        <button class="composer-icon-btn" title="Attach file">
+          <span class="material-symbols-outlined">attach_file</span>
         </button>
         <button class="composer-icon-btn" title="Discard" @click="store.closeComposer">
           <span class="material-symbols-outlined">delete</span>
