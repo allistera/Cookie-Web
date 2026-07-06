@@ -16,6 +16,7 @@ const showLogoutMenu = ref(false)
 // subject line when the recipient is prefilled (e.g. reply to-dos).
 const composerToRef = ref(null)
 const composerSubjectRef = ref(null)
+const composerBodyRef = ref(null)
 watch(
   () => store.isComposerActive,
   (active) => {
@@ -501,13 +502,14 @@ onMounted(() => {
           v-model="store.composerTo"
           class="composer-to-inline"
           type="email"
+          @keydown.tab.exact.prevent="composerSubjectRef?.focus()"
         />
       </div>
       <div class="composer-window-actions">
-        <button class="composer-icon-btn" title="Pop out">
+        <button class="composer-icon-btn" title="Pop out" tabindex="-1">
           <span class="material-symbols-outlined">filter_none</span>
         </button>
-        <button class="composer-icon-btn" title="Close" @click="store.closeComposer">
+        <button class="composer-icon-btn" title="Close" tabindex="-1" @click="store.closeComposer">
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
@@ -517,10 +519,17 @@ onMounted(() => {
         ref="composerSubjectRef"
         v-model="store.composerSubject"
         class="composer-field-input composer-subject-input"
+        @keydown.tab.exact.prevent="composerBodyRef?.focus()"
+        @keydown.shift.tab.prevent="composerToRef?.focus()"
       />
     </div>
     <div class="composer-body">
-      <textarea v-model="store.composerTextArea" placeholder="..."></textarea>
+      <textarea
+        ref="composerBodyRef"
+        v-model="store.composerTextArea"
+        placeholder="..."
+        @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
+      ></textarea>
 
       <!-- Inline Gemini drafting box -->
       <div class="composer-gemini-box" :class="{ active: store.isGeminiDraftActive }">
