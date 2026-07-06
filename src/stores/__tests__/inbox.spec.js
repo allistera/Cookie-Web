@@ -99,6 +99,7 @@ describe('Inbox Store', () => {
         date: '10:04 am',
         unread: true,
         starred: false,
+        labels: [],
       },
     ])
     expect(store.unreadInboxCount).toBe(1)

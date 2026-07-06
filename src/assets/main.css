@@ -1053,27 +1053,26 @@ body {
   margin-bottom: 22px;
 }
 
-.ni-reader-addlabel {
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.ni-label-chip {
+.ni-label-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--bg-hover);
+  padding: 3px 12px;
+  border-radius: 999px;
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--text-primary);
+  white-space: nowrap;
 }
 
-.ni-label-chip .material-symbols-outlined {
-  font-size: 15px;
-  color: var(--text-secondary);
-  cursor: pointer;
+.ni-label-pill-sm {
+  padding: 1px 9px;
+  font-size: 12px;
+}
+
+.ni-row-labels {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .ni-email-card {

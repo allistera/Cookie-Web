@@ -120,6 +120,17 @@ export const useInboxStore = defineStore('inbox', {
     totalActiveTodosCount(state) {
       return state.todos.filter((t) => !t.completed).length
     },
+    allLabels(state) {
+      const byName = new Map()
+      for (const email of state.traditionalEmails) {
+        for (const label of email.labels || []) {
+          if (!byName.has(label.name)) {
+            byName.set(label.name, label)
+          }
+        }
+      }
+      return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+    },
   },
 
   actions: {
@@ -176,6 +187,7 @@ export const useInboxStore = defineStore('inbox', {
           date: formatEmailDate(message.sent_at),
           unread: message.is_unread,
           starred: message.is_starred,
+          labels: message.labels || [],
         }))
         this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
         this.statusTime = 'Updated just now'

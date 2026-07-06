@@ -7,10 +7,19 @@ import { verifyAccessToken } from './_lib/auth.js'
 function fetchEmails(sql, sub) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
-           m.body_text, m.sent_at, m.is_unread, m.is_starred
+           m.body_text, m.sent_at, m.is_unread, m.is_starred,
+           COALESCE(
+             json_agg(json_build_object('name', l.name, 'color', l.color)
+                      ORDER BY l.name)
+               FILTER (WHERE l.id IS NOT NULL),
+             '[]'
+           ) AS labels
     FROM messages m
     JOIN users u ON u.id = m.user_id
+    LEFT JOIN message_labels ml ON ml.message_id = m.id
+    LEFT JOIN labels l ON l.id = ml.label_id
     WHERE u.auth0_sub = ${sub} AND NOT m.is_archived
+    GROUP BY m.id
     ORDER BY m.sent_at DESC
   `
 }

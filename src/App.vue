@@ -318,6 +318,16 @@ onMounted(() => {
             <span class="nav-text">More</span>
           </a>
         </nav>
+
+        <template v-if="store.allLabels.length">
+          <div class="sb-section-label">Labels</div>
+          <nav class="sidebar-nav">
+            <a href="#" class="nav-item" v-for="label in store.allLabels" :key="label.name">
+              <span class="material-symbols-outlined" :style="{ color: label.color }">sell</span>
+              <span class="nav-text">{{ label.name }}</span>
+            </a>
+          </nav>
+        </template>
       </aside>
 
       <!-- MAIN CONTENT PANEL -->

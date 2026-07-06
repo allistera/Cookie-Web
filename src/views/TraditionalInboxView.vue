@@ -176,6 +176,16 @@ onUnmounted(() => {
           </div>
           <div class="ni-sender">{{ email.sender }}</div>
           <div class="ni-subject">{{ email.subject }}</div>
+          <div class="ni-row-labels">
+            <span
+              v-for="label in email.labels"
+              :key="label.name"
+              class="ni-label-pill ni-label-pill-sm"
+              :style="{ color: label.color, backgroundColor: label.color + '1f' }"
+            >
+              {{ label.name }}
+            </span>
+          </div>
           <div class="ni-date">{{ email.date }}</div>
           <div class="ni-actions" @click.stop>
             <button
@@ -254,11 +264,14 @@ onUnmounted(() => {
 
         <h2 class="ni-reader-subject">{{ openEmail.subject }}</h2>
 
-        <div class="ni-reader-labels">
-          <span class="ni-reader-addlabel">Add label</span>
-          <span class="ni-label-chip">
-            Updates
-            <span class="material-symbols-outlined">close</span>
+        <div class="ni-reader-labels" v-if="openEmail.labels?.length">
+          <span
+            v-for="label in openEmail.labels"
+            :key="label.name"
+            class="ni-label-pill"
+            :style="{ color: label.color, backgroundColor: label.color + '1f' }"
+          >
+            {{ label.name }}
           </span>
         </div>
 

@@ -16,6 +16,7 @@ const rows = [
     ageMs: 0.5 * HOUR,
     is_unread: true,
     is_starred: false,
+    labels: [{ name: 'Home', color: '#e5484d' }],
   },
   {
     from_name: "Homeowner's Insurance",
@@ -28,6 +29,7 @@ const rows = [
     ageMs: 0.9 * HOUR,
     is_unread: true,
     is_starred: true,
+    labels: [{ name: 'Finance', color: '#2f9e44' }, { name: 'Home', color: '#e5484d' }],
   },
   {
     from_name: 'Coach Mike',
@@ -40,6 +42,7 @@ const rows = [
     ageMs: 1 * DAY + 2 * HOUR,
     is_unread: true,
     is_starred: false,
+    labels: [{ name: 'School', color: '#8e4ec6' }],
   },
   {
     from_name: 'Univ of State Tours',
@@ -52,6 +55,7 @@ const rows = [
     ageMs: 1 * DAY + 4 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'School', color: '#8e4ec6' }],
   },
   {
     from_name: 'Resale Marketplace',
@@ -63,6 +67,7 @@ const rows = [
     ageMs: 3 * DAY + 5 * HOUR,
     is_unread: true,
     is_starred: false,
+    labels: [{ name: 'Shopping', color: '#d6409f' }],
   },
   {
     from_name: 'Palm House Hotel',
@@ -74,6 +79,7 @@ const rows = [
     ageMs: 4 * DAY + 6 * HOUR,
     is_unread: false,
     is_starred: true,
+    labels: [{ name: 'Travel', color: '#2383e2' }],
   },
   {
     from_name: 'Sarah Miller',
@@ -85,6 +91,7 @@ const rows = [
     ageMs: 6 * DAY + 7 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'Home', color: '#e5484d' }],
   },
   {
     from_name: 'Electric Co.',
@@ -96,6 +103,7 @@ const rows = [
     ageMs: 8 * DAY + 3 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'Finance', color: '#2f9e44' }],
   },
   {
     from_name: 'Netflix',
@@ -108,6 +116,7 @@ const rows = [
     ageMs: 9 * DAY + 5 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'Newsletters', color: '#d9730d' }],
   },
   {
     from_name: 'Lincoln High',
@@ -120,6 +129,7 @@ const rows = [
     ageMs: 11 * DAY + 2 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'School', color: '#8e4ec6' }],
   },
   {
     from_name: 'Target Shop',
@@ -131,6 +141,7 @@ const rows = [
     ageMs: 12 * DAY + 4 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'Newsletters', color: '#d9730d' }, { name: 'Shopping', color: '#d6409f' }],
   },
   {
     from_name: 'Lincoln Counselors',
@@ -142,6 +153,7 @@ const rows = [
     ageMs: 14 * DAY + 6 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'School', color: '#8e4ec6' }],
   },
   {
     from_name: 'Resale Marketplace',
@@ -153,6 +165,7 @@ const rows = [
     ageMs: 16 * DAY + 3 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'Shopping', color: '#d6409f' }],
   },
   {
     from_name: 'Zoom Video',
@@ -164,6 +177,7 @@ const rows = [
     ageMs: 17 * DAY + 5 * HOUR,
     is_unread: false,
     is_starred: false,
+    labels: [{ name: 'Finance', color: '#2f9e44' }],
   },
 ]
 
