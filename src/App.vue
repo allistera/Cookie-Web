@@ -103,10 +103,20 @@ watch(
   },
 )
 
+// Load the inbox once the user is authenticated (immediately in E2E mode,
+// after the Auth0 redirect completes otherwise).
+watch(
+  isAuthenticated,
+  (authenticated) => {
+    if (authenticated) {
+      store.loadEmails()
+    }
+  },
+  { immediate: true },
+)
+
 // Document level click listener to close search dropdown
 onMounted(() => {
-  store.loadEmails()
-
   document.addEventListener('click', (e) => {
     const searchContainer = document.getElementById('searchBarContainer')
     if (searchContainer && !searchContainer.contains(e.target)) {

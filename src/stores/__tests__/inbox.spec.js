@@ -2,6 +2,10 @@ import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { useInboxStore } from '../inbox'
 
+vi.mock('../../auth0-client', () => ({
+  getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
+}))
+
 describe('Inbox Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -80,7 +84,9 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadEmails()
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails')
+    expect(fetch).toHaveBeenCalledWith('/api/emails', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
     expect(store.traditionalEmails).toEqual([
       {
         id: 'abc-123',

@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 
+import { getAuth0 } from '../auth0-client'
+
 // "10:04 AM" for today, "Yesterday", then "Jun 3" — the shape the inbox
 // list groups and renders by.
 function formatEmailDate(isoString) {
@@ -148,7 +150,13 @@ export const useInboxStore = defineStore('inbox', {
       this.isRefreshing = true
       this.statusTime = 'Syncing inbox...'
       try {
-        const response = await fetch('/api/emails')
+        const headers = {}
+        const auth0 = getAuth0()
+        if (auth0) {
+          const token = await auth0.getAccessTokenSilently()
+          headers.Authorization = `Bearer ${token}`
+        }
+        const response = await fetch('/api/emails', { headers })
         if (!response.ok) {
           throw new Error(`GET /api/emails responded ${response.status}`)
         }

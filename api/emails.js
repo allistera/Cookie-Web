@@ -2,18 +2,35 @@ import process from 'node:process'
 
 import { neon } from '@neondatabase/serverless'
 
-// GET /api/emails — inbox messages for the reading list, newest first.
+import { verifyAccessToken } from './_lib/auth.js'
+
+function fetchEmails(sql, sub) {
+  return sql`
+    SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
+           m.body_text, m.sent_at, m.is_unread, m.is_starred
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    WHERE u.auth0_sub = ${sub} AND NOT m.is_archived
+    ORDER BY m.sent_at DESC
+  `
+}
+
+// GET /api/emails — the authenticated user's inbox, newest first.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
+
+  let sub
+  try {
+    ;({ sub } = await verifyAccessToken(req))
+  } catch {
+    res.statusCode = 401
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
+
   try {
     const sql = neon(process.env.DATABASE_URL)
-    const emails = await sql`
-      SELECT id, from_name, from_address, subject, snippet, body_text,
-             sent_at, is_unread, is_starred
-      FROM messages
-      WHERE NOT is_archived
-      ORDER BY sent_at DESC
-    `
+    const emails = await fetchEmails(sql, sub)
     res.statusCode = 200
     res.end(JSON.stringify({ emails }))
   } catch (err) {
