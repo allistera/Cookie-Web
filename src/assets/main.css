@@ -1831,7 +1831,7 @@ body {
 }
 
 .composer-draft-label {
-  color: #6cbf6c;
+  color: var(--text-blue);
 }
 
 .composer-draft-to {
