@@ -10,8 +10,9 @@
   "vars": {
     // Destination must be a verified address in Cloudflare Email Routing.
     "FORWARD_TO": "allisteraall@gmail.com",
-    // Inbound mail is stored against the users row with this email.
-    "OWNER_EMAIL": "allisteraall@gmail.com"
+    // Inbound mail is stored against the users row with this email —
+    // users.email holds the Auth0 login identity, not the forward address.
+    "OWNER_EMAIL": "me@allisterantosik.com"
   }
   // DATABASE_URL is a secret: .dev.vars locally, `wrangler secret put` (via CI) in prod.
 }
