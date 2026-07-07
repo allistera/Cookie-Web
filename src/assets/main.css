@@ -1717,8 +1717,23 @@ body {
   min-width: 0;
 }
 
-.composer-draft-label {
+.composer-subject-inline {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-stack);
+  font-size: 17px;
+  font-weight: 600;
   color: var(--text-blue);
+  padding: 0;
+  field-sizing: content;
+  min-width: 46px;
+  max-width: 55%;
+}
+
+.composer-subject-inline::placeholder {
+  color: var(--text-blue);
+  opacity: 0.85;
 }
 
 .composer-draft-to {
@@ -1778,10 +1793,6 @@ body {
   font-family: var(--font-stack);
   font-size: 15px;
   color: var(--text-primary);
-}
-
-.composer-subject-input {
-  font-size: 19px;
 }
 
 .composer-field-input::placeholder {

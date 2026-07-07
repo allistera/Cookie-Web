@@ -13,8 +13,7 @@ const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth(
 const showLogoutMenu = ref(false)
 const showMoreNav = ref(false)
 
-// Compose window: focus the inline To field for a blank draft, or the
-// subject line when the recipient is prefilled (e.g. reply to-dos).
+// Compose window: the inline subject in the title row gets focus first.
 const composerToRef = ref(null)
 const composerSubjectRef = ref(null)
 const composerBodyRef = ref(null)
@@ -22,10 +21,7 @@ watch(
   () => store.isComposerActive,
   (active) => {
     if (active) {
-      nextTick(() => {
-        const target = store.composerTo ? composerSubjectRef.value : composerToRef.value
-        target?.focus()
-      })
+      nextTick(() => composerSubjectRef.value?.focus())
     }
   },
 )
@@ -462,14 +458,21 @@ onMounted(() => {
   <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast">
     <div class="composer-draft-row">
       <div class="composer-draft-title">
-        <span class="composer-draft-label">Draft</span>
+        <input
+          ref="composerSubjectRef"
+          v-model="store.composerSubject"
+          class="composer-subject-inline"
+          placeholder="Hello"
+          @keydown.tab.exact.prevent="composerToRef?.focus()"
+        />
         <span class="composer-draft-to">to</span>
         <input
           ref="composerToRef"
           v-model="store.composerTo"
           class="composer-to-inline"
           type="email"
-          @keydown.tab.exact.prevent="composerSubjectRef?.focus()"
+          @keydown.tab.exact.prevent="composerBodyRef?.focus()"
+          @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
         />
       </div>
       <div class="composer-window-actions">
@@ -480,15 +483,6 @@ onMounted(() => {
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
-    </div>
-    <div class="composer-field-row">
-      <input
-        ref="composerSubjectRef"
-        v-model="store.composerSubject"
-        class="composer-field-input composer-subject-input"
-        @keydown.tab.exact.prevent="composerBodyRef?.focus()"
-        @keydown.shift.tab.prevent="composerToRef?.focus()"
-      />
     </div>
     <div class="composer-body">
       <textarea
