@@ -72,6 +72,83 @@ describe('parseEmail', () => {
     expect(JSON.stringify(record.attachments)).not.toContain('Hello attachment content')
   })
 
+  it('keeps unnamed inline attachments with a null filename', async () => {
+    const record = await parseEmail(fakeMessage(readFixture('inline-image.eml')))
+
+    expect(record.attachments).toEqual([
+      { filename: null, mime_type: 'image/png', size: expect.any(Number) },
+    ])
+  })
+
+  it('strips U+0000 from subject and bodies', async () => {
+    const raw = [
+      'From: nul@example.com',
+      'To: inbox@example.org',
+      'Subject: bad\u0000subject',
+      'Message-ID: <nul-001@example.com>',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'body with\u0000nul',
+    ].join('\r\n')
+
+    const record = await parseEmail(fakeMessage(raw))
+
+    expect(record.subject).toBe('badsubject')
+    expect(record.bodyText).not.toContain('\u0000')
+  })
+
+  it('clamps spoofed far-future Date headers to now', async () => {
+    const raw = [
+      'From: time@example.com',
+      'To: inbox@example.org',
+      'Subject: From the future',
+      'Date: Sat, 01 Jan 2099 00:00:00 +0000',
+      'Message-ID: <future-001@example.com>',
+      '',
+      'Body',
+    ].join('\r\n')
+
+    const record = await parseEmail(fakeMessage(raw))
+
+    expect(record.sentAt.getTime()).toBeLessThanOrEqual(Date.now() + 24 * 60 * 60 * 1000)
+  })
+
+  it('replaces an oversized Message-ID with the synthetic hash', async () => {
+    const huge = `<${'x'.repeat(4000)}@example.com>`
+    const raw = [
+      'From: big-id@example.com',
+      'To: inbox@example.org',
+      'Subject: Huge id',
+      `Message-ID: ${huge}`,
+      '',
+      'Body',
+    ].join('\r\n')
+
+    const record = await parseEmail(fakeMessage(raw))
+
+    expect(record.messageId).toMatch(/^<synthetic-[0-9a-f]{64}@mail-app-ingest>$/)
+  })
+
+  it('caps stored headers at 100 entries and bounds their values', async () => {
+    const manyHeaders = Array.from({ length: 150 }, (_, i) => `X-Filler-${i}: ${'v'.repeat(5000)}`)
+    const raw = [
+      'From: many@example.com',
+      'To: inbox@example.org',
+      'Subject: Many headers',
+      'Message-ID: <many-001@example.com>',
+      ...manyHeaders,
+      '',
+      'Body',
+    ].join('\r\n')
+
+    const record = await parseEmail(fakeMessage(raw))
+
+    expect(record.headers.length).toBeLessThanOrEqual(100)
+    for (const header of record.headers) {
+      expect((header.value ?? '').length).toBeLessThanOrEqual(2048)
+    }
+  })
+
   it('falls back to the envelope sender when From is unparseable', async () => {
     const raw = ['To: inbox@example.org', 'Subject: No from', 'Message-ID: <nf-001@example.com>', '', 'Body'].join(
       '\r\n',

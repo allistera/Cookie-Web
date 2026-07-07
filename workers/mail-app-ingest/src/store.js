@@ -22,6 +22,8 @@ export async function storeEmail(sql, record, ownerEmail) {
            ) AS thread_id
     FROM users u
     WHERE u.email = ${ownerEmail}
+    ORDER BY u.created_at
+    LIMIT 1
   `
   if (rows.length === 0) {
     throw new Error('no users row matches OWNER_EMAIL; message not stored')
@@ -70,11 +72,14 @@ export async function storeEmail(sql, record, ownerEmail) {
   }
 
   if (matchedThreadId) {
+    // EXISTS guards the bump: if the message INSERT was an ON CONFLICT no-op
+    // (concurrent retry), the counters must not drift.
     queries.push(sql`
       UPDATE threads
       SET message_count = message_count + 1,
           last_message_at = GREATEST(last_message_at, ${sentAt})
       WHERE id = ${matchedThreadId}
+        AND EXISTS (SELECT 1 FROM messages WHERE id = ${messageUuid})
     `)
   }
 

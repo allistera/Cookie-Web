@@ -8,6 +8,24 @@ import { syntheticMessageId } from './synthetic-id.js'
 const BODY_CAP_BYTES = 512 * 1024
 const SNIPPET_LENGTH = 100
 
+// Header/attachment metadata is attacker-controlled and lands in jsonb —
+// bound everything so a crafted message can't bloat rows or burn the store
+// budget.
+const MAX_HEADERS = 100
+const MAX_HEADER_VALUE = 2048
+const MAX_ATTACHMENTS_META = 100
+const MAX_REFERENCES = 50
+// btree index tuples cap out around 2.7 KB; RFC 5322 lines at 998.
+const MAX_MESSAGE_ID = 998
+// A spoofed far-future Date header would otherwise pin its thread to the top
+// of the inbox forever via last_message_at.
+const MAX_FUTURE_MS = 24 * 60 * 60 * 1000
+
+// Postgres text/jsonb reject U+0000 outright.
+function stripNul(value) {
+  return value == null ? value : String(value).replaceAll('\u0000', '')
+}
+
 // postal-mime Address entries are mailboxes ({name, address}) or groups
 // ({name, group: [...]}) — flatten to a plain mailbox list.
 function flattenAddresses(addresses) {
@@ -58,7 +76,7 @@ export function htmlToText(html) {
 // existing thread.
 function extractReferences(email) {
   const raw = `${email.inReplyTo ?? ''} ${email.references ?? ''}`
-  return [...new Set(raw.match(/<[^>]+>/g) ?? [])]
+  return [...new Set(raw.match(/<[^>]+>/g) ?? [])].slice(0, MAX_REFERENCES)
 }
 
 function makeSnippet(text) {
@@ -73,29 +91,32 @@ function makeSnippet(text) {
 export async function parseEmail(message) {
   const email = await PostalMime.parse(message.raw)
 
-  const bodyText = capBody(email.text ?? htmlToText(email.html))
-  const bodyHtml = capBody(email.html ?? null)
+  const bodyText = capBody(stripNul(email.text ?? htmlToText(email.html)))
+  const bodyHtml = capBody(stripNul(email.html ?? null))
 
+  const headerMessageId = stripNul(email.messageId)
   const messageId =
-    email.messageId ||
-    (await syntheticMessageId({
-      from: message.from,
-      to: message.to,
-      date: email.date,
-      subject: email.subject,
-      bodyPrefix: (email.text ?? email.html ?? '').slice(0, 1024),
-    }))
+    headerMessageId && headerMessageId.length <= MAX_MESSAGE_ID
+      ? headerMessageId
+      : await syntheticMessageId({
+          from: message.from,
+          to: message.to,
+          date: email.date,
+          subject: email.subject,
+          bodyPrefix: (email.text ?? email.html ?? '').slice(0, 1024),
+        })
 
-  const sentAt = email.date && !Number.isNaN(Date.parse(email.date)) ? new Date(email.date) : new Date()
+  let sentAt = email.date && !Number.isNaN(Date.parse(email.date)) ? new Date(email.date) : new Date()
+  if (sentAt.getTime() > Date.now() + MAX_FUTURE_MS) sentAt = new Date()
 
   const from = flattenAddresses(email.from ? [email.from] : [])[0] ?? { name: null, address: null }
 
   return {
     messageId,
-    subject: email.subject ?? null,
-    fromName: from.name,
+    subject: stripNul(email.subject) ?? null,
+    fromName: stripNul(from.name),
     // from_address is NOT NULL in the schema; the envelope sender always exists.
-    fromAddress: from.address ?? message.from,
+    fromAddress: stripNul(from.address) ?? message.from,
     recipients: {
       to: flattenAddresses(email.to),
       cc: flattenAddresses(email.cc),
@@ -106,14 +127,15 @@ export async function parseEmail(message) {
     bodyHtml: bodyHtml.text,
     truncated: bodyText.truncated || bodyHtml.truncated,
     references: extractReferences(email),
-    headers: email.headers ?? [],
-    attachments: (email.attachments ?? []).map((a) => ({
-      filename: a.filename ?? null,
-      mime_type: a.mimeType ?? null,
-      size:
-        typeof a.content === 'string'
-          ? new TextEncoder().encode(a.content).length
-          : (a.content?.byteLength ?? 0),
+    headers: (email.headers ?? []).slice(0, MAX_HEADERS).map((h) => ({
+      key: stripNul(h.key),
+      value: stripNul(h.value)?.slice(0, MAX_HEADER_VALUE) ?? null,
+    })),
+    attachments: (email.attachments ?? []).slice(0, MAX_ATTACHMENTS_META).map((a) => ({
+      filename: stripNul(a.filename) ?? null,
+      mime_type: stripNul(a.mimeType) ?? null,
+      // Approximate for string parts — metadata only, not worth a re-encode.
+      size: typeof a.content === 'string' ? a.content.length : (a.content?.byteLength ?? 0),
     })),
     rawSize: message.rawSize,
     envelopeFrom: message.from,

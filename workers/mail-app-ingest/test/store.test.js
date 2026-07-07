@@ -78,6 +78,9 @@ describe('storeEmail', () => {
     const update = transactions[0].find((q) => q.text.includes('UPDATE threads'))
     expect(update).toBeDefined()
     expect(update.text).toContain('message_count = message_count + 1')
+    // The bump must be conditional on the message insert not being an
+    // ON CONFLICT no-op, or concurrent retries drift the counter.
+    expect(update.text).toContain('EXISTS')
     expect(update.values).toContain(threadId)
   })
 
