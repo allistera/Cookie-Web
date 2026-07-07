@@ -20,7 +20,7 @@ const emailGroups = computed(() => {
     else earlier.push(email)
   }
   const groups = []
-  if (today.length) groups.push({ label: null, emails: today })
+  if (today.length) groups.push({ label: 'Today', emails: today })
   if (yesterday.length) groups.push({ label: 'Yesterday', emails: yesterday })
   if (lastSevenDays.length) groups.push({ label: 'Last seven days', emails: lastSevenDays })
   if (earlier.length) groups.push({ label: 'Earlier', emails: earlier })
@@ -28,6 +28,20 @@ const emailGroups = computed(() => {
 })
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
+
+// Accordion state: Today starts open, every other day group starts closed.
+const openGroups = ref(new Set(['Today']))
+
+function isGroupOpen(label) {
+  return openGroups.value.has(label)
+}
+
+function toggleGroup(label) {
+  const next = new Set(openGroups.value)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  openGroups.value = next
+}
 
 function markRead(email) {
   store.setUnread(email, false)
@@ -161,10 +175,19 @@ onUnmounted(() => {
 
     <!-- Email list -->
     <div class="ni-list">
-      <template v-for="group in emailGroups" :key="group.label || 'today'">
-        <div v-if="group.label" class="ni-group-header">{{ group.label }}</div>
+      <template v-for="group in emailGroups" :key="group.label">
+        <button
+          class="ni-group-header"
+          :class="{ collapsed: !isGroupOpen(group.label) }"
+          :aria-expanded="isGroupOpen(group.label)"
+          @click="toggleGroup(group.label)"
+        >
+          <span class="material-symbols-outlined ni-group-chevron">expand_more</span>
+          <span>{{ group.label }}</span>
+          <span class="ni-group-count">{{ group.emails.length }}</span>
+        </button>
         <div
-          v-for="email in group.emails"
+          v-for="email in isGroupOpen(group.label) ? group.emails : []"
           :key="email.id"
           class="ni-row"
           :class="{ unread: email.unread, selected: openEmail === email }"
