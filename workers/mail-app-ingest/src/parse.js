@@ -54,6 +54,13 @@ export function htmlToText(html) {
   return text || null
 }
 
+// Message-IDs from In-Reply-To/References, used to attach replies to an
+// existing thread.
+function extractReferences(email) {
+  const raw = `${email.inReplyTo ?? ''} ${email.references ?? ''}`
+  return [...new Set(raw.match(/<[^>]+>/g) ?? [])]
+}
+
 function makeSnippet(text) {
   const collapsed = (text ?? '').replace(/\s+/g, ' ').trim()
   if (!collapsed) return ''
@@ -98,6 +105,7 @@ export async function parseEmail(message) {
     bodyText: bodyText.text,
     bodyHtml: bodyHtml.text,
     truncated: bodyText.truncated || bodyHtml.truncated,
+    references: extractReferences(email),
     headers: email.headers ?? [],
     attachments: (email.attachments ?? []).map((a) => ({
       filename: a.filename ?? null,
