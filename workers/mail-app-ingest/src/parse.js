@@ -26,7 +26,7 @@ function capBody(text) {
   if (text == null) return { text: null, truncated: false }
   const bytes = new TextEncoder().encode(text)
   if (bytes.length <= BODY_CAP_BYTES) return { text, truncated: false }
-  const sliced = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, BODY_CAP_BYTES))
+  const sliced = new TextDecoder('utf-8').decode(bytes.slice(0, BODY_CAP_BYTES))
   // Drop a possible partial trailing code point produced by the byte slice.
   return { text: sliced.replace(/�+$/, ''), truncated: true }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { storeEmail } from '../src/store.js'
+import { createMockSql } from './helpers.js'
 
 const OWNER = 'owner@example.com'
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -25,23 +26,6 @@ function makeRecord(overrides = {}) {
     sentAt: new Date('2026-07-07T10:00:00.000Z'),
     ...overrides,
   }
-}
-
-// Mimics the neon() tagged-template client: sql`...` records the query and
-// resolves lookup rows; sql.transaction() records the batch.
-function createMockSql({ lookupRows }) {
-  const executed = []
-  const transactions = []
-  const sql = (strings, ...values) => {
-    const query = { text: strings.join('¶'), values }
-    executed.push(query)
-    return Object.assign(Promise.resolve(query.text.includes('FROM users') ? lookupRows : []), query)
-  }
-  sql.transaction = (queries) => {
-    transactions.push(queries)
-    return Promise.resolve(queries.map(() => []))
-  }
-  return { sql, executed, transactions }
 }
 
 describe('storeEmail', () => {

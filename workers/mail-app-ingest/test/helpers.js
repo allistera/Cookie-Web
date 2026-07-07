@@ -20,3 +20,20 @@ export function fakeMessage(raw, { from = 'sender@example.com', to = 'inbox@exam
     setReject: () => {},
   }
 }
+
+// Mimics the neon() tagged-template client: sql`...` records the query and
+// resolves lookup rows; sql.transaction() records the batch.
+export function createMockSql({ lookupRows }) {
+  const executed = []
+  const transactions = []
+  const sql = (strings, ...values) => {
+    const query = { text: strings.join('¶'), values }
+    executed.push(query)
+    return Object.assign(Promise.resolve(query.text.includes('FROM users') ? lookupRows : []), query)
+  }
+  sql.transaction = (queries) => {
+    transactions.push(queries)
+    return Promise.resolve(queries.map(() => []))
+  }
+  return { sql, executed, transactions }
+}
