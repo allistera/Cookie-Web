@@ -1,0 +1,17 @@
+From: "Newsletter" <news@example.com>
+To: inbox@example.org
+Subject: HTML only newsletter
+Date: Tue, 07 Jul 2026 12:00:00 +0000
+Message-ID: <html-only-001@example.com>
+Content-Type: text/html; charset=utf-8
+
+<html>
+  <head>
+    <style>body { color: red; }</style>
+  </head>
+  <body>
+    <h1>Big news &amp; updates</h1>
+    <p>First paragraph of the newsletter.</p>
+    <p>Second paragraph with a <a href="https://example.com">link</a>.</p>
+  </body>
+</html>
