@@ -166,7 +166,10 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
   await expect(starBtn).not.toHaveClass(/starred/)
 })
 
-test('Settings Labels pane lists labels and creates a new one', async ({ page }) => {
+test('Settings Labels pane lists labels and creates a new one', async ({ page }, testInfo) => {
+  // The dev-server labels stub is shared across browser projects and retries;
+  // a unique name keeps this test isolated.
+  const labelName = `Receipts-${testInfo.project.name}-${testInfo.retry}`
   await page.goto('/')
 
   // Open settings via the profile dropdown
@@ -181,7 +184,7 @@ test('Settings Labels pane lists labels and creates a new one', async ({ page })
   await expect(modal.locator('.ni-label-pill', { hasText: 'Finance' })).toBeVisible()
 
   // Create a label
-  await modal.locator('.label-input').first().fill('Receipts')
+  await modal.locator('.label-input').first().fill(labelName)
   await modal.locator('.label-create-form .btn-primary').click()
-  await expect(modal.locator('.ni-label-pill', { hasText: 'Receipts' })).toBeVisible()
+  await expect(modal.locator('.ni-label-pill', { hasText: labelName }).first()).toBeVisible()
 })

@@ -2153,8 +2153,10 @@ body {
   width: 92%;
 }
 
-/* Two-pane settings: category sidebar + content pane */
-.settings-layout {
+/* Two-pane settings: category sidebar + content pane. The compound
+   selector outranks .settings-body's flex-direction: column, which appears
+   later in this file. */
+.settings-body.settings-layout {
   flex-direction: row;
   gap: 0;
   padding: 0;
