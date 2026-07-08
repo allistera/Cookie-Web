@@ -16,6 +16,23 @@ function formatEmailDate(isoString) {
   return sentAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+// Maps a GET /api/emails (or /api/search) row to the shape the views render.
+function mapEmailRow(message) {
+  return {
+    id: message.id,
+    sender: message.from_name || message.from_address,
+    address: message.from_address,
+    subject: message.subject,
+    snippet: message.snippet,
+    body: message.body_text,
+    sentAt: message.sent_at,
+    date: formatEmailDate(message.sent_at),
+    unread: message.is_unread,
+    starred: message.is_starred,
+    labels: message.labels || [],
+  }
+}
+
 export const useInboxStore = defineStore('inbox', {
   state: () => ({
     todos: [
@@ -84,6 +101,7 @@ export const useInboxStore = defineStore('inbox', {
     unreadInboxCount: 0,
     statusTime: 'Loading...',
     isRefreshing: false,
+    activeSearchQuery: '',
 
     // Chat state
     chatHistory: [],
@@ -176,19 +194,7 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/emails responded ${response.status}`)
         }
         const { emails } = await response.json()
-        this.traditionalEmails = emails.map((message) => ({
-          id: message.id,
-          sender: message.from_name || message.from_address,
-          address: message.from_address,
-          subject: message.subject,
-          snippet: message.snippet,
-          body: message.body_text,
-          sentAt: message.sent_at,
-          date: formatEmailDate(message.sent_at),
-          unread: message.is_unread,
-          starred: message.is_starred,
-          labels: message.labels || [],
-        }))
+        this.traditionalEmails = emails.map(mapEmailRow)
         this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
         this.statusTime = 'Updated just now'
       } catch (error) {
@@ -200,6 +206,44 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     refreshInbox() {
+      return this.loadEmails()
+    },
+
+    // Hybrid (keyword + semantic) search via /api/search; the results replace
+    // the inbox list until clearSearch() restores it.
+    async searchEmails(query) {
+      const q = query.trim()
+      if (!q) return
+      this.isRefreshing = true
+      this.statusTime = 'Searching...'
+      try {
+        const headers = {}
+        const auth0 = getAuth0()
+        if (auth0) {
+          const token = await auth0.getAccessTokenSilently()
+          headers.Authorization = `Bearer ${token}`
+        }
+        const response = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/search responded ${response.status}`)
+        }
+        const { emails } = await response.json()
+        this.activeSearchQuery = q
+        this.traditionalEmails = emails.map(mapEmailRow)
+        this.statusTime = emails.length === 1 ? '1 result' : `${emails.length} results`
+      } catch (error) {
+        console.error('Search failed:', error)
+        this.notify('Search failed. Please try again.', 'error')
+        this.statusTime = 'Search unavailable'
+      } finally {
+        this.isRefreshing = false
+      }
+    },
+
+    // Leaves search mode and reloads the full inbox.
+    clearSearch() {
+      if (!this.activeSearchQuery) return
+      this.activeSearchQuery = ''
       return this.loadEmails()
     },
 

@@ -109,3 +109,21 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await expect(reader.locator('.ni-reply-box')).toHaveCount(0)
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })
+
+test('Header search filters the inbox and clearing restores it', async ({ page }) => {
+  await page.goto('/')
+
+  // Searching from the AI inbox navigates to the traditional inbox with results.
+  const searchInput = page.locator('.search-input')
+  await searchInput.fill('zoom')
+  await searchInput.press('Enter')
+  await expect(page).toHaveURL(/\/inbox$/)
+
+  const rows = page.locator('.ni-row')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Zoom Video')
+
+  // Clearing the search restores the full inbox (Today group, newest first).
+  await page.locator('.search-clear-icon').click()
+  await expect(page.locator('.ni-row').first()).toContainText('City Construction')
+})

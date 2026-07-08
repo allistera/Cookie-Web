@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
 import SettingsModal from './components/SettingsModal.vue'
@@ -8,6 +8,7 @@ import { useAuth } from './composables/useAuth'
 
 const store = useInboxStore()
 const route = useRoute()
+const router = useRouter()
 
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
@@ -45,17 +46,23 @@ function selectSuggestion(query) {
   store.askGemini(query)
 }
 
+// Enter searches the mailbox (hybrid keyword + semantic); the suggestion
+// items below keep their Gemini Q&A behavior via selectSuggestion.
 function handleSearchEnter() {
   const query = searchInputVal.value.trim()
   if (query) {
     isSearchSuggestionsActive.value = false
-    store.askGemini(query)
+    store.searchEmails(query)
+    if (route.name !== 'traditional-inbox') {
+      router.push('/inbox')
+    }
   }
 }
 
 function clearSearch() {
   searchInputVal.value = ''
   store.isChatDrawerActive = false
+  store.clearSearch()
 }
 
 // Canvas waiver signature variables

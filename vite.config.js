@@ -38,10 +38,28 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/messages.js')
     await handler(req, res)
   }
+  const handleSearch = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+      const q = (new URL(req.url, 'http://localhost').searchParams.get('q') || '').toLowerCase()
+      const emails = fixtureEmails().filter((email) =>
+        [email.subject, email.body_text, email.from_name, email.from_address]
+          .join(' ')
+          .toLowerCase()
+          .includes(q),
+      )
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ emails }))
+      return
+    }
+    const { default: handler } = await import('./api/search.js')
+    await handler(req, res)
+  }
   const mount = (server) => {
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)
+    server.middlewares.use('/api/search', handleSearch)
   }
   return {
     name: 'local-api',

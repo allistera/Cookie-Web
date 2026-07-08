@@ -107,6 +107,75 @@ describe('Inbox Store', () => {
     expect(store.isRefreshing).toBe(false)
   })
 
+  it('searches emails and replaces the inbox list with results', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [
+            {
+              id: 'zoom-1',
+              from_name: 'Zoom Video',
+              from_address: 'billing@zoom.us',
+              subject: 'Invoice for subscription renewal',
+              snippet: 'Your annual Zoom Pro subscription has renewed...',
+              body_text: 'Your annual Zoom Pro subscription has renewed.',
+              sent_at: new Date().toISOString(),
+              is_unread: false,
+              is_starred: false,
+            },
+          ],
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.searchEmails('  zoom invoice ')
+
+    expect(fetch).toHaveBeenCalledWith('/api/search?q=zoom%20invoice', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.activeSearchQuery).toBe('zoom invoice')
+    expect(store.traditionalEmails).toHaveLength(1)
+    expect(store.traditionalEmails[0].subject).toBe('Invoice for subscription renewal')
+    expect(store.statusTime).toBe('1 result')
+    expect(store.isRefreshing).toBe(false)
+  })
+
+  it('notifies and keeps the list when search fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'keep-me' }]
+    await store.searchEmails('anything')
+
+    expect(store.traditionalEmails).toEqual([{ id: 'keep-me' }])
+    expect(store.activeSearchQuery).toBe('')
+    expect(store.toasts[0]).toMatchObject({ kind: 'error' })
+  })
+
+  it('clearSearch reloads the full inbox only when a search is active', async () => {
+    const store = useInboxStore()
+
+    // No active search: no fetch happens.
+    vi.stubGlobal('fetch', vi.fn())
+    store.clearSearch()
+    expect(fetch).not.toHaveBeenCalled()
+
+    // Active search: clearing reloads /api/emails.
+    store.activeSearchQuery = 'zoom'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ emails: [] }) }),
+    )
+    await store.clearSearch()
+    expect(store.activeSearchQuery).toBe('')
+    expect(fetch).toHaveBeenCalledWith('/api/emails', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+  })
+
   it('shows a toast and auto-dismisses it', () => {
     vi.useFakeTimers()
     const store = useInboxStore()

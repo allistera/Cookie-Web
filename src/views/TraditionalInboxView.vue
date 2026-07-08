@@ -33,6 +33,8 @@ const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 const openGroups = ref(new Set(['Today']))
 
 function isGroupOpen(label) {
+  // Search results always show expanded; the accordion applies to browsing.
+  if (store.activeSearchQuery) return true
   return openGroups.value.has(label)
 }
 
