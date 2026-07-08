@@ -1,6 +1,22 @@
 import { defineComponent, ref, watch, nextTick } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 
+// Assistant replies use lightweight markdown (**bold**, newline-separated
+// lines). Render it as VNodes — never raw HTML — so message content can't
+// inject markup.
+const renderBold = (line) =>
+  line.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 === 1 ? <strong>{part}</strong> : part))
+
+const renderMessageText = (text) =>
+  String(text)
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line, i) => (
+      <div class="chat-line" key={i}>
+        {renderBold(line)}
+      </div>
+    ))
+
 export default defineComponent({
   name: 'GeminiChatDrawer',
   setup() {
@@ -71,7 +87,7 @@ export default defineComponent({
               key={index}
               class={`chat-msg ${msg.sender} ${msg.typing ? 'typing-cursor' : ''}`}
             >
-              {msg.text}
+              {renderMessageText(msg.text)}
               {msg.citationLabel && (
                 <div
                   class="citation-box"
