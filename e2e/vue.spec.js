@@ -127,3 +127,23 @@ test('Header search filters the inbox and clearing restores it', async ({ page }
   await page.locator('.search-clear-icon').click()
   await expect(page.locator('.ni-row').first()).toContainText('City Construction')
 })
+
+test('Ask Cookie answers with formatted text and email sources', async ({ page }) => {
+  await page.goto('/')
+
+  const searchInput = page.locator('.search-input')
+  await searchInput.click()
+  await page
+    .locator('.suggestion-item', { hasText: 'kitchen renovation' })
+    .click()
+
+  const drawer = page.locator('#geminiChatDrawer')
+  await expect(drawer).toHaveClass(/active/)
+
+  const aiMessage = drawer.locator('.chat-msg.ai').last()
+  await expect(aiMessage).toContainText('City Construction')
+  // Markdown is rendered, not shown raw
+  await expect(aiMessage).not.toContainText('**')
+  // The answer cites the email it came from
+  await expect(aiMessage.locator('.chat-source')).toContainText('Revised Floor Plan')
+})

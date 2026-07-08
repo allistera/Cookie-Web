@@ -38,16 +38,6 @@ export default defineComponent({
       }
     }
 
-    const handleCitationClick = (actionType) => {
-      if (actionType === 'sheets') {
-        store.openTodoModal('sheets', 'todo-soccer')
-      } else if (actionType === 'waiver') {
-        store.openTodoModal('waiver', 'todo-waiver')
-      } else if (actionType === 'kitchen') {
-        store.openComposer('todo-kitchen')
-      }
-    }
-
     // Auto scroll when chat updates
     watch(
       () => store.chatHistory,
@@ -88,15 +78,16 @@ export default defineComponent({
               class={`chat-msg ${msg.sender} ${msg.typing ? 'typing-cursor' : ''}`}
             >
               {renderMessageText(msg.text)}
-              {msg.citationLabel && (
-                <div
-                  class="citation-box"
-                  onClick={() => handleCitationClick(msg.citationActionType)}
-                >
-                  <span class="material-symbols-outlined" style={{ fontSize: '14px' }}>
-                    open_in_new
-                  </span>
-                  <span>{msg.citationLabel}</span>
+              {msg.sources?.length > 0 && (
+                <div class="citation-box">
+                  {msg.sources.map((source) => (
+                    <span class="chat-source" key={source.id} title={source.from_name}>
+                      <span class="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                        mail
+                      </span>
+                      <span>{source.subject}</span>
+                    </span>
+                  ))}
                 </div>
               )}
             </div>

@@ -131,6 +131,7 @@ async function sendReply() {
       to: senderAddress(email),
       subject: `Re: ${email.subject}`,
       text,
+      replyToMessageId: email.id,
     })
     isReplyOpen.value = false
     replyText.value = ''
@@ -253,6 +254,14 @@ onUnmounted(() => {
           </div>
         </div>
       </template>
+      <button
+        v-if="store.hasMoreEmails && !store.activeSearchQuery"
+        class="ni-load-more"
+        :disabled="store.isRefreshing"
+        @click="store.loadMoreEmails()"
+      >
+        {{ store.isRefreshing ? 'Loading…' : 'Load more' }}
+      </button>
     </div>
 
     <!-- Reading panel -->

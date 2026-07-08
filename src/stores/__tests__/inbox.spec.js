@@ -84,7 +84,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadEmails()
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails', {
+    expect(fetch).toHaveBeenCalledWith('/api/emails?limit=50', {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.traditionalEmails).toEqual([
@@ -105,6 +105,97 @@ describe('Inbox Store', () => {
     expect(store.unreadInboxCount).toBe(1)
     expect(store.statusTime).toBe('Updated just now')
     expect(store.isRefreshing).toBe(false)
+  })
+
+  it('uses the server unread count and cursor when provided', async () => {
+    const row = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            emails: [row('a')],
+            nextCursor: '2026-07-01T00:00:00Z|11111111-1111-1111-1111-111111111111',
+            unreadCount: 42,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ emails: [row('b')], nextCursor: null, unreadCount: 42 }),
+        }),
+    )
+
+    const store = useInboxStore()
+    await store.loadEmails()
+    expect(store.unreadInboxCount).toBe(42)
+    expect(store.hasMoreEmails).toBe(true)
+
+    await store.loadMoreEmails()
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/emails?limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111',
+      { headers: { Authorization: 'Bearer test-access-token' } },
+    )
+    expect(store.traditionalEmails.map((e) => e.id)).toEqual(['a', 'b'])
+    expect(store.hasMoreEmails).toBe(false)
+
+    // No cursor left: loadMoreEmails is a no-op.
+    await store.loadMoreEmails()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('askGemini posts to /api/ask and records the answer with sources', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          answer: '**City Construction** sent a revised plan.',
+          sources: [{ id: 'm1', subject: 'Revised Floor Plan', from_name: 'City Construction' }],
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.askGemini('What happened with the renovation?')
+
+    expect(fetch).toHaveBeenCalledWith('/api/ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ question: 'What happened with the renovation?' }),
+    })
+    expect(store.isChatDrawerActive).toBe(true)
+    expect(store.chatHistory).toHaveLength(2)
+    expect(store.chatHistory[1]).toMatchObject({
+      sender: 'ai',
+      text: '**City Construction** sent a revised plan.',
+    })
+    expect(store.chatHistory[1].sources).toHaveLength(1)
+    expect(store.isChatLoading).toBe(false)
+  })
+
+  it('askGemini records an apology message when the API fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+
+    const store = useInboxStore()
+    await store.askGemini('Anything?')
+
+    expect(store.chatHistory[1].text).toContain("couldn't reach the assistant")
+    expect(store.isChatLoading).toBe(false)
   })
 
   it('searches emails and replaces the inbox list with results', async () => {
@@ -211,7 +302,7 @@ describe('Inbox Store', () => {
     )
     await store.clearSearch()
     expect(store.activeSearchQuery).toBe('')
-    expect(fetch).toHaveBeenCalledWith('/api/emails', {
+    expect(fetch).toHaveBeenCalledWith('/api/emails?limit=50', {
       headers: { Authorization: 'Bearer test-access-token' },
     })
   })

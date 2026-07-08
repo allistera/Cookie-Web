@@ -1458,9 +1458,48 @@ body {
   color: var(--text-blue);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
   font-weight: 500;
+}
+
+.chat-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background-color: rgba(26, 115, 232, 0.08);
+  max-width: 100%;
+}
+
+.chat-source > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ni-load-more {
+  display: block;
+  margin: 12px auto 20px;
+  padding: 6px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+}
+
+.ni-load-more:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.ni-load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 [data-theme='dark'] .citation-box {

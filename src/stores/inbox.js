@@ -16,6 +16,8 @@ function formatEmailDate(isoString) {
   return sentAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+const PAGE_SIZE = 50
+
 // Maps a GET /api/emails (or /api/search) row to the shape the views render.
 function mapEmailRow(message) {
   return {
@@ -103,6 +105,8 @@ export const useInboxStore = defineStore('inbox', {
     isRefreshing: false,
     activeSearchQuery: '',
     searchSeq: 0,
+    emailsCursor: null,
+    hasMoreEmails: false,
 
     // Chat state
     chatHistory: [],
@@ -180,27 +184,62 @@ export const useInboxStore = defineStore('inbox', {
       })
     },
 
+    // Bearer-token headers for API calls; Auth0 is absent in e2e/fixture mode.
+    async authHeaders(extra = {}) {
+      const headers = { ...extra }
+      const auth0 = getAuth0()
+      if (auth0) {
+        const token = await auth0.getAccessTokenSilently()
+        headers.Authorization = `Bearer ${token}`
+      }
+      return headers
+    },
+
     async loadEmails() {
       this.isRefreshing = true
       this.statusTime = 'Syncing inbox...'
       try {
-        const headers = {}
-        const auth0 = getAuth0()
-        if (auth0) {
-          const token = await auth0.getAccessTokenSilently()
-          headers.Authorization = `Bearer ${token}`
-        }
-        const response = await fetch('/api/emails', { headers })
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/emails?limit=${PAGE_SIZE}`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/emails responded ${response.status}`)
         }
-        const { emails } = await response.json()
+        const { emails, nextCursor, unreadCount } = await response.json()
         this.traditionalEmails = emails.map(mapEmailRow)
-        this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
+        this.emailsCursor = nextCursor ?? null
+        this.hasMoreEmails = Boolean(nextCursor)
+        this.unreadInboxCount =
+          typeof unreadCount === 'number'
+            ? unreadCount
+            : this.traditionalEmails.filter((e) => e.unread).length
         this.statusTime = 'Updated just now'
       } catch (error) {
         console.error('Failed to load inbox:', error)
         this.statusTime = 'Inbox unavailable'
+      } finally {
+        this.isRefreshing = false
+      }
+    },
+
+    // Appends the next keyset page. No-op while a load is already running,
+    // when there is no further page, or while search results are displayed.
+    async loadMoreEmails() {
+      if (!this.emailsCursor || this.isRefreshing || this.activeSearchQuery) return
+      this.isRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const url = `/api/emails?limit=${PAGE_SIZE}&before=${encodeURIComponent(this.emailsCursor)}`
+        const response = await fetch(url, { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/emails responded ${response.status}`)
+        }
+        const { emails, nextCursor } = await response.json()
+        this.traditionalEmails.push(...emails.map(mapEmailRow))
+        this.emailsCursor = nextCursor ?? null
+        this.hasMoreEmails = Boolean(nextCursor)
+      } catch (error) {
+        console.error('Failed to load more emails:', error)
+        this.notify('Failed to load more emails.', 'error')
       } finally {
         this.isRefreshing = false
       }
@@ -257,12 +296,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async updateMessage(id, changes) {
-      const headers = { 'Content-Type': 'application/json' }
-      const auth0 = getAuth0()
-      if (auth0) {
-        const token = await auth0.getAccessTokenSilently()
-        headers.Authorization = `Bearer ${token}`
-      }
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch('/api/messages', {
         method: 'PATCH',
         headers,
@@ -275,14 +309,16 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Optimistically flips read state and persists it; reverts on failure.
+    // The count adjusts incrementally: with pagination (and during search)
+    // the loaded list is a subset, so recounting it would be wrong.
     setUnread(email, unread) {
       if (email.unread === unread) return
       email.unread = unread
-      this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
+      this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
       this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
         console.error('Failed to update read state:', error)
         email.unread = !unread
-        this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
+        this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? -1 : 1))
         this.notify('Failed to update read state.', 'error')
       })
     },
@@ -300,17 +336,14 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async sendMail({ to, subject, text }) {
-      const headers = { 'Content-Type': 'application/json' }
-      const auth0 = getAuth0()
-      if (auth0) {
-        const token = await auth0.getAccessTokenSilently()
-        headers.Authorization = `Bearer ${token}`
-      }
+    // replyToMessageId (optional) threads the stored sent copy with the
+    // message being replied to.
+    async sendMail({ to, subject, text, replyToMessageId }) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch('/api/send', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ to, subject, text }),
+        body: JSON.stringify({ to, subject, text, replyToMessageId }),
       })
       if (!response.ok) {
         throw new Error(`POST /api/send responded ${response.status}`)
@@ -411,65 +444,34 @@ export const useInboxStore = defineStore('inbox', {
       this.notify('Waiver signed and submitted.')
     },
 
-    askGemini(query) {
+    // Real RAG: /api/ask retrieves the most relevant stored emails via
+    // hybrid search and answers with the sources it used.
+    async askGemini(query) {
       this.isChatDrawerActive = true
-
-      // User message
       this.chatHistory.push({ text: query, sender: 'user' })
-
       this.isChatLoading = true
-
-      let responseText =
-        "Sorry, I couldn't find details about that in your inbox. Please refine your query."
-      let citationLabel = ''
-      let citationActionType = '' // 'sheets', 'waiver', 'kitchen'
-
-      if (query.toLowerCase().includes('coach mike') || query.toLowerCase().includes('snack')) {
-        responseText =
-          "Coach Mike sent an email reminding you that it's your turn to bring snacks for 20 people tomorrow. One child has a peanut allergy, so snacks must be peanut-free. You can log details in the Soccer Signup Sheet."
-        citationLabel = 'Open Snack Sheet'
-        citationActionType = 'sheets'
-      } else if (
-        query.toLowerCase().includes('waiver') ||
-        query.toLowerCase().includes('college')
-      ) {
-        responseText =
-          "Yes, you have an outstanding liability waiver to sign for your daughter's University of State tour on June 12th. You can sign it directly here."
-        citationLabel = 'Sign Digital Waiver'
-        citationActionType = 'waiver'
-      } else if (
-        query.toLowerCase().includes('renovation') ||
-        query.toLowerCase().includes('kitchen')
-      ) {
-        responseText =
-          "Here is a summary of your Kitchen Renovation updates:\n\n1. **City Construction**: Sent a revised floor plan this morning. It incorporates the new bay window design to let in more natural light.\n2. **Insurance Claim**: The homeowner's insurance carrier has processed your claim. You should receive a final response in one week."
-        citationLabel = 'Reply to Tile Vendor'
-        citationActionType = 'kitchen'
-      }
-
-      setTimeout(() => {
-        this.isChatLoading = false
-        const aiMessage = {
-          text: '',
-          sender: 'ai',
-          citationLabel,
-          citationActionType,
-          typing: true,
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/ask', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ question: query }),
+        })
+        if (!response.ok) {
+          throw new Error(`POST /api/ask responded ${response.status}`)
         }
-        this.chatHistory.push(aiMessage)
-
-        const historyIndex = this.chatHistory.length - 1
-        let i = 0
-        const interval = setInterval(() => {
-          if (i < responseText.length) {
-            this.chatHistory[historyIndex].text += responseText.charAt(i)
-            i++
-          } else {
-            clearInterval(interval)
-            this.chatHistory[historyIndex].typing = false
-          }
-        }, 10)
-      }, 1500)
+        const { answer, sources } = await response.json()
+        this.chatHistory.push({ text: answer, sender: 'ai', sources: sources || [] })
+      } catch (error) {
+        console.error('Ask failed:', error)
+        this.chatHistory.push({
+          text: "Sorry, I couldn't reach the assistant. Please try again.",
+          sender: 'ai',
+          sources: [],
+        })
+      } finally {
+        this.isChatLoading = false
+      }
     },
   },
 })

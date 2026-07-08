@@ -13,6 +13,27 @@ export async function embedText(text, apiKey) {
   return vector
 }
 
+// LRU-cached variant for user queries: repeat searches (retries, re-submits,
+// back-navigation) skip the OpenAI round-trip and its cost. Per-instance
+// cache, like everything in-memory on Fluid Compute.
+const queryCache = new Map()
+const QUERY_CACHE_MAX = 200
+
+export async function embedTextCached(text, apiKey) {
+  if (queryCache.has(text)) {
+    const vector = queryCache.get(text)
+    queryCache.delete(text)
+    queryCache.set(text, vector) // refresh recency
+    return vector
+  }
+  const vector = await embedText(text, apiKey)
+  queryCache.set(text, vector)
+  if (queryCache.size > QUERY_CACHE_MAX) {
+    queryCache.delete(queryCache.keys().next().value)
+  }
+  return vector
+}
+
 // Embeds several strings in one API call; returns arrays in input order.
 export async function embedBatch(texts, apiKey) {
   if (!apiKey) {

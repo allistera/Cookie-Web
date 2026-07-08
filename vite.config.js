@@ -13,8 +13,15 @@ function localApiPlugin(mode) {
   const handleEmails = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+      const emails = fixtureEmails()
       res.setHeader('Content-Type', 'application/json')
-      res.end(JSON.stringify({ emails: fixtureEmails() }))
+      res.end(
+        JSON.stringify({
+          emails,
+          nextCursor: null,
+          unreadCount: emails.filter((e) => e.is_unread).length,
+        }),
+      )
       return
     }
     const { default: handler } = await import('./api/emails.js')
@@ -55,11 +62,33 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/search.js')
     await handler(req, res)
   }
+  const handleAsk = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          answer:
+            'Here is a summary of your Kitchen Renovation updates:\n\n1. **City Construction**: Sent a revised floor plan this morning.\n2. **Insurance Claim**: Your claim has been processed.',
+          sources: [
+            {
+              id: 'fixture-1',
+              subject: 'Revised Floor Plan - Natural Light adjustments',
+              from_name: 'City Construction',
+            },
+          ],
+        }),
+      )
+      return
+    }
+    const { default: handler } = await import('./api/ask.js')
+    await handler(req, res)
+  }
   const mount = (server) => {
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)
     server.middlewares.use('/api/search', handleSearch)
+    server.middlewares.use('/api/ask', handleAsk)
   }
   return {
     name: 'local-api',
