@@ -102,6 +102,7 @@ export const useInboxStore = defineStore('inbox', {
     statusTime: 'Loading...',
     isRefreshing: false,
     activeSearchQuery: '',
+    searchSeq: 0,
 
     // Chat state
     chatHistory: [],
@@ -210,10 +211,12 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Hybrid (keyword + semantic) search via /api/search; the results replace
-    // the inbox list until clearSearch() restores it.
+    // the inbox list until clearSearch() restores it. searchSeq guards against
+    // out-of-order responses: only the latest issued search may apply.
     async searchEmails(query) {
       const q = query.trim()
       if (!q) return
+      const seq = ++this.searchSeq
       this.isRefreshing = true
       this.statusTime = 'Searching...'
       try {
@@ -228,21 +231,27 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/search responded ${response.status}`)
         }
         const { emails } = await response.json()
+        if (seq !== this.searchSeq) return
         this.activeSearchQuery = q
         this.traditionalEmails = emails.map(mapEmailRow)
         this.statusTime = emails.length === 1 ? '1 result' : `${emails.length} results`
       } catch (error) {
+        if (seq !== this.searchSeq) return
         console.error('Search failed:', error)
         this.notify('Search failed. Please try again.', 'error')
         this.statusTime = 'Search unavailable'
       } finally {
-        this.isRefreshing = false
+        if (seq === this.searchSeq) {
+          this.isRefreshing = false
+        }
       }
     },
 
-    // Leaves search mode and reloads the full inbox.
+    // Leaves search mode and reloads the full inbox. Bumping searchSeq also
+    // invalidates any search still in flight.
     clearSearch() {
       if (!this.activeSearchQuery) return
+      this.searchSeq++
       this.activeSearchQuery = ''
       return this.loadEmails()
     },

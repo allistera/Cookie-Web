@@ -155,6 +155,46 @@ describe('Inbox Store', () => {
     expect(store.toasts[0]).toMatchObject({ kind: 'error' })
   })
 
+  it('ignores a stale search response that resolves after a newer one', async () => {
+    const emailRow = (id, subject) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    let resolveFirst
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockReturnValueOnce(firstResponse)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ emails: [emailRow('new-1', 'Newer result')] }),
+        }),
+    )
+
+    const store = useInboxStore()
+    const first = store.searchEmails('old query')
+    await store.searchEmails('new query')
+    expect(store.traditionalEmails[0].subject).toBe('Newer result')
+
+    // The stale response arrives late — it must not clobber the newer results.
+    resolveFirst({ ok: true, json: async () => ({ emails: [emailRow('old-1', 'Stale result')] }) })
+    await first
+
+    expect(store.traditionalEmails[0].subject).toBe('Newer result')
+    expect(store.activeSearchQuery).toBe('new query')
+  })
+
   it('clearSearch reloads the full inbox only when a search is active', async () => {
     const store = useInboxStore()
 

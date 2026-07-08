@@ -18,8 +18,12 @@ export async function embedBatch(texts, apiKey) {
   if (!apiKey) {
     throw new Error('OpenAI API key is not configured')
   }
-  // OpenAI rejects empty strings, so blank inputs become a single space.
-  const input = texts.map((text) => String(text || ' ').slice(0, MAX_INPUT_CHARS))
+  // OpenAI rejects empty inputs, so blank/whitespace-only inputs (e.g. a
+  // message with neither subject nor body -> "\n\n") become "(empty)".
+  const input = texts.map((text) => {
+    const capped = String(text ?? '').slice(0, MAX_INPUT_CHARS)
+    return capped.trim() ? capped : '(empty)'
+  })
   const response = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
     headers: {
