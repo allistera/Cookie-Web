@@ -3,6 +3,7 @@ import process from 'node:process'
 import { neon } from '@neondatabase/serverless'
 
 import { verifyAccessToken } from './_lib/auth.js'
+import { captureApiError } from './_lib/sentry.js'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
@@ -115,6 +116,7 @@ export default async function handler(req, res) {
     )
   } catch (err) {
     console.error('GET /api/emails failed:', err)
+    await captureApiError(err, { route: 'GET /api/emails' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load emails' }))
   }

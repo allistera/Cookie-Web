@@ -2,6 +2,9 @@ name: Backfill Embeddings
 
 on:
   workflow_dispatch:
+  schedule:
+    # Weekly self-heal: embeds any rows the ingest/send paths left NULL.
+    - cron: '0 6 * * 1'
 
 concurrency:
   group: backfill-embeddings

@@ -147,3 +147,21 @@ test('Ask Cookie answers with formatted text and email sources', async ({ page }
   // The answer cites the email it came from
   await expect(aiMessage.locator('.chat-source')).toContainText('Revised Floor Plan')
 })
+
+test('Star rollback: a failed persistence reverts the star and shows an error', async ({
+  page,
+}) => {
+  // Force the persistence call to fail; the optimistic star must roll back.
+  await page.route('**/api/messages', (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"boom"}' }),
+  )
+  await page.goto('/inbox')
+
+  const row = page.locator('.ni-row', { hasText: 'City Construction' })
+  const starBtn = row.locator('[title="Star"]')
+  await row.hover()
+  await starBtn.click()
+
+  await expect(page.locator('.toast', { hasText: 'Failed to update starred state.' })).toBeVisible()
+  await expect(starBtn).not.toHaveClass(/starred/)
+})

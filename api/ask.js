@@ -3,6 +3,7 @@ import process from 'node:process'
 import { neon } from '@neondatabase/serverless'
 
 import { verifyAccessToken } from './_lib/auth.js'
+import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { embedTextCached } from './_lib/embeddings.js'
 import { fuseRankings } from './_lib/rank-fusion.js'
@@ -165,6 +166,7 @@ export default async function handler(req, res) {
     )
   } catch (err) {
     console.error('POST /api/ask failed:', err)
+    await captureApiError(err, { route: 'POST /api/ask' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Ask failed' }))
   }

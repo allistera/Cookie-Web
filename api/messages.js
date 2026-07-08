@@ -3,6 +3,7 @@ import process from 'node:process'
 import { neon } from '@neondatabase/serverless'
 
 import { verifyAccessToken } from './_lib/auth.js'
+import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -67,6 +68,7 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ message: rows[0] }))
   } catch (err) {
     console.error('PATCH /api/messages failed:', err)
+    await captureApiError(err, { route: 'PATCH /api/messages' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to update message' }))
   }

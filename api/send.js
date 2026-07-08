@@ -5,6 +5,7 @@ import { neon } from '@neondatabase/serverless'
 import { Resend } from 'resend'
 
 import { verifyAccessToken } from './_lib/auth.js'
+import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { embedText, EMBEDDING_MODEL } from './_lib/embeddings.js'
 
@@ -183,6 +184,7 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ id: data.id }))
   } catch (err) {
     console.error('POST /api/send failed:', err)
+    await captureApiError(err, { route: 'POST /api/send' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to send email' }))
   }

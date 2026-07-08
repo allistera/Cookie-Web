@@ -3,6 +3,7 @@ import process from 'node:process'
 import { neon } from '@neondatabase/serverless'
 
 import { verifyAccessToken } from './_lib/auth.js'
+import { captureApiError } from './_lib/sentry.js'
 import { embedTextCached } from './_lib/embeddings.js'
 import { fuseRankings } from './_lib/rank-fusion.js'
 import { allowRequest } from './_lib/rate-limit.js'
@@ -102,6 +103,7 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ emails }))
   } catch (err) {
     console.error('GET /api/search failed:', err)
+    await captureApiError(err, { route: 'GET /api/search' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Search failed' }))
   }
