@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
@@ -16,61 +16,145 @@ vi.mock('@auth0/auth0-vue', () => ({
   }),
 }))
 
+vi.mock('../../auth0-client', () => ({
+  getAuth0: () => null,
+}))
+
+const FIXTURE_LABELS = [
+  { id: 'l1', name: 'Finance', color: '#2f9e44', kind: 'user', description: 'Bills', message_count: 2 },
+  { id: 'l2', name: 'Home', color: '#e5484d', kind: 'user', description: null, message_count: 5 },
+]
+
 describe('SettingsModal', () => {
   let pinia
+  let store
 
   beforeEach(() => {
     pinia = createPinia()
     setActivePinia(pinia)
+    store = useInboxStore()
     localStorage.clear()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ labels: FIXTURE_LABELS }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   function mountModal() {
     return mount(SettingsModal, { global: { plugins: [pinia] } })
   }
 
+  async function openModal() {
+    store.activeModal = 'settings'
+    const wrapper = mountModal()
+    await vi.waitFor(() => expect(store.labels).toHaveLength(2))
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  async function openLabelsPane(wrapper) {
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Labels'))
+      .trigger('click')
+  }
+
   it('is hidden until the settings modal is activated', async () => {
     const wrapper = mountModal()
     expect(wrapper.find('.modal-overlay').classes()).not.toContain('active')
 
-    const store = useInboxStore()
     store.activeModal = 'settings'
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('.modal-overlay').classes()).toContain('active')
   })
 
-  it('shows account info from Auth0 and all settings sections', async () => {
-    const store = useInboxStore()
-    store.activeModal = 'settings'
-    const wrapper = mountModal()
-    await wrapper.vm.$nextTick()
+  it('shows the category sidebar and defaults to the Account pane', async () => {
+    const wrapper = await openModal()
 
-    const titles = wrapper.findAll('.settings-section-title').map((n) => n.text())
-    expect(titles).toEqual(['Account', 'Appearance', 'Notifications'])
+    const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
+    expect(navItems).toHaveLength(4)
+    for (const [i, name] of ['Account', 'Appearance', 'Notifications', 'Labels'].entries()) {
+      expect(navItems[i]).toContain(name)
+    }
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
     expect(wrapper.find('.settings-account-email').text()).toBe('allisteraall@gmail.com')
+    expect(wrapper.find('.label-table').exists()).toBe(false)
   })
 
   it('persists notification preferences to localStorage', async () => {
-    const store = useInboxStore()
-    store.activeModal = 'settings'
-    const wrapper = mountModal()
-    await wrapper.vm.$nextTick()
+    const wrapper = await openModal()
 
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Notifications'))
+      .trigger('click')
     const toggles = wrapper.findAll('.settings-switch')
-    // First switch is dark mode; the next three are notification prefs
-    await toggles[1].setValue(false)
+    await toggles[0].setValue(false)
 
     const saved = JSON.parse(localStorage.getItem('cookie-settings-prefs'))
     expect(saved.emailSummaries).toBe(false)
   })
 
-  it('closes via the footer button', async () => {
-    const store = useInboxStore()
-    store.activeModal = 'settings'
-    const wrapper = mountModal()
+  it('lists labels with colors and descriptions in the Labels pane', async () => {
+    const wrapper = await openModal()
+    await openLabelsPane(wrapper)
+
+    const rows = wrapper.findAll('.label-table-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].find('.ni-label-pill').text()).toBe('Finance')
+    expect(rows[0].find('.label-description').text()).toBe('Bills')
+    expect(rows[1].find('.label-description').text()).toBe('—')
+  })
+
+  it('creates a label from the form and resets it', async () => {
+    const wrapper = await openModal()
+    await openLabelsPane(wrapper)
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        label: { id: 'l3', name: 'Receipts', color: '#1a73e8', kind: 'user', description: null, message_count: 0 },
+      }),
+    })
+
+    await wrapper.find('.label-input').setValue('Receipts')
+    await wrapper.find('.label-create-form').trigger('submit')
+    await vi.waitFor(() => expect(store.labels).toHaveLength(3))
     await wrapper.vm.$nextTick()
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Receipts', color: '#1a73e8', description: '' }),
+    })
+    expect(wrapper.findAll('.label-table-row')).toHaveLength(3)
+    expect(wrapper.find('.label-input').element.value).toBe('')
+  })
+
+  it('deletes a label from its row', async () => {
+    const wrapper = await openModal()
+    await openLabelsPane(wrapper)
+
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+    await wrapper.find('.label-delete-btn').trigger('click')
+    await vi.waitFor(() => expect(store.labels).toHaveLength(1))
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'l1' }),
+    })
+  })
+
+  it('closes via the footer button', async () => {
+    const wrapper = await openModal()
 
     await wrapper.find('.modal-footer .btn-secondary').trigger('click')
     expect(store.activeModal).toBe(null)

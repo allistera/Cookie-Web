@@ -107,6 +107,7 @@ export const useInboxStore = defineStore('inbox', {
     searchSeq: 0,
     emailsCursor: null,
     hasMoreEmails: false,
+    labels: [], // full palette from /api/labels (settings Labels manager)
 
     // Chat state
     chatHistory: [],
@@ -247,6 +248,67 @@ export const useInboxStore = defineStore('inbox', {
 
     refreshInbox() {
       return this.loadEmails()
+    },
+
+    async loadLabels() {
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/labels', { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/labels responded ${response.status}`)
+        }
+        const { labels } = await response.json()
+        this.labels = labels
+      } catch (error) {
+        console.error('Failed to load labels:', error)
+        this.notify('Failed to load labels.', 'error')
+      }
+    },
+
+    // Returns true on success so the settings form knows to reset.
+    async createLabel({ name, color, description }) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/labels', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ name, color, description }),
+        })
+        if (response.status === 409) {
+          this.notify('A label with that name already exists.', 'error')
+          return false
+        }
+        if (!response.ok) {
+          throw new Error(`POST /api/labels responded ${response.status}`)
+        }
+        const { label } = await response.json()
+        this.labels = [...this.labels, label].sort((a, b) => a.name.localeCompare(b.name))
+        this.notify('Label created.')
+        return true
+      } catch (error) {
+        console.error('Failed to create label:', error)
+        this.notify('Failed to create label.', 'error')
+        return false
+      }
+    },
+
+    async deleteLabel(id) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/labels', {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ id }),
+        })
+        if (!response.ok) {
+          throw new Error(`DELETE /api/labels responded ${response.status}`)
+        }
+        this.labels = this.labels.filter((label) => label.id !== id)
+        this.notify('Label deleted.')
+      } catch (error) {
+        console.error('Failed to delete label:', error)
+        this.notify('Failed to delete label.', 'error')
+      }
     },
 
     // Hybrid (keyword + semantic) search via /api/search; the results replace

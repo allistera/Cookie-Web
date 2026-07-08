@@ -165,3 +165,23 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
   await expect(page.locator('.toast', { hasText: 'Failed to update starred state.' })).toBeVisible()
   await expect(starBtn).not.toHaveClass(/starred/)
 })
+
+test('Settings Labels pane lists labels and creates a new one', async ({ page }) => {
+  await page.goto('/')
+
+  // Open settings via the profile dropdown
+  await page.locator('.profile-container').click()
+  await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
+  const modal = page.locator('.settings-modal-container')
+  await expect(modal).toBeVisible()
+
+  // Switch to the Labels category
+  await modal.locator('.settings-nav-item', { hasText: 'Labels' }).click()
+  await expect(modal.locator('.label-table-row')).not.toHaveCount(0)
+  await expect(modal.locator('.ni-label-pill', { hasText: 'Finance' })).toBeVisible()
+
+  // Create a label
+  await modal.locator('.label-input').first().fill('Receipts')
+  await modal.locator('.label-create-form .btn-primary').click()
+  await expect(modal.locator('.ni-label-pill', { hasText: 'Receipts' })).toBeVisible()
+})
