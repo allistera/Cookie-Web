@@ -21,7 +21,7 @@ function localApiPlugin(mode) {
     await handler(req, res)
   }
   const handleSend = async (req, res) => {
-    if (mode === 'e2e') {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ id: 'e2e-fixture' }))
       return
@@ -30,7 +30,7 @@ function localApiPlugin(mode) {
     await handler(req, res)
   }
   const handleMessages = async (req, res) => {
-    if (mode === 'e2e') {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ ok: true }))
       return
