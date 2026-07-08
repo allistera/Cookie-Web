@@ -1,112 +1,306 @@
 # SPEC: mail-app-ingest — Cloudflare Email Worker (capture → Neon → forward)
 
-> **How to use this file:** Place this file in the parent directory that holds (or will hold) `workers/`, start Claude Code there, and say:
-> *"Read SPEC-mail-app-ingest.md. Scaffold the project at workers/mail-app-ingest/, run Phase 0 now, then enter plan mode and stop for my approval before writing any code."*
+> **Status:** This spec describes the **complete v1 implementation** as it shipped inside
+> Cookie-Web (built and hardened through July 2026, including the SRE review fixes).
+> The worker is moving to its own dedicated repository; this document is sufficient to
+> rebuild it there 1:1. The reference implementation lives in Cookie-Web git history at
+> `workers/mail-app-ingest/` (last present at the commit that precedes its removal;
+> see commits `85b6157`, `7c01b73`, `cbcf823`, `aca0d8d`).
 
 ---
 
 ## 1. Objective
 
-Build and deploy a Cloudflare Email Worker that receives inbound mail on `<address>@<domain>`, persists the parsed message to the **existing** Neon Postgres database, and forwards the original message to `<forward-to-address>`. Mail delivery is the priority: a storage failure must never block, reject, or delay forwarding.
+A Cloudflare **Email Worker** bound to the domain's **catch-all** Email Routing rule. For
+every inbound message it:
 
-## 2. Context and constraints
+1. Parses the raw MIME with `postal-mime`.
+2. Persists the message into the app's **existing** Neon Postgres tables
+   (`threads` / `messages` / `attachments`) against the single owner user.
+3. Forwards the original message to a verified destination address.
 
-- **Location:** create the project at `workers/mail-app-ingest/`, creating the `workers/` directory first if it does not exist. All project paths below are relative to `workers/mail-app-ingest/`.
-- **Runtime:** Cloudflare Workers, TypeScript, module syntax, latest `wrangler`. Worker name follows the existing `mail-app-*` convention: `mail-app-ingest`.
-- **Email Routing** is enabled on `<domain>`. A route will bind `<address>@<domain>` → this worker. Forward destinations must be verified destination addresses in Email Routing before `message.forward()` will succeed.
-- **Database:** existing Neon Postgres. Connection string is provided only as the `DATABASE_URL` secret (`.dev.vars` locally, `wrangler secret put` in prod). Use the `@neondatabase/serverless` HTTP driver (`neon()` tagged-template function) — Workers cannot open raw TCP. Do not introduce Hyperdrive in v1.
-- **Parsing:** `postal-mime` (Cloudflare's recommended parser for Email Workers).
-- **Dev database:** use a dedicated Neon branch, never the production branch, for local dev and tests.
+**Forwarding always wins.** Any parse/storage failure is logged and the mail is forwarded
+anyway. A storage failure must never block, reject, or delay delivery.
 
-### Ground truth to fetch before planning (do not rely on training data)
+## 2. Runtime & stack
 
-Cloudflare publishes token-efficient markdown docs — append `index.md` to any docs URL, or use the product index:
+- Cloudflare Workers, **plain JavaScript** (ESM, `"type": "module"`), no TypeScript source —
+  types are checked via `tsc` over JSDoc/`checkJs` (`jsconfig.json`, `strict: true`,
+  `noImplicitAny: false`, `types: ["@cloudflare/workers-types"]`, target/lib ES2024).
+- Dependencies: `@neondatabase/serverless` ^1.1.0 (HTTP driver — Workers can't open raw TCP;
+  no Hyperdrive in v1), `postal-mime` ^2.7.5.
+- Dev dependencies: `wrangler` ^4.x, `vitest` ^4.x, `eslint` ^10 (flat config), `typescript` ^6,
+  `@cloudflare/workers-types`, `globals`.
+- `package.json` scripts: `dev` (wrangler dev), `test` (vitest run), `typecheck`
+  (`tsc -p jsconfig.json`), `lint` (`eslint .`), `deploy` (`wrangler deploy`).
 
-- `https://developers.cloudflare.com/email-service/llms.txt` (product index — Email Routing docs now live under **Email Service**)
-- Route-emails Workers API (`email()` handler, `ForwardableEmailMessage`, `forward()`, `setReject()`) and the `email` binding shown in current wrangler config examples
-- `https://developers.cloudflare.com/email-service/local-development/routing/index.md` (local `wrangler dev` email endpoint)
-- `@neondatabase/serverless` README (confirm current usage in Workers and whether `nodejs_compat` is required)
+## 3. Repo layout (dedicated repo — worker at root)
 
-## 3. Decisions already made — do not relitigate
-
-1. **Forward-first reliability.** Wrap the entire store step in try/catch with an internal time budget (~5s). On any storage error: log with enough context to debug, then forward anyway. Never call `setReject()` for a storage failure.
-2. **Failure semantics.** If `forward()` itself throws, let the exception propagate — the sending MTA gets a temporary failure and retries. Do not swallow forwarding errors.
-3. **Idempotency.** Senders retry. Unique index on `message_id`; insert with `ON CONFLICT (message_id) DO NOTHING`. Emails missing a Message-ID header get a deterministic synthetic ID (hash of from + to + date + subject + body prefix).
-4. **What gets stored:** message_id, envelope from/to, subject, text body, html body, full headers as `jsonb`, attachment **metadata only** (filename, mime type, size) as `jsonb`, `raw_size`, `received_at`, `forwarded_to`, `store_status`. Bodies capped at 512 KB each with a `truncated` flag. No attachment blobs, no raw MIME in Postgres.
-5. **Schema isolation.** New table(s) only (suggested: `inbound_emails`). Never alter or drop existing tables. Migrations are additive, plain SQL files in `migrations/`, applied with `psql "$DATABASE_URL" -f <file>`.
-6. **Secrets** never appear in `wrangler.jsonc`, code, logs, or git. Commit `.dev.vars.example` with placeholder values only.
-
-## 4. Non-goals (v1)
-
-- No attachment storage (R2 is a future iteration — leave a comment where it would hook in).
-- No outbound/reply sending, no UI, no search/embeddings, no queue/retry infrastructure.
-- No changes to any other worker, route, or existing DB object.
-
-## 5. Deliverables (all under `workers/mail-app-ingest/`)
-
-- `src/` — worker with `email()` handler; parsing and storage in separate modules so they are unit-testable.
-- `migrations/0001_inbound_emails.sql`
-- `test/` — unit tests + fixtures (see criteria below); `fixtures/*.eml` must include a `Message-ID` header (the local dev endpoint requires one).
-- `wrangler.jsonc`, `.dev.vars.example`, `package.json` scripts: `dev`, `test`, `typecheck`, `lint`, `deploy`.
-- `RUNBOOK.md` — deploy steps; route binding (Email Routing rules: bind `<address>@<domain>` — or catch-all — to the action "Send to a Worker" → `mail-app-ingest`, via dashboard or the Email Routing REST API); destination-address verification; live round-trip test; log access (`wrangler tail mail-app-ingest`); rollback (`wrangler rollback`).
-
-## 6. Success criteria — every box verified, not assumed
-
-- [ ] `npm run typecheck`, `lint`, and `test` all pass.
-- [ ] Unit tests cover: happy path (parse → insert → forward called once); DB unreachable → forward still called, error logged; duplicate message_id → single row; missing Message-ID → synthetic ID insert; oversize body → truncated flag set.
-- [ ] Integration: with `wrangler dev` running, trigger the handler for each fixture, e.g. `curl --request POST 'http://localhost:8787/cdn-cgi/handler/email' --url-query 'from=sender@example.com' --url-query 'to=<address>@<domain>' --data-binary @test/fixtures/simple.eml` → row appears in the Neon **dev branch**, forward is invoked (visible in dev logs).
-- [ ] Re-POST the same fixture → row count unchanged.
-- [ ] With a deliberately bad `DATABASE_URL` in `.dev.vars` → forward still invoked, no unhandled exception.
-- [ ] `wrangler deploy --dry-run` clean. Actual deploy only in Phase 5.
-
-## 7. Agent plan — how I want you to work
-
-**Phase 0 — Recon (parallel, read-only).** Launch three subagents *in parallel*; each returns a concise summary, not raw dumps:
-
-- **docs-recon** (general-purpose): fetch the Cloudflare markdown docs and Neon driver docs listed in §2; return the exact current `email()` handler signature, `forward()` constraints, the local-dev endpoint syntax with a working curl example, and whether `nodejs_compat` is needed.
-- **schema-recon** (general-purpose, read-only): connect to the Neon dev branch (`psql "$DATABASE_URL"` or the Neon MCP server if configured) and return existing tables/columns/indexes so the migration cannot collide. **SELECT/`\d` only — no writes.**
-- **repo-recon** (Explore): if other `mail-app-*` worker repos are in the workspace, summarize their wrangler config, TS config, lint setup, and test conventions so this worker matches.
-
-**Phase 1 — Plan (stop for approval).** In plan mode, propose: final schema DDL, module layout, test list, and answers to §9 open questions or explicit assumptions. **Do not write code until I approve.**
-
-**Phase 2 — Implement.** Main agent implements. Follow repo conventions from Phase 0. Small commits per deliverable.
-
-**Phase 3 — Verify.** Delegate test/typecheck/lint runs and the local email-endpoint integration loop to a subagent so verbose output stays out of the main context; it reports only failures with error text. Fix and re-run until §6 is green.
-
-**Phase 4 — Review (fresh context).** Launch a code-review subagent that reads only the diff and this spec. Focus: SQL injection (parameterized queries only — header/subject values are attacker-controlled), secret leakage in logs, unbounded memory on large messages, and the §3 failure-semantics guarantees. Fix findings, re-run Phase 3.
-
-**Phase 5 — Deploy (human gate).** Only after I explicitly confirm: `wrangler deploy`, secrets set, then walk me through route binding + destination verification, and finish `RUNBOOK.md` with the live round-trip result.
-
-## 8. Guardrails
-
-- Database access is read-only until the approved migration in Phase 2; only ever run migrations against the branch I name.
-- Never print or log secret values; log message_id and sizes, not full bodies.
-- If the local email endpoint or Neon connection fails 3 consecutive times, stop and report with diagnostics instead of iterating blindly.
-- Touch nothing outside `workers/mail-app-ingest/` except the approved Neon migration.
-
-## 9. Open questions — ask before Phase 2, don't guess
-
-1. Exact inbound address(es): single address or catch-all on `<domain>`?
-2. Forward destination(s), and are they already verified in Email Routing?
-3. Which Neon branch/database for dev vs prod, and may the worker share the existing DB user or should a scoped role be created?
-4. Table name preference, and should `inbound_emails` live in `public` or a dedicated schema?
-
----
-
-## Appendix: optional custom subagent (reusable across mail-app-* projects)
-
-For roles you will reuse, define them once in `.claude/agents/` instead of re-describing them per spec:
-
-```markdown
----
-name: sre-code-reviewer
-description: Reviews diffs for failure semantics, security, and operability before deploy. Use proactively after implementation phases.
-tools: Read, Grep, Glob, Bash
-model: sonnet
----
-You are a senior SRE reviewing production-bound code. For every diff:
-1. Trace every failure path — what happens when each external call fails?
-2. Check parameterized queries, secret handling, log hygiene, input size bounds.
-3. Verify observability: can an on-call engineer debug this from logs alone?
-Report findings as blocking / non-blocking with file:line references. Be critical; do not rubber-stamp.
 ```
+src/
+  index.js          # email() handler: budget, oversize guard, redaction, forward
+  parse.js          # postal-mime → normalized record; all input bounds live here
+  store.js          # lookup + transactional insert into existing tables
+  synthetic-id.js   # deterministic Message-ID for mail lacking one
+test/
+  handler.test.js   parse.test.js   store.test.js   synthetic-id.test.js
+  helpers.js        # fakeMessage(), createMockSql(), readFixture()
+  fixtures/         # simple.eml, html-only.eml, attachments.eml,
+                    # inline-image.eml, no-message-id.eml  (each with Message-ID
+                    # except no-message-id.eml; local dev endpoint needs one)
+wrangler.jsonc      # config below
+.dev.vars.example   # DATABASE_URL placeholder only
+.gitignore          # .dev.vars, .wrangler/, node_modules/
+jsconfig.json  vitest.config.js  eslint.config.js  package.json
+RUNBOOK.md          # ops doc (deploy, routing setup, logs, rollback, local dev)
+.github/workflows/ci.yml   # test job on push/PR; deploy job on manual dispatch only
+```
+
+## 4. Configuration & secrets
+
+`wrangler.jsonc`:
+
+```jsonc
+{
+  "name": "mail-app-ingest",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-07",        // or newer at rebuild time
+  "upload_source_maps": true,
+  "observability": { "enabled": true },
+  "vars": {
+    // Must be a verified destination address in Cloudflare Email Routing.
+    "FORWARD_TO": "allisteraall@gmail.com",
+    // Inbound mail is stored against the users row with this email.
+    // users.email holds the Auth0 login identity, NOT the forward address.
+    "OWNER_EMAIL": "me@allisterantosik.com"
+  }
+}
+```
+
+- `DATABASE_URL` is the only secret: `.dev.vars` locally (never committed;
+  `.dev.vars.example` carries a placeholder), `wrangler secret put` / CI `secrets:` in prod.
+- No `nodejs_compat` flag is required by the neon HTTP driver as used here.
+- Dev/test must use a dedicated Neon branch (`vercel-dev`), never production.
+
+## 5. Handler flow (`src/index.js`)
+
+Constants:
+
+- `STORE_BUDGET_MS = 5000` — the store step gets this long, then mail is forwarded regardless.
+- `MAX_PARSE_BYTES = 10 * 1024 * 1024` — postal-mime buffers/decodes the whole message
+  before `forward()` is reached; near the platform message-size limit that risks an isolate
+  OOM no try/catch can save. Past this size, **skip parse+store entirely** (log
+  `store_skipped_oversize` with `raw_size`) and forward.
+
+Flow of `async email(message, env, ctx)`:
+
+1. Oversize guard (above), then forward and return.
+2. `parseEmail(message)` → normalized record.
+3. `neon(env.DATABASE_URL)` — wrap construction in try/catch and rethrow a generic
+   `'DATABASE_URL is not a valid connection string'`: neon's own errors can embed the full
+   connection string and it must never reach a log line.
+4. `storeEmail(sql, record, env.OWNER_EMAIL)` raced against the budget via
+   `withTimeout(promise, ms)` (Promise.race with a timer, `finally(clearTimeout)`).
+5. On success log JSON `{event:'stored', outcome, message_id, raw_size, attachments, truncated}`.
+6. On any error: log JSON `{event:'store_failed', error, message_id, raw_size}` where
+   `error` is passed through `redact(err, env.DATABASE_URL)` (splits on the secret, joins
+   with `[redacted]`). Never log bodies, subjects, or connection strings.
+   **Never call `setReject()` for a storage failure.**
+   If the store promise exists (i.e. the failure was the budget timeout, not parse), hand it
+   to `ctx.waitUntil(...)` — a store that merely outran the budget may still succeed; log
+   `{event:'stored_late', outcome, message_id}` if it does, swallow its rejection.
+7. `await message.forward(env.FORWARD_TO)` — **outside** the try/catch. Forward errors
+   propagate: the sending MTA sees a temporary failure and retries; idempotent storage
+   makes the retry safe.
+
+## 6. Parsing (`src/parse.js`)
+
+`parseEmail(message)` takes a `ForwardableEmailMessage` (or a test fake with `{from, to,
+raw, rawSize}`), runs `PostalMime.parse(message.raw)`, and returns the normalized record
+consumed by `storeEmail`. All attacker-controlled input is bounded:
+
+| Bound | Value | Why |
+|---|---|---|
+| `BODY_CAP_BYTES` | 512 KB per body (text and html separately) | rows stay small; `truncated` flag set if either was cut |
+| `SNIPPET_LENGTH` | 100 chars (collapsed whitespace + `...`) | list-row snippet |
+| `MAX_HEADERS` | 100 entries | jsonb bloat |
+| `MAX_HEADER_VALUE` | 2048 chars per value | jsonb bloat |
+| `MAX_ATTACHMENTS_META` | 100 | jsonb/row bloat |
+| `MAX_REFERENCES` | 50 message-ids | thread-lookup `ANY()` array |
+| `MAX_MESSAGE_ID` | 998 chars | btree index tuples cap ~2.7 KB; RFC 5322 line limit |
+| `MAX_FUTURE_MS` | 24 h | a spoofed far-future Date would pin its thread atop the inbox via `last_message_at` — clamp to now |
+
+Rules:
+
+- **NUL stripping:** Postgres text/jsonb reject U+0000 — `stripNul()` every string
+  (subject, bodies, names, header keys/values, filenames, message-id).
+- **Body capping:** byte-accurate via TextEncoder; after slicing, strip a possible partial
+  trailing code point (`replace(/�+$/, '')`).
+- **HTML-only mail:** `htmlToText(html)` derives `body_text` (strip style/script blocks,
+  `<br>`→`\n`, block-close tags→`\n\n`, strip tags, decode the common entities
+  `&nbsp; &amp; &lt; &gt; &#39;/&apos; &quot;`, collapse whitespace). `body_text` drives both
+  UI rendering and the `messages.search` tsvector, so it must never be null when the message
+  had content.
+- **Message-ID:** use the header if present and ≤ `MAX_MESSAGE_ID`; otherwise
+  `syntheticMessageId({from, to, date, subject, bodyPrefix: first 1024 chars of text||html})`.
+- **Synthetic ID** (`src/synthetic-id.js`): SHA-256 over the parts joined with `|`
+  (null → empty string), hex-encoded → `<synthetic-<hex>@mail-app-ingest>`. Deterministic so
+  MTA retries of Message-ID-less mail still dedupe.
+- **sent_at:** parsed Date header if valid, else now; clamp future dates past 24 h to now.
+- **Addresses:** postal-mime entries are mailboxes `{name, address}` or groups
+  `{name, group:[...]}` — flatten groups recursively. `from_address` is NOT NULL in the
+  schema; fall back to the envelope sender (`message.from`) when the From header is
+  unparseable.
+- **recipients** jsonb: `{to: [...], cc: [...], bcc: [...]}` of `{name, address}`.
+- **headers** jsonb: `[{key, value}]`, bounded as above.
+- **attachments:** metadata only — `{filename, mime_type, size}`; size is `byteLength` for
+  binary content, `.length` for string parts (approximate is fine). Filenames may be null
+  (inline images, calendar invites). **R2 blob upload is the future hook point here.**
+- **envelope_from / envelope_to:** `message.from` / `message.to` (SMTP envelope; differs
+  from the From header on bounces/lists, and records which catch-all address was hit).
+- `rawSize` = `message.rawSize`.
+
+## 7. Storage (`src/store.js`)
+
+`storeEmail(sql, record, ownerEmail)` → `'inserted' | 'duplicate'`; throws on any failure
+(caller logs + forwards regardless).
+
+The neon HTTP driver has **no interactive transactions**, so the flow is one lookup SELECT
+followed by one `sql.transaction([...])` batch built with client-generated
+`crypto.randomUUID()` ids:
+
+1. **Lookup (single SELECT):** against `users WHERE email = ownerEmail ORDER BY created_at
+   LIMIT 1`, returning:
+   - `user_id`
+   - `is_duplicate`: `EXISTS (messages WHERE user_id AND message_id = record.messageId)`
+   - `thread_id`: latest (`ORDER BY sent_at DESC LIMIT 1`) thread of any message whose
+     `message_id = ANY(record.references)` — attaches replies to existing threads via
+     In-Reply-To/References.
+
+   No users row → throw `'no users row matches OWNER_EMAIL; message not stored'`.
+   Duplicate → return `'duplicate'` without writing.
+
+2. **Transaction batch:**
+   - If no thread matched: `INSERT INTO threads (id, user_id, subject, last_message_at)`
+     (fresh thread; `message_count` defaults to 1).
+   - `INSERT INTO messages (id, thread_id, user_id, from_name, from_address, recipients,
+     subject, snippet, body_text, body_html, sent_at, message_id, headers, raw_size,
+     truncated, envelope_from, envelope_to)` with
+     `ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING`.
+     jsonb params passed as `${JSON.stringify(...)}::jsonb`; `sent_at` as ISO string.
+   - Per attachment: `INSERT INTO attachments (id, message_id, filename, content_type,
+     size_bytes, blob_url)` with `blob_url = null` (metadata only until R2).
+     If the message insert was a conflict no-op, these FK inserts fail and roll the whole
+     batch back — the retry is then a clean duplicate.
+   - If a thread matched: bump counters —
+     `UPDATE threads SET message_count = message_count + 1, last_message_at =
+     GREATEST(last_message_at, sent_at) WHERE id = thread AND EXISTS (SELECT 1 FROM messages
+     WHERE id = messageUuid)` — the EXISTS guard keeps counters from drifting when the
+     message INSERT no-opped under a concurrent retry.
+
+**Race caveat (accepted):** a concurrent MTA retry slipping between lookup and transaction
+is still blocked by the unique index; worst case is an orphan `threads` row, which the UI
+never renders.
+
+## 8. Database contract (lives in the Cookie-Web repo)
+
+The worker owns **no schema**. It writes to Cookie-Web's existing tables; the enabling
+migrations are already applied in production and remain in Cookie-Web's `migrations/`
+(tracked in `schema_migrations`, applied by its `migrate.yml` workflow):
+
+- `0003_inbound_email_fields.sql` — adds to `messages`: `message_id text`, `headers jsonb`,
+  `body_html text`, `raw_size integer`, `truncated boolean NOT NULL DEFAULT false`,
+  `envelope_from text`, `envelope_to text`; creates
+  `CREATE UNIQUE INDEX messages_user_message_id_key ON messages (user_id, message_id)
+  WHERE message_id IS NOT NULL`; makes `attachments.blob_url` nullable.
+- `0004_relax_attachment_filename.sql` — makes `attachments.filename` nullable.
+
+Base columns used (from `0001_initial_email_schema.sql`): `users(id, email, created_at)`;
+`threads(id, user_id, subject, last_message_at, message_count)`; `messages(id, thread_id,
+user_id, from_name, from_address NOT NULL, recipients jsonb, subject, snippet, body_text,
+sent_at, …)`; `attachments(id, message_id FK, filename, content_type, size_bytes, blob_url)`.
+`messages.search` is a generated tsvector over subject + body_text.
+
+**Any future schema change stays in Cookie-Web's `migrations/`** (additive SQL files);
+the worker repo only documents the contract.
+
+## 9. Logging contract
+
+All log lines are single JSON objects. Events: `stored` (`outcome`, `message_id`,
+`raw_size`, `attachments`, `truncated`), `store_failed` (`error` — secret-redacted,
+`message_id`, `raw_size`), `stored_late` (`outcome`, `message_id`),
+`store_skipped_oversize` (`raw_size`). Bodies, subjects, and connection strings are never
+logged. Tail with `npx wrangler tail mail-app-ingest`.
+
+## 10. Tests (vitest, node environment — port all of these)
+
+`test/helpers.js`: `fakeMessage(raw, {from, to})` — minimal ForwardableEmailMessage stand-in
+(postal-mime accepts a string for `raw`, so no ReadableStream needed); `createMockSql({lookupRows})`
+— mimics the neon tagged-template client, recording executed queries and `transaction()` batches.
+
+- **handler.test.js:** stores then forwards exactly once (happy path); still forwards when
+  store throws; still forwards when store hangs past the budget; never logs message bodies
+  on failure; skips parse/store for oversized messages but still forwards; never logs the
+  connection string when neon() rejects the URL; redacts the connection string from
+  arbitrary store errors; hands a budget-exceeding store to ctx.waitUntil instead of
+  cancelling it; lets forward() failures propagate for MTA retry.
+- **parse.test.js:** simple fixture → normalized record; deterministic synthetic ID when
+  Message-ID missing; body_text derived from HTML-only mail; body cap + truncated flag;
+  attachment metadata only; unnamed inline attachments keep null filename; strips U+0000;
+  clamps far-future Date headers; replaces oversized Message-ID with synthetic hash; caps
+  headers at 100 and bounds values; falls back to envelope sender on unparseable From;
+  htmlToText unit cases.
+- **store.test.js:** inserts new thread + message → 'inserted'; returns 'duplicate' without
+  writing; reuses referenced thread and bumps counters; throws when no users row matches;
+  attachment rows with null blob_url; propagates transaction failures.
+- **synthetic-id.test.js:** deterministic; changes when any component changes; tolerates
+  missing components.
+
+## 11. CI/CD (GitHub Actions, adapted for the dedicated repo)
+
+Single workflow: **test** job on push/PR to main (`npm ci`, lint, typecheck, `npm test`,
+`npx wrangler deploy --dry-run`), Node 22, npm cache. **deploy** job runs **only on manual
+`workflow_dispatch`**, `needs: test`, via `cloudflare/wrangler-action@v3` with repo secrets
+`CLOUDFLARE_API_TOKEN` (Workers Scripts:Edit), `CLOUDFLARE_ACCOUNT_ID`, and `DATABASE_URL`
+pushed to the worker through the action's `secrets:` input. No local deploys.
+(In the dedicated repo, drop Cookie-Web's `paths:` filters and `working-directory`.)
+
+## 12. Operations (RUNBOOK highlights — carry the full RUNBOOK.md over)
+
+- **Email Routing (dashboard, one-time):** verify the destination address
+  (`forward()` fails until verified); set the domain **catch-all** rule to
+  "Send to a Worker" → `mail-app-ingest`.
+- **Live round-trip:** mail an external message to `anything@<domain>`; expect delivery at
+  the forward address, a `messages` row visible in the app inbox, and a
+  `{"event":"stored","outcome":"inserted"}` tail line.
+- **Rollback:** `npx wrangler rollback`, or flip the catch-all back to plain forwarding —
+  mail keeps flowing with no worker in the path.
+- **Local dev:** `cp .dev.vars.example .dev.vars` (Neon vercel-dev branch URL),
+  `npm run dev`, then
+  `curl --request POST 'http://localhost:8787/cdn-cgi/handler/email'
+  --url-query 'from=sender@example.com' --url-query 'to=inbox@example.org'
+  --data-binary @test/fixtures/simple.eml`
+  (local endpoint requires a Message-ID header in the body). `wrangler dev` prints the
+  forward call instead of forwarding. Re-POSTing the same fixture must log
+  `"outcome":"duplicate"` and leave row counts unchanged.
+
+## 13. Non-goals (v1) & known caveats
+
+- No attachment blob storage (`blob_url` stays null — R2 is a future iteration; hook point
+  is the attachment mapping in `src/parse.js`).
+- No outbound/reply sending, UI, search/embeddings, or queue/retry infrastructure; no
+  Hyperdrive.
+- Store step is best-effort within 5 s; slower Neon calls are abandoned (mail still
+  forwarded; the MTA retry usually lands the row).
+- Single-owner design: mail is stored against the one `users` row matching `OWNER_EMAIL`;
+  if none exists the message is forwarded but not stored.
+- Rare orphan-`threads` race (see §7) — harmless, never rendered.
+
+## 14. Ground-truth docs (fetch fresh at rebuild time; don't trust training data)
+
+- `https://developers.cloudflare.com/email-service/llms.txt` (Email Routing now lives under
+  **Email Service**; append `index.md` to any docs URL for markdown)
+- Route-emails Workers API: `email()` handler, `ForwardableEmailMessage`, `forward()`,
+  `setReject()`
+- `https://developers.cloudflare.com/email-service/local-development/routing/index.md`
+- `@neondatabase/serverless` README (HTTP driver usage in Workers)

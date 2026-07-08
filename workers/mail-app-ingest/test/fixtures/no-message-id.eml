@@ -1,8 +1,0 @@
-From: "Grace Hopper" <grace@example.com>
-To: inbox@example.org
-Subject: No message id here
-Date: Tue, 07 Jul 2026 11:00:00 +0000
-Content-Type: text/plain; charset=utf-8
-
-A message without a Message-ID header, for the synthetic-ID path.
-(Unit tests only: the wrangler dev email endpoint rejects mail without one.)

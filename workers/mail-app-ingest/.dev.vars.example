@@ -1,2 +1,0 @@
-# Copy to .dev.vars (never committed) and fill in the Neon vercel-dev branch URL.
-DATABASE_URL="postgresql://user:password@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
