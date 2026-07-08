@@ -48,7 +48,13 @@ function markRead(email) {
 }
 
 function toggleStar(email) {
-  email.starred = !email.starred
+  const nextStarred = !email.starred
+  email.starred = nextStarred
+  store.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
+    console.error('Failed to update starred state:', error)
+    email.starred = !nextStarred
+    store.notify('Failed to update starred state.', 'error')
+  })
 }
 
 function removeEmail(email) {
@@ -60,6 +66,10 @@ function removeEmail(email) {
   if (index > -1) {
     store.traditionalEmails.splice(index, 1)
   }
+  store.updateMessage(email.id, { is_archived: true }).catch((error) => {
+    console.error('Failed to archive email:', error)
+    store.notify('Failed to archive email.', 'error')
+  })
 }
 
 // --- Reading panel ---
@@ -114,20 +124,19 @@ function discardReply() {
 async function sendReply() {
   const email = openEmail.value
   const text = replyText.value
-  isReplyOpen.value = false
-  replyText.value = ''
   try {
     await store.sendMail({
       to: senderAddress(email),
       subject: `Re: ${email.subject}`,
       text,
     })
+    isReplyOpen.value = false
+    replyText.value = ''
+    store.notify('Reply sent.')
   } catch (error) {
     console.error('Failed to send reply:', error)
     store.notify('Failed to send reply. Please try again.', 'error')
-    return
   }
-  store.notify('Reply sent.')
 }
 
 function senderAddress(email) {
@@ -137,7 +146,7 @@ function senderAddress(email) {
 }
 
 function bodyParagraphs(email) {
-  return (email.body || email.snippet).split('\n\n')
+  return (email.body || email.snippet || '').split('\n\n')
 }
 
 function onKeydown(e) {

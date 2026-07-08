@@ -62,6 +62,7 @@ function clearSearch() {
 const signatureCanvasRef = ref(null)
 let canvasCtx = null
 let isDrawing = false
+let canvasListenersAdded = false
 
 function setupSignatureCanvas() {
   const canvas = signatureCanvasRef.value
@@ -75,10 +76,13 @@ function setupSignatureCanvas() {
 
   canvasCtx.clearRect(0, 0, canvas.width, canvas.height)
 
-  canvas.addEventListener('mousedown', startDrawing)
-  canvas.addEventListener('mousemove', draw)
-  canvas.addEventListener('mouseup', stopDrawing)
-  canvas.addEventListener('mouseout', stopDrawing)
+  if (!canvasListenersAdded) {
+    canvas.addEventListener('mousedown', startDrawing)
+    canvas.addEventListener('mousemove', draw)
+    canvas.addEventListener('mouseup', stopDrawing)
+    canvas.addEventListener('mouseout', stopDrawing)
+    canvasListenersAdded = true
+  }
 }
 
 function startDrawing(e) {
@@ -489,7 +493,7 @@ onMounted(() => {
         ref="composerBodyRef"
         v-model="store.composerTextArea"
         placeholder="..."
-        @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
+        @keydown.shift.tab.prevent="composerToRef?.focus()"
       ></textarea>
 
       <!-- Inline Gemini drafting box -->

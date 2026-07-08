@@ -11,7 +11,7 @@ function formatEmailDate(isoString) {
     return sentAt
       .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       .toLowerCase()
-      .replace(' ', ' ')
+      .replace(/\s/g, ' ')
   }
   return sentAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }

@@ -47,37 +47,37 @@ export default defineComponent({
 
     return () => (
       <div
-        className={`gemini-chat-drawer ${store.isChatDrawerActive ? 'active' : ''}`}
+        class={`gemini-chat-drawer ${store.isChatDrawerActive ? 'active' : ''}`}
         id="geminiChatDrawer"
       >
-        <div className="drawer-header">
-          <div className="drawer-title">
-            <span className="material-symbols-outlined gemini-color">auto_awesome</span>
+        <div class="drawer-header">
+          <div class="drawer-title">
+            <span class="material-symbols-outlined gemini-color">auto_awesome</span>
             <span>Gemini Workspace</span>
           </div>
           <button
-            className="icon-btn close-drawer-btn"
+            class="icon-btn close-drawer-btn"
             onClick={() => {
               store.isChatDrawerActive = false
             }}
           >
-            <span className="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined">close</span>
           </button>
         </div>
 
-        <div className="drawer-content" ref={drawerContentRef}>
+        <div class="drawer-content" ref={drawerContentRef}>
           {store.chatHistory.map((msg, index) => (
             <div
               key={index}
-              className={`chat-msg ${msg.sender} ${msg.typing ? 'typing-cursor' : ''}`}
+              class={`chat-msg ${msg.sender} ${msg.typing ? 'typing-cursor' : ''}`}
             >
               {msg.text}
               {msg.citationLabel && (
                 <div
-                  className="citation-box"
+                  class="citation-box"
                   onClick={() => handleCitationClick(msg.citationActionType)}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                  <span class="material-symbols-outlined" style={{ fontSize: '14px' }}>
                     open_in_new
                   </span>
                   <span>{msg.citationLabel}</span>
@@ -86,23 +86,23 @@ export default defineComponent({
             </div>
           ))}
           {store.isChatLoading && (
-            <div className="chat-msg ai typing-cursor">Gemini is searching your workspace...</div>
+            <div class="chat-msg ai typing-cursor">Gemini is searching your workspace...</div>
           )}
         </div>
 
-        <div className="drawer-input-container">
+        <div class="drawer-input-container">
           <input
             type="text"
-            className="drawer-input"
+            class="drawer-input"
             placeholder="Ask Gemini follow up..."
             value={inputVal.value}
             onInput={(e) => {
               inputVal.value = e.target.value
             }}
-            onKeypress={handleKeypress}
+            onKeydown={handleKeypress}
           />
-          <button className="drawer-send-btn" onClick={handleSend}>
-            <span className="material-symbols-outlined">send</span>
+          <button class="drawer-send-btn" onClick={handleSend}>
+            <span class="material-symbols-outlined">send</span>
           </button>
         </div>
       </div>
