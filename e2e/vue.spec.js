@@ -189,10 +189,10 @@ test('Settings Labels pane lists labels and creates a new one', async ({ page },
   await expect(modal.locator('.ni-label-pill', { hasText: labelName }).first()).toBeVisible()
 })
 
-test('Command palette opens with Cmd+K, filters and navigates to Starred', async ({ page }) => {
+test("Command palette opens with '/', filters and navigates to Starred", async ({ page }) => {
   await page.goto('/inbox')
 
-  await page.keyboard.press('ControlOrMeta+KeyK')
+  await page.keyboard.press('/')
   const panel = page.locator('.cp-panel')
   await expect(panel).toBeVisible()
   await expect(panel.locator('.cp-item').first()).toHaveClass(/selected/)
@@ -214,7 +214,7 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   await expect(page.locator('.ni-reader')).toBeVisible()
 
-  await page.keyboard.press('ControlOrMeta+KeyK')
+  await page.keyboard.press('/')
   const firstItem = page.locator('.cp-item').first()
   await expect(firstItem).toContainText('Mark Done')
   await expect(firstItem.locator('.cp-keycap')).toHaveText('E')
@@ -232,7 +232,7 @@ test('Escape closes the palette but keeps the reading panel open', async ({ page
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   await expect(page.locator('.ni-reader')).toBeVisible()
 
-  await page.keyboard.press('ControlOrMeta+KeyK')
+  await page.keyboard.press('/')
   await expect(page.locator('.cp-panel')).toBeVisible()
   await page.keyboard.press('Escape')
 

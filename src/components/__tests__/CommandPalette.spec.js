@@ -12,9 +12,9 @@ vi.mock('../../auth0-client', () => ({
   getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
 }))
 
-function pressCmdK() {
-  document.dispatchEvent(
-    new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }),
+function pressSlash(target = document.body) {
+  target.dispatchEvent(
+    new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }),
   )
 }
 
@@ -34,10 +34,10 @@ describe('CommandPalette', () => {
     vi.unstubAllGlobals()
   })
 
-  it('is hidden until Cmd+K opens it, with the first item selected', async () => {
+  it("is hidden until '/' opens it, with the first item selected", async () => {
     expect(wrapper.find('.cp-overlay').classes()).not.toContain('active')
 
-    pressCmdK()
+    pressSlash()
     await wrapper.vm.$nextTick()
 
     expect(store.isCommandPaletteOpen).toBe(true)
@@ -47,17 +47,33 @@ describe('CommandPalette', () => {
     expect(items[0].classes()).toContain('selected')
   })
 
-  it('Cmd+K toggles the palette closed again', async () => {
-    pressCmdK()
-    await wrapper.vm.$nextTick()
-    pressCmdK()
+  it("'/' does not open the palette while typing in an input or textarea", async () => {
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    const textarea = document.createElement('textarea')
+    document.body.appendChild(textarea)
+
+    pressSlash(input)
+    pressSlash(textarea)
     await wrapper.vm.$nextTick()
 
     expect(store.isCommandPaletteOpen).toBe(false)
+    input.remove()
+    textarea.remove()
+  })
+
+  it("typing '/' inside the palette input does not close or reopen it", async () => {
+    pressSlash()
+    await wrapper.vm.$nextTick()
+
+    pressSlash(wrapper.find('.cp-input').element)
+    await wrapper.vm.$nextTick()
+
+    expect(store.isCommandPaletteOpen).toBe(true)
   })
 
   it('typing filters the command list', async () => {
-    pressCmdK()
+    pressSlash()
     await wrapper.vm.$nextTick()
 
     await wrapper.find('.cp-input').setValue('settings')
@@ -68,7 +84,7 @@ describe('CommandPalette', () => {
   })
 
   it('arrow keys move the selection and Enter runs the command', async () => {
-    pressCmdK()
+    pressSlash()
     await wrapper.vm.$nextTick()
 
     const input = wrapper.find('.cp-input')
@@ -88,7 +104,7 @@ describe('CommandPalette', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    pressCmdK()
+    pressSlash()
     await wrapper.vm.$nextTick()
 
     const input = wrapper.find('.cp-input')
@@ -106,7 +122,7 @@ describe('CommandPalette', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    pressCmdK()
+    pressSlash()
     await wrapper.vm.$nextTick()
 
     await wrapper.find('.cp-input').trigger('keydown', { key: 'Escape' })
@@ -120,7 +136,7 @@ describe('CommandPalette', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    pressCmdK()
+    pressSlash()
     await wrapper.vm.$nextTick()
 
     const first = wrapper.findAll('.cp-item')[0]

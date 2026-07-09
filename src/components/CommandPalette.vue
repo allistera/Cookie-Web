@@ -29,14 +29,21 @@ function close() {
   store.isCommandPaletteOpen = false
 }
 
-// Cmd+K / Ctrl+K toggles the palette. A modifier chord is safe to catch even
-// while an input has focus, so no target guard is needed.
+// '/' opens the palette — but never while the user is typing somewhere
+// (search bar, composer, reply box, the palette's own input). Close with
+// Escape, the backdrop, or by running a command.
 function onGlobalKeydown(e) {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault()
-    if (store.isCommandPaletteOpen) close()
-    else open()
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+  if (store.isCommandPaletteOpen) return
+  const target = e.target
+  if (
+    target instanceof HTMLElement &&
+    (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+  ) {
+    return
   }
+  e.preventDefault()
+  open()
 }
 
 onMounted(() => document.addEventListener('keydown', onGlobalKeydown))
