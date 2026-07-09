@@ -188,3 +188,67 @@ test('Settings Labels pane lists labels and creates a new one', async ({ page },
   await modal.locator('.label-create-form .btn-primary').click()
   await expect(modal.locator('.ni-label-pill', { hasText: labelName }).first()).toBeVisible()
 })
+
+test('Command palette opens with Cmd+K, filters and navigates to Starred', async ({ page }) => {
+  await page.goto('/inbox')
+
+  await page.keyboard.press('ControlOrMeta+KeyK')
+  const panel = page.locator('.cp-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel.locator('.cp-item').first()).toHaveClass(/selected/)
+
+  await page.keyboard.type('go to starred')
+  await page.keyboard.press('Enter')
+
+  await expect(page.locator('.cp-panel')).not.toBeVisible()
+  await expect(page).toHaveURL(/filter=starred/)
+  await expect(page.locator('.ni-header h1')).toHaveText('Starred')
+  // Only the two starred fixtures remain.
+  await expect(page.locator('.ni-row')).toHaveCount(2)
+  await expect(page.locator('.ni-row').first()).toContainText("Homeowner's Insurance")
+})
+
+test('Command palette Mark Done archives the open email', async ({ page }) => {
+  await page.goto('/inbox')
+
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await expect(page.locator('.ni-reader')).toBeVisible()
+
+  await page.keyboard.press('ControlOrMeta+KeyK')
+  const firstItem = page.locator('.cp-item').first()
+  await expect(firstItem).toContainText('Mark Done')
+  await expect(firstItem.locator('.cp-keycap')).toHaveText('E')
+  await page.keyboard.press('Enter')
+
+  await expect(page.locator('.cp-panel')).not.toBeVisible()
+  await expect(page.locator('.ni-reader')).toHaveCount(0)
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
+  await expect(page.locator('.toast', { hasText: 'Marked done.' })).toBeVisible()
+})
+
+test('Escape closes the palette but keeps the reading panel open', async ({ page }) => {
+  await page.goto('/inbox')
+
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await expect(page.locator('.ni-reader')).toBeVisible()
+
+  await page.keyboard.press('ControlOrMeta+KeyK')
+  await expect(page.locator('.cp-panel')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await expect(page.locator('.cp-panel')).not.toBeVisible()
+  await expect(page.locator('.ni-reader')).toBeVisible()
+})
+
+test('Sidebar links open the filtered views', async ({ page }) => {
+  await page.goto('/inbox')
+
+  await page.locator('.nav-item', { hasText: 'Starred' }).click()
+  await expect(page).toHaveURL(/filter=starred/)
+  await expect(page.locator('.ni-row')).toHaveCount(2)
+
+  await page.locator('.nav-item', { hasText: 'More' }).click()
+  await page.locator('.nav-item', { hasText: 'Snoozed' }).click()
+  await expect(page.locator('.ni-header h1')).toHaveText('Snoozed')
+  await expect(page.locator('.ni-empty')).toHaveText('No snoozed emails yet.')
+})
