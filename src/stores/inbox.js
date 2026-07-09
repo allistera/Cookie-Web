@@ -130,6 +130,12 @@ export const useInboxStore = defineStore('inbox', {
     // Modals
     activeModal: null, // 'sheets' or 'waiver'
 
+    // Reading panel: id of the email open in the traditional inbox reader
+    openEmailId: null,
+
+    // Command palette (Cmd+K)
+    isCommandPaletteOpen: false,
+
     // Sheets input state
     sheetSnackText: 'Fruit kabobs & juice boxes (Peanut Free!)',
   }),
@@ -154,6 +160,11 @@ export const useInboxStore = defineStore('inbox', {
         }
       }
       return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+    },
+    // The email open in the reading panel; null once it leaves the list
+    // (archived, or the list was replaced by a search).
+    openEmail(state) {
+      return state.traditionalEmails.find((e) => e.id === state.openEmailId) ?? null
     },
   },
 
@@ -368,6 +379,43 @@ export const useInboxStore = defineStore('inbox', {
         throw new Error(`PATCH /api/messages responded ${response.status}`)
       }
       return response.json()
+    },
+
+    openReader(email) {
+      this.setUnread(email, false)
+      this.openEmailId = email.id
+    },
+
+    closeReader() {
+      this.openEmailId = null
+    },
+
+    // Optimistically flips starred state and persists it; reverts on failure.
+    toggleStar(email) {
+      const nextStarred = !email.starred
+      email.starred = nextStarred
+      this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
+        console.error('Failed to update starred state:', error)
+        email.starred = !nextStarred
+        this.notify('Failed to update starred state.', 'error')
+      })
+    },
+
+    // Optimistically removes the email from the list (closing the reader if
+    // it was open) and persists the archive flag.
+    archiveEmail(email) {
+      this.setUnread(email, false)
+      if (this.openEmailId === email.id) {
+        this.openEmailId = null
+      }
+      const index = this.traditionalEmails.indexOf(email)
+      if (index > -1) {
+        this.traditionalEmails.splice(index, 1)
+      }
+      this.updateMessage(email.id, { is_archived: true }).catch((error) => {
+        console.error('Failed to archive email:', error)
+        this.notify('Failed to archive email.', 'error')
+      })
     },
 
     // Optimistically flips read state and persists it; reverts on failure.

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -83,5 +83,42 @@ describe('TraditionalInboxView day accordion', () => {
     const wrapper = mount(TraditionalInboxView)
 
     expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').text()).toBe('1')
+  })
+})
+
+describe('TraditionalInboxView reading panel', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('clicking a row opens the reader through the store', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    await wrapper.find('.ni-row').trigger('click')
+    expect(store.openEmailId).toBe('today-1')
+    expect(wrapper.find('.ni-reader').exists()).toBe(true)
+  })
+
+  it('closes the reader when the open email is archived from outside the view', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    await wrapper.find('.ni-row').trigger('click')
+    store.archiveEmail(store.openEmail)
+    await wrapper.vm.$nextTick()
+
+    expect(store.openEmailId).toBe(null)
+    expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 })

@@ -404,6 +404,81 @@ describe('Inbox Store', () => {
     expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
   })
 
+  it('openReader marks the email read and exposes it via the openEmail getter', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.traditionalEmails = [email]
+    store.unreadInboxCount = 1
+
+    store.openReader(email)
+    expect(store.openEmailId).toBe('abc-123')
+    expect(store.openEmail).toStrictEqual(email)
+    expect(email.unread).toBe(false)
+
+    store.closeReader()
+    expect(store.openEmailId).toBe(null)
+    expect(store.openEmail).toBe(null)
+  })
+
+  it('openEmail getter returns null once the email leaves the list', () => {
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: false }
+    store.traditionalEmails = [email]
+    store.openEmailId = email.id
+
+    store.traditionalEmails = []
+    expect(store.openEmail).toBe(null)
+  })
+
+  it('archiveEmail removes the row, closes the reader and persists the flag', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.traditionalEmails = [email, { id: 'def-456', unread: false }]
+    store.unreadInboxCount = 1
+    store.openEmailId = email.id
+
+    store.archiveEmail(email)
+    expect(store.traditionalEmails.map((e) => e.id)).toEqual(['def-456'])
+    expect(store.openEmailId).toBe(null)
+    expect(store.unreadInboxCount).toBe(0)
+
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith('/api/messages', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer test-access-token',
+        },
+        body: JSON.stringify({ id: 'abc-123', is_archived: true }),
+      }),
+    )
+  })
+
+  it('toggleStar flips optimistically and reverts on failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', starred: false }
+    store.traditionalEmails = [email]
+
+    store.toggleStar(email)
+    expect(email.starred).toBe(true)
+
+    await vi.waitFor(() => expect(email.starred).toBe(false))
+    expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
+  })
+
   it('reports the inbox as unavailable when the API fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
     vi.spyOn(console, 'error').mockImplementation(() => {})

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
@@ -50,48 +50,37 @@ function markRead(email) {
 }
 
 function toggleStar(email) {
-  const nextStarred = !email.starred
-  email.starred = nextStarred
-  store.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
-    console.error('Failed to update starred state:', error)
-    email.starred = !nextStarred
-    store.notify('Failed to update starred state.', 'error')
-  })
+  store.toggleStar(email)
 }
 
 function removeEmail(email) {
-  markRead(email)
-  if (openEmail.value === email) {
-    openEmail.value = null
-  }
-  const index = store.traditionalEmails.indexOf(email)
-  if (index > -1) {
-    store.traditionalEmails.splice(index, 1)
-  }
-  store.updateMessage(email.id, { is_archived: true }).catch((error) => {
-    console.error('Failed to archive email:', error)
-    store.notify('Failed to archive email.', 'error')
-  })
+  store.archiveEmail(email)
 }
 
-// --- Reading panel ---
-const openEmail = ref(null)
+// --- Reading panel (open-email state lives in the store so the command
+// palette can act on it globally) ---
+const openEmail = computed(() => store.openEmail)
 const isReplyOpen = ref(false)
 const replyText = ref('')
 const replyTextareaRef = ref(null)
 
 function openReader(email) {
-  markRead(email)
-  openEmail.value = email
-  isReplyOpen.value = false
-  replyText.value = ''
+  store.openReader(email)
 }
 
 function closeReader() {
-  openEmail.value = null
-  isReplyOpen.value = false
-  replyText.value = ''
+  store.closeReader()
 }
+
+// Reset reply state whenever the open email changes or closes, including
+// changes made from outside this view (e.g. the command palette).
+watch(
+  () => store.openEmailId,
+  () => {
+    isReplyOpen.value = false
+    replyText.value = ''
+  },
+)
 
 const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
 
@@ -153,13 +142,16 @@ function bodyParagraphs(email) {
 }
 
 function onKeydown(e) {
-  if (e.key === 'Escape' && openEmail.value) {
+  // The command palette owns Escape while it is open.
+  if (e.key === 'Escape' && openEmail.value && !store.isCommandPaletteOpen) {
     closeReader()
   }
 }
 
 function onDocumentClick(e) {
-  if (!openEmail.value) return
+  // Clicks inside the command palette must not close the reader — its
+  // email commands read the open email as they run.
+  if (!openEmail.value || store.isCommandPaletteOpen) return
   // Clicks inside the panel keep it open; clicks on rows are handled by openReader
   if (e.target.closest('.ni-reader') || e.target.closest('.ni-row')) return
   closeReader()
