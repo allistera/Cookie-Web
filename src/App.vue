@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
 import SettingsModal from './components/SettingsModal.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import { useAuth } from './composables/useAuth'
 
 const store = useInboxStore()
@@ -378,6 +379,9 @@ onMounted(() => {
     <!-- MODAL OVERLAYS -->
     <!-- 0. Settings Modal -->
     <SettingsModal />
+
+    <!-- Command palette (Cmd+K) -->
+    <CommandPalette />
 
     <!-- 1. Google Sheets Modal -->
     <div class="modal-overlay" :class="{ active: store.activeModal === 'sheets' }">
