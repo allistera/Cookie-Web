@@ -200,7 +200,7 @@ test('Command palette opens with Cmd+K, filters and navigates to Starred', async
   await page.keyboard.type('go to starred')
   await page.keyboard.press('Enter')
 
-  await expect(page.locator('.cp-panel')).not.toBeVisible()
+  await expect(page.locator('.cp-panel')).toBeHidden()
   await expect(page).toHaveURL(/filter=starred/)
   await expect(page.locator('.ni-header h1')).toHaveText('Starred')
   // Only the two starred fixtures remain.
@@ -220,7 +220,7 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
   await expect(firstItem.locator('.cp-keycap')).toHaveText('E')
   await page.keyboard.press('Enter')
 
-  await expect(page.locator('.cp-panel')).not.toBeVisible()
+  await expect(page.locator('.cp-panel')).toBeHidden()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
   await expect(page.locator('.toast', { hasText: 'Marked done.' })).toBeVisible()
@@ -236,7 +236,7 @@ test('Escape closes the palette but keeps the reading panel open', async ({ page
   await expect(page.locator('.cp-panel')).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await expect(page.locator('.cp-panel')).not.toBeVisible()
+  await expect(page.locator('.cp-panel')).toBeHidden()
   await expect(page.locator('.ni-reader')).toBeVisible()
 })
 

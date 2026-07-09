@@ -104,10 +104,6 @@ function toggleGroup(label) {
   openGroups.value = next
 }
 
-function markRead(email) {
-  store.setUnread(email, false)
-}
-
 function toggleStar(email) {
   store.toggleStar(email)
 }
