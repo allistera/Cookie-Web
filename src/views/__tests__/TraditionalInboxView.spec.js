@@ -5,6 +5,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
+// The view reads route.query.filter; mutate routeMock.query per test.
+const routeMock = { query: {} }
+vi.mock('vue-router', () => ({ useRoute: () => routeMock }))
+
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
@@ -29,6 +33,7 @@ describe('TraditionalInboxView day accordion', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [
       makeEmail('today-1', Date.now() - HOUR),
@@ -86,11 +91,66 @@ describe('TraditionalInboxView day accordion', () => {
   })
 })
 
+describe('TraditionalInboxView filtered views', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    const starred = makeEmail('starred-1', Date.now() - HOUR)
+    starred.starred = true
+    const labeled = makeEmail('labeled-1', Date.now() - HOUR)
+    labeled.labels = [{ name: 'Home', color: '#ff0000' }]
+    store.traditionalEmails = [makeEmail('plain-1', Date.now() - HOUR), starred, labeled]
+  })
+
+  it('filter=starred shows only starred emails with a Starred header', () => {
+    routeMock.query = { filter: 'starred' }
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-header h1').text()).toBe('Starred')
+    const rows = wrapper.findAll('.ni-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('Subject starred-1')
+  })
+
+  it('filter=label shows only emails carrying that label', () => {
+    routeMock.query = { filter: 'label', label: 'Home' }
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-header h1').text()).toBe('Home')
+    const rows = wrapper.findAll('.ni-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('Subject labeled-1')
+  })
+
+  it('filter=snoozed shows an empty state and hides Load more', () => {
+    routeMock.query = { filter: 'snoozed' }
+    store.hasMoreEmails = true
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-header h1').text()).toBe('Snoozed')
+    expect(wrapper.findAll('.ni-row')).toHaveLength(0)
+    expect(wrapper.find('.ni-empty').text()).toBe('No snoozed emails yet.')
+    expect(wrapper.find('.ni-load-more').exists()).toBe(false)
+  })
+
+  it('an unknown filter falls back to the full inbox', () => {
+    routeMock.query = { filter: 'bogus' }
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-header h1').text()).toBe('Inbox')
+    expect(wrapper.findAll('.ni-row')).toHaveLength(3)
+  })
+})
+
 describe('TraditionalInboxView reading panel', () => {
   let store
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
     vi.stubGlobal(

@@ -1,8 +1,66 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
+const route = useRoute()
+
+// --- Filtered views (?filter=starred|snoozed|sent|drafts|label&label=<name>) ---
+// Starred and label views filter the loaded list client-side (rows already
+// carry starred + labels; covers loaded pages only). Snoozed/Sent/Drafts have
+// no backing data yet and render an honest empty state.
+const FILTER_META = {
+  starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
+  snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
+  sent: { title: 'Sent', icon: 'send', emptyText: 'Sent view is coming soon.' },
+  drafts: { title: 'Drafts', icon: 'description', emptyText: 'No drafts yet.' },
+  label: { title: null, icon: 'sell', emptyText: 'No emails with this label.' },
+}
+const EMPTY_ONLY_FILTERS = new Set(['snoozed', 'sent', 'drafts'])
+
+const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.query.filter : null))
+
+const filteredEmails = computed(() => {
+  const emails = store.traditionalEmails
+  switch (activeFilter.value) {
+    case 'starred':
+      return emails.filter((e) => e.starred)
+    case 'label':
+      return emails.filter((e) => e.labels?.some((l) => l.name === route.query.label))
+    case 'snoozed':
+    case 'sent':
+    case 'drafts':
+      return []
+    default:
+      return emails
+  }
+})
+
+const headerTitle = computed(() => {
+  if (!activeFilter.value) return 'Inbox'
+  if (activeFilter.value === 'label') return route.query.label
+  return FILTER_META[activeFilter.value].title
+})
+
+const headerIcon = computed(() =>
+  activeFilter.value ? FILTER_META[activeFilter.value].icon : 'inbox',
+)
+
+const headerIconStyle = computed(() => {
+  if (activeFilter.value !== 'label') return undefined
+  const label = store.allLabels.find((l) => l.name === route.query.label)
+  return label ? { color: label.color } : undefined
+})
+
+const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '')
+
+const showLoadMore = computed(
+  () =>
+    store.hasMoreEmails &&
+    !store.activeSearchQuery &&
+    !EMPTY_ONLY_FILTERS.has(activeFilter.value),
+)
 
 const emailGroups = computed(() => {
   const now = new Date()
@@ -12,7 +70,7 @@ const emailGroups = computed(() => {
   const yesterday = []
   const lastSevenDays = []
   const earlier = []
-  for (const email of store.traditionalEmails) {
+  for (const email of filteredEmails.value) {
     const sentAt = new Date(email.sentAt).getTime()
     if (sentAt >= startOfToday) today.push(email)
     else if (sentAt >= startOfToday - DAY) yesterday.push(email)
@@ -172,8 +230,10 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="ni-header">
       <div class="ni-title">
-        <span class="material-symbols-outlined ni-title-icon">inbox</span>
-        <h1>Inbox</h1>
+        <span class="material-symbols-outlined ni-title-icon" :style="headerIconStyle">{{
+          headerIcon
+        }}</span>
+        <h1>{{ headerTitle }}</h1>
       </div>
     </div>
 
@@ -246,8 +306,11 @@ onUnmounted(() => {
           </div>
         </div>
       </template>
+      <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
+        {{ emptyText }}
+      </div>
       <button
-        v-if="store.hasMoreEmails && !store.activeSearchQuery"
+        v-if="showLoadMore"
         class="ni-load-more"
         :disabled="store.isRefreshing"
         @click="store.loadMoreEmails()"

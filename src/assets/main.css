@@ -2514,3 +2514,11 @@ body {
   background-color: var(--bg-hover);
 }
 
+
+/* Filtered inbox views */
+.ni-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}

@@ -299,16 +299,20 @@ onMounted(() => {
           <router-link
             to="/inbox"
             class="nav-item"
-            :class="{ active: route.name === 'traditional-inbox' }"
+            :class="{ active: route.name === 'traditional-inbox' && !route.query.filter }"
           >
             <span class="material-symbols-outlined nav-icon-red">inbox</span>
             <span class="nav-text">Inbox</span>
             <span class="nav-badge">{{ store.unreadInboxCount }}</span>
           </router-link>
-          <a href="#" class="nav-item">
+          <router-link
+            :to="{ path: '/inbox', query: { filter: 'starred' } }"
+            class="nav-item"
+            :class="{ active: route.query.filter === 'starred' }"
+          >
             <span class="material-symbols-outlined">star</span>
             <span class="nav-text">Starred</span>
-          </a>
+          </router-link>
           <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
             <span class="material-symbols-outlined">{{
               showMoreNav ? 'keyboard_arrow_up' : 'keyboard_arrow_down'
@@ -316,28 +320,48 @@ onMounted(() => {
             <span class="nav-text">{{ showMoreNav ? 'Less' : 'More' }}</span>
           </a>
           <template v-if="showMoreNav">
-            <a href="#" class="nav-item">
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'snoozed' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'snoozed' }"
+            >
               <span class="material-symbols-outlined">schedule</span>
               <span class="nav-text">Snoozed</span>
-            </a>
-            <a href="#" class="nav-item">
+            </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'sent' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'sent' }"
+            >
               <span class="material-symbols-outlined">send</span>
               <span class="nav-text">Sent</span>
-            </a>
-            <a href="#" class="nav-item">
+            </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'drafts' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'drafts' }"
+            >
               <span class="material-symbols-outlined">description</span>
               <span class="nav-text">Drafts</span>
-            </a>
+            </router-link>
           </template>
         </nav>
 
         <template v-if="store.allLabels.length">
           <div class="sb-section-label">Labels</div>
           <nav class="sidebar-nav">
-            <a href="#" class="nav-item" v-for="label in store.allLabels" :key="label.name">
+            <router-link
+              v-for="label in store.allLabels"
+              :key="label.name"
+              :to="{ path: '/inbox', query: { filter: 'label', label: label.name } }"
+              class="nav-item"
+              :class="{
+                active: route.query.filter === 'label' && route.query.label === label.name,
+              }"
+            >
               <span class="material-symbols-outlined" :style="{ color: label.color }">sell</span>
               <span class="nav-text">{{ label.name }}</span>
-            </a>
+            </router-link>
           </nav>
         </template>
       </aside>
