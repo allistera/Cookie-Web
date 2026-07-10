@@ -101,6 +101,7 @@ export const useInboxStore = defineStore('inbox', {
     ],
     traditionalEmails: [],
     unreadInboxCount: 0,
+    userId: null, // the authenticated user's uuid, for the Realtime inbox-ping channel
     statusTime: 'Loading...',
     isRefreshing: false,
     activeSearchQuery: '',
@@ -216,7 +217,7 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET /api/emails responded ${response.status}`)
         }
-        const { emails, nextCursor, unreadCount } = await response.json()
+        const { emails, nextCursor, unreadCount, userId } = await response.json()
         this.traditionalEmails = emails.map(mapEmailRow)
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
@@ -224,6 +225,7 @@ export const useInboxStore = defineStore('inbox', {
           typeof unreadCount === 'number'
             ? unreadCount
             : this.traditionalEmails.filter((e) => e.unread).length
+        if (userId) this.userId = userId
         this.statusTime = 'Updated just now'
       } catch (error) {
         console.error('Failed to load inbox:', error)

@@ -51,19 +51,25 @@ function fetchEmails(sql, sub, limit, cursor) {
   `
 }
 
+// Also returns the user's id (needed by the client to subscribe to their
+// Realtime inbox-ping channel) so loading the inbox stays a two-round-trip
+// operation instead of three.
 function fetchUnreadCount(sql, sub) {
   return sql`
-    SELECT count(*)::int AS unread
-    FROM messages m
-    JOIN users u ON u.id = m.user_id
-    WHERE u.auth0_sub = ${sub} AND m.is_unread
-      AND NOT m.is_archived AND NOT m.is_sent
+    SELECT u.id AS user_id, count(m.id) FILTER (WHERE m.is_unread)::int AS unread
+    FROM users u
+    LEFT JOIN messages m
+      ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent
+    WHERE u.auth0_sub = ${sub}
+    GROUP BY u.id
   `
 }
 
 // GET /api/emails?limit=50&before=<sent_at>|<id> — the authenticated user's
-// inbox, newest first. Responds {emails, nextCursor, unreadCount}; nextCursor
-// is null on the last page. unreadCount covers the whole mailbox, not the page.
+// inbox, newest first. Responds {emails, nextCursor, unreadCount, userId};
+// nextCursor is null on the last page. unreadCount covers the whole mailbox,
+// not the page. userId lets the client subscribe to its Realtime inbox-ping
+// channel.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -96,7 +102,7 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql()
-    const [rows, [{ unread }]] = await Promise.all([
+    const [rows, [userRow]] = await Promise.all([
       fetchEmails(sql, sub, limit, cursor),
       fetchUnreadCount(sql, sub),
     ])
@@ -110,7 +116,8 @@ export default async function handler(req, res) {
         // toISOString keeps millisecond precision; Date's default toString
         // truncates to seconds, which can skip same-second rows on page breaks.
         nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
-        unreadCount: unread,
+        unreadCount: userRow?.unread ?? 0,
+        userId: userRow?.user_id ?? null,
       }),
     )
   } catch (err) {

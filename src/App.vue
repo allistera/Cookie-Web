@@ -6,6 +6,8 @@ import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
 import SettingsModal from './components/SettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import { useAuth } from './composables/useAuth'
+import { useRealtimeInbox } from './composables/useRealtimeInbox'
+import { supabase } from './lib/supabase'
 
 const store = useInboxStore()
 const route = useRoute()
@@ -140,6 +142,10 @@ watch(
   },
   { immediate: true },
 )
+
+// Live inbox: pings the store to refetch when the backend broadcasts a
+// content-free "inbox changed" notification (see notify_inbox_changed()).
+useRealtimeInbox(store, supabase, isAuthenticated)
 
 // Document level click listener to close search dropdown
 onMounted(() => {
