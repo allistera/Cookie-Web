@@ -23,3 +23,16 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: ./migrations/migrate.sh
+
+      # Transition step: while moving Neon -> Supabase, every migration is
+      # applied to both databases so the rollback target can't drift.
+      # Skipped until the SUPABASE_DATABASE_URL secret exists. The secret must
+      # be the SESSION pooler string (aws-0-<region>.pooler.supabase.com:5432)
+      # — GitHub runners have no IPv6 route to the direct db.<ref> host.
+      # Remove this step once Neon is decommissioned and DATABASE_URL itself
+      # points at Supabase (see migrations/supabase-cutover.md).
+      - name: Run migrations (Supabase)
+        if: ${{ secrets.SUPABASE_DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: ./migrations/migrate.sh

@@ -27,8 +27,13 @@ short ingestion pause loses nothing.
    - Vercel: `DATABASE_URL` (production) → redeploy.
    - Cookie-Worker: `DATABASE_URL` secret (via GitHub Workflow / wrangler
      secret), plus swap its driver first — see task in Cookie-Worker repo.
-   - GitHub Actions: `DATABASE_URL` secret used by `migrate.yml` (use the
-     DIRECT url here) and `backfill-embeddings.yml`.
+   - GitHub Actions: set the `SUPABASE_DATABASE_URL` secret (SESSION pooler
+     `:5432` string — runners have no IPv6 for the direct host) so
+     `migrate.yml` applies migrations to both databases during the
+     transition; `backfill-embeddings.yml` keeps using `DATABASE_URL`.
+     After decommissioning Neon: move the Supabase string into
+     `DATABASE_URL`, delete `SUPABASE_DATABASE_URL`, and remove the
+     transition step from `migrate.yml`.
 4. **Verify**: load the app (inbox renders, search works, send + sent copy
    stored), run `npx playwright test` against prod, send a test email
    end-to-end once the route is re-enabled.
