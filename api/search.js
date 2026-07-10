@@ -1,7 +1,6 @@
 import process from 'node:process'
 
-import { neon } from '@neondatabase/serverless'
-
+import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { embedTextCached } from './_lib/embeddings.js'
@@ -49,7 +48,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const sql = neon(process.env.DATABASE_URL)
+    const sql = getSql()
 
     // Semantic leg is best-effort: no key or an OpenAI failure degrades to
     // keyword-only search rather than failing the request.

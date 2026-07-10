@@ -5,7 +5,7 @@
 
 import process from 'node:process'
 
-import { neon } from '@neondatabase/serverless'
+import postgres from 'postgres'
 
 import { embedBatch, EMBEDDING_MODEL } from '../api/_lib/embeddings.js'
 
@@ -17,7 +17,15 @@ if (!DATABASE_URL || !OPENAI_API_KEY) {
   process.exit(1)
 }
 
-const sql = neon(DATABASE_URL)
+// prepare: false is required for transaction-mode poolers (Supavisor,
+// PgBouncer) — safe no-op against a direct connection too.
+const sql = postgres(DATABASE_URL, {
+  ssl: 'require',
+  max: 5,
+  idle_timeout: 20,
+  connect_timeout: 10,
+  prepare: false,
+})
 let total = 0
 
 for (;;) {
@@ -53,3 +61,4 @@ for (;;) {
 }
 
 console.log(`done: ${total} messages embedded`)
+await sql.end()

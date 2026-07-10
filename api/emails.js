@@ -1,7 +1,4 @@
-import process from 'node:process'
-
-import { neon } from '@neondatabase/serverless'
-
+import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 
@@ -98,7 +95,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const sql = neon(process.env.DATABASE_URL)
+    const sql = getSql()
     const [rows, [{ unread }]] = await Promise.all([
       fetchEmails(sql, sub, limit, cursor),
       fetchUnreadCount(sql, sub),
@@ -110,7 +107,9 @@ export default async function handler(req, res) {
     res.end(
       JSON.stringify({
         emails,
-        nextCursor: hasMore ? `${last.sent_at}|${last.id}` : null,
+        // toISOString keeps millisecond precision; Date's default toString
+        // truncates to seconds, which can skip same-second rows on page breaks.
+        nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
         unreadCount: unread,
       }),
     )

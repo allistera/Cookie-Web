@@ -1,9 +1,9 @@
 import process from 'node:process'
 import crypto from 'node:crypto'
 
-import { neon } from '@neondatabase/serverless'
 import { Resend } from 'resend'
 
+import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
@@ -57,12 +57,12 @@ async function storeSentMessage(sql, sub, { to, subject, text, replyToMessageId,
 
   const statements = []
   if (!lookup.thread_id) {
-    statements.push(sql`
+    statements.push((sql) => sql`
       INSERT INTO threads (id, user_id, subject, last_message_at)
       VALUES (${threadUuid}, ${lookup.user_id}, ${subject}, ${sentAt})
     `)
   }
-  statements.push(sql`
+  statements.push((sql) => sql`
     INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
                           recipients, subject, snippet, body_text, sent_at,
                           message_id, is_unread, is_sent)
@@ -72,7 +72,7 @@ async function storeSentMessage(sql, sub, { to, subject, text, replyToMessageId,
     ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
   `)
   if (lookup.thread_id) {
-    statements.push(sql`
+    statements.push((sql) => sql`
       UPDATE threads
       SET message_count = message_count + 1,
           last_message_at = GREATEST(last_message_at, ${sentAt}::timestamptz)
@@ -80,7 +80,11 @@ async function storeSentMessage(sql, sub, { to, subject, text, replyToMessageId,
         AND EXISTS (SELECT 1 FROM messages WHERE id = ${messageUuid})
     `)
   }
-  await sql.transaction(statements)
+  await sql.begin(async (sql) => {
+    for (const statement of statements) {
+      await statement(sql)
+    }
+  })
 
   // Best-effort embedding so sent mail is semantically searchable; NULL rows
   // are healed by the Backfill Embeddings workflow.
@@ -168,7 +172,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const sql = neon(process.env.DATABASE_URL)
+      const sql = getSql()
       await storeSentMessage(sql, sub, {
         to,
         subject,

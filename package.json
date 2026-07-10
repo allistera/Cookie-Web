@@ -16,11 +16,11 @@
   },
   "dependencies": {
     "@auth0/auth0-vue": "^2.8.0",
-    "@neondatabase/serverless": "^1.1.0",
     "@sentry/node": "^10.64.0",
     "@sentry/vue": "^10.63.0",
     "jose": "^6.2.3",
     "pinia": "^3.0.4",
+    "postgres": "^3.4.9",
     "resend": "^6.17.1",
     "vue": "^3.5.38",
     "vue-router": "^5.1.0"
