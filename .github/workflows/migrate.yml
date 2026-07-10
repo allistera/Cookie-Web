@@ -15,29 +15,14 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
 
-    # Secrets can't be referenced in step `if:` conditions, so the optional
-    # Supabase URL is mapped through job env and the step tests that instead.
-    env:
-      SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # DATABASE_URL must be an IPv4-reachable Supabase string (the pooler,
+      # aws-0-<region>.pooler.supabase.com — GitHub runners have no IPv6
+      # route to the direct db.<ref> host).
       - name: Run migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: ./migrations/migrate.sh
-
-      # Transition step: while moving Neon -> Supabase, every migration is
-      # applied to both databases so the rollback target can't drift.
-      # Skipped until the SUPABASE_DATABASE_URL secret exists. The secret must
-      # be the SESSION pooler string (aws-0-<region>.pooler.supabase.com:5432)
-      # — GitHub runners have no IPv6 route to the direct db.<ref> host.
-      # Remove this step once Neon is decommissioned and DATABASE_URL itself
-      # points at Supabase (see migrations/supabase-cutover.md).
-      - name: Run migrations (Supabase)
-        if: ${{ env.SUPABASE_DATABASE_URL != '' }}
-        env:
-          DATABASE_URL: ${{ env.SUPABASE_DATABASE_URL }}
         run: ./migrations/migrate.sh
