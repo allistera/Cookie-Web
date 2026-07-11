@@ -8,6 +8,7 @@ import CommandPalette from './components/CommandPalette.vue'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { supabase } from './lib/supabase'
+import { Analytics } from '@vercel/analytics/vue'
 
 const store = useInboxStore()
 const route = useRoute()
@@ -596,4 +597,7 @@ onMounted(() => {
     </div>
   </div>
   </template>
+
+  <!-- Vercel Web Analytics -->
+  <Analytics />
 </template>
