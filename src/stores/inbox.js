@@ -134,6 +134,12 @@ export const useInboxStore = defineStore('inbox', {
     // Reading panel: id of the email open in the traditional inbox reader
     openEmailId: null,
 
+    // Full message bodies fetched on demand (GET /api/messages), keyed by
+    // message id. body_html is untrusted, sender-controlled HTML and is kept
+    // out of the list payload; it is fetched only when a reader opens and
+    // cached so reopening the same message doesn't refetch.
+    messageBodies: new Map(),
+
     // Command palette (Cmd+K)
     isCommandPaletteOpen: false,
 
@@ -166,6 +172,13 @@ export const useInboxStore = defineStore('inbox', {
     // (archived, or the list was replaced by a search).
     openEmail(state) {
       return state.traditionalEmails.find((e) => e.id === state.openEmailId) ?? null
+    },
+    // Raw (still-untrusted) body_html for the open email, once fetched; null
+    // until the fetch lands or when the message has no HTML body. The reader
+    // sanitizes this before rendering it in a sandboxed iframe.
+    openEmailHtml(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.html ?? null
     },
   },
 
@@ -386,6 +399,31 @@ export const useInboxStore = defineStore('inbox', {
     openReader(email) {
       this.setUnread(email, false)
       this.openEmailId = email.id
+      this.fetchMessageBody(email.id)
+    },
+
+    // Fetches a message's full body on demand and caches it by id. Returns the
+    // cached { html, text } (html is the raw, still-untrusted body_html — the
+    // reader sanitizes it before rendering). Successful fetches are cached so
+    // reopening doesn't refetch; failures are not cached so a later open can
+    // retry. Never throws — the reader falls back to the list's body_text.
+    async fetchMessageBody(id) {
+      if (!id) return null
+      if (this.messageBodies.has(id)) return this.messageBodies.get(id)
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/messages?id=${encodeURIComponent(id)}`, { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/messages responded ${response.status}`)
+        }
+        const { body_html, body_text } = await response.json()
+        const body = { html: body_html ?? null, text: body_text ?? null }
+        this.messageBodies.set(id, body)
+        return body
+      } catch (error) {
+        console.error('Failed to load message body:', error)
+        return null
+      }
     },
 
     closeReader() {

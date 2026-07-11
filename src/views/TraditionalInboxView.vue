@@ -2,6 +2,7 @@
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
+import EmailBody from '../components/EmailBody.vue'
 
 const store = useInboxStore()
 const route = useRoute()
@@ -115,6 +116,10 @@ function removeEmail(email) {
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
+// Sanitized-and-sandboxed HTML rendering is driven by the on-demand body
+// fetch; null until it lands (reader shows body_text meanwhile) or when the
+// message has no HTML body (permanent text fallback).
+const openEmailHtml = computed(() => store.openEmailHtml)
 const isReplyOpen = ref(false)
 const replyText = ref('')
 const replyTextareaRef = ref(null)
@@ -131,9 +136,12 @@ function closeReader() {
 // changes made from outside this view (e.g. the command palette).
 watch(
   () => store.openEmailId,
-  () => {
+  (id) => {
     isReplyOpen.value = false
     replyText.value = ''
+    // Fetch the full body on demand (cached) for any open path, including the
+    // command palette and prev/next navigation.
+    if (id) store.fetchMessageBody(id)
   },
 )
 
@@ -190,10 +198,6 @@ function senderAddress(email) {
   if (email.address) return email.address
   const slug = email.sender.toLowerCase().replace(/[^a-z0-9]+/g, '')
   return `no-reply@${slug}.com`
-}
-
-function bodyParagraphs(email) {
-  return (email.body || email.snippet || '').split('\n\n')
 }
 
 function onKeydown(e) {
@@ -392,10 +396,11 @@ onUnmounted(() => {
               <span class="ni-email-time">{{ openEmail.date }}</span>
             </div>
           </div>
-          <div class="ni-email-body">
-            <p v-for="(paragraph, i) in bodyParagraphs(openEmail)" :key="i">{{ paragraph }}</p>
-            <p class="ni-email-signoff">Kind regards,<br />{{ openEmail.sender }}</p>
-          </div>
+          <EmailBody
+            :html="openEmailHtml"
+            :text="openEmail.body || openEmail.snippet || ''"
+            :sender="openEmail.sender"
+          />
         </div>
 
         <!-- Inline reply box -->

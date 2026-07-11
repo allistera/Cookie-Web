@@ -490,4 +490,79 @@ describe('Inbox Store', () => {
     expect(store.statusTime).toBe('Inbox unavailable')
     expect(store.isRefreshing).toBe(false)
   })
+
+  it('fetchMessageBody loads the body on demand and caches it by id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: '11111111-1111-1111-1111-111111111111',
+        body_html: '<p>Hello</p>',
+        body_text: 'Hello',
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    const body = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
+
+    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/messages?id=11111111-1111-1111-1111-111111111111',
+      { headers: { Authorization: 'Bearer test-access-token' } },
+    )
+
+    // Second call for the same id is served from cache — no second request.
+    const again = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
+    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('fetchMessageBody normalizes a null HTML body and exposes it via openEmailHtml', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'abc', body_html: null, body_text: 'plain only' }),
+      }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'abc', body: 'plain only' }]
+    store.openEmailId = 'abc'
+    await store.fetchMessageBody('abc')
+
+    expect(store.messageBodies.get('abc')).toEqual({ html: null, text: 'plain only' })
+    expect(store.openEmailHtml).toBe(null)
+  })
+
+  it('fetchMessageBody returns null and does not cache on failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const store = useInboxStore()
+    const body = await store.fetchMessageBody('deadbeef-0000-0000-0000-000000000000')
+
+    expect(body).toBe(null)
+    expect(store.messageBodies.has('deadbeef-0000-0000-0000-000000000000')).toBe(false)
+  })
+
+  it('openReader triggers an on-demand body fetch for the opened email', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'msg-9', body_html: '<b>hi</b>', body_text: 'hi' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    const email = { id: 'msg-9', unread: false }
+    store.traditionalEmails = [email]
+
+    store.openReader(email)
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/messages?id=msg-9', {
+        headers: { Authorization: 'Bearer test-access-token' },
+      }),
+    )
+    await vi.waitFor(() => expect(store.openEmailHtml).toBe('<b>hi</b>'))
+  })
 })

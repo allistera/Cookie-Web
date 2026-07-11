@@ -39,6 +39,12 @@ function localApiPlugin(mode) {
   const handleMessages = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'GET') {
+        const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
+        const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+        res.end(JSON.stringify(fixtureMessageBody(id)))
+        return
+      }
       res.end(JSON.stringify({ ok: true }))
       return
     }
