@@ -400,6 +400,8 @@ onUnmounted(() => {
             :html="openEmailHtml"
             :text="openEmail.body || openEmail.snippet || ''"
             :sender="openEmail.sender"
+            :has-html-body="openEmail.hasHtml"
+            :loading="store.isOpenBodyLoading"
           />
         </div>
 

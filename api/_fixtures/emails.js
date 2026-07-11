@@ -16,6 +16,10 @@ const rows = [
     ageMs: 0.5 * HOUR,
     is_unread: true,
     is_starred: false,
+    // Matches api/_fixtures/messages.js: fixture-1 (index 0) carries an HTML
+    // body, so the reader shows a spinner during the on-demand fetch. All other
+    // fixture rows are text-only (has_html false) and render instantly.
+    has_html: true,
     labels: [{ name: 'Home', color: '#e5484d' }],
   },
   {
@@ -185,6 +189,7 @@ export function fixtureEmails() {
   const now = Date.now()
   return rows.map(({ ageMs, ...row }, index) => ({
     id: `fixture-${index + 1}`,
+    has_html: false,
     ...row,
     sent_at: new Date(now - ageMs).toISOString(),
   }))

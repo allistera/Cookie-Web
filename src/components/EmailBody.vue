@@ -12,6 +12,12 @@ const props = defineProps({
   // Decorative sign-off shown only in the text-fallback rendering, matching
   // the reader's previous look.
   sender: { type: String, default: '' },
+  // Whether this message is known to have an HTML body (from the list
+  // endpoint's cheap boolean), before its body_html has been fetched. Lets the
+  // reader show a spinner during the fetch instead of flashing the text body.
+  hasHtmlBody: { type: Boolean, default: false },
+  // Whether the body fetch is currently in flight.
+  loading: { type: Boolean, default: false },
 })
 
 // Hard cap on the iframe height so a hostile email can't force a multi-million
@@ -25,6 +31,12 @@ const frameHeight = ref(80)
 // switches the template to the plain-text fallback.
 const safeHtml = computed(() => sanitizeEmailHtml(props.html))
 const hasHtml = computed(() => safeHtml.value.trim().length > 0)
+
+// Show a spinner only while an HTML body is still being fetched: the message is
+// known to have HTML, the fetch is in flight, and no usable sanitized HTML has
+// arrived yet. Once the fetch settles (html present → iframe; html empty/absent
+// → text fallback) the spinner never lingers.
+const showSpinner = computed(() => !hasHtml.value && props.hasHtmlBody && props.loading)
 
 const paragraphs = computed(() => (props.text || '').split('\n\n'))
 
@@ -86,6 +98,14 @@ function resizeFrame() {
     :style="{ height: frameHeight + 'px' }"
     @load="resizeFrame"
   />
+  <div
+    v-else-if="showSpinner"
+    class="ni-email-loading"
+    role="status"
+    aria-label="Loading email"
+  >
+    <div class="spinner ni-email-spinner"></div>
+  </div>
   <div v-else class="ni-email-body">
     <p v-for="(paragraph, i) in paragraphs" :key="i">{{ paragraph }}</p>
     <p class="ni-email-signoff">Kind regards,<br />{{ sender }}</p>
@@ -98,5 +118,20 @@ function resizeFrame() {
   width: 100%;
   border: 0;
   background: transparent;
+}
+
+/* Reuses the app's global .spinner (main.css) for visual consistency, sized
+   down and centred for the reading panel. */
+.ni-email-loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.ni-email-spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  margin-bottom: 0;
 }
 </style>

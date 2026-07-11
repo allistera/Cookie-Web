@@ -31,6 +31,10 @@ function mapEmailRow(message) {
     date: formatEmailDate(message.sent_at),
     unread: message.is_unread,
     starred: message.is_starred,
+    // Whether the message has an HTML body (cheap boolean from the list
+    // endpoint). Lets the reader show a spinner during the on-demand body fetch
+    // instead of flashing the plain-text fallback before the iframe swaps in.
+    hasHtml: Boolean(message.has_html),
     labels: message.labels || [],
   }
 }
@@ -134,6 +138,13 @@ export const useInboxStore = defineStore('inbox', {
     // Reading panel: id of the email open in the traditional inbox reader
     openEmailId: null,
 
+    // Id of the message whose body is currently being fetched (null when idle).
+    // Drives the reader's loading spinner so HTML emails show a spinner during
+    // the fetch instead of flashing the plain-text fallback. Set only when a
+    // real fetch is about to run (not on a cache hit) and cleared when it
+    // settles.
+    bodyLoadingId: null,
+
     // Full message bodies fetched on demand (GET /api/messages), keyed by
     // message id. body_html is untrusted, sender-controlled HTML and is kept
     // out of the list payload; it is fetched only when a reader opens and
@@ -179,6 +190,12 @@ export const useInboxStore = defineStore('inbox', {
     openEmailHtml(state) {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.html ?? null
+    },
+    // True while the open email's body is being fetched. The reader uses this
+    // (together with the email's hasHtml flag) to show a spinner instead of the
+    // text fallback until the HTML iframe is ready.
+    isOpenBodyLoading(state) {
+      return state.bodyLoadingId !== null && state.bodyLoadingId === state.openEmailId
     },
   },
 
@@ -410,6 +427,9 @@ export const useInboxStore = defineStore('inbox', {
     async fetchMessageBody(id) {
       if (!id) return null
       if (this.messageBodies.has(id)) return this.messageBodies.get(id)
+      // Only flag loading for an actual fetch — cache hits above return early so
+      // reopening a message never spins.
+      this.bodyLoadingId = id
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`/api/messages?id=${encodeURIComponent(id)}`, { headers })
@@ -423,6 +443,10 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         console.error('Failed to load message body:', error)
         return null
+      } finally {
+        // Always clear, whether the fetch succeeded or failed, but only if this
+        // call is still the one in flight (a newer open may have superseded it).
+        if (this.bodyLoadingId === id) this.bodyLoadingId = null
       }
     },
 

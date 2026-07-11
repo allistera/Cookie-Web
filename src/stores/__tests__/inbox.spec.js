@@ -99,6 +99,7 @@ describe('Inbox Store', () => {
         date: '10:04 am',
         unread: true,
         starred: false,
+        hasHtml: false,
         labels: [],
       },
     ])
@@ -544,6 +545,58 @@ describe('Inbox Store', () => {
 
     expect(body).toBe(null)
     expect(store.messageBodies.has('deadbeef-0000-0000-0000-000000000000')).toBe(false)
+  })
+
+  it('fetchMessageBody flags the open body as loading during the fetch and clears it after', async () => {
+    let resolveFetch
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending))
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'msg-1' }]
+    store.openEmailId = 'msg-1'
+
+    const promise = store.fetchMessageBody('msg-1')
+    // In flight: the getter reports the open email's body as loading.
+    expect(store.bodyLoadingId).toBe('msg-1')
+    expect(store.isOpenBodyLoading).toBe(true)
+
+    resolveFetch({ ok: true, json: async () => ({ body_html: '<p>hi</p>', body_text: 'hi' }) })
+    await promise
+
+    // Settled: loading cleared whether it resolved or rejected.
+    expect(store.bodyLoadingId).toBe(null)
+    expect(store.isOpenBodyLoading).toBe(false)
+  })
+
+  it('fetchMessageBody clears the loading flag when the fetch fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const store = useInboxStore()
+    store.openEmailId = 'boom'
+    await store.fetchMessageBody('boom')
+
+    expect(store.bodyLoadingId).toBe(null)
+    expect(store.isOpenBodyLoading).toBe(false)
+  })
+
+  it('fetchMessageBody does not flag loading on a cache hit', async () => {
+    const store = useInboxStore()
+    store.messageBodies.set('cached', { html: '<p>x</p>', text: 'x' })
+    store.openEmailId = 'cached'
+
+    const spy = vi.fn()
+    vi.stubGlobal('fetch', spy)
+
+    const body = await store.fetchMessageBody('cached')
+    expect(body).toEqual({ html: '<p>x</p>', text: 'x' })
+    expect(spy).not.toHaveBeenCalled()
+    // A cache hit must never spin — bodyLoadingId stays null throughout.
+    expect(store.bodyLoadingId).toBe(null)
+    expect(store.isOpenBodyLoading).toBe(false)
   })
 
   it('openReader triggers an on-demand body fetch for the opened email', async () => {

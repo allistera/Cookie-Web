@@ -52,4 +52,37 @@ describe('EmailBody', () => {
     expect(wrapper.find('iframe').exists()).toBe(false)
     expect(wrapper.find('.ni-email-body').exists()).toBe(true)
   })
+
+  it('shows a spinner (not text, not iframe) while an HTML body is loading', () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: null, text: 'plain fallback', sender: 'Ada', hasHtmlBody: true, loading: true },
+    })
+
+    const spinner = wrapper.find('[role="status"]')
+    expect(spinner.exists()).toBe(true)
+    expect(spinner.find('.spinner').exists()).toBe(true)
+    // Neither the text fallback nor the iframe render during the fetch window.
+    expect(wrapper.find('.ni-email-body').exists()).toBe(false)
+    expect(wrapper.find('iframe').exists()).toBe(false)
+  })
+
+  it('renders text instantly with no spinner for a text-only email, regardless of loading', () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: null, text: 'plain body', sender: 'Ada', hasHtmlBody: false, loading: true },
+    })
+
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.find('.ni-email-body p').text()).toBe('plain body')
+  })
+
+  it('renders the iframe once HTML is present, regardless of the loading prop', () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: HOSTILE, text: 'fallback', sender: 'Ada', hasHtmlBody: true, loading: true },
+    })
+
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('.ni-email-body').exists()).toBe(false)
+  })
 })

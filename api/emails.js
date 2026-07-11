@@ -14,6 +14,7 @@ function fetchEmails(sql, sub, limit, cursor) {
     return sql`
       SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
              m.body_text, m.sent_at, m.is_unread, m.is_starred,
+             (m.body_html IS NOT NULL) AS has_html,
              COALESCE(
                json_agg(json_build_object('name', l.name, 'color', l.color)
                         ORDER BY l.name)
@@ -34,6 +35,7 @@ function fetchEmails(sql, sub, limit, cursor) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
            m.body_text, m.sent_at, m.is_unread, m.is_starred,
+           (m.body_html IS NOT NULL) AS has_html,
            COALESCE(
              json_agg(json_build_object('name', l.name, 'color', l.color)
                       ORDER BY l.name)
