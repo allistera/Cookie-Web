@@ -205,10 +205,30 @@ function senderAddress(email) {
   return `no-reply@${slug}.com`
 }
 
+// Keyboard shortcuts must not fire while the user is typing (reply textarea,
+// search bar, composer, command palette input, ...).
+function isTypingTarget(target) {
+  return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'))
+}
+
 function onKeydown(e) {
   // The command palette owns Escape while it is open.
   if (e.key === 'Escape' && openEmail.value && !store.isCommandPaletteOpen) {
     closeReader()
+  }
+  // 'd' archives the email open in the reader. Plain keypress only — modified
+  // combos (Cmd+D bookmark, etc.) stay with the browser.
+  if (
+    e.key === 'd' &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    openEmail.value &&
+    !store.isCommandPaletteOpen &&
+    !isTypingTarget(e.target)
+  ) {
+    e.preventDefault()
+    archiveOpenEmail()
   }
 }
 

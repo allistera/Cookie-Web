@@ -199,3 +199,76 @@ describe('TraditionalInboxView reading panel', () => {
     expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 })
+
+describe("TraditionalInboxView 'd' archive shortcut", () => {
+  let store
+  let wrapper
+
+  function pressD(init = {}) {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, ...init }))
+  }
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
+    vi.spyOn(store, 'archiveEmail')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+    wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it("archives the open email when 'd' is pressed", () => {
+    pressD()
+
+    expect(store.archiveEmail).toHaveBeenCalledTimes(1)
+    expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
+    expect(store.openEmailId).toBe(null)
+  })
+
+  it('does nothing when no email is open', () => {
+    store.closeReader()
+
+    pressD()
+
+    expect(store.archiveEmail).not.toHaveBeenCalled()
+  })
+
+  it("ignores 'd' typed into an input or textarea", () => {
+    const textarea = document.createElement('textarea')
+    document.body.appendChild(textarea)
+    try {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }))
+    } finally {
+      textarea.remove()
+    }
+
+    expect(store.archiveEmail).not.toHaveBeenCalled()
+  })
+
+  it("ignores 'd' while the command palette is open", () => {
+    store.isCommandPaletteOpen = true
+
+    pressD()
+
+    expect(store.archiveEmail).not.toHaveBeenCalled()
+  })
+
+  it("ignores 'd' with a modifier key held (browser shortcuts like Cmd+D)", () => {
+    pressD({ metaKey: true })
+    pressD({ ctrlKey: true })
+    pressD({ altKey: true })
+
+    expect(store.archiveEmail).not.toHaveBeenCalled()
+  })
+})
