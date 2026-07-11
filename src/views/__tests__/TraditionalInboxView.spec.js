@@ -84,10 +84,27 @@ describe('TraditionalInboxView day accordion', () => {
     expect(groupHeader(wrapper, 'Today').attributes('aria-expanded')).toBe('false')
   })
 
-  it('shows each group email count in the header', () => {
+  it('shows the unread count in a group header', () => {
     const wrapper = mount(TraditionalInboxView)
 
     expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').text()).toBe('1')
+  })
+
+  it('counts only unread emails, not the group total', () => {
+    store.traditionalEmails = [
+      { ...makeEmail('y-unread', Date.now() - DAY), unread: true },
+      { ...makeEmail('y-read', Date.now() - DAY), unread: false },
+    ]
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').text()).toBe('1')
+  })
+
+  it('hides the count badge when a group has no unread emails', () => {
+    store.traditionalEmails = [{ ...makeEmail('y-read', Date.now() - DAY), unread: false }]
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').exists()).toBe(false)
   })
 })
 

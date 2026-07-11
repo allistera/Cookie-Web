@@ -79,10 +79,15 @@ const emailGroups = computed(() => {
     else earlier.push(email)
   }
   const groups = []
-  if (today.length) groups.push({ label: 'Today', emails: today })
-  if (yesterday.length) groups.push({ label: 'Yesterday', emails: yesterday })
-  if (lastSevenDays.length) groups.push({ label: 'Last seven days', emails: lastSevenDays })
-  if (earlier.length) groups.push({ label: 'Earlier', emails: earlier })
+  const group = (label, emails) => ({
+    label,
+    emails,
+    unreadCount: emails.filter((e) => e.unread).length,
+  })
+  if (today.length) groups.push(group('Today', today))
+  if (yesterday.length) groups.push(group('Yesterday', yesterday))
+  if (lastSevenDays.length) groups.push(group('Last seven days', lastSevenDays))
+  if (earlier.length) groups.push(group('Earlier', earlier))
   return groups
 })
 
@@ -249,7 +254,7 @@ onUnmounted(() => {
         >
           <span class="material-symbols-outlined ni-group-chevron">expand_more</span>
           <span>{{ group.label }}</span>
-          <span class="ni-group-count">{{ group.emails.length }}</span>
+          <span class="ni-group-count" v-if="group.unreadCount">{{ group.unreadCount }}</span>
         </button>
         <div
           v-for="email in isGroupOpen(group.label) ? group.emails : []"
