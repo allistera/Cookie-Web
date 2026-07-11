@@ -228,12 +228,41 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     vi.restoreAllMocks()
   })
 
-  it("archives the open email when 'd' is pressed", () => {
+  it("archives the open email when 'd' is pressed and closes the reader when it was the only email", () => {
     pressD()
 
     expect(store.archiveEmail).toHaveBeenCalledTimes(1)
     expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
     expect(store.openEmailId).toBe(null)
+  })
+
+  it('advances to the next email in the list after archiving', async () => {
+    store.traditionalEmails = [
+      makeEmail('today-1', Date.now() - HOUR),
+      makeEmail('today-2', Date.now() - 2 * HOUR),
+      makeEmail('today-3', Date.now() - 3 * HOUR),
+    ]
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.ni-row')[0].trigger('click')
+
+    pressD()
+
+    expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
+    expect(store.openEmailId).toBe('today-2')
+  })
+
+  it('falls back to the previous email when the archived one was last', async () => {
+    store.traditionalEmails = [
+      makeEmail('today-1', Date.now() - HOUR),
+      makeEmail('today-2', Date.now() - 2 * HOUR),
+    ]
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.ni-row')[1].trigger('click')
+
+    pressD()
+
+    expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-2')
+    expect(store.openEmailId).toBe('today-1')
   })
 
   it('does nothing when no email is open', () => {

@@ -164,9 +164,17 @@ function nextEmail() {
   }
 }
 
+// Archives the open email and auto-advances the reader to the email that
+// followed it (or the new last one when the archived email was last); the
+// reader only closes when the list is now empty.
 function archiveOpenEmail() {
-  if (openEmail.value) {
-    removeEmail(openEmail.value)
+  if (!openEmail.value) return
+  const index = openIndex.value
+  removeEmail(openEmail.value)
+  const remaining = flatEmails.value
+  const next = remaining[index] ?? remaining[remaining.length - 1]
+  if (next) {
+    openReader(next)
   }
 }
 
