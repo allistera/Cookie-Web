@@ -7,6 +7,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
+import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { supabase } from './lib/supabase'
 
 const store = useInboxStore()
@@ -146,6 +147,10 @@ watch(
 // Live inbox: pings the store to refetch when the backend broadcasts a
 // content-free "inbox changed" notification (see notify_inbox_changed()).
 useRealtimeInbox(store, supabase, isAuthenticated)
+
+// "(2) Cookie AI Inbox …" tab-title badge for emails that arrive while the
+// tab is in the background.
+useTitleUnreadBadge(store)
 
 // Document level click listener to close search dropdown
 onMounted(() => {
