@@ -9,7 +9,7 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // Keyset pagination on (sent_at, id) DESC. The cursor is "<sent_at>|<id>" of
 // the last row of the previous page — stable under concurrent inserts, unlike
 // OFFSET. fetch one extra row to learn whether another page exists.
-function fetchEmails(sql, sub, limit, cursor) {
+function fetchEmails(sql, email, limit, cursor) {
   if (cursor) {
     return sql`
       SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
@@ -25,7 +25,7 @@ function fetchEmails(sql, sub, limit, cursor) {
       JOIN users u ON u.id = m.user_id
       LEFT JOIN message_labels ml ON ml.message_id = m.id
       LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE u.auth0_sub = ${sub} AND NOT m.is_archived AND NOT m.is_sent
+      WHERE lower(u.email) = ${email} AND NOT m.is_archived AND NOT m.is_sent
         AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
       GROUP BY m.id
       ORDER BY m.sent_at DESC, m.id DESC
@@ -46,7 +46,7 @@ function fetchEmails(sql, sub, limit, cursor) {
     JOIN users u ON u.id = m.user_id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE u.auth0_sub = ${sub} AND NOT m.is_archived AND NOT m.is_sent
+    WHERE lower(u.email) = ${email} AND NOT m.is_archived AND NOT m.is_sent
     GROUP BY m.id
     ORDER BY m.sent_at DESC, m.id DESC
     LIMIT ${limit + 1}
@@ -56,13 +56,13 @@ function fetchEmails(sql, sub, limit, cursor) {
 // Also returns the user's id (needed by the client to subscribe to their
 // Realtime inbox-ping channel) so loading the inbox stays a two-round-trip
 // operation instead of three.
-function fetchUnreadCount(sql, sub) {
+function fetchUnreadCount(sql, email) {
   return sql`
     SELECT u.id AS user_id, count(m.id) FILTER (WHERE m.is_unread)::int AS unread
     FROM users u
     LEFT JOIN messages m
       ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent
-    WHERE u.auth0_sub = ${sub}
+    WHERE lower(u.email) = ${email}
     GROUP BY u.id
   `
 }
@@ -75,9 +75,9 @@ function fetchUnreadCount(sql, sub) {
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
-  let sub
+  let email
   try {
-    ;({ sub } = await verifyAccessToken(req))
+    ;({ email } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -105,8 +105,8 @@ export default async function handler(req, res) {
   try {
     const sql = getSql()
     const [rows, [userRow]] = await Promise.all([
-      fetchEmails(sql, sub, limit, cursor),
-      fetchUnreadCount(sql, sub),
+      fetchEmails(sql, email, limit, cursor),
+      fetchUnreadCount(sql, email),
     ])
     const hasMore = rows.length > limit
     const emails = hasMore ? rows.slice(0, limit) : rows

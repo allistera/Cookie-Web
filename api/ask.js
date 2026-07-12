@@ -69,9 +69,9 @@ export default async function handler(req, res) {
     return
   }
 
-  let sub
+  let email
   try {
-    ;({ sub } = await verifyAccessToken(req))
+    ;({ email } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
     return
   }
 
-  if (!allowRequest(`ask:${sub}`, RATE_LIMIT)) {
+  if (!allowRequest(`ask:${email}`, RATE_LIMIT)) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many questions, slow down' }))
     return
@@ -114,7 +114,7 @@ export default async function handler(req, res) {
         const vector = JSON.stringify(
           await embedTextCached(question, process.env.OPENAI_API_KEY),
         )
-        return await vectorLeg(sql, sub, vector, CANDIDATES)
+        return await vectorLeg(sql, email, vector, CANDIDATES)
       } catch (err) {
         console.error('POST /api/ask vector leg failed:', err.message)
         return []
@@ -122,7 +122,7 @@ export default async function handler(req, res) {
     }
 
     const [keywordRows, vectorRows] = await Promise.all([
-      keywordLeg(sql, sub, question, CANDIDATES),
+      keywordLeg(sql, email, question, CANDIDATES),
       semanticIds(),
     ])
     const ids = fuseRankings([
@@ -145,7 +145,7 @@ export default async function handler(req, res) {
       SELECT m.id, m.from_name, m.from_address, m.subject, m.body_text, m.sent_at
       FROM messages m
       JOIN users u ON u.id = m.user_id
-      WHERE u.auth0_sub = ${sub} AND m.id = ANY(${ids}::uuid[])
+      WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])
     `
     const byId = new Map(rows.map((row) => [row.id, row]))
     const ordered = ids.map((id) => byId.get(id)).filter(Boolean)
