@@ -31,7 +31,7 @@ function parseFromEnv(from) {
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
 // the inbox list, included in search). Threads with the replied-to message
 // when replyToMessageId is given; otherwise starts a fresh thread.
-async function storeSentMessage(sql, sub, { to, subject, text, replyToMessageId, resendId }) {
+async function storeSentMessage(sql, email, { to, subject, text, replyToMessageId, resendId }) {
   const [lookup] = await sql`
     SELECT u.id AS user_id,
            CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
@@ -39,7 +39,7 @@ async function storeSentMessage(sql, sub, { to, subject, text, replyToMessageId,
               WHERE m.id = ${replyToMessageId ?? null}::uuid AND m.user_id = u.id)
            END AS thread_id
     FROM users u
-    WHERE u.auth0_sub = ${sub}
+    WHERE lower(u.email) = ${email}
     LIMIT 1
   `
   if (!lookup) {
@@ -116,9 +116,9 @@ export default async function handler(req, res) {
     return
   }
 
-  let sub
+  let email
   try {
-    ;({ sub } = await verifyAccessToken(req))
+    ;({ email } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -173,7 +173,7 @@ export default async function handler(req, res) {
 
     try {
       const sql = getSql()
-      await storeSentMessage(sql, sub, {
+      await storeSentMessage(sql, email, {
         to,
         subject,
         text,

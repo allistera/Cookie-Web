@@ -8,14 +8,14 @@ const COLOR_RE = /^#[0-9a-f]{6}$/i
 const MAX_NAME = 50
 const MAX_DESCRIPTION = 200
 
-async function listLabels(sql, sub, res) {
+async function listLabels(sql, email, res) {
   const labels = await sql`
     SELECT l.id, l.name, l.color, l.kind, l.description,
            count(ml.message_id)::int AS message_count
     FROM labels l
     JOIN users u ON u.id = l.user_id
     LEFT JOIN message_labels ml ON ml.label_id = l.id
-    WHERE u.auth0_sub = ${sub}
+    WHERE lower(u.email) = ${email}
     GROUP BY l.id
     ORDER BY l.name
   `
@@ -23,7 +23,7 @@ async function listLabels(sql, sub, res) {
   res.end(JSON.stringify({ labels }))
 }
 
-async function createLabel(sql, sub, body, res) {
+async function createLabel(sql, email, body, res) {
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   const color = typeof body.color === 'string' ? body.color.trim() : ''
   const description =
@@ -42,7 +42,7 @@ async function createLabel(sql, sub, body, res) {
     INSERT INTO labels (user_id, name, color, description)
     SELECT u.id, ${name}, ${color}, ${description}
     FROM users u
-    WHERE u.auth0_sub = ${sub}
+    WHERE lower(u.email) = ${email}
     ON CONFLICT (user_id, name) DO NOTHING
     RETURNING id, name, color, kind, description, 0 AS message_count
   `
@@ -57,7 +57,7 @@ async function createLabel(sql, sub, body, res) {
   res.end(JSON.stringify({ label }))
 }
 
-async function deleteLabel(sql, sub, body, res) {
+async function deleteLabel(sql, email, body, res) {
   const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
   if (!id) {
     res.statusCode = 400
@@ -67,7 +67,7 @@ async function deleteLabel(sql, sub, body, res) {
   const rows = await sql`
     DELETE FROM labels l
     USING users u
-    WHERE l.id = ${id} AND l.user_id = u.id AND u.auth0_sub = ${sub}
+    WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
     RETURNING l.id
   `
   if (rows.length === 0) {
@@ -84,9 +84,9 @@ async function deleteLabel(sql, sub, body, res) {
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
-  let sub
+  let email
   try {
-    ;({ sub } = await verifyAccessToken(req))
+    ;({ email } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
   try {
     const sql = getSql()
     if (req.method === 'GET') {
-      await listLabels(sql, sub, res)
+      await listLabels(sql, email, res)
       return
     }
     if (req.method === 'POST' || req.method === 'DELETE') {
@@ -108,8 +108,8 @@ export default async function handler(req, res) {
         res.end(JSON.stringify({ error: 'Invalid JSON body' }))
         return
       }
-      if (req.method === 'POST') await createLabel(sql, sub, body, res)
-      else await deleteLabel(sql, sub, body, res)
+      if (req.method === 'POST') await createLabel(sql, email, body, res)
+      else await deleteLabel(sql, email, body, res)
       return
     }
     res.statusCode = 405

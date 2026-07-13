@@ -25,16 +25,16 @@ export default async function handler(req, res) {
     return
   }
 
-  let sub
+  let email
   try {
-    ;({ sub } = await verifyAccessToken(req))
+    ;({ email } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
     return
   }
 
-  if (!allowRequest(`search:${sub}`, RATE_LIMIT)) {
+  if (!allowRequest(`search:${email}`, RATE_LIMIT)) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many searches, slow down' }))
     return
@@ -56,7 +56,7 @@ export default async function handler(req, res) {
       if (!process.env.OPENAI_API_KEY) return []
       try {
         const vector = JSON.stringify(await embedTextCached(q, process.env.OPENAI_API_KEY))
-        return await vectorLeg(sql, sub, vector, CANDIDATES)
+        return await vectorLeg(sql, email, vector, CANDIDATES)
       } catch (err) {
         console.error('GET /api/search vector leg failed:', err.message)
         return []
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
     }
 
     const [keywordRows, vectorRows] = await Promise.all([
-      keywordLeg(sql, sub, q, CANDIDATES),
+      keywordLeg(sql, email, q, CANDIDATES),
       semanticIds(),
     ])
 
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
       JOIN users u ON u.id = m.user_id
       LEFT JOIN message_labels ml ON ml.message_id = m.id
       LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE u.auth0_sub = ${sub} AND m.id = ANY(${ids}::uuid[])
+      WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])
       GROUP BY m.id
     `
     const byId = new Map(rows.map((row) => [row.id, row]))
