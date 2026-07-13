@@ -527,9 +527,9 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     const reader = wrapper.find('.ni-reader')
     expect(reader.find('[title="Reply"]').exists()).toBe(true)
     expect(reader.find('[title="Done"]').exists()).toBe(true)
-    expect(reader.find('[title="Close"]').exists()).toBe(true)
-    expect(reader.find('[title="Previous"]').exists()).toBe(true)
-    expect(reader.find('[title="Next"]').exists()).toBe(true)
+    expect(reader.find('[title="Close"]').exists()).toBe(false)
+    expect(reader.find('[title="Previous"]').exists()).toBe(false)
+    expect(reader.find('[title="Next"]').exists()).toBe(false)
   })
 })
 

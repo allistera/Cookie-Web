@@ -228,7 +228,7 @@ watch(
     isReplyOpen.value = false
     replyText.value = ''
     // Fetch the full body on demand (cached) for any open path, including the
-    // command palette and prev/next navigation.
+    // command palette.
     if (id) store.fetchMessageBody(id)
   },
 )
@@ -240,18 +240,6 @@ watch(filteredEmails, (emails) => {
 })
 
 const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
-
-function prevEmail() {
-  if (openIndex.value > 0) {
-    openReader(flatEmails.value[openIndex.value - 1])
-  }
-}
-
-function nextEmail() {
-  if (openIndex.value > -1 && openIndex.value < flatEmails.value.length - 1) {
-    openReader(flatEmails.value[openIndex.value + 1])
-  }
-}
 
 // Archives the open email and auto-advances the reader to the email that
 // followed it (or the new last one when the archived email was last); the
@@ -502,27 +490,6 @@ onUnmounted(() => {
     <Transition name="ni-slide">
       <div class="ni-reader" v-if="openEmail">
         <div class="ni-reader-topbar">
-          <div class="ni-reader-nav">
-            <button class="ni-reader-btn ni-reader-close" title="Close" @click="closeReader">
-              <span class="material-symbols-outlined">keyboard_double_arrow_right</span>
-            </button>
-            <button
-              class="ni-reader-btn"
-              title="Previous"
-              :disabled="openIndex <= 0"
-              @click="prevEmail"
-            >
-              <span class="material-symbols-outlined">keyboard_arrow_up</span>
-            </button>
-            <button
-              class="ni-reader-btn"
-              title="Next"
-              :disabled="openIndex >= flatEmails.length - 1"
-              @click="nextEmail"
-            >
-              <span class="material-symbols-outlined">keyboard_arrow_down</span>
-            </button>
-          </div>
           <div class="ni-reader-nav">
             <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
               <span class="material-symbols-outlined">check_box</span>
