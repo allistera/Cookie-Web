@@ -240,6 +240,29 @@ test('Escape closes the palette but keeps the reading panel open', async ({ page
   await expect(page.locator('.ni-reader')).toBeVisible()
 })
 
+test('Hovering the Today unread count reveals Mark Read, which clears the day', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+
+  const todayHeader = page.locator('.ni-group-header', { hasText: 'Today' })
+  await expect(todayHeader.locator('.ni-group-count')).toHaveText('2')
+
+  // The tooltip button only appears while hovering the count badge.
+  const markRead = todayHeader.locator('.ni-group-mark-read')
+  await expect(markRead).toBeHidden()
+  await todayHeader.locator('.ni-group-count-wrap').hover()
+  await expect(markRead).toBeVisible()
+
+  await markRead.click()
+
+  // Both Today emails flip to read: unread dots go, the badge disappears,
+  // and the group stays expanded (the click must not toggle the accordion).
+  await expect(page.locator('.ni-row.unread')).toHaveCount(0)
+  await expect(todayHeader.locator('.ni-group-count')).toHaveCount(0)
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
+})
+
 test('Sent view lists the outbox with recipients and opens the reader', async ({ page }) => {
   await page.goto('/inbox')
 

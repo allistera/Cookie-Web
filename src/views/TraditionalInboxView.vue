@@ -135,6 +135,14 @@ function toggleStar(email) {
   store.toggleStar(email)
 }
 
+// Marks every unread email of one day group as read (each persists via the
+// store's optimistic per-email setUnread, which reverts on failure).
+function markGroupRead(group) {
+  for (const email of group.emails.filter((e) => e.unread)) {
+    store.setUnread(email, false)
+  }
+}
+
 function removeEmail(email) {
   store.archiveEmail(email)
 }
@@ -309,7 +317,23 @@ onUnmounted(() => {
         >
           <span class="material-symbols-outlined ni-group-chevron">expand_more</span>
           <span>{{ group.label }}</span>
-          <span class="ni-group-count" v-if="group.unreadCount">{{ group.unreadCount }}</span>
+          <!-- Hovering (or focusing) the badge reveals a tooltip button that
+               marks the whole day read. role=button spans: a real <button>
+               may not nest inside the group-header button. -->
+          <span class="ni-group-count-wrap" v-if="group.unreadCount">
+            <span class="ni-group-count">{{ group.unreadCount }}</span>
+            <span
+              class="ni-group-mark-read"
+              role="button"
+              tabindex="0"
+              :aria-label="`Mark ${group.label} emails as read`"
+              @click.stop="markGroupRead(group)"
+              @keydown.enter.stop.prevent="markGroupRead(group)"
+            >
+              <span class="material-symbols-outlined">mark_email_read</span>
+              Mark Read
+            </span>
+          </span>
         </button>
         <div
           v-for="email in isGroupOpen(group.label) ? group.emails : []"

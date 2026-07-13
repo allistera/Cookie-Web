@@ -108,6 +108,75 @@ describe('TraditionalInboxView day accordion', () => {
   })
 })
 
+describe('TraditionalInboxView group Mark Read tooltip', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [
+      { ...makeEmail('y-unread-1', Date.now() - DAY), unread: true },
+      { ...makeEmail('y-unread-2', Date.now() - DAY - HOUR), unread: true },
+      { ...makeEmail('y-read', Date.now() - DAY - 2 * HOUR), unread: false },
+    ]
+    store.unreadInboxCount = 2
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function header(wrapper, label) {
+    return wrapper.findAll('.ni-group-header').find((h) => h.text().includes(label))
+  }
+
+  it('renders a Mark Read tooltip button inside the unread count badge', () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    const markRead = header(wrapper, 'Yesterday').find('.ni-group-mark-read')
+    expect(markRead.exists()).toBe(true)
+    expect(markRead.text()).toContain('Mark Read')
+    expect(markRead.attributes('role')).toBe('button')
+  })
+
+  it('clicking Mark Read marks every unread email of that day as read', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
+
+    expect(store.traditionalEmails.every((e) => !e.unread)).toBe(true)
+    expect(store.unreadInboxCount).toBe(0)
+    // The badge (and with it the tooltip) disappears once nothing is unread.
+    await wrapper.vm.$nextTick()
+    expect(header(wrapper, 'Yesterday').find('.ni-group-count').exists()).toBe(false)
+  })
+
+  it('clicking Mark Read does not toggle the group accordion', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
+    await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
+    expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('only touches emails of its own day group', async () => {
+    store.traditionalEmails.push({ ...makeEmail('today-unread', Date.now() - HOUR), unread: true })
+    store.unreadInboxCount = 3
+    const wrapper = mount(TraditionalInboxView)
+
+    await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
+
+    expect(store.traditionalEmails.find((e) => e.id === 'today-unread').unread).toBe(true)
+    expect(store.traditionalEmails.find((e) => e.id === 'y-unread-1').unread).toBe(false)
+    expect(store.unreadInboxCount).toBe(1)
+  })
+})
+
 describe('TraditionalInboxView filtered views', () => {
   let store
 

@@ -874,10 +874,61 @@ body {
   transform: rotate(-90deg);
 }
 
-.ni-group-count {
+.ni-group-count-wrap {
+  position: relative;
   margin-left: auto;
+  display: inline-flex;
+}
+
+.ni-group-count {
   font-size: 13px;
   font-weight: 500;
+}
+
+/* Light tooltip button revealed while hovering (or keyboard-focusing) the
+   unread badge; clicking it marks the whole day group as read. */
+.ni-group-mark-read {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: -8px;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  z-index: 5;
+}
+
+/* Invisible bridge over the 8px gap so the pointer can travel from the badge
+   up to the tooltip without it flickering away. */
+.ni-group-mark-read::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+.ni-group-count-wrap:hover .ni-group-mark-read,
+.ni-group-count-wrap:focus-within .ni-group-mark-read {
+  display: inline-flex;
+}
+
+.ni-group-mark-read:hover {
+  background: var(--bg-hover);
+}
+
+.ni-group-mark-read .material-symbols-outlined {
+  font-size: 16px;
 }
 
 .ni-row {
