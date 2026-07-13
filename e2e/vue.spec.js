@@ -240,6 +240,25 @@ test('Escape closes the palette but keeps the reading panel open', async ({ page
   await expect(page.locator('.ni-reader')).toBeVisible()
 })
 
+test('A top loading bar shows while the inbox is fetching and hides afterwards', async ({
+  page,
+}) => {
+  // Hold the emails response so the initial load is observably in flight.
+  await page.route('**/api/emails**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    await route.continue()
+  })
+
+  await page.goto('/inbox')
+
+  const bar = page.locator('.loading-bar')
+  await expect(bar).toBeVisible()
+
+  // Once the data lands the bar goes away and the list is populated.
+  await expect(bar).toHaveCount(0, { timeout: 10000 })
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
+})
+
 test('Hovering the Today unread count reveals Mark Read, which clears the day', async ({
   page,
 }) => {

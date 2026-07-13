@@ -3,6 +3,7 @@ import { ref, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
+import LoadingBar from './components/LoadingBar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import { useAuth } from './composables/useAuth'
@@ -170,6 +171,10 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- Data-sync feedback: thin indeterminate bar across the very top while
+       any email list fetch is in flight -->
+  <LoadingBar />
+
   <!-- Loading State -->
   <div v-if="isLoading" class="auth-loading-container">
     <div class="spinner"></div>
