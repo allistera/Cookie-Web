@@ -1,69 +1,123 @@
-# cookie-web
+# Cookie Web
 
-This template should help get you started developing with Vue 3 in Vite.
+Cookie is a private, AI-assisted email application. The Vue frontend and authenticated Vercel functions provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail.
 
-## Recommended IDE Setup
+The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online).
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## Architecture
 
-## Recommended Browser Setup
+```text
+Cloudflare Email Routing
+  -> Cookie-Worker
+       -> forward original mail
+       -> store through Hyperdrive
+       -> OpenAI enrichment and embeddings
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+Vue 3 browser application
+  -> Auth0-protected Vercel functions
+       -> Supabase Postgres + pgvector
+       -> OpenAI Responses and embeddings APIs
+       -> Resend
+```
 
-## Customize configuration
+Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.com/allistera/Cookie-Worker). Database migrations remain in this repository because both runtimes share the same schema.
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+## Features
 
-## Project Setup
+- Inbox, Starred, Sent, Drafts, Spam, and label views.
+- Auth0 authentication and per-user mailbox queries.
+- Keyword and semantic search over stored mail.
+- Mailbox Q&A with retrieved email sources.
+- AI Compose with an explicit review-and-insert step; it never sends automatically.
+- Per-label auto-tag controls and conservative spam classification.
+- Outbound delivery through Resend with stored sent copies.
+- Supabase Realtime pings for inbox refreshes.
+
+See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.md) for the AI design, safety boundaries, and alternatives considered.
+
+## Technology
+
+| Area | Technology |
+| --- | --- |
+| UI | Vue 3, Pinia, Vue Router, Vite |
+| Hosting and API | Vercel Functions |
+| Authentication | Auth0 |
+| Database | Supabase Postgres with pgvector |
+| Realtime | Supabase Realtime broadcast |
+| AI | OpenAI Responses and Embeddings APIs |
+| Outbound email | Resend |
+| Error monitoring | Sentry |
+
+## Local development
+
+Requirements:
+
+- Node.js `^22.18.0` or `>=24.12.0`.
+- npm.
+- Playwright browsers for end-to-end tests.
+
+Install dependencies and start Vite:
 
 ```sh
 npm install
-```
-
-### Compile and Hot-Reload for Development
-
-```sh
 npm run dev
 ```
 
-### Compile and Minify for Production
+Without `DATABASE_URL`, the local API middleware uses fixture data. Add the required values to `.env.local` only when testing authenticated APIs against a development database.
+
+Never commit `.env.local` or use the production database for routine local development.
+
+## Configuration
+
+The main runtime variables are:
+
+| Name | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Supabase Postgres connection used by Vercel functions and migrations. |
+| `OPENAI_API_KEY` | Embeddings, mailbox Q&A, and AI Compose. |
+| `OPENAI_COMPOSE_MODEL` | Optional AI Compose model override. |
+| `RESEND_API_KEY` | Outbound email delivery. |
+| `EMAIL_FROM` | Optional sender identity for outbound mail. |
+| `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |
+| `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID exposed to the browser. |
+| `VITE_AUTH0_AUDIENCE` | Auth0 API audience exposed to the browser. |
+| `VITE_SUPABASE_URL` | Supabase project URL used for Realtime. |
+| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings. |
+| `SENTRY_DSN` | Server-side error reporting. |
+| `VITE_SENTRY_DSN` | Browser error reporting. |
+
+Vercel stores production values. GitHub Actions stores only the secrets required by migrations and embedding backfills.
+
+## Database migrations
+
+Migrations are append-only and live in [`migrations/`](migrations/). Apply all pending files with:
 
 ```sh
-npm run build
+export DATABASE_URL='postgres://...'
+./migrations/migrate.sh
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+The `Migrate Database` workflow runs automatically when migration files reach `main`. See [migrations/README.md](migrations/README.md) for conventions and AI schema details.
 
-```sh
-npm run test:unit
-```
-
-### Run End-to-End Tests with [Playwright](https://playwright.dev)
-
-```sh
-# Install browsers for the first run
-npx playwright install
-
-# When testing on CI, must build the project first
-npm run build
-
-# Runs the end-to-end tests
-npm run test:e2e
-# Runs the tests only on Chromium
-npm run test:e2e -- --project=chromium
-# Runs the tests of a specific file
-npm run test:e2e -- tests/example.spec.ts
-# Runs the tests in debug mode
-npm run test:e2e -- --debug
-```
-
-### Lint with [ESLint](https://eslint.org/)
+## Validation
 
 ```sh
 npm run lint
+npm run test:unit -- --run
+npm run build
+npm run test:e2e
 ```
+
+Install Playwright browsers once if required:
+
+```sh
+npx playwright install
+```
+
+Run a narrower browser test with `--project=chromium` or a specific file path when iterating locally.
+
+## Delivery and operations
+
+Pushes to `main` run CI and trigger the linked Vercel production deployment. Migration changes also trigger the database migration workflow.
+
+The weekly `Backfill Embeddings` workflow repairs messages whose best-effort embedding call did not finish. Cloudflare Worker deployment and email-routing operations are documented in the Cookie-Worker runbook.

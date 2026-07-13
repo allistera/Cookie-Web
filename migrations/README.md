@@ -1,41 +1,43 @@
-# Database Migrations
+# Database migrations
 
-Plain-SQL migrations for the Cookie email service, targeting Postgres
-(Neon via the Vercel Marketplace).
+Cookie uses append-only SQL migrations against Supabase Postgres. The same schema supports Cookie-Web and Cookie-Worker.
 
 ## Conventions
 
-- Files are numbered and applied in order: `0001_...sql`, `0002_...sql`.
-- Each migration is wrapped in a transaction (`BEGIN; ... COMMIT;`).
-- Migrations are append-only — never edit an applied migration; add a new
-  one that alters the schema instead.
-- Attachment/raw-message bytes live in Vercel Blob; the database stores
-  metadata and URLs only.
+- Files use ordered names such as `0010_ai_enrichment.sql`.
+- Every migration is transactional.
+- Applied filenames are stored in `schema_migrations`.
+- Never change an applied migration; add a new file instead.
+- Runtime code must remain compatible until its required migration is applied.
 
-## Applying
+## Apply pending migrations
 
-Against a Neon database (connection string in `DATABASE_URL`):
+Set an IPv4-reachable Supabase pooler connection in `DATABASE_URL`, then run:
 
-```bash
-psql "$DATABASE_URL" -f migrations/0001_initial_email_schema.sql
+```sh
+./migrations/migrate.sh
 ```
 
-Note that standalone scripts do not auto-load `.env.local`, so export the
-variable first (or use `dotenv-cli`):
+The script creates `schema_migrations` if needed, applies pending files in order, and safely skips files already recorded.
 
-```bash
-source <(grep -v '^#' .env.local | sed 's/^/export /')
-```
+Pushes to `main` that change `migrations/**` run the same script through the `Migrate Database` GitHub Actions workflow.
 
-## AI enrichment
+## Connection guidance
 
-`0010_ai_enrichment.sql` adds durable OpenAI enrichment state, per-label
-auto-tag preferences, spam verdicts, and label provenance. Apply it before
-deploying a `Cookie-Worker` version that imports `src/enrich.js`; the ingest
-transaction creates the pending enrichment row for each new inbound message.
-`0011_backfill_ai_pending.sql` queues existing inbound messages, which the
-Worker's 15-minute recovery sweep processes in batches of three.
+Use the Supavisor session pooler on port `5432` for GitHub-hosted migrations. GitHub runners cannot depend on an IPv6-only direct database host.
 
-AI failures are recoverable state (`message_ai.status = 'failed'`) and never
-change the mail forwarding outcome. Only a spam score of at least `0.98`
-moves a message out of Inbox and into the hidden Spam folder.
+Use a development project for local migration testing. Do not point routine local commands at production.
+
+## AI enrichment migrations
+
+`0010_ai_enrichment.sql` adds per-label auto-tag settings, model-label provenance, and durable `message_ai` enrichment state.
+
+Apply `0010` before deploying Cookie-Worker code that creates pending enrichment rows during inbound storage.
+
+`0011_backfill_ai_pending.sql` queues existing inbound messages. Cookie-Worker's 15-minute recovery sweep processes three stale pending or failed rows per run.
+
+AI failure state is recoverable and never changes the mail-forwarding outcome. Only spam scores of at least `0.98` are excluded from Inbox.
+
+## Historical migration
+
+The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
