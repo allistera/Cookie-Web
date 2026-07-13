@@ -125,6 +125,10 @@ export const useInboxStore = defineStore('inbox', {
     hasMoreSent: false,
     isSentLoaded: false,
     isSentRefreshing: false,
+    spamEmails: [],
+    spamCursor: null,
+    hasMoreSpam: false,
+    isSpamRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
 
     // Chat state
@@ -137,8 +141,10 @@ export const useInboxStore = defineStore('inbox', {
     composerTo: '',
     composerSubject: '',
     composerTextArea: '',
-    isGeminiDraftActive: false,
-    geminiDraftPreview: '',
+    isAiDraftActive: false,
+    isAiDraftLoading: false,
+    aiDraftPreview: '',
+    composerAiInstruction: '',
     activeTodoId: null,
 
     // Toast notifications
@@ -190,7 +196,9 @@ export const useInboxStore = defineStore('inbox', {
           }
         }
       }
-      return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+      return [...byName.values()]
+        .filter((label) => label.kind !== 'system')
+        .sort((a, b) => a.name.localeCompare(b.name))
     },
     // The email open in the reading panel; null once it leaves the list
     // (archived, or the list was replaced by a search). Sent mail opens from
@@ -199,6 +207,7 @@ export const useInboxStore = defineStore('inbox', {
       return (
         state.traditionalEmails.find((e) => e.id === state.openEmailId) ??
         state.sentEmails.find((e) => e.id === state.openEmailId) ??
+        state.spamEmails.find((e) => e.id === state.openEmailId) ??
         null
       )
     },
@@ -358,6 +367,44 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    async loadSpamEmails() {
+      this.isSpamRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/emails?folder=spam&limit=${PAGE_SIZE}`, { headers })
+        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
+        const { emails, nextCursor } = await response.json()
+        this.spamEmails = emails.map(mapEmailRow)
+        this.spamCursor = nextCursor ?? null
+        this.hasMoreSpam = Boolean(nextCursor)
+      } catch (error) {
+        console.error('Failed to load spam emails:', error)
+        this.notify('Failed to load spam.', 'error')
+      } finally {
+        this.isSpamRefreshing = false
+      }
+    },
+
+    async loadMoreSpamEmails() {
+      if (!this.spamCursor || this.isSpamRefreshing) return
+      this.isSpamRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const url = `/api/emails?folder=spam&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.spamCursor)}`
+        const response = await fetch(url, { headers })
+        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
+        const { emails, nextCursor } = await response.json()
+        this.spamEmails.push(...emails.map(mapEmailRow))
+        this.spamCursor = nextCursor ?? null
+        this.hasMoreSpam = Boolean(nextCursor)
+      } catch (error) {
+        console.error('Failed to load more spam:', error)
+        this.notify('Failed to load more spam.', 'error')
+      } finally {
+        this.isSpamRefreshing = false
+      }
+    },
+
     async loadLabels() {
       try {
         const headers = await this.authHeaders()
@@ -416,6 +463,24 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         console.error('Failed to delete label:', error)
         this.notify('Failed to delete label.', 'error')
+      }
+    },
+
+    async setLabelAutoApply(label, autoApply) {
+      const previous = label.auto_apply
+      label.auto_apply = autoApply
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/labels', {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: label.id, auto_apply: autoApply }),
+        })
+        if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
+      } catch (error) {
+        label.auto_apply = previous
+        console.error('Failed to update label auto-tagging:', error)
+        this.notify('Failed to update auto-tagging.', 'error')
       }
     },
 
@@ -626,31 +691,54 @@ export const useInboxStore = defineStore('inbox', {
       this.composerTo = ''
       this.composerSubject = ''
       this.composerTextArea = ''
-      this.isGeminiDraftActive = false
-      this.geminiDraftPreview = ''
+      this.isAiDraftActive = false
+      this.isAiDraftLoading = false
+      this.aiDraftPreview = ''
+      this.composerAiInstruction = ''
     },
 
-    triggerGeminiDraft() {
-      this.isGeminiDraftActive = true
-      this.geminiDraftPreview = ''
-
-      const draftText =
-        "Hi City Tile and Stone,\n\nI confirm the selection of the White Subway Tiles for our kitchen renovation. Please proceed with the order so we stay aligned with the contractor's installation timeline.\n\nBest,\nAllister"
-
-      let i = 0
-      const interval = setInterval(() => {
-        if (i < draftText.length) {
-          this.geminiDraftPreview += draftText.charAt(i)
-          i++
-        } else {
-          clearInterval(interval)
-        }
-      }, 15)
+    openAiDraft() {
+      this.isAiDraftActive = true
+      if (!this.composerAiInstruction) {
+        this.composerAiInstruction = this.composerTextArea.trim()
+          ? 'Improve this draft while keeping its meaning.'
+          : 'Write a concise, friendly email.'
+      }
     },
 
-    insertGeminiDraft() {
-      this.composerTextArea = this.geminiDraftPreview
-      this.isGeminiDraftActive = false
+    async requestAiDraft() {
+      const instruction = this.composerAiInstruction.trim()
+      if (!instruction || this.isAiDraftLoading) return
+      this.isAiDraftActive = true
+      this.isAiDraftLoading = true
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/compose', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            instruction,
+            to: this.composerTo,
+            subject: this.composerSubject,
+            existingText: this.composerTextArea,
+          }),
+        })
+        if (!response.ok) throw new Error(`POST /api/compose responded ${response.status}`)
+        const { draft } = await response.json()
+        this.aiDraftPreview = draft.text
+        if (!this.composerSubject.trim() && draft.subject) this.composerSubject = draft.subject
+      } catch (error) {
+        console.error('AI compose failed:', error)
+        this.notify('AI compose failed. Please try again.', 'error')
+      } finally {
+        this.isAiDraftLoading = false
+      }
+    },
+
+    insertAiDraft() {
+      if (!this.aiDraftPreview) return
+      this.composerTextArea = this.aiDraftPreview
+      this.isAiDraftActive = false
     },
 
     async sendEmail() {

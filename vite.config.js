@@ -14,7 +14,7 @@ function localApiPlugin(mode) {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
       const folder = new URL(req.url, 'http://localhost').searchParams.get('folder')
-      const emails = folder === 'sent' ? fixtureSentEmails() : fixtureEmails()
+      const emails = folder === 'sent' ? fixtureSentEmails() : folder === 'spam' ? [] : fixtureEmails()
       res.setHeader('Content-Type', 'application/json')
       res.end(
         JSON.stringify({
@@ -90,6 +90,19 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/ask.js')
     await handler(req, res)
   }
+  const handleCompose = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          draft: { subject: 'AI draft', text: 'A reviewable AI-generated draft.' },
+        }),
+      )
+      return
+    }
+    const { default: handler } = await import('./api/compose.js')
+    await handler(req, res)
+  }
   // Stateful in e2e/no-DB mode so create/delete are visible within a session.
   let stubLabels = null
   const ensureStubLabels = async () => {
@@ -107,6 +120,7 @@ function localApiPlugin(mode) {
           color: label.color,
           kind: 'user',
           description: null,
+          auto_apply: true,
           message_count: 0,
         }))
     }
@@ -126,6 +140,7 @@ function localApiPlugin(mode) {
           color: body.color,
           kind: 'user',
           description: body.description || null,
+          auto_apply: true,
           message_count: 0,
         }
         labels.push(label)
@@ -141,6 +156,15 @@ function localApiPlugin(mode) {
         res.end(JSON.stringify({ ok: true }))
         return
       }
+      if (req.method === 'PATCH') {
+        let raw = ''
+        for await (const chunk of req) raw += chunk
+        const body = JSON.parse(raw || '{}')
+        const label = labels.find((item) => item.id === body.id)
+        if (label) label.auto_apply = body.auto_apply
+        res.end(JSON.stringify({ label }))
+        return
+      }
       res.end(JSON.stringify({ labels }))
       return
     }
@@ -153,6 +177,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/api/messages', handleMessages)
     server.middlewares.use('/api/search', handleSearch)
     server.middlewares.use('/api/ask', handleAsk)
+    server.middlewares.use('/api/compose', handleCompose)
     server.middlewares.use('/api/labels', handleLabels)
   }
   return {

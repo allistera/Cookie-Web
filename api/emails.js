@@ -9,26 +9,32 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // Keyset pagination on (sent_at, id) DESC. The cursor is "<sent_at>|<id>" of
 // the last row of the previous page — stable under concurrent inserts, unlike
 // OFFSET. fetch one extra row to learn whether another page exists.
-// isSent selects the folder: false = inbox, true = sent/outbox (recipients
+// folder selects inbox, sent/outbox, or high-confidence AI spam (recipients
 // let the client render "To: <address>" for outbound rows).
-function fetchEmails(sql, email, limit, cursor, isSent) {
+function fetchEmails(sql, email, limit, cursor, folder) {
   if (cursor) {
     return sql`
       SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
              m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
-             m.is_sent,
+             m.is_sent, ai.spam_score,
              (m.body_html IS NOT NULL) AS has_html,
              COALESCE(
-               json_agg(json_build_object('name', l.name, 'color', l.color)
+               json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
                         ORDER BY l.name)
                  FILTER (WHERE l.id IS NOT NULL),
                '[]'
              ) AS labels
       FROM messages m
       JOIN users u ON u.id = m.user_id
+      LEFT JOIN message_ai ai ON ai.message_id = m.id
       LEFT JOIN message_labels ml ON ml.message_id = m.id
       LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE lower(u.email) = ${email} AND NOT m.is_archived AND m.is_sent = ${isSent}
+      WHERE lower(u.email) = ${email} AND NOT m.is_archived
+        AND (
+          (${folder} = 'sent' AND m.is_sent)
+          OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
+          OR (${folder} = 'inbox' AND NOT m.is_sent AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam')
+        )
         AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
       GROUP BY m.id
       ORDER BY m.sent_at DESC, m.id DESC
@@ -38,19 +44,25 @@ function fetchEmails(sql, email, limit, cursor, isSent) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
            m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
-           m.is_sent,
+           m.is_sent, ai.spam_score,
            (m.body_html IS NOT NULL) AS has_html,
            COALESCE(
-             json_agg(json_build_object('name', l.name, 'color', l.color)
+             json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
                       ORDER BY l.name)
                FILTER (WHERE l.id IS NOT NULL),
              '[]'
            ) AS labels
     FROM messages m
     JOIN users u ON u.id = m.user_id
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE lower(u.email) = ${email} AND NOT m.is_archived AND m.is_sent = ${isSent}
+    WHERE lower(u.email) = ${email} AND NOT m.is_archived
+      AND (
+        (${folder} = 'sent' AND m.is_sent)
+        OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
+        OR (${folder} = 'inbox' AND NOT m.is_sent AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam')
+      )
     GROUP BY m.id
     ORDER BY m.sent_at DESC, m.id DESC
     LIMIT ${limit + 1}
@@ -66,13 +78,15 @@ function fetchUnreadCount(sql, email) {
     FROM users u
     LEFT JOIN messages m
       ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
     WHERE lower(u.email) = ${email}
+      AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
     GROUP BY u.id
   `
 }
 
-// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent — the
-// authenticated user's inbox (default) or sent mail, newest first. Responds
+// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent|spam — the
+// authenticated user's selected folder (inbox by default), newest first. Responds
 // {emails, nextCursor, unreadCount, userId}; nextCursor is null on the last
 // page. unreadCount always covers the inbox (sent mail is never unread).
 // userId lets the client subscribe to its Realtime inbox-ping channel.
@@ -89,7 +103,13 @@ export default async function handler(req, res) {
   }
 
   const url = new URL(req.url, 'http://localhost')
-  const isSent = url.searchParams.get('folder') === 'sent'
+  const requestedFolder = url.searchParams.get('folder') || 'inbox'
+  const folder = ['inbox', 'sent', 'spam'].includes(requestedFolder) ? requestedFolder : null
+  if (!folder) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Invalid folder' }))
+    return
+  }
   const limitParam = Number.parseInt(url.searchParams.get('limit') ?? '', 10)
   const limit = Number.isFinite(limitParam)
     ? Math.min(Math.max(limitParam, 1), MAX_LIMIT)
@@ -110,7 +130,7 @@ export default async function handler(req, res) {
   try {
     const sql = getSql()
     const [rows, [userRow]] = await Promise.all([
-      fetchEmails(sql, email, limit, cursor, isSent),
+      fetchEmails(sql, email, limit, cursor, folder),
       fetchUnreadCount(sql, email),
     ])
     const hasMore = rows.length > limit

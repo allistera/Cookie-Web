@@ -249,6 +249,66 @@ describe('Inbox Store', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('loads spam from its isolated server-backed folder', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [{
+            id: 'spam-1', from_name: 'Spammer', from_address: 'spam@example.com',
+            subject: 'Guaranteed prize', snippet: 'Act now', body_text: 'Act now',
+            sent_at: new Date().toISOString(), is_unread: true, is_starred: false,
+          }],
+          nextCursor: null,
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.loadSpamEmails()
+
+    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=spam&limit=50', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.spamEmails.map((email) => email.id)).toEqual(['spam-1'])
+  })
+
+  it('generates a reviewable AI draft without sending it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ draft: { subject: 'Hello', text: 'Generated body' } }),
+      }),
+    )
+    const store = useInboxStore()
+    store.composerTo = 'person@example.com'
+    store.composerAiInstruction = 'Confirm Tuesday works.'
+
+    await store.requestAiDraft()
+
+    expect(fetch).toHaveBeenCalledWith('/api/compose', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({
+        instruction: 'Confirm Tuesday works.',
+        to: 'person@example.com',
+        subject: '',
+        existingText: '',
+      }),
+    })
+    expect(store.aiDraftPreview).toBe('Generated body')
+    expect(store.composerSubject).toBe('Hello')
+    expect(store.composerTextArea).toBe('')
+
+    store.insertAiDraft()
+    expect(store.composerTextArea).toBe('Generated body')
+  })
+
   it('refreshes the sent list after sending mail once it has been loaded', async () => {
     const fetchMock = vi
       .fn()

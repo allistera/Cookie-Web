@@ -10,7 +10,7 @@ const MAX_DESCRIPTION = 200
 
 async function listLabels(sql, email, res) {
   const labels = await sql`
-    SELECT l.id, l.name, l.color, l.kind, l.description,
+    SELECT l.id, l.name, l.color, l.kind, l.description, l.auto_apply,
            count(ml.message_id)::int AS message_count
     FROM labels l
     JOIN users u ON u.id = l.user_id
@@ -44,7 +44,7 @@ async function createLabel(sql, email, body, res) {
     FROM users u
     WHERE lower(u.email) = ${email}
     ON CONFLICT (user_id, name) DO NOTHING
-    RETURNING id, name, color, kind, description, 0 AS message_count
+    RETURNING id, name, color, kind, description, auto_apply, 0 AS message_count
   `
   if (!label) {
     // Either the name already exists or (rare) no users row: the unique
@@ -54,6 +54,30 @@ async function createLabel(sql, email, body, res) {
     return
   }
   res.statusCode = 201
+  res.end(JSON.stringify({ label }))
+}
+
+async function updateLabel(sql, email, body, res) {
+  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  if (!id || typeof body.auto_apply !== 'boolean') {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'id and auto_apply are required' }))
+    return
+  }
+  const [label] = await sql`
+    UPDATE labels l
+    SET auto_apply = ${body.auto_apply}
+    FROM users u
+    WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+      AND l.kind = 'user'
+    RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
+  `
+  if (!label) {
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: 'User label not found' }))
+    return
+  }
+  res.statusCode = 200
   res.end(JSON.stringify({ label }))
 }
 
@@ -68,11 +92,12 @@ async function deleteLabel(sql, email, body, res) {
     DELETE FROM labels l
     USING users u
     WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+      AND l.kind = 'user'
     RETURNING l.id
   `
   if (rows.length === 0) {
     res.statusCode = 404
-    res.end(JSON.stringify({ error: 'Label not found' }))
+    res.end(JSON.stringify({ error: 'User label not found' }))
     return
   }
   res.statusCode = 200
@@ -80,7 +105,7 @@ async function deleteLabel(sql, email, body, res) {
 }
 
 // /api/labels — GET lists the user's labels (with message counts),
-// POST creates one, DELETE removes one (message_labels rows cascade).
+// POST creates one, PATCH changes auto-apply, DELETE removes one.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -99,7 +124,7 @@ export default async function handler(req, res) {
       await listLabels(sql, email, res)
       return
     }
-    if (req.method === 'POST' || req.method === 'DELETE') {
+    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
       let body
       try {
         body = await readJsonBody(req)
@@ -109,6 +134,7 @@ export default async function handler(req, res) {
         return
       }
       if (req.method === 'POST') await createLabel(sql, email, body, res)
+      else if (req.method === 'PATCH') await updateLabel(sql, email, body, res)
       else await deleteLabel(sql, email, body, res)
       return
     }

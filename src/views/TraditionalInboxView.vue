@@ -16,6 +16,7 @@ const FILTER_META = {
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
   snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
   sent: { title: 'Sent', icon: 'send', emptyText: 'No sent emails yet.' },
+  spam: { title: 'Spam', icon: 'report', emptyText: 'No spam. Nice and tidy.' },
   drafts: { title: 'Drafts', icon: 'description', emptyText: 'No drafts yet.' },
   label: { title: null, icon: 'sell', emptyText: 'No emails with this label.' },
 }
@@ -29,6 +30,7 @@ watch(
   activeFilter,
   (filter) => {
     if (filter === 'sent') store.loadSentEmails()
+    if (filter === 'spam') store.loadSpamEmails()
   },
   { immediate: true },
 )
@@ -42,6 +44,8 @@ const filteredEmails = computed(() => {
       return emails.filter((e) => e.labels?.some((l) => l.name === route.query.label))
     case 'sent':
       return store.sentEmails
+    case 'spam':
+      return store.spamEmails
     case 'snoozed':
     case 'drafts':
       return []
@@ -71,16 +75,20 @@ const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
   if (activeFilter.value === 'sent') return store.hasMoreSent
+  if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (EMPTY_ONLY_FILTERS.has(activeFilter.value)) return false
   return store.hasMoreEmails
 })
 
-const isLoadingMore = computed(() =>
-  activeFilter.value === 'sent' ? store.isSentRefreshing : store.isRefreshing,
-)
+const isLoadingMore = computed(() => {
+  if (activeFilter.value === 'sent') return store.isSentRefreshing
+  if (activeFilter.value === 'spam') return store.isSpamRefreshing
+  return store.isRefreshing
+})
 
 function loadMore() {
   if (activeFilter.value === 'sent') store.loadMoreSentEmails()
+  else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
   else store.loadMoreEmails()
 }
 

@@ -27,7 +27,15 @@ variable first (or use `dotenv-cli`):
 source <(grep -v '^#' .env.local | sed 's/^/export /')
 ```
 
-## Planned
+## AI enrichment
 
-- AI layer (suggested to-dos, topic digests, pgvector embeddings) will be
-  added as a follow-up migration once the core schema is in use.
+`0010_ai_enrichment.sql` adds durable OpenAI enrichment state, per-label
+auto-tag preferences, spam verdicts, and label provenance. Apply it before
+deploying a `Cookie-Worker` version that imports `src/enrich.js`; the ingest
+transaction creates the pending enrichment row for each new inbound message.
+`0011_backfill_ai_pending.sql` queues existing inbound messages, which the
+Worker's 15-minute recovery sweep processes in batches of three.
+
+AI failures are recoverable state (`message_ai.status = 'failed'`) and never
+change the mail forwarding outcome. Only a spam score of at least `0.98`
+moves a message out of Inbox and into the hidden Spam folder.

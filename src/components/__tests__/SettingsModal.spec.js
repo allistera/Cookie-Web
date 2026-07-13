@@ -21,8 +21,8 @@ vi.mock('../../auth0-client', () => ({
 }))
 
 const FIXTURE_LABELS = [
-  { id: 'l1', name: 'Finance', color: '#2f9e44', kind: 'user', description: 'Bills', message_count: 2 },
-  { id: 'l2', name: 'Home', color: '#e5484d', kind: 'user', description: null, message_count: 5 },
+  { id: 'l1', name: 'Finance', color: '#2f9e44', kind: 'user', description: 'Bills', auto_apply: true, message_count: 2 },
+  { id: 'l2', name: 'Home', color: '#e5484d', kind: 'user', description: null, auto_apply: false, message_count: 5 },
 ]
 
 describe('SettingsModal', () => {
@@ -110,6 +110,23 @@ describe('SettingsModal', () => {
     expect(rows[0].find('.ni-label-pill').text()).toBe('Finance')
     expect(rows[0].find('.label-description').text()).toBe('Bills')
     expect(rows[1].find('.label-description').text()).toBe('—')
+    expect(rows[0].find('.label-auto-tag-switch').element.checked).toBe(true)
+    expect(rows[1].find('.label-auto-tag-switch').element.checked).toBe(false)
+  })
+
+  it('updates whether a label can be auto-tagged', async () => {
+    const wrapper = await openModal()
+    await openLabelsPane(wrapper)
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ label: {} }) })
+
+    await wrapper.findAll('.label-auto-tag-switch')[1].setValue(true)
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'l2', auto_apply: true }),
+    })
+    expect(store.labels[1].auto_apply).toBe(true)
   })
 
   it('creates a label from the form and resets it', async () => {

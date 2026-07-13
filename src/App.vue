@@ -345,6 +345,14 @@ onMounted(() => {
               <span class="material-symbols-outlined">description</span>
               <span class="nav-text">Drafts</span>
             </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'spam' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'spam' }"
+            >
+              <span class="material-symbols-outlined">report</span>
+              <span class="nav-text">Spam</span>
+            </router-link>
           </template>
         </nav>
 
@@ -531,25 +539,34 @@ onMounted(() => {
         @keydown.shift.tab.prevent="composerToRef?.focus()"
       ></textarea>
 
-      <!-- Inline Gemini drafting box -->
-      <div class="composer-gemini-box" :class="{ active: store.isGeminiDraftActive }">
+      <!-- Reviewable AI drafting box; generation never sends mail. -->
+      <div class="composer-gemini-box" :class="{ active: store.isAiDraftActive }">
         <div class="gemini-draft-header">
           <div class="gemini-badge">
             <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
-            <span>Gemini Drafted</span>
+            <span>Cookie AI Compose</span>
           </div>
           <div class="gemini-draft-actions">
-            <button class="btn btn-text-sm" @click="store.triggerGeminiDraft">Refine</button>
-            <button class="btn btn-text-sm" @click="store.insertGeminiDraft">Insert</button>
+            <button class="btn btn-text-sm" :disabled="store.isAiDraftLoading" @click="store.requestAiDraft">
+              {{ store.aiDraftPreview ? 'Refine' : 'Generate' }}
+            </button>
+            <button class="btn btn-text-sm" :disabled="!store.aiDraftPreview" @click="store.insertAiDraft">Insert</button>
           </div>
         </div>
+        <input
+          v-model="store.composerAiInstruction"
+          class="composer-ai-instruction"
+          maxlength="1000"
+          placeholder="Describe what you want to say…"
+          @keydown.enter.prevent="store.requestAiDraft"
+        />
         <div
           class="gemini-draft-preview"
           :class="{
-            'typing-cursor': store.isGeminiDraftActive && store.geminiDraftPreview.length === 0,
+            'typing-cursor': store.isAiDraftLoading,
           }"
         >
-          {{ store.geminiDraftPreview || 'Drafting response...' }}
+          {{ store.isAiDraftLoading ? 'Drafting…' : store.aiDraftPreview || 'Your generated draft will appear here for review.' }}
         </div>
       </div>
     </div>
@@ -570,7 +587,7 @@ onMounted(() => {
         <button
           class="composer-icon-btn composer-ai-btn"
           title="Help me write"
-          @click="store.triggerGeminiDraft"
+          @click="store.openAiDraft"
         >
           ai
         </button>

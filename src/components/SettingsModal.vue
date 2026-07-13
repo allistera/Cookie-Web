@@ -174,13 +174,14 @@ async function submitLabel() {
           <section v-if="activeSection === 'labels'" class="settings-section">
             <h3 class="settings-section-title">Labels</h3>
             <p class="settings-section-hint">
-              Labels organise your mail. Deleting a label removes it from every message.
+              Cookie AI uses enabled label descriptions to auto-tag new mail. Deleting a label removes it from every message.
             </p>
 
             <div class="label-table" v-if="store.labels.length">
               <div class="label-table-head">
                 <span>Label</span>
                 <span>Description</span>
+                <span>Auto-tag</span>
                 <span></span>
               </div>
               <div class="label-table-row" v-for="label in store.labels" :key="label.id">
@@ -191,7 +192,17 @@ async function submitLabel() {
                   {{ label.name }}
                 </span>
                 <span class="label-description">{{ label.description || '—' }}</span>
+                <input
+                  v-if="label.kind === 'user'"
+                  type="checkbox"
+                  class="settings-switch label-auto-tag-switch"
+                  :aria-label="`Auto-tag ${label.name}`"
+                  :checked="label.auto_apply"
+                  @change="store.setLabelAutoApply(label, $event.target.checked)"
+                />
+                <span v-else class="label-system-note">System</span>
                 <button
+                  v-if="label.kind === 'user'"
                   class="ni-action-btn label-delete-btn"
                   :title="`Delete ${label.name}`"
                   @click="store.deleteLabel(label.id)"

@@ -2398,7 +2398,7 @@ body {
 .label-table-head,
 .label-table-row {
   display: grid;
-  grid-template-columns: 150px 1fr 32px;
+  grid-template-columns: 150px 1fr 72px 32px;
   align-items: center;
   gap: 12px;
   padding: 8px 0;
@@ -2423,6 +2423,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.label-auto-tag-switch {
+  justify-self: center;
+}
+
+.label-system-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 .label-delete-btn {
@@ -2598,6 +2608,18 @@ body {
 
 .settings-switch:checked::after {
   transform: translateX(20px);
+}
+
+.composer-ai-instruction {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
 }
 
 /* Profile Dropdown styling */
