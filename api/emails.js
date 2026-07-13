@@ -11,7 +11,7 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // OFFSET. fetch one extra row to learn whether another page exists.
 // folder selects inbox, sent/outbox, or high-confidence AI spam (recipients
 // let the client render "To: <address>" for outbound rows).
-function fetchEmails(sql, email, limit, cursor, folder) {
+export function fetchEmails(sql, email, limit, cursor, folder) {
   if (cursor) {
     return sql`
       SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
@@ -36,7 +36,7 @@ function fetchEmails(sql, email, limit, cursor, folder) {
           OR (${folder} = 'inbox' AND NOT m.is_sent AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam')
         )
         AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
-      GROUP BY m.id
+      GROUP BY m.id, ai.spam_score
       ORDER BY m.sent_at DESC, m.id DESC
       LIMIT ${limit + 1}
     `
@@ -63,7 +63,7 @@ function fetchEmails(sql, email, limit, cursor, folder) {
         OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
         OR (${folder} = 'inbox' AND NOT m.is_sent AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam')
       )
-    GROUP BY m.id
+    GROUP BY m.id, ai.spam_score
     ORDER BY m.sent_at DESC, m.id DESC
     LIMIT ${limit + 1}
   `
