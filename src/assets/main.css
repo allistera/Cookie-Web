@@ -971,6 +971,68 @@ body {
   font-size: 16px;
 }
 
+/* Bulk action bar: floats bottom-center while rows are checked. */
+.ni-bulk-bar {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--bg-dialog);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  z-index: 900;
+}
+
+.ni-bulk-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.ni-bulk-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-bulk-pill:hover {
+  background: var(--bg-hover);
+}
+
+.ni-bulk-pill .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.ni-bulk-enter-active,
+.ni-bulk-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.ni-bulk-enter-from,
+.ni-bulk-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+}
+
 .ni-row {
   position: relative;
   display: flex;
@@ -1005,7 +1067,22 @@ body {
   display: inline-block;
 }
 
-.ni-row:hover .ni-dot {
+.ni-checkbox {
+  cursor: pointer;
+}
+
+/* A checked box stays visible without hover and takes the dot's place. */
+.ni-checkbox.checked {
+  display: inline-block;
+  color: var(--ni-accent);
+}
+
+.ni-row.checked {
+  background: var(--ni-accent-bg);
+}
+
+.ni-row:hover .ni-dot,
+.ni-row.checked .ni-dot {
   display: none;
 }
 

@@ -324,6 +324,111 @@ describe('TraditionalInboxView reading panel', () => {
   })
 })
 
+describe('TraditionalInboxView multi-select', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [
+      makeEmail('today-1', Date.now() - HOUR),
+      makeEmail('today-2', Date.now() - 2 * HOUR),
+      makeEmail('today-3', Date.now() - 3 * HOUR),
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  function checkbox(wrapper, index) {
+    return wrapper.findAll('.ni-row .ni-checkbox')[index]
+  }
+
+  it('clicking a row checkbox selects it without opening the reader', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    await checkbox(wrapper, 0).trigger('click')
+
+    expect(checkbox(wrapper, 0).attributes('aria-checked')).toBe('true')
+    expect(checkbox(wrapper, 0).text()).toContain('check_box')
+    expect(store.openEmailId).toBe(null)
+    expect(wrapper.find('.ni-bulk-bar').text()).toContain('1 selected')
+  })
+
+  it('selecting several shows the count and the three bulk pills', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    await checkbox(wrapper, 0).trigger('click')
+    await checkbox(wrapper, 1).trigger('click')
+
+    const bar = wrapper.find('.ni-bulk-bar')
+    expect(bar.text()).toContain('2 selected')
+    const pills = bar.findAll('.ni-bulk-pill').map((p) => p.text())
+    expect(pills.some((t) => t.includes('Star'))).toBe(true)
+    expect(pills.some((t) => t.includes('Done'))).toBe(true)
+    expect(pills.some((t) => t.includes('Reschedule'))).toBe(true)
+  })
+
+  it('the Done pill archives every selected email and hides the bar', async () => {
+    vi.spyOn(useInboxStore(), 'archiveEmail')
+    const wrapper = mount(TraditionalInboxView)
+
+    await checkbox(wrapper, 0).trigger('click')
+    await checkbox(wrapper, 1).trigger('click')
+    await wrapper
+      .findAll('.ni-bulk-pill')
+      .find((p) => p.text().includes('Done'))
+      .trigger('click')
+
+    expect(store.archiveEmail).toHaveBeenCalledTimes(2)
+    const ids = store.archiveEmail.mock.calls.map(([email]) => email.id)
+    expect(ids.sort()).toEqual(['today-1', 'today-2'])
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+  })
+
+  it('the Star pill stars every selected email and clears the selection', async () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    await checkbox(wrapper, 0).trigger('click')
+    await checkbox(wrapper, 1).trigger('click')
+    await wrapper
+      .findAll('.ni-bulk-pill')
+      .find((p) => p.text().includes('Star'))
+      .trigger('click')
+
+    expect(store.traditionalEmails.find((e) => e.id === 'today-1').starred).toBe(true)
+    expect(store.traditionalEmails.find((e) => e.id === 'today-2').starred).toBe(true)
+    expect(store.traditionalEmails.find((e) => e.id === 'today-3').starred).toBe(false)
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+  })
+
+  it('Escape clears the selection first and only then closes the reader', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.findAll('.ni-row')[2].trigger('click')
+    await checkbox(wrapper, 0).trigger('click')
+    expect(store.openEmailId).toBe('today-3')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    expect(checkbox(wrapper, 0).attributes('aria-checked')).toBe('false')
+    expect(store.openEmailId).toBe('today-3')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(store.openEmailId).toBe(null)
+
+    wrapper.unmount()
+  })
+})
+
 describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   let store
 

@@ -147,6 +147,52 @@ function removeEmail(email) {
   store.archiveEmail(email)
 }
 
+// --- Multi-select (row checkboxes) ---
+// Local view state: ids picked via the row checkboxes. selectedEmails maps
+// them back through the visible list, so ids that leave the list (archived,
+// filtered away) drop out on their own.
+const selectedIds = ref(new Set())
+
+const selectedEmails = computed(() => flatEmails.value.filter((e) => selectedIds.value.has(e.id)))
+
+function isSelected(email) {
+  return selectedIds.value.has(email.id)
+}
+
+function toggleSelect(email) {
+  const next = new Set(selectedIds.value)
+  if (next.has(email.id)) next.delete(email.id)
+  else next.add(email.id)
+  selectedIds.value = next
+}
+
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+
+function markSelectedDone() {
+  for (const email of selectedEmails.value) {
+    store.archiveEmail(email)
+  }
+  clearSelection()
+}
+
+// Stars the whole selection; if every selected email is already starred the
+// action unstars them instead (same flip semantics as the row star).
+function starSelected() {
+  const emails = selectedEmails.value
+  const target = !emails.every((e) => e.starred)
+  for (const email of emails) {
+    if (email.starred !== target) store.toggleStar(email)
+  }
+  clearSelection()
+}
+
+// Snooze has no backing data yet anywhere in the app; keep the pill honest.
+function rescheduleSelected() {
+  store.notify('Reschedule is coming soon.')
+}
+
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
@@ -261,9 +307,14 @@ function isTypingTarget(target) {
 }
 
 function onKeydown(e) {
-  // The command palette owns Escape while it is open.
-  if (e.key === 'Escape' && openEmail.value && !store.isCommandPaletteOpen) {
-    closeReader()
+  // The command palette owns Escape while it is open. Otherwise Escape
+  // unchecks the multi-select first; a second press closes the reader.
+  if (e.key === 'Escape' && !store.isCommandPaletteOpen) {
+    if (selectedIds.value.size) {
+      clearSelection()
+    } else if (openEmail.value) {
+      closeReader()
+    }
   }
   // 'd' archives the email open in the reader. Plain keypress only — modified
   // combos (Cmd+D bookmark, etc.) stay with the browser. e.repeat is ignored:
@@ -288,8 +339,15 @@ function onDocumentClick(e) {
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run.
   if (!openEmail.value || store.isCommandPaletteOpen) return
-  // Clicks inside the panel keep it open; clicks on rows are handled by openReader
-  if (e.target.closest('.ni-reader') || e.target.closest('.ni-row')) return
+  // Clicks inside the panel keep it open; clicks on rows are handled by
+  // openReader; the bulk bar acts on the list without dismissing the reader.
+  if (
+    e.target.closest('.ni-reader') ||
+    e.target.closest('.ni-row') ||
+    e.target.closest('.ni-bulk-bar')
+  ) {
+    return
+  }
   closeReader()
 }
 
@@ -348,11 +406,22 @@ onUnmounted(() => {
           v-for="email in isGroupOpen(group.label) ? group.emails : []"
           :key="email.id"
           class="ni-row"
-          :class="{ unread: email.unread, selected: openEmail === email }"
+          :class="{ unread: email.unread, selected: openEmail === email, checked: isSelected(email) }"
           @click="openReader(email)"
         >
           <div class="ni-lead">
-            <span class="material-symbols-outlined ni-checkbox">check_box_outline_blank</span>
+            <span
+              class="material-symbols-outlined ni-checkbox"
+              :class="{ checked: isSelected(email) }"
+              role="checkbox"
+              tabindex="0"
+              :aria-checked="isSelected(email) ? 'true' : 'false'"
+              :aria-label="`Select ${email.subject}`"
+              @click.stop="toggleSelect(email)"
+              @keydown.enter.stop.prevent="toggleSelect(email)"
+              @keydown.space.stop.prevent="toggleSelect(email)"
+              >{{ isSelected(email) ? 'check_box' : 'check_box_outline_blank' }}</span
+            >
             <span class="ni-dot" v-if="email.unread"></span>
           </div>
           <div class="ni-sender">{{ rowSender(email) }}</div>
@@ -401,6 +470,25 @@ onUnmounted(() => {
         {{ isLoadingMore ? 'Loading…' : 'Load more' }}
       </button>
     </div>
+
+    <!-- Bulk action bar: floats over the list while any row is checked -->
+    <Transition name="ni-bulk">
+      <div class="ni-bulk-bar" v-if="selectedEmails.length">
+        <span class="ni-bulk-count">{{ selectedEmails.length }} selected</span>
+        <button class="ni-bulk-pill" @click="starSelected">
+          <span class="material-symbols-outlined">star</span>
+          <span>Star</span>
+        </button>
+        <button class="ni-bulk-pill" @click="markSelectedDone">
+          <span class="material-symbols-outlined">check_box</span>
+          <span>Done</span>
+        </button>
+        <button class="ni-bulk-pill" @click="rescheduleSelected">
+          <span class="material-symbols-outlined">schedule</span>
+          <span>Reschedule</span>
+        </button>
+      </div>
+    </Transition>
 
     <!-- Reading panel -->
     <Transition name="ni-slide">

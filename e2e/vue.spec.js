@@ -72,9 +72,10 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
 
-  // Next moves to the following email
+  // Next moves to the following email (Homeowner's Insurance is starred and
+  // therefore lives in Starred, not the inbox — the next inbox email follows)
   await reader.locator('[title="Next"]').click()
-  await expect(reader.locator('.ni-reader-subject')).toContainText('Claim #99281')
+  await expect(reader.locator('.ni-reader-subject')).toContainText('Soccer Snacks')
 
   // Close slides the panel away
   await reader.locator('.ni-reader-close').click()
@@ -264,8 +265,10 @@ test('Hovering the Today unread count reveals Mark Read, which clears the day', 
 }) => {
   await page.goto('/inbox')
 
+  // Today holds one unread inbox email (the other arrival is starred and
+  // lives in the Starred view instead).
   const todayHeader = page.locator('.ni-group-header', { hasText: 'Today' })
-  await expect(todayHeader.locator('.ni-group-count')).toHaveText('2')
+  await expect(todayHeader.locator('.ni-group-count')).toHaveText('1')
 
   // The tooltip button only appears while hovering the count badge.
   const markRead = todayHeader.locator('.ni-group-mark-read')
@@ -297,6 +300,39 @@ test('Sent view lists the outbox with recipients and opens the reader', async ({
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Tile Selection')
+})
+
+test('Multi-select: checkboxes reveal bulk pills, Done archives, Esc clears', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+
+  // Only Today starts expanded (one visible email); open Yesterday for more.
+  await page.locator('.ni-group-header', { hasText: 'Yesterday' }).click()
+  // Checkboxes appear on row hover.
+  const rows = page.locator('.ni-row')
+  await rows.nth(0).hover()
+  await rows.nth(0).locator('.ni-checkbox').click()
+  await rows.nth(1).hover()
+  await rows.nth(1).locator('.ni-checkbox').click()
+
+  // Checking must select, not open the reader.
+  await expect(page.locator('.ni-reader')).toHaveCount(0)
+  const bar = page.locator('.ni-bulk-bar')
+  await expect(bar).toContainText('2 selected')
+
+  // Esc unchecks everything.
+  await page.keyboard.press('Escape')
+  await expect(bar).toHaveCount(0)
+  await expect(page.locator('.ni-checkbox[aria-checked="true"]')).toHaveCount(0)
+
+  // Bulk Done archives the selected email.
+  const cityRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await cityRow.hover()
+  await cityRow.locator('.ni-checkbox').click()
+  await bar.locator('.ni-bulk-pill', { hasText: 'Done' }).click()
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
+  await expect(bar).toHaveCount(0)
 })
 
 test('Sidebar links open the filtered views', async ({ page }) => {
