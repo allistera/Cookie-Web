@@ -260,9 +260,12 @@ function onKeydown(e) {
     closeReader()
   }
   // 'd' archives the email open in the reader. Plain keypress only — modified
-  // combos (Cmd+D bookmark, etc.) stay with the browser.
+  // combos (Cmd+D bookmark, etc.) stay with the browser. e.repeat is ignored:
+  // with auto-advance, a held key would chain-archive emails the user never
+  // saw (one press, one archive).
   if (
     e.key === 'd' &&
+    !e.repeat &&
     !e.metaKey &&
     !e.ctrlKey &&
     !e.altKey &&

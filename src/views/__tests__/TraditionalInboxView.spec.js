@@ -362,6 +362,25 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.archiveEmail).not.toHaveBeenCalled()
   })
 
+  it("ignores auto-repeated 'd' events from a held key (one press = one archive)", async () => {
+    // With auto-advance, each archive opens the next (unseen) email — a held
+    // key must not chain-archive mail the user never looked at.
+    store.traditionalEmails = [
+      makeEmail('today-1', Date.now() - HOUR),
+      makeEmail('today-2', Date.now() - 2 * HOUR),
+      makeEmail('today-3', Date.now() - 3 * HOUR),
+    ]
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.ni-row')[0].trigger('click')
+
+    pressD()
+    pressD({ repeat: true })
+    pressD({ repeat: true })
+
+    expect(store.archiveEmail).toHaveBeenCalledTimes(1)
+    expect(store.openEmailId).toBe('today-2')
+  })
+
   it("ignores 'd' with a modifier key held (browser shortcuts like Cmd+D)", () => {
     pressD({ metaKey: true })
     pressD({ ctrlKey: true })
