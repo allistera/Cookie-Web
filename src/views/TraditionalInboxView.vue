@@ -385,9 +385,6 @@ onUnmounted(() => {
                 email.unread ? 'mark_email_read' : 'mark_email_unread'
               }}</span>
             </button>
-            <button class="ni-action-btn" title="Snooze">
-              <span class="material-symbols-outlined">schedule</span>
-            </button>
           </div>
         </div>
       </template>
@@ -425,14 +422,8 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="ni-reader-nav">
-            <button class="ni-reader-btn" title="Snooze">
-              <span class="material-symbols-outlined">schedule</span>
-            </button>
             <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
               <span class="material-symbols-outlined">check_box</span>
-            </button>
-            <button class="ni-reader-btn" title="More">
-              <span class="material-symbols-outlined">more_horiz</span>
             </button>
           </div>
         </div>
@@ -465,9 +456,6 @@ onUnmounted(() => {
             <div class="ni-email-header-right">
               <button class="ni-reader-btn" title="Reply" @click="replyToOpenEmail">
                 <span class="material-symbols-outlined">reply</span>
-              </button>
-              <button class="ni-reader-btn" title="Forward">
-                <span class="material-symbols-outlined">forward</span>
               </button>
               <span class="ni-email-time">{{ openEmail.date }}</span>
             </div>
@@ -507,10 +495,6 @@ onUnmounted(() => {
           <button class="ni-pill-btn" @click="replyToOpenEmail">
             <span class="material-symbols-outlined">reply</span>
             <span>Reply</span>
-          </button>
-          <button class="ni-pill-btn">
-            <span class="material-symbols-outlined">forward</span>
-            <span>Forward</span>
           </button>
         </div>
       </div>

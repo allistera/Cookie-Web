@@ -322,6 +322,57 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   })
 })
 
+describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('rows offer no Snooze action', () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-row [title="Snooze"]').exists()).toBe(false)
+  })
+
+  it('the reader has no Snooze, More or Forward controls', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    const reader = wrapper.find('.ni-reader')
+    expect(reader.find('[title="Snooze"]').exists()).toBe(false)
+    expect(reader.find('[title="More"]').exists()).toBe(false)
+    expect(reader.find('[title="Forward"]').exists()).toBe(false)
+
+    const pills = reader.findAll('.ni-reader-footer .ni-pill-btn')
+    expect(pills).toHaveLength(1)
+    expect(pills[0].text()).toContain('Reply')
+  })
+
+  it('keeps the working reader controls', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    const reader = wrapper.find('.ni-reader')
+    expect(reader.find('[title="Reply"]').exists()).toBe(true)
+    expect(reader.find('[title="Done"]').exists()).toBe(true)
+    expect(reader.find('[title="Close"]').exists()).toBe(true)
+    expect(reader.find('[title="Previous"]').exists()).toBe(true)
+    expect(reader.find('[title="Next"]').exists()).toBe(true)
+  })
+})
+
 describe("TraditionalInboxView 'd' archive shortcut", () => {
   let store
   let wrapper
