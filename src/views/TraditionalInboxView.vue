@@ -46,7 +46,7 @@ const filteredEmails = computed(() => {
     case 'drafts':
       return []
     default:
-      return emails
+      return store.activeSearchQuery ? emails : emails.filter((e) => !e.starred)
   }
 })
 
@@ -178,6 +178,12 @@ watch(
     if (id) store.fetchMessageBody(id)
   },
 )
+
+watch(filteredEmails, (emails) => {
+  if (openEmail.value && !emails.some((email) => email.id === openEmail.value.id)) {
+    closeReader()
+  }
+})
 
 const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
 

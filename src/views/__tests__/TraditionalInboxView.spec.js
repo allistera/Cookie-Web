@@ -189,6 +189,14 @@ describe('TraditionalInboxView filtered views', () => {
     const labeled = makeEmail('labeled-1', Date.now() - HOUR)
     labeled.labels = [{ name: 'Home', color: '#ff0000' }]
     store.traditionalEmails = [makeEmail('plain-1', Date.now() - HOUR), starred, labeled]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('filter=starred shows only starred emails with a Starred header', () => {
@@ -199,6 +207,53 @@ describe('TraditionalInboxView filtered views', () => {
     const rows = wrapper.findAll('.ni-row')
     expect(rows).toHaveLength(1)
     expect(rows[0].text()).toContain('Subject starred-1')
+  })
+
+  it('hides starred emails from the inbox', () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    const rows = wrapper.findAll('.ni-row').map((row) => row.text())
+    expect(rows).toHaveLength(2)
+    expect(rows.some((text) => text.includes('Subject starred-1'))).toBe(false)
+  })
+
+  it('moves an email from the inbox to the Starred folder as soon as it is starred', async () => {
+    let wrapper = mount(TraditionalInboxView)
+
+    await wrapper.find('.ni-row [title="Star"]').trigger('click')
+
+    expect(wrapper.findAll('.ni-row').map((row) => row.text())).not.toContain(
+      expect.stringContaining('Subject plain-1'),
+    )
+
+    wrapper.unmount()
+    routeMock.query = { filter: 'starred' }
+    wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.findAll('.ni-row').map((row) => row.text())).toContainEqual(
+      expect.stringContaining('Subject plain-1'),
+    )
+  })
+
+  it('keeps starred matches visible in search results', () => {
+    store.activeSearchQuery = 'starred'
+
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.findAll('.ni-row').map((row) => row.text())).toContainEqual(
+      expect.stringContaining('Subject starred-1'),
+    )
+  })
+
+  it('closes the reader when its email is starred from outside the row', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    store.toggleStar(store.openEmail)
+    await wrapper.vm.$nextTick()
+
+    expect(store.openEmailId).toBe(null)
+    expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 
   it('filter=label shows only emails carrying that label', () => {
@@ -222,12 +277,12 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.find('.ni-load-more').exists()).toBe(false)
   })
 
-  it('an unknown filter falls back to the full inbox', () => {
+  it('an unknown filter falls back to the unstarred inbox', () => {
     routeMock.query = { filter: 'bogus' }
     const wrapper = mount(TraditionalInboxView)
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Inbox')
-    expect(wrapper.findAll('.ni-row')).toHaveLength(3)
+    expect(wrapper.findAll('.ni-row')).toHaveLength(2)
   })
 })
 
