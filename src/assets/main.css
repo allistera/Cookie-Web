@@ -109,6 +109,13 @@ body {
   cursor: pointer;
 }
 
+.app-logo {
+  width: 28px;
+  height: 28px;
+  display: block;
+  flex: 0 0 auto;
+}
+
 .logo-text {
   font-size: 22px;
   font-weight: 500;
@@ -2103,10 +2110,9 @@ body {
 }
 
 .login-logo-icon {
-  font-size: 48px;
-  background: linear-gradient(135deg, var(--text-blue) 0%, var(--gemini-purple) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  width: 56px;
+  height: 56px;
+  display: block;
 }
 
 .login-title {

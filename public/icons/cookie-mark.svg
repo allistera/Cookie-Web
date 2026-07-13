@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="cookie-mark-title">
+  <title id="cookie-mark-title">Cookie</title>
+  <defs>
+    <linearGradient id="cookie-coral" x1="10" y1="12" x2="49" y2="57" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff5d4d"/>
+      <stop offset="1" stop-color="#ef4136"/>
+    </linearGradient>
+    <linearGradient id="cookie-spark" x1="46" y1="4" x2="56" y2="17" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1769e8"/>
+      <stop offset="1" stop-color="#7557e8"/>
+    </linearGradient>
+    <mask id="cookie-cutouts" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff"/>
+      <circle cx="45.5" cy="15.5" r="7.5" fill="#000"/>
+      <circle cx="52.5" cy="24.2" r="6.2" fill="#000"/>
+      <path
+        d="M28 24.5c1 5.7 4.8 9.5 10.5 10.5C32.8 36 29 39.8 28 45.5 27 39.8 23.2 36 17.5 35c5.7-1 9.5-4.8 10.5-10.5Z"
+        fill="#000"
+      />
+    </mask>
+  </defs>
+  <circle cx="28" cy="35" r="23.5" fill="url(#cookie-coral)" mask="url(#cookie-cutouts)"/>
+  <path
+    d="M51 3.5c.7 3.9 3.1 6.3 7 7-3.9.7-6.3 3.1-7 7-.7-3.9-3.1-6.3-7-7 3.9-.7 6.3-3.1 7-7Z"
+    fill="url(#cookie-spark)"
+  />
+</svg>

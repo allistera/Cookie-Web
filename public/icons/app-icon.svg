@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="app-icon-title">
+  <title id="app-icon-title">Cookie app icon</title>
+  <defs>
+    <linearGradient id="app-bg" x1="48" y1="32" x2="464" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef4ff"/>
+    </linearGradient>
+    <linearGradient id="app-coral" x1="113" y1="126" x2="367" y2="419" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff5d4d"/>
+      <stop offset="1" stop-color="#ef4136"/>
+    </linearGradient>
+    <linearGradient id="app-spark" x1="347" y1="74" x2="412" y2="159" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1769e8"/>
+      <stop offset="1" stop-color="#7557e8"/>
+    </linearGradient>
+    <mask id="app-cutouts" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <circle cx="343.75" cy="148.75" r="48.75" fill="#000"/>
+      <circle cx="389.25" cy="205.3" r="40.3" fill="#000"/>
+      <path
+        d="M230 207.25c6.5 37.05 31.2 61.75 68.25 68.25C261.2 282 236.5 306.7 230 343.75c-6.5-37.05-31.2-61.75-68.25-68.25 37.05-6.5 61.75-31.2 68.25-68.25Z"
+        fill="#000"
+      />
+    </mask>
+  </defs>
+  <rect width="512" height="512" fill="url(#app-bg)"/>
+  <circle cx="230" cy="275.5" r="152.75" fill="url(#app-coral)" mask="url(#app-cutouts)"/>
+  <path
+    d="M379.5 70.75c4.55 25.35 20.15 40.95 45.5 45.5-25.35 4.55-40.95 20.15-45.5 45.5-4.55-25.35-20.15-40.95-45.5-45.5 25.35-4.55 40.95-20.15 45.5-45.5Z"
+    fill="url(#app-spark)"
+  />
+</svg>

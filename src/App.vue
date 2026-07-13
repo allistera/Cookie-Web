@@ -180,7 +180,7 @@ onMounted(() => {
   <div v-else-if="!isAuthenticated" class="auth-login-container">
     <div class="login-card">
       <div class="login-logo">
-        <span class="material-symbols-outlined login-logo-icon">cookie</span>
+        <img class="login-logo-icon" src="/icons/cookie-mark.svg" alt="" />
       </div>
       <h1 class="login-title">Cookie</h1>
       <p class="login-subtitle">Workspace Intelligence & Automation</p>
@@ -198,23 +198,7 @@ onMounted(() => {
           <span class="material-symbols-outlined">menu</span>
         </button>
         <div class="logo-container" @click="$router.push('/')">
-          <svg class="gmail-logo" viewBox="0 0 24 24" width="24" height="24">
-            <path
-              d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z"
-              fill="#F44336"
-            />
-            <path
-              d="M22 6v12c0 1.1-.9 2-2 2h-2V8l-6 4-6-4v12H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h16c1.1 0 2-.9 2 2z"
-              fill="#FFFFFF"
-              opacity="0.2"
-            />
-            <path
-              d="M2 6l10 7 10-7v12c0 1.1-.9 2-2 2h-3V8.5L12 12 7 8.5V20H4c-1.1 0-2-.9-2-2V6z"
-              fill="#B0BEC5"
-            />
-            <path d="M22 6l-10 7L2 6" fill="#CFD8DC" />
-            <path d="M2 6v1.5l10 6.5 10-6.5V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2z" fill="#F44336" />
-          </svg>
+          <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
           <span class="logo-text">Cookie</span>
         </div>
       </div>
