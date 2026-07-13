@@ -92,6 +92,8 @@ describe('Inbox Store', () => {
         id: 'abc-123',
         sender: 'City Construction',
         address: 'updates@cityconstruction.com',
+        isSent: false,
+        to: null,
         subject: 'Revised Floor Plan',
         snippet: 'Hi Allister, following up...',
         body: 'Hi Allister, following up on our call.\n\nThe revised plan is attached.',
@@ -154,6 +156,125 @@ describe('Inbox Store', () => {
     // No cursor left: loadMoreEmails is a no-op.
     await store.loadMoreEmails()
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads sent emails into the outbox list with recipient display fields', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [
+            {
+              id: 'sent-1',
+              from_name: 'Allister',
+              from_address: 'me@allisterantosik.com',
+              recipients: {
+                to: [{ name: null, address: 'info@citytileandstone.com' }],
+                cc: [],
+                bcc: [],
+              },
+              subject: 'Re: Kitchen Renovation - Tile Selection Due',
+              snippet: 'I confirm the selection of the White Subway Tiles...',
+              body_text: 'I confirm the selection of the White Subway Tiles.',
+              sent_at: new Date().toISOString(),
+              is_unread: false,
+              is_starred: false,
+              is_sent: true,
+            },
+          ],
+          nextCursor: null,
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.loadSentEmails()
+
+    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=sent&limit=50', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.sentEmails).toHaveLength(1)
+    expect(store.sentEmails[0].to).toBe('info@citytileandstone.com')
+    expect(store.sentEmails[0].isSent).toBe(true)
+    expect(store.hasMoreSent).toBe(false)
+    expect(store.isSentLoaded).toBe(true)
+  })
+
+  it('pages the sent list with the keyset cursor', async () => {
+    const row = (id) => ({
+      id,
+      from_name: 'Allister',
+      from_address: 'me@allisterantosik.com',
+      recipients: { to: [{ name: null, address: 'x@example.com' }], cc: [], bcc: [] },
+      subject: `Sent ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+      is_sent: true,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            emails: [row('a')],
+            nextCursor: '2026-07-01T00:00:00Z|11111111-1111-1111-1111-111111111111',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ emails: [row('b')], nextCursor: null }),
+        }),
+    )
+
+    const store = useInboxStore()
+    await store.loadSentEmails()
+    expect(store.hasMoreSent).toBe(true)
+
+    await store.loadMoreSentEmails()
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/emails?folder=sent&limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111',
+      { headers: { Authorization: 'Bearer test-access-token' } },
+    )
+    expect(store.sentEmails.map((e) => e.id)).toEqual(['a', 'b'])
+    expect(store.hasMoreSent).toBe(false)
+
+    // No cursor left: loadMoreSentEmails is a no-op.
+    await store.loadMoreSentEmails()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes the sent list after sending mail once it has been loaded', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ emails: [], nextCursor: null }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    await store.loadSentEmails()
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: 'msg-1' }) })
+
+    await store.sendMail({ to: 'someone@example.com', subject: 'S', text: 'T' })
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/emails?folder=sent&limit=50',
+        expect.anything(),
+      ),
+    )
+  })
+
+  it('finds the open email in the sent list too', async () => {
+    const store = useInboxStore()
+    store.sentEmails = [{ id: 'sent-1', subject: 'Re: Hello', unread: false }]
+    store.messageBodies.set('sent-1', { html: null, text: 'Hi' })
+    store.openEmailId = 'sent-1'
+    expect(store.openEmail).toEqual(store.sentEmails[0])
   })
 
   it('askGemini posts to /api/ask and records the answer with sources', async () => {

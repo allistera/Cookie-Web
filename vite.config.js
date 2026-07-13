@@ -12,8 +12,9 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 function localApiPlugin(mode) {
   const handleEmails = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const { fixtureEmails } = await import('./api/_fixtures/emails.js')
-      const emails = fixtureEmails()
+      const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
+      const folder = new URL(req.url, 'http://localhost').searchParams.get('folder')
+      const emails = folder === 'sent' ? fixtureSentEmails() : fixtureEmails()
       res.setHeader('Content-Type', 'application/json')
       res.end(
         JSON.stringify({

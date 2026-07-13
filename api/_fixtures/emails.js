@@ -185,11 +185,76 @@ const rows = [
   },
 ]
 
+// Outbound copies in the same shape as GET /api/emails?folder=sent. The
+// recipients jsonb mirrors what api/send.js stores for real sent mail.
+const sentRows = [
+  {
+    from_name: 'Allister',
+    from_address: 'me@allisterantosik.com',
+    recipients: {
+      to: [{ name: null, address: 'info@citytileandstone.com' }],
+      cc: [],
+      bcc: [],
+    },
+    subject: 'Re: Kitchen Renovation - Tile Selection Due',
+    snippet:
+      'Hi City Tile and Stone, I confirm the selection of the White Subway Tiles for our kitchen...',
+    body_text:
+      "Hi City Tile and Stone,\n\nI confirm the selection of the White Subway Tiles for our kitchen renovation. Please proceed with the order so we stay aligned with the contractor's installation timeline.\n\nBest,\nAllister",
+    ageMs: 2 * HOUR,
+    labels: [{ name: 'Home', color: '#e5484d' }],
+  },
+  {
+    from_name: 'Allister',
+    from_address: 'me@allisterantosik.com',
+    recipients: {
+      to: [{ name: null, address: 'mike.torres@leaguemail.com' }],
+      cc: [],
+      bcc: [],
+    },
+    subject: 'Re: Soccer Snacks - June 6th Scrimmage',
+    snippet:
+      "Hi Coach Mike, I've got snacks covered - fruit kabobs and juice boxes, all peanut-free...",
+    body_text:
+      "Hi Coach Mike,\n\nI've got snacks covered — fruit kabobs and juice boxes, all peanut-free. I've logged it in the signup sheet too.\n\nSee you at the scrimmage,\nAllister",
+    ageMs: 1 * DAY + 1 * HOUR,
+    labels: [{ name: 'School', color: '#8e4ec6' }],
+  },
+  {
+    from_name: 'Allister',
+    from_address: 'me@allisterantosik.com',
+    recipients: {
+      to: [{ name: null, address: 'sarah.miller@gmail.com' }],
+      cc: [],
+      bcc: [],
+    },
+    subject: 'RE: Neighborhood Block Party',
+    snippet: 'Plates and napkins would be great, and yes please on the cups!',
+    body_text:
+      "Plates and napkins would be great, and yes please on the cups!\n\nThe canopy is a good call — forecast says mid-80s. If your brother doesn't mind, let's grab it Saturday morning.",
+    ageMs: 6 * DAY + 5 * HOUR,
+    labels: [{ name: 'Home', color: '#e5484d' }],
+  },
+]
+
 export function fixtureEmails() {
   const now = Date.now()
   return rows.map(({ ageMs, ...row }, index) => ({
     id: `fixture-${index + 1}`,
     has_html: false,
+    ...row,
+    sent_at: new Date(now - ageMs).toISOString(),
+  }))
+}
+
+export function fixtureSentEmails() {
+  const now = Date.now()
+  return sentRows.map(({ ageMs, ...row }, index) => ({
+    id: `fixture-sent-${index + 1}`,
+    has_html: false,
+    is_unread: false,
+    is_starred: false,
+    is_sent: true,
     ...row,
     sent_at: new Date(now - ageMs).toISOString(),
   }))

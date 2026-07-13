@@ -9,11 +9,14 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // Keyset pagination on (sent_at, id) DESC. The cursor is "<sent_at>|<id>" of
 // the last row of the previous page — stable under concurrent inserts, unlike
 // OFFSET. fetch one extra row to learn whether another page exists.
-function fetchEmails(sql, email, limit, cursor) {
+// isSent selects the folder: false = inbox, true = sent/outbox (recipients
+// let the client render "To: <address>" for outbound rows).
+function fetchEmails(sql, email, limit, cursor, isSent) {
   if (cursor) {
     return sql`
-      SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
-             m.body_text, m.sent_at, m.is_unread, m.is_starred,
+      SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
+             m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
+             m.is_sent,
              (m.body_html IS NOT NULL) AS has_html,
              COALESCE(
                json_agg(json_build_object('name', l.name, 'color', l.color)
@@ -25,7 +28,7 @@ function fetchEmails(sql, email, limit, cursor) {
       JOIN users u ON u.id = m.user_id
       LEFT JOIN message_labels ml ON ml.message_id = m.id
       LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE lower(u.email) = ${email} AND NOT m.is_archived AND NOT m.is_sent
+      WHERE lower(u.email) = ${email} AND NOT m.is_archived AND m.is_sent = ${isSent}
         AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
       GROUP BY m.id
       ORDER BY m.sent_at DESC, m.id DESC
@@ -33,8 +36,9 @@ function fetchEmails(sql, email, limit, cursor) {
     `
   }
   return sql`
-    SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
-           m.body_text, m.sent_at, m.is_unread, m.is_starred,
+    SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
+           m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
+           m.is_sent,
            (m.body_html IS NOT NULL) AS has_html,
            COALESCE(
              json_agg(json_build_object('name', l.name, 'color', l.color)
@@ -46,7 +50,7 @@ function fetchEmails(sql, email, limit, cursor) {
     JOIN users u ON u.id = m.user_id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE lower(u.email) = ${email} AND NOT m.is_archived AND NOT m.is_sent
+    WHERE lower(u.email) = ${email} AND NOT m.is_archived AND m.is_sent = ${isSent}
     GROUP BY m.id
     ORDER BY m.sent_at DESC, m.id DESC
     LIMIT ${limit + 1}
@@ -67,11 +71,11 @@ function fetchUnreadCount(sql, email) {
   `
 }
 
-// GET /api/emails?limit=50&before=<sent_at>|<id> — the authenticated user's
-// inbox, newest first. Responds {emails, nextCursor, unreadCount, userId};
-// nextCursor is null on the last page. unreadCount covers the whole mailbox,
-// not the page. userId lets the client subscribe to its Realtime inbox-ping
-// channel.
+// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent — the
+// authenticated user's inbox (default) or sent mail, newest first. Responds
+// {emails, nextCursor, unreadCount, userId}; nextCursor is null on the last
+// page. unreadCount always covers the inbox (sent mail is never unread).
+// userId lets the client subscribe to its Realtime inbox-ping channel.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -85,6 +89,7 @@ export default async function handler(req, res) {
   }
 
   const url = new URL(req.url, 'http://localhost')
+  const isSent = url.searchParams.get('folder') === 'sent'
   const limitParam = Number.parseInt(url.searchParams.get('limit') ?? '', 10)
   const limit = Number.isFinite(limitParam)
     ? Math.min(Math.max(limitParam, 1), MAX_LIMIT)
@@ -105,7 +110,7 @@ export default async function handler(req, res) {
   try {
     const sql = getSql()
     const [rows, [userRow]] = await Promise.all([
-      fetchEmails(sql, email, limit, cursor),
+      fetchEmails(sql, email, limit, cursor, isSent),
       fetchUnreadCount(sql, email),
     ])
     const hasMore = rows.length > limit

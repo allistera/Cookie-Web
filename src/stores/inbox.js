@@ -20,10 +20,14 @@ const PAGE_SIZE = 50
 
 // Maps a GET /api/emails (or /api/search) row to the shape the views render.
 function mapEmailRow(message) {
+  const firstRecipient = message.recipients?.to?.[0] ?? null
   return {
     id: message.id,
     sender: message.from_name || message.from_address,
     address: message.from_address,
+    // Outbound rows render "To: <recipient>" instead of the sender.
+    isSent: Boolean(message.is_sent),
+    to: firstRecipient ? firstRecipient.name || firstRecipient.address : null,
     subject: message.subject,
     snippet: message.snippet,
     body: message.body_text,
@@ -112,6 +116,15 @@ export const useInboxStore = defineStore('inbox', {
     searchSeq: 0,
     emailsCursor: null,
     hasMoreEmails: false,
+
+    // Sent/outbox list (?filter=sent), loaded lazily when the view opens.
+    // isSentLoaded gates the post-send refresh: no point refreshing a list
+    // that has never been fetched.
+    sentEmails: [],
+    sentCursor: null,
+    hasMoreSent: false,
+    isSentLoaded: false,
+    isSentRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
 
     // Chat state
@@ -180,9 +193,14 @@ export const useInboxStore = defineStore('inbox', {
       return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
     },
     // The email open in the reading panel; null once it leaves the list
-    // (archived, or the list was replaced by a search).
+    // (archived, or the list was replaced by a search). Sent mail opens from
+    // its own list.
     openEmail(state) {
-      return state.traditionalEmails.find((e) => e.id === state.openEmailId) ?? null
+      return (
+        state.traditionalEmails.find((e) => e.id === state.openEmailId) ??
+        state.sentEmails.find((e) => e.id === state.openEmailId) ??
+        null
+      )
     },
     // Raw (still-untrusted) body_html for the open email, once fetched; null
     // until the fetch lands or when the message has no HTML body. The reader
@@ -291,6 +309,53 @@ export const useInboxStore = defineStore('inbox', {
 
     refreshInbox() {
       return this.loadEmails()
+    },
+
+    // Loads the sent/outbox list (GET /api/emails?folder=sent). Called when
+    // the Sent view opens and again after each successful send.
+    async loadSentEmails() {
+      this.isSentRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/emails?folder=sent&limit=${PAGE_SIZE}`, { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/emails responded ${response.status}`)
+        }
+        const { emails, nextCursor } = await response.json()
+        this.sentEmails = emails.map(mapEmailRow)
+        this.sentCursor = nextCursor ?? null
+        this.hasMoreSent = Boolean(nextCursor)
+        this.isSentLoaded = true
+      } catch (error) {
+        console.error('Failed to load sent emails:', error)
+        this.notify('Failed to load sent emails.', 'error')
+      } finally {
+        this.isSentRefreshing = false
+      }
+    },
+
+    // Appends the next keyset page of sent mail. No-op while a load is
+    // already running or when there is no further page.
+    async loadMoreSentEmails() {
+      if (!this.sentCursor || this.isSentRefreshing) return
+      this.isSentRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const url = `/api/emails?folder=sent&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.sentCursor)}`
+        const response = await fetch(url, { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/emails responded ${response.status}`)
+        }
+        const { emails, nextCursor } = await response.json()
+        this.sentEmails.push(...emails.map(mapEmailRow))
+        this.sentCursor = nextCursor ?? null
+        this.hasMoreSent = Boolean(nextCursor)
+      } catch (error) {
+        console.error('Failed to load more sent emails:', error)
+        this.notify('Failed to load more sent emails.', 'error')
+      } finally {
+        this.isSentRefreshing = false
+      }
     },
 
     async loadLabels() {
@@ -521,6 +586,11 @@ export const useInboxStore = defineStore('inbox', {
       })
       if (!response.ok) {
         throw new Error(`POST /api/send responded ${response.status}`)
+      }
+      // Refresh the outbox in the background so the new mail shows up; only
+      // once the list has been loaded, and never at the send's expense.
+      if (this.isSentLoaded) {
+        this.loadSentEmails().catch(() => {})
       }
       return response.json()
     },

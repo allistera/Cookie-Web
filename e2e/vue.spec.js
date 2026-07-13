@@ -240,6 +240,23 @@ test('Escape closes the palette but keeps the reading panel open', async ({ page
   await expect(page.locator('.ni-reader')).toBeVisible()
 })
 
+test('Sent view lists the outbox with recipients and opens the reader', async ({ page }) => {
+  await page.goto('/inbox')
+
+  await page.locator('.nav-item', { hasText: 'More' }).click()
+  await page.locator('.nav-item', { hasText: 'Sent' }).click()
+
+  await expect(page.locator('.ni-header h1')).toHaveText('Sent')
+  const rows = page.locator('.ni-row')
+  await expect(rows).not.toHaveCount(0)
+  await expect(rows.first()).toContainText('To: info@citytileandstone.com')
+
+  await rows.first().click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+  await expect(reader.locator('.ni-reader-subject')).toContainText('Tile Selection')
+})
+
 test('Sidebar links open the filtered views', async ({ page }) => {
   await page.goto('/inbox')
 

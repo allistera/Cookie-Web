@@ -9,18 +9,29 @@ const route = useRoute()
 
 // --- Filtered views (?filter=starred|snoozed|sent|drafts|label&label=<name>) ---
 // Starred and label views filter the loaded list client-side (rows already
-// carry starred + labels; covers loaded pages only). Snoozed/Sent/Drafts have
+// carry starred + labels; covers loaded pages only). Sent has its own
+// server-backed list, loaded lazily when the view opens. Snoozed/Drafts have
 // no backing data yet and render an honest empty state.
 const FILTER_META = {
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
   snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
-  sent: { title: 'Sent', icon: 'send', emptyText: 'Sent view is coming soon.' },
+  sent: { title: 'Sent', icon: 'send', emptyText: 'No sent emails yet.' },
   drafts: { title: 'Drafts', icon: 'description', emptyText: 'No drafts yet.' },
   label: { title: null, icon: 'sell', emptyText: 'No emails with this label.' },
 }
-const EMPTY_ONLY_FILTERS = new Set(['snoozed', 'sent', 'drafts'])
+const EMPTY_ONLY_FILTERS = new Set(['snoozed', 'drafts'])
 
 const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.query.filter : null))
+
+// The sent list refreshes on every visit — cheap, and it picks up mail sent
+// from other devices since the last look.
+watch(
+  activeFilter,
+  (filter) => {
+    if (filter === 'sent') store.loadSentEmails()
+  },
+  { immediate: true },
+)
 
 const filteredEmails = computed(() => {
   const emails = store.traditionalEmails
@@ -29,8 +40,9 @@ const filteredEmails = computed(() => {
       return emails.filter((e) => e.starred)
     case 'label':
       return emails.filter((e) => e.labels?.some((l) => l.name === route.query.label))
-    case 'snoozed':
     case 'sent':
+      return store.sentEmails
+    case 'snoozed':
     case 'drafts':
       return []
     default:
@@ -56,12 +68,21 @@ const headerIconStyle = computed(() => {
 
 const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '')
 
-const showLoadMore = computed(
-  () =>
-    store.hasMoreEmails &&
-    !store.activeSearchQuery &&
-    !EMPTY_ONLY_FILTERS.has(activeFilter.value),
+const showLoadMore = computed(() => {
+  if (store.activeSearchQuery) return false
+  if (activeFilter.value === 'sent') return store.hasMoreSent
+  if (EMPTY_ONLY_FILTERS.has(activeFilter.value)) return false
+  return store.hasMoreEmails
+})
+
+const isLoadingMore = computed(() =>
+  activeFilter.value === 'sent' ? store.isSentRefreshing : store.isRefreshing,
 )
+
+function loadMore() {
+  if (activeFilter.value === 'sent') store.loadMoreSentEmails()
+  else store.loadMoreEmails()
+}
 
 const emailGroups = computed(() => {
   const now = new Date()
@@ -213,6 +234,12 @@ function senderAddress(email) {
   return `no-reply@${slug}.com`
 }
 
+// Outbound rows (Sent view, and sent copies surfaced by search) show who the
+// mail went to; inbound rows show who it came from.
+function rowSender(email) {
+  return email.isSent ? `To: ${email.to ?? email.address}` : email.sender
+}
+
 // Keyboard shortcuts must not fire while the user is typing (reply textarea,
 // search bar, composer, command palette input, ...).
 function isTypingTarget(target) {
@@ -295,7 +322,7 @@ onUnmounted(() => {
             <span class="material-symbols-outlined ni-checkbox">check_box_outline_blank</span>
             <span class="ni-dot" v-if="email.unread"></span>
           </div>
-          <div class="ni-sender">{{ email.sender }}</div>
+          <div class="ni-sender">{{ rowSender(email) }}</div>
           <div class="ni-subject">{{ email.subject }}</div>
           <div class="ni-row-labels">
             <span
@@ -343,13 +370,8 @@ onUnmounted(() => {
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
       </div>
-      <button
-        v-if="showLoadMore"
-        class="ni-load-more"
-        :disabled="store.isRefreshing"
-        @click="store.loadMoreEmails()"
-      >
-        {{ store.isRefreshing ? 'Loading…' : 'Load more' }}
+      <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
+        {{ isLoadingMore ? 'Loading…' : 'Load more' }}
       </button>
     </div>
 
@@ -415,7 +437,7 @@ onUnmounted(() => {
                 <span class="ni-email-address">{{ senderAddress(openEmail) }}</span>
               </div>
               <div class="ni-email-to">
-                To me
+                {{ openEmail.isSent ? `To ${openEmail.to ?? openEmail.address}` : 'To me' }}
                 <span class="material-symbols-outlined">unfold_more</span>
               </div>
             </div>
