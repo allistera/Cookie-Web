@@ -373,11 +373,8 @@ onUnmounted(() => {
                 email.starred ? 'star' : 'star_border'
               }}</span>
             </button>
-            <button class="ni-action-btn" title="Archive" @click="removeEmail(email)">
-              <span class="material-symbols-outlined">archive</span>
-            </button>
-            <button class="ni-action-btn" title="Delete" @click="removeEmail(email)">
-              <span class="material-symbols-outlined">delete</span>
+            <button class="ni-action-btn" title="Done" @click="removeEmail(email)">
+              <span class="material-symbols-outlined">check_box</span>
             </button>
             <button
               class="ni-action-btn"
@@ -431,11 +428,8 @@ onUnmounted(() => {
             <button class="ni-reader-btn" title="Snooze">
               <span class="material-symbols-outlined">schedule</span>
             </button>
-            <button class="ni-reader-btn" title="Archive" @click="archiveOpenEmail">
-              <span class="material-symbols-outlined">archive</span>
-            </button>
-            <button class="ni-reader-btn" title="Delete" @click="archiveOpenEmail">
-              <span class="material-symbols-outlined">delete</span>
+            <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
+              <span class="material-symbols-outlined">check_box</span>
             </button>
             <button class="ni-reader-btn" title="More">
               <span class="material-symbols-outlined">more_horiz</span>

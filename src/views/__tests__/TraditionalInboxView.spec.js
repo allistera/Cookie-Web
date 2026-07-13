@@ -269,6 +269,59 @@ describe('TraditionalInboxView reading panel', () => {
   })
 })
 
+describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('rows offer a single Done action with a checkbox icon and no Delete or Archive', () => {
+    const wrapper = mount(TraditionalInboxView)
+    const row = wrapper.find('.ni-row')
+
+    const done = row.find('[title="Done"]')
+    expect(done.exists()).toBe(true)
+    expect(done.text()).toContain('check_box')
+    expect(row.find('[title="Delete"]').exists()).toBe(false)
+    expect(row.find('[title="Archive"]').exists()).toBe(false)
+  })
+
+  it('clicking Done archives the email', async () => {
+    vi.spyOn(useInboxStore(), 'archiveEmail')
+    const wrapper = mount(TraditionalInboxView)
+
+    await wrapper.find('.ni-row [title="Done"]').trigger('click')
+
+    expect(store.archiveEmail).toHaveBeenCalledTimes(1)
+    expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
+  })
+
+  it('the reader topbar offers Done and no Delete or Archive', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    const topbar = wrapper.find('.ni-reader-topbar')
+    const done = topbar.find('[title="Done"]')
+    expect(done.exists()).toBe(true)
+    expect(done.text()).toContain('check_box')
+    expect(topbar.find('[title="Delete"]').exists()).toBe(false)
+    expect(topbar.find('[title="Archive"]').exists()).toBe(false)
+  })
+})
+
 describe("TraditionalInboxView 'd' archive shortcut", () => {
   let store
   let wrapper

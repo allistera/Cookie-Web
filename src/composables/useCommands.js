@@ -17,7 +17,7 @@ export function useCommands() {
       {
         id: 'mark-done',
         title: 'Mark Done',
-        icon: 'check_circle',
+        icon: 'check_box',
         keyHint: 'E',
         visible: !!email,
         run: () => {
