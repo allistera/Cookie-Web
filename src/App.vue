@@ -571,10 +571,11 @@ onMounted(() => {
       <div class="composer-send-actions">
         <button
           class="composer-text-btn composer-text-btn-primary"
-          :disabled="!store.composerTo.includes('@') || !store.composerTextArea.trim()"
+          :disabled="store.isSendingEmail || !store.composerTo.includes('@') || !store.composerTextArea.trim()"
+          :aria-busy="store.isSendingEmail"
           @click="store.sendEmail"
         >
-          Send
+          {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
         </button>
         <button class="composer-text-btn">Send later</button>
         <button class="composer-text-btn">Remind me</button>

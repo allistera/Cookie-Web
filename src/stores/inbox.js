@@ -144,6 +144,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // Composer state
     isComposerActive: false,
+    isSendingEmail: false,
     composerTo: '',
     composerSubject: '',
     composerTextArea: '',
@@ -879,22 +880,27 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async sendEmail() {
+      // Guard the action as well as the button: two rapid events can otherwise
+      // start two requests before the composer has a chance to close.
+      if (this.isSendingEmail) return
+      this.isSendingEmail = true
       try {
         await this.sendMail({
           to: this.composerTo,
           subject: this.composerSubject,
           text: this.composerTextArea,
         })
+        if (this.activeTodoId) {
+          this.completeTodo(this.activeTodoId)
+        }
+        this.closeComposer()
+        this.notify('Email sent.')
       } catch (error) {
         console.error('Failed to send email:', error)
         this.notify('Failed to send email. Please try again.', 'error')
-        return
+      } finally {
+        this.isSendingEmail = false
       }
-      if (this.activeTodoId) {
-        this.completeTodo(this.activeTodoId)
-      }
-      this.closeComposer()
-      this.notify('Email sent.')
     },
 
     saveSoccerSheet() {

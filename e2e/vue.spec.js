@@ -61,6 +61,44 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   expect(pageErrors).toEqual([])
 })
 
+test('Composer disables Send while an email is being sent', async ({ page }) => {
+  let releaseSend
+  let sendRequests = 0
+  let notifyRequestStarted
+  const requestStarted = new Promise((resolve) => {
+    notifyRequestStarted = resolve
+  })
+  await page.route('**/api/send', async (route) => {
+    sendRequests += 1
+    notifyRequestStarted()
+    await new Promise((resolve) => {
+      releaseSend = resolve
+    })
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'sent-fixture' }),
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('.compose-btn').click()
+
+  const composer = page.locator('#composerToast')
+  await composer.locator('.composer-to-inline').fill('person@example.com')
+  await composer.locator('textarea').fill('A message that should only send once.')
+  const sendButton = composer.locator('.composer-text-btn-primary')
+  await sendButton.click()
+
+  await requestStarted
+  await expect(sendButton).toBeDisabled()
+  await expect(sendButton).toHaveText('Sending…')
+  expect(sendRequests).toBe(1)
+
+  releaseSend()
+  await expect(composer).not.toHaveClass(/active/)
+  expect(sendRequests).toBe(1)
+})
+
 test('Clicking an inbox email slides in the reading panel', async ({ page }) => {
   await page.goto('/inbox')
 

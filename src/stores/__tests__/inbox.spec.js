@@ -330,6 +330,32 @@ describe('Inbox Store', () => {
     )
   })
 
+  it('prevents duplicate sends while the first email is still in flight', async () => {
+    let resolveRequest
+    const request = new Promise((resolve) => {
+      resolveRequest = resolve
+    })
+    const fetchMock = vi.fn().mockReturnValue(request)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    store.composerTo = 'someone@example.com'
+    store.composerSubject = 'Hello'
+    store.composerTextArea = 'Checking in.'
+
+    const firstSend = store.sendEmail()
+    const secondSend = store.sendEmail()
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(store.isSendingEmail).toBe(true)
+
+    resolveRequest({ ok: true, json: async () => ({ id: 'msg-1' }) })
+    await Promise.all([firstSend, secondSend])
+
+    expect(store.isSendingEmail).toBe(false)
+    expect(store.toasts.at(-1)?.message).toBe('Email sent.')
+  })
+
   it('finds the open email in the sent list too', async () => {
     const store = useInboxStore()
     store.sentEmails = [{ id: 'sent-1', subject: 'Re: Hello', unread: false }]
