@@ -105,6 +105,40 @@ const emailGroups = computed(() => {
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const DAY = 24 * 60 * 60 * 1000
+  const group = (label, emails) => ({
+    label,
+    emails,
+    unreadCount: emails.filter((e) => e.unread).length,
+  })
+
+  if (activeFilter.value === 'snoozed') {
+    const choices = scheduleChoices(now)
+    const sameLocalDay = (left, right) =>
+      left.getFullYear() === right.getFullYear() &&
+      left.getMonth() === right.getMonth() &&
+      left.getDate() === right.getDate()
+    const groups = new Map()
+    const byScheduledFor = [...filteredEmails.value].sort(
+      (left, right) => new Date(left.scheduledFor) - new Date(right.scheduledFor),
+    )
+
+    for (const email of byScheduledFor) {
+      const scheduledFor = new Date(email.scheduledFor)
+      const choice = choices.find(({ date }) => sameLocalDay(date, scheduledFor))
+      const label =
+        choice?.label ??
+        scheduledFor.toLocaleDateString('en-GB', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        })
+      if (!groups.has(label)) groups.set(label, [])
+      groups.get(label).push(email)
+    }
+
+    return [...groups].map(([label, emails]) => group(label, emails))
+  }
+
   const today = []
   const dueToday = []
   const yesterday = []
@@ -123,11 +157,6 @@ const emailGroups = computed(() => {
     else earlier.push(email)
   }
   const groups = []
-  const group = (label, emails) => ({
-    label,
-    emails,
-    unreadCount: emails.filter((e) => e.unread).length,
-  })
   if (dueToday.length) groups.push(group('Due Today', dueToday))
   if (today.length) groups.push(group('Today', today))
   if (yesterday.length) groups.push(group('Yesterday', yesterday))

@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { scheduleChoices } from '../../utils/schedule'
 
 // The view reads route.query.filter; mutate routeMock.query per test.
 const routeMock = { query: {} }
@@ -201,6 +202,8 @@ describe('TraditionalInboxView filtered views', () => {
   let store
 
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 14, 12))
     setActivePinia(createPinia())
     routeMock.query = {}
     store = useInboxStore()
@@ -216,6 +219,7 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -286,18 +290,29 @@ describe('TraditionalInboxView filtered views', () => {
     expect(rows[0].text()).toContain('Subject labeled-1')
   })
 
-  it('filter=snoozed loads and shows future scheduled emails', () => {
+  it('filter=snoozed groups future emails by snooze target with both groups open', () => {
     routeMock.query = { filter: 'snoozed' }
-    const snoozed = makeEmail('snoozed-1', Date.now() - HOUR)
-    snoozed.scheduledFor = new Date(Date.now() + DAY).toISOString()
-    store.snoozedEmails = [snoozed]
+    const [tomorrow, nextWeek] = scheduleChoices()
+    const tomorrowEmail = makeEmail('tomorrow-1', Date.now() - 10 * DAY)
+    tomorrowEmail.scheduledFor = tomorrow.date.toISOString()
+    const nextWeekEmail = makeEmail('next-week-1', Date.now() - HOUR)
+    nextWeekEmail.scheduledFor = nextWeek.date.toISOString()
+    store.snoozedEmails = [nextWeekEmail, tomorrowEmail]
     vi.spyOn(store, 'loadSnoozedEmails').mockResolvedValue()
     const wrapper = mount(TraditionalInboxView)
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Snoozed')
     expect(store.loadSnoozedEmails).toHaveBeenCalledTimes(1)
-    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
-    expect(wrapper.find('.ni-row').text()).toContain('Subject snoozed-1')
+    const headers = wrapper.findAll('.ni-group-header')
+    expect(headers.map((header) => header.text())).toEqual([
+      expect.stringContaining('Tomorrow'),
+      expect.stringContaining('Next Week'),
+    ])
+    expect(headers.every((header) => header.attributes('aria-expanded') === 'true')).toBe(true)
+    expect(wrapper.findAll('.ni-row').map((row) => row.text())).toEqual([
+      expect.stringContaining('Subject tomorrow-1'),
+      expect.stringContaining('Subject next-week-1'),
+    ])
   })
 
   it('an unknown filter falls back to the unstarred inbox', () => {

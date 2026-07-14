@@ -161,6 +161,67 @@ test('A due scheduled email appears at the top in the conditional Due Today grou
   await expect(page.locator('.ni-row', { hasText: 'Scheduled follow-up' })).toBeVisible()
 })
 
+test('Snoozed groups emails by their snooze target with both groups expanded', async ({ page }) => {
+  const now = new Date(2026, 6, 14, 12)
+  await page.clock.setFixedTime(now)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(8, 0, 0, 0)
+  const nextWeek = new Date(now)
+  nextWeek.setDate(nextWeek.getDate() + (((8 - nextWeek.getDay()) % 7) || 7))
+  nextWeek.setHours(8, 0, 0, 0)
+
+  await page.route('**/api/emails?folder=snoozed&limit=50', async (route) => {
+    const email = (id, subject, sentAt, scheduledFor) => ({
+      id,
+      from_name: 'Reminder Service',
+      from_address: 'reminders@example.com',
+      subject,
+      snippet: subject,
+      body_text: subject,
+      sent_at: sentAt,
+      scheduled_for: scheduledFor,
+      is_unread: false,
+      is_starred: false,
+      is_sent: false,
+      has_html: false,
+      labels: [],
+    })
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        emails: [
+          email(
+            '10000000-0000-4000-8000-000000000002',
+            'Next-week reminder',
+            now.toISOString(),
+            nextWeek.toISOString(),
+          ),
+          email(
+            '10000000-0000-4000-8000-000000000001',
+            'Tomorrow reminder',
+            new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+            tomorrow.toISOString(),
+          ),
+        ],
+        nextCursor: null,
+        unreadCount: 0,
+      }),
+    })
+  })
+
+  await page.goto('/inbox?filter=snoozed')
+
+  const headers = page.locator('.ni-group-header')
+  await expect(headers).toHaveCount(2)
+  await expect(headers.nth(0)).toContainText('Tomorrow')
+  await expect(headers.nth(1)).toContainText('Next Week')
+  await expect(headers.nth(0)).toHaveAttribute('aria-expanded', 'true')
+  await expect(headers.nth(1)).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('.ni-row', { hasText: 'Tomorrow reminder' })).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'Next-week reminder' })).toBeVisible()
+})
+
 test('Reply slides an inline reply box under the email instead of opening the composer', async ({
   page,
 }) => {
