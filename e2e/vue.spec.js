@@ -72,13 +72,13 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
 
-  // Next moves to the following email (Homeowner's Insurance is starred and
-  // therefore lives in Starred, not the inbox — the next inbox email follows)
-  await reader.locator('[title="Next"]').click()
-  await expect(reader.locator('.ni-reader-subject')).toContainText('Soccer Snacks')
+  // The reader no longer has close/previous/next nav buttons
+  await expect(reader.locator('.ni-reader-close')).toHaveCount(0)
+  await expect(reader.locator('[title="Previous"]')).toHaveCount(0)
+  await expect(reader.locator('[title="Next"]')).toHaveCount(0)
 
-  // Close slides the panel away
-  await reader.locator('.ni-reader-close').click()
+  // Escape slides the panel away
+  await page.keyboard.press('Escape')
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 
   // Clicking outside the panel also closes it
