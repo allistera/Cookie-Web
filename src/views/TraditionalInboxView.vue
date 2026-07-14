@@ -78,6 +78,15 @@ const headerIconStyle = computed(() => {
 
 const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '')
 
+const showInboxZero = computed(
+  () =>
+    !activeFilter.value &&
+    !store.activeSearchQuery &&
+    !filteredEmails.value.length &&
+    !store.hasMoreEmails &&
+    !store.isRefreshing,
+)
+
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
   if (activeFilter.value === 'sent') return store.hasMoreSent
@@ -555,6 +564,12 @@ onUnmounted(() => {
       </template>
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
+      </div>
+      <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
+        <span class="material-symbols-outlined ni-inbox-zero-icon" aria-hidden="true"
+          >task_alt</span
+        >
+        <h2>Welcome to Inbox Zero</h2>
       </div>
       <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
         {{ isLoadingMore ? 'Loading…' : 'Load more' }}

@@ -531,6 +531,45 @@ test('Multi-select: checkboxes reveal bulk pills, Done archives, Esc clears', as
   await expect(bar).toHaveCount(0)
 })
 
+test('Marking the last email Done shows the Inbox Zero success state', async ({ page }) => {
+  await page.route('**/api/emails?limit=50', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        emails: [
+          {
+            id: 'inbox-zero-fixture',
+            from_name: 'Final Sender',
+            from_address: 'final@example.com',
+            subject: 'The final email',
+            snippet: 'Mark this one done.',
+            body_text: 'Mark this one done.',
+            sent_at: new Date().toISOString(),
+            is_unread: false,
+            is_starred: false,
+            is_sent: false,
+            has_html: false,
+            labels: [],
+          },
+        ],
+        nextCursor: null,
+        unreadCount: 0,
+      }),
+    })
+  })
+
+  await page.goto('/inbox')
+  const row = page.locator('.ni-row', { hasText: 'The final email' })
+  await row.hover()
+  await row.locator('[title="Done"]').click()
+
+  const inboxZero = page.locator('.ni-inbox-zero')
+  await expect(inboxZero).toBeVisible()
+  await expect(inboxZero).toContainText('Welcome to Inbox Zero')
+  await expect(inboxZero.locator('.ni-inbox-zero-icon')).toHaveText('task_alt')
+  await expect(inboxZero.locator('.ni-inbox-zero-icon')).toHaveCSS('font-size', '84px')
+})
+
 test('Sidebar links open the filtered views', async ({ page }) => {
   await page.goto('/inbox')
 

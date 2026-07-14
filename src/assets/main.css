@@ -414,6 +414,7 @@ body {
 /* Main Content Panel */
 .main-content {
   flex-grow: 1;
+  min-width: 0;
   background-color: var(--bg-card);
   display: flex;
   flex-direction: column;
@@ -2800,6 +2801,54 @@ body {
   text-align: center;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.ni-inbox-zero {
+  display: flex;
+  flex: 1;
+  min-height: min(420px, calc(100vh - 220px));
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.ni-inbox-zero-icon {
+  color: #0f9d58;
+  font-size: 84px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.ni-inbox-zero h2 {
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+@media (max-width: 600px) {
+  .ni-header {
+    padding: 16px 12px 8px;
+  }
+
+  .ni-list {
+    padding-inline: 4px;
+  }
+
+  .ni-inbox-zero {
+    gap: 12px;
+    padding-inline: 8px;
+  }
+
+  .ni-inbox-zero-icon {
+    font-size: 72px;
+  }
+
+  .ni-inbox-zero h2 {
+    font-size: 20px;
+  }
 }
 
 /* Command Palette (Cmd+K) — always dark, matching Superhuman's command window */
