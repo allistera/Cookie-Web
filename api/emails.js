@@ -16,7 +16,7 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
     return sql`
       SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
              m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
-             m.is_sent, ai.spam_score,
+             m.is_sent, m.scheduled_for, ai.spam_score,
              (m.body_html IS NOT NULL) AS has_html,
              COALESCE(
                json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
@@ -33,7 +33,12 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
         AND (
           (${folder} = 'sent' AND m.is_sent)
           OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
-          OR (${folder} = 'inbox' AND NOT m.is_sent AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam')
+          OR (${folder} = 'snoozed' AND NOT m.is_sent
+              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+              AND m.scheduled_for > now())
+          OR (${folder} = 'inbox' AND NOT m.is_sent
+              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+              AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
         )
         AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
       GROUP BY m.id, ai.spam_score
@@ -44,7 +49,7 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
            m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
-           m.is_sent, ai.spam_score,
+           m.is_sent, m.scheduled_for, ai.spam_score,
            (m.body_html IS NOT NULL) AS has_html,
            COALESCE(
              json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
@@ -61,7 +66,12 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
       AND (
         (${folder} = 'sent' AND m.is_sent)
         OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
-        OR (${folder} = 'inbox' AND NOT m.is_sent AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam')
+        OR (${folder} = 'snoozed' AND NOT m.is_sent
+            AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+            AND m.scheduled_for > now())
+        OR (${folder} = 'inbox' AND NOT m.is_sent
+            AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+            AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
       )
     GROUP BY m.id, ai.spam_score
     ORDER BY m.sent_at DESC, m.id DESC
@@ -78,6 +88,7 @@ function fetchUnreadCount(sql, email) {
     FROM users u
     LEFT JOIN messages m
       ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent
+      AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     WHERE lower(u.email) = ${email}
       AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
@@ -85,7 +96,7 @@ function fetchUnreadCount(sql, email) {
   `
 }
 
-// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent|spam — the
+// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent|spam|snoozed — the
 // authenticated user's selected folder (inbox by default), newest first. Responds
 // {emails, nextCursor, unreadCount, userId}; nextCursor is null on the last
 // page. unreadCount always covers the inbox (sent mail is never unread).
@@ -104,7 +115,9 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, 'http://localhost')
   const requestedFolder = url.searchParams.get('folder') || 'inbox'
-  const folder = ['inbox', 'sent', 'spam'].includes(requestedFolder) ? requestedFolder : null
+  const folder = ['inbox', 'sent', 'spam', 'snoozed'].includes(requestedFolder)
+    ? requestedFolder
+    : null
   if (!folder) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'Invalid folder' }))

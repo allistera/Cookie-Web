@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath, URL } from 'node:url'
 
 import { defineConfig, loadEnv } from 'vite'
@@ -10,11 +11,39 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 // E2E mode (and dev without DATABASE_URL) answers from fixtures; otherwise the
 // real Vercel handler runs against Postgres.
 function localApiPlugin(mode) {
+  // Fixture mutations are scoped by a same-origin cookie so separate browser
+  // contexts (including parallel Playwright projects) never leak schedules.
+  const stubSchedules = new Map()
+  const fixtureSchedules = (req, res) => {
+    const match = /(?:^|;\s*)cookie_fixture_session=([^;]+)/.exec(req.headers.cookie || '')
+    const sessionId = match?.[1] || randomUUID()
+    if (!match) {
+      res.setHeader('Set-Cookie', `cookie_fixture_session=${sessionId}; Path=/; SameSite=Lax`)
+    }
+    if (!stubSchedules.has(sessionId)) stubSchedules.set(sessionId, new Map())
+    return stubSchedules.get(sessionId)
+  }
+
   const handleEmails = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
-      const folder = new URL(req.url, 'http://localhost').searchParams.get('folder')
-      const emails = folder === 'sent' ? fixtureSentEmails() : folder === 'spam' ? [] : fixtureEmails()
+      const folder = new URL(req.url, 'http://localhost').searchParams.get('folder') || 'inbox'
+      const schedules = fixtureSchedules(req, res)
+      const now = Date.now()
+      const inbox = fixtureEmails().map((email) => ({
+        ...email,
+        scheduled_for: schedules.get(email.id) ?? null,
+      }))
+      const emails =
+        folder === 'sent'
+          ? fixtureSentEmails()
+          : folder === 'spam'
+            ? []
+            : folder === 'snoozed'
+              ? inbox.filter((email) => Date.parse(email.scheduled_for) > now)
+              : inbox.filter(
+                  (email) => !email.scheduled_for || Date.parse(email.scheduled_for) <= now,
+                )
       res.setHeader('Content-Type', 'application/json')
       res.end(
         JSON.stringify({
@@ -54,6 +83,18 @@ function localApiPlugin(mode) {
           res.end(JSON.stringify({ status: 'unsubscribed', method: 'one-click' }))
           return
         }
+      }
+      if (req.method === 'PATCH') {
+        let raw = ''
+        for await (const chunk of req) raw += chunk
+        const body = JSON.parse(raw || '{}')
+        if (Object.hasOwn(body, 'scheduled_for')) {
+          const schedules = fixtureSchedules(req, res)
+          if (body.scheduled_for === null) schedules.delete(body.id)
+          else schedules.set(body.id, body.scheduled_for)
+        }
+        res.end(JSON.stringify({ message: body }))
+        return
       }
       res.end(JSON.stringify({ ok: true }))
       return

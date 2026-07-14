@@ -94,7 +94,9 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 })
 
-test('Reader Star updates the email and Reschedule gives clear feedback', async ({ page }) => {
+test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({
+  page,
+}) => {
   await page.goto('/inbox')
 
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
@@ -102,15 +104,61 @@ test('Reader Star updates the email and Reschedule gives clear feedback', async 
   const reader = page.locator('.ni-reader')
 
   await reader.locator('[title="Reschedule"]').click()
-  await expect(page.locator('.toast', { hasText: 'Reschedule is coming soon.' })).toBeVisible()
+  const scheduleMenu = reader.locator('.ni-schedule-menu')
+  await expect(scheduleMenu.getByRole('menuitem', { name: /Tomorrow/ })).toBeVisible()
+  await expect(scheduleMenu.getByRole('menuitem', { name: /Next Week/ })).toBeVisible()
+  await scheduleMenu.getByRole('menuitem', { name: /Tomorrow/ }).click()
+  await expect(page.locator('.toast', { hasText: 'Scheduled for Tomorrow.' })).toBeVisible()
+  await expect(row).toHaveCount(0)
+  // Scheduling follows the same triage flow as Done: the next email opens.
+  await expect(reader.locator('.ni-reader-subject')).toContainText('Soccer Snacks')
 
+  const coachRow = page.locator('.ni-row', { hasText: 'Coach Mike' })
   await reader.locator('[title="Star"]').click()
   await expect(reader).toHaveCount(0)
-  await expect(row).toHaveCount(0)
+  await expect(coachRow).toHaveCount(0)
 
   await page.locator('.nav-item', { hasText: 'Starred' }).click()
   await expect(page).toHaveURL(/filter=starred/)
-  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'Coach Mike' })).toBeVisible()
+})
+
+test('A due scheduled email appears at the top in the conditional Due Today group', async ({
+  page,
+}) => {
+  await page.route('**/api/emails?limit=50', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        emails: [
+          {
+            id: 'due-fixture',
+            from_name: 'Reminder Service',
+            from_address: 'reminders@example.com',
+            subject: 'Scheduled follow-up',
+            snippet: 'This message is due now.',
+            body_text: 'This message is due now.',
+            sent_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+            scheduled_for: new Date(Date.now() - 60 * 1000).toISOString(),
+            is_unread: true,
+            is_starred: false,
+            is_sent: false,
+            has_html: false,
+            labels: [],
+          },
+        ],
+        nextCursor: null,
+        unreadCount: 1,
+      }),
+    })
+  })
+
+  await page.goto('/inbox')
+
+  const headers = page.locator('.ni-group-header')
+  await expect(headers).toHaveCount(1)
+  await expect(headers.first()).toContainText('Due Today')
+  await expect(page.locator('.ni-row', { hasText: 'Scheduled follow-up' })).toBeVisible()
 })
 
 test('Reply slides an inline reply box under the email instead of opening the composer', async ({

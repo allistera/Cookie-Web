@@ -174,7 +174,7 @@ async function handlePost(req, res, email) {
 
 // GET returns a single message body (plus a parsed unsubscribe summary); POST
 // acts on the unsubscribe; PATCH updates flags (is_unread, is_starred,
-// is_archived) on a message owned by the authenticated user.
+// is_archived, scheduled_for) on a message owned by the authenticated user.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -210,14 +210,19 @@ export default async function handler(req, res) {
     return
   }
 
-  const { id, is_unread, is_starred, is_archived } = body
+  const { id, is_unread, is_starred, is_archived, scheduled_for } = body
   const flags = [is_unread, is_starred, is_archived]
   const validId = typeof id === 'string' && UUID_RE.test(id)
   const flagsValid = flags.every((f) => f === undefined || typeof f === 'boolean')
-  const hasChange = flags.some((f) => typeof f === 'boolean')
-  if (!validId || !flagsValid || !hasChange) {
+  const hasScheduledChange = Object.hasOwn(body, 'scheduled_for')
+  const scheduledForValid =
+    !hasScheduledChange ||
+    scheduled_for === null ||
+    (typeof scheduled_for === 'string' && Number.isFinite(Date.parse(scheduled_for)))
+  const hasChange = flags.some((f) => typeof f === 'boolean') || hasScheduledChange
+  if (!validId || !flagsValid || !scheduledForValid || !hasChange) {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: 'id and at least one boolean flag are required' }))
+    res.end(JSON.stringify({ error: 'id and at least one valid change are required' }))
     return
   }
 
@@ -227,10 +232,14 @@ export default async function handler(req, res) {
       UPDATE messages m SET
         is_unread   = COALESCE(${is_unread ?? null}::boolean, m.is_unread),
         is_starred  = COALESCE(${is_starred ?? null}::boolean, m.is_starred),
-        is_archived = COALESCE(${is_archived ?? null}::boolean, m.is_archived)
+        is_archived = COALESCE(${is_archived ?? null}::boolean, m.is_archived),
+        scheduled_for = CASE
+          WHEN ${hasScheduledChange}::boolean THEN ${scheduled_for ?? null}::timestamptz
+          ELSE m.scheduled_for
+        END
       FROM users u
       WHERE m.id = ${id} AND m.user_id = u.id AND lower(u.email) = ${email}
-      RETURNING m.id, m.is_unread, m.is_starred, m.is_archived
+      RETURNING m.id, m.is_unread, m.is_starred, m.is_archived, m.scheduled_for
     `
     if (rows.length === 0) {
       res.statusCode = 404

@@ -35,6 +35,7 @@ function mapEmailRow(message) {
     date: formatEmailDate(message.sent_at),
     unread: message.is_unread,
     starred: message.is_starred,
+    scheduledFor: message.scheduled_for ?? null,
     // Whether the message has an HTML body (cheap boolean from the list
     // endpoint). Lets the reader show a spinner during the on-demand body fetch
     // instead of flashing the plain-text fallback before the iframe swaps in.
@@ -129,6 +130,11 @@ export const useInboxStore = defineStore('inbox', {
     spamCursor: null,
     hasMoreSpam: false,
     isSpamRefreshing: false,
+    snoozedEmails: [],
+    snoozedCursor: null,
+    hasMoreSnoozed: false,
+    isSnoozedLoaded: false,
+    isSnoozedRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
 
     // Chat state
@@ -211,6 +217,7 @@ export const useInboxStore = defineStore('inbox', {
         state.traditionalEmails.find((e) => e.id === state.openEmailId) ??
         state.sentEmails.find((e) => e.id === state.openEmailId) ??
         state.spamEmails.find((e) => e.id === state.openEmailId) ??
+        state.snoozedEmails.find((e) => e.id === state.openEmailId) ??
         null
       )
     },
@@ -417,6 +424,45 @@ export const useInboxStore = defineStore('inbox', {
         this.notify('Failed to load more spam.', 'error')
       } finally {
         this.isSpamRefreshing = false
+      }
+    },
+
+    async loadSnoozedEmails() {
+      this.isSnoozedRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/emails?folder=snoozed&limit=${PAGE_SIZE}`, { headers })
+        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
+        const { emails, nextCursor } = await response.json()
+        this.snoozedEmails = emails.map(mapEmailRow)
+        this.snoozedCursor = nextCursor ?? null
+        this.hasMoreSnoozed = Boolean(nextCursor)
+        this.isSnoozedLoaded = true
+      } catch (error) {
+        console.error('Failed to load snoozed emails:', error)
+        this.notify('Failed to load snoozed emails.', 'error')
+      } finally {
+        this.isSnoozedRefreshing = false
+      }
+    },
+
+    async loadMoreSnoozedEmails() {
+      if (!this.snoozedCursor || this.isSnoozedRefreshing) return
+      this.isSnoozedRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const url = `/api/emails?folder=snoozed&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.snoozedCursor)}`
+        const response = await fetch(url, { headers })
+        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
+        const { emails, nextCursor } = await response.json()
+        this.snoozedEmails.push(...emails.map(mapEmailRow))
+        this.snoozedCursor = nextCursor ?? null
+        this.hasMoreSnoozed = Boolean(nextCursor)
+      } catch (error) {
+        console.error('Failed to load more snoozed emails:', error)
+        this.notify('Failed to load more snoozed emails.', 'error')
+      } finally {
+        this.isSnoozedRefreshing = false
       }
     },
 
@@ -648,6 +694,39 @@ export const useInboxStore = defineStore('inbox', {
       })
     },
 
+    // Moves an inbox message out of sight until its scheduled time. Future
+    // messages live in the Snoozed folder; the inbox API returns them again
+    // once due, when the view places them in the Due Today group.
+    async scheduleEmail(email, scheduledFor, label, shouldNotify = true) {
+      if (!email) return false
+      const inboxIndex = this.traditionalEmails.indexOf(email)
+      const snoozedIndex = this.snoozedEmails.indexOf(email)
+      const previousScheduledFor = email.scheduledFor
+      const wasUnreadInbox = inboxIndex > -1 && email.unread
+
+      email.scheduledFor = scheduledFor
+      if (inboxIndex > -1) this.traditionalEmails.splice(inboxIndex, 1)
+      if (this.openEmailId === email.id) this.openEmailId = null
+      if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+      if (this.isSnoozedLoaded && snoozedIndex === -1) this.snoozedEmails.unshift(email)
+
+      try {
+        await this.updateMessage(email.id, { scheduled_for: scheduledFor })
+        if (shouldNotify) this.notify(`Scheduled for ${label}.`)
+        return true
+      } catch (error) {
+        console.error('Failed to schedule email:', error)
+        email.scheduledFor = previousScheduledFor
+        if (inboxIndex > -1) this.traditionalEmails.splice(inboxIndex, 0, email)
+        if (snoozedIndex === -1) {
+          this.snoozedEmails = this.snoozedEmails.filter((item) => item !== email)
+        }
+        if (wasUnreadInbox) this.unreadInboxCount++
+        this.notify('Failed to schedule email.', 'error')
+        return false
+      }
+    },
+
     // Optimistically removes the email from the list (closing the reader if
     // it was open) and persists the archive flag.
     archiveEmail(email) {
@@ -655,9 +734,9 @@ export const useInboxStore = defineStore('inbox', {
       if (this.openEmailId === email.id) {
         this.openEmailId = null
       }
-      const index = this.traditionalEmails.indexOf(email)
-      if (index > -1) {
-        this.traditionalEmails.splice(index, 1)
+      for (const list of [this.traditionalEmails, this.snoozedEmails, this.spamEmails]) {
+        const index = list.indexOf(email)
+        if (index > -1) list.splice(index, 1)
       }
       this.updateMessage(email.id, { is_archived: true }).catch((error) => {
         console.error('Failed to archive email:', error)
@@ -670,12 +749,17 @@ export const useInboxStore = defineStore('inbox', {
     // the loaded list is a subset, so recounting it would be wrong.
     setUnread(email, unread) {
       if (email.unread === unread) return
+      const countsTowardInbox = this.traditionalEmails.includes(email)
       email.unread = unread
-      this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
+      if (countsTowardInbox) {
+        this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
+      }
       this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
         console.error('Failed to update read state:', error)
         email.unread = !unread
-        this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? -1 : 1))
+        if (countsTowardInbox) {
+          this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? -1 : 1))
+        }
         this.notify('Failed to update read state.', 'error')
       })
     },

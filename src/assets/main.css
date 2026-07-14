@@ -1015,6 +1015,59 @@ body {
   font-size: 20px;
 }
 
+.ni-schedule-wrap {
+  position: relative;
+}
+
+.ni-schedule-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 950;
+  width: 210px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-dialog);
+  box-shadow: var(--shadow-md);
+}
+
+.ni-schedule-wrap-bulk .ni-schedule-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+.ni-schedule-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ni-schedule-menu button:hover,
+.ni-schedule-menu button:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+}
+
+.ni-schedule-menu button span:last-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .ni-bulk-enter-active,
 .ni-bulk-leave-active {
   transition:

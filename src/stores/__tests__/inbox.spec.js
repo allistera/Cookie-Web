@@ -101,6 +101,7 @@ describe('Inbox Store', () => {
         date: '10:04 am',
         unread: true,
         starred: false,
+        scheduledFor: null,
         hasHtml: false,
         labels: [],
       },
@@ -798,5 +799,51 @@ describe('Inbox Store', () => {
       }),
     )
     await vi.waitFor(() => expect(store.openEmailHtml).toBe('<b>hi</b>'))
+  })
+
+  it('scheduleEmail removes an unread inbox message and persists its due time', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ message: { scheduled_for: '2026-07-15T07:00:00.000Z' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const email = { id: 'msg-1', unread: true, scheduledFor: null }
+    store.traditionalEmails = [email]
+    store.unreadInboxCount = 1
+    store.openEmailId = email.id
+
+    const success = await store.scheduleEmail(email, '2026-07-15T07:00:00.000Z', 'Tomorrow')
+
+    expect(success).toBe(true)
+    expect(store.traditionalEmails).toEqual([])
+    expect(store.unreadInboxCount).toBe(0)
+    expect(store.openEmailId).toBe(null)
+    expect(fetchMock).toHaveBeenCalledWith('/api/messages', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'msg-1', scheduled_for: '2026-07-15T07:00:00.000Z' }),
+    })
+    expect(store.toasts.at(-1).message).toBe('Scheduled for Tomorrow.')
+  })
+
+  it('scheduleEmail restores the message and unread count when persistence fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = useInboxStore()
+    const email = { id: 'msg-1', unread: true, scheduledFor: null }
+    store.traditionalEmails = [email]
+    store.unreadInboxCount = 1
+
+    const success = await store.scheduleEmail(email, '2026-07-15T07:00:00.000Z', 'Tomorrow')
+
+    expect(success).toBe(false)
+    expect(store.traditionalEmails).toEqual([email])
+    expect(email.scheduledFor).toBe(null)
+    expect(store.unreadInboxCount).toBe(1)
+    expect(store.toasts.at(-1)).toMatchObject({ message: 'Failed to schedule email.', kind: 'error' })
   })
 })

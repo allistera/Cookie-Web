@@ -24,5 +24,20 @@ describe('fetchEmails', () => {
     fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'inbox')
 
     expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+    expect(capture.query()).toContain('m.scheduled_for')
+    expect(capture.query()).toContain('m.scheduled_for IS NULL OR m.scheduled_for <= now()')
   })
+
+  it.each([null, { sentAt: '2026-07-13T12:00:00.000Z', id: '11111111-1111-1111-1111-111111111111' }])(
+    'selects only future scheduled messages for the snoozed folder',
+    (cursor) => {
+      const capture = captureQuery()
+
+      fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'snoozed')
+
+      expect(capture.query()).toContain("? = 'snoozed'")
+      expect(capture.query()).toContain('m.scheduled_for > now()')
+      expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+    },
+  )
 })

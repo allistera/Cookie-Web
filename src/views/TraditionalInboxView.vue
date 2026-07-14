@@ -3,15 +3,15 @@ import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 import EmailBody from '../components/EmailBody.vue'
+import { scheduleChoices } from '../utils/schedule'
 
 const store = useInboxStore()
 const route = useRoute()
 
 // --- Filtered views (?filter=starred|snoozed|sent|drafts|label&label=<name>) ---
 // Starred and label views filter the loaded list client-side (rows already
-// carry starred + labels; covers loaded pages only). Sent has its own
-// server-backed list, loaded lazily when the view opens. Snoozed/Drafts have
-// no backing data yet and render an honest empty state.
+// carry starred + labels; covers loaded pages only). Sent, Spam, and Snoozed
+// have server-backed lists loaded lazily when their view opens.
 const FILTER_META = {
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
   snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
@@ -20,7 +20,7 @@ const FILTER_META = {
   drafts: { title: 'Drafts', icon: 'description', emptyText: 'No drafts yet.' },
   label: { title: null, icon: 'sell', emptyText: 'No emails with this label.' },
 }
-const EMPTY_ONLY_FILTERS = new Set(['snoozed', 'drafts'])
+const EMPTY_ONLY_FILTERS = new Set(['drafts'])
 
 const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.query.filter : null))
 
@@ -31,6 +31,7 @@ watch(
   (filter) => {
     if (filter === 'sent') store.loadSentEmails()
     if (filter === 'spam') store.loadSpamEmails()
+    if (filter === 'snoozed') store.loadSnoozedEmails()
   },
   { immediate: true },
 )
@@ -47,10 +48,15 @@ const filteredEmails = computed(() => {
     case 'spam':
       return store.spamEmails
     case 'snoozed':
+      return store.snoozedEmails
     case 'drafts':
       return []
     default:
-      return store.activeSearchQuery ? emails : emails.filter((e) => !e.starred)
+      return store.activeSearchQuery
+        ? emails
+        : emails.filter(
+            (e) => !e.starred || (e.scheduledFor && new Date(e.scheduledFor).getTime() <= Date.now()),
+          )
   }
 })
 
@@ -76,6 +82,7 @@ const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
   if (activeFilter.value === 'sent') return store.hasMoreSent
   if (activeFilter.value === 'spam') return store.hasMoreSpam
+  if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
   if (EMPTY_ONLY_FILTERS.has(activeFilter.value)) return false
   return store.hasMoreEmails
 })
@@ -83,12 +90,14 @@ const showLoadMore = computed(() => {
 const isLoadingMore = computed(() => {
   if (activeFilter.value === 'sent') return store.isSentRefreshing
   if (activeFilter.value === 'spam') return store.isSpamRefreshing
+  if (activeFilter.value === 'snoozed') return store.isSnoozedRefreshing
   return store.isRefreshing
 })
 
 function loadMore() {
   if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
+  else if (activeFilter.value === 'snoozed') store.loadMoreSnoozedEmails()
   else store.loadMoreEmails()
 }
 
@@ -97,10 +106,16 @@ const emailGroups = computed(() => {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const DAY = 24 * 60 * 60 * 1000
   const today = []
+  const dueToday = []
   const yesterday = []
   const lastSevenDays = []
   const earlier = []
   for (const email of filteredEmails.value) {
+    const scheduledFor = email.scheduledFor ? new Date(email.scheduledFor).getTime() : null
+    if (!activeFilter.value && !store.activeSearchQuery && scheduledFor && scheduledFor <= now) {
+      dueToday.push(email)
+      continue
+    }
     const sentAt = new Date(email.sentAt).getTime()
     if (sentAt >= startOfToday) today.push(email)
     else if (sentAt >= startOfToday - DAY) yesterday.push(email)
@@ -113,6 +128,7 @@ const emailGroups = computed(() => {
     emails,
     unreadCount: emails.filter((e) => e.unread).length,
   })
+  if (dueToday.length) groups.push(group('Due Today', dueToday))
   if (today.length) groups.push(group('Today', today))
   if (yesterday.length) groups.push(group('Yesterday', yesterday))
   if (lastSevenDays.length) groups.push(group('Last seven days', lastSevenDays))
@@ -122,8 +138,8 @@ const emailGroups = computed(() => {
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 
-// Accordion state: Today starts open, every other day group starts closed.
-const openGroups = ref(new Set(['Today']))
+// Due Today and Today start open; every older day group starts closed.
+const openGroups = ref(new Set(['Due Today', 'Today']))
 
 function isGroupOpen(label) {
   // Search results and filtered views always show expanded; the accordion
@@ -196,9 +212,28 @@ function starSelected() {
   clearSelection()
 }
 
-// Snooze has no backing data yet anywhere in the app; keep the pill honest.
-function rescheduleSelected() {
-  store.notify('Reschedule is coming soon.')
+const bulkScheduleOpen = ref(false)
+const readerScheduleOpen = ref(false)
+const scheduleOptions = computed(() => scheduleChoices())
+
+function scheduleChoiceDetail(choice) {
+  return choice.date.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+async function scheduleSelected(choice) {
+  const emails = [...selectedEmails.value]
+  bulkScheduleOpen.value = false
+  clearSelection()
+  const results = await Promise.all(
+    emails.map((email) => store.scheduleEmail(email, choice.date.toISOString(), choice.label, false)),
+  )
+  if (results.every(Boolean)) {
+    store.notify(`${emails.length} ${emails.length === 1 ? 'email' : 'emails'} scheduled for ${choice.label}.`)
+  }
 }
 
 // --- Reading panel (open-email state lives in the store so the command
@@ -269,10 +304,16 @@ function starOpenEmail() {
   toggleStar(openEmail.value)
 }
 
-// Snooze/rescheduling has no backing data yet; match the existing bulk
-// action by keeping the control visible while clearly reporting its status.
-function rescheduleOpenEmail() {
-  store.notify('Reschedule is coming soon.')
+async function scheduleOpenEmail(choice) {
+  if (!openEmail.value) return
+  const email = openEmail.value
+  const index = openIndex.value
+  readerScheduleOpen.value = false
+  const scheduled = await store.scheduleEmail(email, choice.date.toISOString(), choice.label)
+  if (!scheduled) return
+  const remaining = flatEmails.value
+  const next = remaining[index] ?? remaining[remaining.length - 1]
+  if (next) openReader(next)
 }
 
 function replyToOpenEmail() {
@@ -352,6 +393,10 @@ function onKeydown(e) {
 }
 
 function onDocumentClick(e) {
+  if (!e.target.closest('.ni-schedule-wrap')) {
+    bulkScheduleOpen.value = false
+    readerScheduleOpen.value = false
+  }
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run.
   if (!openEmail.value || store.isCommandPaletteOpen) return
@@ -499,10 +544,28 @@ onUnmounted(() => {
           <span class="material-symbols-outlined">check_box</span>
           <span>Done</span>
         </button>
-        <button class="ni-bulk-pill" @click="rescheduleSelected">
-          <span class="material-symbols-outlined">schedule</span>
-          <span>Reschedule</span>
-        </button>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            class="ni-bulk-pill"
+            aria-haspopup="menu"
+            :aria-expanded="bulkScheduleOpen"
+            @click="bulkScheduleOpen = !bulkScheduleOpen"
+          >
+            <span class="material-symbols-outlined">schedule</span>
+            <span>Reschedule</span>
+          </button>
+          <div v-if="bulkScheduleOpen" class="ni-schedule-menu" role="menu">
+            <button
+              v-for="choice in scheduleOptions"
+              :key="choice.id"
+              role="menuitem"
+              @click="scheduleSelected(choice)"
+            >
+              <span>{{ choice.label }}</span>
+              <span>{{ scheduleChoiceDetail(choice) }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </Transition>
 
@@ -538,9 +601,28 @@ onUnmounted(() => {
             <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
               <span class="material-symbols-outlined">check_box</span>
             </button>
-            <button class="ni-reader-btn" title="Reschedule" @click="rescheduleOpenEmail">
-              <span class="material-symbols-outlined">schedule</span>
-            </button>
+            <div class="ni-schedule-wrap">
+              <button
+                class="ni-reader-btn"
+                title="Reschedule"
+                aria-haspopup="menu"
+                :aria-expanded="readerScheduleOpen"
+                @click="readerScheduleOpen = !readerScheduleOpen"
+              >
+                <span class="material-symbols-outlined">schedule</span>
+              </button>
+              <div v-if="readerScheduleOpen" class="ni-schedule-menu" role="menu">
+                <button
+                  v-for="choice in scheduleOptions"
+                  :key="choice.id"
+                  role="menuitem"
+                  @click="scheduleOpenEmail(choice)"
+                >
+                  <span>{{ choice.label }}</span>
+                  <span>{{ scheduleChoiceDetail(choice) }}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

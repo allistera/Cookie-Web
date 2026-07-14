@@ -65,6 +65,26 @@ describe('TraditionalInboxView day accordion', () => {
     expect(groupHeader(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
   })
 
+  it('shows due scheduled emails in an expanded Due Today group above Today', () => {
+    const due = makeEmail('due-1', Date.now() - 5 * DAY)
+    due.scheduledFor = new Date(Date.now() - HOUR).toISOString()
+    store.traditionalEmails.unshift(due)
+
+    const wrapper = mount(TraditionalInboxView)
+    const headers = wrapper.findAll('.ni-group-header').map((header) => header.text())
+
+    expect(headers[0]).toContain('Due Today')
+    expect(headers[1]).toContain('Today')
+    expect(groupHeader(wrapper, 'Due Today').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.ni-row')[0].text()).toContain('Subject due-1')
+  })
+
+  it('does not render Due Today when no scheduled emails are due', () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(groupHeader(wrapper, 'Due Today')).toBeUndefined()
+  })
+
   it('expands a closed group on header click', async () => {
     const wrapper = mount(TraditionalInboxView)
 
@@ -266,15 +286,18 @@ describe('TraditionalInboxView filtered views', () => {
     expect(rows[0].text()).toContain('Subject labeled-1')
   })
 
-  it('filter=snoozed shows an empty state and hides Load more', () => {
+  it('filter=snoozed loads and shows future scheduled emails', () => {
     routeMock.query = { filter: 'snoozed' }
-    store.hasMoreEmails = true
+    const snoozed = makeEmail('snoozed-1', Date.now() - HOUR)
+    snoozed.scheduledFor = new Date(Date.now() + DAY).toISOString()
+    store.snoozedEmails = [snoozed]
+    vi.spyOn(store, 'loadSnoozedEmails').mockResolvedValue()
     const wrapper = mount(TraditionalInboxView)
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Snoozed')
-    expect(wrapper.findAll('.ni-row')).toHaveLength(0)
-    expect(wrapper.find('.ni-empty').text()).toBe('No snoozed emails yet.')
-    expect(wrapper.find('.ni-load-more').exists()).toBe(false)
+    expect(store.loadSnoozedEmails).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
+    expect(wrapper.find('.ni-row').text()).toContain('Subject snoozed-1')
   })
 
   it('an unknown filter falls back to the unstarred inbox', () => {
@@ -374,6 +397,22 @@ describe('TraditionalInboxView multi-select', () => {
     expect(pills.some((t) => t.includes('Star'))).toBe(true)
     expect(pills.some((t) => t.includes('Done'))).toBe(true)
     expect(pills.some((t) => t.includes('Reschedule'))).toBe(true)
+  })
+
+  it('the bulk Reschedule pill offers Tomorrow and Next Week', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await checkbox(wrapper, 0).trigger('click')
+
+    await wrapper
+      .findAll('.ni-bulk-pill')
+      .find((pill) => pill.text().includes('Reschedule'))
+      .trigger('click')
+
+    const choices = wrapper.findAll('.ni-schedule-menu [role="menuitem"]')
+    expect(choices.map((choice) => choice.text())).toEqual([
+      expect.stringContaining('Tomorrow'),
+      expect.stringContaining('Next Week'),
+    ])
   })
 
   it('the Done pill archives every selected email and hides the bar', async () => {
@@ -498,13 +537,33 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(store.toggleStar.mock.calls[0][0].id).toBe('today-1')
   })
 
-  it('the reader Reschedule action reports that scheduling is coming soon', async () => {
+  it('the reader Reschedule action schedules the email for Tomorrow', async () => {
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
     const wrapper = mount(TraditionalInboxView)
     await wrapper.find('.ni-row').trigger('click')
 
     await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
+    const choices = wrapper.findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
+    expect(choices.map((choice) => choice.text())).toEqual([
+      expect.stringContaining('Tomorrow'),
+      expect.stringContaining('Next Week'),
+    ])
+    await choices[0].trigger('click')
 
-    expect(store.toasts.some((toast) => toast.message === 'Reschedule is coming soon.')).toBe(true)
+    await vi.waitFor(() => {
+      const patchRequest = fetch.mock.calls.find(([, options]) => {
+        if (options?.method !== 'PATCH') return false
+        return Object.hasOwn(JSON.parse(options.body), 'scheduled_for')
+      })
+      expect(JSON.parse(patchRequest[1].body)).toMatchObject({
+        id: 'today-1',
+        scheduled_for: expect.any(String),
+      })
+    })
+    await vi.waitFor(() => {
+      expect(store.toasts.some((toast) => toast.message === 'Scheduled for Tomorrow.')).toBe(true)
+      expect(store.traditionalEmails).toHaveLength(0)
+    })
   })
 })
 
