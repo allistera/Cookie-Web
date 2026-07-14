@@ -183,6 +183,22 @@ const rows = [
     is_starred: false,
     labels: [{ name: 'Finance', color: '#2f9e44' }],
   },
+  {
+    // Newsletter with a List-Unsubscribe header — api/_fixtures/messages.js
+    // returns parsed unsubscribe info for this row (fixture-15) so the
+    // reader's Unsubscribe button is exercisable without a database.
+    from_name: 'Daily Bites',
+    from_address: 'newsletter@dailybites.example',
+    subject: 'Your weeknight dinner plan: 5 quick recipes',
+    snippet:
+      'This week we are keeping it simple: five dinners you can get on the table in under 30 minutes...',
+    body_text:
+      'This week we are keeping it simple: five dinners you can get on the table in under 30 minutes.\n\n1. Lemon garlic salmon\n2. Sheet-pan gnocchi\n3. Black bean tacos\n4. Miso noodle soup\n5. Caprese orzo\n\nYou are receiving this because you subscribed to Daily Bites.',
+    ageMs: 3 * DAY + 3 * HOUR,
+    is_unread: false,
+    is_starred: false,
+    labels: [],
+  },
 ]
 
 // Outbound copies in the same shape as GET /api/emails?folder=sent. The

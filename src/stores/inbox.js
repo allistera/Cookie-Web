@@ -170,6 +170,9 @@ export const useInboxStore = defineStore('inbox', {
     // cached so reopening the same message doesn't refetch.
     messageBodies: new Map(),
 
+    // Id of the message with an unsubscribe request in flight (null when idle).
+    unsubscribingId: null,
+
     // Command palette (Cmd+K)
     isCommandPaletteOpen: false,
 
@@ -217,6 +220,18 @@ export const useInboxStore = defineStore('inbox', {
     openEmailHtml(state) {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.html ?? null
+    },
+    // Unsubscribe capability parsed server-side from the open email's
+    // List-Unsubscribe header (null for non-newsletters, or until the body
+    // fetch lands). Truthy means the reader shows an Unsubscribe button.
+    openEmailUnsubscribe(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.unsubscribe ?? null
+    },
+    // True once this session successfully unsubscribed from the open email.
+    openEmailUnsubscribed(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.unsubscribed === true
     },
     // True while the open email's body is being fetched. The reader uses this
     // (together with the email's hasHtml flag) to show a spinner instead of the
@@ -566,8 +581,8 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
-        const { body_html, body_text } = await response.json()
-        const body = { html: body_html ?? null, text: body_text ?? null }
+        const { body_html, body_text, unsubscribe } = await response.json()
+        const body = { html: body_html ?? null, text: body_text ?? null, unsubscribe: unsubscribe ?? null }
         this.messageBodies.set(id, body)
         return body
       } catch (error) {
@@ -582,6 +597,44 @@ export const useInboxStore = defineStore('inbox', {
 
     closeReader() {
       this.openEmailId = null
+    },
+
+    // Automated unsubscribe for newsletters (List-Unsubscribe header). The
+    // server performs a one-click POST when the sender supports RFC 8058;
+    // otherwise it hands back the sender's unsubscribe link (opened in a new
+    // tab) or a mailto fallback.
+    async unsubscribeEmail(email) {
+      if (!email || this.unsubscribingId) return
+      this.unsubscribingId = email.id
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/messages', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ id: email.id, action: 'unsubscribe' }),
+        })
+        if (!response.ok) {
+          throw new Error(`POST /api/messages responded ${response.status}`)
+        }
+        const result = await response.json()
+        if (result.status === 'unsubscribed') {
+          const cached = this.messageBodies.get(email.id)
+          if (cached) this.messageBodies.set(email.id, { ...cached, unsubscribed: true })
+          this.notify(`Unsubscribed from ${email.sender}.`)
+        } else if (result.status === 'manual' && result.url) {
+          window.open(result.url, '_blank', 'noopener')
+          this.notify('Finish unsubscribing on the page that just opened.')
+        } else if (result.status === 'manual' && result.mailto) {
+          window.location.href = result.mailto
+        } else {
+          this.notify('This sender offers no automated unsubscribe.', 'error')
+        }
+      } catch (error) {
+        console.error('Unsubscribe failed:', error)
+        this.notify('Failed to unsubscribe. Please try again.', 'error')
+      } finally {
+        if (this.unsubscribingId === email.id) this.unsubscribingId = null
+      }
     },
 
     // Optimistically flips starred state and persists it; reverts on failure.

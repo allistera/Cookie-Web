@@ -533,6 +533,100 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
   })
 })
 
+describe('TraditionalInboxView newsletter unsubscribe', () => {
+  let store
+  let wrapper
+  let fetchMock
+
+  const UNSUB = { oneClick: true, url: 'https://news.example/unsub', mailto: null }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('news-1', Date.now() - HOUR)]
+    // Auth0 is absent in tests; getAccessTokenSilently would throw in jsdom.
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({ 'Content-Type': 'application/json' })
+    fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  async function openReader(unsubscribe) {
+    store.messageBodies.set('news-1', { html: null, text: 'Body', unsubscribe })
+    wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+    return wrapper.find('.ni-reader')
+  }
+
+  it('shows an Unsubscribe button when the open email advertises List-Unsubscribe', async () => {
+    const reader = await openReader(UNSUB)
+
+    const button = reader.find('[title="Unsubscribe"]')
+    expect(button.exists()).toBe(true)
+    expect(button.text()).toContain('Unsubscribe')
+  })
+
+  it('hides the Unsubscribe button for a regular email', async () => {
+    const reader = await openReader(null)
+
+    expect(reader.find('[title="Unsubscribe"]').exists()).toBe(false)
+  })
+
+  it('posts the unsubscribe action and reports success', async () => {
+    const reader = await openReader(UNSUB)
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'unsubscribed', method: 'one-click' }),
+    })
+
+    await reader.find('[title="Unsubscribe"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(store.toasts.some((t) => t.message.includes('Unsubscribed'))).toBe(true)
+    })
+
+    const [url, options] = fetchMock.mock.calls.at(-1)
+    expect(url).toBe('/api/messages')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({ id: 'news-1', action: 'unsubscribe' })
+
+    // The button reflects the completed state and can't fire twice.
+    const button = wrapper.find('.ni-reader [title="Unsubscribe"]')
+    expect(button.text()).toContain('Unsubscribed')
+    expect(button.attributes('disabled')).toBeDefined()
+  })
+
+  it('opens the unsubscribe page when the sender only offers a link', async () => {
+    const reader = await openReader({ oneClick: false, url: 'https://news.example/unsub', mailto: null })
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'manual', method: 'link', url: 'https://news.example/unsub' }),
+    })
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+
+    await reader.find('[title="Unsubscribe"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://news.example/unsub', '_blank', 'noopener')
+    })
+  })
+
+  it('surfaces an error toast when the unsubscribe request fails', async () => {
+    const reader = await openReader(UNSUB)
+    fetchMock.mockResolvedValue({ ok: false, status: 502, json: async () => ({}) })
+
+    await reader.find('[title="Unsubscribe"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
+    })
+  })
+})
+
 describe("TraditionalInboxView 'd' archive shortcut", () => {
   let store
   let wrapper

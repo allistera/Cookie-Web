@@ -25,7 +25,23 @@ export function fixtureMessageBody(id) {
       id,
       body_html: HOSTILE_HTML,
       body_text: 'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
+      unsubscribe: null,
     }
   }
-  return { id: id ?? null, body_html: null, body_text: null }
+  // The Daily Bites newsletter (see api/_fixtures/emails.js) advertises
+  // one-click unsubscribe, in the same parsed shape GET /api/messages returns.
+  if (id === 'fixture-15') {
+    return {
+      id,
+      body_html: null,
+      body_text:
+        'This week we are keeping it simple: five dinners you can get on the table in under 30 minutes.\n\n1. Lemon garlic salmon\n2. Sheet-pan gnocchi\n3. Black bean tacos\n4. Miso noodle soup\n5. Caprese orzo\n\nYou are receiving this because you subscribed to Daily Bites.',
+      unsubscribe: {
+        oneClick: true,
+        url: 'https://news.dailybites.example/unsubscribe?u=42',
+        mailto: { address: 'unsubscribe@dailybites.example', subject: null },
+      },
+    }
+  }
+  return { id: id ?? null, body_html: null, body_text: null, unsubscribe: null }
 }

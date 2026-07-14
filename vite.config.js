@@ -46,6 +46,15 @@ function localApiPlugin(mode) {
         res.end(JSON.stringify(fixtureMessageBody(id)))
         return
       }
+      if (req.method === 'POST') {
+        let raw = ''
+        for await (const chunk of req) raw += chunk
+        const body = JSON.parse(raw || '{}')
+        if (body.action === 'unsubscribe') {
+          res.end(JSON.stringify({ status: 'unsubscribed', method: 'one-click' }))
+          return
+        }
+      }
       res.end(JSON.stringify({ ok: true }))
       return
     }

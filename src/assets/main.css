@@ -1203,8 +1203,39 @@ body {
 .ni-reader-topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   margin-bottom: 20px;
+}
+
+/* Newsletter unsubscribe pill in the reader top bar */
+.ni-unsub-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-unsub-btn .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.ni-unsub-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ni-unsub-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .ni-reader-nav {

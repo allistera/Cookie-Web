@@ -208,6 +208,11 @@ const openEmail = computed(() => store.openEmail)
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
 // message has no HTML body (permanent text fallback).
 const openEmailHtml = computed(() => store.openEmailHtml)
+// Unsubscribe capability arrives with the on-demand body fetch (parsed
+// server-side from the List-Unsubscribe header); null for non-newsletters.
+const openEmailUnsubscribe = computed(() => store.openEmailUnsubscribe)
+const isUnsubscribed = computed(() => store.openEmailUnsubscribed)
+const isUnsubscribing = computed(() => store.unsubscribingId === store.openEmailId)
 const isReplyOpen = ref(false)
 const replyText = ref('')
 const replyTextareaRef = ref(null)
@@ -253,6 +258,10 @@ function archiveOpenEmail() {
   if (next) {
     openReader(next)
   }
+}
+
+function unsubscribeOpenEmail() {
+  store.unsubscribeEmail(openEmail.value)
 }
 
 function replyToOpenEmail() {
@@ -490,6 +499,18 @@ onUnmounted(() => {
     <Transition name="ni-slide">
       <div class="ni-reader" v-if="openEmail">
         <div class="ni-reader-topbar">
+          <div class="ni-reader-nav">
+            <button
+              v-if="openEmailUnsubscribe"
+              class="ni-unsub-btn"
+              title="Unsubscribe"
+              :disabled="isUnsubscribing || isUnsubscribed"
+              @click="unsubscribeOpenEmail"
+            >
+              <span class="material-symbols-outlined">unsubscribe</span>
+              <span>{{ isUnsubscribed ? 'Unsubscribed' : 'Unsubscribe' }}</span>
+            </button>
+          </div>
           <div class="ni-reader-nav">
             <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
               <span class="material-symbols-outlined">check_box</span>

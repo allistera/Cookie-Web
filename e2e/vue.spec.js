@@ -285,6 +285,30 @@ test('Hovering the Today unread count reveals Mark Read, which clears the day', 
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
 })
 
+test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) => {
+  await page.goto('/inbox')
+
+  // The Daily Bites newsletter lives in the collapsed "Last seven days" group.
+  await page.locator('.ni-group-header', { hasText: 'Last seven days' }).click()
+  await page.locator('.ni-row', { hasText: 'Daily Bites' }).click()
+
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+  const unsubscribe = reader.locator('[title="Unsubscribe"]')
+  await expect(unsubscribe).toBeVisible()
+
+  await unsubscribe.click()
+  await expect(page.locator('.toast')).toContainText('Unsubscribed from Daily Bites')
+  await expect(unsubscribe).toContainText('Unsubscribed')
+  await expect(unsubscribe).toBeDisabled()
+
+  // A regular email shows no Unsubscribe control.
+  await page.keyboard.press('Escape')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await expect(reader).toBeVisible()
+  await expect(reader.locator('[title="Unsubscribe"]')).toHaveCount(0)
+})
+
 test('Sent view lists the outbox with recipients and opens the reader', async ({ page }) => {
   await page.goto('/inbox')
 

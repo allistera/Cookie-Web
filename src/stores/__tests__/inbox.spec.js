@@ -687,7 +687,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     const body = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
 
-    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello' })
+    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null })
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/messages?id=11111111-1111-1111-1111-111111111111',
       { headers: { Authorization: 'Bearer test-access-token' } },
@@ -695,7 +695,7 @@ describe('Inbox Store', () => {
 
     // Second call for the same id is served from cache — no second request.
     const again = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
-    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello' })
+    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -713,7 +713,7 @@ describe('Inbox Store', () => {
     store.openEmailId = 'abc'
     await store.fetchMessageBody('abc')
 
-    expect(store.messageBodies.get('abc')).toEqual({ html: null, text: 'plain only' })
+    expect(store.messageBodies.get('abc')).toEqual({ html: null, text: 'plain only', unsubscribe: null })
     expect(store.openEmailHtml).toBe(null)
   })
 
