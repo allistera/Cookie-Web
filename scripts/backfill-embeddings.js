@@ -49,7 +49,7 @@ for (;;) {
     rows.map(
       (row, i) => sql`
         UPDATE messages
-        SET embedding = ${JSON.stringify(vectors[i])}::vector,
+        SET embedding = ${JSON.stringify(vectors[i])}::extensions.vector,
             embedding_model = ${EMBEDDING_MODEL}
         WHERE id = ${row.id} AND embedding IS NULL
       `,

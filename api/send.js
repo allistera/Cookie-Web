@@ -95,7 +95,7 @@ async function storeSentMessage(sql, email, { to, subject, text, replyToMessageI
       )
       await sql`
         UPDATE messages
-        SET embedding = ${vector}::vector, embedding_model = ${EMBEDDING_MODEL}
+        SET embedding = ${vector}::extensions.vector, embedding_model = ${EMBEDDING_MODEL}
         WHERE id = ${messageUuid} AND embedding IS NULL
       `
     } catch (err) {

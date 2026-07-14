@@ -24,7 +24,7 @@ export function vectorLeg(sql, email, vector, limit) {
     JOIN users u ON u.id = m.user_id
     WHERE lower(u.email) = ${email} AND NOT m.is_archived
       AND m.embedding IS NOT NULL
-    ORDER BY m.embedding <=> ${vector}::vector
+    ORDER BY m.embedding <=> ${vector}::extensions.vector
     LIMIT ${limit}
   `
 }
