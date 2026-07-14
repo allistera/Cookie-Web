@@ -59,19 +59,60 @@ async function createLabel(sql, email, body, res) {
 
 async function updateLabel(sql, email, body, res) {
   const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
-  if (!id || typeof body.auto_apply !== 'boolean') {
+  const hasName = Object.hasOwn(body, 'name')
+  const hasAutoApply = Object.hasOwn(body, 'auto_apply')
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+
+  if (
+    !id ||
+    (!hasName && !hasAutoApply) ||
+    (hasName && (!name || name.length > MAX_NAME)) ||
+    (hasAutoApply && typeof body.auto_apply !== 'boolean')
+  ) {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: 'id and auto_apply are required' }))
+    res.end(JSON.stringify({ error: 'id and a valid label update are required' }))
     return
   }
-  const [label] = await sql`
-    UPDATE labels l
-    SET auto_apply = ${body.auto_apply}
-    FROM users u
-    WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
-      AND l.kind = 'user'
-    RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
-  `
+
+  let label
+  try {
+    if (hasName && hasAutoApply) {
+      ;[label] = await sql`
+        UPDATE labels l
+        SET name = ${name}, auto_apply = ${body.auto_apply}
+        FROM users u
+        WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+          AND l.kind = 'user'
+        RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
+      `
+    } else if (hasName) {
+      ;[label] = await sql`
+        UPDATE labels l
+        SET name = ${name}
+        FROM users u
+        WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+          AND l.kind = 'user'
+        RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
+      `
+    } else {
+      ;[label] = await sql`
+        UPDATE labels l
+        SET auto_apply = ${body.auto_apply}
+        FROM users u
+        WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+          AND l.kind = 'user'
+        RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
+      `
+    }
+  } catch (error) {
+    if (hasName && error?.code === '23505') {
+      res.statusCode = 409
+      res.end(JSON.stringify({ error: 'A label with that name already exists' }))
+      return
+    }
+    throw error
+  }
+
   if (!label) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'User label not found' }))
@@ -105,7 +146,7 @@ async function deleteLabel(sql, email, body, res) {
 }
 
 // /api/labels — GET lists the user's labels (with message counts),
-// POST creates one, PATCH changes auto-apply, DELETE removes one.
+// POST creates one, PATCH renames or changes auto-apply, DELETE removes one.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 

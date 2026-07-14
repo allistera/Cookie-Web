@@ -315,6 +315,25 @@ describe('TraditionalInboxView filtered views', () => {
     ])
   })
 
+  it('filter=done loads the hidden Done mailbox and opens completed emails', async () => {
+    routeMock.query = { filter: 'done' }
+    store.doneEmails = [makeEmail('done-1', Date.now() - HOUR)]
+    vi.spyOn(store, 'loadDoneEmails').mockResolvedValue()
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-header h1').text()).toBe('Done')
+    expect(store.loadDoneEmails).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
+    expect(wrapper.find('.ni-row').text()).toContain('Subject done-1')
+    expect(wrapper.find('.ni-row [title="Done"]').exists()).toBe(false)
+
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader-subject').text()).toBe('Subject done-1')
+    expect(wrapper.find('.ni-reader [title="Done"]').exists()).toBe(false)
+    expect(wrapper.find('.ni-reader [title="Reschedule"]').exists()).toBe(false)
+  })
+
   it('an unknown filter falls back to the unstarred inbox', () => {
     routeMock.query = { filter: 'bogus' }
     const wrapper = mount(TraditionalInboxView)

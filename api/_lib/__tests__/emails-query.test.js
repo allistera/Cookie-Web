@@ -40,4 +40,20 @@ describe('fetchEmails', () => {
       expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
     },
   )
+
+  it.each([
+    ['first page', null],
+    [
+      'cursor page',
+      { sentAt: '2026-07-13T12:00:00.000Z', id: '11111111-1111-1111-1111-111111111111' },
+    ],
+  ])('selects archived messages for the Done %s query', (_name, cursor) => {
+    const capture = captureQuery()
+
+    fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'done')
+
+    expect(capture.query()).toContain("? = 'done' AND m.is_archived")
+    expect(capture.query()).toContain('OR (NOT m.is_archived AND (')
+    expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+  })
 })

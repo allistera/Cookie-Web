@@ -2482,7 +2482,7 @@ body {
 .label-table-head,
 .label-table-row {
   display: grid;
-  grid-template-columns: 150px 1fr 72px 32px;
+  grid-template-columns: 150px 1fr 72px 68px;
   align-items: center;
   gap: 12px;
   padding: 8px 0;
@@ -2519,12 +2519,24 @@ body {
   text-align: center;
 }
 
-.label-delete-btn {
-  visibility: hidden;
+.label-rename-input {
+  width: 100%;
 }
 
-.label-table-row:hover .label-delete-btn {
-  visibility: visible;
+.label-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.label-row-actions .ni-action-btn {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.label-table-row:hover .label-row-actions .ni-action-btn,
+.label-row-actions .ni-action-btn:focus-visible {
+  opacity: 1;
 }
 
 .label-create-form {

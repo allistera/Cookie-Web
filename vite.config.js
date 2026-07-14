@@ -12,23 +12,25 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 // real Vercel handler runs against Postgres.
 function localApiPlugin(mode) {
   // Fixture mutations are scoped by a same-origin cookie so separate browser
-  // contexts (including parallel Playwright projects) never leak schedules.
-  const stubSchedules = new Map()
-  const fixtureSchedules = (req, res) => {
+  // contexts (including parallel Playwright projects) never leak state.
+  const stubMailboxState = new Map()
+  const fixtureMailboxState = (req, res) => {
     const match = /(?:^|;\s*)cookie_fixture_session=([^;]+)/.exec(req.headers.cookie || '')
     const sessionId = match?.[1] || randomUUID()
     if (!match) {
       res.setHeader('Set-Cookie', `cookie_fixture_session=${sessionId}; Path=/; SameSite=Lax`)
     }
-    if (!stubSchedules.has(sessionId)) stubSchedules.set(sessionId, new Map())
-    return stubSchedules.get(sessionId)
+    if (!stubMailboxState.has(sessionId)) {
+      stubMailboxState.set(sessionId, { schedules: new Map(), archived: new Set() })
+    }
+    return stubMailboxState.get(sessionId)
   }
 
   const handleEmails = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
       const folder = new URL(req.url, 'http://localhost').searchParams.get('folder') || 'inbox'
-      const schedules = fixtureSchedules(req, res)
+      const { schedules, archived } = fixtureMailboxState(req, res)
       const now = Date.now()
       const inbox = fixtureEmails().map((email) => ({
         ...email,
@@ -37,12 +39,18 @@ function localApiPlugin(mode) {
       const emails =
         folder === 'sent'
           ? fixtureSentEmails()
+          : folder === 'done'
+            ? inbox.filter((email) => archived.has(email.id))
           : folder === 'spam'
             ? []
-            : folder === 'snoozed'
-              ? inbox.filter((email) => Date.parse(email.scheduled_for) > now)
+          : folder === 'snoozed'
+              ? inbox.filter(
+                  (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
+                )
               : inbox.filter(
-                  (email) => !email.scheduled_for || Date.parse(email.scheduled_for) <= now,
+                  (email) =>
+                    !archived.has(email.id) &&
+                    (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
                 )
       res.setHeader('Content-Type', 'application/json')
       res.end(
@@ -89,9 +97,14 @@ function localApiPlugin(mode) {
         for await (const chunk of req) raw += chunk
         const body = JSON.parse(raw || '{}')
         if (Object.hasOwn(body, 'scheduled_for')) {
-          const schedules = fixtureSchedules(req, res)
+          const { schedules } = fixtureMailboxState(req, res)
           if (body.scheduled_for === null) schedules.delete(body.id)
           else schedules.set(body.id, body.scheduled_for)
+        }
+        if (Object.hasOwn(body, 'is_archived')) {
+          const { archived } = fixtureMailboxState(req, res)
+          if (body.is_archived) archived.add(body.id)
+          else archived.delete(body.id)
         }
         res.end(JSON.stringify({ message: body }))
         return
@@ -211,7 +224,8 @@ function localApiPlugin(mode) {
         for await (const chunk of req) raw += chunk
         const body = JSON.parse(raw || '{}')
         const label = labels.find((item) => item.id === body.id)
-        if (label) label.auto_apply = body.auto_apply
+        if (label && Object.hasOwn(body, 'name')) label.name = body.name
+        if (label && Object.hasOwn(body, 'auto_apply')) label.auto_apply = body.auto_apply
         res.end(JSON.stringify({ label }))
         return
       }

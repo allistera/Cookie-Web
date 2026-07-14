@@ -135,6 +135,11 @@ export const useInboxStore = defineStore('inbox', {
     hasMoreSnoozed: false,
     isSnoozedLoaded: false,
     isSnoozedRefreshing: false,
+    doneEmails: [],
+    doneCursor: null,
+    hasMoreDone: false,
+    isDoneLoaded: false,
+    isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
 
     // Chat state
@@ -219,6 +224,7 @@ export const useInboxStore = defineStore('inbox', {
         state.sentEmails.find((e) => e.id === state.openEmailId) ??
         state.spamEmails.find((e) => e.id === state.openEmailId) ??
         state.snoozedEmails.find((e) => e.id === state.openEmailId) ??
+        state.doneEmails.find((e) => e.id === state.openEmailId) ??
         null
       )
     },
@@ -467,6 +473,45 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    async loadDoneEmails() {
+      this.isDoneRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/emails?folder=done&limit=${PAGE_SIZE}`, { headers })
+        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
+        const { emails, nextCursor } = await response.json()
+        this.doneEmails = emails.map(mapEmailRow)
+        this.doneCursor = nextCursor ?? null
+        this.hasMoreDone = Boolean(nextCursor)
+        this.isDoneLoaded = true
+      } catch (error) {
+        console.error('Failed to load done emails:', error)
+        this.notify('Failed to load done emails.', 'error')
+      } finally {
+        this.isDoneRefreshing = false
+      }
+    },
+
+    async loadMoreDoneEmails() {
+      if (!this.doneCursor || this.isDoneRefreshing) return
+      this.isDoneRefreshing = true
+      try {
+        const headers = await this.authHeaders()
+        const url = `/api/emails?folder=done&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.doneCursor)}`
+        const response = await fetch(url, { headers })
+        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
+        const { emails, nextCursor } = await response.json()
+        this.doneEmails.push(...emails.map(mapEmailRow))
+        this.doneCursor = nextCursor ?? null
+        this.hasMoreDone = Boolean(nextCursor)
+      } catch (error) {
+        console.error('Failed to load more done emails:', error)
+        this.notify('Failed to load more done emails.', 'error')
+      } finally {
+        this.isDoneRefreshing = false
+      }
+    },
+
     async loadLabels() {
       try {
         const headers = await this.authHeaders()
@@ -525,6 +570,51 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         console.error('Failed to delete label:', error)
         this.notify('Failed to delete label.', 'error')
+      }
+    },
+
+    async renameLabel(label, name) {
+      const nextName = name.trim()
+      if (!nextName || nextName === label.name) return nextName === label.name
+
+      const previousName = label.name
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/labels', {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: label.id, name: nextName }),
+        })
+        if (response.status === 409) {
+          this.notify('A label with that name already exists.', 'error')
+          return false
+        }
+        if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
+
+        const { label: updatedLabel } = await response.json()
+        Object.assign(label, updatedLabel)
+        this.labels.sort((a, b) => a.name.localeCompare(b.name))
+
+        for (const list of [
+          this.traditionalEmails,
+          this.sentEmails,
+          this.spamEmails,
+          this.snoozedEmails,
+          this.doneEmails,
+        ]) {
+          for (const email of list) {
+            for (const messageLabel of email.labels || []) {
+              if (messageLabel.name === previousName) messageLabel.name = updatedLabel.name
+            }
+          }
+        }
+
+        this.notify('Label renamed.')
+        return true
+      } catch (error) {
+        console.error('Failed to rename label:', error)
+        this.notify('Failed to rename label.', 'error')
+        return false
       }
     },
 
@@ -738,6 +828,9 @@ export const useInboxStore = defineStore('inbox', {
       for (const list of [this.traditionalEmails, this.snoozedEmails, this.spamEmails]) {
         const index = list.indexOf(email)
         if (index > -1) list.splice(index, 1)
+      }
+      if (this.isDoneLoaded && !this.doneEmails.some((item) => item.id === email.id)) {
+        this.doneEmails.unshift(email)
       }
       this.updateMessage(email.id, { is_archived: true }).catch((error) => {
         console.error('Failed to archive email:', error)

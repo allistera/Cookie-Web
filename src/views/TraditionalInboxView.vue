@@ -8,15 +8,16 @@ import { scheduleChoices } from '../utils/schedule'
 const store = useInboxStore()
 const route = useRoute()
 
-// --- Filtered views (?filter=starred|snoozed|sent|drafts|label&label=<name>) ---
+// --- Filtered views (?filter=starred|snoozed|sent|done|drafts|label&label=<name>) ---
 // Starred and label views filter the loaded list client-side (rows already
-// carry starred + labels; covers loaded pages only). Sent, Spam, and Snoozed
-// have server-backed lists loaded lazily when their view opens.
+// carry starred + labels; covers loaded pages only). Sent, Spam, Snoozed, and
+// the hidden Done mailbox have server-backed lists loaded lazily when opened.
 const FILTER_META = {
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
   snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
   sent: { title: 'Sent', icon: 'send', emptyText: 'No sent emails yet.' },
   spam: { title: 'Spam', icon: 'report', emptyText: 'No spam. Nice and tidy.' },
+  done: { title: 'Done', icon: 'task_alt', emptyText: 'No emails marked done.' },
   drafts: { title: 'Drafts', icon: 'description', emptyText: 'No drafts yet.' },
   label: { title: null, icon: 'sell', emptyText: 'No emails with this label.' },
 }
@@ -32,6 +33,7 @@ watch(
     if (filter === 'sent') store.loadSentEmails()
     if (filter === 'spam') store.loadSpamEmails()
     if (filter === 'snoozed') store.loadSnoozedEmails()
+    if (filter === 'done') store.loadDoneEmails()
   },
   { immediate: true },
 )
@@ -49,6 +51,8 @@ const filteredEmails = computed(() => {
       return store.spamEmails
     case 'snoozed':
       return store.snoozedEmails
+    case 'done':
+      return store.doneEmails
     case 'drafts':
       return []
     default:
@@ -92,6 +96,7 @@ const showLoadMore = computed(() => {
   if (activeFilter.value === 'sent') return store.hasMoreSent
   if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
+  if (activeFilter.value === 'done') return store.hasMoreDone
   if (EMPTY_ONLY_FILTERS.has(activeFilter.value)) return false
   return store.hasMoreEmails
 })
@@ -100,6 +105,7 @@ const isLoadingMore = computed(() => {
   if (activeFilter.value === 'sent') return store.isSentRefreshing
   if (activeFilter.value === 'spam') return store.isSpamRefreshing
   if (activeFilter.value === 'snoozed') return store.isSnoozedRefreshing
+  if (activeFilter.value === 'done') return store.isDoneRefreshing
   return store.isRefreshing
 })
 
@@ -107,6 +113,7 @@ function loadMore() {
   if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
   else if (activeFilter.value === 'snoozed') store.loadMoreSnoozedEmails()
+  else if (activeFilter.value === 'done') store.loadMoreDoneEmails()
   else store.loadMoreEmails()
 }
 
@@ -547,7 +554,12 @@ onUnmounted(() => {
                 email.starred ? 'star' : 'star_border'
               }}</span>
             </button>
-            <button class="ni-action-btn" title="Done" @click="removeEmail(email)">
+            <button
+              v-if="activeFilter !== 'done'"
+              class="ni-action-btn"
+              title="Done"
+              @click="removeEmail(email)"
+            >
               <span class="material-symbols-outlined">check_box</span>
             </button>
             <button
@@ -584,11 +596,11 @@ onUnmounted(() => {
           <span class="material-symbols-outlined">star</span>
           <span>Star</span>
         </button>
-        <button class="ni-bulk-pill" @click="markSelectedDone">
+        <button v-if="activeFilter !== 'done'" class="ni-bulk-pill" @click="markSelectedDone">
           <span class="material-symbols-outlined">check_box</span>
           <span>Done</span>
         </button>
-        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+        <div v-if="activeFilter !== 'done'" class="ni-schedule-wrap ni-schedule-wrap-bulk">
           <button
             class="ni-bulk-pill"
             aria-haspopup="menu"
@@ -642,10 +654,15 @@ onUnmounted(() => {
                 openEmail.starred ? 'star' : 'star_border'
               }}</span>
             </button>
-            <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
+            <button
+              v-if="activeFilter !== 'done'"
+              class="ni-reader-btn"
+              title="Done"
+              @click="archiveOpenEmail"
+            >
               <span class="material-symbols-outlined">check_box</span>
             </button>
-            <div class="ni-schedule-wrap">
+            <div v-if="activeFilter !== 'done'" class="ni-schedule-wrap">
               <button
                 class="ni-reader-btn"
                 title="Reschedule"

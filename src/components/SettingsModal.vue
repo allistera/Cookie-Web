@@ -1,10 +1,13 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
 const { user } = useAuth()
+const route = useRoute()
+const router = useRouter()
 
 const isOpen = computed(() => store.activeModal === 'settings')
 
@@ -73,6 +76,9 @@ const LABEL_PALETTE = [
 
 const newLabel = reactive({ name: '', description: '', color: LABEL_PALETTE[3] })
 const isSavingLabel = ref(false)
+const editingLabelId = ref(null)
+const editedLabelName = ref('')
+const isRenamingLabel = ref(false)
 
 async function submitLabel() {
   if (!newLabel.name.trim() || isSavingLabel.value) return
@@ -88,6 +94,38 @@ async function submitLabel() {
     newLabel.color = LABEL_PALETTE[3]
   }
   isSavingLabel.value = false
+}
+
+function startRenamingLabel(label) {
+  editingLabelId.value = label.id
+  editedLabelName.value = label.name
+  nextTick(() => document.querySelector('.label-rename-input')?.focus())
+}
+
+function cancelRenamingLabel() {
+  editingLabelId.value = null
+  editedLabelName.value = ''
+}
+
+async function submitLabelRename(label) {
+  const name = editedLabelName.value.trim()
+  if (!name || isRenamingLabel.value) return
+  if (name === label.name) {
+    cancelRenamingLabel()
+    return
+  }
+
+  const previousName = label.name
+  isRenamingLabel.value = true
+  const renamed = await store.renameLabel(label, name)
+  isRenamingLabel.value = false
+
+  if (renamed) {
+    if (route.query.filter === 'label' && route.query.label === previousName) {
+      await router.replace({ query: { ...route.query, label: name } })
+    }
+    cancelRenamingLabel()
+  }
 }
 </script>
 
@@ -185,7 +223,18 @@ async function submitLabel() {
                 <span></span>
               </div>
               <div class="label-table-row" v-for="label in store.labels" :key="label.id">
+                <input
+                  v-if="editingLabelId === label.id"
+                  v-model="editedLabelName"
+                  class="label-input label-rename-input"
+                  maxlength="50"
+                  :aria-label="`Rename ${label.name}`"
+                  :disabled="isRenamingLabel"
+                  @keydown.enter.prevent="submitLabelRename(label)"
+                  @keydown.esc.prevent="cancelRenamingLabel"
+                />
                 <span
+                  v-else
                   class="ni-label-pill"
                   :style="{ color: label.color, backgroundColor: label.color + '1f' }"
                 >
@@ -201,14 +250,42 @@ async function submitLabel() {
                   @change="store.setLabelAutoApply(label, $event.target.checked)"
                 />
                 <span v-else class="label-system-note">System</span>
-                <button
-                  v-if="label.kind === 'user'"
-                  class="ni-action-btn label-delete-btn"
-                  :title="`Delete ${label.name}`"
-                  @click="store.deleteLabel(label.id)"
-                >
-                  <span class="material-symbols-outlined">delete</span>
-                </button>
+                <div v-if="label.kind === 'user'" class="label-row-actions">
+                  <template v-if="editingLabelId === label.id">
+                    <button
+                      class="ni-action-btn label-save-btn"
+                      :title="`Save ${label.name}`"
+                      :disabled="!editedLabelName.trim() || isRenamingLabel"
+                      @click="submitLabelRename(label)"
+                    >
+                      <span class="material-symbols-outlined">check</span>
+                    </button>
+                    <button
+                      class="ni-action-btn label-cancel-btn"
+                      :title="`Cancel renaming ${label.name}`"
+                      :disabled="isRenamingLabel"
+                      @click="cancelRenamingLabel"
+                    >
+                      <span class="material-symbols-outlined">close</span>
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button
+                      class="ni-action-btn label-edit-btn"
+                      :title="`Rename ${label.name}`"
+                      @click="startRenamingLabel(label)"
+                    >
+                      <span class="material-symbols-outlined">edit</span>
+                    </button>
+                    <button
+                      class="ni-action-btn label-delete-btn"
+                      :title="`Delete ${label.name}`"
+                      @click="store.deleteLabel(label.id)"
+                    >
+                      <span class="material-symbols-outlined">delete</span>
+                    </button>
+                  </template>
+                </div>
               </div>
             </div>
             <p v-else class="settings-section-hint">No labels yet — create your first below.</p>

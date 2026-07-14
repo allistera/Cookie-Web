@@ -9,8 +9,9 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // Keyset pagination on (sent_at, id) DESC. The cursor is "<sent_at>|<id>" of
 // the last row of the previous page — stable under concurrent inserts, unlike
 // OFFSET. fetch one extra row to learn whether another page exists.
-// folder selects inbox, sent/outbox, or high-confidence AI spam (recipients
-// let the client render "To: <address>" for outbound rows).
+// folder selects inbox, sent/outbox, high-confidence AI spam, snoozed, or
+// archived (Done) mail. Recipients let the client render "To: <address>" for
+// outbound rows.
 export function fetchEmails(sql, email, limit, cursor, folder) {
   if (cursor) {
     return sql`
@@ -29,16 +30,19 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
       LEFT JOIN message_ai ai ON ai.message_id = m.id
       LEFT JOIN message_labels ml ON ml.message_id = m.id
       LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE lower(u.email) = ${email} AND NOT m.is_archived
+      WHERE lower(u.email) = ${email}
         AND (
-          (${folder} = 'sent' AND m.is_sent)
-          OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
-          OR (${folder} = 'snoozed' AND NOT m.is_sent
-              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-              AND m.scheduled_for > now())
-          OR (${folder} = 'inbox' AND NOT m.is_sent
-              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-              AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
+          (${folder} = 'done' AND m.is_archived)
+          OR (NOT m.is_archived AND (
+            (${folder} = 'sent' AND m.is_sent)
+            OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
+            OR (${folder} = 'snoozed' AND NOT m.is_sent
+                AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+                AND m.scheduled_for > now())
+            OR (${folder} = 'inbox' AND NOT m.is_sent
+                AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+                AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
+          ))
         )
         AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
       GROUP BY m.id, ai.spam_score
@@ -62,16 +66,19 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE lower(u.email) = ${email} AND NOT m.is_archived
+    WHERE lower(u.email) = ${email}
       AND (
-        (${folder} = 'sent' AND m.is_sent)
-        OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
-        OR (${folder} = 'snoozed' AND NOT m.is_sent
-            AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-            AND m.scheduled_for > now())
-        OR (${folder} = 'inbox' AND NOT m.is_sent
-            AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-            AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
+        (${folder} = 'done' AND m.is_archived)
+        OR (NOT m.is_archived AND (
+          (${folder} = 'sent' AND m.is_sent)
+          OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
+          OR (${folder} = 'snoozed' AND NOT m.is_sent
+              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+              AND m.scheduled_for > now())
+          OR (${folder} = 'inbox' AND NOT m.is_sent
+              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+              AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
+        ))
       )
     GROUP BY m.id, ai.spam_score
     ORDER BY m.sent_at DESC, m.id DESC
@@ -96,8 +103,8 @@ function fetchUnreadCount(sql, email) {
   `
 }
 
-// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent|spam|snoozed — the
-// authenticated user's selected folder (inbox by default), newest first. Responds
+// GET /api/emails?limit=50&before=<sent_at>|<id>&folder=inbox|sent|spam|snoozed|done
+// returns the authenticated user's selected folder (inbox by default), newest first. Responds
 // {emails, nextCursor, unreadCount, userId}; nextCursor is null on the last
 // page. unreadCount always covers the inbox (sent mail is never unread).
 // userId lets the client subscribe to its Realtime inbox-ping channel.
@@ -115,7 +122,7 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, 'http://localhost')
   const requestedFolder = url.searchParams.get('folder') || 'inbox'
-  const folder = ['inbox', 'sent', 'spam', 'snoozed'].includes(requestedFolder)
+  const folder = ['inbox', 'sent', 'spam', 'snoozed', 'done'].includes(requestedFolder)
     ? requestedFolder
     : null
   if (!folder) {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import SettingsModal from '../SettingsModal.vue'
 import { useInboxStore } from '../../stores/inbox'
 
@@ -27,16 +28,26 @@ const FIXTURE_LABELS = [
 
 describe('SettingsModal', () => {
   let pinia
+  let router
   let store
 
-  beforeEach(() => {
+  beforeEach(async () => {
     pinia = createPinia()
     setActivePinia(pinia)
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }],
+    })
+    await router.push('/')
+    await router.isReady()
     store = useInboxStore()
     localStorage.clear()
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ labels: FIXTURE_LABELS }) }),
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ labels: FIXTURE_LABELS.map((label) => ({ ...label })) }),
+      }),
     )
   })
 
@@ -46,7 +57,7 @@ describe('SettingsModal', () => {
   })
 
   function mountModal() {
-    return mount(SettingsModal, { global: { plugins: [pinia] } })
+    return mount(SettingsModal, { global: { plugins: [pinia, router] } })
   }
 
   async function openModal() {
@@ -127,6 +138,31 @@ describe('SettingsModal', () => {
       body: JSON.stringify({ id: 'l2', auto_apply: true }),
     })
     expect(store.labels[1].auto_apply).toBe(true)
+  })
+
+  it('renames a user label inline', async () => {
+    const wrapper = await openModal()
+    await openLabelsPane(wrapper)
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ label: { ...FIXTURE_LABELS[0], name: 'Money' } }),
+    })
+
+    await wrapper.find('.label-edit-btn').trigger('click')
+    const input = wrapper.find('.label-rename-input')
+    expect(input.element.value).toBe('Finance')
+    await input.setValue('Money')
+    await input.trigger('keydown', { key: 'Enter' })
+    await vi.waitFor(() => expect(store.labels.find((label) => label.id === 'l1')?.name).toBe('Money'))
+    await wrapper.vm.$nextTick()
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'l1', name: 'Money' }),
+    })
+    expect(wrapper.find('.label-rename-input').exists()).toBe(false)
+    expect(wrapper.findAll('.ni-label-pill').some((pill) => pill.text() === 'Money')).toBe(true)
   })
 
   it('creates a label from the form and resets it', async () => {

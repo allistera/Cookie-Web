@@ -275,6 +275,56 @@ describe('Inbox Store', () => {
     expect(store.spamEmails.map((email) => email.id)).toEqual(['spam-1'])
   })
 
+  it('loads and pages the server-backed Done mailbox', async () => {
+    const row = (id) => ({
+      id,
+      from_name: 'Finished Sender',
+      from_address: 'finished@example.com',
+      subject: `Done ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+      is_sent: false,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            emails: [row('done-a')],
+            nextCursor: '2026-07-01T00:00:00Z|11111111-1111-1111-1111-111111111111',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ emails: [row('done-b')], nextCursor: null }),
+        }),
+    )
+
+    const store = useInboxStore()
+    await store.loadDoneEmails()
+
+    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=done&limit=50', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.doneEmails.map((email) => email.id)).toEqual(['done-a'])
+    expect(store.isDoneLoaded).toBe(true)
+    expect(store.hasMoreDone).toBe(true)
+
+    await store.loadMoreDoneEmails()
+
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/emails?folder=done&limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111',
+      { headers: { Authorization: 'Bearer test-access-token' } },
+    )
+    expect(store.doneEmails.map((email) => email.id)).toEqual(['done-a', 'done-b'])
+    expect(store.hasMoreDone).toBe(false)
+  })
+
   it('generates a reviewable AI draft without sending it', async () => {
     vi.stubGlobal(
       'fetch',
@@ -514,6 +564,57 @@ describe('Inbox Store', () => {
     expect(fetch).toHaveBeenCalledWith('/api/emails?limit=50', {
       headers: { Authorization: 'Bearer test-access-token' },
     })
+  })
+
+  it('renames a label and updates labels on loaded emails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          label: {
+            id: 'label-1',
+            name: 'Money',
+            color: '#2f9e44',
+            kind: 'user',
+            description: 'Bills',
+            auto_apply: true,
+          },
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    const label = {
+      id: 'label-1',
+      name: 'Finance',
+      color: '#2f9e44',
+      kind: 'user',
+      description: 'Bills',
+      auto_apply: true,
+      message_count: 2,
+    }
+    store.labels = [label]
+    store.traditionalEmails = [{ id: 'mail-1', labels: [{ name: 'Finance', color: '#2f9e44' }] }]
+    store.sentEmails = [{ id: 'mail-2', labels: [{ name: 'Finance', color: '#2f9e44' }] }]
+
+    await expect(store.renameLabel(label, '  Money  ')).resolves.toBe(true)
+
+    expect(fetch).toHaveBeenCalledWith('/api/labels', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'label-1', name: 'Money' }),
+    })
+    expect(store.labels.find((item) => item.id === 'label-1')).toMatchObject({
+      name: 'Money',
+      message_count: 2,
+    })
+    expect(store.traditionalEmails[0].labels[0].name).toBe('Money')
+    expect(store.sentEmails[0].labels[0].name).toBe('Money')
+    expect(store.toasts.at(-1)?.message).toBe('Label renamed.')
   })
 
   it('shows a toast and auto-dismisses it', () => {

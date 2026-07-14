@@ -339,10 +339,11 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
   await expect(starBtn).not.toHaveClass(/starred/)
 })
 
-test('Settings Labels pane lists labels and creates a new one', async ({ page }, testInfo) => {
+test('Settings Labels pane lists, creates and renames labels', async ({ page }, testInfo) => {
   // The dev-server labels stub is shared across browser projects and retries;
   // a unique name keeps this test isolated.
-  const labelName = `Receipts-${testInfo.project.name}-${testInfo.retry}`
+  const labelSuffix = `${testInfo.project.name}-${testInfo.retry}-${Date.now()}`
+  const labelName = `Receipts-${labelSuffix}`
   await page.goto('/')
 
   // Open settings via the profile dropdown
@@ -360,6 +361,15 @@ test('Settings Labels pane lists labels and creates a new one', async ({ page },
   await modal.locator('.label-input').first().fill(labelName)
   await modal.locator('.label-create-form .btn-primary').click()
   await expect(modal.locator('.ni-label-pill', { hasText: labelName }).first()).toBeVisible()
+
+  // Rename the new label inline.
+  const renamedLabel = `Renamed-${labelSuffix}`
+  await modal.getByTitle(`Rename ${labelName}`).click()
+  const renameInput = modal.getByLabel(`Rename ${labelName}`)
+  await renameInput.fill(renamedLabel)
+  await renameInput.press('Enter')
+  await expect(modal.locator('.ni-label-pill', { hasText: renamedLabel })).toBeVisible()
+  await expect(modal.locator('.ni-label-pill', { hasText: labelName })).toHaveCount(0)
 })
 
 test("Command palette opens with '/', filters and navigates to Starred", async ({ page }) => {
@@ -529,6 +539,33 @@ test('Multi-select: checkboxes reveal bulk pills, Done archives, Esc clears', as
   await bar.locator('.ni-bulk-pill', { hasText: 'Done' }).click()
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
   await expect(bar).toHaveCount(0)
+})
+
+test('The hidden Done mailbox shows emails after they are marked done', async ({ page }) => {
+  await page.goto('/inbox')
+
+  const subject = 'Revised Floor Plan - Natural Light adjustments'
+  const row = page.locator('.ni-row', { hasText: subject })
+  await row.hover()
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().includes('/api/messages') && response.request().method() === 'PATCH',
+    ),
+    row.locator('[title="Done"]').click(),
+  ])
+
+  await page.goto('/inbox?filter=done')
+
+  await expect(page.locator('.ni-header h1')).toHaveText('Done')
+  await expect(page.locator('.ni-row', { hasText: subject })).toBeVisible()
+  await expect(page.locator('.nav-item', { hasText: 'Done' })).toHaveCount(0)
+
+  await page.locator('.ni-row', { hasText: subject }).click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader.locator('.ni-reader-subject')).toHaveText(subject)
+  await expect(reader.locator('[title="Done"]')).toHaveCount(0)
+  await expect(reader.locator('[title="Reschedule"]')).toHaveCount(0)
+  await page.screenshot({ path: '/tmp/cookie-web-done-mailbox.png', fullPage: true })
 })
 
 test('Marking the last email Done shows the Inbox Zero success state', async ({ page }) => {
