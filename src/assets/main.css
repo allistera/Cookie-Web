@@ -290,11 +290,6 @@ body {
   font-weight: bold;
 }
 
-.gemini-badge-btn {
-  border: 1px solid rgba(169, 112, 255, 0.3);
-  box-shadow: 0 0 8px rgba(169, 112, 255, 0.1);
-}
-
 .profile-container {
   width: 32px;
   height: 32px;

@@ -256,9 +256,6 @@ onMounted(() => {
       </div>
 
       <div class="header-right">
-        <button class="icon-btn gemini-badge-btn" title="Gemini Status">
-          <span class="material-symbols-outlined gemini-color">auto_awesome</span>
-        </button>
         <div class="profile-container" :title="`Google Account: ${user?.name || 'Allister'}`" @click="showLogoutMenu = !showLogoutMenu">
           <img :src="user?.picture || '/rose_avatar.jpg'" :alt="user?.name || 'Allister'" class="profile-img" />
           
