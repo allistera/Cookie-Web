@@ -469,16 +469,42 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
   })
 
-  it('the reader topbar offers Done and no Delete or Archive', async () => {
+  it('the reader topbar offers Star, Done and Reschedule with no Delete or Archive', async () => {
     const wrapper = mount(TraditionalInboxView)
     await wrapper.find('.ni-row').trigger('click')
 
     const topbar = wrapper.find('.ni-reader-topbar')
+    const star = topbar.find('[title="Star"]')
     const done = topbar.find('[title="Done"]')
+    const reschedule = topbar.find('[title="Reschedule"]')
+    expect(star.exists()).toBe(true)
+    expect(star.text()).toContain('star_border')
     expect(done.exists()).toBe(true)
     expect(done.text()).toContain('check_box')
+    expect(reschedule.exists()).toBe(true)
+    expect(reschedule.text()).toContain('schedule')
     expect(topbar.find('[title="Delete"]').exists()).toBe(false)
     expect(topbar.find('[title="Archive"]').exists()).toBe(false)
+  })
+
+  it('the reader Star action stars the open email', async () => {
+    vi.spyOn(store, 'toggleStar')
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.find('.ni-reader-topbar [title="Star"]').trigger('click')
+
+    expect(store.toggleStar).toHaveBeenCalledTimes(1)
+    expect(store.toggleStar.mock.calls[0][0].id).toBe('today-1')
+  })
+
+  it('the reader Reschedule action reports that scheduling is coming soon', async () => {
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
+
+    expect(store.toasts.some((toast) => toast.message === 'Reschedule is coming soon.')).toBe(true)
   })
 })
 
@@ -526,7 +552,9 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
 
     const reader = wrapper.find('.ni-reader')
     expect(reader.find('[title="Reply"]').exists()).toBe(true)
+    expect(reader.find('[title="Star"]').exists()).toBe(true)
     expect(reader.find('[title="Done"]').exists()).toBe(true)
+    expect(reader.find('[title="Reschedule"]').exists()).toBe(true)
     expect(reader.find('[title="Close"]').exists()).toBe(false)
     expect(reader.find('[title="Previous"]').exists()).toBe(false)
     expect(reader.find('[title="Next"]').exists()).toBe(false)

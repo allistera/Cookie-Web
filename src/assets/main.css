@@ -1263,6 +1263,10 @@ body {
   color: var(--text-primary);
 }
 
+.ni-reader-btn.starred {
+  color: #f4b400;
+}
+
 .ni-reader-btn:disabled {
   opacity: 0.35;
   cursor: default;

@@ -264,6 +264,17 @@ function unsubscribeOpenEmail() {
   store.unsubscribeEmail(openEmail.value)
 }
 
+function starOpenEmail() {
+  if (!openEmail.value) return
+  toggleStar(openEmail.value)
+}
+
+// Snooze/rescheduling has no backing data yet; match the existing bulk
+// action by keeping the control visible while clearly reporting its status.
+function rescheduleOpenEmail() {
+  store.notify('Reschedule is coming soon.')
+}
+
 function replyToOpenEmail() {
   isReplyOpen.value = true
   nextTick(() => replyTextareaRef.value?.focus())
@@ -512,8 +523,23 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="ni-reader-nav">
+            <button
+              class="ni-reader-btn"
+              :class="{ starred: openEmail.starred }"
+              :title="openEmail.starred ? 'Unstar' : 'Star'"
+              :aria-label="openEmail.starred ? 'Unstar' : 'Star'"
+              :aria-pressed="openEmail.starred"
+              @click="starOpenEmail"
+            >
+              <span class="material-symbols-outlined">{{
+                openEmail.starred ? 'star' : 'star_border'
+              }}</span>
+            </button>
             <button class="ni-reader-btn" title="Done" @click="archiveOpenEmail">
               <span class="material-symbols-outlined">check_box</span>
+            </button>
+            <button class="ni-reader-btn" title="Reschedule" @click="rescheduleOpenEmail">
+              <span class="material-symbols-outlined">schedule</span>
             </button>
           </div>
         </div>

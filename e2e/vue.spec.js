@@ -72,6 +72,12 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
 
+  // Reader actions sit together in the top-right toolbar.
+  const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
+  await expect(actions.locator('[title="Star"]')).toBeVisible()
+  await expect(actions.locator('[title="Done"]')).toBeVisible()
+  await expect(actions.locator('[title="Reschedule"]')).toBeVisible()
+
   // The reader no longer has close/previous/next nav buttons
   await expect(reader.locator('.ni-reader-close')).toHaveCount(0)
   await expect(reader.locator('[title="Previous"]')).toHaveCount(0)
@@ -86,6 +92,25 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toBeVisible()
   await page.locator('.ni-title h1').click()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
+})
+
+test('Reader Star updates the email and Reschedule gives clear feedback', async ({ page }) => {
+  await page.goto('/inbox')
+
+  const row = page.locator('.ni-row', { hasText: 'City Construction' })
+  await row.click()
+  const reader = page.locator('.ni-reader')
+
+  await reader.locator('[title="Reschedule"]').click()
+  await expect(page.locator('.toast', { hasText: 'Reschedule is coming soon.' })).toBeVisible()
+
+  await reader.locator('[title="Star"]').click()
+  await expect(reader).toHaveCount(0)
+  await expect(row).toHaveCount(0)
+
+  await page.locator('.nav-item', { hasText: 'Starred' }).click()
+  await expect(page).toHaveURL(/filter=starred/)
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
 })
 
 test('Reply slides an inline reply box under the email instead of opening the composer', async ({
