@@ -85,7 +85,7 @@ Migration `0010_ai_enrichment.sql` adds:
 
 - `labels.auto_apply`.
 - Provenance columns on `message_labels`.
-- One `message_ai` row per message with status, spam verdict, score, summary, priority, provider, model, prompt version, and error state.
+- One `message_ai` row per message with status, spam verdict, score, an optional user-requested summary, priority, provider, model, prompt version, and error state.
 
 Migration `0011_backfill_ai_pending.sql` queues historical inbound messages. Sent copies are deliberately excluded from spam and auto-tag processing.
 
@@ -110,7 +110,7 @@ A generic multi-provider abstraction is intentionally absent. Add one only after
 
 ## Reliability and operations
 
-New inbound messages receive a durable `pending` row inside the storage transaction. Successful enrichment updates embeddings, tags, spam state, summary, and priority together.
+New inbound messages receive a durable `pending` row inside the storage transaction. Successful enrichment updates embeddings, tags, spam state, and priority together. It never generates or overwrites summaries; Cookie Web creates those only after an authenticated user requests one in the reader.
 
 Failures set `message_ai.status = 'failed'` without changing forwarding. The recovery cron retries stale pending and failed rows.
 
@@ -120,7 +120,7 @@ Production verification should confirm delivery first, then storage, `ai_enriche
 
 ## Cost expectations
 
-Personal mailbox volume should remain low-cost because classification and embedding requests run once per inbound message, Compose is user-triggered, and recovery is bounded.
+Personal mailbox volume should remain low-cost because classification and embedding requests run once per inbound message, summaries and Compose are user-triggered, and recovery is bounded.
 
 Actual cost depends on message length, model pricing, and Compose usage. Monitor provider usage before adding routing logic, prompt caching, or another model tier.
 

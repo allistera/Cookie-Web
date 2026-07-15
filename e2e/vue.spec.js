@@ -155,6 +155,7 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
 }) => {
   let releaseSummary
   let requestBody
+  let summaryRequestCount = 0
   let notifyRequestStarted
   const requestStarted = new Promise((resolve) => {
     notifyRequestStarted = resolve
@@ -163,6 +164,7 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
     releaseSummary = resolve
   })
   await page.route('**/api/summarize', async (route) => {
+    summaryRequestCount += 1
     requestBody = route.request().postDataJSON()
     notifyRequestStarted()
     await summaryHeld
@@ -180,10 +182,15 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   const reader = page.locator('.ni-reader')
   const summarize = reader.locator('.ni-summarize-btn')
 
+  // Summaries are strictly user-initiated: opening the reader must not fire
+  // a summary request or render a summary box.
+  expect(summaryRequestCount).toBe(0)
+  await expect(reader.locator('.ni-summary-box')).toHaveCount(0)
   await expect(summarize).toHaveText(/Summarize/)
   await summarize.click()
   await requestStarted
 
+  expect(summaryRequestCount).toBe(1)
   expect(requestBody).toEqual({ id: 'fixture-1' })
   await expect(summarize).toBeDisabled()
   await expect(summarize).toHaveText(/Summarizing…/)
