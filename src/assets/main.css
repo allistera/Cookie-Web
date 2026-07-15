@@ -1852,6 +1852,29 @@ body {
   color: var(--text-primary);
 }
 
+/* Done archive pager: Newer/Older page-replacement controls */
+.ni-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.ni-pager .ni-pager-btn {
+  display: inline-block;
+  margin: 12px 0 20px;
+}
+
+.ni-pager .ni-pager-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ni-pager-page {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .ni-load-more:disabled {
   opacity: 0.6;
   cursor: default;

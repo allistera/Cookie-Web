@@ -246,6 +246,14 @@ onMounted(() => {
               <span class="nav-text">Snoozed</span>
             </router-link>
             <router-link
+              :to="{ path: '/inbox', query: { filter: 'done' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'done' }"
+            >
+              <span class="material-symbols-outlined">task_alt</span>
+              <span class="nav-text">Done</span>
+            </router-link>
+            <router-link
               :to="{ path: '/inbox', query: { filter: 'sent' } }"
               class="nav-item"
               :class="{ active: route.query.filter === 'sent' }"

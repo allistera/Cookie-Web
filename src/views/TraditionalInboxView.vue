@@ -31,7 +31,7 @@ watch(
     if (filter === 'sent') store.loadSentEmails()
     if (filter === 'spam') store.loadSpamEmails()
     if (filter === 'snoozed') store.loadSnoozedEmails()
-    if (filter === 'done') store.loadDoneEmails()
+    if (filter === 'done') store.loadDonePage(0)
   },
   { immediate: true },
 )
@@ -92,9 +92,14 @@ const showLoadMore = computed(() => {
   if (activeFilter.value === 'sent') return store.hasMoreSent
   if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
-  if (activeFilter.value === 'done') return store.hasMoreDone
+  if (activeFilter.value === 'done') return false // Done uses the pager below
   return store.hasMoreEmails
 })
+
+// Done is a page-replacement archive (Newer/Older), not an append list.
+const showDonePager = computed(
+  () => activeFilter.value === 'done' && (store.donePageIndex > 0 || store.doneHasNext),
+)
 
 const isLoadingMore = computed(() => {
   if (activeFilter.value === 'sent') return store.isSentRefreshing
@@ -108,7 +113,6 @@ function loadMore() {
   if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
   else if (activeFilter.value === 'snoozed') store.loadMoreSnoozedEmails()
-  else if (activeFilter.value === 'done') store.loadMoreDoneEmails()
   else store.loadMoreEmails()
 }
 
@@ -147,6 +151,29 @@ const emailGroups = computed(() => {
       groups.get(label).push(email)
     }
 
+    return [...groups].map(([label, emails]) => group(label, emails))
+  }
+
+  // The Done archive groups by calendar day; the store's pager guarantees a
+  // day never spans two pages, so each group is always complete.
+  if (activeFilter.value === 'done') {
+    const groups = new Map()
+    for (const email of filteredEmails.value) {
+      const sentAt = new Date(email.sentAt)
+      const label =
+        sentAt.getTime() >= startOfToday
+          ? 'Today'
+          : sentAt.getTime() >= startOfToday - DAY
+            ? 'Yesterday'
+            : sentAt.toLocaleDateString('en-GB', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                ...(sentAt.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+              })
+      if (!groups.has(label)) groups.set(label, [])
+      groups.get(label).push(email)
+    }
     return [...groups].map(([label, emails]) => group(label, emails))
   }
 
@@ -606,6 +633,23 @@ onUnmounted(() => {
       <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
         {{ isLoadingMore ? 'Loading…' : 'Load more' }}
       </button>
+      <div v-if="showDonePager" class="ni-pager">
+        <button
+          class="ni-load-more ni-pager-btn"
+          :disabled="store.donePageIndex === 0 || store.isDoneRefreshing"
+          @click="store.prevDonePage()"
+        >
+          ‹ Newer
+        </button>
+        <span class="ni-pager-page">Page {{ store.donePageIndex + 1 }}</span>
+        <button
+          class="ni-load-more ni-pager-btn"
+          :disabled="!store.doneHasNext || store.isDoneRefreshing"
+          @click="store.nextDonePage()"
+        >
+          Older ›
+        </button>
+      </div>
     </div>
 
     <!-- Bulk action bar: floats over the list while any row is checked -->

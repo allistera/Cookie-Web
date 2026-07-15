@@ -718,4 +718,16 @@ test('Sidebar links open the filtered views', async ({ page }) => {
   await page.locator('.nav-item', { hasText: 'Snoozed' }).click()
   await expect(page.locator('.ni-header h1')).toHaveText('Snoozed')
   await expect(page.locator('.ni-empty')).toHaveText('No snoozed emails yet.')
+
+  // Done lives in the expanded More area, directly above Sent.
+  const moreItems = page.locator('.sidebar-nav .nav-item')
+  const labels = await moreItems.allInnerTexts()
+  const doneIndex = labels.findIndex((text) => text.includes('Done'))
+  const sentIndex = labels.findIndex((text) => text.includes('Sent'))
+  expect(doneIndex).toBeGreaterThan(-1)
+  expect(sentIndex).toBe(doneIndex + 1)
+
+  await page.locator('.nav-item', { hasText: 'Done' }).click()
+  await expect(page.locator('.ni-header h1')).toHaveText('Done')
+  await expect(page.locator('.ni-empty')).toHaveText('No emails marked done.')
 })

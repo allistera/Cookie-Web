@@ -234,54 +234,92 @@ describe('Inbox Store', () => {
     expect(store.spamEmails.map((email) => email.id)).toEqual(['spam-1'])
   })
 
-  it('loads and pages the server-backed Done mailbox', async () => {
-    const row = (id) => ({
+  describe('Done pager', () => {
+    // Local-noon timestamps keep calendar-day math timezone-independent.
+    const doneRow = (id, daysAgo) => ({
       id,
       from_name: 'Finished Sender',
       from_address: 'finished@example.com',
       subject: `Done ${id}`,
       snippet: '',
       body_text: '',
-      sent_at: new Date().toISOString(),
+      sent_at: new Date(2026, 6, 10 - daysAgo, 12, 0, 0).toISOString(),
       is_unread: false,
       is_starred: false,
       is_sent: false,
     })
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            emails: [row('done-a')],
-            nextCursor: '2026-07-01T00:00:00Z|11111111-1111-1111-1111-111111111111',
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ emails: [row('done-b')], nextCursor: null }),
-        }),
-    )
-
-    const store = useInboxStore()
-    await store.loadDoneEmails()
-
-    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=done&limit=50', {
-      headers: { Authorization: 'Bearer test-access-token' },
+    const pageResponse = (emails, nextCursor) => ({
+      ok: true,
+      json: async () => ({ emails, nextCursor }),
     })
-    expect(store.doneEmails.map((email) => email.id)).toEqual(['done-a'])
-    expect(store.isDoneLoaded).toBe(true)
-    expect(store.hasMoreDone).toBe(true)
 
-    await store.loadMoreDoneEmails()
+    it('loads the last page whole when no further page exists', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(pageResponse([doneRow('done-a', 0), doneRow('done-b', 1)], null)),
+      )
+      const store = useInboxStore()
+      await store.loadDonePage()
 
-    expect(fetch).toHaveBeenLastCalledWith(
-      '/api/emails?folder=done&limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111',
-      { headers: { Authorization: 'Bearer test-access-token' } },
-    )
-    expect(store.doneEmails.map((email) => email.id)).toEqual(['done-a', 'done-b'])
-    expect(store.hasMoreDone).toBe(false)
+      expect(fetch).toHaveBeenCalledWith('/api/emails?folder=done&limit=100', {
+        headers: { Authorization: 'Bearer test-access-token' },
+      })
+      expect(store.doneEmails.map((email) => email.id)).toEqual(['done-a', 'done-b'])
+      expect(store.isDoneLoaded).toBe(true)
+      expect(store.doneHasNext).toBe(false)
+      expect(store.donePageIndex).toBe(0)
+    })
+
+    it('holds back the trailing day when more pages exist, and pages Older/Newer', async () => {
+      // Page 1: two emails on day 0, one on day 1 — day 1 may continue on the
+      // server's next page, so it moves to page 2 wholesale.
+      const first = [doneRow('a1', 0), doneRow('a2', 0), doneRow('b1', 1)]
+      const second = [doneRow('b1', 1), doneRow('b2', 1)]
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(pageResponse(first, 'server-cursor|ignored'))
+          .mockResolvedValueOnce(pageResponse(second, null))
+          .mockResolvedValueOnce(pageResponse(first, 'server-cursor|ignored')),
+      )
+      const store = useInboxStore()
+      await store.loadDonePage()
+
+      expect(store.doneEmails.map((email) => email.id)).toEqual(['a1', 'a2'])
+      expect(store.doneHasNext).toBe(true)
+
+      await store.nextDonePage()
+      // The next page starts where the trimmed page ended: after a2.
+      const expectedCursor = encodeURIComponent(`${first[1].sent_at}|a2`)
+      expect(fetch).toHaveBeenLastCalledWith(
+        `/api/emails?folder=done&limit=100&before=${expectedCursor}`,
+        { headers: { Authorization: 'Bearer test-access-token' } },
+      )
+      expect(store.donePageIndex).toBe(1)
+      expect(store.doneEmails.map((email) => email.id)).toEqual(['b1', 'b2'])
+      expect(store.doneHasNext).toBe(false)
+
+      await store.prevDonePage()
+      expect(fetch).toHaveBeenLastCalledWith('/api/emails?folder=done&limit=100', {
+        headers: { Authorization: 'Bearer test-access-token' },
+      })
+      expect(store.donePageIndex).toBe(0)
+      expect(store.doneEmails.map((email) => email.id)).toEqual(['a1', 'a2'])
+    })
+
+    it('shows a single oversized day untrimmed rather than an empty page', async () => {
+      const sameDay = [doneRow('c1', 0), doneRow('c2', 0), doneRow('c3', 0)]
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(pageResponse(sameDay, 'server-cursor|ignored')),
+      )
+      const store = useInboxStore()
+      await store.loadDonePage()
+
+      expect(store.doneEmails.map((email) => email.id)).toEqual(['c1', 'c2', 'c3'])
+      expect(store.doneHasNext).toBe(true)
+    })
   })
 
   it('generates a reviewable AI draft without sending it', async () => {

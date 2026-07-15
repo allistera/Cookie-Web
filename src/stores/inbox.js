@@ -17,6 +17,16 @@ function formatEmailDate(isoString) {
 }
 
 const PAGE_SIZE = 50
+// The Done archive pages at up to 100 emails (the API's MAX_LIMIT); a page
+// ends on a whole calendar day, so it usually shows slightly fewer.
+const DONE_PAGE_SIZE = 100
+
+// Local calendar day of a timestamp. Done-page trimming and the view's day
+// groups must agree on this definition of "day".
+export function localDayKey(sentAt) {
+  const date = new Date(sentAt)
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
 
 // State keys for each server-backed folder list (?folder=). The inbox list
 // has its own loader: it additionally tracks the unread count, userId, and
@@ -45,14 +55,6 @@ const FOLDER_STATE = {
     loaded: 'isSnoozedLoaded',
     refreshing: 'isSnoozedRefreshing',
     label: 'snoozed emails',
-  },
-  done: {
-    list: 'doneEmails',
-    cursor: 'doneCursor',
-    hasMore: 'hasMoreDone',
-    loaded: 'isDoneLoaded',
-    refreshing: 'isDoneRefreshing',
-    label: 'done emails',
   },
 }
 
@@ -110,9 +112,13 @@ export const useInboxStore = defineStore('inbox', {
     hasMoreSnoozed: false,
     isSnoozedLoaded: false,
     isSnoozedRefreshing: false,
+    // Done archive pager (page replacement, not append): the cursor used to
+    // fetch page N lives at donePageCursors[N] (null for page 0), so Newer
+    // simply refetches with the earlier cursor.
     doneEmails: [],
-    doneCursor: null,
-    hasMoreDone: false,
+    donePageCursors: [null],
+    donePageIndex: 0,
+    doneHasNext: false,
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
@@ -247,11 +253,11 @@ export const useInboxStore = defineStore('inbox', {
 
     // Fetches one keyset page of a list. Throws on a non-2xx response so the
     // callers' catch blocks handle notification.
-    async fetchEmailPage({ folder, before } = {}) {
+    async fetchEmailPage({ folder, before, limit = PAGE_SIZE } = {}) {
       const headers = await this.authHeaders()
       const params = new URLSearchParams()
       if (folder) params.set('folder', folder)
-      params.set('limit', PAGE_SIZE)
+      params.set('limit', limit)
       if (before) params.set('before', before)
       const response = await fetch(`/api/emails?${params}`, { headers })
       if (!response.ok) {
@@ -360,11 +366,52 @@ export const useInboxStore = defineStore('inbox', {
     loadMoreSnoozedEmails() {
       return this.loadMoreFolder('snoozed')
     },
-    loadDoneEmails() {
-      return this.loadFolder('done')
+
+    // Loads one page of the Done archive (page replacement — the view offers
+    // Newer/Older instead of the other folders' append-style Load more).
+    // A page holds up to DONE_PAGE_SIZE emails but always ends on a whole
+    // calendar day: when the server has more rows, the trailing day may
+    // continue there, so it is held back for the next page — unless the whole
+    // page is one oversized day, where the size cap wins over the invariant.
+    async loadDonePage(pageIndex = 0) {
+      const cursor = this.donePageCursors[pageIndex] ?? null
+      this.isDoneRefreshing = true
+      try {
+        const { emails, nextCursor } = await this.fetchEmailPage({
+          folder: 'done',
+          before: cursor ?? undefined,
+          limit: DONE_PAGE_SIZE,
+        })
+        let page = emails.map(mapEmailRow)
+        if (nextCursor && page.length > 0) {
+          const lastDay = localDayKey(page[page.length - 1].sentAt)
+          const firstOfLastDay = page.findIndex((email) => localDayKey(email.sentAt) === lastDay)
+          if (firstOfLastDay > 0) page = page.slice(0, firstOfLastDay)
+        }
+        this.doneEmails = page
+        this.donePageIndex = pageIndex
+        this.isDoneLoaded = true
+        const last = page[page.length - 1]
+        this.doneHasNext = Boolean(nextCursor && last)
+        this.donePageCursors[pageIndex + 1] = this.doneHasNext
+          ? `${last.sentAt}|${last.id}`
+          : null
+      } catch (error) {
+        console.error('Failed to load done emails:', error)
+        this.notify('Failed to load done emails.', 'error')
+      } finally {
+        this.isDoneRefreshing = false
+      }
     },
-    loadMoreDoneEmails() {
-      return this.loadMoreFolder('done')
+
+    nextDonePage() {
+      if (!this.doneHasNext || this.isDoneRefreshing) return
+      return this.loadDonePage(this.donePageIndex + 1)
+    },
+
+    prevDonePage() {
+      if (this.donePageIndex === 0 || this.isDoneRefreshing) return
+      return this.loadDonePage(this.donePageIndex - 1)
     },
 
     async loadLabels() {
@@ -709,7 +756,12 @@ export const useInboxStore = defineStore('inbox', {
         const index = list.indexOf(email)
         if (index > -1) list.splice(index, 1)
       }
-      if (this.isDoneLoaded && !this.doneEmails.some((item) => item.id === email.id)) {
+      // Newly archived mail is newest, so it belongs on the pager's first page.
+      if (
+        this.isDoneLoaded &&
+        this.donePageIndex === 0 &&
+        !this.doneEmails.some((item) => item.id === email.id)
+      ) {
         this.doneEmails.unshift(email)
       }
       this.updateMessage(email.id, { is_archived: true }).catch((error) => {

@@ -319,13 +319,15 @@ describe('TraditionalInboxView filtered views', () => {
   it('filter=done loads the hidden Done mailbox and opens completed emails', async () => {
     routeMock.query = { filter: 'done' }
     store.doneEmails = [makeEmail('done-1', Date.now() - HOUR)]
-    vi.spyOn(store, 'loadDoneEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadDonePage').mockResolvedValue()
     const wrapper = mount(TraditionalInboxView)
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Done')
-    expect(store.loadDoneEmails).toHaveBeenCalledTimes(1)
+    expect(store.loadDonePage).toHaveBeenCalledWith(0)
     expect(wrapper.findAll('.ni-row')).toHaveLength(1)
     expect(wrapper.find('.ni-row').text()).toContain('Subject done-1')
+    // Done groups by calendar day.
+    expect(wrapper.find('.ni-group-header').text()).toContain('Today')
     expect(wrapper.find('.ni-row [title="Done"]').exists()).toBe(false)
 
     await wrapper.find('.ni-row').trigger('click')
