@@ -45,3 +45,4 @@ playwright-report/
 # .env.e2e only sets VITE_E2E=true (no secrets) and is needed by CI
 !.env.e2e
 .gstack/
+track_cursors.json
