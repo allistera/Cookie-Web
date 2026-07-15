@@ -65,12 +65,6 @@ export function useCommands() {
         run: () => store.setUnread(email, !email.unread),
       },
       {
-        id: 'go-ai-inbox',
-        title: 'Go to AI Inbox',
-        icon: 'auto_awesome',
-        run: () => router.push('/'),
-      },
-      {
         id: 'go-inbox',
         title: 'Go to Inbox',
         icon: 'inbox',
@@ -93,12 +87,6 @@ export function useCommands() {
         title: 'Go to Sent',
         icon: 'send',
         run: () => router.push({ path: '/inbox', query: { filter: 'sent' } }),
-      },
-      {
-        id: 'go-drafts',
-        title: 'Go to Drafts',
-        icon: 'description',
-        run: () => router.push({ path: '/inbox', query: { filter: 'drafts' } }),
       },
       ...store.allLabels.map((label) => ({
         id: `go-label-${label.name}`,

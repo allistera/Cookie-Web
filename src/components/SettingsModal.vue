@@ -137,7 +137,7 @@ async function submitLabelRename(label) {
           <span class="material-symbols-outlined text-blue">settings</span>
           <span>Settings</span>
         </div>
-        <button class="close-modal-btn" @click="store.closeTodoModal">&times;</button>
+        <button class="close-modal-btn" @click="store.activeModal = null">&times;</button>
       </div>
 
       <div class="modal-body settings-body settings-layout">
@@ -332,7 +332,7 @@ async function submitLabelRename(label) {
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-secondary" @click="store.closeTodoModal">Close</button>
+        <button class="btn btn-secondary" @click="store.activeModal = null">Close</button>
       </div>
     </div>
   </div>

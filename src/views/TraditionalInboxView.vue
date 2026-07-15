@@ -8,7 +8,7 @@ import { scheduleChoices } from '../utils/schedule'
 const store = useInboxStore()
 const route = useRoute()
 
-// --- Filtered views (?filter=starred|snoozed|sent|done|drafts|label&label=<name>) ---
+// --- Filtered views (?filter=starred|snoozed|sent|done|label&label=<name>) ---
 // Starred and label views filter the loaded list client-side (rows already
 // carry starred + labels; covers loaded pages only). Sent, Spam, Snoozed, and
 // the hidden Done mailbox have server-backed lists loaded lazily when opened.
@@ -18,10 +18,8 @@ const FILTER_META = {
   sent: { title: 'Sent', icon: 'send', emptyText: 'No sent emails yet.' },
   spam: { title: 'Spam', icon: 'report', emptyText: 'No spam. Nice and tidy.' },
   done: { title: 'Done', icon: 'task_alt', emptyText: 'No emails marked done.' },
-  drafts: { title: 'Drafts', icon: 'description', emptyText: 'No drafts yet.' },
   label: { title: null, icon: 'sell', emptyText: 'No emails with this label.' },
 }
-const EMPTY_ONLY_FILTERS = new Set(['drafts'])
 
 const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.query.filter : null))
 
@@ -53,8 +51,6 @@ const filteredEmails = computed(() => {
       return store.snoozedEmails
     case 'done':
       return store.doneEmails
-    case 'drafts':
-      return []
     default:
       return store.activeSearchQuery
         ? emails
@@ -97,7 +93,6 @@ const showLoadMore = computed(() => {
   if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
   if (activeFilter.value === 'done') return store.hasMoreDone
-  if (EMPTY_ONLY_FILTERS.has(activeFilter.value)) return false
   return store.hasMoreEmails
 })
 

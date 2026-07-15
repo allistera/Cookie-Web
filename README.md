@@ -24,7 +24,7 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 
 ## Features
 
-- Inbox, Starred, Sent, Drafts, Spam, and label views.
+- Inbox, Starred, Sent, Snoozed, Spam, Done, and label views.
 - Auth0 authentication and per-user mailbox queries.
 - Keyword and semantic search over stored mail.
 - Mailbox Q&A with retrieved email sources.

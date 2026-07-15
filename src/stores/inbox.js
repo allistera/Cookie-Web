@@ -46,72 +46,9 @@ function mapEmailRow(message) {
 
 export const useInboxStore = defineStore('inbox', {
   state: () => ({
-    todos: [
-      {
-        id: 'todo-kitchen',
-        title: 'Kitchen Renovation',
-        description:
-          "A reply to the tile vendor is due, confirming selection so they can order in time to have it installed by the contractor's timeline.",
-        from: ['Email'],
-        btnText: 'Reply',
-        btnIcon: 'edit',
-        action: 'open-reply',
-        visible: true,
-        completed: false,
-      },
-      {
-        id: 'todo-waiver',
-        title: 'RSVP for College Tour',
-        description:
-          'The University of State sent a confirmation for the June 12th tour. You need to sign the digital waiver for your daughter.',
-        from: ['Email'],
-        btnText: 'View',
-        btnIcon: 'mail',
-        action: 'open-waiver',
-        visible: true,
-        completed: false,
-      },
-      {
-        id: 'todo-soccer',
-        title: 'Bring snack to soccer practice',
-        description:
-          "Coach Mike reminded you it's your turn to bring snacks for 20 people tomorrow and to log what you're bringing; one child has a peanut allergy.",
-        from: ['Email', 'Sheet'],
-        btnText: 'Open',
-        btnIcon: 'table_chart',
-        action: 'open-sheet',
-        visible: true,
-        completed: false,
-      },
-      {
-        id: 'todo-marketplace',
-        title: 'Resale Marketplace Sale',
-        description:
-          'Resale Marketplace has notified you that the baby winter coat bundle is now marked as sold for $15. You need to contact buyer within 3 days.',
-        from: ['Email'],
-        btnText: 'Open',
-        btnIcon: 'link',
-        action: 'open-marketplace',
-        visible: false,
-        completed: false,
-      },
-      {
-        id: 'todo-chicago',
-        title: 'Chicago Summer Trip',
-        description:
-          'Confirm your upgrade to the Deluxe room at the Palm House by Tuesday. The hotel has updated your reservation details.',
-        from: ['Email'],
-        btnText: 'View',
-        btnIcon: 'mail',
-        action: 'open-chicago',
-        visible: false,
-        completed: false,
-      },
-    ],
     traditionalEmails: [],
     unreadInboxCount: 0,
     userId: null, // the authenticated user's uuid, for the Realtime inbox-ping channel
-    statusTime: 'Loading...',
     isRefreshing: false,
     activeSearchQuery: '',
     searchSeq: 0,
@@ -157,14 +94,13 @@ export const useInboxStore = defineStore('inbox', {
     isAiDraftLoading: false,
     aiDraftPreview: '',
     composerAiInstruction: '',
-    activeTodoId: null,
 
     // Toast notifications
     toasts: [],
     nextToastId: 1,
 
     // Modals
-    activeModal: null, // 'sheets' or 'waiver'
+    activeModal: null, // 'settings'
 
     // Reading panel: id of the email open in the traditional inbox reader
     openEmailId: null,
@@ -192,21 +128,9 @@ export const useInboxStore = defineStore('inbox', {
 
     // Command palette (Cmd+K)
     isCommandPaletteOpen: false,
-
-    // Sheets input state
-    sheetSnackText: 'Fruit kabobs & juice boxes (Peanut Free!)',
   }),
 
   getters: {
-    visibleTodos(state) {
-      return state.todos.filter((t) => t.visible && !t.completed)
-    },
-    hiddenTodosCount(state) {
-      return state.todos.filter((t) => !t.visible && !t.completed).length
-    },
-    totalActiveTodosCount(state) {
-      return state.todos.filter((t) => !t.completed).length
-    },
     allLabels(state) {
       const byName = new Map()
       for (const email of state.traditionalEmails) {
@@ -272,33 +196,6 @@ export const useInboxStore = defineStore('inbox', {
   },
 
   actions: {
-    completeTodo(id) {
-      // Find the todo and mark it complete
-      const todo = this.todos.find((t) => t.id === id)
-      if (!todo) return
-
-      todo.completed = true
-
-      // Promote the first hidden todo
-      const firstHidden = this.todos.find((t) => !t.visible && !t.completed)
-      if (firstHidden) {
-        firstHidden.visible = true
-      }
-
-      // Decrement unread inbox count if relevant
-      if (this.unreadInboxCount > 0) {
-        this.unreadInboxCount--
-      }
-    },
-
-    showAllTodos() {
-      this.todos.forEach((t) => {
-        if (!t.completed) {
-          t.visible = true
-        }
-      })
-    },
-
     // Bearer-token headers for API calls; Auth0 is absent in e2e/fixture mode.
     async authHeaders(extra = {}) {
       const headers = { ...extra }
@@ -312,7 +209,6 @@ export const useInboxStore = defineStore('inbox', {
 
     async loadEmails() {
       this.isRefreshing = true
-      this.statusTime = 'Syncing inbox...'
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`/api/emails?limit=${PAGE_SIZE}`, { headers })
@@ -328,10 +224,9 @@ export const useInboxStore = defineStore('inbox', {
             ? unreadCount
             : this.traditionalEmails.filter((e) => e.unread).length
         if (userId) this.userId = userId
-        this.statusTime = 'Updated just now'
       } catch (error) {
         console.error('Failed to load inbox:', error)
-        this.statusTime = 'Inbox unavailable'
+        this.notify('Failed to load inbox.', 'error')
       } finally {
         this.isRefreshing = false
       }
@@ -660,14 +555,8 @@ export const useInboxStore = defineStore('inbox', {
       if (!q) return
       const seq = ++this.searchSeq
       this.isRefreshing = true
-      this.statusTime = 'Searching...'
       try {
-        const headers = {}
-        const auth0 = getAuth0()
-        if (auth0) {
-          const token = await auth0.getAccessTokenSilently()
-          headers.Authorization = `Bearer ${token}`
-        }
+        const headers = await this.authHeaders()
         const response = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/search responded ${response.status}`)
@@ -676,12 +565,10 @@ export const useInboxStore = defineStore('inbox', {
         if (seq !== this.searchSeq) return
         this.activeSearchQuery = q
         this.traditionalEmails = emails.map(mapEmailRow)
-        this.statusTime = emails.length === 1 ? '1 result' : `${emails.length} results`
       } catch (error) {
         if (seq !== this.searchSeq) return
         console.error('Search failed:', error)
         this.notify('Search failed. Please try again.', 'error')
-        this.statusTime = 'Search unavailable'
       } finally {
         if (seq === this.searchSeq) {
           this.isRefreshing = false
@@ -946,28 +833,12 @@ export const useInboxStore = defineStore('inbox', {
       document.documentElement.setAttribute('data-theme', newTheme)
     },
 
-    openTodoModal(name, todoId) {
-      this.activeModal = name
-      this.activeTodoId = todoId
-    },
-
-    closeTodoModal() {
-      this.activeModal = null
-      this.activeTodoId = null
-    },
-
-    openComposer(todoId) {
+    openComposer() {
       this.isComposerActive = true
-      this.activeTodoId = todoId
-      if (todoId === 'todo-kitchen') {
-        this.composerTo = 'info@citytileandstone.com'
-        this.composerSubject = 'Re: Kitchen Renovation - Tile Selection Due'
-      }
     },
 
     closeComposer() {
       this.isComposerActive = false
-      this.activeTodoId = null
       this.composerTo = ''
       this.composerSubject = ''
       this.composerTextArea = ''
@@ -1032,9 +903,6 @@ export const useInboxStore = defineStore('inbox', {
           subject: this.composerSubject,
           text: this.composerTextArea,
         })
-        if (this.activeTodoId) {
-          this.completeTodo(this.activeTodoId)
-        }
         this.closeComposer()
         this.notify('Email sent.')
       } catch (error) {
@@ -1043,22 +911,6 @@ export const useInboxStore = defineStore('inbox', {
       } finally {
         this.isSendingEmail = false
       }
-    },
-
-    saveSoccerSheet() {
-      this.closeTodoModal()
-      if (this.activeTodoId) {
-        this.completeTodo(this.activeTodoId)
-      }
-      this.notify('Soccer Snacks Signup updated.')
-    },
-
-    submitWaiver() {
-      this.closeTodoModal()
-      if (this.activeTodoId) {
-        this.completeTodo(this.activeTodoId)
-      }
-      this.notify('Waiver signed and submitted.')
     },
 
     // Real RAG: /api/ask retrieves the most relevant stored emails via

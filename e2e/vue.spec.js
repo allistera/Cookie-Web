@@ -1,33 +1,9 @@
 import { test, expect } from '@playwright/test'
 
-test('Visits Gmail AI Inbox and performs task checkoff', async ({ page }) => {
+test('The root path redirects to the inbox', async ({ page }) => {
   await page.goto('/')
-  
-  // 1. Check greeting contains Allister
-  const greeting = page.locator('#aiGreeting')
-  await expect(greeting).toContainText('Hi Allister')
-  
-  // 2. Check initial to-do count
-  const counter = page.locator('#todoCounter')
-  await expect(counter).toContainText('5 to-dos')
-  
-  // 3. Locate the RSVP for College Tour row
-  const collegeTourRow = page.locator('#todo-waiver')
-  await expect(collegeTourRow).toBeVisible()
-  
-  // 4. Click the check mark button inside the RSVP for College Tour row
-  const checkBtn = collegeTourRow.locator('.todo-check-btn').first()
-  await checkBtn.click()
-  
-  // 5. Wait for the row to fade and vanish (transition completed)
-  await expect(collegeTourRow).not.toBeVisible({ timeout: 10000 })
-  
-  // 6. Verify that the counter updated to 4 to-dos
-  await expect(counter).toContainText('4 to-dos')
-  
-  // 7. Verify that the next task (Resale Marketplace Sale) was promoted
-  const marketplaceRow = page.locator('#todo-marketplace')
-  await expect(marketplaceRow).toBeVisible()
+  await expect(page).toHaveURL(/\/inbox$/)
+  await expect(page.locator('.ni-row').first()).toBeVisible()
 })
 
 test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
@@ -398,7 +374,6 @@ test('Reply slides an inline reply box under the email instead of opening the co
 test('Header search filters the inbox and clearing restores it', async ({ page }) => {
   await page.goto('/')
 
-  // Searching from the AI inbox navigates to the traditional inbox with results.
   const searchInput = page.locator('.search-input')
   await searchInput.fill('zoom')
   await searchInput.press('Enter')
@@ -416,8 +391,10 @@ test('Header search filters the inbox and clearing restores it', async ({ page }
 test('Ask Cookie answers with formatted text and email sources', async ({ page }) => {
   await page.goto('/')
 
+  // Typing in the search bar offers an "Ask Cookie" item that sends the text
+  // to the Q&A assistant instead of the search index.
   const searchInput = page.locator('.search-input')
-  await searchInput.click()
+  await searchInput.fill('Summarize my kitchen renovation updates.')
   await page
     .locator('.suggestion-item', { hasText: 'kitchen renovation' })
     .click()
