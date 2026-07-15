@@ -13,43 +13,6 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // archived (Done) mail. Recipients let the client render "To: <address>" for
 // outbound rows.
 export function fetchEmails(sql, email, limit, cursor, folder) {
-  if (cursor) {
-    return sql`
-      SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
-             m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
-             m.is_sent, m.scheduled_for, ai.spam_score,
-             (m.body_html IS NOT NULL) AS has_html,
-             COALESCE(
-               json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
-                        ORDER BY l.name)
-                 FILTER (WHERE l.id IS NOT NULL),
-               '[]'
-             ) AS labels
-      FROM messages m
-      JOIN users u ON u.id = m.user_id
-      LEFT JOIN message_ai ai ON ai.message_id = m.id
-      LEFT JOIN message_labels ml ON ml.message_id = m.id
-      LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE lower(u.email) = ${email}
-        AND (
-          (${folder} = 'done' AND m.is_archived)
-          OR (NOT m.is_archived AND (
-            (${folder} = 'sent' AND m.is_sent)
-            OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
-            OR (${folder} = 'snoozed' AND NOT m.is_sent
-                AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-                AND m.scheduled_for > now())
-            OR (${folder} = 'inbox' AND NOT m.is_sent
-                AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-                AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
-          ))
-        )
-        AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)
-      GROUP BY m.id, ai.spam_score
-      ORDER BY m.sent_at DESC, m.id DESC
-      LIMIT ${limit + 1}
-    `
-  }
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
            m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
@@ -80,6 +43,7 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
               AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
         ))
       )
+      ${cursor ? sql`AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)` : sql``}
     GROUP BY m.id, ai.spam_score
     ORDER BY m.sent_at DESC, m.id DESC
     LIMIT ${limit + 1}
@@ -149,9 +113,11 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql()
-    const [rows, [userRow]] = await Promise.all([
+    // The unread count (and userId) only matter on a list's first page; the
+    // client ignores them on cursor pages, so skip the aggregate there.
+    const [rows, [userRow] = []] = await Promise.all([
       fetchEmails(sql, email, limit, cursor, folder),
-      fetchUnreadCount(sql, email),
+      cursor ? null : fetchUnreadCount(sql, email),
     ])
     const hasMore = rows.length > limit
     const emails = hasMore ? rows.slice(0, limit) : rows
@@ -163,8 +129,9 @@ export default async function handler(req, res) {
         // toISOString keeps millisecond precision; Date's default toString
         // truncates to seconds, which can skip same-second rows on page breaks.
         nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
-        unreadCount: userRow?.unread ?? 0,
-        userId: userRow?.user_id ?? null,
+        ...(cursor
+          ? {}
+          : { unreadCount: userRow?.unread ?? 0, userId: userRow?.user_id ?? null }),
       }),
     )
   } catch (err) {

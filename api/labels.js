@@ -76,34 +76,15 @@ async function updateLabel(sql, email, body, res) {
 
   let label
   try {
-    if (hasName && hasAutoApply) {
-      ;[label] = await sql`
-        UPDATE labels l
-        SET name = ${name}, auto_apply = ${body.auto_apply}
-        FROM users u
-        WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
-          AND l.kind = 'user'
-        RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
-      `
-    } else if (hasName) {
-      ;[label] = await sql`
-        UPDATE labels l
-        SET name = ${name}
-        FROM users u
-        WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
-          AND l.kind = 'user'
-        RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
-      `
-    } else {
-      ;[label] = await sql`
-        UPDATE labels l
-        SET auto_apply = ${body.auto_apply}
-        FROM users u
-        WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
-          AND l.kind = 'user'
-        RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
-      `
-    }
+    ;[label] = await sql`
+      UPDATE labels l
+      SET name = COALESCE(${hasName ? name : null}, l.name),
+          auto_apply = COALESCE(${hasAutoApply ? body.auto_apply : null}::boolean, l.auto_apply)
+      FROM users u
+      WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+        AND l.kind = 'user'
+      RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
+    `
   } catch (error) {
     if (hasName && error?.code === '23505') {
       res.statusCode = 409

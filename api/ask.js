@@ -9,7 +9,7 @@ import { fuseRankings } from './_lib/rank-fusion.js'
 import { allowRequest } from './_lib/rate-limit.js'
 import { keywordLeg, vectorLeg } from './_lib/retrieval.js'
 
-const CHAT_MODEL = 'gpt-4o-mini'
+const CHAT_MODEL = process.env.OPENAI_ASK_MODEL || 'gpt-4o-mini'
 const MAX_QUESTION_CHARS = 500
 const CANDIDATES = 20 // per retrieval leg
 const CONTEXT_MESSAGES = 6
