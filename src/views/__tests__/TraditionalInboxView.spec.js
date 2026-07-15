@@ -775,9 +775,11 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
   it('shows an Unsubscribe button when the open email advertises List-Unsubscribe', async () => {
     const reader = await openReader(UNSUB)
 
-    const button = reader.find('[title="Unsubscribe"]')
+    const toolbarGroups = reader.findAll('.ni-reader-topbar .ni-reader-nav')
+    const button = toolbarGroups[1].find('[title="Unsubscribe"]')
     expect(button.exists()).toBe(true)
     expect(button.text()).toContain('Unsubscribe')
+    expect(toolbarGroups[0].find('[title="Unsubscribe"]').exists()).toBe(false)
   })
 
   it('hides the Unsubscribe button for a regular email', async () => {

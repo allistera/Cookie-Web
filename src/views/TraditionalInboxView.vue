@@ -658,16 +658,6 @@ onUnmounted(() => {
               <span v-else class="material-symbols-outlined">auto_awesome</span>
               <span>{{ summarizeLabel }}</span>
             </button>
-            <button
-              v-if="openEmailUnsubscribe"
-              class="ni-unsub-btn"
-              title="Unsubscribe"
-              :disabled="isUnsubscribing || isUnsubscribed"
-              @click="unsubscribeOpenEmail"
-            >
-              <span class="material-symbols-outlined">unsubscribe</span>
-              <span>{{ isUnsubscribed ? 'Unsubscribed' : 'Unsubscribe' }}</span>
-            </button>
           </div>
           <div class="ni-reader-nav">
             <button
@@ -712,6 +702,16 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+            <button
+              v-if="openEmailUnsubscribe"
+              class="ni-unsub-btn"
+              title="Unsubscribe"
+              :disabled="isUnsubscribing || isUnsubscribed"
+              @click="unsubscribeOpenEmail"
+            >
+              <span class="material-symbols-outlined">unsubscribe</span>
+              <span>{{ isUnsubscribed ? 'Unsubscribed' : 'Unsubscribe' }}</span>
+            </button>
           </div>
         </div>
 

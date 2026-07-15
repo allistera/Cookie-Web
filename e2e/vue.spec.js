@@ -588,8 +588,12 @@ test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) =
 
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
-  const unsubscribe = reader.locator('[title="Unsubscribe"]')
+  const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
+  const unsubscribe = actions.locator('[title="Unsubscribe"]')
   await expect(unsubscribe).toBeVisible()
+  await expect(actions.locator('[title="Star"]')).toBeVisible()
+  await expect(actions.locator('[title="Done"]')).toBeVisible()
+  await expect(actions.locator('[title="Reschedule"]')).toBeVisible()
 
   await unsubscribe.click()
   await expect(page.locator('.toast')).toContainText('Unsubscribed from Daily Bites')
