@@ -18,6 +18,44 @@ function formatEmailDate(isoString) {
 
 const PAGE_SIZE = 50
 
+// State keys for each server-backed folder list (?folder=). The inbox list
+// has its own loader: it additionally tracks the unread count, userId, and
+// search interplay. Folders without consumers of a "loaded" flag omit it.
+const FOLDER_STATE = {
+  sent: {
+    list: 'sentEmails',
+    cursor: 'sentCursor',
+    hasMore: 'hasMoreSent',
+    loaded: 'isSentLoaded',
+    refreshing: 'isSentRefreshing',
+    label: 'sent emails',
+  },
+  spam: {
+    list: 'spamEmails',
+    cursor: 'spamCursor',
+    hasMore: 'hasMoreSpam',
+    loaded: null,
+    refreshing: 'isSpamRefreshing',
+    label: 'spam',
+  },
+  snoozed: {
+    list: 'snoozedEmails',
+    cursor: 'snoozedCursor',
+    hasMore: 'hasMoreSnoozed',
+    loaded: 'isSnoozedLoaded',
+    refreshing: 'isSnoozedRefreshing',
+    label: 'snoozed emails',
+  },
+  done: {
+    list: 'doneEmails',
+    cursor: 'doneCursor',
+    hasMore: 'hasMoreDone',
+    loaded: 'isDoneLoaded',
+    refreshing: 'isDoneRefreshing',
+    label: 'done emails',
+  },
+}
+
 // Maps a GET /api/emails (or /api/search) row to the shape the views render.
 function mapEmailRow(message) {
   const firstRecipient = message.recipients?.to?.[0] ?? null
@@ -207,15 +245,25 @@ export const useInboxStore = defineStore('inbox', {
       return headers
     },
 
+    // Fetches one keyset page of a list. Throws on a non-2xx response so the
+    // callers' catch blocks handle notification.
+    async fetchEmailPage({ folder, before } = {}) {
+      const headers = await this.authHeaders()
+      const params = new URLSearchParams()
+      if (folder) params.set('folder', folder)
+      params.set('limit', PAGE_SIZE)
+      if (before) params.set('before', before)
+      const response = await fetch(`/api/emails?${params}`, { headers })
+      if (!response.ok) {
+        throw new Error(`GET /api/emails responded ${response.status}`)
+      }
+      return response.json()
+    },
+
     async loadEmails() {
       this.isRefreshing = true
       try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`/api/emails?limit=${PAGE_SIZE}`, { headers })
-        if (!response.ok) {
-          throw new Error(`GET /api/emails responded ${response.status}`)
-        }
-        const { emails, nextCursor, unreadCount, userId } = await response.json()
+        const { emails, nextCursor, unreadCount, userId } = await this.fetchEmailPage()
         this.traditionalEmails = emails.map(mapEmailRow)
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
@@ -238,13 +286,7 @@ export const useInboxStore = defineStore('inbox', {
       if (!this.emailsCursor || this.isRefreshing || this.activeSearchQuery) return
       this.isRefreshing = true
       try {
-        const headers = await this.authHeaders()
-        const url = `/api/emails?limit=${PAGE_SIZE}&before=${encodeURIComponent(this.emailsCursor)}`
-        const response = await fetch(url, { headers })
-        if (!response.ok) {
-          throw new Error(`GET /api/emails responded ${response.status}`)
-        }
-        const { emails, nextCursor } = await response.json()
+        const { emails, nextCursor } = await this.fetchEmailPage({ before: this.emailsCursor })
         this.traditionalEmails.push(...emails.map(mapEmailRow))
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
@@ -260,167 +302,69 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadEmails()
     },
 
-    // Loads the sent/outbox list (GET /api/emails?folder=sent). Called when
-    // the Sent view opens and again after each successful send.
-    async loadSentEmails() {
-      this.isSentRefreshing = true
+    // Loads (or reloads) a server-backed folder list; see FOLDER_STATE.
+    async loadFolder(folder) {
+      const keys = FOLDER_STATE[folder]
+      this[keys.refreshing] = true
       try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`/api/emails?folder=sent&limit=${PAGE_SIZE}`, { headers })
-        if (!response.ok) {
-          throw new Error(`GET /api/emails responded ${response.status}`)
-        }
-        const { emails, nextCursor } = await response.json()
-        this.sentEmails = emails.map(mapEmailRow)
-        this.sentCursor = nextCursor ?? null
-        this.hasMoreSent = Boolean(nextCursor)
-        this.isSentLoaded = true
+        const { emails, nextCursor } = await this.fetchEmailPage({ folder })
+        this[keys.list] = emails.map(mapEmailRow)
+        this[keys.cursor] = nextCursor ?? null
+        this[keys.hasMore] = Boolean(nextCursor)
+        if (keys.loaded) this[keys.loaded] = true
       } catch (error) {
-        console.error('Failed to load sent emails:', error)
-        this.notify('Failed to load sent emails.', 'error')
+        console.error(`Failed to load ${keys.label}:`, error)
+        this.notify(`Failed to load ${keys.label}.`, 'error')
       } finally {
-        this.isSentRefreshing = false
+        this[keys.refreshing] = false
       }
     },
 
-    // Appends the next keyset page of sent mail. No-op while a load is
-    // already running or when there is no further page.
-    async loadMoreSentEmails() {
-      if (!this.sentCursor || this.isSentRefreshing) return
-      this.isSentRefreshing = true
+    // Appends the folder's next keyset page. No-op while a load is already
+    // running or when there is no further page.
+    async loadMoreFolder(folder) {
+      const keys = FOLDER_STATE[folder]
+      if (!this[keys.cursor] || this[keys.refreshing]) return
+      this[keys.refreshing] = true
       try {
-        const headers = await this.authHeaders()
-        const url = `/api/emails?folder=sent&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.sentCursor)}`
-        const response = await fetch(url, { headers })
-        if (!response.ok) {
-          throw new Error(`GET /api/emails responded ${response.status}`)
-        }
-        const { emails, nextCursor } = await response.json()
-        this.sentEmails.push(...emails.map(mapEmailRow))
-        this.sentCursor = nextCursor ?? null
-        this.hasMoreSent = Boolean(nextCursor)
+        const { emails, nextCursor } = await this.fetchEmailPage({
+          folder,
+          before: this[keys.cursor],
+        })
+        this[keys.list].push(...emails.map(mapEmailRow))
+        this[keys.cursor] = nextCursor ?? null
+        this[keys.hasMore] = Boolean(nextCursor)
       } catch (error) {
-        console.error('Failed to load more sent emails:', error)
-        this.notify('Failed to load more sent emails.', 'error')
+        console.error(`Failed to load more ${keys.label}:`, error)
+        this.notify(`Failed to load more ${keys.label}.`, 'error')
       } finally {
-        this.isSentRefreshing = false
+        this[keys.refreshing] = false
       }
     },
 
-    async loadSpamEmails() {
-      this.isSpamRefreshing = true
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`/api/emails?folder=spam&limit=${PAGE_SIZE}`, { headers })
-        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
-        const { emails, nextCursor } = await response.json()
-        this.spamEmails = emails.map(mapEmailRow)
-        this.spamCursor = nextCursor ?? null
-        this.hasMoreSpam = Boolean(nextCursor)
-      } catch (error) {
-        console.error('Failed to load spam emails:', error)
-        this.notify('Failed to load spam.', 'error')
-      } finally {
-        this.isSpamRefreshing = false
-      }
+    loadSentEmails() {
+      return this.loadFolder('sent')
     },
-
-    async loadMoreSpamEmails() {
-      if (!this.spamCursor || this.isSpamRefreshing) return
-      this.isSpamRefreshing = true
-      try {
-        const headers = await this.authHeaders()
-        const url = `/api/emails?folder=spam&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.spamCursor)}`
-        const response = await fetch(url, { headers })
-        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
-        const { emails, nextCursor } = await response.json()
-        this.spamEmails.push(...emails.map(mapEmailRow))
-        this.spamCursor = nextCursor ?? null
-        this.hasMoreSpam = Boolean(nextCursor)
-      } catch (error) {
-        console.error('Failed to load more spam:', error)
-        this.notify('Failed to load more spam.', 'error')
-      } finally {
-        this.isSpamRefreshing = false
-      }
+    loadMoreSentEmails() {
+      return this.loadMoreFolder('sent')
     },
-
-    async loadSnoozedEmails() {
-      this.isSnoozedRefreshing = true
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`/api/emails?folder=snoozed&limit=${PAGE_SIZE}`, { headers })
-        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
-        const { emails, nextCursor } = await response.json()
-        this.snoozedEmails = emails.map(mapEmailRow)
-        this.snoozedCursor = nextCursor ?? null
-        this.hasMoreSnoozed = Boolean(nextCursor)
-        this.isSnoozedLoaded = true
-      } catch (error) {
-        console.error('Failed to load snoozed emails:', error)
-        this.notify('Failed to load snoozed emails.', 'error')
-      } finally {
-        this.isSnoozedRefreshing = false
-      }
+    loadSpamEmails() {
+      return this.loadFolder('spam')
     },
-
-    async loadMoreSnoozedEmails() {
-      if (!this.snoozedCursor || this.isSnoozedRefreshing) return
-      this.isSnoozedRefreshing = true
-      try {
-        const headers = await this.authHeaders()
-        const url = `/api/emails?folder=snoozed&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.snoozedCursor)}`
-        const response = await fetch(url, { headers })
-        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
-        const { emails, nextCursor } = await response.json()
-        this.snoozedEmails.push(...emails.map(mapEmailRow))
-        this.snoozedCursor = nextCursor ?? null
-        this.hasMoreSnoozed = Boolean(nextCursor)
-      } catch (error) {
-        console.error('Failed to load more snoozed emails:', error)
-        this.notify('Failed to load more snoozed emails.', 'error')
-      } finally {
-        this.isSnoozedRefreshing = false
-      }
+    loadMoreSpamEmails() {
+      return this.loadMoreFolder('spam')
     },
-
-    async loadDoneEmails() {
-      this.isDoneRefreshing = true
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`/api/emails?folder=done&limit=${PAGE_SIZE}`, { headers })
-        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
-        const { emails, nextCursor } = await response.json()
-        this.doneEmails = emails.map(mapEmailRow)
-        this.doneCursor = nextCursor ?? null
-        this.hasMoreDone = Boolean(nextCursor)
-        this.isDoneLoaded = true
-      } catch (error) {
-        console.error('Failed to load done emails:', error)
-        this.notify('Failed to load done emails.', 'error')
-      } finally {
-        this.isDoneRefreshing = false
-      }
+    loadSnoozedEmails() {
+      return this.loadFolder('snoozed')
     },
-
-    async loadMoreDoneEmails() {
-      if (!this.doneCursor || this.isDoneRefreshing) return
-      this.isDoneRefreshing = true
-      try {
-        const headers = await this.authHeaders()
-        const url = `/api/emails?folder=done&limit=${PAGE_SIZE}&before=${encodeURIComponent(this.doneCursor)}`
-        const response = await fetch(url, { headers })
-        if (!response.ok) throw new Error(`GET /api/emails responded ${response.status}`)
-        const { emails, nextCursor } = await response.json()
-        this.doneEmails.push(...emails.map(mapEmailRow))
-        this.doneCursor = nextCursor ?? null
-        this.hasMoreDone = Boolean(nextCursor)
-      } catch (error) {
-        console.error('Failed to load more done emails:', error)
-        this.notify('Failed to load more done emails.', 'error')
-      } finally {
-        this.isDoneRefreshing = false
-      }
+    loadMoreSnoozedEmails() {
+      return this.loadMoreFolder('snoozed')
+    },
+    loadDoneEmails() {
+      return this.loadFolder('done')
+    },
+    loadMoreDoneEmails() {
+      return this.loadMoreFolder('done')
     },
 
     async loadLabels() {
