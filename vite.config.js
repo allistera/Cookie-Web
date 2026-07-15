@@ -21,7 +21,11 @@ function localApiPlugin(mode) {
       res.setHeader('Set-Cookie', `cookie_fixture_session=${sessionId}; Path=/; SameSite=Lax`)
     }
     if (!stubMailboxState.has(sessionId)) {
-      stubMailboxState.set(sessionId, { schedules: new Map(), archived: new Set() })
+      stubMailboxState.set(sessionId, {
+        schedules: new Map(),
+        archived: new Set(),
+        summaries: new Map(),
+      })
     }
     return stubMailboxState.get(sessionId)
   }
@@ -80,7 +84,8 @@ function localApiPlugin(mode) {
       if (req.method === 'GET') {
         const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
         const id = new URL(req.url, 'http://localhost').searchParams.get('id')
-        res.end(JSON.stringify(fixtureMessageBody(id)))
+        const { summaries } = fixtureMailboxState(req, res)
+        res.end(JSON.stringify({ ...fixtureMessageBody(id), summary: summaries.get(id) ?? null }))
         return
       }
       if (req.method === 'POST') {
@@ -168,11 +173,17 @@ function localApiPlugin(mode) {
   }
   const handleSummarize = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const { id } = JSON.parse(raw || '{}')
+      const summary =
+        'City Construction shared a revised kitchen floor plan designed to bring in more natural light.\n\n• Review the updated room dimensions and full plan.\n• Reply if any layout changes are needed.'
+      const { summaries } = fixtureMailboxState(req, res)
+      summaries.set(id, summary)
       res.setHeader('Content-Type', 'application/json')
       res.end(
         JSON.stringify({
-          summary:
-            'City Construction shared a revised kitchen floor plan designed to bring in more natural light.\n\n• Review the updated room dimensions and full plan.\n• Reply if any layout changes are needed.',
+          summary,
           messageCount: 1,
           model: 'fixture',
         }),

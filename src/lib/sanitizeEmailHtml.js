@@ -1,15 +1,17 @@
 import DOMPurify from 'dompurify'
 
-// Layer 1 of the email-HTML defence-in-depth (layer 2 is the no-script
-// sandboxed <iframe> the reader renders this into). body_html is arbitrary,
-// sender-controlled HTML — treat every byte as hostile.
+// Layer 1 of the email-HTML defence-in-depth (layer 2 is the opaque-origin,
+// CSP-restricted sandboxed <iframe> the reader renders this into). body_html
+// is arbitrary, sender-controlled HTML — treat every byte as hostile.
 //
 // DOMPurify already, by default: strips <script>, all on* event-handler
 // attributes, and href/src values whose scheme is not in its allow-list
 // (javascript: and data: on <a href> are rejected). We additionally FORBID a
 // set of tags that are either script/navigation vectors (iframe/object/embed/
-// base/meta/link/form/input) so a future DOMPurify default change can't let
-// them through, and we pin every surviving <a> to a safe new-tab target.
+// base/meta/link/form/input/map/area) so a future DOMPurify default change
+// can't let them through, and we pin every surviving <a> to a safe new-tab
+// target. Forbidding image maps prevents an <area> from navigating the iframe
+// itself and escaping the initial document's CSP.
 
 const CONFIG = {
   FORBID_TAGS: [
@@ -23,6 +25,8 @@ const CONFIG = {
     'button',
     'select',
     'option',
+    'map',
+    'area',
     'base',
     'meta',
     'link',

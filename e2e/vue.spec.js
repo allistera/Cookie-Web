@@ -132,7 +132,7 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 })
 
-test("Pressing 'd' on the opened email marks it Done", async ({ page }) => {
+test("Pressing 'd' after opening an email link marks it Done", async ({ page }) => {
   await page.goto('/inbox')
 
   const subject = 'Revised Floor Plan - Natural Light adjustments'
@@ -141,14 +141,28 @@ test("Pressing 'd' on the opened email marks it Done", async ({ page }) => {
   const reader = page.locator('.ni-reader')
   await expect(reader.locator('.ni-reader-subject')).toHaveText(subject)
 
+  const emailLink = reader
+    .frameLocator('iframe[title="Email content"]')
+    .getByRole('link', { name: 'View the full plan' })
+  // Keep this test in the inbox tab while still exercising a real link click;
+  // external navigation itself is unrelated to the focus-boundary regression.
+  await emailLink.evaluate((link) =>
+    link.addEventListener('click', (event) => event.preventDefault(), { once: true }),
+  )
+  await emailLink.click()
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('IFRAME')
+
   const [response] = await Promise.all([
-    page.waitForResponse((candidate) => {
-      if (!candidate.url().includes('/api/messages') || candidate.request().method() !== 'PATCH') {
-        return false
-      }
-      const body = candidate.request().postDataJSON()
-      return body.id === 'fixture-1' && body.is_archived === true
-    }),
+    page.waitForResponse(
+      (candidate) => {
+        if (!candidate.url().includes('/api/messages') || candidate.request().method() !== 'PATCH') {
+          return false
+        }
+        const body = candidate.request().postDataJSON()
+        return body.id === 'fixture-1' && body.is_archived === true
+      },
+      { timeout: 5000 },
+    ),
     page.keyboard.press('d'),
   ])
 
@@ -188,7 +202,7 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   await page.goto('/inbox')
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   const reader = page.locator('.ni-reader')
-  const summarize = reader.locator('[title="Summarize"]')
+  const summarize = reader.locator('.ni-summarize-btn')
 
   await expect(summarize).toHaveText(/Summarize/)
   await summarize.click()
@@ -205,6 +219,29 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   await expect(summary).toContainText('AI summary')
   await expect(summary).toContainText('City Construction shared a revised plan.')
   await expect(summarize).toBeEnabled()
+  await expect(summarize).toHaveText(/Regenerate Summary/)
+})
+
+test('Reader restores a saved AI summary and offers to regenerate it', async ({ page }) => {
+  await page.goto('/inbox')
+  const row = page.locator('.ni-row', { hasText: 'City Construction' })
+  await row.click()
+
+  let reader = page.locator('.ni-reader')
+  await reader.locator('.ni-summarize-btn').click()
+  await expect(reader.locator('.ni-summary-box')).toContainText(
+    'City Construction shared a revised kitchen floor plan',
+  )
+  await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
+
+  await page.reload()
+  await row.click()
+  reader = page.locator('.ni-reader')
+
+  await expect(reader.locator('.ni-summary-box')).toContainText(
+    'City Construction shared a revised kitchen floor plan',
+  )
+  await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
 })
 
 test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({

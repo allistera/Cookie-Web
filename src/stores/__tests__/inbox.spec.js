@@ -835,6 +835,7 @@ describe('Inbox Store', () => {
         id: '11111111-1111-1111-1111-111111111111',
         body_html: '<p>Hello</p>',
         body_text: 'Hello',
+        summary: 'The saved project update.',
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -843,6 +844,9 @@ describe('Inbox Store', () => {
     const body = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
 
     expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null })
+    store.traditionalEmails = [{ id: '11111111-1111-1111-1111-111111111111' }]
+    store.openEmailId = '11111111-1111-1111-1111-111111111111'
+    expect(store.openEmailSummary).toBe('The saved project update.')
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/messages?id=11111111-1111-1111-1111-111111111111',
       { headers: { Authorization: 'Bearer test-access-token' } },

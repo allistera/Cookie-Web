@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 
@@ -20,12 +20,29 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
 })
 
+const emit = defineEmits(['keydown'])
+
 // Hard cap on the iframe height so a hostile email can't force a multi-million
 // pixel frame; taller bodies scroll inside the frame.
 const MAX_FRAME_HEIGHT = 12000
+const BRIDGE_SOURCE = 'cookie-email-body'
+const RESIZE_INTERVAL_MS = 250
+const SCRIPT_CLOSE = '</scr' + 'ipt>'
+
+function randomToken() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 const frameRef = ref(null)
 const frameHeight = ref(80)
+const frameToken = randomToken()
+const scriptNonce = randomToken().replaceAll('-', '')
+let lastResizeAt = Number.NEGATIVE_INFINITY
+let pendingResizeHeight = null
+let resizeTimer = null
 
 // Layer 1: sanitize. Empty string when there is no usable HTML body, which
 // switches the template to the plain-text fallback.
@@ -53,6 +70,7 @@ const srcdoc = computed(() => {
   const fg = dark ? '#e6e6e6' : '#1f1f1f'
   const link = dark ? '#7cc4ff' : '#2383e2'
   return `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: cid:; script-src 'nonce-${scriptNonce}'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline' https:; font-src https: data:">
 <style>
 :root { color-scheme: ${dark ? 'dark' : 'light'}; }
 html, body { margin: 0; padding: 0; background: transparent; }
@@ -64,26 +82,110 @@ body {
 img { max-width: 100%; height: auto; }
 table { max-width: 100%; border-collapse: collapse; }
 a { color: ${link}; }
-</style></head><body>${safeHtml.value}</body></html>`
+</style></head><body>${safeHtml.value}
+<script nonce="${scriptNonce}">
+(() => {
+  const source = ${JSON.stringify(BRIDGE_SOURCE)}
+  const token = ${JSON.stringify(frameToken)}
+  const send = (type, detail) => parent.postMessage({ source, token, type, ...detail }, '*')
+  let lastHeight = 0
+  let resizeTimer = null
+  const sendResize = () => {
+    resizeTimer = null
+    const height = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
+    if (height === lastHeight) return
+    lastHeight = height
+    send('resize', { height })
+  }
+  const scheduleResize = () => {
+    if (resizeTimer !== null) return
+    resizeTimer = setTimeout(sendResize, ${RESIZE_INTERVAL_MS})
+  }
+  addEventListener('keydown', (event) => {
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+    if (
+      !event.metaKey && !event.ctrlKey && !event.altKey &&
+      (event.key === 'd' || event.key === '/' || event.key === 'Escape')
+    ) {
+      event.preventDefault()
+    }
+    send('keydown', {
+      key: event.key,
+      code: event.code,
+      repeat: event.repeat,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+    })
+  })
+  addEventListener('load', sendResize)
+  new ResizeObserver(scheduleResize).observe(document.documentElement)
+  sendResize()
+})()
+${SCRIPT_CLOSE}</body></html>`
 })
 
-// Auto-size the frame to its content. Requires sandbox="allow-same-origin" so
-// the parent may read the (same-origin) srcdoc document's height. This does
-// NOT grant the frame any capability: without allow-scripts nothing inside can
-// execute, so the two defence layers (sanitize + no-script sandbox) stay
-// independent. If the read ever throws (opaque origin), we keep the last
-// height and the frame scrolls internally.
-function resizeFrame() {
+function applyFrameHeight(height) {
+  pendingResizeHeight = null
+  lastResizeAt = Date.now()
+  if (frameHeight.value !== height) frameHeight.value = height
+}
+
+function scheduleFrameResize(height) {
+  const nextHeight = Math.min(height + 8, MAX_FRAME_HEIGHT)
+  const elapsed = Date.now() - lastResizeAt
+  if (elapsed >= RESIZE_INTERVAL_MS) {
+    applyFrameHeight(nextHeight)
+    return
+  }
+  pendingResizeHeight = nextHeight
+  if (resizeTimer !== null) return
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null
+    if (pendingResizeHeight !== null) applyFrameHeight(pendingResizeHeight)
+  }, RESIZE_INTERVAL_MS - elapsed)
+}
+
+function onFrameMessage(event) {
   const frame = frameRef.value
-  if (!frame) return
-  try {
-    const doc = frame.contentDocument
-    const h = doc?.documentElement?.scrollHeight || doc?.body?.scrollHeight || 0
-    if (h) frameHeight.value = Math.min(h + 8, MAX_FRAME_HEIGHT)
-  } catch {
-    /* opaque origin — leave height as-is; frame scrolls internally */
+  const data = event.data
+  if (
+    !frame ||
+    event.source !== frame.contentWindow ||
+    data?.source !== BRIDGE_SOURCE ||
+    data?.token !== frameToken
+  ) {
+    return
+  }
+  if (data.type === 'resize' && Number.isFinite(data.height) && data.height > 0) {
+    scheduleFrameResize(data.height)
+    return
+  }
+  if (data.type === 'keydown' && typeof data.key === 'string') {
+    emit(
+      'keydown',
+      new KeyboardEvent('keydown', {
+        key: data.key,
+        code: typeof data.code === 'string' ? data.code : '',
+        repeat: Boolean(data.repeat),
+        metaKey: Boolean(data.metaKey),
+        ctrlKey: Boolean(data.ctrlKey),
+        altKey: Boolean(data.altKey),
+        shiftKey: Boolean(data.shiftKey),
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
   }
 }
+
+onMounted(() => window.addEventListener('message', onFrameMessage))
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onFrameMessage)
+  if (resizeTimer !== null) clearTimeout(resizeTimer)
+})
 </script>
 
 <template>
@@ -92,11 +194,11 @@ function resizeFrame() {
     ref="frameRef"
     class="ni-email-frame"
     title="Email content"
-    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+    sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
     referrerpolicy="no-referrer"
+    :data-bridge-token="frameToken"
     :srcdoc="srcdoc"
     :style="{ height: frameHeight + 'px' }"
-    @load="resizeFrame"
   />
   <div
     v-else-if="showSpinner"

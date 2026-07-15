@@ -182,8 +182,8 @@ export const useInboxStore = defineStore('inbox', {
     // cached so reopening the same message doesn't refetch.
     messageBodies: new Map(),
 
-    // AI summaries are cached per selected message for this session. The
-    // server resolves that message to its complete thread before calling AI.
+    // AI summaries are cached per selected message after the owned body API
+    // hydrates a saved result or the user generates/regenerates one.
     messageSummaries: new Map(),
     summaryLoadingId: null,
 
@@ -729,9 +729,12 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
-        const { body_html, body_text, unsubscribe } = await response.json()
+        const { body_html, body_text, unsubscribe, summary } = await response.json()
         const body = { html: body_html ?? null, text: body_text ?? null, unsubscribe: unsubscribe ?? null }
         this.messageBodies.set(id, body)
+        if (typeof summary === 'string' && summary.trim()) {
+          this.messageSummaries.set(id, summary.trim())
+        }
         return body
       } catch (error) {
         console.error('Failed to load message body:', error)

@@ -116,6 +116,19 @@ export async function generateThreadSummary(messages, apiKey) {
   return parsed.summary.trim()
 }
 
+// message_ai is also populated by the inbound enrichment worker. Upsert only
+// the summary fields so manually generated summaries never overwrite its
+// classification status, spam decision, priority, or provenance.
+export function saveMessageSummary(sql, id, summary) {
+  return sql`
+    INSERT INTO message_ai (message_id, summary)
+    VALUES (${id}, ${summary})
+    ON CONFLICT (message_id) DO UPDATE SET
+      summary = EXCLUDED.summary,
+      updated_at = now()
+  `
+}
+
 // POST /api/summarize — loads every message in the selected message's thread
 // for the authenticated owner, then returns an AI-generated thread summary.
 export default async function handler(req, res) {
@@ -160,13 +173,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const messages = await fetchThreadMessages(getSql(), email, body.id)
+    const sql = getSql()
+    const messages = await fetchThreadMessages(sql, email, body.id)
     if (!messages.length) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))
       return
     }
     const summary = await generateThreadSummary(messages, process.env.OPENAI_API_KEY)
+    await saveMessageSummary(sql, body.id, summary)
     res.statusCode = 200
     res.end(JSON.stringify({ summary, messageCount: messages.length, model: SUMMARY_MODEL }))
   } catch (err) {

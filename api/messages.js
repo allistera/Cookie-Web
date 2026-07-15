@@ -13,8 +13,20 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // GET /api/messages?id=<uuid> — the full body of a single message owned by the
 // authenticated user, fetched on demand when the reader opens (body_html is
 // deliberately excluded from the /api/emails list payload as it can be large
-// and untrusted). Returns {id, body_html, body_text}; 404 for a message that
-// is not the caller's (or does not exist), 400 for a malformed id.
+// and untrusted). The saved AI summary is returned alongside the body so the
+// reader can restore it without inflating every inbox-list response.
+export function fetchOwnedMessageBody(sql, id, email) {
+  return sql`
+    SELECT m.id, m.body_html, m.body_text, m.headers, ai.summary
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
+    WHERE m.id = ${id} AND lower(u.email) = ${email}
+  `
+}
+
+// 404 for a message that is not the caller's (or does not exist), 400 for a
+// malformed id.
 async function handleGet(req, res, email) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
   if (typeof id !== 'string' || !UUID_RE.test(id)) {
@@ -25,12 +37,7 @@ async function handleGet(req, res, email) {
 
   try {
     const sql = getSql()
-    const rows = await sql`
-      SELECT m.id, m.body_html, m.body_text, m.headers
-      FROM messages m
-      JOIN users u ON u.id = m.user_id
-      WHERE m.id = ${id} AND lower(u.email) = ${email}
-    `
+    const rows = await fetchOwnedMessageBody(sql, id, email)
     if (rows.length === 0) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))

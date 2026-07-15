@@ -61,6 +61,17 @@ describe('sanitizeEmailHtml', () => {
     }
   })
 
+  it('drops image maps that could navigate the sandboxed frame itself', () => {
+    const out = sanitizeEmailHtml(
+      '<img src="https://cdn.example/plan.png" usemap="#plan-links">' +
+        '<map name="plan-links"><area href="https://evil.example" shape="rect"></map>',
+    )
+
+    expect(out.toLowerCase()).not.toContain('<map')
+    expect(out.toLowerCase()).not.toContain('<area')
+    expect(out).not.toContain('https://evil.example')
+  })
+
   it('preserves benign markup: tables, inline styles and images', () => {
     const out = sanitizeEmailHtml(
       '<table><tr><td style="color:red">A</td></tr></table>' +

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import EmailBody from '../EmailBody.vue'
@@ -10,6 +10,8 @@ const HOSTILE = `
   <img src="x" onerror="alert(1)">
   <a href="https://example.com/p">link</a>`
 
+afterEach(() => vi.useRealTimers())
+
 describe('EmailBody', () => {
   it('renders untrusted HTML inside a no-script sandboxed iframe', () => {
     const wrapper = mount(EmailBody, { props: { html: HOSTILE, text: 'fallback', sender: 'Ada' } })
@@ -17,20 +19,85 @@ describe('EmailBody', () => {
     const frame = wrapper.find('iframe')
     expect(frame.exists()).toBe(true)
 
-    // Layer 2: sandbox must NOT grant script execution.
+    // Layer 2: the fixed bridge may execute, but the frame stays on an opaque
+    // origin so even a sanitizer bypass cannot reach parent DOM or storage.
     const sandbox = frame.attributes('sandbox')
     expect(sandbox).toBeDefined()
-    expect(sandbox).not.toContain('allow-scripts')
+    expect(sandbox).toContain('allow-scripts')
+    expect(sandbox).not.toContain('allow-same-origin')
 
-    // Layer 1: the srcdoc the frame renders is already sanitized.
+    // Layer 1: the srcdoc the frame renders is already sanitized. Only the one
+    // nonce-restricted, app-owned bridge script survives.
     const srcdoc = frame.attributes('srcdoc')
-    expect(srcdoc.toLowerCase()).not.toContain('<script')
+    expect(srcdoc.match(/<script/g)).toHaveLength(1)
+    expect(srcdoc).toContain("script-src 'nonce-")
     expect(srcdoc).not.toContain('window.evil')
     expect(srcdoc.toLowerCase()).not.toContain('onerror')
     // Benign content survives, and links are forced to a safe new tab.
     expect(srcdoc).toContain('<strong>text</strong>')
     expect(srcdoc).toContain('target="_blank"')
     expect(srcdoc).toContain('rel="noopener noreferrer"')
+  })
+
+  it('forwards key presses from the iframe document to the reader', async () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: '<p><a href="https://example.com">link</a></p>', text: 'fallback' },
+    })
+    const frame = wrapper.find('iframe')
+    Object.defineProperty(frame.element, 'contentWindow', { value: window })
+    const token = frame.attributes('data-bridge-token')
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: window,
+        data: { source: 'cookie-email-body', token, type: 'keydown', key: 'd' },
+      }),
+    )
+
+    const forwarded = wrapper.emitted('keydown')
+    expect(forwarded).toHaveLength(1)
+    expect(forwarded[0][0].key).toBe('d')
+
+    wrapper.unmount()
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: window,
+        data: { source: 'cookie-email-body', token, type: 'keydown', key: 'd' },
+      }),
+    )
+    expect(forwarded).toHaveLength(1)
+  })
+
+  it('rate-limits and deduplicates resize bursts from hostile animated content', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(EmailBody, { props: { html: '<p>animated</p>' } })
+    const frame = wrapper.find('iframe')
+    Object.defineProperty(frame.element, 'contentWindow', { value: window })
+    const token = frame.attributes('data-bridge-token')
+    const sendResize = (height) =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          source: window,
+          data: { source: 'cookie-email-body', token, type: 'resize', height },
+        }),
+      )
+
+    sendResize(100)
+    sendResize(200)
+    sendResize(300)
+    await wrapper.vm.$nextTick()
+    expect(frame.attributes('style')).toContain('height: 108px')
+
+    await vi.advanceTimersByTimeAsync(250)
+    await wrapper.vm.$nextTick()
+    expect(frame.attributes('style')).toContain('height: 308px')
+
+    sendResize(300)
+    await vi.advanceTimersByTimeAsync(250)
+    await wrapper.vm.$nextTick()
+    expect(frame.attributes('style')).toContain('height: 308px')
+
+    wrapper.unmount()
   })
 
   it('falls back to plain-text paragraphs when there is no HTML body', () => {

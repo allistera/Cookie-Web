@@ -295,6 +295,10 @@ const isUnsubscribed = computed(() => store.openEmailUnsubscribed)
 const isUnsubscribing = computed(() => store.unsubscribingId === store.openEmailId)
 const openEmailSummary = computed(() => store.openEmailSummary)
 const isSummarizing = computed(() => store.isOpenSummaryLoading)
+const summarizeLabel = computed(() => {
+  if (isSummarizing.value) return 'Summarizing…'
+  return openEmailSummary.value ? 'Regenerate Summary' : 'Summarize'
+})
 const isReplyOpen = ref(false)
 const replyText = ref('')
 const replyTextareaRef = ref(null)
@@ -441,6 +445,13 @@ function onKeydown(e) {
     e.preventDefault()
     archiveOpenEmail()
   }
+}
+
+// Re-enter the normal document-level shortcut pipeline for key presses that
+// originated inside the isolated HTML-email frame. This lets the reader and
+// other global shortcut owners apply their existing guards in one place.
+function forwardEmailKeydown(event) {
+  document.dispatchEvent(event)
 }
 
 function onDocumentClick(e) {
@@ -638,14 +649,14 @@ onUnmounted(() => {
           <div class="ni-reader-nav">
             <button
               class="ni-summarize-btn"
-              title="Summarize"
+              :title="summarizeLabel"
               :disabled="isSummarizing"
               :aria-busy="isSummarizing"
               @click="summarizeOpenEmail"
             >
               <span v-if="isSummarizing" class="ni-summary-spinner" aria-hidden="true"></span>
               <span v-else class="material-symbols-outlined">auto_awesome</span>
-              <span>{{ isSummarizing ? 'Summarizing…' : 'Summarize' }}</span>
+              <span>{{ summarizeLabel }}</span>
             </button>
             <button
               v-if="openEmailUnsubscribe"
@@ -754,6 +765,7 @@ onUnmounted(() => {
             :sender="openEmail.sender"
             :has-html-body="openEmail.hasHtml"
             :loading="store.isOpenBodyLoading"
+            @keydown="forwardEmailKeydown"
           />
         </div>
 

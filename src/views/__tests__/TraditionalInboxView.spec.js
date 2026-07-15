@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import TraditionalInboxView from '../TraditionalInboxView.vue'
+import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { scheduleChoices } from '../../utils/schedule'
 
@@ -668,6 +669,22 @@ describe('TraditionalInboxView AI summary', () => {
     expect(summary.exists()).toBe(true)
     expect(summary.text()).toContain('AI summary')
     expect(summary.text()).toContain('The contractor confirmed the Tuesday delivery.')
+    expect(button.text()).toContain('Regenerate Summary')
+    expect(button.attributes('title')).toBe('Regenerate Summary')
+  })
+
+  it('shows a saved summary and offers to regenerate it when the reader opens', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageSummaries.set(email.id, 'A previously saved summary.')
+    wrapper = mount(TraditionalInboxView)
+
+    await wrapper.find('.ni-row').trigger('click')
+
+    const summary = wrapper.find('.ni-summary-box')
+    const button = wrapper.find('.ni-summarize-btn')
+    expect(summary.text()).toContain('A previously saved summary.')
+    expect(button.text()).toContain('Regenerate Summary')
+    expect(button.attributes('title')).toBe('Regenerate Summary')
   })
 })
 
@@ -852,6 +869,23 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.archiveEmail).toHaveBeenCalledTimes(1)
     expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
     expect(store.openEmailId).toBe(null)
+  })
+
+  it("archives the open email when 'd' is pressed inside its HTML body", async () => {
+    await vi.waitFor(() => expect(store.bodyLoadingId).toBe(null))
+    store.messageBodies.set('today-1', {
+      html: '<p><a href="https://example.com">Open link</a></p>',
+      text: 'Open link',
+    })
+    await wrapper.vm.$nextTick()
+
+    wrapper.findComponent(EmailBody).vm.$emit(
+      'keydown',
+      new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }),
+    )
+
+    expect(store.archiveEmail).toHaveBeenCalledTimes(1)
+    expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
   })
 
   it('advances to the next email in the list after archiving', async () => {
