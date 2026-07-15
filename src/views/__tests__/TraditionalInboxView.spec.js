@@ -613,6 +613,64 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   })
 })
 
+describe('TraditionalInboxView AI summary', () => {
+  let store
+  let wrapper
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    const email = makeEmail('11111111-1111-1111-1111-111111111111', Date.now() - HOUR)
+    email.unread = false
+    email.labels = [{ name: 'Projects', color: '#7c3aed' }]
+    store.traditionalEmails = [email]
+    vi.spyOn(store, 'fetchMessageBody').mockResolvedValue(null)
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({ 'Content-Type': 'application/json' })
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('disables Summarize while loading and shows the result below the labels', async () => {
+    let resolveSummary
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          resolveSummary = resolve
+        }),
+      ),
+    )
+    wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    const button = wrapper.find('.ni-reader-topbar [title="Summarize"]')
+    expect(button.text()).toContain('Summarize')
+    await button.trigger('click')
+
+    await vi.waitFor(() => expect(store.isOpenSummaryLoading).toBe(true))
+    expect(button.attributes()).toHaveProperty('disabled')
+    expect(button.attributes('aria-busy')).toBe('true')
+    expect(button.text()).toContain('Summarizing…')
+    expect(button.find('.ni-summary-spinner').exists()).toBe(true)
+
+    resolveSummary({
+      ok: true,
+      json: async () => ({ summary: 'The contractor confirmed the Tuesday delivery.' }),
+    })
+    await vi.waitFor(() => expect(store.isOpenSummaryLoading).toBe(false))
+
+    const summary = wrapper.find('.ni-reader-labels + .ni-summary-box')
+    expect(summary.exists()).toBe(true)
+    expect(summary.text()).toContain('AI summary')
+    expect(summary.text()).toContain('The contractor confirmed the Tuesday delivery.')
+  })
+})
+
 describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
   let store
 

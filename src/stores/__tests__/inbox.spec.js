@@ -360,6 +360,33 @@ describe('Inbox Store', () => {
     expect(store.composerTextArea).toBe('Generated body')
   })
 
+  it('summarizes an email thread and caches the result for the open message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ summary: 'The contractor confirmed the Tuesday delivery.' }),
+      }),
+    )
+    const store = useInboxStore()
+    const email = { id: '11111111-1111-1111-1111-111111111111', unread: false }
+    store.traditionalEmails = [email]
+    store.openEmailId = email.id
+
+    await store.summarizeEmail(email)
+
+    expect(fetch).toHaveBeenCalledWith('/api/summarize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: email.id }),
+    })
+    expect(store.openEmailSummary).toBe('The contractor confirmed the Tuesday delivery.')
+    expect(store.isOpenSummaryLoading).toBe(false)
+  })
+
   it('refreshes the sent list after sending mail once it has been loaded', async () => {
     const fetchMock = vi
       .fn()

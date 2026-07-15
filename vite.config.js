@@ -166,6 +166,22 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/compose.js')
     await handler(req, res)
   }
+  const handleSummarize = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          summary:
+            'City Construction shared a revised kitchen floor plan designed to bring in more natural light.\n\n• Review the updated room dimensions and full plan.\n• Reply if any layout changes are needed.',
+          messageCount: 1,
+          model: 'fixture',
+        }),
+      )
+      return
+    }
+    const { default: handler } = await import('./api/summarize.js')
+    await handler(req, res)
+  }
   // Stateful in e2e/no-DB mode so create/delete are visible within a session.
   let stubLabels = null
   const ensureStubLabels = async () => {
@@ -242,6 +258,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/api/search', handleSearch)
     server.middlewares.use('/api/ask', handleAsk)
     server.middlewares.use('/api/compose', handleCompose)
+    server.middlewares.use('/api/summarize', handleSummarize)
     server.middlewares.use('/api/labels', handleLabels)
   }
   return {

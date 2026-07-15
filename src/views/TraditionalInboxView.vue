@@ -293,6 +293,8 @@ const openEmailHtml = computed(() => store.openEmailHtml)
 const openEmailUnsubscribe = computed(() => store.openEmailUnsubscribe)
 const isUnsubscribed = computed(() => store.openEmailUnsubscribed)
 const isUnsubscribing = computed(() => store.unsubscribingId === store.openEmailId)
+const openEmailSummary = computed(() => store.openEmailSummary)
+const isSummarizing = computed(() => store.isOpenSummaryLoading)
 const isReplyOpen = ref(false)
 const replyText = ref('')
 const replyTextareaRef = ref(null)
@@ -342,6 +344,10 @@ function archiveOpenEmail() {
 
 function unsubscribeOpenEmail() {
   store.unsubscribeEmail(openEmail.value)
+}
+
+function summarizeOpenEmail() {
+  store.summarizeEmail(openEmail.value)
 }
 
 function starOpenEmail() {
@@ -631,6 +637,17 @@ onUnmounted(() => {
         <div class="ni-reader-topbar">
           <div class="ni-reader-nav">
             <button
+              class="ni-summarize-btn"
+              title="Summarize"
+              :disabled="isSummarizing"
+              :aria-busy="isSummarizing"
+              @click="summarizeOpenEmail"
+            >
+              <span v-if="isSummarizing" class="ni-summary-spinner" aria-hidden="true"></span>
+              <span v-else class="material-symbols-outlined">auto_awesome</span>
+              <span>{{ isSummarizing ? 'Summarizing…' : 'Summarize' }}</span>
+            </button>
+            <button
               v-if="openEmailUnsubscribe"
               class="ni-unsub-btn"
               title="Unsubscribe"
@@ -689,7 +706,11 @@ onUnmounted(() => {
 
         <h2 class="ni-reader-subject">{{ openEmail.subject }}</h2>
 
-        <div class="ni-reader-labels" v-if="openEmail.labels?.length">
+        <div
+          class="ni-reader-labels"
+          :class="{ 'ni-reader-labels-summary': openEmailSummary }"
+          v-if="openEmail.labels?.length"
+        >
           <span
             v-for="label in openEmail.labels"
             :key="label.name"
@@ -698,6 +719,14 @@ onUnmounted(() => {
           >
             {{ label.name }}
           </span>
+        </div>
+
+        <div v-if="openEmailSummary" class="ni-summary-box" role="status" aria-live="polite">
+          <div class="ni-summary-heading">
+            <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+            <span>AI summary</span>
+          </div>
+          <p>{{ openEmailSummary }}</p>
         </div>
 
         <div class="ni-email-card">

@@ -182,6 +182,11 @@ export const useInboxStore = defineStore('inbox', {
     // cached so reopening the same message doesn't refetch.
     messageBodies: new Map(),
 
+    // AI summaries are cached per selected message for this session. The
+    // server resolves that message to its complete thread before calling AI.
+    messageSummaries: new Map(),
+    summaryLoadingId: null,
+
     // Id of the message with an unsubscribe request in flight (null when idle).
     unsubscribingId: null,
 
@@ -252,6 +257,12 @@ export const useInboxStore = defineStore('inbox', {
     // text fallback until the HTML iframe is ready.
     isOpenBodyLoading(state) {
       return state.bodyLoadingId !== null && state.bodyLoadingId === state.openEmailId
+    },
+    openEmailSummary(state) {
+      return state.openEmailId ? (state.messageSummaries.get(state.openEmailId) ?? null) : null
+    },
+    isOpenSummaryLoading(state) {
+      return state.summaryLoadingId !== null && state.summaryLoadingId === state.openEmailId
     },
   },
 
@@ -729,6 +740,36 @@ export const useInboxStore = defineStore('inbox', {
         // Always clear, whether the fetch succeeded or failed, but only if this
         // call is still the one in flight (a newer open may have superseded it).
         if (this.bodyLoadingId === id) this.bodyLoadingId = null
+      }
+    },
+
+    async summarizeEmail(email) {
+      if (!email || this.summaryLoadingId) return null
+      const id = email.id
+      this.summaryLoadingId = id
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/summarize', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ id }),
+        })
+        if (!response.ok) {
+          throw new Error(`POST /api/summarize responded ${response.status}`)
+        }
+        const { summary } = await response.json()
+        if (typeof summary !== 'string' || !summary.trim()) {
+          throw new Error('POST /api/summarize returned an invalid summary')
+        }
+        const normalized = summary.trim()
+        this.messageSummaries.set(id, normalized)
+        return normalized
+      } catch (error) {
+        console.error('AI summarization failed:', error)
+        this.notify('AI summarization failed. Please try again.', 'error')
+        return null
+      } finally {
+        if (this.summaryLoadingId === id) this.summaryLoadingId = null
       }
     },
 

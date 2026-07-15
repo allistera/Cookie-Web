@@ -132,6 +132,53 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 })
 
+test('Reader Summarize shows a loading indicator and renders the AI thread summary', async ({
+  page,
+}) => {
+  let releaseSummary
+  let requestBody
+  let notifyRequestStarted
+  const requestStarted = new Promise((resolve) => {
+    notifyRequestStarted = resolve
+  })
+  const summaryHeld = new Promise((resolve) => {
+    releaseSummary = resolve
+  })
+  await page.route('**/api/summarize', async (route) => {
+    requestBody = route.request().postDataJSON()
+    notifyRequestStarted()
+    await summaryHeld
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary:
+          'City Construction shared a revised plan.\n\n• Review the updated room dimensions.\n• Reply with any layout changes.',
+      }),
+    })
+  })
+
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const reader = page.locator('.ni-reader')
+  const summarize = reader.locator('[title="Summarize"]')
+
+  await expect(summarize).toHaveText(/Summarize/)
+  await summarize.click()
+  await requestStarted
+
+  expect(requestBody).toEqual({ id: 'fixture-1' })
+  await expect(summarize).toBeDisabled()
+  await expect(summarize).toHaveText(/Summarizing…/)
+  await expect(summarize.locator('.ni-summary-spinner')).toBeVisible()
+
+  releaseSummary()
+  const summary = reader.locator('.ni-reader-labels + .ni-summary-box')
+  await expect(summary).toBeVisible()
+  await expect(summary).toContainText('AI summary')
+  await expect(summary).toContainText('City Construction shared a revised plan.')
+  await expect(summarize).toBeEnabled()
+})
+
 test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({
   page,
 }) => {
