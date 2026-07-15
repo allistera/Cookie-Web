@@ -132,6 +132,34 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 })
 
+test("Pressing 'd' on the opened email marks it Done", async ({ page }) => {
+  await page.goto('/inbox')
+
+  const subject = 'Revised Floor Plan - Natural Light adjustments'
+  const row = page.locator('.ni-row', { hasText: subject })
+  await row.click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader.locator('.ni-reader-subject')).toHaveText(subject)
+
+  const [response] = await Promise.all([
+    page.waitForResponse((candidate) => {
+      if (!candidate.url().includes('/api/messages') || candidate.request().method() !== 'PATCH') {
+        return false
+      }
+      const body = candidate.request().postDataJSON()
+      return body.id === 'fixture-1' && body.is_archived === true
+    }),
+    page.keyboard.press('d'),
+  ])
+
+  expect(response.ok()).toBe(true)
+  await expect(row).toHaveCount(0)
+  await expect(reader.locator('.ni-reader-subject')).toContainText('Soccer Snacks')
+
+  await page.goto('/inbox?filter=done')
+  await expect(page.locator('.ni-row', { hasText: subject })).toBeVisible()
+})
+
 test('Reader Summarize shows a loading indicator and renders the AI thread summary', async ({
   page,
 }) => {
