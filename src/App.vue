@@ -2,7 +2,7 @@
 import { ref, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
-import GeminiChatDrawer from './components/GeminiChatDrawer.jsx'
+import ChatDrawer from './components/ChatDrawer.vue'
 import LoadingBar from './components/LoadingBar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
@@ -54,8 +54,8 @@ function askFromSearch() {
   store.askGemini(query)
 }
 
-// Enter searches the mailbox (hybrid keyword + semantic); the suggestion
-// items below keep their Gemini Q&A behavior via selectSuggestion.
+// Enter searches the mailbox (hybrid keyword + semantic); the dropdown's
+// "Ask Cookie" item routes the same text to the Q&A assistant instead.
 function handleSearchEnter() {
   const query = searchInputVal.value.trim()
   if (query) {
@@ -288,8 +288,8 @@ onMounted(() => {
         <router-view />
       </main>
 
-      <!-- Gemini JSX Chat Drawer -->
-      <GeminiChatDrawer />
+      <!-- Assistant chat drawer -->
+      <ChatDrawer />
     </div>
 
     <!-- MODAL OVERLAYS -->

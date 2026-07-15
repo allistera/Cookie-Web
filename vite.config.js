@@ -4,7 +4,6 @@ import { fileURLToPath, URL } from 'node:url'
 
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import vueJsx from '@vitejs/plugin-vue-jsx'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 // Serves /api/emails locally, where Vercel's serverless functions don't run.
@@ -287,7 +286,6 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
-      vueJsx(),
       vueDevTools(),
       localApiPlugin(mode),
     ],

@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
-import GeminiChatDrawer from '../GeminiChatDrawer.jsx'
+import ChatDrawer from '../ChatDrawer.vue'
 import { useInboxStore } from '../../stores/inbox'
 
-describe('GeminiChatDrawer message formatting', () => {
+describe('ChatDrawer message formatting', () => {
   let store
 
   beforeEach(() => {
@@ -17,7 +17,7 @@ describe('GeminiChatDrawer message formatting', () => {
     store.chatHistory = [
       { text: 'Update from **City Construction**: plan revised.', sender: 'ai' },
     ]
-    const wrapper = mount(GeminiChatDrawer)
+    const wrapper = mount(ChatDrawer)
 
     const message = wrapper.find('.chat-msg.ai')
     expect(message.find('strong').text()).toBe('City Construction')
@@ -31,7 +31,7 @@ describe('GeminiChatDrawer message formatting', () => {
         sender: 'ai',
       },
     ]
-    const wrapper = mount(GeminiChatDrawer)
+    const wrapper = mount(ChatDrawer)
 
     const lines = wrapper.findAll('.chat-msg.ai .chat-line')
     expect(lines).toHaveLength(3)
@@ -51,7 +51,7 @@ describe('GeminiChatDrawer message formatting', () => {
         ],
       },
     ]
-    const wrapper = mount(GeminiChatDrawer)
+    const wrapper = mount(ChatDrawer)
 
     const chips = wrapper.findAll('.chat-source')
     expect(chips).toHaveLength(2)
@@ -61,7 +61,7 @@ describe('GeminiChatDrawer message formatting', () => {
 
   it('renders plain user messages unchanged', () => {
     store.chatHistory = [{ text: 'Summarize my kitchen renovation updates.', sender: 'user' }]
-    const wrapper = mount(GeminiChatDrawer)
+    const wrapper = mount(ChatDrawer)
 
     expect(wrapper.find('.chat-msg.user').text()).toBe(
       'Summarize my kitchen renovation updates.',
