@@ -301,7 +301,7 @@ onMounted(() => {
           >
             <span class="material-symbols-outlined nav-icon-red">inbox</span>
             <span class="nav-text">Inbox</span>
-            <span class="nav-badge">{{ store.unreadInboxCount }}</span>
+            <span class="nav-badge" v-if="store.unreadInboxCount">{{ store.unreadInboxCount }}</span>
           </router-link>
           <router-link
             :to="{ path: '/inbox', query: { filter: 'starred' } }"
