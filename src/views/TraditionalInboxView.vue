@@ -288,9 +288,12 @@ const openEmail = computed(() => store.openEmail)
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
 // message has no HTML body (permanent text fallback).
 const openEmailHtml = computed(() => store.openEmailHtml)
-// Unsubscribe capability arrives with the on-demand body fetch (parsed
-// server-side from the List-Unsubscribe header); null for non-newsletters.
-const openEmailUnsubscribe = computed(() => store.openEmailUnsubscribe)
+// RFC header metadata wins. When it is confirmed absent, EmailBody may supply
+// a validated manual link discovered in the rendered message content.
+const contentUnsubscribe = ref(null)
+const openEmailUnsubscribe = computed(
+  () => store.openEmailUnsubscribe ?? (store.isOpenBodyResolved ? contentUnsubscribe.value : null),
+)
 const isUnsubscribed = computed(() => store.openEmailUnsubscribed)
 const isUnsubscribing = computed(() => store.unsubscribingId === store.openEmailId)
 const openEmailSummary = computed(() => store.openEmailSummary)
@@ -318,6 +321,7 @@ watch(
   (id) => {
     isReplyOpen.value = false
     replyText.value = ''
+    contentUnsubscribe.value = null
     // Fetch the full body on demand (cached) for any open path, including the
     // command palette.
     if (id) store.fetchMessageBody(id)
@@ -348,6 +352,10 @@ function archiveOpenEmail() {
 
 function unsubscribeOpenEmail() {
   store.unsubscribeEmail(openEmail.value)
+}
+
+function setContentUnsubscribe(target) {
+  contentUnsubscribe.value = target
 }
 
 function summarizeOpenEmail() {
@@ -702,8 +710,19 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+            <a
+              v-if="openEmailUnsubscribe?.source === 'content'"
+              class="ni-unsub-btn"
+              title="Unsubscribe"
+              :href="openEmailUnsubscribe.href"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="material-symbols-outlined">unsubscribe</span>
+              <span>Unsubscribe</span>
+            </a>
             <button
-              v-if="openEmailUnsubscribe"
+              v-else-if="openEmailUnsubscribe"
               class="ni-unsub-btn"
               title="Unsubscribe"
               :disabled="isUnsubscribing || isUnsubscribed"
@@ -760,12 +779,15 @@ onUnmounted(() => {
             </div>
           </div>
           <EmailBody
+            :key="openEmail.id"
             :html="openEmailHtml"
             :text="openEmail.body || openEmail.snippet || ''"
             :sender="openEmail.sender"
             :has-html-body="openEmail.hasHtml"
             :loading="store.isOpenBodyLoading"
+            :body-resolved="store.isOpenBodyResolved"
             @keydown="forwardEmailKeydown"
+            @unsubscribe-link="setContentUnsubscribe"
           />
         </div>
 

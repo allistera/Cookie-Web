@@ -68,6 +68,44 @@ describe('EmailBody', () => {
     expect(forwarded).toHaveLength(1)
   })
 
+  it('emits authoritative unsubscribe-link snapshots from the current iframe generation', () => {
+    const wrapper = mount(EmailBody, {
+      props: {
+        html: '<a href="https://news.example/unsubscribe">Unsubscribe</a>',
+        bodyResolved: true,
+      },
+    })
+    const frame = wrapper.find('iframe')
+    Object.defineProperty(frame.element, 'contentWindow', { value: window })
+    const token = frame.attributes('data-bridge-token')
+    const generation = frame.attributes('data-bridge-generation')
+    const send = (revision, candidates) =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          source: window,
+          data: {
+            source: 'cookie-email-body',
+            token,
+            type: 'unsubscribe-links',
+            generation,
+            revision,
+            candidates,
+          },
+        }),
+      )
+
+    send(1, [{ href: 'https://news.example/unsubscribe', text: 'Unsubscribe' }])
+    expect(wrapper.emitted('unsubscribe-link').at(-1)[0]?.url).toBe(
+      'https://news.example/unsubscribe',
+    )
+
+    send(2, [])
+    expect(wrapper.emitted('unsubscribe-link').at(-1)).toEqual([null])
+
+    send(1, [{ href: 'https://stale.example/unsubscribe', text: 'Unsubscribe' }])
+    expect(wrapper.emitted('unsubscribe-link').at(-1)).toEqual([null])
+  })
+
   it('rate-limits and deduplicates resize bursts from hostile animated content', async () => {
     vi.useFakeTimers()
     const wrapper = mount(EmailBody, { props: { html: '<p>animated</p>' } })

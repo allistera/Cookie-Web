@@ -1,7 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import {
+  BRIDGE_HINT_SOURCE,
+  selectPlainTextUnsubscribeTarget,
+  selectUnsubscribeTarget,
+} from '../lib/unsubscribeContent'
 
 const props = defineProps({
   // Raw, untrusted, sender-controlled body_html (null until fetched / absent).
@@ -18,9 +23,12 @@ const props = defineProps({
   hasHtmlBody: { type: Boolean, default: false },
   // Whether the body fetch is currently in flight.
   loading: { type: Boolean, default: false },
+  // True once the owned-message body request has resolved and header-derived
+  // unsubscribe metadata is therefore known (including a confirmed null).
+  bodyResolved: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['keydown'])
+const emit = defineEmits(['keydown', 'unsubscribe-link'])
 
 // Hard cap on the iframe height so a hostile email can't force a multi-million
 // pixel frame; taller bodies scroll inside the frame.
@@ -39,15 +47,35 @@ function randomToken() {
 const frameRef = ref(null)
 const frameHeight = ref(80)
 const frameToken = randomToken()
+const frameGeneration = ref(randomToken())
 const scriptNonce = randomToken().replaceAll('-', '')
 let lastResizeAt = Number.NEGATIVE_INFINITY
 let pendingResizeHeight = null
 let resizeTimer = null
+let latestLinksRevision = 0
 
 // Layer 1: sanitize. Empty string when there is no usable HTML body, which
 // switches the template to the plain-text fallback.
 const safeHtml = computed(() => sanitizeEmailHtml(props.html))
 const hasHtml = computed(() => safeHtml.value.trim().length > 0)
+
+watch(
+  safeHtml,
+  () => {
+    frameGeneration.value = randomToken()
+    latestLinksRevision = 0
+    emit('unsubscribe-link', null)
+  },
+)
+
+watch(
+  () => [hasHtml.value, props.text, props.bodyResolved],
+  ([htmlPresent, text, bodyResolved]) => {
+    if (!bodyResolved || htmlPresent) return
+    emit('unsubscribe-link', selectPlainTextUnsubscribeTarget(text))
+  },
+  { immediate: true },
+)
 
 // Show a spinner only while an HTML body is still being fetched: the message is
 // known to have HTML, the fetch is in flight, and no usable sanitized HTML has
@@ -87,9 +115,12 @@ a { color: ${link}; }
 (() => {
   const source = ${JSON.stringify(BRIDGE_SOURCE)}
   const token = ${JSON.stringify(frameToken)}
+  const generation = ${JSON.stringify(frameGeneration.value)}
+  const hintPattern = new RegExp(${JSON.stringify(BRIDGE_HINT_SOURCE)}, 'i')
   const send = (type, detail) => parent.postMessage({ source, token, type, ...detail }, '*')
   let lastHeight = 0
   let resizeTimer = null
+  let linksRevision = 0
   const sendResize = () => {
     resizeTimer = null
     const height = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
@@ -101,6 +132,60 @@ a { color: ${link}; }
     if (resizeTimer !== null) return
     resizeTimer = setTimeout(sendResize, ${RESIZE_INTERVAL_MS})
   }
+  const decodedForMatching = (value) => {
+    try { return decodeURIComponent(value) } catch { return value }
+  }
+  const collectLinkSnapshot = () => {
+    const plausible = []
+    for (const anchor of document.querySelectorAll('a[href]')) {
+      const href = anchor.getAttribute('href') || ''
+      if (!href || href.length > 4096) continue
+      const imageAlt = Array.from(anchor.querySelectorAll('img[alt]'))
+        .map((image) => image.getAttribute('alt') || '')
+        .join(' ')
+        .slice(0, 1000)
+      const cheap = {
+        href,
+        text: (anchor.textContent || '').slice(0, 1000),
+        ariaLabel: (anchor.getAttribute('aria-label') || '').slice(0, 1000),
+        title: (anchor.getAttribute('title') || '').slice(0, 1000),
+        imageAlt,
+        context: (anchor.parentElement?.textContent || '').slice(0, 1000),
+      }
+      const haystack = [
+        cheap.href,
+        decodedForMatching(cheap.href),
+        cheap.text,
+        cheap.ariaLabel,
+        cheap.title,
+        cheap.imageAlt,
+        cheap.context,
+      ].join(' ')
+      if (!hintPattern.test(haystack)) continue
+      plausible.push({ anchor, cheap })
+      if (plausible.length > 200) {
+        send('unsubscribe-links', { generation, revision: ++linksRevision, candidates: [] })
+        return
+      }
+    }
+
+    const candidates = plausible.flatMap(({ anchor, cheap }) => {
+      const style = getComputedStyle(anchor)
+      const hiddenAncestor = anchor.closest('[hidden], [aria-hidden="true"]')
+      if (
+        hiddenAncestor ||
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        Number.parseFloat(style.opacity) === 0 ||
+        anchor.getClientRects().length === 0
+      ) {
+        return []
+      }
+      return [{ ...cheap, text: (anchor.innerText || cheap.text).slice(0, 1000) }]
+    })
+    send('unsubscribe-links', { generation, revision: ++linksRevision, candidates })
+  }
+  const scheduleLinkSnapshot = () => requestAnimationFrame(collectLinkSnapshot)
   addEventListener('keydown', (event) => {
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
@@ -120,9 +205,13 @@ a { color: ${link}; }
       shiftKey: event.shiftKey,
     })
   })
-  addEventListener('load', sendResize)
+  addEventListener('load', () => {
+    sendResize()
+    scheduleLinkSnapshot()
+  })
   new ResizeObserver(scheduleResize).observe(document.documentElement)
   sendResize()
+  scheduleLinkSnapshot()
 })()
 ${SCRIPT_CLOSE}</body></html>`
 })
@@ -163,6 +252,16 @@ function onFrameMessage(event) {
     scheduleFrameResize(data.height)
     return
   }
+  if (
+    data.type === 'unsubscribe-links' &&
+    data.generation === frameGeneration.value &&
+    Number.isInteger(data.revision) &&
+    data.revision > latestLinksRevision
+  ) {
+    latestLinksRevision = data.revision
+    emit('unsubscribe-link', selectUnsubscribeTarget(data.candidates))
+    return
+  }
   if (data.type === 'keydown' && typeof data.key === 'string') {
     emit(
       'keydown',
@@ -197,6 +296,7 @@ onBeforeUnmount(() => {
     sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
     referrerpolicy="no-referrer"
     :data-bridge-token="frameToken"
+    :data-bridge-generation="frameGeneration"
     :srcdoc="srcdoc"
     :style="{ height: frameHeight + 'px' }"
   />

@@ -258,6 +258,11 @@ export const useInboxStore = defineStore('inbox', {
     isOpenBodyLoading(state) {
       return state.bodyLoadingId !== null && state.bodyLoadingId === state.openEmailId
     },
+    // Header-derived unsubscribe metadata is unresolved until the owned body
+    // request has completed and populated this cache.
+    isOpenBodyResolved(state) {
+      return Boolean(state.openEmailId && state.messageBodies.has(state.openEmailId))
+    },
     openEmailSummary(state) {
       return state.openEmailId ? (state.messageSummaries.get(state.openEmailId) ?? null) : null
     },

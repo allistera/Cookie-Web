@@ -782,6 +782,38 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     expect(toolbarGroups[0].find('[title="Unsubscribe"]').exists()).toBe(false)
   })
 
+  it('shows an Unsubscribe button for a link in the email content', async () => {
+    const url = 'https://news.example/preferences/unsubscribe?id=123'
+    store.traditionalEmails[0].unread = false
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        body_html: `<p>News</p><p><a href="${url}">Unsubscribe</a></p>`,
+        body_text: 'News',
+        unsubscribe: null,
+      }),
+    })
+    wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+    await vi.waitFor(() => expect(store.isOpenBodyResolved).toBe(true))
+    const emailBody = wrapper.findComponent(EmailBody)
+    emailBody.vm.$emit('unsubscribe-link', {
+      oneClick: false,
+      url,
+      href: url,
+      mailto: null,
+      source: 'content',
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.find('.ni-reader [title="Unsubscribe"]').exists()).toBe(true)
+    })
+
+    const link = wrapper.find('.ni-reader a[title="Unsubscribe"]')
+    expect(link.attributes('href')).toBe(url)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+  })
+
   it('hides the Unsubscribe button for a regular email', async () => {
     const reader = await openReader(null)
 
