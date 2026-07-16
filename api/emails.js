@@ -115,9 +115,9 @@ export default async function handler(req, res) {
     const sql = getSql()
     // The unread count (and userId) only matter on a list's first page; the
     // client ignores them on cursor pages, so skip the aggregate there.
-    const [rows, [userRow] = []] = await Promise.all([
+    const [rows, [userRow]] = await Promise.all([
       fetchEmails(sql, email, limit, cursor, folder),
-      cursor ? null : fetchUnreadCount(sql, email),
+      cursor ? [] : fetchUnreadCount(sql, email),
     ])
     const hasMore = rows.length > limit
     const emails = hasMore ? rows.slice(0, limit) : rows
