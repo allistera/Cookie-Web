@@ -12,15 +12,45 @@ const DEBOUNCE_MS = 1500
 export function useRealtimeInbox(store, supabase, isAuthenticated) {
   let channel = null
   let debounceTimer = null
+  let refreshPromise = null
+  let refreshUserId = null
+  let refreshQueued = false
   let wasDisconnected = false
+  let wasHidden = document.hidden
+
+  function refreshNow() {
+    if (!supabase || !isAuthenticated.value || !store.userId || store.activeSearchQuery) return
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+      debounceTimer = null
+    }
+    if (refreshPromise && refreshUserId === store.userId) {
+      refreshQueued = true
+      return refreshPromise
+    }
+
+    const userId = store.userId
+    const refresh = Promise.resolve(store.refreshInbox())
+    refreshPromise = refresh
+    refreshUserId = userId
+    refresh.finally(() => {
+      if (refreshPromise !== refresh) return
+      refreshPromise = null
+      refreshUserId = null
+      if (refreshQueued) {
+        refreshQueued = false
+        refreshNow()
+      }
+    })
+    return refresh
+  }
 
   function scheduleRefresh() {
     if (store.activeSearchQuery) return
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       debounceTimer = null
-      if (store.activeSearchQuery) return
-      store.refreshInbox()
+      refreshNow()
     }, DEBOUNCE_MS)
   }
 
@@ -34,6 +64,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
       channel = null
     }
     wasDisconnected = false
+    refreshQueued = false
   }
 
   function subscribe(userId) {
@@ -46,7 +77,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           // Catch pings missed while offline/reconnecting.
-          if (wasDisconnected) store.refreshInbox()
+          if (wasDisconnected) refreshNow()
           wasDisconnected = false
         } else {
           wasDisconnected = true
@@ -66,5 +97,22 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     { immediate: true },
   )
 
-  onScopeDispose(teardown)
+  // Browsers may freeze a background tab without reporting a Realtime
+  // disconnect. In that case broadcasts sent while suspended cannot be
+  // replayed, so refetch once when the tab resumes.
+  function onVisibilityChange() {
+    if (document.hidden) {
+      wasHidden = true
+    } else if (wasHidden) {
+      wasHidden = false
+      refreshNow()
+    }
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
+
+  onScopeDispose(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    teardown()
+  })
 }
