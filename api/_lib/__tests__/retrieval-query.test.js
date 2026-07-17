@@ -1,0 +1,110 @@
+import { describe, expect, it } from 'vitest'
+
+import { keywordLeg, recencyLeg, vectorLeg } from '../retrieval.js'
+
+// A minimal stand-in for postgres.js tagged templates: a `sql` tag returns a
+// fragment, and interpolated fragments are spliced in while plain values become
+// a `$` placeholder — enough to assert on the composed SQL text, including the
+// conditionally-added prefix and filter fragments.
+function makeSql() {
+  const sql = (strings, ...values) => ({ __frag: true, strings, values })
+  const render = (node) => {
+    if (!node || !node.__frag) return '$'
+    return node.strings.reduce(
+      (acc, part, i) => (i === 0 ? part : acc + render(node.values[i - 1]) + part),
+      '',
+    )
+  }
+  return { sql, render }
+}
+
+const NO_FILTERS = { from: undefined, to: undefined }
+
+describe('keywordLeg', () => {
+  it('matches free text only when there is no prefix query', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'invoice', prefixQuery: null, filters: {} }, 20))
+    expect(q).toContain("websearch_to_tsquery('english', $)")
+    expect(q).not.toContain('OR m.search @@')
+    expect(q).not.toContain('GREATEST(')
+    expect(q).toContain('ORDER BY')
+    expect(q).toContain('ts_rank(')
+  })
+
+  it('adds a prefix match and GREATEST rank when a prefix query is present', () => {
+    const { sql, render } = makeSql()
+    const q = render(
+      keywordLeg(sql, 'me@example.com', { text: 'kitchen tile', prefixQuery: 'kitchen & tile:*', filters: {} }, 20),
+    )
+    expect(q).toContain("to_tsquery('english', $)")
+    expect(q).toContain('OR m.search @@')
+    expect(q).toContain('GREATEST(')
+  })
+
+  it('applies from/to/date/attachment filters', () => {
+    const { sql, render } = makeSql()
+    const q = render(
+      keywordLeg(
+        sql,
+        'me@example.com',
+        {
+          text: 'x',
+          prefixQuery: null,
+          filters: { from: 'alice', to: 'bob', hasAttachment: true, before: '2026-01-31', after: '2026-01-01' },
+        },
+        20,
+      ),
+    )
+    expect(q).toContain('m.from_address ILIKE')
+    expect(q).toContain('coalesce(m.from_name')
+    expect(q).toContain('m.recipients::text ILIKE')
+    expect(q).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)')
+    expect(q).toContain('m.sent_at < $::date')
+    expect(q).toContain('m.sent_at >= $::date')
+  })
+})
+
+describe('recencyLeg', () => {
+  it('orders by sent_at and keeps the text predicate when text is present', () => {
+    const { sql, render } = makeSql()
+    const q = render(recencyLeg(sql, 'me@example.com', { text: 'report', prefixQuery: null, filters: {} }, 20))
+    expect(q).toContain('ORDER BY m.sent_at DESC')
+    expect(q).toContain("websearch_to_tsquery('english', $)")
+  })
+
+  it('drops the text predicate for a filters-only query', () => {
+    const { sql, render } = makeSql()
+    const q = render(
+      recencyLeg(sql, 'me@example.com', { text: '', prefixQuery: null, filters: { from: 'alice' } }, 20),
+    )
+    expect(q).not.toContain('websearch_to_tsquery')
+    expect(q).toContain('m.from_address ILIKE')
+    expect(q).toContain('ORDER BY m.sent_at DESC')
+  })
+})
+
+describe('vectorLeg', () => {
+  it('orders by cosine distance and applies filters', () => {
+    const { sql, render } = makeSql()
+    const q = render(vectorLeg(sql, 'me@example.com', '[0.1]', { from: 'alice' }, 20))
+    expect(q).toContain('m.embedding <=> $::extensions.vector')
+    expect(q).toContain('m.embedding IS NOT NULL')
+    expect(q).toContain('m.from_address ILIKE')
+  })
+
+  it('adds no filter predicates when filters are empty', () => {
+    const { sql, render } = makeSql()
+    const q = render(vectorLeg(sql, 'me@example.com', '[0.1]', {}, 20))
+    expect(q).not.toContain('ILIKE')
+    expect(q).toContain('ORDER BY m.embedding')
+  })
+})
+
+// NO_FILTERS documents that undefined operator keys are simply skipped.
+describe('filterClause via keywordLeg', () => {
+  it('adds nothing for all-undefined filters', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'x', prefixQuery: null, filters: NO_FILTERS }, 20))
+    expect(q).not.toContain('ILIKE')
+  })
+})

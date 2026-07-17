@@ -109,12 +109,16 @@ export default async function handler(req, res) {
   try {
     const sql = getSql()
 
+    // A natural-language question is matched as plain free text: no prefix
+    // (the last word is complete) and no structured operators.
+    const spec = { text: question, prefixQuery: null, filters: {} }
+
     const semanticIds = async () => {
       try {
         const vector = JSON.stringify(
           await embedTextCached(question, process.env.OPENAI_API_KEY),
         )
-        return await vectorLeg(sql, email, vector, CANDIDATES)
+        return await vectorLeg(sql, email, vector, spec.filters, CANDIDATES)
       } catch (err) {
         console.error('POST /api/ask vector leg failed:', err.message)
         return []
@@ -122,7 +126,7 @@ export default async function handler(req, res) {
     }
 
     const [keywordRows, vectorRows] = await Promise.all([
-      keywordLeg(sql, email, question, CANDIDATES),
+      keywordLeg(sql, email, spec, CANDIDATES),
       semanticIds(),
     ])
     const ids = fuseRankings([

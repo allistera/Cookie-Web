@@ -6,7 +6,8 @@ import { captureApiError } from './_lib/sentry.js'
 import { embedTextCached } from './_lib/embeddings.js'
 import { fuseRankings } from './_lib/rank-fusion.js'
 import { allowRequest } from './_lib/rate-limit.js'
-import { keywordLeg, vectorLeg } from './_lib/retrieval.js'
+import { keywordLeg, recencyLeg, vectorLeg } from './_lib/retrieval.js'
+import { parseSearchQuery } from './_lib/query-parse.js'
 
 const MAX_QUERY_CHARS = 500
 const CANDIDATES = 40 // per leg, before fusion
@@ -70,29 +71,46 @@ export default async function handler(req, res) {
     return
   }
 
+  // Split the raw query into free text, a prefix tsquery, and structured
+  // operators (from:/to:/has:/before:/after:). A query that is only an unknown
+  // operator leaves nothing to search on.
+  const spec = parseSearchQuery(q)
+  const hasFilters = Object.keys(spec.filters).length > 0
+  if (!spec.text && !hasFilters) {
+    res.statusCode = 200
+    res.end(JSON.stringify({ emails: [] }))
+    return
+  }
+
   try {
     const sql = getSql()
 
-    // Semantic leg is best-effort: no key or an OpenAI failure degrades to
-    // keyword-only search rather than failing the request.
+    // Semantic leg is best-effort: no key, no free text, or an OpenAI failure
+    // degrades to keyword/recency search rather than failing the request.
     const semanticIds = async () => {
-      if (!process.env.OPENAI_API_KEY) return []
+      if (!spec.text || !process.env.OPENAI_API_KEY) return []
       try {
-        const vector = JSON.stringify(await embedTextCached(q, process.env.OPENAI_API_KEY))
-        return await vectorLeg(sql, email, vector, CANDIDATES)
+        const vector = JSON.stringify(await embedTextCached(spec.text, process.env.OPENAI_API_KEY))
+        return await vectorLeg(sql, email, vector, spec.filters, CANDIDATES)
       } catch (err) {
         console.error('GET /api/search vector leg failed:', err.message)
         return []
       }
     }
 
-    const [keywordRows, vectorRows] = await Promise.all([
-      keywordLeg(sql, email, q, CANDIDATES),
+    // Keyword leg needs free text; a filters-only query rides on the recency
+    // leg alone.
+    const keywordIds = spec.text ? keywordLeg(sql, email, spec, CANDIDATES) : Promise.resolve([])
+
+    const [keywordRows, recencyRows, vectorRows] = await Promise.all([
+      keywordIds,
+      recencyLeg(sql, email, spec, CANDIDATES),
       semanticIds(),
     ])
 
     const ids = fuseRankings([
       keywordRows.map((r) => r.id),
+      recencyRows.map((r) => r.id),
       vectorRows.map((r) => r.id),
     ]).slice(0, RESULTS)
 
