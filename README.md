@@ -32,6 +32,7 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Per-label auto-tag controls and conservative spam classification.
 - Outbound delivery through Resend with stored sent copies.
 - Supabase Realtime pings for inbox refreshes.
+- Opt-in browser notifications for new mail while Cookie is open in a background tab.
 
 See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.md) for the AI design, safety boundaries, and alternatives considered.
 

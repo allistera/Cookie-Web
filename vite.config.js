@@ -65,6 +65,7 @@ function localApiPlugin(mode) {
           emails,
           nextCursor: null,
           unreadCount: emails.filter((e) => e.is_unread).length,
+          userId: '11111111-1111-4111-8111-111111111111',
         }),
       )
       return

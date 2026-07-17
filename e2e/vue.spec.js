@@ -37,6 +37,48 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   expect(pageErrors).toEqual([])
 })
 
+test('Browser notifications can be enabled from Notifications settings', async ({ page }) => {
+  // Headless engines deny OS notifications, so provide the same permission
+  // surface while driving the real settings UI in every browser project.
+  await page.addInitScript(() => {
+    class TestNotification {
+      static permission = 'default'
+
+      static async requestPermission() {
+        TestNotification.permission = 'granted'
+        return 'granted'
+      }
+    }
+    Object.defineProperty(globalThis, 'Notification', {
+      configurable: true,
+      value: TestNotification,
+    })
+  })
+  await page.goto('/')
+  await expect(page.locator('.ni-row').first()).toBeVisible()
+  await page.locator('.profile-container').click()
+  await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
+
+  const modal = page.locator('.settings-modal-container')
+  await modal.locator('.settings-nav-item', { hasText: 'Notifications' }).click()
+  const browserNotifications = modal.locator('.browser-notifications-switch')
+  await expect(browserNotifications).toBeEnabled()
+  await browserNotifications.check()
+
+  await expect(browserNotifications).toBeChecked()
+  await expect(modal.locator('.browser-notifications-status')).toContainText('sender and subject')
+  expect(await page.evaluate(() => Notification.permission)).toBe('granted')
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(
+        localStorage.getItem(
+          'cookie-browser-notifications:11111111-1111-4111-8111-111111111111',
+        ),
+      ),
+    ),
+  ).toEqual({ enabled: true })
+})
+
 test('Composer disables Send while an email is being sent', async ({ page }) => {
   let releaseSend
   let sendRequests = 0

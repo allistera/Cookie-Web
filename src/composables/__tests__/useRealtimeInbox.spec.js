@@ -27,8 +27,8 @@ function makeMockClient() {
     channel: vi.fn(() => channelObj),
     removeChannel: vi.fn(),
     channelObj,
-    ping() {
-      onBroadcast?.({})
+    ping(payload = {}) {
+      onBroadcast?.({ payload })
     },
     setStatus(status) {
       onStatus?.(status)
@@ -45,8 +45,10 @@ describe('useRealtimeInbox', () => {
     setActivePinia(createPinia())
     store = useInboxStore()
     vi.spyOn(store, 'refreshInbox').mockResolvedValue(undefined)
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
     vi.useFakeTimers()
     scope = effectScope()
+    localStorage.clear()
     originalHiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden')
   })
 
@@ -58,6 +60,7 @@ describe('useRealtimeInbox', () => {
       delete document.hidden
     }
     vi.useRealTimers()
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
@@ -124,6 +127,92 @@ describe('useRealtimeInbox', () => {
 
     expect(store.refreshInbox).toHaveBeenCalledTimes(1)
     expect(document.title).toBe(`(1) ${BASE_TITLE}`)
+  })
+
+  it('claims an inbound insert event and acknowledges a browser notification while hidden', async () => {
+    const client = makeMockClient()
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    localStorage.setItem(
+      `cookie-browser-notifications:${store.userId}`,
+      JSON.stringify({ enabled: true }),
+    )
+    const close = vi.fn()
+    const NotificationMock = vi.fn(function Notification(title, options) {
+      this.title = title
+      this.options = options
+      this.close = close
+    })
+    NotificationMock.permission = 'granted'
+    vi.stubGlobal('Notification', NotificationMock)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            claimToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            message: { id: 'message-1', sender: 'City Construction', subject: 'Kitchen update' },
+          }),
+        })
+        .mockResolvedValueOnce({ ok: true, status: 204 }),
+    )
+    mount(client)
+
+    setHidden(true)
+    client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
+    await vi.waitFor(() => expect(NotificationMock).toHaveBeenCalledTimes(1))
+
+    expect(NotificationMock).toHaveBeenCalledWith('New email from City Construction', {
+      body: 'Kitchen update',
+      icon: '/icons/icon-192.png',
+      tag: 'cookie-email-message-1',
+    })
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/notification-event',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'claim',
+          eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        }),
+      }),
+    )
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/notification-event',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'ack',
+          eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        }),
+      }),
+    )
+  })
+
+  it('never requests browser notification content for an update ping', async () => {
+    const client = makeMockClient()
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    localStorage.setItem(
+      `cookie-browser-notifications:${store.userId}`,
+      JSON.stringify({ enabled: true }),
+    )
+    vi.stubGlobal('Notification', Object.assign(vi.fn(), { permission: 'granted' }))
+    vi.stubGlobal('fetch', vi.fn())
+    mount(client)
+
+    setHidden(true)
+    client.ping({ op: 'UPDATE', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(Notification).not.toHaveBeenCalled()
   })
 
   it('does not refresh while a search is active', () => {

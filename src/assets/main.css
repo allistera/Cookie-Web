@@ -2846,6 +2846,11 @@ body {
   transform: translateX(20px);
 }
 
+.settings-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .composer-ai-instruction {
   width: 100%;
   box-sizing: border-box;

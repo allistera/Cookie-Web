@@ -105,11 +105,56 @@ describe('SettingsModal', () => {
       .findAll('.settings-nav-item')
       .find((n) => n.text().includes('Notifications'))
       .trigger('click')
-    const toggles = wrapper.findAll('.settings-switch')
+    const toggles = wrapper.findAll('.settings-switch:not(.browser-notifications-switch)')
     await toggles[0].setValue(false)
 
     const saved = JSON.parse(localStorage.getItem('cookie-settings-prefs'))
     expect(saved.emailSummaries).toBe(false)
+  })
+
+  it('requests browser permission and enables new-mail notifications for the current user', async () => {
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    const requestPermission = vi.fn().mockResolvedValue('granted')
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission })
+    const wrapper = await openModal()
+
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Notifications'))
+      .trigger('click')
+    await wrapper.find('.browser-notifications-switch').setValue(true)
+    await vi.waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1))
+
+    expect(wrapper.find('.browser-notifications-switch').element.checked).toBe(true)
+    expect(
+      JSON.parse(
+        localStorage.getItem(
+          'cookie-browser-notifications:11111111-1111-1111-1111-111111111111',
+        ),
+      ),
+    ).toEqual({ enabled: true })
+    expect(wrapper.find('.browser-notifications-status').text()).toContain('sender and subject')
+  })
+
+  it('keeps browser notifications off when permission is denied', async () => {
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    const requestPermission = vi.fn().mockImplementation(async () => {
+      Notification.permission = 'denied'
+      return 'denied'
+    })
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission })
+    const wrapper = await openModal()
+
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Notifications'))
+      .trigger('click')
+    await wrapper.find('.browser-notifications-switch').setValue(true)
+    await vi.waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1))
+
+    expect(wrapper.find('.browser-notifications-switch').element.checked).toBe(false)
+    expect(wrapper.find('.browser-notifications-switch').element.disabled).toBe(true)
+    expect(wrapper.find('.browser-notifications-status').text()).toContain('blocked')
   })
 
   it('lists labels with colors and descriptions in the Labels pane', async () => {

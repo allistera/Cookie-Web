@@ -1,4 +1,9 @@
 import { watch, onScopeDispose } from 'vue'
+import {
+  browserNotificationPermission,
+  browserNotificationsEnabled,
+  showNewEmailNotification,
+} from '../lib/browserNotifications'
 
 const DEBOUNCE_MS = 1500
 
@@ -17,6 +22,62 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   let refreshQueued = false
   let wasDisconnected = false
   let wasHidden = document.hidden
+  let lifecycleVersion = 0
+  let disposed = false
+  const pendingNotificationEventIds = new Set()
+  const notificationRetryTimers = new Set()
+
+  function canShowBrowserNotification(userId, version) {
+    return (
+      !disposed &&
+      version === lifecycleVersion &&
+      isAuthenticated.value &&
+      store.userId === userId &&
+      document.hidden &&
+      browserNotificationPermission() === 'granted' &&
+      browserNotificationsEnabled(userId)
+    )
+  }
+
+  async function postNotificationEvent(body) {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    return fetch('/api/notification-event', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    })
+  }
+
+  async function claimNotificationEvent(eventId, userId, version, allowRetry = true) {
+    if (!canShowBrowserNotification(userId, version)) return
+    try {
+      const response = await postNotificationEvent({ action: 'claim', eventId })
+      if (response.status === 423 && allowRetry) {
+        const retryAfter = Number.parseInt(response.headers?.get?.('Retry-After') || '30', 10)
+        const timer = setTimeout(() => {
+          notificationRetryTimers.delete(timer)
+          claimNotificationEvent(eventId, userId, version, false)
+        }, Math.max(1, retryAfter) * 1000)
+        notificationRetryTimers.add(timer)
+        return
+      }
+      if (response.status === 204 || response.status === 404) return
+      if (!response.ok) throw new Error(`POST /api/notification-event responded ${response.status}`)
+
+      const claimed = await response.json()
+      if (!canShowBrowserNotification(userId, version)) return
+      const notification = showNewEmailNotification(claimed.message)
+      if (!notification) return
+
+      await postNotificationEvent({
+        action: 'ack',
+        eventId: claimed.eventId,
+        claimToken: claimed.claimToken,
+      })
+    } catch (error) {
+      console.error('Failed to process browser notification event:', error)
+    }
+  }
 
   function refreshNow() {
     if (!supabase || !isAuthenticated.value || !store.userId || store.activeSearchQuery) return
@@ -30,7 +91,19 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     }
 
     const userId = store.userId
-    const refresh = Promise.resolve(store.refreshInbox())
+    const version = lifecycleVersion
+    const notificationEventIds = [...pendingNotificationEventIds]
+    pendingNotificationEventIds.clear()
+    const storeRefresh = Promise.resolve(store.refreshInbox())
+    const refresh = notificationEventIds.length
+      ? storeRefresh.then(() =>
+          Promise.all(
+            notificationEventIds.map((eventId) =>
+              claimNotificationEvent(eventId, userId, version),
+            ),
+          ),
+        )
+      : storeRefresh
     refreshPromise = refresh
     refreshUserId = userId
     refresh.finally(() => {
@@ -62,6 +135,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   }
 
   function teardown() {
+    lifecycleVersion += 1
     if (debounceTimer) {
       clearTimeout(debounceTimer)
       debounceTimer = null
@@ -72,13 +146,20 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     }
     wasDisconnected = false
     refreshQueued = false
+    pendingNotificationEventIds.clear()
+    for (const timer of notificationRetryTimers) clearTimeout(timer)
+    notificationRetryTimers.clear()
   }
 
   function subscribe(userId) {
     teardown()
     channel = supabase
       .channel(`inbox:${userId}`)
-      .on('broadcast', { event: 'inbox-changed' }, () => {
+      .on('broadcast', { event: 'inbox-changed' }, (event) => {
+        const payload = event?.payload
+        if (payload?.op === 'INSERT' && typeof payload.event_id === 'string') {
+          pendingNotificationEventIds.add(payload.event_id)
+        }
         scheduleRefresh()
       })
       .subscribe((status) => {
@@ -119,6 +200,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   document.addEventListener('visibilitychange', onVisibilityChange)
 
   onScopeDispose(() => {
+    disposed = true
     document.removeEventListener('visibilitychange', onVisibilityChange)
     teardown()
   })

@@ -3,6 +3,13 @@ import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
+import {
+  browserNotificationPermission,
+  browserNotificationsEnabled,
+  browserNotificationsSupported,
+  requestBrowserNotificationPermission,
+  saveBrowserNotificationsEnabled,
+} from '../lib/browserNotifications'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -61,6 +68,56 @@ const prefs = reactive(loadPrefs())
 watch(prefs, (val) => {
   localStorage.setItem(PREFS_KEY, JSON.stringify(val))
 })
+
+const notificationOwnerId = computed(() => store.userId)
+const browserPermission = ref(browserNotificationPermission())
+const browserNotificationsOn = ref(false)
+const isRequestingBrowserPermission = ref(false)
+
+function syncBrowserNotificationPreference() {
+  browserPermission.value = browserNotificationPermission()
+  browserNotificationsOn.value =
+    browserPermission.value === 'granted' && browserNotificationsEnabled(notificationOwnerId.value)
+}
+
+watch(notificationOwnerId, syncBrowserNotificationPreference, { immediate: true })
+watch(isOpen, (open) => {
+  if (open) syncBrowserNotificationPreference()
+})
+
+const browserNotificationStatus = computed(() => {
+  if (!browserNotificationsSupported()) return 'Browser notifications are not supported here.'
+  if (browserPermission.value === 'denied') {
+    return 'Notifications are blocked. Allow them in your browser site settings to enable this.'
+  }
+  if (browserNotificationsOn.value) {
+    return 'Cookie will show the sender and subject when new mail arrives in a background tab.'
+  }
+  return 'Show the sender and subject when new mail arrives while Cookie is open in the background.'
+})
+
+async function toggleBrowserNotifications(event) {
+  const enabled = event.target.checked
+  if (!enabled) {
+    browserNotificationsOn.value = false
+    saveBrowserNotificationsEnabled(notificationOwnerId.value, false)
+    return
+  }
+
+  isRequestingBrowserPermission.value = true
+  let permission = browserNotificationPermission()
+  try {
+    permission = await requestBrowserNotificationPermission()
+  } catch (error) {
+    console.error('Failed to request browser notification permission:', error)
+  } finally {
+    isRequestingBrowserPermission.value = false
+  }
+  browserPermission.value = permission
+  browserNotificationsOn.value = permission === 'granted'
+  event.target.checked = browserNotificationsOn.value
+  saveBrowserNotificationsEnabled(notificationOwnerId.value, browserNotificationsOn.value)
+}
 
 // --- Labels ---
 const LABEL_PALETTE = [
@@ -185,6 +242,24 @@ async function submitLabelRename(label) {
           <!-- Notifications -->
           <section v-if="activeSection === 'notifications'" class="settings-section">
             <h3 class="settings-section-title">Notifications</h3>
+            <label class="settings-row">
+              <div class="settings-row-text">
+                <span>Browser notifications</span>
+                <small class="browser-notifications-status">{{ browserNotificationStatus }}</small>
+              </div>
+              <input
+                type="checkbox"
+                class="settings-switch browser-notifications-switch"
+                :checked="browserNotificationsOn"
+                :disabled="
+                  isRequestingBrowserPermission ||
+                  !notificationOwnerId ||
+                  browserPermission === 'denied' ||
+                  browserPermission === 'unsupported'
+                "
+                @change="toggleBrowserNotifications"
+              />
+            </label>
             <label class="settings-row">
               <div class="settings-row-text">
                 <span>Email summaries</span>
