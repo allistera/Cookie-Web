@@ -1,9 +1,12 @@
-import { effectScope, ref } from 'vue'
+import { effectScope, nextTick, ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 
 import { useRealtimeInbox } from '../useRealtimeInbox'
+import { useTitleUnreadBadge } from '../useTitleUnreadBadge'
 import { useInboxStore } from '../../stores/inbox'
+
+const BASE_TITLE = 'Cookie AI Inbox - Workspace Intelligence'
 
 // Minimal chainable stand-in for the supabase-js RealtimeChannel API used by
 // the composable: .channel(name).on('broadcast', ...).subscribe(statusCb).
@@ -102,6 +105,25 @@ describe('useRealtimeInbox', () => {
     vi.advanceTimersByTime(1500)
 
     expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes and badges the title without a timer when a ping arrives while hidden', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    store.unreadInboxCount = 3
+    document.title = BASE_TITLE
+    store.refreshInbox.mockImplementation(async () => {
+      store.unreadInboxCount = 4
+    })
+    mount(client)
+    scope.run(() => useTitleUnreadBadge(store))
+
+    setHidden(true)
+    client.ping()
+    await nextTick()
+
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+    expect(document.title).toBe(`(1) ${BASE_TITLE}`)
   })
 
   it('does not refresh while a search is active', () => {

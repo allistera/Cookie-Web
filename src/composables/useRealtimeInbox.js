@@ -47,6 +47,13 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
 
   function scheduleRefresh() {
     if (store.activeSearchQuery) return
+    // Background tabs throttle timers aggressively. If Realtime delivered the
+    // ping before suspension, refresh immediately so the unread count (and tab
+    // title badge) can update without waiting on the visible-tab debounce.
+    if (document.hidden) {
+      refreshNow()
+      return
+    }
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       debounceTimer = null
