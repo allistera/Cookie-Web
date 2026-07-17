@@ -67,6 +67,33 @@ describe('TraditionalInboxView day accordion', () => {
     expect(groupHeader(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
   })
 
+  it('shows auto_awesome before the subject when an email has the AI Generated label', async () => {
+    store.traditionalEmails[0].labels = [
+      { name: 'AI Generated', color: '#7c3aed' },
+      { name: 'Projects', color: '#2383e2' },
+    ]
+    store.traditionalEmails.splice(1, 0, makeEmail('today-plain', Date.now() - 2 * HOUR))
+    const wrapper = mount(TraditionalInboxView)
+
+    const generatedRow = wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('Subject today-1'))
+    const rowSubject = generatedRow.find('.ni-subject')
+    expect(rowSubject.find('.ni-ai-generated-icon').text()).toBe('auto_awesome')
+    expect(rowSubject.text()).toContain('auto_awesomeSubject today-1')
+
+    const plainRow = wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('Subject today-plain'))
+    expect(plainRow.find('.ni-ai-generated-icon').exists()).toBe(false)
+
+    await generatedRow.trigger('click')
+
+    const readerSubject = wrapper.find('.ni-reader-subject')
+    expect(readerSubject.find('.ni-ai-generated-icon').text()).toBe('auto_awesome')
+    expect(readerSubject.text()).toContain('auto_awesomeSubject today-1')
+  })
+
   it('shows due scheduled emails in an expanded Due Today group above Today', () => {
     const due = makeEmail('due-1', Date.now() - 5 * DAY)
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()

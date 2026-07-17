@@ -20,7 +20,10 @@ const rows = [
     // body, so the reader shows a spinner during the on-demand fetch. All other
     // fixture rows are text-only (has_html false) and render instantly.
     has_html: true,
-    labels: [{ name: 'Home', color: '#e5484d' }],
+    labels: [
+      { name: 'AI Generated', color: '#7c3aed' },
+      { name: 'Home', color: '#e5484d' },
+    ],
   },
   {
     from_name: "Homeowner's Insurance",

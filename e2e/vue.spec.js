@@ -81,10 +81,13 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   // Header no longer has display/settings/refresh icon buttons
   await expect(page.locator('.ni-header .ni-icon-btn')).toHaveCount(0)
 
-  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const generatedRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(generatedRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
+  await generatedRow.click()
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
+  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
 
   // Reader actions sit together in the top-right toolbar.
   const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
@@ -102,7 +105,7 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 
   // Clicking outside the panel also closes it
-  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await generatedRow.click()
   await expect(page.locator('.ni-reader')).toBeVisible()
   await page.locator('.ni-title h1').click()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
@@ -115,7 +118,7 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
   const row = page.locator('.ni-row', { hasText: subject })
   await row.click()
   const reader = page.locator('.ni-reader')
-  await expect(reader.locator('.ni-reader-subject')).toHaveText(subject)
+  await expect(reader.locator('.ni-reader-subject-text')).toHaveText(subject)
 
   const emailLink = reader
     .frameLocator('iframe[title="Email content"]')
@@ -662,7 +665,7 @@ test('The hidden Done mailbox shows emails after they are marked done', async ({
 
   await page.locator('.ni-row', { hasText: subject }).click()
   const reader = page.locator('.ni-reader')
-  await expect(reader.locator('.ni-reader-subject')).toHaveText(subject)
+  await expect(reader.locator('.ni-reader-subject-text')).toHaveText(subject)
   await expect(reader.locator('[title="Done"]')).toHaveCount(0)
   await expect(reader.locator('[title="Reschedule"]')).toHaveCount(0)
   await page.screenshot({ path: '/tmp/cookie-web-done-mailbox.png', fullPage: true })

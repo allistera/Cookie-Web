@@ -1153,11 +1153,25 @@ body {
 }
 
 .ni-subject {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.ni-subject-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-secondary);
+}
+
+.ni-ai-generated-icon {
+  flex-shrink: 0;
+  color: var(--gemini-purple);
+  font-size: 18px;
 }
 
 .ni-row.unread .ni-sender,
@@ -1380,10 +1394,17 @@ body {
 }
 
 .ni-reader-subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 14px;
+}
+
+.ni-reader-subject .ni-ai-generated-icon {
+  font-size: 24px;
 }
 
 .ni-reader-labels {
