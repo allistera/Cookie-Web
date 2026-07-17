@@ -65,16 +65,15 @@ export function keywordLeg(sql, email, spec, limit) {
     WHERE lower(u.email) = ${email} AND NOT m.is_archived
       AND ${textMatch(sql, text, prefixQuery)}
       ${filterClause(sql, filters)}
-    ORDER BY ${rankExpr(sql, text, prefixQuery)} DESC
+    ORDER BY ${rankExpr(sql, text, prefixQuery)} DESC, m.sent_at DESC
     LIMIT ${limit}
   `
 }
 
-// Recency leg: the same candidates ordered newest-first, fused with the keyword
-// leg so a recent relevant match outranks an equally-relevant stale one. With
-// no free text (a filters-only query such as `from:alice has:attachment`) it
-// returns filter matches by date, which is the whole result set for such
-// queries.
+// Recency leg: filter matches ordered newest-first. Used only for filters-only
+// queries (e.g. `from:alice has:attachment`) that carry no relevance signal;
+// for free-text search, recency is just the keyword leg's tie-breaker so it
+// never competes with relevance.
 export function recencyLeg(sql, email, spec, limit) {
   const { text, prefixQuery, filters } = spec
   const match = text ? sql`AND ${textMatch(sql, text, prefixQuery)}` : sql``

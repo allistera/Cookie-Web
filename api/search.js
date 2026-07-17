@@ -98,13 +98,16 @@ export default async function handler(req, res) {
       }
     }
 
-    // Keyword leg needs free text; a filters-only query rides on the recency
-    // leg alone.
+    // Free-text queries rank purely by relevance (keyword + semantic); recency
+    // is only the keyword leg's tie-breaker, so results are not date-sorted. A
+    // filters-only query has no relevance signal, so it falls back to the
+    // recency leg ordered newest-first.
     const keywordIds = spec.text ? keywordLeg(sql, email, spec, CANDIDATES) : Promise.resolve([])
+    const recencyIds = spec.text ? Promise.resolve([]) : recencyLeg(sql, email, spec, CANDIDATES)
 
     const [keywordRows, recencyRows, vectorRows] = await Promise.all([
       keywordIds,
-      recencyLeg(sql, email, spec, CANDIDATES),
+      recencyIds,
       semanticIds(),
     ])
 

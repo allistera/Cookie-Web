@@ -29,6 +29,9 @@ describe('keywordLeg', () => {
     expect(q).not.toContain('GREATEST(')
     expect(q).toContain('ORDER BY')
     expect(q).toContain('ts_rank(')
+    // Relevance is primary; recency is only a tie-breaker, so free-text search
+    // is not date-sorted.
+    expect(q).toMatch(/ORDER BY[\s\S]*DESC, m\.sent_at DESC/)
   })
 
   it('adds a prefix match and GREATEST rank when a prefix query is present', () => {
