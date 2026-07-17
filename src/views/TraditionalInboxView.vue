@@ -78,8 +78,8 @@ const headerIconStyle = computed(() => {
 
 const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '')
 
-const hasAiGeneratedLabel = (email) =>
-  email.labels?.some((label) => label.name === 'AI Generated') ?? false
+const emailHasAiSummary = (email) =>
+  Boolean(email.hasAiSummary || store.messageSummaries.get(email.id))
 
 const showInboxZero = computed(
   () =>
@@ -583,7 +583,7 @@ onUnmounted(() => {
           <div class="ni-sender">{{ rowSender(email) }}</div>
           <div class="ni-subject">
             <span
-              v-if="hasAiGeneratedLabel(email)"
+              v-if="emailHasAiSummary(email)"
               class="material-symbols-outlined ni-ai-generated-icon"
               aria-hidden="true"
               >auto_awesome</span
@@ -786,7 +786,7 @@ onUnmounted(() => {
 
         <h2 class="ni-reader-subject">
           <span
-            v-if="hasAiGeneratedLabel(openEmail)"
+            v-if="emailHasAiSummary(openEmail)"
             class="material-symbols-outlined ni-ai-generated-icon"
             aria-hidden="true"
             >auto_awesome</span

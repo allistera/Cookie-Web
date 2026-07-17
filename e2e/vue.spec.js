@@ -81,13 +81,13 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   // Header no longer has display/settings/refresh icon buttons
   await expect(page.locator('.ni-header .ni-icon-btn')).toHaveCount(0)
 
-  const generatedRow = page.locator('.ni-row', { hasText: 'City Construction' })
-  await expect(generatedRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
-  await generatedRow.click()
+  const cityRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(cityRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveCount(0)
+  await cityRow.click()
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
-  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
+  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveCount(0)
 
   // Reader actions sit together in the top-right toolbar.
   const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
@@ -105,7 +105,7 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 
   // Clicking outside the panel also closes it
-  await generatedRow.click()
+  await cityRow.click()
   await expect(page.locator('.ni-reader')).toBeVisible()
   await page.locator('.ni-title h1').click()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
@@ -181,7 +181,9 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   })
 
   await page.goto('/inbox')
-  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const cityRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(cityRow.locator('.ni-ai-generated-icon')).toHaveCount(0)
+  await cityRow.click()
   const reader = page.locator('.ni-reader')
   const summarize = reader.locator('.ni-summarize-btn')
 
@@ -206,6 +208,10 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   await expect(summary).toContainText('City Construction shared a revised plan.')
   await expect(summarize).toBeEnabled()
   await expect(summarize).toHaveText(/Regenerate Summary/)
+  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
+
+  await page.keyboard.press('Escape')
+  await expect(cityRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
 })
 
 test('Reader restores a saved AI summary and offers to regenerate it', async ({ page }) => {
@@ -221,6 +227,7 @@ test('Reader restores a saved AI summary and offers to regenerate it', async ({ 
   await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
 
   await page.reload()
+  await expect(row.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
   await row.click()
   reader = page.locator('.ni-reader')
 

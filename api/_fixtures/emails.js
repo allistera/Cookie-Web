@@ -20,10 +20,7 @@ const rows = [
     // body, so the reader shows a spinner during the on-demand fetch. All other
     // fixture rows are text-only (has_html false) and render instantly.
     has_html: true,
-    labels: [
-      { name: 'AI Generated', color: '#7c3aed' },
-      { name: 'Home', color: '#e5484d' },
-    ],
+    labels: [{ name: 'Home', color: '#e5484d' }],
   },
   {
     from_name: "Homeowner's Insurance",
@@ -261,6 +258,7 @@ export function fixtureEmails() {
   return rows.map(({ ageMs, ...row }, index) => ({
     id: `fixture-${index + 1}`,
     has_html: false,
+    has_ai_summary: false,
     ...row,
     sent_at: new Date(now - ageMs).toISOString(),
   }))
@@ -271,6 +269,7 @@ export function fixtureSentEmails() {
   return sentRows.map(({ ageMs, ...row }, index) => ({
     id: `fixture-sent-${index + 1}`,
     has_html: false,
+    has_ai_summary: false,
     is_unread: false,
     is_starred: false,
     is_sent: true,

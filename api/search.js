@@ -13,6 +13,29 @@ const CANDIDATES = 40 // per leg, before fusion
 const RESULTS = 20
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 } // per user; vector leg costs money
 
+// Fetches the fused result ids in one list-shaped query. Only summary presence
+// is exposed here; the generated text remains on the owned-message endpoint.
+export function fetchSearchEmails(sql, email, ids) {
+  return sql`
+    SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
+           m.body_text, m.sent_at, m.is_unread, m.is_starred, m.scheduled_for,
+           BOOL_OR(NULLIF(BTRIM(ai.summary), '') IS NOT NULL) AS has_ai_summary,
+           COALESCE(
+             json_agg(json_build_object('name', l.name, 'color', l.color)
+                      ORDER BY l.name)
+               FILTER (WHERE l.id IS NOT NULL),
+             '[]'
+           ) AS labels
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
+    LEFT JOIN message_labels ml ON ml.message_id = m.id
+    LEFT JOIN labels l ON l.id = ml.label_id
+    WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])
+    GROUP BY m.id
+  `
+}
+
 // GET /api/search?q=… — hybrid (keyword + semantic) search over the
 // authenticated user's messages, fused with reciprocal rank fusion.
 // Response shape matches GET /api/emails.
@@ -79,22 +102,7 @@ export default async function handler(req, res) {
       return
     }
 
-    const rows = await sql`
-      SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
-             m.body_text, m.sent_at, m.is_unread, m.is_starred, m.scheduled_for,
-             COALESCE(
-               json_agg(json_build_object('name', l.name, 'color', l.color)
-                        ORDER BY l.name)
-                 FILTER (WHERE l.id IS NOT NULL),
-               '[]'
-             ) AS labels
-      FROM messages m
-      JOIN users u ON u.id = m.user_id
-      LEFT JOIN message_labels ml ON ml.message_id = m.id
-      LEFT JOIN labels l ON l.id = ml.label_id
-      WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])
-      GROUP BY m.id
-    `
+    const rows = await fetchSearchEmails(sql, email, ids)
     const byId = new Map(rows.map((row) => [row.id, row]))
     const emails = ids.map((id) => byId.get(id)).filter(Boolean)
 

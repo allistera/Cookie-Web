@@ -24,6 +24,8 @@ describe('fetchEmails', () => {
     fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'inbox')
 
     expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+    expect(capture.query()).toContain('ai.summary')
+    expect(capture.query()).toContain('AS has_ai_summary')
     expect(capture.query()).toContain('m.scheduled_for')
     expect(capture.query()).toContain('m.scheduled_for IS NULL OR m.scheduled_for <= now()')
   })

@@ -35,6 +35,7 @@ describe('Inbox Store', () => {
               sent_at: sentAt.toISOString(),
               is_unread: true,
               is_starred: false,
+              has_ai_summary: true,
             },
           ],
         }),
@@ -63,6 +64,7 @@ describe('Inbox Store', () => {
         starred: false,
         scheduledFor: null,
         hasHtml: false,
+        hasAiSummary: true,
         labels: [],
       },
     ])

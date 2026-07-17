@@ -80,6 +80,8 @@ function mapEmailRow(message) {
     // endpoint). Lets the reader show a spinner during the on-demand body fetch
     // instead of flashing the plain-text fallback before the iframe swaps in.
     hasHtml: Boolean(message.has_html),
+    // List endpoints expose only summary presence, never the generated text.
+    hasAiSummary: Boolean(message.has_ai_summary),
     labels: message.labels || [],
   }
 }

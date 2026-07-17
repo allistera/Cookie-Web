@@ -33,15 +33,19 @@ function localApiPlugin(mode) {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
       const folder = new URL(req.url, 'http://localhost').searchParams.get('folder') || 'inbox'
-      const { schedules, archived } = fixtureMailboxState(req, res)
+      const { schedules, archived, summaries } = fixtureMailboxState(req, res)
       const now = Date.now()
       const inbox = fixtureEmails().map((email) => ({
         ...email,
         scheduled_for: schedules.get(email.id) ?? null,
+        has_ai_summary: email.has_ai_summary || summaries.has(email.id),
       }))
       const emails =
         folder === 'sent'
-          ? fixtureSentEmails()
+          ? fixtureSentEmails().map((email) => ({
+              ...email,
+              has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+            }))
           : folder === 'done'
             ? inbox.filter((email) => archived.has(email.id))
           : folder === 'spam'
@@ -123,12 +127,18 @@ function localApiPlugin(mode) {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails } = await import('./api/_fixtures/emails.js')
       const q = (new URL(req.url, 'http://localhost').searchParams.get('q') || '').toLowerCase()
-      const emails = fixtureEmails().filter((email) =>
-        [email.subject, email.body_text, email.from_name, email.from_address]
-          .join(' ')
-          .toLowerCase()
-          .includes(q),
-      )
+      const { summaries } = fixtureMailboxState(req, res)
+      const emails = fixtureEmails()
+        .filter((email) =>
+          [email.subject, email.body_text, email.from_name, email.from_address]
+            .join(' ')
+            .toLowerCase()
+            .includes(q),
+        )
+        .map((email) => ({
+          ...email,
+          has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+        }))
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ emails }))
       return

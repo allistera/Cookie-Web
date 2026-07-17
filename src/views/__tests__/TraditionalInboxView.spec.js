@@ -67,12 +67,11 @@ describe('TraditionalInboxView day accordion', () => {
     expect(groupHeader(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
   })
 
-  it('shows auto_awesome before the subject when an email has the AI Generated label', async () => {
-    store.traditionalEmails[0].labels = [
-      { name: 'AI Generated', color: '#7c3aed' },
-      { name: 'Projects', color: '#2383e2' },
-    ]
-    store.traditionalEmails.splice(1, 0, makeEmail('today-plain', Date.now() - 2 * HOUR))
+  it('shows auto_awesome before the subject only when an email has an AI summary', async () => {
+    store.traditionalEmails[0].hasAiSummary = true
+    const plainEmail = makeEmail('today-plain', Date.now() - 2 * HOUR)
+    plainEmail.labels = [{ name: 'AI Generated', color: '#7c3aed' }]
+    store.traditionalEmails.splice(1, 0, plainEmail)
     const wrapper = mount(TraditionalInboxView)
 
     const generatedRow = wrapper
@@ -370,6 +369,49 @@ describe('TraditionalInboxView filtered views', () => {
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Inbox')
     expect(wrapper.findAll('.ni-row')).toHaveLength(2)
+  })
+})
+
+describe('TraditionalInboxView AI summary marker across email lists', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    vi.spyOn(store, 'loadSentEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadSpamEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadSnoozedEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadDonePage').mockResolvedValue()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it.each([
+    ['Inbox', {}, 'traditionalEmails'],
+    ['Starred', { filter: 'starred' }, 'traditionalEmails'],
+    ['Label', { filter: 'label', label: 'Projects' }, 'traditionalEmails'],
+    ['Sent', { filter: 'sent' }, 'sentEmails'],
+    ['Spam', { filter: 'spam' }, 'spamEmails'],
+    ['Snoozed', { filter: 'snoozed' }, 'snoozedEmails'],
+    ['Done', { filter: 'done' }, 'doneEmails'],
+    ['Search', {}, 'traditionalEmails'],
+  ])('shows the AI icon in the %s list', (_name, query, listName) => {
+    routeMock.query = query
+    const email = makeEmail(`summary-${listName}`, Date.now() - HOUR)
+    email.hasAiSummary = true
+    if (query.filter === 'starred') email.starred = true
+    if (query.filter === 'label') email.labels = [{ name: 'Projects', color: '#7c3aed' }]
+    if (query.filter === 'snoozed') email.scheduledFor = new Date(Date.now() + DAY).toISOString()
+    store[listName] = [email]
+    if (_name === 'Search') store.activeSearchQuery = 'summary'
+
+    const wrapper = mount(TraditionalInboxView)
+
+    expect(wrapper.find('.ni-row .ni-ai-generated-icon').text()).toBe('auto_awesome')
+    wrapper.unmount()
   })
 })
 
@@ -700,6 +742,8 @@ describe('TraditionalInboxView AI summary', () => {
     expect(summary.text()).toContain('The contractor confirmed the Tuesday delivery.')
     expect(button.text()).toContain('Regenerate Summary')
     expect(button.attributes('title')).toBe('Regenerate Summary')
+    expect(wrapper.find('.ni-reader-subject .ni-ai-generated-icon').text()).toBe('auto_awesome')
+    expect(wrapper.find('.ni-row .ni-ai-generated-icon').text()).toBe('auto_awesome')
   })
 
   it('shows a saved summary and offers to regenerate it when the reader opens', async () => {
