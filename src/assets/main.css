@@ -2851,6 +2851,29 @@ body {
   opacity: 0.55;
 }
 
+.settings-select {
+  flex-shrink: 0;
+  min-width: 130px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-stack);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.settings-select:hover {
+  border-color: var(--text-blue);
+}
+
+.settings-select:focus-visible {
+  outline: 2px solid var(--text-blue);
+  outline-offset: 1px;
+}
+
 .composer-ai-instruction {
   width: 100%;
   box-sizing: border-box;

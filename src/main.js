@@ -6,6 +6,11 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { getAuth0 } from './auth0-client'
+import { initTheme } from './lib/theme'
+
+// Apply the saved theme (and start tracking the OS for 'system') before mount
+// so the first paint already carries the right data-theme — no flash.
+initTheme()
 
 const app = createApp(App)
 

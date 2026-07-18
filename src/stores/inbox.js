@@ -825,12 +825,6 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
-    toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute('data-theme')
-      const newTheme = currentTheme === 'dark' ? 'light' : 'dark'
-      document.documentElement.setAttribute('data-theme', newTheme)
-    },
-
     openComposer() {
       this.isComposerActive = true
     },

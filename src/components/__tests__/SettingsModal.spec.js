@@ -112,6 +112,24 @@ describe('SettingsModal', () => {
     expect(saved.emailSummaries).toBe(false)
   })
 
+  it('persists the theme preference from the Appearance pane', async () => {
+    const wrapper = await openModal()
+
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Appearance'))
+      .trigger('click')
+
+    const select = wrapper.find('.settings-select')
+    expect(select.exists()).toBe(true)
+    const values = select.findAll('option').map((o) => o.element.value)
+    expect(values).toEqual(['light', 'dark', 'system'])
+
+    await select.setValue('dark')
+    expect(localStorage.getItem('cookie-theme')).toBe('dark')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
   it('requests browser permission and enables new-mail notifications for the current user', async () => {
     store.userId = '11111111-1111-1111-1111-111111111111'
     const requestPermission = vi.fn().mockResolvedValue('granted')

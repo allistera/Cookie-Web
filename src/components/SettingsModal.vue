@@ -10,6 +10,7 @@ import {
   requestBrowserNotificationPermission,
   saveBrowserNotificationsEnabled,
 } from '../lib/browserNotifications'
+import { getStoredTheme, setTheme } from '../lib/theme'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -39,11 +40,11 @@ watch(
 )
 
 // --- Appearance ---
-const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark')
+const theme = ref(getStoredTheme())
 
-function toggleDarkMode() {
-  store.toggleTheme()
-  isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark'
+function onThemeChange(event) {
+  theme.value = event.target.value
+  setTheme(theme.value)
 }
 
 // --- Notification preferences (persisted locally) ---
@@ -232,10 +233,14 @@ async function submitLabelRename(label) {
             <h3 class="settings-section-title">Appearance</h3>
             <label class="settings-row">
               <div class="settings-row-text">
-                <span>Dark mode</span>
-                <small>Switch between light and dark themes</small>
+                <span>Theme</span>
+                <small>Choose light, dark, or match your system</small>
               </div>
-              <input type="checkbox" class="settings-switch" :checked="isDarkMode" @change="toggleDarkMode" />
+              <select class="settings-select" :value="theme" @change="onThemeChange">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">System</option>
+              </select>
             </label>
           </section>
 
