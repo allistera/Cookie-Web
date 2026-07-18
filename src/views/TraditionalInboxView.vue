@@ -403,7 +403,14 @@ function archiveOpenEmail() {
 }
 
 function unsubscribeOpenEmail() {
-  store.unsubscribeEmail(openEmail.value)
+  const email = openEmail.value
+  if (!email) return
+  store.unsubscribeEmail(email)
+  store.archiveEmail(email)
+}
+
+function unsubscribeFromContent() {
+  if (openEmail.value) store.archiveEmail(openEmail.value)
 }
 
 function setContentUnsubscribe(target) {
@@ -832,6 +839,7 @@ onUnmounted(() => {
               :href="openEmailUnsubscribe.href"
               target="_blank"
               rel="noopener noreferrer"
+              @click="unsubscribeFromContent"
             >
               <span class="material-symbols-outlined">unsubscribe</span>
               <span>Unsubscribe</span>

@@ -885,6 +885,10 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     expect(link.attributes('href')).toBe(url)
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toBe('noopener noreferrer')
+
+    await link.trigger('click')
+    expect(store.traditionalEmails.some((email) => email.id === 'news-1')).toBe(false)
+    expect(store.openEmailId).toBe(null)
   })
 
   it('hides the Unsubscribe button for a regular email', async () => {
@@ -893,7 +897,7 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     expect(reader.find('[title="Unsubscribe"]').exists()).toBe(false)
   })
 
-  it('posts the unsubscribe action and reports success', async () => {
+  it('posts the unsubscribe action, marks the email done, and closes the reader', async () => {
     const reader = await openReader(UNSUB)
     fetchMock.mockResolvedValue({
       ok: true,
@@ -905,15 +909,17 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
       expect(store.toasts.some((t) => t.message.includes('Unsubscribed'))).toBe(true)
     })
 
-    const [url, options] = fetchMock.mock.calls.at(-1)
+    expect(store.traditionalEmails.some((email) => email.id === 'news-1')).toBe(false)
+    expect(store.openEmailId).toBe(null)
+
+    const [url, options] = fetchMock.mock.calls.find(
+      ([requestUrl, options]) => requestUrl === '/api/messages' && options.method === 'POST',
+    )
     expect(url).toBe('/api/messages')
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({ id: 'news-1', action: 'unsubscribe' })
 
-    // The button reflects the completed state and can't fire twice.
-    const button = wrapper.find('.ni-reader [title="Unsubscribe"]')
-    expect(button.text()).toContain('Unsubscribed')
-    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 
   it('opens the unsubscribe page when the sender only offers a link', async () => {
@@ -929,6 +935,8 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     await vi.waitFor(() => {
       expect(openSpy).toHaveBeenCalledWith('https://news.example/unsub', '_blank', 'noopener')
     })
+    expect(store.traditionalEmails.some((email) => email.id === 'news-1')).toBe(false)
+    expect(store.openEmailId).toBe(null)
   })
 
   it('surfaces an error toast when the unsubscribe request fails', async () => {
