@@ -160,6 +160,11 @@ export const useInboxStore = defineStore('inbox', {
     contacts: [],
     contactsLoaded: false,
 
+    // AI dashboard "Needs attention" tasks (Todoist + email action items),
+    // loaded lazily when the AI view opens.
+    tasks: [],
+    tasksLoaded: false,
+
     // Toast notifications
     toasts: [],
     nextToastId: 1,
@@ -859,6 +864,22 @@ export const useInboxStore = defineStore('inbox', {
         this.contactsLoaded = true
       } catch (error) {
         console.error('Failed to load contacts:', error)
+      }
+    },
+
+    // Loads gathered tasks for the AI dashboard. Best-effort and cached: a
+    // failure just leaves the "Needs attention" list empty.
+    async loadTasks() {
+      if (this.tasksLoaded) return
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/tasks', { headers })
+        if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
+        const { tasks } = await response.json()
+        this.tasks = tasks
+        this.tasksLoaded = true
+      } catch (error) {
+        console.error('Failed to load tasks:', error)
       }
     },
 

@@ -27,26 +27,56 @@ describe('AIInboxView', () => {
     push.mockReset()
     store = useInboxStore()
     store.traditionalEmails = [
-      makeEmail('unread-1'),
       makeEmail('read-with-summary', { unread: false, hasAiSummary: true }),
       makeEmail('read-plain', { unread: false }),
     ]
     store.unreadInboxCount = 1
+    // Pre-load tasks so onMounted's loadTasks() short-circuits (cached).
+    store.tasks = [
+      {
+        id: 't1',
+        source: 'todoist',
+        content: 'Ship the release',
+        description: 'v2',
+        due_date: '2026-07-18',
+        priority: 4,
+        url: 'https://app.todoist.com/app/task/abc',
+        message_id: null,
+      },
+      {
+        id: 't2',
+        source: 'email',
+        content: 'Reply to Apple',
+        description: null,
+        due_date: null,
+        priority: null,
+        url: null,
+        message_id: 'm1',
+      },
+    ]
+    store.tasksLoaded = true
   })
 
-  it('shows live inbox priorities and opens their existing reader', async () => {
-    const openReader = vi.spyOn(store, 'openReader').mockImplementation(() => {})
+  it('shows gathered tasks in Needs attention, with an Open link only for linked tasks', () => {
     const wrapper = mount(AIInboxView)
 
-    expect(wrapper.get('h1').text()).toBe('AI Inbox')
+    const list = wrapper.get('[data-testid="ai-priority-list"]')
+    expect(list.text()).toContain('Ship the release')
+    expect(list.text()).toContain('Urgent') // priority 4
+    expect(list.text()).toContain('Reply to Apple')
+
+    const links = list.findAll('a.ai-inbox-open')
+    expect(links).toHaveLength(1) // only the todoist task has a url
+    expect(links[0].attributes('href')).toBe('https://app.todoist.com/app/task/abc')
+    expect(links[0].attributes('target')).toBe('_blank')
+  })
+
+  it('still lists AI-summarized emails in Ready to catch up', () => {
+    const wrapper = mount(AIInboxView)
+
+    const summary = wrapper.get('[data-testid="ai-summary-list"]')
+    expect(summary.text()).toContain('Subject read-with-summary')
+    expect(summary.text()).not.toContain('Subject read-plain')
     expect(wrapper.get('[data-testid="ai-unread-count"]').text()).toBe('1 unread')
-    expect(wrapper.get('[data-testid="ai-priority-list"]').text()).toContain('Subject unread-1')
-    expect(wrapper.get('[data-testid="ai-summary-list"]').text()).toContain('Subject read-with-summary')
-    expect(wrapper.get('[data-testid="ai-summary-list"]').text()).not.toContain('Subject read-plain')
-
-    await wrapper.get('[data-testid="ai-priority-list"] .ai-inbox-open').trigger('click')
-
-    expect(openReader).toHaveBeenCalledWith(store.traditionalEmails[0])
-    expect(push).toHaveBeenCalledWith({ name: 'traditional-inbox' })
   })
 })

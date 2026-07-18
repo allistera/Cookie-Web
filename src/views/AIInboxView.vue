@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 
@@ -8,11 +8,27 @@ const MAX_PRIORITIES = 5
 const store = useInboxStore()
 const router = useRouter()
 
-// The inbox endpoint already supplies newest-first rows. Keep that order in
-// the AI view rather than inventing a client-side relevance score.
-const priorityEmails = computed(() =>
-  store.traditionalEmails.filter((email) => email.unread).slice(0, MAX_PRIORITIES),
-)
+// "Needs attention" surfaces gathered tasks (Todoist tasks + AI-extracted email
+// action items) from public.tasks rather than raw unread emails.
+const tasks = computed(() => store.tasks)
+
+function formatDue(due) {
+  if (!due) return ''
+  const date = new Date(due)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
+function taskMeta(task) {
+  const parts = []
+  if (task.priority === 4) parts.push('Urgent')
+  parts.push(task.source === 'email' ? 'From email' : 'Todoist')
+  const due = formatDue(task.due_date)
+  if (due) parts.push(`Due ${due}`)
+  return parts.join(' · ')
+}
+
+onMounted(() => store.loadTasks())
 
 const summarizedEmails = computed(() =>
   store.traditionalEmails.filter((email) => email.hasAiSummary).slice(0, MAX_PRIORITIES),
@@ -61,7 +77,7 @@ function askCookie() {
         <div class="card-header ai-inbox-card-header">
           <div>
             <h2 id="priority-title">Needs attention</h2>
-            <p>Unread messages from your current inbox.</p>
+            <p>Tasks and action items gathered from your tools and email.</p>
           </div>
           <button class="action-pill-btn" type="button" @click="askCookie">
             <span class="material-symbols-outlined">auto_awesome</span>
@@ -69,19 +85,30 @@ function askCookie() {
           </button>
         </div>
 
-        <div v-if="priorityEmails.length" class="ai-inbox-email-list" data-testid="ai-priority-list">
-          <article v-for="email in priorityEmails" :key="email.id" class="ai-inbox-email-row">
+        <div v-if="tasks.length" class="ai-inbox-email-list" data-testid="ai-priority-list">
+          <article v-for="task in tasks" :key="task.id" class="ai-inbox-email-row">
             <div class="ai-inbox-email-copy">
-              <span class="unread-dot" aria-label="Unread"></span>
+              <span
+                class="material-symbols-outlined ai-task-icon"
+                :class="{ 'ai-task-urgent': task.priority === 4 }"
+              >
+                {{ task.source === 'email' ? 'mail' : 'task_alt' }}
+              </span>
               <div>
-                <p class="ai-inbox-sender">{{ email.sender }}</p>
-                <p class="ai-inbox-subject">{{ email.subject || '(No subject)' }}</p>
-                <p v-if="email.snippet" class="ai-inbox-snippet">{{ email.snippet }}</p>
+                <p class="ai-inbox-subject">{{ task.content }}</p>
+                <p v-if="task.description" class="ai-inbox-snippet">{{ task.description }}</p>
+                <p class="ai-inbox-sender">{{ taskMeta(task) }}</p>
               </div>
             </div>
-            <button class="action-pill-btn ai-inbox-open" type="button" @click="openEmail(email)">
+            <a
+              v-if="task.url"
+              class="action-pill-btn ai-inbox-open"
+              :href="task.url"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               Open
-            </button>
+            </a>
           </article>
         </div>
         <p v-else class="ai-inbox-empty">Nothing needs your attention right now.</p>
@@ -198,6 +225,17 @@ function askCookie() {
 
 .ai-inbox-summary-icon {
   font-size: 18px;
+}
+
+.ai-task-icon {
+  flex: 0 0 auto;
+  margin-top: 4px;
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.ai-task-urgent {
+  color: #e5484d;
 }
 
 .ai-inbox-sender,

@@ -436,6 +436,23 @@ describe('Inbox Store', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/contacts', expect.anything()))
   })
 
+  it('loadTasks fetches once and populates tasks for the AI dashboard', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ tasks: [{ id: 't1', content: 'Ship it' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    await store.loadTasks()
+    expect(store.tasks).toEqual([{ id: 't1', content: 'Ship it' }])
+    expect(store.tasksLoaded).toBe(true)
+
+    await store.loadTasks() // cached: no second request
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks')
+  })
+
   it('allLabels lists every user label from the palette, not just ones on loaded emails', () => {
     const store = useInboxStore()
     store.traditionalEmails = [] // nothing loaded in the inbox list
