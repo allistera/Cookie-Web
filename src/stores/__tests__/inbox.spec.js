@@ -510,6 +510,23 @@ describe('Inbox Store', () => {
       expect(JSON.parse(fetchMock.mock.calls[0][1].body).to).toBe('a@b.com, c@d.com')
     })
 
+    it('sends the sanitized HTML body alongside the plain text', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      store.composerTo = 'a@b.com'
+      store.composerSubject = 'Hi'
+      store.composerTextArea = 'Hello there'
+      store.composerHtml = '<p>Hello <strong>there</strong></p><script>alert(1)</script>'
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+      expect(body.text).toBe('Hello there')
+      expect(body.html).toContain('<strong>there</strong>')
+      expect(body.html).not.toContain('<script') // sanitized at the send boundary
+    })
+
     it('undo cancels the send and restores the message in the composer', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()

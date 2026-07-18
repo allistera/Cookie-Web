@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 import { recipientsValid } from '../lib/recipients'
+import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import { plainTextToHtml } from '../lib/composeHtml'
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -142,7 +144,8 @@ export const useInboxStore = defineStore('inbox', {
     isSendingEmail: false,
     composerTo: '',
     composerSubject: '',
-    composerTextArea: '',
+    composerTextArea: '', // plain-text body (innerText of the rich editor)
+    composerHtml: '', // rich HTML body from the WYSIWYG editor
     isAiDraftActive: false,
     isAiDraftLoading: false,
     aiDraftPreview: '',
@@ -819,12 +822,12 @@ export const useInboxStore = defineStore('inbox', {
 
     // replyToMessageId (optional) threads the stored sent copy with the
     // message being replied to.
-    async sendMail({ to, subject, text, replyToMessageId }) {
+    async sendMail({ to, subject, text, html, replyToMessageId }) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch('/api/send', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ to, subject, text, replyToMessageId }),
+        body: JSON.stringify({ to, subject, text, html, replyToMessageId }),
       })
       if (!response.ok) {
         throw new Error(`POST /api/send responded ${response.status}`)
@@ -864,6 +867,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerTo = ''
       this.composerSubject = ''
       this.composerTextArea = ''
+      this.composerHtml = ''
       this.isAiDraftActive = false
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
@@ -911,6 +915,7 @@ export const useInboxStore = defineStore('inbox', {
     insertAiDraft() {
       if (!this.aiDraftPreview) return
       this.composerTextArea = this.aiDraftPreview
+      this.composerHtml = plainTextToHtml(this.aiDraftPreview)
       this.isAiDraftActive = false
     },
 
@@ -925,6 +930,8 @@ export const useInboxStore = defineStore('inbox', {
         to: this.composerTo,
         subject: this.composerSubject,
         text: this.composerTextArea,
+        // Sanitize the rich body once, here at the send boundary.
+        html: sanitizeEmailHtml(this.composerHtml),
       }
       this.closeComposer()
       this.startPendingSend(draft)
@@ -955,11 +962,12 @@ export const useInboxStore = defineStore('inbox', {
     undoPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
-      const { to, subject, text } = this.pendingSend
+      const { to, subject, text, html } = this.pendingSend
       this.pendingSend = null
       this.composerTo = to
       this.composerSubject = subject
       this.composerTextArea = text
+      this.composerHtml = html
       this.isComposerActive = true
     },
 
@@ -972,7 +980,7 @@ export const useInboxStore = defineStore('inbox', {
       this.pendingSend = null
       this.isSendingEmail = true
       try {
-        await this.sendMail({ to: draft.to, subject: draft.subject, text: draft.text })
+        await this.sendMail({ to: draft.to, subject: draft.subject, text: draft.text, html: draft.html })
         this.notify('Email sent.')
       } catch (error) {
         console.error('Failed to send email:', error)
@@ -980,6 +988,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerTo = draft.to
         this.composerSubject = draft.subject
         this.composerTextArea = draft.text
+        this.composerHtml = draft.html
         this.isComposerActive = true
       } finally {
         this.isSendingEmail = false

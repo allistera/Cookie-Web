@@ -2368,6 +2368,86 @@ body {
   min-height: 120px;
 }
 
+/* Rich WYSIWYG compose editor */
+.composer-editor-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 120px;
+}
+
+.composer-editor {
+  flex-grow: 1;
+  width: 100%;
+  outline: none;
+  font-family: var(--font-stack);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  min-height: 120px;
+  overflow-y: auto;
+}
+
+.composer-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #b8b8b8;
+  pointer-events: none;
+}
+
+.composer-editor h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.composer-editor blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.composer-editor ul,
+.composer-editor ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.composer-editor hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 12px 0;
+}
+
+.composer-slash-menu {
+  position: absolute;
+  min-width: 240px;
+  max-height: 280px;
+  overflow-y: auto;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px 0;
+  z-index: 30;
+}
+
+.composer-slash-menu .suggestion-item.highlighted {
+  background-color: var(--bg-hover);
+}
+
+.composer-slash-title {
+  flex-grow: 1;
+}
+
+.composer-slash-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-width: 20px;
+  text-align: right;
+}
+
 .composer-gemini-box {
   border: 1px solid rgba(169, 112, 255, 0.2);
   background: linear-gradient(180deg, rgba(169, 112, 255, 0.05) 0%, rgba(26, 115, 232, 0.05) 100%);

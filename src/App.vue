@@ -13,6 +13,7 @@ import ChatDrawer from './components/ChatDrawer.vue'
 import LoadingBar from './components/LoadingBar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import ComposerEditor from './components/ComposerEditor.vue'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
@@ -466,12 +467,13 @@ onMounted(() => {
       </div>
     </div>
     <div class="composer-body">
-      <textarea
+      <ComposerEditor
         ref="composerBodyRef"
-        v-model="store.composerTextArea"
-        placeholder="..."
-        @keydown.shift.tab.prevent="composerToRef?.focus()"
-      ></textarea>
+        v-model="store.composerHtml"
+        @update:text="store.composerTextArea = $event"
+        @generate="store.openAiDraft()"
+        @focus-prev="composerToRef?.focus()"
+      />
 
       <!-- Reviewable AI drafting box; generation never sends mail. -->
       <div class="composer-gemini-box" :class="{ active: store.isAiDraftActive }">

@@ -38,7 +38,7 @@ export function parseRecipients(to) {
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
 // the inbox list, included in search). Threads with the replied-to message
 // when replyToMessageId is given; otherwise starts a fresh thread.
-async function storeSentMessage(sql, email, { recipients, subject, text, replyToMessageId, resendId }) {
+async function storeSentMessage(sql, email, { recipients, subject, text, html, replyToMessageId, resendId }) {
   const [lookup] = await sql`
     SELECT u.id AS user_id,
            CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
@@ -75,11 +75,11 @@ async function storeSentMessage(sql, email, { recipients, subject, text, replyTo
   }
   statements.push((sql) => sql`
     INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
-                          recipients, subject, snippet, body_text, sent_at,
+                          recipients, subject, snippet, body_text, body_html, sent_at,
                           message_id, is_unread, is_sent)
     VALUES (${messageUuid}, ${threadUuid}, ${lookup.user_id}, ${fromName},
             ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
-            ${text}, ${sentAt}, ${messageId}, false, true)
+            ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true)
     ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
   `)
   if (lookup.thread_id) {
@@ -151,8 +151,10 @@ export default async function handler(req, res) {
     return
   }
 
-  const { to, subject, text, replyToMessageId } = body
+  const { to, subject, text, html, replyToMessageId } = body
   const recipients = parseRecipients(to)
+  // Rich-composer HTML body (optional); the plain text remains the fallback.
+  const bodyHtml = typeof html === 'string' && html.trim() ? html : null
   if (
     recipients.length === 0 || !recipients.every((address) => address.includes('@')) ||
     typeof subject !== 'string' || !subject.trim() ||
@@ -175,6 +177,7 @@ export default async function handler(req, res) {
       to: recipients,
       subject,
       text,
+      ...(bodyHtml ? { html: bodyHtml } : {}),
     })
     if (error) {
       console.error('Resend send failed:', error)
@@ -189,6 +192,7 @@ export default async function handler(req, res) {
         recipients,
         subject,
         text,
+        html: bodyHtml,
         replyToMessageId: replyTo,
         resendId: data.id,
       })
