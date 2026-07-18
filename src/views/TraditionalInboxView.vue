@@ -338,6 +338,14 @@ const replyText = ref('')
 const replyTextareaRef = ref(null)
 
 function openReader(email) {
+  // Opening a message takes over from any text field it was launched from
+  // (e.g. the search bar — result rows aren't focusable, so a click leaves
+  // focus in the input). Release that focus so single-key shortcuts like 'd'
+  // aren't swallowed as typing while the reader is open.
+  const active = document.activeElement
+  if (active?.closest?.('input, textarea, select, [contenteditable="true"]')) {
+    active.blur()
+  }
   store.openReader(email)
 }
 

@@ -978,6 +978,23 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.openEmailId).toBe(null)
   })
 
+  it("keeps 'd' working when a message is opened while a text field was focused", async () => {
+    // Reproduces opening a search result: focus is in the search input, and the
+    // clicked row is a non-focusable div, so focus would otherwise stay there
+    // and swallow 'd' as typing.
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+
+    await wrapper.find('.ni-row').trigger('click') // opens the reader
+
+    // The keydown originates from whatever is focused now.
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }))
+    expect(store.archiveEmail).toHaveBeenCalled()
+
+    input.remove()
+  })
+
   it("archives the open email when 'd' is pressed inside its HTML body", async () => {
     await vi.waitFor(() => expect(store.bodyLoadingId).toBe(null))
     store.messageBodies.set('today-1', {
