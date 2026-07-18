@@ -151,7 +151,7 @@ export const useInboxStore = defineStore('inbox', {
     // secondsLeft, paused } while a queued send is counting down.
     pendingSend: null,
 
-    // Compose auto-suggest: [{ address, name }] of two-way correspondents,
+    // Compose auto-suggest: [{ address, name }] of mailbox correspondents,
     // loaded lazily on first composer open.
     contacts: [],
     contactsLoaded: false,

@@ -2,8 +2,9 @@ import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 
-// The authenticated user's contacts — addresses they have both sent mail to and
-// received mail from — from the contacts view, ordered for display.
+// The authenticated user's contacts — addresses that appear in their mailbox
+// (received senders or sent recipients) — from the contacts view, ordered for
+// display.
 export function fetchContacts(sql, email) {
   return sql`
     SELECT c.address, c.name
