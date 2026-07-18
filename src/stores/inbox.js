@@ -12,6 +12,19 @@ import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 const UNDO_SEND_SECONDS = 5
 let sendCountdownTimer = null
 
+// AI compose should draft the message body only. The personal signature is
+// boilerplate the user pre-configured (and we prefill it into fresh drafts), so
+// feeding it back as "existing text" makes the model reply to its own footer.
+// Strip the trailing signature (and the blank lines above it) before sending.
+function bodyWithoutSignature(bodyText, signatureHtml) {
+  if (!signatureHtml) return bodyText
+  const signatureText = htmlToText(signatureHtml).trim()
+  if (!signatureText) return bodyText
+  const at = bodyText.lastIndexOf(signatureText)
+  if (at === -1) return bodyText
+  return bodyText.slice(0, at).trimEnd()
+}
+
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
@@ -935,7 +948,7 @@ export const useInboxStore = defineStore('inbox', {
             instruction,
             to: this.composerTo,
             subject: this.composerSubject,
-            existingText: this.composerTextArea,
+            existingText: bodyWithoutSignature(this.composerTextArea, this.signatureHtml),
           }),
         })
         if (!response.ok) throw new Error(`POST /api/compose responded ${response.status}`)

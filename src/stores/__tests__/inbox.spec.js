@@ -359,6 +359,39 @@ describe('Inbox Store', () => {
     expect(store.composerTextArea).toBe('Generated body')
   })
 
+  it('excludes the personal signature from the AI compose request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ draft: { subject: '', text: 'Generated body' } }),
+      }),
+    )
+    const store = useInboxStore()
+    store.signatureHtml = '<p>Best, <strong>Allister</strong></p>'
+    store.composerTo = 'person@example.com'
+    // A fresh draft prefills blank lines above the signature; the user has typed
+    // one line of their own on top.
+    store.composerTextArea = 'Thanks for the update.\n\n\nBest, Allister'
+    store.composerAiInstruction = 'Confirm Tuesday works.'
+
+    await store.requestAiDraft()
+
+    expect(fetch).toHaveBeenCalledWith('/api/compose', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({
+        instruction: 'Confirm Tuesday works.',
+        to: 'person@example.com',
+        subject: '',
+        existingText: 'Thanks for the update.',
+      }),
+    })
+  })
+
   it('summarizes an email thread and caches the result for the open message', async () => {
     vi.stubGlobal(
       'fetch',

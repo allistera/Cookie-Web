@@ -91,6 +91,20 @@ function onContactEnter(event) {
   }
 }
 
+// Escape backs out of the composer one layer at a time: open contact
+// suggestions first, then the AI compose box, then the whole window.
+function onComposerEscape() {
+  if (contactSuggestions.value.length) {
+    closeContactSuggest()
+    return
+  }
+  if (store.isAiDraftActive) {
+    store.isAiDraftActive = false
+    return
+  }
+  store.closeComposer()
+}
+
 // Compose window: the inline subject in the title row gets focus first.
 const composerToRef = ref(null)
 const composerSubjectRef = ref(null)
@@ -412,7 +426,7 @@ onMounted(() => {
   </div>
 
   <!-- Inline Composer Toast -->
-  <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast">
+  <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast" @keydown.esc="onComposerEscape">
     <div class="composer-draft-row">
       <div class="composer-draft-title">
         <input
@@ -431,7 +445,7 @@ onMounted(() => {
             type="email"
             multiple
             autocomplete="off"
-            placeholder="name@example.com, another@example.com"
+            placeholder="name@example.com"
             @focus="openContactSuggest"
             @input="openContactSuggest"
             @blur="closeContactSuggest"
@@ -440,7 +454,6 @@ onMounted(() => {
             @keydown.down.prevent="moveContactHighlight(1)"
             @keydown.up.prevent="moveContactHighlight(-1)"
             @keydown.enter="onContactEnter"
-            @keydown.esc="closeContactSuggest"
           />
           <div class="composer-suggestions" v-if="contactSuggestions.length">
             <div
