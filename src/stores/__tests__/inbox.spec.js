@@ -406,6 +406,19 @@ describe('Inbox Store', () => {
     )
   })
 
+  it('allLabels lists every user label from the palette, not just ones on loaded emails', () => {
+    const store = useInboxStore()
+    store.traditionalEmails = [] // nothing loaded in the inbox list
+    store.labels = [
+      { id: 'l2', name: 'Work', color: '#0000ff', kind: 'user' },
+      { id: 'l1', name: 'Home', color: '#ff0000', kind: 'user' },
+      { id: 'l3', name: 'Spam', color: '#999999', kind: 'system' },
+    ]
+
+    // Sorted by name, system labels excluded, and present despite no emails.
+    expect(store.allLabels.map((l) => l.name)).toEqual(['Home', 'Work'])
+  })
+
   describe('undo send', () => {
     beforeEach(() => {
       vi.useFakeTimers()

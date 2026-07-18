@@ -99,6 +99,9 @@ watch(
   (authenticated) => {
     if (authenticated) {
       store.loadEmails()
+      // Load the full label palette so the sidebar lists every defined label,
+      // not only ones on loaded emails (and without needing settings opened).
+      store.loadLabels()
     }
   },
   { immediate: true },

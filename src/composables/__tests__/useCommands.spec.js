@@ -63,9 +63,10 @@ describe('useCommands', () => {
   })
 
   it('creates one navigation command per label', () => {
-    store.traditionalEmails = [
-      makeEmail({ id: 'a', labels: [{ name: 'Home', color: '#f00' }] }),
-      makeEmail({ id: 'b', labels: [{ name: 'Work', color: '#0f0' }] }),
+    // allLabels reads the full label palette (store.labels), not email labels.
+    store.labels = [
+      { id: 'l1', name: 'Home', color: '#f00', kind: 'user' },
+      { id: 'l2', name: 'Work', color: '#0f0', kind: 'user' },
     ]
 
     const { commands } = useCommands()

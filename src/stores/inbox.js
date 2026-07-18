@@ -187,16 +187,12 @@ export const useInboxStore = defineStore('inbox', {
   }),
 
   getters: {
+    // Every user-defined label from the /api/labels palette (the same source
+    // as the settings Labels manager), so the sidebar lists all of them — not
+    // only those that happen to appear on a currently-loaded email. Requires
+    // loadLabels() to have run (called at app boot and when settings opens).
     allLabels(state) {
-      const byName = new Map()
-      for (const email of state.traditionalEmails) {
-        for (const label of email.labels || []) {
-          if (!byName.has(label.name)) {
-            byName.set(label.name, label)
-          }
-        }
-      }
-      return [...byName.values()]
+      return state.labels
         .filter((label) => label.kind !== 'system')
         .sort((a, b) => a.name.localeCompare(b.name))
     },
