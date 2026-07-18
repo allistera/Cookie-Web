@@ -19,6 +19,25 @@ const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth(
 const showLogoutMenu = ref(false)
 const showMoreNav = ref(false)
 
+// Undo-send toast: hovering pauses the countdown and reveals the Undo button;
+// leaving resumes it. Undo cancels the send and reopens the composer.
+const undoSendHover = ref(false)
+
+function onUndoSendEnter() {
+  undoSendHover.value = true
+  store.pausePendingSend()
+}
+
+function onUndoSendLeave() {
+  undoSendHover.value = false
+  store.resumePendingSend()
+}
+
+function undoSend() {
+  undoSendHover.value = false
+  store.undoPendingSend()
+}
+
 // Compose window: the inline subject in the title row gets focus first.
 const composerToRef = ref(null)
 const composerSubjectRef = ref(null)
@@ -310,6 +329,18 @@ onMounted(() => {
 
   <!-- Toast notifications -->
   <div class="toast-container">
+    <Transition name="toast">
+      <div
+        v-if="store.pendingSend"
+        class="toast undo-send-toast"
+        :class="{ expanded: undoSendHover }"
+        @mouseenter="onUndoSendEnter"
+        @mouseleave="onUndoSendLeave"
+      >
+        <span class="toast-message">Sending in {{ store.pendingSend.secondsLeft }}</span>
+        <button v-if="undoSendHover" class="undo-send-btn" @click="undoSend">Undo</button>
+      </div>
+    </Transition>
     <TransitionGroup name="toast">
       <div v-for="toast in store.toasts" :key="toast.id" class="toast" :class="`toast-${toast.kind}`">
         <span class="toast-message">{{ toast.message }}</span>

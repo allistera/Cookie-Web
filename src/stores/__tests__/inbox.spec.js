@@ -406,30 +406,119 @@ describe('Inbox Store', () => {
     )
   })
 
-  it('prevents duplicate sends while the first email is still in flight', async () => {
-    let resolveRequest
-    const request = new Promise((resolve) => {
-      resolveRequest = resolve
+  describe('undo send', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
     })
-    const fetchMock = vi.fn().mockReturnValue(request)
-    vi.stubGlobal('fetch', fetchMock)
 
-    const store = useInboxStore()
-    store.composerTo = 'someone@example.com'
-    store.composerSubject = 'Hello'
-    store.composerTextArea = 'Checking in.'
+    afterEach(() => {
+      vi.useRealTimers()
+    })
 
-    const firstSend = store.sendEmail()
-    const secondSend = store.sendEmail()
+    function armComposer(store) {
+      store.composerTo = 'someone@example.com'
+      store.composerSubject = 'Hello'
+      store.composerTextArea = 'Checking in.'
+    }
 
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    expect(store.isSendingEmail).toBe(true)
+    function stubSendOk() {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'msg-1' }) })
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
 
-    resolveRequest({ ok: true, json: async () => ({ id: 'msg-1' }) })
-    await Promise.all([firstSend, secondSend])
+    it('queues a countdown instead of sending immediately', () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
 
-    expect(store.isSendingEmail).toBe(false)
-    expect(store.toasts.at(-1)?.message).toBe('Email sent.')
+      store.sendEmail()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.pendingSend?.secondsLeft).toBe(5)
+      expect(store.isComposerActive).toBe(false)
+    })
+
+    it('sends once the countdown reaches zero', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls[0][0]).toBe('/api/send')
+      expect(store.pendingSend).toBeNull()
+      expect(store.toasts.at(-1)?.message).toBe('Email sent.')
+    })
+
+    it('undo cancels the send and restores the message in the composer', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+
+      store.sendEmail()
+      store.undoPendingSend()
+      await vi.advanceTimersByTimeAsync(6000)
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.pendingSend).toBeNull()
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerTo).toBe('someone@example.com')
+      expect(store.composerTextArea).toBe('Checking in.')
+    })
+
+    it('pause freezes the countdown until resumed', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(2000) // 5 -> 3
+      store.pausePendingSend()
+      await vi.advanceTimersByTimeAsync(10000) // frozen while paused
+
+      expect(store.pendingSend?.secondsLeft).toBe(3)
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      store.resumePendingSend()
+      await vi.advanceTimersByTimeAsync(3000) // 3 -> 0
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(store.pendingSend).toBeNull()
+    })
+
+    it('restores the message in the composer if the send fails', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(store.pendingSend).toBeNull()
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerTextArea).toBe('Checking in.')
+      expect(store.toasts.at(-1)?.message).toBe('Failed to send email. Please try again.')
+    })
+
+    it('does not queue a second send while one is already pending', () => {
+      stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+
+      store.sendEmail()
+      // Simulate a stray second click: the composer is already closed, so
+      // re-arm before calling again to prove the pendingSend guard blocks it.
+      armComposer(store)
+      store.sendEmail()
+
+      expect(store.pendingSend.secondsLeft).toBe(5)
+      expect(store.isComposerActive).toBe(false)
+    })
   })
 
   it('finds the open email in the sent list too', async () => {

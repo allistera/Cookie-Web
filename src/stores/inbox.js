@@ -2,6 +2,12 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 
+// Undo-send: the message waits this many (cancellable) seconds before it is
+// actually sent. sendCountdownTimer is the interval driving that countdown; it
+// lives at module scope so it stays out of reactive state.
+const UNDO_SEND_SECONDS = 5
+let sendCountdownTimer = null
+
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
@@ -140,6 +146,10 @@ export const useInboxStore = defineStore('inbox', {
     isAiDraftLoading: false,
     aiDraftPreview: '',
     composerAiInstruction: '',
+
+    // Undo-send countdown: null when idle, else { to, subject, text,
+    // secondsLeft, paused } while a queued send is counting down.
+    pendingSend: null,
 
     // Toast notifications
     toasts: [],
@@ -884,22 +894,73 @@ export const useInboxStore = defineStore('inbox', {
       this.isAiDraftActive = false
     },
 
-    async sendEmail() {
-      // Guard the action as well as the button: two rapid events can otherwise
-      // start two requests before the composer has a chance to close.
-      if (this.isSendingEmail) return
+    // Sending is deferred behind a short, cancellable countdown so the user can
+    // undo. This snapshots the draft, closes the composer, and hands off to the
+    // countdown; the real request happens in commitPendingSend. The guards also
+    // stop two rapid clicks from queueing a second send.
+    sendEmail() {
+      if (this.isSendingEmail || this.pendingSend) return
+      if (!this.composerTo.includes('@') || !this.composerTextArea.trim()) return
+      const draft = {
+        to: this.composerTo,
+        subject: this.composerSubject,
+        text: this.composerTextArea,
+      }
+      this.closeComposer()
+      this.startPendingSend(draft)
+    },
+
+    // Counts down UNDO_SEND_SECONDS, then sends. Hovering the toast pauses it
+    // (pause/resumePendingSend); the Undo button cancels it (undoPendingSend).
+    startPendingSend(draft) {
+      this.pendingSend = { ...draft, secondsLeft: UNDO_SEND_SECONDS, paused: false }
+      clearInterval(sendCountdownTimer)
+      sendCountdownTimer = setInterval(() => {
+        if (!this.pendingSend || this.pendingSend.paused) return
+        this.pendingSend.secondsLeft -= 1
+        if (this.pendingSend.secondsLeft <= 0) this.commitPendingSend()
+      }, 1000)
+    },
+
+    pausePendingSend() {
+      if (this.pendingSend) this.pendingSend.paused = true
+    },
+
+    resumePendingSend() {
+      if (this.pendingSend) this.pendingSend.paused = false
+    },
+
+    // Cancels the queued send and restores the message in the composer so the
+    // user can keep editing it — nothing is sent.
+    undoPendingSend() {
+      if (!this.pendingSend) return
+      clearInterval(sendCountdownTimer)
+      const { to, subject, text } = this.pendingSend
+      this.pendingSend = null
+      this.composerTo = to
+      this.composerSubject = subject
+      this.composerTextArea = text
+      this.isComposerActive = true
+    },
+
+    // Fires when the countdown reaches zero: performs the real send. On failure
+    // the message is restored in the composer rather than silently lost.
+    async commitPendingSend() {
+      if (!this.pendingSend) return
+      clearInterval(sendCountdownTimer)
+      const draft = this.pendingSend
+      this.pendingSend = null
       this.isSendingEmail = true
       try {
-        await this.sendMail({
-          to: this.composerTo,
-          subject: this.composerSubject,
-          text: this.composerTextArea,
-        })
-        this.closeComposer()
+        await this.sendMail({ to: draft.to, subject: draft.subject, text: draft.text })
         this.notify('Email sent.')
       } catch (error) {
         console.error('Failed to send email:', error)
         this.notify('Failed to send email. Please try again.', 'error')
+        this.composerTo = draft.to
+        this.composerSubject = draft.subject
+        this.composerTextArea = draft.text
+        this.isComposerActive = true
       } finally {
         this.isSendingEmail = false
       }
