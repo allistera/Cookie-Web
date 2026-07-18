@@ -170,7 +170,7 @@ onMounted(() => {
           <input
             type="text"
             class="search-input"
-            placeholder="Ask Cookie..."
+            placeholder="Search Cookie..."
             v-model="searchInputVal"
             @focus="isSearchSuggestionsActive = true"
             @keypress.enter="handleSearchEnter"
