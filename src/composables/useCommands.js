@@ -15,13 +15,6 @@ export function useCommands() {
     const email = store.openEmail
     const list = [
       {
-        id: 'compose',
-        title: 'Compose',
-        icon: 'edit_square',
-        keyHint: 'C',
-        run: () => store.openComposer(),
-      },
-      {
         id: 'mark-done',
         title: 'Mark Done',
         icon: 'check_box',
@@ -70,6 +63,13 @@ export function useCommands() {
         icon: email?.unread ? 'mark_email_read' : 'mark_email_unread',
         visible: !!email,
         run: () => store.setUnread(email, !email.unread),
+      },
+      {
+        id: 'compose',
+        title: 'Compose',
+        icon: 'edit_square',
+        keyHint: 'C',
+        run: () => store.openComposer(),
       },
       {
         id: 'go-inbox',
