@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { escapeHtml, plainTextToHtml } from '../composeHtml.js'
+import { escapeHtml, plainTextToHtml, htmlToText } from '../composeHtml.js'
 
 describe('escapeHtml', () => {
   it('escapes markup characters', () => {
@@ -25,5 +25,16 @@ describe('plainTextToHtml', () => {
     expect(plainTextToHtml('<script>alert(1)</script>')).toBe(
       '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>',
     )
+  })
+})
+
+describe('htmlToText', () => {
+  it('extracts plain text from an HTML fragment', () => {
+    expect(htmlToText('<p>Best, <strong>Allister</strong></p>')).toBe('Best, Allister')
+  })
+
+  it('is empty for empty input', () => {
+    expect(htmlToText('')).toBe('')
+    expect(htmlToText(null)).toBe('')
   })
 })

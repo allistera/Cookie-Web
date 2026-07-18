@@ -423,6 +423,30 @@ describe('Inbox Store', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/contacts')
   })
 
+  it('setSignature persists the signature and openComposer prefills a fresh draft with it', () => {
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
+    const store = useInboxStore()
+
+    store.setSignature('<p>Best, <strong>Allister</strong></p>')
+    expect(store.signatureHtml).toBe('<p>Best, <strong>Allister</strong></p>')
+    expect(localStorage.getItem('cookie-signature-html')).toBe('<p>Best, <strong>Allister</strong></p>')
+
+    store.openComposer()
+    expect(store.composerHtml).toContain('<p>Best, <strong>Allister</strong></p>')
+    expect(store.composerTextArea).toContain('Best, Allister')
+  })
+
+  it('openComposer does not overwrite an in-progress draft with the signature', () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
+    const store = useInboxStore()
+    store.signatureHtml = '<p>Sig</p>'
+    store.composerHtml = '<p>existing draft</p>'
+
+    store.openComposer()
+    expect(store.composerHtml).toBe('<p>existing draft</p>')
+  })
+
   it('openComposer loads contacts for auto-suggest', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

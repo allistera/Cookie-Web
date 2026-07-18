@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import SettingsModal from '../SettingsModal.vue'
+import ComposerEditor from '../ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 
 vi.mock('@auth0/auth0-vue', () => ({
@@ -89,8 +90,8 @@ describe('SettingsModal', () => {
     const wrapper = await openModal()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(4)
-    for (const [i, name] of ['Account', 'Appearance', 'Notifications', 'Labels'].entries()) {
+    expect(navItems).toHaveLength(5)
+    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Notifications', 'Labels'].entries()) {
       expect(navItems[i]).toContain(name)
     }
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
@@ -128,6 +129,23 @@ describe('SettingsModal', () => {
     await select.setValue('dark')
     expect(localStorage.getItem('cookie-theme')).toBe('dark')
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  it('edits and persists the personal signature from the Signature pane', async () => {
+    localStorage.clear()
+    const wrapper = await openModal()
+
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Signature'))
+      .trigger('click')
+
+    const editor = wrapper.findComponent(ComposerEditor)
+    expect(editor.exists()).toBe(true)
+
+    editor.vm.$emit('update:modelValue', '<p>Cheers, Allister</p>')
+    expect(store.signatureHtml).toBe('<p>Cheers, Allister</p>')
+    expect(localStorage.getItem('cookie-signature-html')).toBe('<p>Cheers, Allister</p>')
   })
 
   it('requests browser permission and enables new-mail notifications for the current user', async () => {

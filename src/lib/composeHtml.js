@@ -16,3 +16,11 @@ export function plainTextToHtml(text) {
     .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
     .join('')
 }
+
+// Extracts the plain-text content of an HTML fragment (e.g. to mirror the rich
+// composer body into the required text field).
+export function htmlToText(html) {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return (doc.body.textContent || '').trim()
+}

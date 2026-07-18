@@ -5,6 +5,9 @@ import { filterSlashCommands } from '../lib/slashCommands'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
+  placeholder: { type: String, default: 'Write your message, or type “/” for commands…' },
+  // Hides the AI "Generate Message" slash command (e.g. in the signature editor).
+  hideGenerate: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue', 'update:text', 'generate', 'focusPrev'])
 
@@ -15,7 +18,11 @@ const menuOpen = ref(false)
 const menuQuery = ref('')
 const menuIndex = ref(0)
 const menuStyle = ref({})
-const menuCommands = computed(() => filterSlashCommands(menuQuery.value))
+const menuCommands = computed(() =>
+  filterSlashCommands(menuQuery.value).filter(
+    (command) => !(props.hideGenerate && command.id === 'generate'),
+  ),
+)
 
 // Matches a "/" that starts a slash sequence (at line start or after
 // whitespace) followed by the query, anchored to the caret.
@@ -177,7 +184,7 @@ defineExpose({ focus: () => editorRef.value?.focus() })
       contenteditable="true"
       role="textbox"
       aria-multiline="true"
-      data-placeholder="Write your message, or type “/” for commands…"
+      :data-placeholder="placeholder"
       @input="onInput"
       @keydown="onKeydown"
       @blur="onBlur"

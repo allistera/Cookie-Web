@@ -3003,6 +3003,25 @@ body {
   outline-offset: 1px;
 }
 
+.settings-signature-hint {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.settings-signature-editor {
+  display: flex;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  min-height: 160px;
+}
+
+.settings-signature-editor:focus-within {
+  border-color: var(--text-blue);
+}
+
 .composer-ai-instruction {
   width: 100%;
   box-sizing: border-box;

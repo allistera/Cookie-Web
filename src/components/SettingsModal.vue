@@ -11,6 +11,7 @@ import {
   saveBrowserNotificationsEnabled,
 } from '../lib/browserNotifications'
 import { getStoredTheme, setTheme } from '../lib/theme'
+import ComposerEditor from './ComposerEditor.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -23,6 +24,7 @@ const isOpen = computed(() => store.activeModal === 'settings')
 const sections = [
   { id: 'account', label: 'Account', icon: 'person' },
   { id: 'appearance', label: 'Appearance', icon: 'palette' },
+  { id: 'signature', label: 'Signature', icon: 'draw' },
   { id: 'notifications', label: 'Notifications', icon: 'notifications' },
   { id: 'labels', label: 'Labels', icon: 'label' },
 ]
@@ -242,6 +244,22 @@ async function submitLabelRename(label) {
                 <option value="system">System</option>
               </select>
             </label>
+          </section>
+
+          <!-- Signature -->
+          <section v-if="activeSection === 'signature'" class="settings-section">
+            <h3 class="settings-section-title">Signature</h3>
+            <p class="settings-signature-hint">
+              Added to the bottom of new emails you compose. Type “/” for formatting.
+            </p>
+            <div class="settings-signature-editor">
+              <ComposerEditor
+                :model-value="store.signatureHtml"
+                :hide-generate="true"
+                placeholder="Your signature…"
+                @update:model-value="store.setSignature($event)"
+              />
+            </div>
           </section>
 
           <!-- Notifications -->

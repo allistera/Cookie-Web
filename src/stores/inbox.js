@@ -3,7 +3,8 @@ import { defineStore } from 'pinia'
 import { getAuth0 } from '../auth0-client'
 import { recipientsValid } from '../lib/recipients'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
-import { plainTextToHtml } from '../lib/composeHtml'
+import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
+import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -146,6 +147,10 @@ export const useInboxStore = defineStore('inbox', {
     composerSubject: '',
     composerTextArea: '', // plain-text body (innerText of the rich editor)
     composerHtml: '', // rich HTML body from the WYSIWYG editor
+
+    // Personal email signature (rich HTML), edited in settings and appended to
+    // new emails. Persisted locally.
+    signatureHtml: getStoredSignature(),
     isAiDraftActive: false,
     isAiDraftLoading: false,
     aiDraftPreview: '',
@@ -849,6 +854,18 @@ export const useInboxStore = defineStore('inbox', {
       this.isComposerActive = true
       // Populate the "to" auto-suggest; cached after the first load.
       this.loadContacts()
+      // Pre-fill a fresh compose with the saved signature (blank lines above so
+      // the message goes on top). Never clobbers an in-progress draft.
+      if (!this.composerHtml && this.signatureHtml) {
+        this.composerHtml = `<p><br></p><p><br></p>${this.signatureHtml}`
+        this.composerTextArea = htmlToText(this.composerHtml)
+      }
+    },
+
+    // Saves the personal signature (from the settings WYSIWYG editor).
+    setSignature(html) {
+      this.signatureHtml = html || ''
+      saveStoredSignature(this.signatureHtml)
     },
 
     // Loads the contact list (two-way correspondents) for compose auto-suggest.
