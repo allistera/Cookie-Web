@@ -1,9 +1,16 @@
 import { test, expect } from '@playwright/test'
 
-test('The root path redirects to the inbox', async ({ page }) => {
+test('The root path shows AI Inbox and opens a live priority in the inbox reader', async ({ page }) => {
   await page.goto('/')
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'AI Inbox' })).toBeVisible()
+
+  const priority = page.getByTestId('ai-priority-list')
+  await expect(priority).toContainText('Revised Floor Plan')
+  await priority.getByRole('button', { name: 'Open' }).first().click()
+
   await expect(page).toHaveURL(/\/inbox$/)
-  await expect(page.locator('.ni-row').first()).toBeVisible()
+  await expect(page.locator('.ni-reader')).toBeVisible()
 })
 
 test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
@@ -55,7 +62,7 @@ test('Browser notifications can be enabled from Notifications settings', async (
     })
   })
   await page.goto('/')
-  await expect(page.locator('.ni-row').first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'AI Inbox' })).toBeVisible()
   await page.locator('.profile-container').click()
   await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
 
