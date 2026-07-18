@@ -3,6 +3,12 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { filterContacts } from './lib/contactSuggest'
+import {
+  appendRecipient,
+  completedRecipients,
+  currentRecipientToken,
+  recipientsValid,
+} from './lib/recipients'
 import ChatDrawer from './components/ChatDrawer.vue'
 import LoadingBar from './components/LoadingBar.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -43,9 +49,16 @@ function undoSend() {
 // is keyboard-navigable (up/down to move, Enter to pick, Esc to dismiss).
 const contactSuggestOpen = ref(false)
 const contactHighlight = ref(-1)
-const contactSuggestions = computed(() =>
-  contactSuggestOpen.value ? filterContacts(store.contacts, store.composerTo) : [],
-)
+// Suggest against the address currently being typed (after the last comma), and
+// hide contacts already added, so auto-suggest works per recipient.
+const contactSuggestions = computed(() => {
+  if (!contactSuggestOpen.value) return []
+  const already = new Set(completedRecipients(store.composerTo).map((a) => a.toLowerCase()))
+  const pool = store.contacts.filter((c) => !already.has(c.address.toLowerCase()))
+  return filterContacts(pool, currentRecipientToken(store.composerTo))
+})
+
+const composerToValid = computed(() => recipientsValid(store.composerTo))
 
 function openContactSuggest() {
   contactSuggestOpen.value = true
@@ -64,7 +77,7 @@ function moveContactHighlight(delta) {
 }
 
 function selectContact(address) {
-  store.composerTo = address
+  store.composerTo = appendRecipient(store.composerTo, address)
   closeContactSuggest()
   composerToRef.value?.focus()
 }
@@ -415,7 +428,9 @@ onMounted(() => {
             v-model="store.composerTo"
             class="composer-to-inline"
             type="email"
+            multiple
             autocomplete="off"
+            placeholder="name@example.com, another@example.com"
             @focus="openContactSuggest"
             @input="openContactSuggest"
             @blur="closeContactSuggest"
@@ -493,7 +508,7 @@ onMounted(() => {
       <div class="composer-send-actions">
         <button
           class="composer-text-btn composer-text-btn-primary"
-          :disabled="store.isSendingEmail || !store.composerTo.includes('@') || !store.composerTextArea.trim()"
+          :disabled="store.isSendingEmail || !composerToValid || !store.composerTextArea.trim()"
           :aria-busy="store.isSendingEmail"
           @click="store.sendEmail"
         >

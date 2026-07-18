@@ -496,6 +496,20 @@ describe('Inbox Store', () => {
       expect(store.toasts.at(-1)?.message).toBe('Email sent.')
     })
 
+    it('sends a comma-separated recipient list through to the API', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      store.composerTo = 'a@b.com, c@d.com'
+      store.composerSubject = 'Hi'
+      store.composerTextArea = 'Body'
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).to).toBe('a@b.com, c@d.com')
+    })
+
     it('undo cancels the send and restores the message in the composer', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()

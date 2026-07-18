@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
+import { recipientsValid } from '../lib/recipients'
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -919,7 +920,7 @@ export const useInboxStore = defineStore('inbox', {
     // stop two rapid clicks from queueing a second send.
     sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
-      if (!this.composerTo.includes('@') || !this.composerTextArea.trim()) return
+      if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
       const draft = {
         to: this.composerTo,
         subject: this.composerSubject,

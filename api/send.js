@@ -28,10 +28,17 @@ function parseFromEnv(from) {
   return { name: null, address: from.trim() }
 }
 
+// The "to" field is a comma-separated list of addresses; returns the trimmed,
+// non-empty ones. Exported for testing.
+export function parseRecipients(to) {
+  if (typeof to !== 'string') return []
+  return to.split(',').map((address) => address.trim()).filter(Boolean)
+}
+
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
 // the inbox list, included in search). Threads with the replied-to message
 // when replyToMessageId is given; otherwise starts a fresh thread.
-async function storeSentMessage(sql, email, { to, subject, text, replyToMessageId, resendId }) {
+async function storeSentMessage(sql, email, { recipients, subject, text, replyToMessageId, resendId }) {
   const [lookup] = await sql`
     SELECT u.id AS user_id,
            CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
@@ -52,7 +59,11 @@ async function storeSentMessage(sql, email, { to, subject, text, replyToMessageI
   const messageUuid = crypto.randomUUID()
   const threadUuid = lookup.thread_id ?? crypto.randomUUID()
   const sentAt = new Date().toISOString()
-  const recipients = JSON.stringify({ to: [{ name: null, address: to }], cc: [], bcc: [] })
+  const recipientsJson = JSON.stringify({
+    to: recipients.map((address) => ({ name: null, address })),
+    cc: [],
+    bcc: [],
+  })
   const messageId = resendId ? `<${resendId}@resend.cookie-web>` : null
 
   const statements = []
@@ -67,7 +78,7 @@ async function storeSentMessage(sql, email, { to, subject, text, replyToMessageI
                           recipients, subject, snippet, body_text, sent_at,
                           message_id, is_unread, is_sent)
     VALUES (${messageUuid}, ${threadUuid}, ${lookup.user_id}, ${fromName},
-            ${fromAddress}, ${recipients}::jsonb, ${subject}, ${makeSnippet(text)},
+            ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
             ${text}, ${sentAt}, ${messageId}, false, true)
     ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
   `)
@@ -141,8 +152,9 @@ export default async function handler(req, res) {
   }
 
   const { to, subject, text, replyToMessageId } = body
+  const recipients = parseRecipients(to)
   if (
-    typeof to !== 'string' || !to.includes('@') ||
+    recipients.length === 0 || !recipients.every((address) => address.includes('@')) ||
     typeof subject !== 'string' || !subject.trim() ||
     typeof text !== 'string' || !text.trim()
   ) {
@@ -160,7 +172,7 @@ export default async function handler(req, res) {
     const resend = new Resend(process.env.RESEND_API_KEY)
     const { data, error } = await resend.emails.send({
       from: process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
-      to: [to],
+      to: recipients,
       subject,
       text,
     })
@@ -174,7 +186,7 @@ export default async function handler(req, res) {
     try {
       const sql = getSql()
       await storeSentMessage(sql, email, {
-        to,
+        recipients,
         subject,
         text,
         replyToMessageId: replyTo,
