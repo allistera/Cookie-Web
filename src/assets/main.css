@@ -29,6 +29,12 @@
   --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-bounce: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Modal open / close (transitions-dev) */
+  --modal-open-dur: 250ms;
+  --modal-close-dur: 150ms;
+  --modal-scale: 0.96;
+  --modal-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Dark Mode Variables */
@@ -1907,7 +1913,10 @@ body {
 
 /* Modals Overlay */
 .modal-overlay {
-  display: none;
+  /* Stays laid out and only hidden via visibility/opacity — toggling
+     `display` would cancel the open/close transitions and make the dialog
+     pop in and out. visibility is delayed on close so the fade plays first. */
+  display: flex;
   position: fixed;
   top: 0;
   left: 0;
@@ -1918,12 +1927,20 @@ body {
   justify-content: center;
   z-index: 1000;
   opacity: 0;
-  transition: opacity var(--transition-normal);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--modal-close-dur) var(--modal-ease),
+    visibility 0s linear var(--modal-close-dur);
 }
 
 .modal-overlay.active {
-  display: flex;
   opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity var(--modal-open-dur) var(--modal-ease),
+    visibility 0s;
 }
 
 .modal-container {
@@ -1935,13 +1952,23 @@ body {
   overflow: hidden;
   max-width: 90%;
   width: 600px;
-  transform: scale(0.9);
-  transition: transform var(--transition-normal);
+  transform: scale(var(--modal-scale));
+  transition: transform var(--modal-close-dur) var(--modal-ease);
   border: 1px solid var(--border-color);
 }
 
 .modal-overlay.active .modal-container {
   transform: scale(1);
+  transition: transform var(--modal-open-dur) var(--modal-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-overlay.active,
+  .modal-container,
+  .modal-overlay.active .modal-container {
+    transition-duration: 0s;
+  }
 }
 
 .modal-header {
