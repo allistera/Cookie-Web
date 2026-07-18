@@ -46,6 +46,18 @@ describe('useCommands', () => {
     expect(ids).toContain('open-settings')
   })
 
+  it('always offers a Compose command that opens the composer', () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
+    const { commands } = useCommands()
+
+    const compose = commands.value.find((c) => c.id === 'compose')
+    expect(compose).toBeTruthy()
+    expect(compose.title).toBe('Compose')
+
+    compose.run()
+    expect(store.isComposerActive).toBe(true)
+  })
+
   it('shows email commands when an email is open, with state-aware titles', () => {
     const email = makeEmail({ starred: true, unread: false })
     store.traditionalEmails = [email]
