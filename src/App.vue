@@ -1,7 +1,8 @@
 <script setup>
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
+import { filterContacts } from './lib/contactSuggest'
 import ChatDrawer from './components/ChatDrawer.vue'
 import LoadingBar from './components/LoadingBar.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -36,6 +37,44 @@ function onUndoSendLeave() {
 function undoSend() {
   undoSendHover.value = false
   store.undoPendingSend()
+}
+
+// Composer "to" contact auto-suggest: matches contacts by name or address and
+// is keyboard-navigable (up/down to move, Enter to pick, Esc to dismiss).
+const contactSuggestOpen = ref(false)
+const contactHighlight = ref(-1)
+const contactSuggestions = computed(() =>
+  contactSuggestOpen.value ? filterContacts(store.contacts, store.composerTo) : [],
+)
+
+function openContactSuggest() {
+  contactSuggestOpen.value = true
+  contactHighlight.value = -1
+}
+
+function closeContactSuggest() {
+  contactSuggestOpen.value = false
+  contactHighlight.value = -1
+}
+
+function moveContactHighlight(delta) {
+  const count = contactSuggestions.value.length
+  if (!count) return
+  contactHighlight.value = (contactHighlight.value + delta + count) % count
+}
+
+function selectContact(address) {
+  store.composerTo = address
+  closeContactSuggest()
+  composerToRef.value?.focus()
+}
+
+function onContactEnter(event) {
+  const choice = contactSuggestions.value[contactHighlight.value]
+  if (contactSuggestOpen.value && choice) {
+    event.preventDefault()
+    selectContact(choice.address)
+  }
 }
 
 // Compose window: the inline subject in the title row gets focus first.
@@ -370,23 +409,40 @@ onMounted(() => {
           @keydown.tab.exact.prevent="composerToRef?.focus()"
         />
         <span class="composer-draft-to">to</span>
-        <input
-          ref="composerToRef"
-          v-model="store.composerTo"
-          class="composer-to-inline"
-          type="email"
-          list="composer-contacts"
-          @keydown.tab.exact.prevent="composerBodyRef?.focus()"
-          @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
-        />
-        <datalist id="composer-contacts">
-          <option
-            v-for="contact in store.contacts"
-            :key="contact.address"
-            :value="contact.address"
-            :label="contact.name || undefined"
+        <span class="composer-to-wrap">
+          <input
+            ref="composerToRef"
+            v-model="store.composerTo"
+            class="composer-to-inline"
+            type="email"
+            autocomplete="off"
+            @focus="openContactSuggest"
+            @input="openContactSuggest"
+            @blur="closeContactSuggest"
+            @keydown.tab.exact.prevent="composerBodyRef?.focus()"
+            @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
+            @keydown.down.prevent="moveContactHighlight(1)"
+            @keydown.up.prevent="moveContactHighlight(-1)"
+            @keydown.enter="onContactEnter"
+            @keydown.esc="closeContactSuggest"
           />
-        </datalist>
+          <div class="composer-suggestions" v-if="contactSuggestions.length">
+            <div
+              v-for="(contact, i) in contactSuggestions"
+              :key="contact.address"
+              class="suggestion-item"
+              :class="{ highlighted: i === contactHighlight }"
+              @mousedown.prevent="selectContact(contact.address)"
+              @mouseenter="contactHighlight = i"
+            >
+              <span class="material-symbols-outlined text-purple">person</span>
+              <span class="composer-suggest-text">
+                <span v-if="contact.name" class="composer-suggest-name">{{ contact.name }}</span>
+                <span class="composer-suggest-address">{{ contact.address }}</span>
+              </span>
+            </div>
+          </div>
+        </span>
       </div>
       <div class="composer-window-actions">
         <button class="composer-icon-btn" title="Close" tabindex="-1" @click="store.closeComposer">
