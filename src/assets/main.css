@@ -477,32 +477,6 @@ body {
   transition: all var(--transition-bounce);
 }
 
-.ai-update-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  width: fit-content;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color var(--transition-fast);
-}
-
-.ai-update-status:hover {
-  background-color: var(--bg-hover);
-}
-
-.refresh-icon {
-  font-size: 14px;
-  transition: transform 0.6s ease;
-}
-
-.refreshing {
-  transform: rotate(360deg);
-}
-
 /* Cards Design */
 .ai-cards-container {
   display: flex;

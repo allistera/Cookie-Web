@@ -58,17 +58,6 @@ function askCookie() {
       </div>
       <div class="ai-inbox-header-actions">
         <span class="ai-inbox-count" data-testid="ai-unread-count">{{ unreadLabel }}</span>
-        <button
-          class="ai-update-status"
-          type="button"
-          :aria-label="store.isRefreshing ? 'Refreshing inbox' : 'Refresh inbox'"
-          @click="store.refreshInbox"
-        >
-          <span>Refresh</span>
-          <span class="material-symbols-outlined refresh-icon" :class="{ refreshing: store.isRefreshing }">
-            sync
-          </span>
-        </button>
       </div>
     </header>
 
