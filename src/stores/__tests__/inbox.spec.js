@@ -406,6 +406,36 @@ describe('Inbox Store', () => {
     )
   })
 
+  it('loadContacts fetches once and populates contacts for auto-suggest', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ contacts: [{ address: 'ann@example.com', name: 'Ann' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    await store.loadContacts()
+    expect(store.contacts).toEqual([{ address: 'ann@example.com', name: 'Ann' }])
+    expect(store.contactsLoaded).toBe(true)
+
+    await store.loadContacts() // already loaded: no second request
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/contacts')
+  })
+
+  it('openComposer loads contacts for auto-suggest', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ contacts: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    store.openComposer()
+    expect(store.isComposerActive).toBe(true)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/contacts', expect.anything()))
+  })
+
   it('allLabels lists every user label from the palette, not just ones on loaded emails', () => {
     const store = useInboxStore()
     store.traditionalEmails = [] // nothing loaded in the inbox list

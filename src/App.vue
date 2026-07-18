@@ -375,9 +375,18 @@ onMounted(() => {
           v-model="store.composerTo"
           class="composer-to-inline"
           type="email"
+          list="composer-contacts"
           @keydown.tab.exact.prevent="composerBodyRef?.focus()"
           @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
         />
+        <datalist id="composer-contacts">
+          <option
+            v-for="contact in store.contacts"
+            :key="contact.address"
+            :value="contact.address"
+            :label="contact.name || undefined"
+          />
+        </datalist>
       </div>
       <div class="composer-window-actions">
         <button class="composer-icon-btn" title="Close" tabindex="-1" @click="store.closeComposer">

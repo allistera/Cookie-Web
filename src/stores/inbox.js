@@ -151,6 +151,11 @@ export const useInboxStore = defineStore('inbox', {
     // secondsLeft, paused } while a queued send is counting down.
     pendingSend: null,
 
+    // Compose auto-suggest: [{ address, name }] of two-way correspondents,
+    // loaded lazily on first composer open.
+    contacts: [],
+    contactsLoaded: false,
+
     // Toast notifications
     toasts: [],
     nextToastId: 1,
@@ -833,6 +838,24 @@ export const useInboxStore = defineStore('inbox', {
 
     openComposer() {
       this.isComposerActive = true
+      // Populate the "to" auto-suggest; cached after the first load.
+      this.loadContacts()
+    },
+
+    // Loads the contact list (two-way correspondents) for compose auto-suggest.
+    // Best-effort and cached: a failure just leaves auto-suggest empty.
+    async loadContacts() {
+      if (this.contactsLoaded) return
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/contacts', { headers })
+        if (!response.ok) throw new Error(`GET /api/contacts responded ${response.status}`)
+        const { contacts } = await response.json()
+        this.contacts = contacts
+        this.contactsLoaded = true
+      } catch (error) {
+        console.error('Failed to load contacts:', error)
+      }
     },
 
     closeComposer() {
