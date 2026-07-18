@@ -1079,3 +1079,34 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.archiveEmail).not.toHaveBeenCalled()
   })
 })
+
+describe('TraditionalInboxView search results', () => {
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    // Relevance order (from the API) deliberately differs from date order:
+    // the most relevant result is the oldest, the least relevant is newest.
+    store.traditionalEmails = [
+      makeEmail('rel-1', Date.now() - 10 * DAY),
+      makeEmail('rel-2', Date.now() - HOUR),
+    ]
+    store.activeSearchQuery = 'invoice'
+  })
+
+  it('preserves the server relevance order instead of bucketing by date', () => {
+    const wrapper = mount(TraditionalInboxView)
+
+    // A single flat group, not the Today/Yesterday/Earlier date buckets.
+    const headers = wrapper.findAll('.ni-group-header')
+    expect(headers).toHaveLength(1)
+    expect(headers[0].text()).not.toContain('Today')
+    expect(headers[0].text()).not.toContain('Earlier')
+
+    const subjects = wrapper.findAll('.ni-row .ni-subject').map((s) => s.text())
+    expect(subjects[0]).toContain('Subject rel-1')
+    expect(subjects[1]).toContain('Subject rel-2')
+  })
+})

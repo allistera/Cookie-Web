@@ -129,6 +129,12 @@ const emailGroups = computed(() => {
     unreadCount: emails.filter((e) => e.unread).length,
   })
 
+  // Search results are ranked by relevance server-side; keep them as one flat
+  // group so the date bucketing below doesn't reorder them into Today/Earlier.
+  if (store.activeSearchQuery) {
+    return filteredEmails.value.length ? [group('Results', filteredEmails.value)] : []
+  }
+
   if (activeFilter.value === 'snoozed') {
     const choices = scheduleChoices(now)
     const sameLocalDay = (left, right) =>
