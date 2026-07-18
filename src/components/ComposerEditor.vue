@@ -27,9 +27,9 @@ const menuCommands = computed(() =>
   ),
 )
 
-// Matches a "/" that starts a slash sequence (at line start or after
-// whitespace) followed by the query, anchored to the caret.
-const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/
+// Matches the final slash sequence before the caret. Commands are deliberately
+// available anywhere in the compose body, including directly after text.
+const SLASH_RE = /\/([^\s/]*)$/
 
 function textBeforeCaret() {
   const selection = window.getSelection()

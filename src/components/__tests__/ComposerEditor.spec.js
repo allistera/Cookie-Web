@@ -47,4 +47,21 @@ describe('ComposerEditor snippets', () => {
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('<p>Hello world</p>')
     expect(editor.html()).not.toContain('/hello-world')
   })
+
+  it('recognizes a trigger immediately after regular text', async () => {
+    const wrapper = mount(ComposerEditor, {
+      attachTo: document.body,
+      props: { snippets: [{ id: 'hello', name: 'hello-world', html: '<p>Hello world</p>' }] },
+    })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = 'Thanks,/hello-world'
+    editor.element.focus()
+    setCaret(editor.element.firstChild, 'Thanks,/hello-world'.length)
+
+    await editor.trigger('input')
+
+    expect(wrapper.find('.composer-slash-menu').text()).toContain('hello-world')
+    await editor.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('Thanks,<p>Hello world</p>')
+  })
 })
