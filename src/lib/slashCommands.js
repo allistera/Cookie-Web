@@ -13,10 +13,11 @@ export const SLASH_COMMANDS = [
 ]
 
 // Filters commands by a query against the title and keyword aliases.
-export function filterSlashCommands(query) {
+export function filterSlashCommands(query, snippets = []) {
   const q = (query || '').trim().toLowerCase()
-  if (!q) return SLASH_COMMANDS
-  return SLASH_COMMANDS.filter(
+  const commands = [...snippets, ...SLASH_COMMANDS]
+  if (!q) return commands
+  return commands.filter(
     (command) => command.title.toLowerCase().includes(q) || command.keywords.includes(q),
   )
 }

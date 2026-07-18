@@ -2,12 +2,15 @@
 import { ref, computed, onMounted, watch } from 'vue'
 
 import { filterSlashCommands } from '../lib/slashCommands'
+import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import { getSlashSnippetCommands } from '../lib/snippets'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: 'Write your message, or type “/” for commands…' },
   // Hides the AI "Generate Message" slash command (e.g. in the signature editor).
   hideGenerate: { type: Boolean, default: false },
+  snippets: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['update:modelValue', 'update:text', 'generate', 'focusPrev'])
 
@@ -19,7 +22,7 @@ const menuQuery = ref('')
 const menuIndex = ref(0)
 const menuStyle = ref({})
 const menuCommands = computed(() =>
-  filterSlashCommands(menuQuery.value).filter(
+  filterSlashCommands(menuQuery.value, getSlashSnippetCommands(props.snippets)).filter(
     (command) => !(props.hideGenerate && command.id === 'generate'),
   ),
 )
@@ -32,23 +35,31 @@ function textBeforeCaret() {
   const selection = window.getSelection()
   if (!selection || !selection.rangeCount || !selection.isCollapsed) return null
   const range = selection.getRangeAt(0)
-  const node = range.startContainer
-  if (node.nodeType !== Node.TEXT_NODE) return null
-  return { node, offset: range.startOffset, text: node.textContent.slice(0, range.startOffset) }
+  const editor = editorRef.value
+  if (!editor || !editor.contains(range.startContainer)) return null
+  const before = range.cloneRange()
+  before.selectNodeContents(editor)
+  before.setEnd(range.startContainer, range.startOffset)
+  return { text: before.toString(), range }
 }
 
 function updateSlashMenu() {
   const before = textBeforeCaret()
   const match = before && SLASH_RE.exec(before.text)
-  if (!match || filterSlashCommands(match[1]).length === 0) {
+  const matchingCommands = match
+    ? filterSlashCommands(match[1], getSlashSnippetCommands(props.snippets)).filter(
+        (command) => !(props.hideGenerate && command.id === 'generate'),
+      )
+    : []
+  if (!match || matchingCommands.length === 0) {
     menuOpen.value = false
     return
   }
   menuQuery.value = match[1]
   menuIndex.value = 0
   const range = window.getSelection().getRangeAt(0)
-  const caret = range.getBoundingClientRect()
   const host = editorRef.value.getBoundingClientRect()
+  const caret = range.getBoundingClientRect?.() || host
   menuStyle.value = {
     top: `${caret.bottom - host.top + editorRef.value.scrollTop + 4}px`,
     left: `${caret.left - host.left}px`,
@@ -60,25 +71,54 @@ function updateSlashMenu() {
 function removeSlashText() {
   const before = textBeforeCaret()
   const match = before && SLASH_RE.exec(before.text)
-  if (!match) return
+  if (!match) return null
   const deleteLength = match[1].length + 1 // the "/" plus the query
-  const start = before.offset - deleteLength
+  const startAt = before.text.length - deleteLength
+  const walker = document.createTreeWalker(editorRef.value, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode()
+  let seen = 0
+  while (node) {
+    const next = seen + node.textContent.length
+    if (startAt <= next) break
+    seen = next
+    node = walker.nextNode()
+  }
+  if (!node) return null
   const range = document.createRange()
-  range.setStart(before.node, start)
-  range.setEnd(before.node, before.offset)
+  range.setStart(node, Math.max(0, startAt - seen))
+  range.setEnd(before.range.startContainer, before.range.startOffset)
   range.deleteContents()
   const selection = window.getSelection()
   selection.removeAllRanges()
   const caret = document.createRange()
-  caret.setStart(before.node, start)
+  caret.setStart(range.startContainer, range.startOffset)
   caret.collapse(true)
   selection.addRange(caret)
+  return caret
 }
 
-function applyCommand(id) {
+function insertSnippet(html) {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return
+  const range = selection.getRangeAt(0)
+  const fragment = range.createContextualFragment(sanitizeEmailHtml(html))
+  const lastNode = fragment.lastChild
+  if (!lastNode) return
+  range.insertNode(fragment)
+  range.setStartAfter(lastNode)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function applyCommand(command) {
+  if (command.type === 'snippet') {
+    insertSnippet(command.html)
+    return
+  }
   // execCommand is deprecated but is still the pragmatic, dependency-free way
   // to apply inline formatting inside a contenteditable across browsers.
-  switch (id) {
+  switch (command.id) {
     case 'generate':
       emit('generate')
       break
@@ -106,7 +146,7 @@ function applyCommand(id) {
 function selectCommand(command) {
   editorRef.value.focus()
   removeSlashText()
-  applyCommand(command.id)
+  applyCommand(command)
   menuOpen.value = false
   emitUpdate()
 }

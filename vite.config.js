@@ -190,7 +190,14 @@ function localApiPlugin(mode) {
   }
   const handleCompose = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const body = JSON.parse(raw || '{}')
       res.setHeader('Content-Type', 'application/json')
+      if (body.mode === 'snippet') {
+        res.end(JSON.stringify({ snippet: { name: 'hello-world', text: 'Hello world!' } }))
+        return
+      }
       res.end(
         JSON.stringify({
           draft: { subject: 'AI draft', text: 'A reviewable AI-generated draft.' },

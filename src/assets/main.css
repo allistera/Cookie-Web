@@ -3123,6 +3123,37 @@ body {
   border-color: var(--text-blue);
 }
 
+.snippet-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.snippet-row,
+.snippet-ai-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.snippet-row {
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.snippet-trigger {
+  color: var(--text-blue);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.snippet-ai-row { margin: 16px 0; }
+.snippet-ai-row .label-input { flex: 1; }
+.snippet-editor-form { display: grid; gap: 10px; }
+.snippet-editor { min-height: 120px; }
+.snippet-error { margin: 0; color: var(--text-danger, #e5484d); font-size: 13px; }
+
 .composer-ai-instruction {
   width: 100%;
   box-sizing: border-box;

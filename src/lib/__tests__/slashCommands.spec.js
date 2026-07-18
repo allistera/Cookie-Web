@@ -27,4 +27,12 @@ describe('filterSlashCommands', () => {
     expect(filterSlashCommands('BOLD').map((c) => c.id)).toEqual(['bold'])
     expect(filterSlashCommands('zzz')).toEqual([])
   })
+
+  it('puts matching user snippets before built-in commands', () => {
+    const commands = filterSlashCommands('hello', [
+      { id: 'snippet:1', title: 'hello-world', keywords: 'hello-world' },
+    ])
+
+    expect(commands.map((command) => command.id)).toEqual(['snippet:1'])
+  })
 })

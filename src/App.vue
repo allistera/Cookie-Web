@@ -483,6 +483,7 @@ onMounted(() => {
       <ComposerEditor
         ref="composerBodyRef"
         v-model="store.composerHtml"
+        :snippets="store.snippets"
         @update:text="store.composerTextArea = $event"
         @generate="store.openAiDraft()"
         @focus-prev="composerToRef?.focus()"

@@ -90,8 +90,8 @@ describe('SettingsModal', () => {
     const wrapper = await openModal()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(5)
-    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Notifications', 'Labels'].entries()) {
+    expect(navItems).toHaveLength(6)
+    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Snippets', 'Notifications', 'Labels'].entries()) {
       expect(navItems[i]).toContain(name)
     }
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
@@ -146,6 +146,20 @@ describe('SettingsModal', () => {
     editor.vm.$emit('update:modelValue', '<p>Cheers, Allister</p>')
     expect(store.signatureHtml).toBe('<p>Cheers, Allister</p>')
     expect(localStorage.getItem('cookie-signature-html')).toBe('<p>Cheers, Allister</p>')
+  })
+
+  it('saves a locally stored compose snippet from the Snippets pane', async () => {
+    const wrapper = await openModal()
+    await wrapper.findAll('.settings-nav-item').find((n) => n.text().includes('Snippets')).trigger('click')
+
+    await wrapper.find('.snippet-editor-form > .label-input').setValue('Hello World')
+    wrapper.findComponent(ComposerEditor).vm.$emit('update:modelValue', '<p>Hello <strong>there</strong></p>')
+    await wrapper.find('.snippet-editor-form').trigger('submit')
+
+    expect(store.snippets).toEqual([
+      expect.objectContaining({ name: 'hello-world', html: '<p>Hello <strong>there</strong></p>' }),
+    ])
+    expect(JSON.parse(localStorage.getItem('cookie-compose-snippets'))[0].name).toBe('hello-world')
   })
 
   it('requests browser permission and enables new-mail notifications for the current user', async () => {

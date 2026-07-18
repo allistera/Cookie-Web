@@ -11,6 +11,8 @@ import {
   saveBrowserNotificationsEnabled,
 } from '../lib/browserNotifications'
 import { getStoredTheme, setTheme } from '../lib/theme'
+import { plainTextToHtml } from '../lib/composeHtml'
+import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
 import ComposerEditor from './ComposerEditor.vue'
 
 const store = useInboxStore()
@@ -25,6 +27,7 @@ const sections = [
   { id: 'account', label: 'Account', icon: 'person' },
   { id: 'appearance', label: 'Appearance', icon: 'palette' },
   { id: 'signature', label: 'Signature', icon: 'draw' },
+  { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
   { id: 'notifications', label: 'Notifications', icon: 'notifications' },
   { id: 'labels', label: 'Labels', icon: 'label' },
 ]
@@ -40,6 +43,63 @@ watch(
   },
   { immediate: true },
 )
+
+// --- Compose snippets (persisted locally through the inbox store) ---
+const snippetDraft = reactive({ name: '', html: '' })
+const editingSnippetId = ref(null)
+const snippetError = ref('')
+const aiSnippetInstruction = ref('')
+const isGeneratingSnippet = ref(false)
+
+function resetSnippetDraft() {
+  snippetDraft.name = ''
+  snippetDraft.html = ''
+  editingSnippetId.value = null
+  snippetError.value = ''
+}
+
+function editSnippet(snippet) {
+  snippetDraft.name = snippet.name
+  snippetDraft.html = snippet.html
+  editingSnippetId.value = snippet.id
+  snippetError.value = ''
+}
+
+function saveSnippet() {
+  const name = normalizeSnippetName(snippetDraft.name)
+  if (!name || !snippetDraft.html.trim()) {
+    snippetError.value = 'Give the snippet a name and content.'
+    return
+  }
+  if (snippetNameIsReserved(name)) {
+    snippetError.value = `/${name} is already a built-in command.`
+    return
+  }
+  if (store.snippets.some((snippet) => snippet.name === name && snippet.id !== editingSnippetId.value)) {
+    snippetError.value = `/${name} already exists.`
+    return
+  }
+  const id = editingSnippetId.value || globalThis.crypto?.randomUUID?.() || `snippet-${Date.now()}`
+  store.setSnippets([...store.snippets.filter((snippet) => snippet.id !== id), { id, name, html: snippetDraft.html }])
+  resetSnippetDraft()
+}
+
+function deleteSnippet(id) {
+  store.setSnippets(store.snippets.filter((snippet) => snippet.id !== id))
+  if (editingSnippetId.value === id) resetSnippetDraft()
+}
+
+async function generateSnippet() {
+  if (!aiSnippetInstruction.value.trim() || isGeneratingSnippet.value) return
+  isGeneratingSnippet.value = true
+  const snippet = await store.requestAiSnippet(aiSnippetInstruction.value)
+  isGeneratingSnippet.value = false
+  if (!snippet) return
+  snippetDraft.name = snippet.name
+  snippetDraft.html = plainTextToHtml(snippet.text)
+  editingSnippetId.value = null
+  snippetError.value = ''
+}
 
 // --- Appearance ---
 const theme = ref(getStoredTheme())
@@ -260,6 +320,58 @@ async function submitLabelRename(label) {
                 @update:model-value="store.setSignature($event)"
               />
             </div>
+          </section>
+
+          <!-- Compose snippets -->
+          <section v-if="activeSection === 'snippets'" class="settings-section">
+            <h3 class="settings-section-title">Compose snippets</h3>
+            <p class="settings-section-hint">
+              Reusable templates stored on this device. In a new email, type a trigger such as “/hello-world” and choose it from the menu.
+            </p>
+
+            <div v-if="store.snippets.length" class="snippet-list">
+              <div v-for="snippet in store.snippets" :key="snippet.id" class="snippet-row">
+                <span class="snippet-trigger">/{{ snippet.name }}</span>
+                <div class="label-row-actions">
+                  <button class="ni-action-btn" :title="`Edit /${snippet.name}`" @click="editSnippet(snippet)">
+                    <span class="material-symbols-outlined">edit</span>
+                  </button>
+                  <button class="ni-action-btn label-delete-btn" :title="`Delete /${snippet.name}`" @click="deleteSnippet(snippet.id)">
+                    <span class="material-symbols-outlined">delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="snippet-ai-row">
+              <input
+                v-model="aiSnippetInstruction"
+                class="label-input"
+                maxlength="1000"
+                placeholder="Describe a template for Cookie AI to draft…"
+                @keydown.enter.prevent="generateSnippet"
+              />
+              <button class="btn btn-secondary" :disabled="!aiSnippetInstruction.trim() || isGeneratingSnippet" @click="generateSnippet">
+                {{ isGeneratingSnippet ? 'Drafting…' : 'Generate with AI' }}
+              </button>
+            </div>
+
+            <form class="snippet-editor-form" @submit.prevent="saveSnippet">
+              <input v-model="snippetDraft.name" class="label-input" maxlength="50" placeholder="Trigger, e.g. hello-world" />
+              <div class="settings-signature-editor snippet-editor">
+                <ComposerEditor
+                  :model-value="snippetDraft.html"
+                  :hide-generate="true"
+                  placeholder="Write your reusable template…"
+                  @update:model-value="snippetDraft.html = $event"
+                />
+              </div>
+              <p v-if="snippetError" class="snippet-error" role="alert">{{ snippetError }}</p>
+              <div class="label-create-actions">
+                <button v-if="editingSnippetId" type="button" class="btn btn-secondary" @click="resetSnippetDraft">Cancel</button>
+                <button type="submit" class="btn btn-primary">{{ editingSnippetId ? 'Save snippet' : 'Add snippet' }}</button>
+              </div>
+            </form>
           </section>
 
           <!-- Notifications -->

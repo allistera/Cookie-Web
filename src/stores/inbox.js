@@ -5,6 +5,7 @@ import { recipientsValid } from '../lib/recipients'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
+import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -164,6 +165,7 @@ export const useInboxStore = defineStore('inbox', {
     // Personal email signature (rich HTML), edited in settings and appended to
     // new emails. Persisted locally.
     signatureHtml: getStoredSignature(),
+    snippets: getStoredSnippets(),
     isAiDraftActive: false,
     isAiDraftLoading: false,
     aiDraftPreview: '',
@@ -904,6 +906,29 @@ export const useInboxStore = defineStore('inbox', {
     setSignature(html) {
       this.signatureHtml = html || ''
       saveStoredSignature(this.signatureHtml)
+    },
+
+    setSnippets(snippets) {
+      this.snippets = saveStoredSnippets(snippets)
+    },
+
+    async requestAiSnippet(instruction) {
+      const prompt = instruction.trim()
+      if (!prompt) return null
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/compose', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ mode: 'snippet', instruction: prompt }),
+        })
+        if (!response.ok) throw new Error(`POST /api/compose responded ${response.status}`)
+        return (await response.json()).snippet
+      } catch (error) {
+        console.error('AI snippet generation failed:', error)
+        this.notify('AI snippet generation failed. Please try again.', 'error')
+        return null
+      }
     },
 
     // Loads the contact list (two-way correspondents) for compose auto-suggest.
