@@ -392,6 +392,40 @@ describe('Inbox Store', () => {
     })
   })
 
+  it('toggleMessageLabel POSTs the right action and syncs the email labels', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ labels: [{ name: 'Work', color: '#3b82f6', kind: 'user' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const email = { id: 'msg-1', labels: [] }
+    const label = { id: 'lbl-1', name: 'Work', color: '#3b82f6' }
+
+    // Not yet applied → add_label.
+    await store.toggleMessageLabel(email, label)
+    expect(fetchMock).toHaveBeenCalledWith('/api/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'msg-1', action: 'add_label', label_id: 'lbl-1' }),
+    })
+    expect(email.labels).toEqual([{ name: 'Work', color: '#3b82f6', kind: 'user' }])
+
+    // Now applied → the next toggle removes it.
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ labels: [] }) })
+    await store.toggleMessageLabel(email, label)
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/messages',
+      expect.objectContaining({
+        body: JSON.stringify({ id: 'msg-1', action: 'remove_label', label_id: 'lbl-1' }),
+      }),
+    )
+    expect(email.labels).toEqual([])
+  })
+
   it('summarizes an email thread and caches the result for the open message', async () => {
     vi.stubGlobal(
       'fetch',

@@ -290,7 +290,18 @@ function starSelected() {
 
 const bulkScheduleOpen = ref(false)
 const readerScheduleOpen = ref(false)
+const readerTagOpen = ref(false)
 const scheduleOptions = computed(() => scheduleChoices())
+
+// Reader tag menu: whether a palette label is already on the open email (matched
+// by name, since the email's labels carry name/color/kind but not id).
+function isLabelApplied(label) {
+  return openEmail.value?.labels?.some((l) => l.name === label.name) ?? false
+}
+
+function toggleTag(label) {
+  store.toggleMessageLabel(openEmail.value, label)
+}
 
 function scheduleChoiceDetail(choice) {
   return choice.date.toLocaleDateString('en-GB', {
@@ -350,6 +361,7 @@ function openReader(email) {
 }
 
 function closeReader() {
+  readerTagOpen.value = false
   store.closeReader()
 }
 
@@ -360,6 +372,7 @@ watch(
   (id) => {
     isReplyOpen.value = false
     replyText.value = ''
+    readerTagOpen.value = false
     contentUnsubscribe.value = null
     // Fetch the full body on demand (cached) for any open path, including the
     // command palette.
@@ -505,6 +518,9 @@ function onDocumentClick(e) {
   if (!e.target.closest('.ni-schedule-wrap')) {
     bulkScheduleOpen.value = false
     readerScheduleOpen.value = false
+  }
+  if (!e.target.closest('.ni-tag-wrap')) {
+    readerTagOpen.value = false
   }
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run.
@@ -772,6 +788,41 @@ onUnmounted(() => {
                   <span>{{ choice.label }}</span>
                   <span>{{ scheduleChoiceDetail(choice) }}</span>
                 </button>
+              </div>
+            </div>
+            <div class="ni-tag-wrap">
+              <button
+                class="ni-reader-btn"
+                title="Tag"
+                aria-label="Add tags"
+                aria-haspopup="menu"
+                :aria-expanded="readerTagOpen"
+                @click="readerTagOpen = !readerTagOpen"
+              >
+                <span class="material-symbols-outlined">sell</span>
+              </button>
+              <div v-if="readerTagOpen" class="ni-tag-menu" role="menu">
+                <button
+                  v-for="label in store.allLabels"
+                  :key="label.id"
+                  role="menuitemcheckbox"
+                  :aria-checked="isLabelApplied(label)"
+                  class="ni-tag-item"
+                  :class="{ applied: isLabelApplied(label) }"
+                  @click="toggleTag(label)"
+                >
+                  <span class="ni-tag-dot" :style="{ backgroundColor: label.color }"></span>
+                  <span class="ni-tag-name">{{ label.name }}</span>
+                  <span
+                    v-if="isLabelApplied(label)"
+                    class="material-symbols-outlined ni-tag-check"
+                    aria-hidden="true"
+                    >check</span
+                  >
+                </button>
+                <p v-if="!store.allLabels.length" class="ni-tag-empty">
+                  No labels yet. Create them in Settings → Labels.
+                </p>
               </div>
             </div>
             <a

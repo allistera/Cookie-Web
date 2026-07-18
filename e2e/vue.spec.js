@@ -790,3 +790,38 @@ test('Sidebar links open the filtered views', async ({ page }) => {
   await expect(page.locator('.ni-header h1')).toHaveText('Done')
   await expect(page.locator('.ni-empty')).toHaveText('No emails marked done.')
 })
+
+test('Tags can be added to and removed from an email in the reader', async ({ page }) => {
+  const pageErrors = []
+  page.on('pageerror', (err) => pageErrors.push(err.message))
+
+  await page.goto('/inbox')
+  // Open a known email (fixture-1 carries the "Home" label, not "Finance").
+  await page.locator('.ni-row', { hasText: 'Revised Floor Plan' }).click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+
+  const readerLabels = reader.locator('.ni-reader-labels')
+  await expect(readerLabels.locator('.ni-label-pill', { hasText: 'Home' })).toBeVisible()
+  await expect(readerLabels.locator('.ni-label-pill', { hasText: 'Finance' })).toHaveCount(0)
+
+  // Open the tag menu and apply a label the email doesn't have yet.
+  await reader.locator('.ni-tag-wrap button[title="Tag"]').click()
+  const menu = reader.locator('.ni-tag-menu')
+  await expect(menu).toBeVisible()
+  await menu.locator('.ni-tag-item', { hasText: 'Finance' }).click()
+
+  await expect(readerLabels.locator('.ni-label-pill', { hasText: 'Finance' })).toBeVisible()
+  await expect(menu.locator('.ni-tag-item.applied', { hasText: 'Finance' })).toBeVisible()
+
+  // Toggling the same label again removes it.
+  await menu.locator('.ni-tag-item', { hasText: 'Finance' }).click()
+  await expect(readerLabels.locator('.ni-label-pill', { hasText: 'Finance' })).toHaveCount(0)
+
+  // Clicking elsewhere in the reader closes the menu but keeps the reader open.
+  await reader.locator('.ni-reader-subject').click()
+  await expect(menu).toBeHidden()
+  await expect(reader).toBeVisible()
+
+  expect(pageErrors).toEqual([])
+})

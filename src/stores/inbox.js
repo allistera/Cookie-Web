@@ -469,6 +469,31 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    // Apply or remove a palette label on a message from the reader's tag menu.
+    // The applied state is derived from the message's own labels (which carry
+    // name/color/kind, not id), so the toggle direction is decided by name. The
+    // server returns the message's full label set; we write it back onto the
+    // email object so the reader pills and any label-filtered view stay in sync.
+    async toggleMessageLabel(email, label) {
+      if (!email || !label) return
+      const applied = (email.labels || []).some((l) => l.name === label.name)
+      const action = applied ? 'remove_label' : 'add_label'
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/messages', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ id: email.id, action, label_id: label.id }),
+        })
+        if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
+        const { labels } = await response.json()
+        email.labels = labels
+      } catch (error) {
+        console.error('Failed to update message labels:', error)
+        this.notify('Failed to update tags.', 'error')
+      }
+    },
+
     // Returns true on success so the settings form knows to reset.
     async createLabel({ name, color, description }) {
       try {

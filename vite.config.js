@@ -100,6 +100,26 @@ function localApiPlugin(mode) {
           res.end(JSON.stringify({ status: 'unsubscribed', method: 'one-click' }))
           return
         }
+        if (body.action === 'add_label' || body.action === 'remove_label') {
+          const labels = await ensureStubLabels()
+          const label = labels.find((l) => l.id === body.label_id)
+          const state = fixtureMailboxState(req, res)
+          if (!state.messageLabels) state.messageLabels = new Map()
+          let current = state.messageLabels.get(body.id)
+          if (!current) {
+            const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+            current = [...(fixtureEmails().find((e) => e.id === body.id)?.labels || [])]
+          }
+          if (label && body.action === 'add_label' && !current.some((l) => l.name === label.name)) {
+            current = [...current, { name: label.name, color: label.color, kind: label.kind }]
+          } else if (label && body.action === 'remove_label') {
+            current = current.filter((l) => l.name !== label.name)
+          }
+          current.sort((a, b) => a.name.localeCompare(b.name))
+          state.messageLabels.set(body.id, current)
+          res.end(JSON.stringify({ labels: current }))
+          return
+        }
       }
       if (req.method === 'PATCH') {
         let raw = ''

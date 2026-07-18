@@ -56,6 +56,72 @@ async function handleGet(req, res, email) {
   }
 }
 
+// Apply or remove one of the caller's user labels on a message they own. Both
+// the message and the label are ownership-checked before the join row changes,
+// and the message's full label set is returned so the reader can resync its
+// pills. add_label is idempotent (ON CONFLICT DO NOTHING).
+async function mutateMessageLabel(res, email, messageId, action, labelId) {
+  if (typeof labelId !== 'string' || !UUID_RE.test(labelId)) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'A valid label_id is required' }))
+    return
+  }
+
+  try {
+    const sql = getSql()
+    const [owns] = await sql`
+      SELECT
+        EXISTS (
+          SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
+          WHERE m.id = ${messageId} AND lower(u.email) = ${email}
+        ) AS message,
+        EXISTS (
+          SELECT 1 FROM labels l JOIN users u ON u.id = l.user_id
+          WHERE l.id = ${labelId} AND lower(u.email) = ${email} AND l.kind = 'user'
+        ) AS label
+    `
+    if (!owns?.message) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Message not found' }))
+      return
+    }
+    if (!owns?.label) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Label not found' }))
+      return
+    }
+
+    if (action === 'add_label') {
+      await sql`
+        INSERT INTO message_labels (message_id, label_id)
+        VALUES (${messageId}, ${labelId})
+        ON CONFLICT DO NOTHING
+      `
+    } else {
+      await sql`
+        DELETE FROM message_labels
+        WHERE message_id = ${messageId} AND label_id = ${labelId}
+      `
+    }
+
+    // Return the same {name, color, kind} shape the list endpoint uses.
+    const labels = await sql`
+      SELECT l.name, l.color, l.kind
+      FROM message_labels ml
+      JOIN labels l ON l.id = ml.label_id
+      WHERE ml.message_id = ${messageId}
+      ORDER BY l.name
+    `
+    res.statusCode = 200
+    res.end(JSON.stringify({ labels }))
+  } catch (err) {
+    console.error('POST /api/messages label change failed:', err)
+    await captureApiError(err, { route: 'POST /api/messages (label)' })
+    res.statusCode = 500
+    res.end(JSON.stringify({ error: 'Failed to update labels' }))
+  }
+}
+
 // POST /api/messages — { id, action: 'unsubscribe' } acts on a message owned by
 // the authenticated user. Parses the (untrusted) List-Unsubscribe headers and,
 // in preference order: performs a server-side, SSRF-guarded one-click POST;
@@ -72,9 +138,20 @@ async function handlePost(req, res, email) {
   }
 
   const { id, action } = body
-  if (typeof id !== 'string' || !UUID_RE.test(id) || action !== 'unsubscribe') {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: "A valid id and action: 'unsubscribe' are required" }))
+    res.end(JSON.stringify({ error: 'A valid id is required' }))
+    return
+  }
+
+  // Tagging: apply or remove one of the user's labels on the message.
+  if (action === 'add_label' || action === 'remove_label') {
+    return mutateMessageLabel(res, email, id, action, body.label_id)
+  }
+
+  if (action !== 'unsubscribe') {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: "A valid id and action are required" }))
     return
   }
 
@@ -180,7 +257,8 @@ async function handlePost(req, res, email) {
 }
 
 // GET returns a single message body (plus a parsed unsubscribe summary); POST
-// acts on the unsubscribe; PATCH updates flags (is_unread, is_starred,
+// acts on the unsubscribe or applies/removes a label (action: 'add_label' |
+// 'remove_label' with a label_id); PATCH updates flags (is_unread, is_starred,
 // is_archived, scheduled_for) on a message owned by the authenticated user.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
