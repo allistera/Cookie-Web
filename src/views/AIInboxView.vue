@@ -1,9 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useInboxStore } from '../stores/inbox'
 
-// "AI Today" is a static design mock of the daily digest: a set of suggested
-// to-dos and topics to catch up on. The data below is fixed mock content, not
-// wired to the live inbox store.
+const store = useInboxStore()
+
+// "AI Today" pairs a static design mock of the daily digest (suggested to-dos
+// and topics to catch up on) with the user's real Todoist tasks, which are
+// appended to the suggested to-dos list below.
 const todos = ref([
   {
     id: 'todo-kitchen',
@@ -65,12 +68,27 @@ const todos = ref([
 const showAll = ref(false)
 const topicCount = 4
 
+// Real Todoist tasks gathered into public.tasks, appended after the mock
+// to-dos. Dismissing one only hides it from this view.
+const dismissedTaskIds = ref(new Set())
+const todoistTasks = computed(() =>
+  store.tasks.filter((t) => t.source === 'todoist' && !dismissedTaskIds.value.has(t.id)),
+)
+
 const visibleTodos = computed(() =>
   todos.value.filter((t) => !t.completed && (showAll.value || t.visible)),
 )
-const activeCount = computed(() => todos.value.filter((t) => !t.completed).length)
+const activeCount = computed(
+  () => todos.value.filter((t) => !t.completed).length + todoistTasks.value.length,
+)
 const hiddenCount = computed(() => todos.value.filter((t) => !t.completed && !t.visible).length)
 const showFooter = computed(() => !showAll.value && hiddenCount.value > 0)
+
+function dismissTask(id) {
+  dismissedTaskIds.value = new Set(dismissedTaskIds.value).add(id)
+}
+
+onMounted(() => store.loadTasks())
 
 const statusTime = ref('Updated just now')
 const isRefreshing = ref(false)
@@ -158,6 +176,48 @@ function refresh() {
             </div>
           </div>
         </TransitionGroup>
+
+        <div v-if="todoistTasks.length" class="todo-rows" data-testid="todoist-rows">
+          <div v-for="task in todoistTasks" :key="task.id" class="todo-row">
+            <div class="todo-checkbox-container">
+              <button class="todo-check-btn" title="Mark complete" @click="dismissTask(task.id)">
+                <span class="material-symbols-outlined">circle</span>
+              </button>
+            </div>
+
+            <div class="todo-text">
+              <strong>{{ task.content }}</strong
+              ><template v-if="task.description"> – {{ task.description }}</template>
+              <span class="from-links-container">
+                From: <span class="email-link">Todoist</span>
+              </span>
+            </div>
+
+            <div class="todo-actions">
+              <a
+                v-if="task.url"
+                class="action-pill-btn"
+                :href="task.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span class="material-symbols-outlined">open_in_new</span>
+                <span>Open</span>
+              </a>
+              <button
+                class="todo-check-btn"
+                title="Complete"
+                style="margin-left: 8px"
+                @click="dismissTask(task.id)"
+              >
+                <span class="material-symbols-outlined">check</span>
+              </button>
+              <button class="icon-btn" title="More options">
+                <span class="material-symbols-outlined">more_vert</span>
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div v-if="showFooter" class="card-footer">
           <button class="show-more-btn" @click="showAllTodos">

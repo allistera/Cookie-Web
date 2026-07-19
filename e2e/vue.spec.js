@@ -3,17 +3,30 @@ import { test, expect } from '@playwright/test'
 test('The root path shows the AI Today digest of suggested to-dos and topics', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('5 to-dos')
+  // Five mock to-dos plus the two gathered Todoist tasks.
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('7 to-dos')
 
   // Sidebar labels this view "AI Today".
   await expect(page.locator('.nav-item', { hasText: 'AI Today' })).toBeVisible()
 
-  // Three suggested to-dos are shown, with the rest behind "Show 2 more".
+  // Three mock to-dos are shown, with the rest behind "Show 2 more".
   const todos = page.getByTestId('todo-rows')
   await expect(todos.locator('.todo-row')).toHaveCount(3)
   await expect(todos).toContainText('Kitchen Renovation')
   await page.locator('.show-more-btn', { hasText: 'Show 2 more' }).click()
   await expect(todos.locator('.todo-row')).toHaveCount(5)
+
+  // Real Todoist tasks are appended below, with a bold title and description.
+  const todoist = page.getByTestId('todoist-rows')
+  await expect(todoist.locator('.todo-row')).toHaveCount(2)
+  const firstTask = todoist.locator('.todo-row').first()
+  await expect(firstTask.locator('strong')).toHaveText('Renew car insurance')
+  await expect(firstTask).toContainText('Renew car insurance – Policy lapses on Friday')
+  await expect(firstTask).toContainText('From: Todoist')
+  await expect(firstTask.locator('a.action-pill-btn')).toHaveAttribute(
+    'href',
+    'https://app.todoist.com/app/task/stub-task-1',
+  )
 
   // Four catch-up topics are listed.
   await expect(page.locator('.topic-title')).toHaveCount(4)

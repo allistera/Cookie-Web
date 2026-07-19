@@ -299,7 +299,42 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/labels.js')
     await handler(req, res)
   }
+  const handleTasks = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          tasks: [
+            {
+              id: 'stub-task-1',
+              source: 'todoist',
+              content: 'Renew car insurance',
+              description: 'Policy lapses on Friday — compare two quotes first.',
+              due_date: null,
+              priority: 4,
+              url: 'https://app.todoist.com/app/task/stub-task-1',
+              message_id: null,
+            },
+            {
+              id: 'stub-task-2',
+              source: 'todoist',
+              content: 'Book dentist appointment',
+              description: 'Six-month check-up for the whole family.',
+              due_date: null,
+              priority: 2,
+              url: 'https://app.todoist.com/app/task/stub-task-2',
+              message_id: null,
+            },
+          ],
+        }),
+      )
+      return
+    }
+    const { default: handler } = await import('./api/tasks.js')
+    await handler(req, res)
+  }
   const mount = (server) => {
+    server.middlewares.use('/api/tasks', handleTasks)
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)
