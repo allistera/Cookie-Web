@@ -158,7 +158,7 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
 
   const composer = page.locator('#composerToast')
   await composer.locator('.composer-to-inline').fill('person@example.com')
-  await composer.locator('textarea').fill('A message that should only send once.')
+  await composer.locator('.composer-editor').fill('A message that should only send once.')
   const sendButton = composer.locator('.composer-text-btn-primary')
   await sendButton.click()
 
@@ -502,6 +502,32 @@ test('Header search filters the inbox and clearing restores it', async ({ page }
   await expect(page.locator('.ni-row').first()).toContainText('City Construction')
 })
 
+test('Navigating away from search results clears the active search', async ({ page }) => {
+  await page.goto('/')
+
+  const searchInput = page.locator('.search-input')
+  await searchInput.fill('zoom')
+  await searchInput.press('Enter')
+  await expect(page).toHaveURL(/\/inbox$/)
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
+
+  await page.locator('.nav-item', { hasText: 'Inbox' }).click()
+
+  await expect(searchInput).toHaveValue('')
+  await expect(page.locator('.ni-row').first()).toContainText('City Construction')
+
+  await searchInput.fill('zoom')
+  await searchInput.press('Enter')
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+
+  await page.locator('.nav-item', { hasText: 'Starred' }).click()
+
+  await expect(page).toHaveURL(/filter=starred/)
+  await expect(searchInput).toHaveValue('')
+  await expect(page.locator('.ni-header h1')).toHaveText('Starred')
+})
+
 test('Ask Cookie answers with formatted text and email sources', async ({ page }) => {
   await page.goto('/')
 
@@ -688,11 +714,10 @@ test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) =
 
   await unsubscribe.click()
   await expect(page.locator('.toast')).toContainText('Unsubscribed from Daily Bites')
-  await expect(unsubscribe).toContainText('Unsubscribed')
-  await expect(unsubscribe).toBeDisabled()
+  await expect(reader).toHaveCount(0)
+  await expect(page.locator('.ni-row', { hasText: 'Daily Bites' })).toHaveCount(0)
 
   // A regular email shows no Unsubscribe control.
-  await page.keyboard.press('Escape')
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   await expect(reader).toBeVisible()
   await expect(reader.locator('[title="Unsubscribe"]')).toHaveCount(0)

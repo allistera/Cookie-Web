@@ -130,6 +130,7 @@ function handleLogout() {
 // Header Search
 const searchInputVal = ref('')
 const isSearchSuggestionsActive = ref(false)
+let isNavigatingToSearchResults = false
 
 // The dropdown's single "Ask Cookie" item sends the typed text to the
 // mailbox Q&A assistant instead of the search index.
@@ -142,22 +143,43 @@ function askFromSearch() {
 
 // Enter searches the mailbox (hybrid keyword + semantic); the dropdown's
 // "Ask Cookie" item routes the same text to the Q&A assistant instead.
-function handleSearchEnter() {
+async function handleSearchEnter() {
   const query = searchInputVal.value.trim()
   if (query) {
     isSearchSuggestionsActive.value = false
-    store.searchEmails(query)
+    const searchRequest = store.searchEmails(query)
     if (route.name !== 'traditional-inbox') {
-      router.push('/inbox')
+      isNavigatingToSearchResults = true
+      try {
+        await router.push('/inbox')
+      } finally {
+        isNavigatingToSearchResults = false
+      }
     }
+    return searchRequest
   }
 }
 
-function clearSearch() {
+function leaveSearchResults() {
+  if (!searchInputVal.value && !store.activeSearchQuery) return
   searchInputVal.value = ''
-  store.isChatDrawerActive = false
+  isSearchSuggestionsActive.value = false
   store.clearSearch()
 }
+
+function clearSearch() {
+  store.isChatDrawerActive = false
+  leaveSearchResults()
+}
+
+// Search results share the /inbox route with the regular inbox. Any actual
+// route change leaves search mode; the Inbox link handles the same-route case.
+watch(
+  () => route.fullPath,
+  () => {
+    if (!isNavigatingToSearchResults) leaveSearchResults()
+  },
+)
 
 // Load the inbox once the user is authenticated (immediately in E2E mode,
 // after the Auth0 redirect completes otherwise).
@@ -310,6 +332,7 @@ onMounted(() => {
             to="/inbox"
             class="nav-item"
             :class="{ active: route.name === 'traditional-inbox' && !route.query.filter }"
+            @click="leaveSearchResults"
           >
             <span class="material-symbols-outlined nav-icon-red">inbox</span>
             <span class="nav-text">Inbox</span>

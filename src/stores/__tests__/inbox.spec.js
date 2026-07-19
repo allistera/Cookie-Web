@@ -890,6 +890,34 @@ describe('Inbox Store', () => {
     })
   })
 
+  it('clearSearch invalidates a search that is still in flight', async () => {
+    let resolveSearch
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          resolveSearch = resolve
+        }),
+      ),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'existing-email' }]
+    const searchRequest = store.searchEmails('zoom')
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    store.clearSearch()
+    resolveSearch({
+      ok: true,
+      json: async () => ({ emails: [{ id: 'stale-search-result' }] }),
+    })
+    await searchRequest
+
+    expect(store.activeSearchQuery).toBe('')
+    expect(store.traditionalEmails).toEqual([{ id: 'existing-email' }])
+    expect(store.isRefreshing).toBe(false)
+  })
+
   it('renames a label and updates labels on loaded emails', async () => {
     vi.stubGlobal(
       'fetch',

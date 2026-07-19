@@ -637,10 +637,11 @@ export const useInboxStore = defineStore('inbox', {
     // Leaves search mode and reloads the full inbox. Bumping searchSeq also
     // invalidates any search still in flight.
     clearSearch() {
-      if (!this.activeSearchQuery) return
+      const hadActiveSearch = Boolean(this.activeSearchQuery)
       this.searchSeq++
       this.activeSearchQuery = ''
-      return this.loadEmails()
+      this.isRefreshing = false
+      if (hadActiveSearch) return this.loadEmails()
     },
 
     async updateMessage(id, changes) {
