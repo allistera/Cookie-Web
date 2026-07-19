@@ -162,14 +162,6 @@ function refresh() {
                 <span class="material-symbols-outlined">{{ todo.btnIcon }}</span>
                 <span>{{ todo.btnText }}</span>
               </button>
-              <button
-                class="todo-check-btn"
-                title="Complete"
-                style="margin-left: 8px"
-                @click="completeTodo(todo.id)"
-              >
-                <span class="material-symbols-outlined">check</span>
-              </button>
               <button class="icon-btn" title="More options">
                 <span class="material-symbols-outlined">more_vert</span>
               </button>
@@ -204,14 +196,6 @@ function refresh() {
                 <span class="material-symbols-outlined">open_in_new</span>
                 <span>Open</span>
               </a>
-              <button
-                class="todo-check-btn"
-                title="Complete"
-                style="margin-left: 8px"
-                @click="dismissTask(task.id)"
-              >
-                <span class="material-symbols-outlined">check</span>
-              </button>
               <button class="icon-btn" title="More options">
                 <span class="material-symbols-outlined">more_vert</span>
               </button>
