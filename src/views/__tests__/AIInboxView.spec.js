@@ -1,82 +1,55 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import AIInboxView from '../AIInboxView.vue'
-import { useInboxStore } from '../../stores/inbox'
 
-const push = vi.fn()
-vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
-
-function makeEmail(id, { unread = true, hasAiSummary = false } = {}) {
-  return {
-    id,
-    sender: `Sender ${id}`,
-    subject: `Subject ${id}`,
-    snippet: `Snippet ${id}`,
-    unread,
-    hasAiSummary,
-  }
-}
-
-describe('AIInboxView', () => {
-  let store
-
-  beforeEach(() => {
-    setActivePinia(createPinia())
-    push.mockReset()
-    store = useInboxStore()
-    store.traditionalEmails = [
-      makeEmail('read-with-summary', { unread: false, hasAiSummary: true }),
-      makeEmail('read-plain', { unread: false }),
-    ]
-    store.unreadInboxCount = 1
-    // Pre-load tasks so onMounted's loadTasks() short-circuits (cached).
-    store.tasks = [
-      {
-        id: 't1',
-        source: 'todoist',
-        content: 'Ship the release',
-        description: 'v2',
-        due_date: '2026-07-18',
-        priority: 4,
-        url: 'https://app.todoist.com/app/task/abc',
-        message_id: null,
-      },
-      {
-        id: 't2',
-        source: 'email',
-        content: 'Reply to Apple',
-        description: null,
-        due_date: null,
-        priority: null,
-        url: null,
-        message_id: 'm1',
-      },
-    ]
-    store.tasksLoaded = true
+describe('AIInboxView (AI Today mock)', () => {
+  it('greets Allister with the to-do and topic counters', () => {
+    const wrapper = mount(AIInboxView)
+    const greeting = wrapper.get('.ai-greeting').text()
+    expect(greeting).toContain('Hi Allister')
+    expect(greeting).toContain('5 to-dos')
+    expect(greeting).toContain('4 topics')
   })
 
-  it('shows gathered tasks in Needs attention, with an Open link only for linked tasks', () => {
+  it('shows three suggested to-dos with a "Show 2 more" toggle', () => {
     const wrapper = mount(AIInboxView)
+    const rows = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')
+    expect(rows).toHaveLength(3)
 
-    const list = wrapper.get('[data-testid="ai-priority-list"]')
-    expect(list.text()).toContain('Ship the release')
-    expect(list.text()).toContain('Urgent') // priority 4
-    expect(list.text()).toContain('Reply to Apple')
-
-    const links = list.findAll('a.ai-inbox-open')
-    expect(links).toHaveLength(1) // only the todoist task has a url
-    expect(links[0].attributes('href')).toBe('https://app.todoist.com/app/task/abc')
-    expect(links[0].attributes('target')).toBe('_blank')
+    const text = wrapper.text()
+    expect(text).toContain('Kitchen Renovation')
+    expect(text).toContain('RSVP for College Tour')
+    expect(text).toContain('Bring snack to soccer practice')
+    expect(wrapper.get('.show-more-btn').text()).toContain('Show 2 more')
   })
 
-  it('still lists AI-summarized emails in Ready to catch up', () => {
+  it('reveals the hidden to-dos when "Show more" is clicked', async () => {
     const wrapper = mount(AIInboxView)
+    await wrapper.get('.show-more-btn').trigger('click')
 
-    const summary = wrapper.get('[data-testid="ai-summary-list"]')
-    expect(summary.text()).toContain('Subject read-with-summary')
-    expect(summary.text()).not.toContain('Subject read-plain')
-    expect(wrapper.get('[data-testid="ai-unread-count"]').text()).toBe('1 unread')
+    const rows = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')
+    expect(rows).toHaveLength(5)
+    expect(wrapper.find('.show-more-btn').exists()).toBe(false)
+  })
+
+  it('completing a to-do removes it and decrements the counter', async () => {
+    const wrapper = mount(AIInboxView)
+    const firstRow = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')[0]
+    await firstRow.get('.todo-check-btn').trigger('click')
+
+    const rows = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')
+    expect(rows).toHaveLength(2)
+    expect(wrapper.get('.ai-greeting').text()).toContain('4 to-dos')
+  })
+
+  it('renders the four catch-up topics', () => {
+    const wrapper = mount(AIInboxView)
+    const titles = wrapper.findAll('.topic-title').map((t) => t.text())
+    expect(titles).toHaveLength(4)
+    expect(titles[0]).toContain('Kitchen Renovation')
+    expect(titles[1]).toContain('College Search')
+    expect(titles[2]).toContain('Soccer Spring Season')
+    expect(titles[3]).toContain('More Updates')
   })
 })

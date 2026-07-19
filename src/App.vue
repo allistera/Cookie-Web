@@ -304,7 +304,7 @@ onMounted(() => {
         <nav class="sidebar-nav">
           <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
             <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
-            <span class="nav-text">AI Inbox</span>
+            <span class="nav-text">AI Today</span>
           </router-link>
           <router-link
             to="/inbox"

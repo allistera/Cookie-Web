@@ -1,16 +1,23 @@
 import { test, expect } from '@playwright/test'
 
-test('The root path shows AI Inbox and opens a live priority in the inbox reader', async ({ page }) => {
+test('The root path shows the AI Today digest of suggested to-dos and topics', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByRole('heading', { name: 'AI Inbox' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('5 to-dos')
 
-  const priority = page.getByTestId('ai-priority-list')
-  await expect(priority).toContainText('Revised Floor Plan')
-  await priority.getByRole('button', { name: 'Open' }).first().click()
+  // Sidebar labels this view "AI Today".
+  await expect(page.locator('.nav-item', { hasText: 'AI Today' })).toBeVisible()
 
-  await expect(page).toHaveURL(/\/inbox$/)
-  await expect(page.locator('.ni-reader')).toBeVisible()
+  // Three suggested to-dos are shown, with the rest behind "Show 2 more".
+  const todos = page.getByTestId('todo-rows')
+  await expect(todos.locator('.todo-row')).toHaveCount(3)
+  await expect(todos).toContainText('Kitchen Renovation')
+  await page.locator('.show-more-btn', { hasText: 'Show 2 more' }).click()
+  await expect(todos.locator('.todo-row')).toHaveCount(5)
+
+  // Four catch-up topics are listed.
+  await expect(page.locator('.topic-title')).toHaveCount(4)
+  await expect(page.locator('.topic-title').first()).toContainText('Kitchen Renovation')
 })
 
 test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
@@ -62,7 +69,7 @@ test('Browser notifications can be enabled from Notifications settings', async (
     })
   })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'AI Inbox' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toBeVisible()
   await page.locator('.profile-container').click()
   await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
 
