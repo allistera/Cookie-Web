@@ -109,29 +109,6 @@ function onThemeChange(event) {
   setTheme(theme.value)
 }
 
-// --- Notification preferences (persisted locally) ---
-const PREFS_KEY = 'cookie-settings-prefs'
-
-const defaultPrefs = {
-  emailSummaries: true,
-  todoReminders: true,
-  aiSuggestions: true,
-}
-
-function loadPrefs() {
-  try {
-    return { ...defaultPrefs, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }
-  } catch {
-    return { ...defaultPrefs }
-  }
-}
-
-const prefs = reactive(loadPrefs())
-
-watch(prefs, (val) => {
-  localStorage.setItem(PREFS_KEY, JSON.stringify(val))
-})
-
 const notificationOwnerId = computed(() => store.userId)
 const browserPermission = ref(browserNotificationPermission())
 const browserNotificationsOn = ref(false)
@@ -394,27 +371,6 @@ async function submitLabelRename(label) {
                 "
                 @change="toggleBrowserNotifications"
               />
-            </label>
-            <label class="settings-row">
-              <div class="settings-row-text">
-                <span>Email summaries</span>
-                <small>Daily digest of new mail and topics</small>
-              </div>
-              <input type="checkbox" class="settings-switch" v-model="prefs.emailSummaries" />
-            </label>
-            <label class="settings-row">
-              <div class="settings-row-text">
-                <span>To-do reminders</span>
-                <small>Nudges when suggested to-dos are due</small>
-              </div>
-              <input type="checkbox" class="settings-switch" v-model="prefs.todoReminders" />
-            </label>
-            <label class="settings-row">
-              <div class="settings-row-text">
-                <span>AI suggestions</span>
-                <small>Let Gemini surface suggested questions</small>
-              </div>
-              <input type="checkbox" class="settings-switch" v-model="prefs.aiSuggestions" />
             </label>
           </section>
 

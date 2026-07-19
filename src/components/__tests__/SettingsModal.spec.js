@@ -99,18 +99,26 @@ describe('SettingsModal', () => {
     expect(wrapper.find('.label-table').exists()).toBe(false)
   })
 
-  it('persists notification preferences to localStorage', async () => {
+  it('shows only the browser notifications toggle in the Notifications pane', async () => {
     const wrapper = await openModal()
 
     await wrapper
       .findAll('.settings-nav-item')
       .find((n) => n.text().includes('Notifications'))
       .trigger('click')
-    const toggles = wrapper.findAll('.settings-switch:not(.browser-notifications-switch)')
-    await toggles[0].setValue(false)
 
-    const saved = JSON.parse(localStorage.getItem('cookie-settings-prefs'))
-    expect(saved.emailSummaries).toBe(false)
+    // The stub email-summary / to-do / AI-suggestion toggles have been removed.
+    const otherToggles = wrapper.findAll('.settings-switch:not(.browser-notifications-switch)')
+    expect(otherToggles).toHaveLength(0)
+    expect(wrapper.find('.browser-notifications-switch').exists()).toBe(true)
+
+    const text = wrapper.text()
+    expect(text).not.toContain('Email summaries')
+    expect(text).not.toContain('To-do reminders')
+    expect(text).not.toContain('AI suggestions')
+
+    // Nothing writes the removed preference key anymore.
+    expect(localStorage.getItem('cookie-settings-prefs')).toBeNull()
   })
 
   it('persists the theme preference from the Appearance pane', async () => {
