@@ -544,6 +544,34 @@ describe('Inbox Store', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks')
   })
 
+  it('completeTask posts the completion and drops the task from the list', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.tasks = [
+      { id: 't1', source: 'todoist', content: 'Renew insurance' },
+      { id: 't2', source: 'todoist', content: 'Book dentist' },
+    ]
+
+    await store.completeTask('t1')
+
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/tasks')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', action: 'complete' })
+    expect(store.tasks.map((t) => t.id)).toEqual(['t2'])
+  })
+
+  it('completeTask throws and keeps the task when the request fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 502 })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.tasks = [{ id: 't1', source: 'todoist', content: 'Renew insurance' }]
+
+    await expect(store.completeTask('t1')).rejects.toThrow('502')
+    expect(store.tasks.map((t) => t.id)).toEqual(['t1'])
+  })
+
   it('allLabels lists every user label from the palette, not just ones on loaded emails', () => {
     const store = useInboxStore()
     store.traditionalEmails = [] // nothing loaded in the inbox list

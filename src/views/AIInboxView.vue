@@ -69,10 +69,11 @@ const showAll = ref(false)
 const topicCount = 4
 
 // Real Todoist tasks gathered into public.tasks, appended after the mock
-// to-dos. Dismissing one only hides it from this view.
-const dismissedTaskIds = ref(new Set())
+// to-dos. Completing one hides it immediately, then persists via the store
+// (which closes it in Todoist); a failure rolls the row back.
+const completingTaskIds = ref(new Set())
 const todoistTasks = computed(() =>
-  store.tasks.filter((t) => t.source === 'todoist' && !dismissedTaskIds.value.has(t.id)),
+  store.tasks.filter((t) => t.source === 'todoist' && !completingTaskIds.value.has(t.id)),
 )
 
 const visibleTodos = computed(() =>
@@ -84,8 +85,17 @@ const activeCount = computed(
 const hiddenCount = computed(() => todos.value.filter((t) => !t.completed && !t.visible).length)
 const showFooter = computed(() => !showAll.value && hiddenCount.value > 0)
 
-function dismissTask(id) {
-  dismissedTaskIds.value = new Set(dismissedTaskIds.value).add(id)
+async function completeTask(task) {
+  completingTaskIds.value = new Set(completingTaskIds.value).add(task.id)
+  try {
+    await store.completeTask(task.id)
+    store.notify(`Marked "${task.content}" done.`)
+  } catch {
+    const next = new Set(completingTaskIds.value)
+    next.delete(task.id)
+    completingTaskIds.value = next
+    store.notify('Failed to mark task done.', 'error')
+  }
 }
 
 onMounted(() => store.loadTasks())
@@ -172,7 +182,7 @@ function refresh() {
         <div v-if="todoistTasks.length" class="todo-rows" data-testid="todoist-rows">
           <div v-for="task in todoistTasks" :key="task.id" class="todo-row">
             <div class="todo-checkbox-container">
-              <button class="todo-check-btn" title="Mark complete" @click="dismissTask(task.id)">
+              <button class="todo-check-btn" title="Mark done" @click="completeTask(task)">
                 <span class="material-symbols-outlined">circle</span>
               </button>
             </div>

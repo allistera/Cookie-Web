@@ -78,6 +78,7 @@ The main runtime variables are:
 | `OPENAI_API_KEY` | Embeddings, mailbox Q&A, and AI Compose. |
 | `OPENAI_COMPOSE_MODEL` | Optional AI Compose model override. |
 | `RESEND_API_KEY` | Outbound email delivery. |
+| `TODOIST_API_TOKEN` | Optional. Lets AI Today close a Todoist task when it is marked done. Without it, "done" only clears the task from Cookie. |
 | `EMAIL_FROM` | Optional sender identity for outbound mail. |
 | `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |
 | `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID exposed to the browser. |

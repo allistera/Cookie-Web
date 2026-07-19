@@ -33,6 +33,34 @@ test('The root path shows the AI Today digest of suggested to-dos and topics', a
   await expect(page.locator('.topic-title').first()).toContainText('Kitchen Renovation')
 })
 
+test('Marking a Todoist task done removes it from AI Today and confirms with a toast', async ({
+  page,
+}) => {
+  const completions = []
+  await page.route('**/api/tasks', async (route) => {
+    if (route.request().method() === 'POST') {
+      completions.push(route.request().postDataJSON())
+      await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  const todoist = page.getByTestId('todoist-rows')
+  const firstTask = todoist.locator('.todo-row').first()
+  await expect(firstTask.locator('strong')).toHaveText('Renew car insurance')
+  await expect(todoist.locator('.todo-row')).toHaveCount(2)
+
+  // Clicking the leading checkbox completes the task.
+  await firstTask.locator('.todo-check-btn').click()
+
+  await expect(todoist.locator('.todo-row')).toHaveCount(1)
+  await expect(page.locator('.toast', { hasText: 'Marked "Renew car insurance" done.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('6 to-dos')
+  expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
+})
+
 test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
   page,
 }) => {

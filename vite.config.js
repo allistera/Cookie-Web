@@ -302,6 +302,11 @@ function localApiPlugin(mode) {
   const handleTasks = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'POST') {
+        // Completing a task: pretend the Todoist close + row delete succeeded.
+        res.end(JSON.stringify({ ok: true, closedInTodoist: true }))
+        return
+      }
       res.end(
         JSON.stringify({
           tasks: [

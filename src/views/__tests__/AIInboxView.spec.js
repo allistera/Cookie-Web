@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import AIInboxView from '../AIInboxView.vue'
@@ -117,17 +117,37 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.get('.ai-greeting').text()).toContain('7 to-dos')
   })
 
-  it('dismissing a Todoist task hides it and updates the counter', async () => {
+  it('completing a Todoist task persists it, hides it, and updates the counter', async () => {
     store.tasks = [
       { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: 'x', url: null },
     ]
+    const completeTask = vi.spyOn(store, 'completeTask').mockResolvedValue({ ok: true })
 
     const wrapper = mountView()
     expect(wrapper.get('.ai-greeting').text()).toContain('6 to-dos')
 
     await wrapper.get('[data-testid="todoist-rows"] .todo-check-btn').trigger('click')
+    await flushPromises()
 
+    expect(completeTask).toHaveBeenCalledWith('task-1')
     expect(wrapper.find('[data-testid="todoist-rows"]').exists()).toBe(false)
     expect(wrapper.get('.ai-greeting').text()).toContain('5 to-dos')
+  })
+
+  it('rolls a Todoist task back into the list when completion fails', async () => {
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: 'x', url: null },
+    ]
+    vi.spyOn(store, 'completeTask').mockRejectedValue(new Error('boom'))
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    await wrapper.get('[data-testid="todoist-rows"] .todo-check-btn').trigger('click')
+    await flushPromises()
+
+    // The row returns and the counter is restored.
+    expect(wrapper.get('[data-testid="todoist-rows"]').findAll('.todo-row')).toHaveLength(1)
+    expect(wrapper.get('.ai-greeting').text()).toContain('6 to-dos')
+    expect(notify).toHaveBeenCalledWith('Failed to mark task done.', 'error')
   })
 })

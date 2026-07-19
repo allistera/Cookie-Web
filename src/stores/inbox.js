@@ -963,6 +963,23 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    // Marks a gathered task done (POST /api/tasks). Todoist tasks are closed in
+    // Todoist server-side. Throws on a non-2xx so the caller can roll back its
+    // optimistic UI; on success the task is dropped from the local list.
+    async completeTask(id) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ id, action: 'complete' }),
+      })
+      if (!response.ok) {
+        throw new Error(`POST /api/tasks responded ${response.status}`)
+      }
+      this.tasks = this.tasks.filter((t) => t.id !== id)
+      return response.json()
+    },
+
     closeComposer() {
       this.isComposerActive = false
       this.composerTo = ''
