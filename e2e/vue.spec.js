@@ -531,8 +531,8 @@ test('Navigating away from search results clears the active search', async ({ pa
 test('Ask Cookie answers with formatted text and email sources', async ({ page }) => {
   await page.goto('/')
 
-  // Typing in the search bar offers an "Ask Cookie" item that sends the text
-  // to the Q&A assistant instead of the search index.
+  // Typing in the search bar offers a "Search Cookie" suggestion item that
+  // sends the text to the Q&A assistant instead of the search index.
   const searchInput = page.locator('.search-input')
   await searchInput.fill('Summarize my kitchen renovation updates.')
   await page

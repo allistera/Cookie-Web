@@ -195,25 +195,6 @@ body {
   cursor: pointer;
 }
 
-.glow-ai {
-  animation: ai-pulse 3s infinite alternate;
-}
-
-@keyframes ai-pulse {
-  0% {
-    transform: scale(1);
-    filter: drop-shadow(0 0 1px var(--text-purple));
-  }
-  50% {
-    transform: scale(1.1);
-    filter: drop-shadow(0 0 6px var(--text-blue)) drop-shadow(0 0 2px var(--text-purple));
-  }
-  100% {
-    transform: scale(1);
-    filter: drop-shadow(0 0 1px var(--text-purple));
-  }
-}
-
 .search-clear-icon {
   cursor: pointer;
   color: var(--text-secondary);

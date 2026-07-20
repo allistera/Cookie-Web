@@ -132,7 +132,7 @@ const searchInputVal = ref('')
 const isSearchSuggestionsActive = ref(false)
 let isNavigatingToSearchResults = false
 
-// The dropdown's single "Ask Cookie" item sends the typed text to the
+// The dropdown's single "Search Cookie" item sends the typed text to the
 // mailbox Q&A assistant instead of the search index.
 function askFromSearch() {
   const query = searchInputVal.value.trim()
@@ -142,7 +142,7 @@ function askFromSearch() {
 }
 
 // Enter searches the mailbox (hybrid keyword + semantic); the dropdown's
-// "Ask Cookie" item routes the same text to the Q&A assistant instead.
+// "Search Cookie" item routes the same text to the Q&A assistant instead.
 async function handleSearchEnter() {
   const query = searchInputVal.value.trim()
   if (query) {
@@ -258,7 +258,7 @@ onMounted(() => {
 
       <div class="header-center">
         <div class="search-bar-container" id="searchBarContainer">
-          <span class="material-symbols-outlined search-icon glow-ai">auto_awesome</span>
+          <span class="material-symbols-outlined search-icon">search</span>
           <input
             type="text"
             class="search-input"
@@ -283,7 +283,7 @@ onMounted(() => {
           >
             <div class="suggestion-item" @click="askFromSearch">
               <span class="material-symbols-outlined text-purple">chat_bubble</span>
-              <span>Ask Cookie: “{{ searchInputVal.trim() }}”</span>
+              <span>Search Cookie: “{{ searchInputVal.trim() }}”</span>
             </div>
           </div>
         </div>
