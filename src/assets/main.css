@@ -1052,6 +1052,54 @@ body {
   white-space: nowrap;
 }
 
+.ni-schedule-custom {
+  margin-top: 4px;
+  padding: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ni-schedule-custom label,
+.ni-schedule-custom label > span {
+  display: block;
+}
+
+.ni-schedule-custom label > span {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ni-schedule-custom input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  color-scheme: light dark;
+  font: inherit;
+  font-size: 13px;
+}
+
+.ni-schedule-menu .ni-schedule-custom-submit {
+  justify-content: center;
+  margin-top: 8px;
+  background: var(--text-blue);
+  color: white;
+}
+
+.ni-schedule-menu .ni-schedule-custom-submit:hover,
+.ni-schedule-menu .ni-schedule-custom-submit:focus-visible {
+  background: color-mix(in srgb, var(--text-blue) 88%, black);
+}
+
+.ni-schedule-menu .ni-schedule-custom-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* Reader tag menu — apply/remove labels on the open email. */
 .ni-tag-wrap {
   position: relative;

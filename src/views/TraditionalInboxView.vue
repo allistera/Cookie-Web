@@ -3,6 +3,7 @@ import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 import EmailBody from '../components/EmailBody.vue'
+import ScheduleMenu from '../components/ScheduleMenu.vue'
 import { scheduleChoices } from '../utils/schedule'
 
 const store = useInboxStore()
@@ -336,14 +337,6 @@ function isLabelApplied(label) {
 
 function toggleTag(label) {
   store.toggleMessageLabel(openEmail.value, label)
-}
-
-function scheduleChoiceDetail(choice) {
-  return choice.date.toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  })
 }
 
 async function scheduleSelected(choice) {
@@ -800,17 +793,11 @@ onUnmounted(() => {
             <span class="material-symbols-outlined">schedule</span>
             <span>Reschedule</span>
           </button>
-          <div v-if="bulkScheduleOpen" class="ni-schedule-menu" role="menu">
-            <button
-              v-for="choice in scheduleOptions"
-              :key="choice.id"
-              role="menuitem"
-              @click="scheduleSelected(choice)"
-            >
-              <span>{{ choice.label }}</span>
-              <span>{{ scheduleChoiceDetail(choice) }}</span>
-            </button>
-          </div>
+          <ScheduleMenu
+            v-if="bulkScheduleOpen"
+            :choices="scheduleOptions"
+            @select="scheduleSelected"
+          />
         </div>
         <button class="ni-bulk-pill" @click="markSelectedRead">
           <span class="material-symbols-outlined">mark_email_read</span>
@@ -894,17 +881,11 @@ onUnmounted(() => {
               >
                 <span class="material-symbols-outlined">schedule</span>
               </button>
-              <div v-if="readerScheduleOpen" class="ni-schedule-menu" role="menu">
-                <button
-                  v-for="choice in scheduleOptions"
-                  :key="choice.id"
-                  role="menuitem"
-                  @click="scheduleOpenEmail(choice)"
-                >
-                  <span>{{ choice.label }}</span>
-                  <span>{{ scheduleChoiceDetail(choice) }}</span>
-                </button>
-              </div>
+              <ScheduleMenu
+                v-if="readerScheduleOpen"
+                :choices="scheduleOptions"
+                @select="scheduleOpenEmail"
+              />
             </div>
             <div class="ni-tag-wrap">
               <button

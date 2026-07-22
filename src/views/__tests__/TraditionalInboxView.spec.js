@@ -319,7 +319,9 @@ describe('TraditionalInboxView filtered views', () => {
 
   it('filter=snoozed groups future emails by snooze target with both groups open', () => {
     routeMock.query = { filter: 'snoozed' }
-    const [tomorrow, nextWeek] = scheduleChoices()
+    const choices = scheduleChoices()
+    const tomorrow = choices.find(({ id }) => id === 'tomorrow')
+    const nextWeek = choices.find(({ id }) => id === 'next-week')
     const tomorrowEmail = makeEmail('tomorrow-1', Date.now() - 10 * DAY)
     tomorrowEmail.scheduledFor = tomorrow.date.toISOString()
     const nextWeekEmail = makeEmail('next-week-1', Date.now() - HOUR)
@@ -505,7 +507,7 @@ describe('TraditionalInboxView multi-select', () => {
     expect(pills.some((t) => t.includes('Reschedule'))).toBe(true)
   })
 
-  it('the bulk Reschedule pill offers Tomorrow and Next Week', async () => {
+  it('the bulk Reschedule pill offers richer presets and a custom picker', async () => {
     const wrapper = mount(TraditionalInboxView)
     await checkbox(wrapper, 0).trigger('click')
 
@@ -516,8 +518,11 @@ describe('TraditionalInboxView multi-select', () => {
 
     const choices = wrapper.findAll('.ni-schedule-menu [role="menuitem"]')
     expect(choices.map((choice) => choice.text())).toEqual([
+      expect.stringContaining('Later today'),
       expect.stringContaining('Tomorrow'),
+      expect.stringContaining('This weekend'),
       expect.stringContaining('Next Week'),
+      expect.stringContaining('Pick date & time'),
     ])
   })
 
@@ -663,10 +668,13 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
     const choices = wrapper.findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
     expect(choices.map((choice) => choice.text())).toEqual([
+      expect.stringContaining('Later today'),
       expect.stringContaining('Tomorrow'),
+      expect.stringContaining('This weekend'),
       expect.stringContaining('Next Week'),
+      expect.stringContaining('Pick date & time'),
     ])
-    await choices[0].trigger('click')
+    await choices[1].trigger('click')
 
     await vi.waitFor(() => {
       const patchRequest = fetch.mock.calls.find(([, options]) => {
@@ -681,6 +689,31 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     await vi.waitFor(() => {
       expect(store.toasts.some((toast) => toast.message === 'Scheduled for Tomorrow.')).toBe(true)
       expect(store.traditionalEmails).toHaveLength(0)
+    })
+  })
+
+  it('the reader custom picker schedules the selected local date and time', async () => {
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    const wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
+    const custom = wrapper
+      .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
+      .find((choice) => choice.text().includes('Pick date & time'))
+    await custom.trigger('click')
+    await wrapper.find('.ni-schedule-custom input').setValue('2026-07-25T14:30')
+    await wrapper.find('.ni-schedule-custom').trigger('submit')
+
+    await vi.waitFor(() => {
+      const patchRequest = fetch.mock.calls.find(([, options]) => {
+        if (options?.method !== 'PATCH') return false
+        return Object.hasOwn(JSON.parse(options.body), 'scheduled_for')
+      })
+      expect(JSON.parse(patchRequest[1].body)).toMatchObject({
+        id: 'today-1',
+        scheduled_for: new Date(2026, 6, 25, 14, 30).toISOString(),
+      })
     })
   })
 })
