@@ -435,9 +435,7 @@ export const useInboxStore = defineStore('inbox', {
         this.isDoneLoaded = true
         const last = page[page.length - 1]
         this.doneHasNext = Boolean(nextCursor && last)
-        this.donePageCursors[pageIndex + 1] = this.doneHasNext
-          ? `${last.sentAt}|${last.id}`
-          : null
+        this.donePageCursors[pageIndex + 1] = this.doneHasNext ? `${last.sentAt}|${last.id}` : null
       } catch (error) {
         console.error('Failed to load done emails:', error)
         this.notify('Failed to load done emails.', 'error')
@@ -681,7 +679,11 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
         const { body_html, body_text, unsubscribe, summary } = await response.json()
-        const body = { html: body_html ?? null, text: body_text ?? null, unsubscribe: unsubscribe ?? null }
+        const body = {
+          html: body_html ?? null,
+          text: body_text ?? null,
+          unsubscribe: unsubscribe ?? null,
+        }
         this.messageBodies.set(id, body)
         if (typeof summary === 'string' && summary.trim()) {
           this.messageSummaries.set(id, summary.trim())
@@ -835,6 +837,31 @@ export const useInboxStore = defineStore('inbox', {
       this.updateMessage(email.id, { is_archived: true }).catch((error) => {
         console.error('Failed to archive email:', error)
         this.notify('Failed to archive email.', 'error')
+      })
+    },
+
+    // Soft-deletes an email: optimistically removes it from every visible
+    // list (including Done) and persists the is_deleted flag.
+    deleteEmail(email) {
+      if (this.openEmailId === email.id) {
+        this.openEmailId = null
+      }
+      for (const list of [
+        this.traditionalEmails,
+        this.snoozedEmails,
+        this.spamEmails,
+        this.doneEmails,
+        this.sentEmails,
+      ]) {
+        const index = list.indexOf(email)
+        if (index > -1) list.splice(index, 1)
+      }
+      if (email.unread && this.traditionalEmails.indexOf(email) === -1) {
+        this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+      }
+      this.updateMessage(email.id, { is_deleted: true }).catch((error) => {
+        console.error('Failed to delete email:', error)
+        this.notify('Failed to delete email.', 'error')
       })
     },
 
@@ -1099,7 +1126,12 @@ export const useInboxStore = defineStore('inbox', {
       this.pendingSend = null
       this.isSendingEmail = true
       try {
-        await this.sendMail({ to: draft.to, subject: draft.subject, text: draft.text, html: draft.html })
+        await this.sendMail({
+          to: draft.to,
+          subject: draft.subject,
+          text: draft.text,
+          html: draft.html,
+        })
         this.notify('Email sent.')
       } catch (error) {
         console.error('Failed to send email:', error)

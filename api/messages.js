@@ -151,7 +151,7 @@ async function handlePost(req, res, email) {
 
   if (action !== 'unsubscribe') {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: "A valid id and action are required" }))
+    res.end(JSON.stringify({ error: 'A valid id and action are required' }))
     return
   }
 
@@ -295,8 +295,8 @@ export default async function handler(req, res) {
     return
   }
 
-  const { id, is_unread, is_starred, is_archived, scheduled_for } = body
-  const flags = [is_unread, is_starred, is_archived]
+  const { id, is_unread, is_starred, is_archived, is_deleted, scheduled_for } = body
+  const flags = [is_unread, is_starred, is_archived, is_deleted]
   const validId = typeof id === 'string' && UUID_RE.test(id)
   const flagsValid = flags.every((f) => f === undefined || typeof f === 'boolean')
   const hasScheduledChange = Object.hasOwn(body, 'scheduled_for')
@@ -318,13 +318,14 @@ export default async function handler(req, res) {
         is_unread   = COALESCE(${is_unread ?? null}::boolean, m.is_unread),
         is_starred  = COALESCE(${is_starred ?? null}::boolean, m.is_starred),
         is_archived = COALESCE(${is_archived ?? null}::boolean, m.is_archived),
+        is_deleted  = COALESCE(${is_deleted ?? null}::boolean, m.is_deleted),
         scheduled_for = CASE
           WHEN ${hasScheduledChange}::boolean THEN ${scheduled_for ?? null}::timestamptz
           ELSE m.scheduled_for
         END
       FROM users u
       WHERE m.id = ${id} AND m.user_id = u.id AND lower(u.email) = ${email}
-      RETURNING m.id, m.is_unread, m.is_starred, m.is_archived, m.scheduled_for
+      RETURNING m.id, m.is_unread, m.is_starred, m.is_archived, m.is_deleted, m.scheduled_for
     `
     if (rows.length === 0) {
       res.statusCode = 404

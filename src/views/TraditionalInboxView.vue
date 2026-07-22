@@ -55,7 +55,8 @@ const filteredEmails = computed(() => {
       return store.activeSearchQuery
         ? emails
         : emails.filter(
-            (e) => !e.starred || (e.scheduledFor && new Date(e.scheduledFor).getTime() <= Date.now()),
+            (e) =>
+              !e.starred || (e.scheduledFor && new Date(e.scheduledFor).getTime() <= Date.now()),
           )
   }
 })
@@ -288,6 +289,40 @@ function starSelected() {
   clearSelection()
 }
 
+// Marks every selected email as read.
+function markSelectedRead() {
+  for (const email of selectedEmails.value) {
+    if (email.unread) store.setUnread(email, false)
+  }
+  clearSelection()
+  store.notify('Marked as read.')
+}
+
+// Soft-deletes every selected email.
+function deleteSelected() {
+  const count = selectedEmails.value.length
+  for (const email of selectedEmails.value) {
+    store.deleteEmail(email)
+  }
+  clearSelection()
+  store.notify(`${count} ${count === 1 ? 'email' : 'emails'} deleted.`)
+}
+
+// Applies a label to every selected email. Unlike toggleTag (which toggles),
+// bulk-label always adds because the selection may be a mix.
+const bulkLabelOpen = ref(false)
+
+function labelSelected(label) {
+  const emails = [...selectedEmails.value]
+  bulkLabelOpen.value = false
+  for (const email of emails) {
+    const alreadyApplied = (email.labels || []).some((l) => l.name === label.name)
+    if (!alreadyApplied) store.toggleMessageLabel(email, label)
+  }
+  clearSelection()
+  store.notify(`Label "${label.name}" applied.`)
+}
+
 const bulkScheduleOpen = ref(false)
 const readerScheduleOpen = ref(false)
 const readerTagOpen = ref(false)
@@ -316,10 +351,14 @@ async function scheduleSelected(choice) {
   bulkScheduleOpen.value = false
   clearSelection()
   const results = await Promise.all(
-    emails.map((email) => store.scheduleEmail(email, choice.date.toISOString(), choice.label, false)),
+    emails.map((email) =>
+      store.scheduleEmail(email, choice.date.toISOString(), choice.label, false),
+    ),
   )
   if (results.every(Boolean)) {
-    store.notify(`${emails.length} ${emails.length === 1 ? 'email' : 'emails'} scheduled for ${choice.label}.`)
+    store.notify(
+      `${emails.length} ${emails.length === 1 ? 'email' : 'emails'} scheduled for ${choice.label}.`,
+    )
   }
 }
 
@@ -495,6 +534,40 @@ function onKeydown(e) {
       closeReader()
     }
   }
+
+  // Bulk-action shortcuts fire when items are multi-selected.
+  // e → archive/done, Shift+I → mark read, # → delete, l → label menu.
+  if (
+    selectedIds.value.size &&
+    !e.repeat &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !store.isCommandPaletteOpen &&
+    !isTypingTarget(e.target)
+  ) {
+    if (e.key === 'e') {
+      e.preventDefault()
+      markSelectedDone()
+      return
+    }
+    if (e.key === 'I' && e.shiftKey) {
+      e.preventDefault()
+      markSelectedRead()
+      return
+    }
+    if (e.key === '#') {
+      e.preventDefault()
+      deleteSelected()
+      return
+    }
+    if (e.key === 'l') {
+      e.preventDefault()
+      bulkLabelOpen.value = !bulkLabelOpen.value
+      return
+    }
+  }
+
   // 'd' archives the email open in the reader. Plain keypress only — modified
   // combos (Cmd+D bookmark, etc.) stay with the browser. e.repeat is ignored:
   // with auto-advance, a held key would chain-archive emails the user never
@@ -524,6 +597,7 @@ function forwardEmailKeydown(event) {
 function onDocumentClick(e) {
   if (!e.target.closest('.ni-schedule-wrap')) {
     bulkScheduleOpen.value = false
+    bulkLabelOpen.value = false
     readerScheduleOpen.value = false
   }
   if (!e.target.closest('.ni-tag-wrap')) {
@@ -599,7 +673,11 @@ onUnmounted(() => {
           v-for="email in isGroupOpen(group.label) ? group.emails : []"
           :key="email.id"
           class="ni-row"
-          :class="{ unread: email.unread, selected: openEmail === email, checked: isSelected(email) }"
+          :class="{
+            unread: email.unread,
+            selected: openEmail === email,
+            checked: isSelected(email),
+          }"
           @click="openReader(email)"
         >
           <div class="ni-lead">
@@ -734,6 +812,37 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+        <button class="ni-bulk-pill" @click="markSelectedRead">
+          <span class="material-symbols-outlined">mark_email_read</span>
+          <span>Mark Read</span>
+        </button>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            class="ni-bulk-pill"
+            aria-haspopup="menu"
+            :aria-expanded="bulkLabelOpen"
+            @click="bulkLabelOpen = !bulkLabelOpen"
+          >
+            <span class="material-symbols-outlined">sell</span>
+            <span>Label</span>
+          </button>
+          <div v-if="bulkLabelOpen" class="ni-schedule-menu" role="menu">
+            <button
+              v-for="label in store.allLabels"
+              :key="label.id"
+              role="menuitem"
+              @click="labelSelected(label)"
+            >
+              <span class="ni-label-dot" :style="{ background: label.color }"></span>
+              <span>{{ label.name }}</span>
+            </button>
+            <span v-if="!store.allLabels.length" class="ni-schedule-menu-empty">No labels yet</span>
+          </div>
+        </div>
+        <button class="ni-bulk-pill ni-bulk-pill--danger" @click="deleteSelected">
+          <span class="material-symbols-outlined">delete</span>
+          <span>Delete</span>
+        </button>
       </div>
     </Transition>
 

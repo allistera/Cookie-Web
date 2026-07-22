@@ -31,6 +31,7 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
     WHERE lower(u.email) = ${email}
+      AND NOT m.is_deleted
       AND (
         (${folder} = 'done' AND m.is_archived)
         OR (NOT m.is_archived AND (
@@ -59,7 +60,7 @@ function fetchUnreadCount(sql, email) {
     SELECT u.id AS user_id, count(m.id) FILTER (WHERE m.is_unread)::int AS unread
     FROM users u
     LEFT JOIN messages m
-      ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent
+      ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent AND NOT m.is_deleted
       AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     WHERE lower(u.email) = ${email}
@@ -130,9 +131,7 @@ export default async function handler(req, res) {
         // toISOString keeps millisecond precision; Date's default toString
         // truncates to seconds, which can skip same-second rows on page breaks.
         nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
-        ...(cursor
-          ? {}
-          : { unreadCount: userRow?.unread ?? 0, userId: userRow?.user_id ?? null }),
+        ...(cursor ? {} : { unreadCount: userRow?.unread ?? 0, userId: userRow?.user_id ?? null }),
       }),
     )
   } catch (err) {
