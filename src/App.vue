@@ -449,7 +449,12 @@ onMounted(() => {
   </div>
 
   <!-- Inline Composer Toast -->
-  <div class="composer-toast" :class="{ active: store.isComposerActive }" id="composerToast" @keydown.esc="onComposerEscape">
+  <div
+    class="composer-toast"
+    :class="{ active: store.isComposerActive, 'ai-active': store.isAiDraftActive }"
+    id="composerToast"
+    @keydown.esc="onComposerEscape"
+  >
     <div class="composer-draft-row">
       <div class="composer-draft-title">
         <input
@@ -503,36 +508,28 @@ onMounted(() => {
       </div>
     </div>
     <div class="composer-body">
-      <ComposerEditor
-        ref="composerBodyRef"
-        v-model="store.composerHtml"
-        :snippets="store.snippets"
-        @update:text="store.composerTextArea = $event"
-        @generate="store.openAiDraft()"
-        @focus-prev="composerToRef?.focus()"
-      />
+      <div class="composer-main">
+        <ComposerEditor
+          ref="composerBodyRef"
+          v-model="store.composerHtml"
+          :snippets="store.snippets"
+          @update:text="store.composerTextArea = $event"
+          @generate="store.openAiDraft()"
+          @focus-prev="composerToRef?.focus()"
+        />
+      </div>
 
-      <!-- Reviewable AI drafting box; generation never sends mail. -->
-      <div class="composer-gemini-box" :class="{ active: store.isAiDraftActive }">
+      <!-- Reviewable AI drafting sidebar; generation never sends mail. -->
+      <aside class="composer-ai-sidebar" :class="{ active: store.isAiDraftActive }">
         <div class="gemini-draft-header">
           <div class="gemini-badge">
             <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
-            <span>Cookie AI Compose</span>
+            <span>Cookie AI</span>
           </div>
-          <div class="gemini-draft-actions">
-            <button class="btn btn-text-sm" :disabled="store.isAiDraftLoading" @click="store.requestAiDraft">
-              {{ store.aiDraftPreview ? 'Refine' : 'Generate' }}
-            </button>
-            <button class="btn btn-text-sm" :disabled="!store.aiDraftPreview" @click="store.insertAiDraft">Insert</button>
-          </div>
+          <button class="composer-icon-btn" title="Close Cookie AI" @click="store.isAiDraftActive = false">
+            <span class="material-symbols-outlined">close</span>
+          </button>
         </div>
-        <input
-          v-model="store.composerAiInstruction"
-          class="composer-ai-instruction"
-          maxlength="1000"
-          placeholder="Describe what you want to say…"
-          @keydown.enter.prevent="store.requestAiDraft"
-        />
         <div
           class="gemini-draft-preview"
           :class="{
@@ -541,12 +538,25 @@ onMounted(() => {
         >
           {{ store.isAiDraftLoading ? 'Drafting…' : store.aiDraftPreview || 'Your generated draft will appear here for review.' }}
         </div>
-      </div>
+        <input
+          v-model="store.composerAiInstruction"
+          class="composer-ai-instruction"
+          maxlength="1000"
+          placeholder="Describe what you want to say…"
+          @keydown.enter.prevent="store.requestAiDraft"
+        />
+        <div class="gemini-draft-actions">
+          <button class="btn btn-text-sm" :disabled="store.isAiDraftLoading" @click="store.requestAiDraft">
+            {{ store.aiDraftPreview ? 'Refine' : 'Generate' }}
+          </button>
+          <button class="btn btn-text-sm" :disabled="!store.aiDraftPreview" @click="store.insertAiDraft">Insert</button>
+        </div>
+      </aside>
     </div>
     <div class="composer-footer">
       <div class="composer-send-actions">
         <button
-          class="composer-text-btn composer-text-btn-primary"
+          class="btn btn-primary composer-send-btn"
           :disabled="store.isSendingEmail || !composerToValid || !store.composerTextArea.trim()"
           :aria-busy="store.isSendingEmail"
           @click="store.sendEmail"

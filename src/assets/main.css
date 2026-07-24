@@ -2336,10 +2336,15 @@ body {
   z-index: 500;
   overflow: hidden;
   animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .composer-toast.active {
   display: flex;
+}
+
+.composer-toast.ai-active {
+  width: 860px;
 }
 
 .composer-draft-row {
@@ -2493,6 +2498,15 @@ body {
 .composer-body {
   flex-grow: 1;
   display: flex;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.composer-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   padding: 12px 24px 16px;
   gap: 12px;
@@ -2598,18 +2612,20 @@ body {
   text-align: right;
 }
 
-.composer-gemini-box {
-  border: 1px solid rgba(169, 112, 255, 0.2);
-  background: linear-gradient(180deg, rgba(169, 112, 255, 0.05) 0%, rgba(26, 115, 232, 0.05) 100%);
-  border-radius: 12px;
-  padding: 12px;
+.composer-ai-sidebar {
+  flex: 0 0 300px;
+  width: 300px;
   display: none; /* Triggered live */
   flex-direction: column;
-  gap: 8px;
-  animation: fade-in 0.4s ease;
+  gap: 10px;
+  padding: 16px;
+  background-color: var(--bg-app);
+  border-left: 1px solid var(--border-color);
+  overflow-y: auto;
+  animation: fade-in 0.3s ease;
 }
 
-.composer-gemini-box.active {
+.composer-ai-sidebar.active {
   display: flex;
 }
 
@@ -2623,8 +2639,9 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
+  color: var(--text-blue);
 }
 
 .gemini-draft-actions {
@@ -2636,9 +2653,11 @@ body {
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--text-primary);
-  border-left: 2px solid var(--text-purple);
-  padding-left: 10px;
-  min-height: 50px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 70px;
 }
 
 .composer-footer {
@@ -2656,31 +2675,7 @@ body {
   gap: 16px;
 }
 
-.composer-text-btn {
-  border: none;
-  background: none;
-  padding: 0;
-  font-family: var(--font-stack);
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  opacity: 0.75;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.composer-text-btn:hover {
-  opacity: 1;
-}
-
-.composer-text-btn-primary {
-  color: var(--text-primary);
-  font-weight: 600;
-  opacity: 1;
-}
-
-.composer-text-btn-primary:disabled {
-  color: var(--text-secondary);
+.composer-send-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
