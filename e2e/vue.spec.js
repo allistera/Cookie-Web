@@ -196,7 +196,7 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   const composer = page.locator('#composerToast')
   await composer.locator('.composer-to-inline').fill('person@example.com')
   await composer.locator('.composer-editor').fill('A message that should only send once.')
-  const sendButton = composer.locator('.composer-text-btn-primary')
+  const sendButton = composer.locator('.composer-footer .composer-send-btn')
   await sendButton.click()
 
   await requestStarted
