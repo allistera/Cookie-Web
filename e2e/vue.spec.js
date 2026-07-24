@@ -104,6 +104,31 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   expect(pageErrors).toEqual([])
 })
 
+test('A Settings snippet is available as a slash command in the composer', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.profile-container').click()
+  await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
+
+  const modal = page.locator('.settings-modal-container')
+  await modal.locator('.settings-nav-item', { hasText: 'Snippets' }).click()
+  await modal.locator('.snippet-editor-form > .label-input').fill('incident')
+  await modal.locator('.snippet-editor .composer-editor').fill(
+    'Hi,\nWe’re currently investigating the incident and will share an update shortly.',
+  )
+  await modal.getByRole('button', { name: 'Add snippet' }).click()
+  await expect(modal.locator('.snippet-trigger')).toHaveText('/incident')
+  await modal.getByRole('button', { name: 'Close', exact: true }).click()
+
+  await page.locator('.compose-btn').click()
+  const composer = page.locator('#composerToast')
+  const editor = composer.locator('.composer-editor')
+  await editor.fill('/inci')
+  await composer.locator('.composer-slash-menu .suggestion-item', { hasText: 'incident' }).click()
+
+  await expect(editor).toContainText('We’re currently investigating the incident')
+  await expect(editor).not.toContainText('/inci')
+})
+
 test('Browser notifications can be enabled from Notifications settings', async ({ page }) => {
   // Headless engines deny OS notifications, so provide the same permission
   // surface while driving the real settings UI in every browser project.
