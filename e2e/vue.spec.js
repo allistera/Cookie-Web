@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-test('The header app switcher moves between Email and the empty Calendar view', async ({
+test('The header app switcher opens the interactive Calendar views and returns to Email', async ({
   page,
 }) => {
   await page.goto('/')
@@ -20,6 +20,25 @@ test('The header app switcher moves between Email and the empty Calendar view', 
   await expect(page.locator('.calendar-view')).toBeVisible()
   await expect(page.locator('.left-sidebar')).toHaveCount(0)
   await expect(page.locator('#searchBarContainer')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true })).toHaveCount(2)
+  await expect(page.locator('.day-event', { hasText: 'Standup' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Week', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Jul 20 – 26, 2026' })).toBeVisible()
+  await expect(page.locator('.week-calendar')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Month', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'July 2026' })).toBeVisible()
+  await expect(page.locator('.month-event', { hasText: 'Client call — Meridian' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'New event', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New event' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Create with Cookie' })).toBeDisabled()
+  await dialog.getByRole('textbox', { name: 'Describe the event' }).fill('Lunch with Mia')
+  await dialog.getByRole('button', { name: 'Create with Cookie' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.month-event', { hasText: 'Lunch with Mia' })).toBeVisible()
 
   const emailLink = page.getByRole('menuitem', { name: 'Email' })
   await trigger.hover()
