@@ -2665,8 +2665,8 @@ body {
   padding: 14px 0 18px;
   border-top: 1px solid var(--border-color);
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 16px;
 }
 
 .composer-send-actions {
@@ -2680,18 +2680,35 @@ body {
   cursor: default;
 }
 
-.composer-tools {
+.composer-ai-inline {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 100px;
+  background-color: var(--bg-input);
 }
 
-.composer-ai-btn {
+.composer-ai-inline .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.composer-ai-inline-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
   font-family: var(--font-stack);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1;
-  padding: 2px 4px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.composer-ai-inline-input::placeholder {
+  color: var(--text-secondary);
 }
 
 /* Animations */
@@ -3235,18 +3252,6 @@ body {
   margin: 0;
   color: var(--text-danger, #e5484d);
   font-size: 13px;
-}
-
-.composer-ai-instruction {
-  width: 100%;
-  box-sizing: border-box;
-  margin: 8px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font: inherit;
 }
 
 /* Profile Dropdown styling */

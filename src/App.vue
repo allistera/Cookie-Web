@@ -538,15 +538,8 @@ onMounted(() => {
         >
           {{ store.isAiDraftLoading ? 'Drafting…' : store.aiDraftPreview || 'Your generated draft will appear here for review.' }}
         </div>
-        <input
-          v-model="store.composerAiInstruction"
-          class="composer-ai-instruction"
-          maxlength="1000"
-          placeholder="Describe what you want to say…"
-          @keydown.enter.prevent="store.requestAiDraft"
-        />
         <div class="gemini-draft-actions">
-          <button class="btn btn-text-sm" :disabled="store.isAiDraftLoading" @click="store.requestAiDraft">
+          <button class="btn btn-text-sm" :disabled="store.isAiDraftLoading || !store.composerAiInstruction.trim()" @click="store.requestAiDraft">
             {{ store.aiDraftPreview ? 'Refine' : 'Generate' }}
           </button>
           <button class="btn btn-text-sm" :disabled="!store.aiDraftPreview" @click="store.insertAiDraft">Insert</button>
@@ -564,17 +557,15 @@ onMounted(() => {
           {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
         </button>
       </div>
-      <div class="composer-tools">
-        <button
-          class="composer-icon-btn composer-ai-btn"
-          title="Help me write"
-          @click="store.openAiDraft"
-        >
-          ai
-        </button>
-        <button class="composer-icon-btn" title="Discard" @click="store.closeComposer">
-          <span class="material-symbols-outlined">delete</span>
-        </button>
+      <div class="composer-ai-inline">
+        <span class="material-symbols-outlined">auto_fix_high</span>
+        <input
+          v-model="store.composerAiInstruction"
+          class="composer-ai-inline-input"
+          maxlength="1000"
+          placeholder="Describe your message"
+          @keydown.enter.prevent="store.requestAiDraft"
+        />
       </div>
     </div>
   </div>
