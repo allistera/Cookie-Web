@@ -60,6 +60,9 @@ const contactSuggestions = computed(() => {
 })
 
 const composerToValid = computed(() => recipientsValid(store.composerTo))
+const isSendDisabled = computed(
+  () => store.isSendingEmail || !composerToValid.value || !store.composerTextArea.trim(),
+)
 
 function openContactSuggest() {
   contactSuggestOpen.value = true
@@ -540,10 +543,14 @@ onMounted(() => {
           {{ store.isAiDraftLoading ? 'Drafting…' : store.aiDraftPreview || 'Your generated draft will appear here for review.' }}
         </div>
         <div class="gemini-draft-actions">
-          <button class="btn btn-text-sm" :disabled="store.isAiDraftLoading || !store.composerAiInstruction.trim()" @click="store.requestAiDraft">
-            {{ store.aiDraftPreview ? 'Refine' : 'Generate' }}
+          <button
+            class="btn btn-primary composer-send-btn"
+            :class="{ highlighted: isSendDisabled }"
+            :disabled="!store.aiDraftPreview"
+            @click="store.insertAiDraft"
+          >
+            Insert
           </button>
-          <button class="btn btn-text-sm" :disabled="!store.aiDraftPreview" @click="store.insertAiDraft">Insert</button>
         </div>
       </aside>
     </div>
@@ -551,7 +558,7 @@ onMounted(() => {
       <div class="composer-send-actions">
         <button
           class="btn btn-primary composer-send-btn"
-          :disabled="store.isSendingEmail || !composerToValid || !store.composerTextArea.trim()"
+          :disabled="isSendDisabled"
           :aria-busy="store.isSendingEmail"
           @click="store.sendEmail"
         >

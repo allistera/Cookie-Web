@@ -2652,7 +2652,18 @@ body {
 
 .gemini-draft-actions {
   display: flex;
-  gap: 6px;
+}
+
+.gemini-draft-actions .btn {
+  flex: 1 1 auto;
+}
+
+.composer-send-btn.highlighted {
+  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.22);
+}
+
+[data-theme='dark'] .composer-send-btn.highlighted {
+  box-shadow: 0 0 0 4px rgba(127, 207, 255, 0.28);
 }
 
 .gemini-draft-preview {
