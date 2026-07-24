@@ -14,10 +14,32 @@ const eventRequest = ref('')
 const conflictVisible = ref(true)
 const suggestionVisible = ref(true)
 const generatedEvents = ref([])
+const calendars = [
+  { id: 'work', name: 'Work', color: '#4f7c6b' },
+  { id: 'personal', name: 'Personal', color: '#2db985' },
+  { id: 'focus', name: 'Focus time', color: '#795da8' },
+  { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
+  { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
+]
+const visibleCalendars = ref(new Set(calendars.map((calendar) => calendar.id)))
 
 const seedEvents = [
-  { id: 'team-sync', title: 'Team sync', date: '2026-07-20', start: '09:00', duration: 30 },
-  { id: 'priya', title: '1:1 with Priya', date: '2026-07-21', start: '10:00', duration: 30 },
+  {
+    id: 'team-sync',
+    title: 'Team sync',
+    date: '2026-07-20',
+    start: '09:00',
+    duration: 30,
+    calendar: 'work',
+  },
+  {
+    id: 'priya',
+    title: '1:1 with Priya',
+    date: '2026-07-21',
+    start: '10:00',
+    duration: 30,
+    calendar: 'work',
+  },
   {
     id: 'focus',
     title: 'Focus — Q3 planning',
@@ -25,8 +47,16 @@ const seedEvents = [
     start: '13:00',
     duration: 120,
     tone: 'dark',
+    calendar: 'focus',
   },
-  { id: 'design', title: 'Design review', date: '2026-07-23', start: '11:00', duration: 60 },
+  {
+    id: 'design',
+    title: 'Design review',
+    date: '2026-07-23',
+    start: '11:00',
+    duration: 60,
+    calendar: 'work',
+  },
   {
     id: 'client-call',
     title: 'Client call — Meridian',
@@ -34,8 +64,16 @@ const seedEvents = [
     start: '11:30',
     duration: 60,
     tone: 'conflict',
+    calendar: 'work',
   },
-  { id: 'standup', title: 'Standup', date: '2026-07-24', start: '09:00', duration: 30 },
+  {
+    id: 'standup',
+    title: 'Standup',
+    date: '2026-07-24',
+    start: '09:00',
+    duration: 30,
+    calendar: 'work',
+  },
   {
     id: 'coffee',
     title: 'Coffee with Sam',
@@ -43,6 +81,7 @@ const seedEvents = [
     start: '14:30',
     duration: 30,
     tone: 'accepted',
+    calendar: 'personal',
   },
 ]
 
@@ -53,9 +92,13 @@ const suggestedEvent = {
   start: '14:00',
   duration: 45,
   tone: 'suggested',
+  calendar: 'work',
 }
 
 const allEvents = computed(() => [...seedEvents, ...generatedEvents.value])
+const visibleEvents = computed(() =>
+  allEvents.value.filter((event) => visibleCalendars.value.has(event.calendar)),
+)
 
 const dateKey = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -116,7 +159,7 @@ const weekBodyHeight = (END_HOUR - START_HOUR) * WEEK_HOUR_HEIGHT
 const dayBodyHeight = (END_HOUR - START_HOUR) * DAY_HOUR_HEIGHT
 
 const eventsForDay = computed(() =>
-  allEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
+  visibleEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
 )
 
 const timeLabel = (hour) => {
@@ -156,7 +199,14 @@ const eventTime = (event) => {
 
 const isToday = (date) => dateKey(date) === dateKey(REFERENCE_DATE)
 const isCurrentMonth = (date) => date.getMonth() === selectedDate.value.getMonth()
-const eventsForDate = (date) => allEvents.value.filter((event) => event.date === dateKey(date))
+const eventsForDate = (date) => visibleEvents.value.filter((event) => event.date === dateKey(date))
+
+function toggleCalendar(calendarId) {
+  const next = new Set(visibleCalendars.value)
+  if (next.has(calendarId)) next.delete(calendarId)
+  else next.add(calendarId)
+  visibleCalendars.value = next
+}
 
 function setView(mode) {
   viewMode.value = mode
@@ -192,6 +242,7 @@ function createEvent() {
     start: '14:00',
     duration: 30,
     tone: 'accepted',
+    calendar: 'personal',
   })
   closeNewEvent()
 }
@@ -206,7 +257,44 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 <template>
   <section class="calendar-view" aria-label="Calendar">
-    <div class="calendar-page">
+    <aside class="left-sidebar calendar-sidebar" aria-label="Calendar sidebar">
+      <button type="button" class="compose-btn calendar-sidebar-create" @click="openNewEvent">
+        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+        <span>New event</span>
+      </button>
+
+      <div class="calendar-sidebar-section">
+        <div class="sb-section-label calendar-sidebar-label">
+          <span>Calendars</span>
+        </div>
+
+        <nav class="sidebar-nav calendar-list" aria-label="Calendars">
+          <button
+            v-for="calendar in calendars"
+            :key="calendar.id"
+            type="button"
+            class="nav-item calendar-list-item"
+            :class="{ muted: !visibleCalendars.has(calendar.id) }"
+            :aria-pressed="visibleCalendars.has(calendar.id)"
+            @click="toggleCalendar(calendar.id)"
+          >
+            <span
+              class="calendar-color"
+              :style="{ '--calendar-list-color': calendar.color }"
+              aria-hidden="true"
+            >
+              <svg v-if="visibleCalendars.has(calendar.id)" viewBox="0 0 16 16">
+                <path d="m3.5 8 2.7 2.7 6.3-6.2" />
+              </svg>
+            </span>
+            <span class="nav-text">{{ calendar.name }}</span>
+          </button>
+        </nav>
+      </div>
+    </aside>
+
+    <div class="calendar-content">
+      <div class="calendar-page">
       <header class="calendar-page-header" :class="{ 'is-month': viewMode === 'month' }">
         <span class="calendar-eyebrow">Calendar</span>
 
@@ -366,7 +454,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
             ></div>
             <article
-              v-for="event in allEvents.filter((item) => weekDays.some((date) => dateKey(date) === item.date))"
+              v-for="event in visibleEvents.filter((item) =>
+                weekDays.some((date) => dateKey(date) === item.date),
+              )"
               :key="event.id"
               class="calendar-event week-event"
               :class="`tone-${event.tone || 'default'}`"
@@ -416,6 +506,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </article>
         </div>
       </section>
+      </div>
     </div>
 
     <Transition name="calendar-modal">
@@ -477,17 +568,171 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   --calendar-surface: #ffffff;
   --calendar-ink: #052b1f;
   --calendar-muted: #6b7871;
+  --calendar-label: #819088;
+  --calendar-muted-date: #a7b0ab;
   --calendar-line: #ddd9cd;
   --calendar-soft: #e8f0ec;
   --calendar-mint: #d8f3e8;
   --calendar-mint-strong: #18a874;
   --calendar-coral: #c44838;
   --calendar-coral-soft: #f7d9d4;
+  --calendar-event-line: #cfded7;
+  --calendar-event-surface: #e8f0ec;
+  --calendar-event-ink: #174737;
+  --calendar-conflict-line: #e45a48;
+  --calendar-conflict-surface: #fae2dc;
+  --calendar-accepted-line: #26b77e;
+  --calendar-accepted-surface: #dff5ea;
+  --calendar-accepted-ink: #078858;
+  --calendar-suggested: #2db985;
+  --calendar-input: #faf8f2;
+  --calendar-overlay: rgba(12, 29, 23, 0.35);
+  --calendar-on-ink: #ffffff;
+  --calendar-emphasis: var(--calendar-ink);
+  --calendar-on-emphasis: #ffffff;
+  --calendar-time-line: #d15c4e;
+  --calendar-disabled: #aab5b0;
+  --calendar-disabled-ink: #87958f;
+  --calendar-card-shadow: 0 3px 7px rgba(33, 45, 38, 0.09);
+  --calendar-dialog-shadow: 0 28px 64px rgba(5, 31, 23, 0.22);
   flex: 1;
+  display: flex;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--calendar-canvas);
   color: var(--calendar-ink);
+}
+
+[data-theme='dark'] .calendar-view {
+  --calendar-canvas: #101413;
+  --calendar-surface: #181d1b;
+  --calendar-ink: #e5eee9;
+  --calendar-muted: #a9b4ae;
+  --calendar-label: #89978f;
+  --calendar-muted-date: #65716b;
+  --calendar-line: #38423d;
+  --calendar-soft: #222b27;
+  --calendar-mint: #173c30;
+  --calendar-mint-strong: #58d5a6;
+  --calendar-coral: #ff9283;
+  --calendar-coral-soft: #462923;
+  --calendar-event-line: #405048;
+  --calendar-event-surface: #26312c;
+  --calendar-event-ink: #d8e8e0;
+  --calendar-conflict-line: #b85e51;
+  --calendar-conflict-surface: #422923;
+  --calendar-accepted-line: #3da77d;
+  --calendar-accepted-surface: #173b30;
+  --calendar-accepted-ink: #72ddb3;
+  --calendar-suggested: #58d5a6;
+  --calendar-input: #111614;
+  --calendar-overlay: rgba(0, 0, 0, 0.68);
+  --calendar-on-ink: #102019;
+  --calendar-emphasis: #294339;
+  --calendar-on-emphasis: #e5eee9;
+  --calendar-time-line: #ef7566;
+  --calendar-disabled: #3c4641;
+  --calendar-disabled-ink: #7b8881;
+  --calendar-card-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  --calendar-dialog-shadow: 0 30px 72px rgba(0, 0, 0, 0.56);
+  color-scheme: dark;
+}
+
+.calendar-sidebar.left-sidebar {
+  width: 248px;
+  padding: 20px 12px;
+  gap: 10px;
+  overflow-y: auto;
+  background: var(--calendar-canvas);
+  border-color: var(--calendar-line);
+  color: var(--calendar-ink);
+}
+
+.calendar-sidebar-create.compose-btn {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--calendar-line);
+  border-radius: 12px;
+  background: var(--calendar-surface);
+  color: var(--calendar-ink);
+  box-shadow: var(--calendar-card-shadow);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.calendar-sidebar-create.compose-btn:hover,
+.calendar-sidebar-create.compose-btn:focus-visible {
+  background: var(--calendar-soft);
+  outline: 2px solid color-mix(in srgb, var(--calendar-mint-strong) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.calendar-sidebar-create.compose-btn .material-symbols-outlined {
+  color: var(--calendar-ink);
+}
+
+.calendar-sidebar-section {
+  min-width: 0;
+}
+
+.calendar-sidebar-label {
+  display: flex;
+  align-items: center;
+  padding-top: 18px;
+  color: var(--calendar-muted);
+}
+
+.calendar-list-item.nav-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--calendar-ink);
+  cursor: pointer;
+  font-family: var(--font-stack);
+  text-align: left;
+}
+
+.calendar-list-item.nav-item:hover,
+.calendar-list-item.nav-item:focus-visible {
+  background: var(--calendar-soft);
+  outline: none;
+}
+
+.calendar-list-item.muted {
+  color: var(--calendar-muted);
+}
+
+.calendar-color {
+  width: 17px;
+  height: 17px;
+  border: 2px solid var(--calendar-list-color);
+  border-radius: 5px;
+  background: var(--calendar-list-color);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.calendar-list-item.muted .calendar-color {
+  background: transparent;
+}
+
+.calendar-color svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.calendar-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--calendar-canvas);
 }
 
 .calendar-page {
@@ -504,7 +749,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .calendar-eyebrow {
-  color: #7a8981;
+  color: var(--calendar-label);
   font-family: var(--font-mono);
   font-size: 14px;
   font-weight: 500;
@@ -622,7 +867,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #56665e;
+  color: var(--calendar-muted);
   cursor: pointer;
   font-family: var(--font-stack);
   font-size: 19px;
@@ -642,7 +887,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .calendar-view-tabs button.active {
   background: var(--calendar-surface);
-  box-shadow: 0 2px 7px rgba(5, 43, 31, 0.08);
+  box-shadow: var(--calendar-card-shadow);
   color: var(--calendar-ink);
 }
 
@@ -655,7 +900,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 1px solid var(--calendar-ink);
   border-radius: 22px;
   background: var(--calendar-ink);
-  color: #fff;
+  color: var(--calendar-on-ink);
   cursor: pointer;
   font-family: var(--font-stack);
   font-size: 20px;
@@ -696,7 +941,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 1px solid var(--calendar-line);
   border-radius: 24px;
   background: var(--calendar-surface);
-  box-shadow: 0 3px 7px rgba(33, 45, 38, 0.09);
+  box-shadow: var(--calendar-card-shadow);
   display: flex;
   align-items: flex-start;
   gap: 24px;
@@ -719,12 +964,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .suggestion-icon {
   background: var(--calendar-mint);
-  color: #0c8f61;
+  color: var(--calendar-mint-strong);
 }
 
 .auto-icon {
   background: var(--calendar-soft);
-  color: #15533f;
+  color: var(--calendar-event-ink);
 }
 
 .insight-copy {
@@ -761,7 +1006,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .primary-small-button {
   border: 1px solid var(--calendar-ink);
   background: var(--calendar-ink);
-  color: #fff;
+  color: var(--calendar-on-ink);
 }
 
 .secondary-small-button {
@@ -794,7 +1039,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 1px solid var(--calendar-line);
   border-radius: 26px;
   background: var(--calendar-surface);
-  box-shadow: 0 3px 7px rgba(33, 45, 38, 0.08);
+  box-shadow: var(--calendar-card-shadow);
   overflow: hidden;
 }
 
@@ -827,7 +1072,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   top: -12px;
   left: 54px;
   width: 92px;
-  color: #819088;
+  color: var(--calendar-label);
   font-family: var(--font-mono);
   font-size: 15px;
   text-align: right;
@@ -840,9 +1085,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .calendar-event {
-  border: 1px solid #cfded7;
+  border: 1px solid var(--calendar-event-line);
   border-radius: 16px;
-  background: #e8f0ec;
+  background: var(--calendar-event-surface);
   color: var(--calendar-ink);
   overflow: hidden;
 }
@@ -865,34 +1110,34 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .tone-dark {
-  border-color: var(--calendar-ink);
-  background: var(--calendar-ink);
-  color: #fff;
+  border-color: var(--calendar-emphasis);
+  background: var(--calendar-emphasis);
+  color: var(--calendar-on-emphasis);
 }
 
 .tone-conflict {
-  border-color: #e45a48;
-  background: #fae2dc;
+  border-color: var(--calendar-conflict-line);
+  background: var(--calendar-conflict-surface);
   color: var(--calendar-coral);
 }
 
 .tone-accepted {
-  border-color: #26b77e;
-  background: #dff5ea;
-  color: #078858;
+  border-color: var(--calendar-accepted-line);
+  background: var(--calendar-accepted-surface);
+  color: var(--calendar-accepted-ink);
 }
 
 .tone-suggested {
-  border: 2px dashed #2db985;
-  background: #fff;
-  color: #139266;
+  border: 2px dashed var(--calendar-suggested);
+  background: var(--calendar-surface);
+  color: var(--calendar-mint-strong);
 }
 
 .current-time-line {
   position: absolute;
   z-index: 6;
   height: 2px;
-  background: #d15c4e;
+  background: var(--calendar-time-line);
   pointer-events: none;
 }
 
@@ -903,7 +1148,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #d15c4e;
+  background: var(--calendar-time-line);
 }
 
 .day-current-time {
@@ -943,7 +1188,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .week-day-heading > span,
 .month-weekdays span {
-  color: #819088;
+  color: var(--calendar-label);
   font-family: var(--font-mono);
   font-size: 15px;
   letter-spacing: 0.1em;
@@ -964,7 +1209,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .week-day-heading strong.today,
 .month-date.today {
   background: var(--calendar-ink);
-  color: #fff;
+  color: var(--calendar-on-ink);
 }
 
 .week-timeline {
@@ -982,7 +1227,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   position: absolute;
   right: 14px;
   transform: translateY(-10px);
-  color: #819088;
+  color: var(--calendar-label);
   font-family: var(--font-mono);
   font-size: 14px;
 }
@@ -1068,7 +1313,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .month-day.muted .month-date {
-  color: #a7b0ab;
+  color: var(--calendar-muted-date);
 }
 
 .month-date {
@@ -1092,10 +1337,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .month-event {
   min-height: 42px;
   padding: 8px 12px;
-  border: 1px solid #cfded7;
+  border: 1px solid var(--calendar-event-line);
   border-radius: 8px;
-  background: #e8f0ec;
-  color: #174737;
+  background: var(--calendar-event-surface);
+  color: var(--calendar-event-ink);
   font-size: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1103,21 +1348,21 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .month-event.tone-dark {
-  border-color: var(--calendar-ink);
-  background: var(--calendar-ink);
-  color: #fff;
+  border-color: var(--calendar-emphasis);
+  background: var(--calendar-emphasis);
+  color: var(--calendar-on-emphasis);
 }
 
 .month-event.tone-conflict {
-  border-color: #e45a48;
-  background: #fae2dc;
+  border-color: var(--calendar-conflict-line);
+  background: var(--calendar-conflict-surface);
   color: var(--calendar-coral);
 }
 
 .month-event.tone-accepted {
-  border-color: #26b77e;
-  background: #dff5ea;
-  color: #078858;
+  border-color: var(--calendar-accepted-line);
+  background: var(--calendar-accepted-surface);
+  color: var(--calendar-accepted-ink);
 }
 
 .new-event-overlay {
@@ -1125,7 +1370,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   inset: 0;
   z-index: 900;
   padding: 4px;
-  background: rgba(12, 29, 23, 0.35);
+  background: var(--calendar-overlay);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -1135,8 +1380,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   width: min(960px, calc(100vw - 8px));
   padding: 52px 48px 53px;
   border-radius: 40px;
-  background: #fff;
-  box-shadow: 0 28px 64px rgba(5, 31, 23, 0.22);
+  background: var(--calendar-surface);
+  box-shadow: var(--calendar-dialog-shadow);
   transform: translateY(-20px);
 }
 
@@ -1149,7 +1394,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   height: 72px;
   border-radius: 22px;
   background: var(--calendar-mint);
-  color: #0c8f61;
+  color: var(--calendar-mint-strong);
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -1166,7 +1411,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .new-event-dialog-header p {
   margin: 8px 0 0;
-  color: #849089;
+  color: var(--calendar-muted);
   font-size: 21px;
 }
 
@@ -1177,7 +1422,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #85918b;
+  color: var(--calendar-muted);
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -1199,7 +1444,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 1px solid var(--calendar-line);
   border-radius: 22px;
   outline: none;
-  background: #faf8f2;
+  background: var(--calendar-input);
   color: var(--calendar-ink);
   font-family: var(--font-stack);
   font-size: 27px;
@@ -1207,12 +1452,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .new-event-request::placeholder {
-  color: #7c7e7c;
+  color: var(--calendar-muted);
   opacity: 1;
 }
 
 .new-event-request:focus {
-  border-color: #7ca795;
+  border-color: var(--calendar-mint-strong);
   box-shadow: 0 0 0 3px rgba(38, 183, 126, 0.12);
 }
 
@@ -1227,7 +1472,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   padding: 0 24px;
   border-radius: 999px;
   background: var(--calendar-soft);
-  color: #315d4d;
+  color: var(--calendar-event-ink);
   display: flex;
   align-items: center;
   font-size: 20px;
@@ -1252,7 +1497,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .new-event-cancel {
   border: 1px solid var(--calendar-line);
-  background: #fff;
+  background: var(--calendar-surface);
   color: var(--calendar-muted);
 }
 
@@ -1260,13 +1505,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   min-width: 306px;
   border: 1px solid var(--calendar-ink);
   background: var(--calendar-ink);
-  color: #fff;
+  color: var(--calendar-on-ink);
 }
 
 .new-event-create:disabled {
-  border-color: #aab5b0;
-  background: #aab5b0;
-  color: #87958f;
+  border-color: var(--calendar-disabled);
+  background: var(--calendar-disabled);
+  color: var(--calendar-disabled-ink);
   cursor: not-allowed;
 }
 
@@ -1291,6 +1536,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 @media (max-width: 1120px) {
+  .calendar-sidebar.left-sidebar {
+    width: 220px;
+  }
+
   .calendar-toolbar,
   .calendar-date-controls {
     align-items: flex-start;
@@ -1312,6 +1561,46 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 @media (max-width: 760px) {
+  .calendar-view {
+    flex-direction: column;
+  }
+
+  .calendar-sidebar.left-sidebar {
+    width: 100%;
+    min-height: 72px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--calendar-line);
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .calendar-sidebar-create.compose-btn {
+    min-width: 124px;
+    flex: 0 0 auto;
+  }
+
+  .calendar-sidebar-section,
+  .calendar-list {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .calendar-sidebar-label {
+    display: none;
+  }
+
+  .calendar-list-item.nav-item {
+    width: auto;
+    min-width: max-content;
+    padding-inline: 10px;
+  }
+
   .calendar-page {
     padding: 24px 16px 48px;
   }
@@ -1397,9 +1686,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
     border-radius: 20px;
   }
 
-  .calendar-view:has(.week-calendar),
-  .calendar-view:has(.month-calendar),
-  .calendar-view:has(.day-calendar) {
+  .calendar-content:has(.week-calendar),
+  .calendar-content:has(.month-calendar),
+  .calendar-content:has(.day-calendar) {
     overflow-x: auto;
   }
 

@@ -3,6 +3,30 @@ import { describe, expect, it } from 'vitest'
 import CalendarView from '../CalendarView.vue'
 
 describe('CalendarView', () => {
+  it('shows the calendar sidebar and filters events by calendar', async () => {
+    const wrapper = mount(CalendarView)
+    const calendarButtons = wrapper.findAll('.calendar-list-item')
+
+    expect(calendarButtons).toHaveLength(5)
+    expect(calendarButtons.map((button) => button.text())).toEqual([
+      'Work',
+      'Personal',
+      'Focus time',
+      'Birthdays',
+      'Holidays',
+    ])
+    expect(wrapper.find('.day-event').text()).toContain('Standup')
+
+    await calendarButtons[0].trigger('click')
+    expect(calendarButtons[0].attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('.day-event').exists()).toBe(true)
+    expect(wrapper.find('.day-event').text()).toContain('Coffee with Sam')
+    expect(wrapper.text()).not.toContain('Standup')
+
+    await calendarButtons[0].trigger('click')
+    expect(wrapper.text()).toContain('Standup')
+  })
+
   it('switches between the supplied Day, Week, and Month calendar states', async () => {
     const wrapper = mount(CalendarView)
 

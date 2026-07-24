@@ -18,9 +18,18 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page).toHaveURL(/\/calendar$/)
   await expect(suffix).toHaveText('Calendar')
   await expect(page.locator('.calendar-view')).toBeVisible()
-  await expect(page.locator('.left-sidebar')).toHaveCount(0)
+  const calendarSidebar = page.getByRole('complementary', { name: 'Calendar sidebar' })
+  await expect(calendarSidebar).toBeVisible()
+  await expect(calendarSidebar.getByRole('navigation', { name: 'Calendars' })).toBeVisible()
+  const workCalendar = calendarSidebar.getByRole('button', { name: 'Work' })
+  await expect(workCalendar).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('#searchBarContainer')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true })).toHaveCount(2)
+  await expect(page.locator('.day-event', { hasText: 'Standup' })).toBeVisible()
+  await workCalendar.click()
+  await expect(page.locator('.day-event', { hasText: 'Standup' })).toHaveCount(0)
+  await expect(page.locator('.day-event', { hasText: 'Coffee with Sam' })).toBeVisible()
+  await workCalendar.click()
   await expect(page.locator('.day-event', { hasText: 'Standup' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Week', exact: true }).click()
@@ -31,7 +40,7 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.getByRole('heading', { name: 'July 2026' })).toBeVisible()
   await expect(page.locator('.month-event', { hasText: 'Client call — Meridian' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'New event', exact: true }).click()
+  await page.locator('.calendar-page .new-event-button').click()
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Create with Cookie' })).toBeDisabled()
@@ -48,6 +57,26 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page).toHaveURL(/\/$/)
   await expect(suffix).toHaveText('Email')
   await expect(page.locator('.left-sidebar')).toBeVisible()
+})
+
+test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('cookie-theme', 'dark'))
+  await page.goto('/calendar')
+
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  const palette = await page.locator('.calendar-view').evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { background: style.backgroundColor, color: style.color }
+  })
+  expect(palette).toEqual({ background: 'rgb(16, 20, 19)', color: 'rgb(229, 238, 233)' })
+
+  const sidebar = page.getByRole('complementary', { name: 'Calendar sidebar' })
+  await expect(sidebar).toHaveCSS('background-color', 'rgb(16, 20, 19)')
+  await sidebar.getByRole('button', { name: 'New event', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'New event' })).toHaveCSS(
+    'background-color',
+    'rgb(24, 29, 27)',
+  )
 })
 
 test('The root path shows the AI Today digest of suggested to-dos and topics', async ({ page }) => {
