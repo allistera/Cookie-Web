@@ -253,6 +253,7 @@ onMounted(() => {
         <div class="logo-container" @click="$router.push('/')">
           <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
           <span class="logo-text">Cookie</span>
+          <span class="logo-suffix">Email</span>
         </div>
       </div>
 
