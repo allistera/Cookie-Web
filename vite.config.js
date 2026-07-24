@@ -330,6 +330,18 @@ function localApiPlugin(mode) {
               url: 'https://app.todoist.com/app/task/stub-task-2',
               message_id: null,
             },
+            {
+              id: 'stub-email-task-1',
+              source: 'email',
+              content: 'Confirm the revised floor plan',
+              description: 'Follow up with City Construction before the framing crew is booked.',
+              due_date: null,
+              priority: 3,
+              url: null,
+              message_id: 'fixture-1',
+              reply_to: 'updates@cityconstruction.com',
+              message_subject: 'Revised Floor Plan - Natural Light adjustments',
+            },
           ],
         }),
       )

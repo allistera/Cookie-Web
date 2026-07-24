@@ -14,8 +14,11 @@ describe('fetchTasks', () => {
 
     expect(query).toContain('FROM tasks t')
     expect(query).toContain('JOIN users u ON u.id = t.user_id')
+    expect(query).toContain('LEFT JOIN messages m ON m.id = t.message_id AND m.user_id = t.user_id')
     expect(query).toContain('WHERE lower(u.email) =')
     expect(query).toContain('t.content')
+    expect(query).toContain('m.from_address AS reply_to')
+    expect(query).toContain('m.subject AS message_subject')
     expect(query).toContain('ORDER BY t.due_date ASC NULLS LAST, t.priority DESC NULLS LAST')
   })
 })

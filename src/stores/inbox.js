@@ -26,6 +26,12 @@ function bodyWithoutSignature(bodyText, signatureHtml) {
   return bodyText.slice(0, at).trimEnd()
 }
 
+function followUpSubject(subject) {
+  const value = typeof subject === 'string' ? subject.trim() : ''
+  if (!value) return ''
+  return /^re:/i.test(value) ? value : `Re: ${value}`
+}
+
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
@@ -161,6 +167,7 @@ export const useInboxStore = defineStore('inbox', {
     composerSubject: '',
     composerTextArea: '', // plain-text body (innerText of the rich editor)
     composerHtml: '', // rich HTML body from the WYSIWYG editor
+    composerReplyToMessageId: null,
 
     // Personal email signature (rich HTML), edited in settings and appended to
     // new emails. Persisted locally.
@@ -170,6 +177,7 @@ export const useInboxStore = defineStore('inbox', {
     isAiDraftLoading: false,
     aiDraftPreview: '',
     composerAiInstruction: '',
+    followUpDraftTaskId: null,
 
     // Undo-send countdown: null when idle, else { to, subject, text,
     // secondsLeft, paused } while a queued send is counting down.
@@ -1014,6 +1022,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerSubject = ''
       this.composerTextArea = ''
       this.composerHtml = ''
+      this.composerReplyToMessageId = null
       this.isAiDraftActive = false
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
@@ -1029,30 +1038,34 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async requestAiDraft() {
+    async requestAiDraft({ replyToMessageId = this.composerReplyToMessageId } = {}) {
       const instruction = this.composerAiInstruction.trim()
       if (!instruction || this.isAiDraftLoading) return
       this.isAiDraftActive = true
       this.isAiDraftLoading = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const request = {
+          instruction,
+          to: this.composerTo,
+          subject: this.composerSubject,
+          existingText: bodyWithoutSignature(this.composerTextArea, this.signatureHtml),
+        }
+        if (replyToMessageId) request.replyToMessageId = replyToMessageId
         const response = await fetch('/api/compose', {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            instruction,
-            to: this.composerTo,
-            subject: this.composerSubject,
-            existingText: bodyWithoutSignature(this.composerTextArea, this.signatureHtml),
-          }),
+          body: JSON.stringify(request),
         })
         if (!response.ok) throw new Error(`POST /api/compose responded ${response.status}`)
         const { draft } = await response.json()
         this.aiDraftPreview = draft.text
         if (!this.composerSubject.trim() && draft.subject) this.composerSubject = draft.subject
+        return true
       } catch (error) {
         console.error('AI compose failed:', error)
         this.notify('AI compose failed. Please try again.', 'error')
+        return false
       } finally {
         this.isAiDraftLoading = false
       }
@@ -1060,9 +1073,43 @@ export const useInboxStore = defineStore('inbox', {
 
     insertAiDraft() {
       if (!this.aiDraftPreview) return
-      this.composerTextArea = this.aiDraftPreview
-      this.composerHtml = plainTextToHtml(this.aiDraftPreview)
+      const generatedHtml = plainTextToHtml(this.aiDraftPreview)
+      this.composerHtml = this.signatureHtml
+        ? `${generatedHtml}<p><br></p>${this.signatureHtml}`
+        : generatedHtml
+      this.composerTextArea = htmlToText(this.composerHtml)
       this.isAiDraftActive = false
+    },
+
+    // Generates an editable, review-before-send reply for an email-sourced
+    // follow-up task. The owned message id supplies server-side context and is
+    // retained so a later send stays in the original thread.
+    async draftFollowUp(task) {
+      if (!task?.message_id || this.followUpDraftTaskId) return false
+      this.followUpDraftTaskId = task.id
+      this.composerTo = task.reply_to || ''
+      this.composerSubject = followUpSubject(task.message_subject)
+      this.composerReplyToMessageId = task.message_id
+      this.composerAiInstruction = [
+        'Write a concise follow-up email for this action item.',
+        task.content,
+        task.description,
+      ]
+        .filter(Boolean)
+        .join(' ')
+      this.aiDraftPreview = ''
+      this.isAiDraftActive = true
+      this.isComposerActive = true
+      this.loadContacts()
+
+      try {
+        const generated = await this.requestAiDraft({ replyToMessageId: task.message_id })
+        if (!generated) return false
+        this.insertAiDraft()
+        return true
+      } finally {
+        this.followUpDraftTaskId = null
+      }
     },
 
     // Sending is deferred behind a short, cancellable countdown so the user can
@@ -1078,6 +1125,7 @@ export const useInboxStore = defineStore('inbox', {
         text: this.composerTextArea,
         // Sanitize the rich body once, here at the send boundary.
         html: sanitizeEmailHtml(this.composerHtml),
+        replyToMessageId: this.composerReplyToMessageId,
       }
       this.closeComposer()
       this.startPendingSend(draft)
@@ -1108,12 +1156,13 @@ export const useInboxStore = defineStore('inbox', {
     undoPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
-      const { to, subject, text, html } = this.pendingSend
+      const { to, subject, text, html, replyToMessageId } = this.pendingSend
       this.pendingSend = null
       this.composerTo = to
       this.composerSubject = subject
       this.composerTextArea = text
       this.composerHtml = html
+      this.composerReplyToMessageId = replyToMessageId
       this.isComposerActive = true
     },
 
@@ -1131,6 +1180,7 @@ export const useInboxStore = defineStore('inbox', {
           subject: draft.subject,
           text: draft.text,
           html: draft.html,
+          replyToMessageId: draft.replyToMessageId,
         })
         this.notify('Email sent.')
       } catch (error) {
@@ -1140,6 +1190,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerSubject = draft.subject
         this.composerTextArea = draft.text
         this.composerHtml = draft.html
+        this.composerReplyToMessageId = draft.replyToMessageId
         this.isComposerActive = true
       } finally {
         this.isSendingEmail = false

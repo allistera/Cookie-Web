@@ -392,6 +392,43 @@ describe('Inbox Store', () => {
     })
   })
 
+  it('turns an email task into an editable, threaded follow-up draft', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ contacts: [] }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ draft: { subject: 'Ignored', text: 'Tuesday works for me.' } }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.signatureHtml = '<p>Best, <strong>Allister</strong></p>'
+
+    await expect(
+      store.draftFollowUp({
+        id: 'task-1',
+        content: 'Confirm delivery',
+        description: 'Ask whether Tuesday still works.',
+        message_id: '11111111-1111-1111-1111-111111111111',
+        reply_to: 'contractor@example.com',
+        message_subject: 'Delivery date',
+      }),
+    ).resolves.toBe(true)
+
+    expect(store.isComposerActive).toBe(true)
+    expect(store.composerTo).toBe('contractor@example.com')
+    expect(store.composerSubject).toBe('Re: Delivery date')
+    expect(store.composerReplyToMessageId).toBe('11111111-1111-1111-1111-111111111111')
+    expect(store.composerTextArea).toContain('Tuesday works for me.')
+    expect(store.composerTextArea).toContain('Best, Allister')
+    expect(store.isAiDraftActive).toBe(false)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      to: 'contractor@example.com',
+      subject: 'Re: Delivery date',
+      replyToMessageId: '11111111-1111-1111-1111-111111111111',
+    })
+  })
+
   it('toggleMessageLabel POSTs the right action and syncs the email labels', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -661,6 +698,20 @@ describe('Inbox Store', () => {
       expect(body.text).toBe('Hello there')
       expect(body.html).toContain('<strong>there</strong>')
       expect(body.html).not.toContain('<script') // sanitized at the send boundary
+    })
+
+    it('preserves follow-up threading through the undo-send queue', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerReplyToMessageId = '11111111-1111-1111-1111-111111111111'
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).replyToMessageId).toBe(
+        '11111111-1111-1111-1111-111111111111',
+      )
     })
 
     it('undo cancels the send and restores the message in the composer', async () => {

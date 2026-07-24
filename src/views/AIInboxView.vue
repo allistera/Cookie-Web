@@ -75,12 +75,20 @@ const completingTaskIds = ref(new Set())
 const todoistTasks = computed(() =>
   store.tasks.filter((t) => t.source === 'todoist' && !completingTaskIds.value.has(t.id)),
 )
+const emailTasks = computed(() =>
+  store.tasks.filter(
+    (t) => t.source === 'email' && t.message_id && !completingTaskIds.value.has(t.id),
+  ),
+)
 
 const visibleTodos = computed(() =>
   todos.value.filter((t) => !t.completed && (showAll.value || t.visible)),
 )
 const activeCount = computed(
-  () => todos.value.filter((t) => !t.completed).length + todoistTasks.value.length,
+  () =>
+    todos.value.filter((t) => !t.completed).length +
+    todoistTasks.value.length +
+    emailTasks.value.length,
 )
 const hiddenCount = computed(() => todos.value.filter((t) => !t.completed && !t.visible).length)
 const showFooter = computed(() => !showAll.value && hiddenCount.value > 0)
@@ -96,6 +104,11 @@ async function completeTask(task) {
     completingTaskIds.value = next
     store.notify('Failed to mark task done.', 'error')
   }
+}
+
+async function draftFollowUp(task) {
+  const generated = await store.draftFollowUp(task)
+  if (generated) store.notify('Follow-up draft ready to review.')
 }
 
 onMounted(() => store.loadTasks())
@@ -206,6 +219,39 @@ function refresh() {
                 <span class="material-symbols-outlined">open_in_new</span>
                 <span>Open</span>
               </a>
+              <button class="icon-btn" title="More options">
+                <span class="material-symbols-outlined">more_vert</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="emailTasks.length" class="todo-rows" data-testid="email-task-rows">
+          <div v-for="task in emailTasks" :key="task.id" class="todo-row">
+            <div class="todo-checkbox-container">
+              <button class="todo-check-btn" title="Mark done" @click="completeTask(task)">
+                <span class="material-symbols-outlined">circle</span>
+              </button>
+            </div>
+
+            <div class="todo-text">
+              <strong>{{ task.content }}</strong
+              ><template v-if="task.description"> – {{ task.description }}</template>
+              <span class="from-links-container">
+                From: <span class="email-link">Email</span>
+              </span>
+            </div>
+
+            <div class="todo-actions">
+              <button
+                class="action-pill-btn"
+                :disabled="Boolean(store.followUpDraftTaskId)"
+                :aria-busy="store.followUpDraftTaskId === task.id"
+                @click="draftFollowUp(task)"
+              >
+                <span class="material-symbols-outlined">edit</span>
+                <span>{{ store.followUpDraftTaskId === task.id ? 'Drafting…' : 'Draft' }}</span>
+              </button>
               <button class="icon-btn" title="More options">
                 <span class="material-symbols-outlined">more_vert</span>
               </button>

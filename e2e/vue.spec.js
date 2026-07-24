@@ -3,8 +3,8 @@ import { test, expect } from '@playwright/test'
 test('The root path shows the AI Today digest of suggested to-dos and topics', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
-  // Five mock to-dos plus the two gathered Todoist tasks.
-  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('7 to-dos')
+  // Five mock to-dos plus two Todoist tasks and one email follow-up.
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('8 to-dos')
 
   // Sidebar labels this view "AI Today".
   await expect(page.locator('.nav-item', { hasText: 'AI Today' })).toBeVisible()
@@ -27,6 +27,18 @@ test('The root path shows the AI Today digest of suggested to-dos and topics', a
     'href',
     'https://app.todoist.com/app/task/stub-task-1',
   )
+
+  // Email action items offer a one-click, editable follow-up draft.
+  const emailTask = page.getByTestId('email-task-rows').locator('.todo-row').first()
+  await expect(emailTask).toContainText('Confirm the revised floor plan')
+  await emailTask.locator('.action-pill-btn', { hasText: 'Draft' }).click()
+  const composer = page.locator('#composerToast')
+  await expect(composer).toHaveClass(/active/)
+  await expect(composer.locator('.composer-to-inline')).toHaveValue('updates@cityconstruction.com')
+  await expect(composer.locator('.composer-subject-inline')).toHaveValue(
+    'Re: Revised Floor Plan - Natural Light adjustments',
+  )
+  await expect(composer.locator('.composer-editor')).toContainText('A reviewable AI-generated draft.')
 
   // Four catch-up topics are listed.
   await expect(page.locator('.topic-title')).toHaveCount(4)
@@ -57,7 +69,7 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
 
   await expect(todoist.locator('.todo-row')).toHaveCount(1)
   await expect(page.locator('.toast', { hasText: 'Marked "Renew car insurance" done.' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('6 to-dos')
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('7 to-dos')
   expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
 })
 

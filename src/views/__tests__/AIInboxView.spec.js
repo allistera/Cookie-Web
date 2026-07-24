@@ -69,7 +69,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(titles[3]).toContain('More Updates')
   })
 
-  it('appends Todoist tasks (title bold, description beside) and excludes email tasks', () => {
+  it('appends Todoist tasks and renders email tasks with a Draft action', () => {
     store.tasks = [
       {
         id: 'task-1',
@@ -90,6 +90,9 @@ describe('AIInboxView (AI Today)', () => {
         source: 'email',
         content: 'Reply to Apple',
         description: 'From an email',
+        message_id: 'message-1',
+        reply_to: 'apple@example.com',
+        message_subject: 'Your support request',
         url: null,
       },
     ]
@@ -110,11 +113,34 @@ describe('AIInboxView (AI Today)', () => {
     expect(openLink.attributes('target')).toBe('_blank')
     expect(rows[1].find('a.action-pill-btn').exists()).toBe(false)
 
-    // Email-sourced tasks are not shown here.
-    expect(todoist.text()).not.toContain('Reply to Apple')
+    const emailRows = wrapper.get('[data-testid="email-task-rows"]')
+    expect(emailRows.text()).toContain('Reply to Apple – From an email')
+    expect(emailRows.get('.action-pill-btn').text()).toContain('Draft')
 
-    // The counter includes the appended Todoist tasks (5 mock + 2 todoist).
-    expect(wrapper.get('.ai-greeting').text()).toContain('7 to-dos')
+    // The counter includes all gathered tasks (5 mock + 2 Todoist + 1 email).
+    expect(wrapper.get('.ai-greeting').text()).toContain('8 to-dos')
+  })
+
+  it('generates a follow-up draft from an email task', async () => {
+    const task = {
+      id: 'task-email',
+      source: 'email',
+      content: 'Follow up with the contractor',
+      description: 'Confirm the Tuesday delivery',
+      message_id: 'message-1',
+      reply_to: 'contractor@example.com',
+      message_subject: 'Delivery date',
+    }
+    store.tasks = [task]
+    const draftFollowUp = vi.spyOn(store, 'draftFollowUp').mockResolvedValue(true)
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    await wrapper.get('[data-testid="email-task-rows"] .action-pill-btn').trigger('click')
+    await flushPromises()
+
+    expect(draftFollowUp).toHaveBeenCalledWith(task)
+    expect(notify).toHaveBeenCalledWith('Follow-up draft ready to review.')
   })
 
   it('completing a Todoist task persists it, hides it, and updates the counter', async () => {
