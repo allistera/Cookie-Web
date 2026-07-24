@@ -1796,7 +1796,8 @@ body {
   min-width: 300px;
 }
 
-.undo-send-btn {
+.undo-send-btn,
+.toast-action {
   flex-shrink: 0;
   border: none;
   background: none;
@@ -1809,7 +1810,8 @@ body {
   cursor: pointer;
 }
 
-.undo-send-btn:hover {
+.undo-send-btn:hover,
+.toast-action:hover {
   background: var(--bg-hover);
 }
 

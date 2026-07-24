@@ -1092,6 +1092,17 @@ describe('Inbox Store', () => {
     vi.useRealTimers()
   })
 
+  it('runs a toast action and dismisses the toast', async () => {
+    const store = useInboxStore()
+    const run = vi.fn()
+    const id = store.notify('Deleted.', 'info', { label: 'Undo', run })
+
+    await store.runToastAction(id)
+
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(store.toasts).toHaveLength(0)
+  })
+
   it('sends mail through the API with the access token', async () => {
     vi.stubGlobal(
       'fetch',
@@ -1197,7 +1208,7 @@ describe('Inbox Store', () => {
     expect(store.openEmail).toBe(null)
   })
 
-  it('archiveEmail removes the row, closes the reader and persists the flag', async () => {
+  it('archiveEmail offers Undo that restores the row and unread state', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
@@ -1221,9 +1232,59 @@ describe('Inbox Store', () => {
           'Content-Type': 'application/json',
           Authorization: 'Bearer test-access-token',
         },
-        body: JSON.stringify({ id: 'abc-123', is_archived: true }),
+        body: JSON.stringify({ id: 'abc-123', is_archived: true, is_unread: false }),
       }),
     )
+
+    const toast = store.toasts.find((item) => item.message === 'Marked done.')
+    expect(toast.action.label).toBe('Undo')
+    await store.runToastAction(toast.id)
+
+    expect(store.traditionalEmails.map((e) => e.id)).toEqual(['abc-123', 'def-456'])
+    expect(email.unread).toBe(true)
+    expect(store.unreadInboxCount).toBe(1)
+    expect(fetch).toHaveBeenLastCalledWith('/api/messages', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'abc-123', is_archived: false, is_unread: true }),
+    })
+  })
+
+  it('deleteEmail offers Undo that restores every list position', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.traditionalEmails = [{ id: 'before' }, email, { id: 'after' }]
+    store.sentEmails = [email]
+    store.unreadInboxCount = 1
+
+    store.deleteEmail(email)
+
+    expect(store.traditionalEmails.map((item) => item.id)).toEqual(['before', 'after'])
+    expect(store.sentEmails).toEqual([])
+    expect(store.unreadInboxCount).toBe(0)
+    const toast = store.toasts.find((item) => item.message === 'Deleted.')
+    expect(toast.action.label).toBe('Undo')
+
+    await store.runToastAction(toast.id)
+
+    expect(store.traditionalEmails.map((item) => item.id)).toEqual(['before', 'abc-123', 'after'])
+    expect(store.sentEmails).toEqual([email])
+    expect(store.unreadInboxCount).toBe(1)
+    expect(fetch).toHaveBeenLastCalledWith('/api/messages', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'abc-123', is_deleted: false }),
+    })
   })
 
   it('toggleStar flips optimistically and reverts on failure', async () => {
@@ -1384,7 +1445,7 @@ describe('Inbox Store', () => {
     await vi.waitFor(() => expect(store.openEmailHtml).toBe('<b>hi</b>'))
   })
 
-  it('scheduleEmail removes an unread inbox message and persists its due time', async () => {
+  it('scheduleEmail offers Undo that restores the inbox message and due time', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ message: { scheduled_for: '2026-07-15T07:00:00.000Z' } }),
@@ -1411,6 +1472,21 @@ describe('Inbox Store', () => {
       body: JSON.stringify({ id: 'msg-1', scheduled_for: '2026-07-15T07:00:00.000Z' }),
     })
     expect(store.toasts.at(-1).message).toBe('Scheduled for Tomorrow.')
+    expect(store.toasts.at(-1).action.label).toBe('Undo')
+
+    await store.runToastAction(store.toasts.at(-1).id)
+
+    expect(store.traditionalEmails).toEqual([email])
+    expect(store.unreadInboxCount).toBe(1)
+    expect(email.scheduledFor).toBe(null)
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/messages', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({ id: 'msg-1', scheduled_for: null }),
+    })
   })
 
   it('scheduleEmail restores the message and unread count when persistence fails', async () => {

@@ -672,7 +672,11 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
   await expect(page.locator('.cp-panel')).toBeHidden()
   await expect(page.locator('.ni-reader')).toHaveCount(0)
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
-  await expect(page.locator('.toast', { hasText: 'Marked done.' })).toBeVisible()
+  const toast = page.locator('.toast', { hasText: 'Marked done.' })
+  await expect(toast).toBeVisible()
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
 })
 
 test('Escape closes the palette but keeps the reading panel open', async ({ page }) => {
@@ -750,7 +754,7 @@ test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) =
   await expect(actions.locator('[title="Reschedule"]')).toBeVisible()
 
   await unsubscribe.click()
-  await expect(page.locator('.toast')).toContainText('Unsubscribed from Daily Bites')
+  await expect(page.locator('.toast', { hasText: 'Unsubscribed from Daily Bites' })).toBeVisible()
   await expect(reader).toHaveCount(0)
   await expect(page.locator('.ni-row', { hasText: 'Daily Bites' })).toHaveCount(0)
 

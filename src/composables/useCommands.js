@@ -20,10 +20,7 @@ export function useCommands() {
         icon: 'check_box',
         keyHint: 'E',
         visible: !!email,
-        run: () => {
-          store.archiveEmail(email)
-          store.notify('Marked done.')
-        },
+        run: () => store.archiveEmail(email),
       },
       {
         id: 'snooze',

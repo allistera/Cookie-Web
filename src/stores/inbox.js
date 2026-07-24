@@ -32,6 +32,68 @@ function followUpSubject(subject) {
   return /^re:/i.test(value) ? value : `Re: ${value}`
 }
 
+function captureListPositions(email, lists) {
+  return lists.map((list) => ({ list, index: list.indexOf(email) }))
+}
+
+function removeFromCapturedLists(email, positions) {
+  for (const { list } of positions) {
+    const index = list.indexOf(email)
+    if (index > -1) list.splice(index, 1)
+  }
+}
+
+function restoreCapturedLists(email, positions) {
+  for (const { list, index } of positions) {
+    if (index > -1 && !list.includes(email)) {
+      list.splice(Math.min(index, list.length), 0, email)
+    }
+  }
+}
+
+function reversibleMessageUpdate(
+  store,
+  { email, apply, restore, changes, undoChanges, message, errorMessage, shouldNotify },
+) {
+  let undoRequested = false
+  let toastId = null
+  apply()
+
+  const persistence = store
+    .updateMessage(email.id, changes)
+    .then(() => true)
+    .catch((error) => {
+      console.error(errorMessage, error)
+      if (!undoRequested) {
+        restore()
+        if (toastId !== null) store.dismissToast(toastId)
+        store.notify(errorMessage, 'error')
+      }
+      return false
+    })
+
+  const undo = async () => {
+    if (undoRequested) return
+    undoRequested = true
+    restore()
+    if (!(await persistence)) return
+
+    try {
+      await store.updateMessage(email.id, undoChanges)
+    } catch (error) {
+      console.error('Failed to undo email action:', error)
+      apply()
+      store.notify('Failed to undo email action.', 'error')
+    }
+  }
+
+  if (shouldNotify) {
+    toastId = store.notify(message, 'info', { label: 'Undo', run: undo })
+  }
+
+  return { persistence, undo }
+}
+
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
@@ -824,84 +886,149 @@ export const useInboxStore = defineStore('inbox', {
     // Moves an inbox message out of sight until its scheduled time. Future
     // messages live in the Snoozed folder; the inbox API returns them again
     // once due, when the view places them in the Due Today group.
-    async scheduleEmail(email, scheduledFor, label, shouldNotify = true) {
+    async scheduleEmail(email, scheduledFor, label, shouldNotify = true, undoActions = null) {
       if (!email) return false
       const inboxIndex = this.traditionalEmails.indexOf(email)
       const snoozedIndex = this.snoozedEmails.indexOf(email)
       const previousScheduledFor = email.scheduledFor
       const wasUnreadInbox = inboxIndex > -1 && email.unread
+      let applied = false
 
-      email.scheduledFor = scheduledFor
-      if (inboxIndex > -1) this.traditionalEmails.splice(inboxIndex, 1)
-      if (this.openEmailId === email.id) this.openEmailId = null
-      if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
-      if (this.isSnoozedLoaded && snoozedIndex === -1) this.snoozedEmails.unshift(email)
-
-      try {
-        await this.updateMessage(email.id, { scheduled_for: scheduledFor })
-        if (shouldNotify) this.notify(`Scheduled for ${label}.`)
-        return true
-      } catch (error) {
-        console.error('Failed to schedule email:', error)
+      const apply = () => {
+        if (applied) return
+        applied = true
+        email.scheduledFor = scheduledFor
+        if (inboxIndex > -1) {
+          const currentIndex = this.traditionalEmails.indexOf(email)
+          if (currentIndex > -1) this.traditionalEmails.splice(currentIndex, 1)
+        }
+        if (this.openEmailId === email.id) this.openEmailId = null
+        if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        if (this.isSnoozedLoaded && snoozedIndex === -1 && !this.snoozedEmails.includes(email)) {
+          this.snoozedEmails.unshift(email)
+        }
+      }
+      const restore = () => {
+        if (!applied) return
+        applied = false
         email.scheduledFor = previousScheduledFor
-        if (inboxIndex > -1) this.traditionalEmails.splice(inboxIndex, 0, email)
+        if (inboxIndex > -1 && !this.traditionalEmails.includes(email)) {
+          this.traditionalEmails.splice(Math.min(inboxIndex, this.traditionalEmails.length), 0, email)
+        }
         if (snoozedIndex === -1) {
-          this.snoozedEmails = this.snoozedEmails.filter((item) => item !== email)
+          const currentIndex = this.snoozedEmails.indexOf(email)
+          if (currentIndex > -1) this.snoozedEmails.splice(currentIndex, 1)
         }
         if (wasUnreadInbox) this.unreadInboxCount++
-        this.notify('Failed to schedule email.', 'error')
-        return false
       }
+
+      const { persistence, undo } = reversibleMessageUpdate(this, {
+        email,
+        apply,
+        restore,
+        changes: { scheduled_for: scheduledFor },
+        undoChanges: { scheduled_for: previousScheduledFor },
+        message: `Scheduled for ${label}.`,
+        errorMessage: 'Failed to schedule email.',
+        shouldNotify,
+      })
+      const success = await persistence
+      if (success && undoActions) undoActions.push(undo)
+      return success
     },
 
     // Optimistically removes the email from the list (closing the reader if
     // it was open) and persists the archive flag.
-    archiveEmail(email) {
-      this.setUnread(email, false)
-      if (this.openEmailId === email.id) {
-        this.openEmailId = null
-      }
-      for (const list of [this.traditionalEmails, this.snoozedEmails, this.spamEmails]) {
-        const index = list.indexOf(email)
-        if (index > -1) list.splice(index, 1)
-      }
-      // Newly archived mail is newest, so it belongs on the pager's first page.
-      if (
+    archiveEmail(email, shouldNotify = true, undoActions = null) {
+      if (!email) return null
+      const positions = captureListPositions(email, [
+        this.traditionalEmails,
+        this.snoozedEmails,
+        this.spamEmails,
+      ])
+      const wasUnread = email.unread
+      const wasUnreadInbox = positions[0].index > -1 && wasUnread
+      const addToDone =
         this.isDoneLoaded &&
         this.donePageIndex === 0 &&
         !this.doneEmails.some((item) => item.id === email.id)
-      ) {
-        this.doneEmails.unshift(email)
+      let applied = false
+
+      const apply = () => {
+        if (applied) return
+        applied = true
+        removeFromCapturedLists(email, positions)
+        email.unread = false
+        if (this.openEmailId === email.id) this.openEmailId = null
+        if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        if (addToDone && !this.doneEmails.includes(email)) this.doneEmails.unshift(email)
       }
-      this.updateMessage(email.id, { is_archived: true }).catch((error) => {
-        console.error('Failed to archive email:', error)
-        this.notify('Failed to archive email.', 'error')
+      const restore = () => {
+        if (!applied) return
+        applied = false
+        restoreCapturedLists(email, positions)
+        email.unread = wasUnread
+        if (wasUnreadInbox) this.unreadInboxCount++
+        if (addToDone) {
+          const doneIndex = this.doneEmails.indexOf(email)
+          if (doneIndex > -1) this.doneEmails.splice(doneIndex, 1)
+        }
+      }
+
+      const { undo } = reversibleMessageUpdate(this, {
+        email,
+        apply,
+        restore,
+        changes: { is_archived: true, is_unread: false },
+        undoChanges: { is_archived: false, is_unread: wasUnread },
+        message: 'Marked done.',
+        errorMessage: 'Failed to archive email.',
+        shouldNotify,
       })
+      if (undoActions) undoActions.push(undo)
+      return undo
     },
 
     // Soft-deletes an email: optimistically removes it from every visible
     // list (including Done) and persists the is_deleted flag.
-    deleteEmail(email) {
-      if (this.openEmailId === email.id) {
-        this.openEmailId = null
-      }
-      for (const list of [
+    deleteEmail(email, shouldNotify = true, undoActions = null) {
+      if (!email) return null
+      const positions = captureListPositions(email, [
         this.traditionalEmails,
         this.snoozedEmails,
         this.spamEmails,
         this.doneEmails,
         this.sentEmails,
-      ]) {
-        const index = list.indexOf(email)
-        if (index > -1) list.splice(index, 1)
+      ])
+      const wasUnreadInbox = positions[0].index > -1 && email.unread
+      let applied = false
+
+      const apply = () => {
+        if (applied) return
+        applied = true
+        removeFromCapturedLists(email, positions)
+        if (this.openEmailId === email.id) this.openEmailId = null
+        if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
       }
-      if (email.unread && this.traditionalEmails.indexOf(email) === -1) {
-        this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+      const restore = () => {
+        if (!applied) return
+        applied = false
+        restoreCapturedLists(email, positions)
+        if (wasUnreadInbox) this.unreadInboxCount++
       }
-      this.updateMessage(email.id, { is_deleted: true }).catch((error) => {
-        console.error('Failed to delete email:', error)
-        this.notify('Failed to delete email.', 'error')
+
+      const { undo } = reversibleMessageUpdate(this, {
+        email,
+        apply,
+        restore,
+        changes: { is_deleted: true },
+        undoChanges: { is_deleted: false },
+        message: 'Deleted.',
+        errorMessage: 'Failed to delete email.',
+        shouldNotify,
       })
+      if (undoActions) undoActions.push(undo)
+      return undo
     },
 
     // Optimistically flips read state and persists it; reverts on failure.
@@ -924,10 +1051,13 @@ export const useInboxStore = defineStore('inbox', {
       })
     },
 
-    notify(message, kind = 'info') {
+    notify(message, kind = 'info', action = null) {
       const id = this.nextToastId++
-      this.toasts.push({ id, message, kind })
+      const toast = { id, message, kind }
+      if (action) toast.action = action
+      this.toasts.push(toast)
       setTimeout(() => this.dismissToast(id), 4000)
+      return id
     },
 
     dismissToast(id) {
@@ -935,6 +1065,13 @@ export const useInboxStore = defineStore('inbox', {
       if (index > -1) {
         this.toasts.splice(index, 1)
       }
+    },
+
+    async runToastAction(id) {
+      const toast = this.toasts.find((item) => item.id === id)
+      if (!toast?.action) return
+      this.dismissToast(id)
+      await toast.action.run()
     },
 
     // replyToMessageId (optional) threads the stored sent copy with the

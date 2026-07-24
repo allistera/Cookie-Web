@@ -273,10 +273,16 @@ function clearSelection() {
 }
 
 function markSelectedDone() {
-  for (const email of selectedEmails.value) {
-    store.archiveEmail(email)
+  const emails = [...selectedEmails.value]
+  const undoActions = []
+  for (const email of emails) {
+    store.archiveEmail(email, false, undoActions)
   }
   clearSelection()
+  store.notify(`${emails.length} ${emails.length === 1 ? 'email' : 'emails'} marked done.`, 'info', {
+    label: 'Undo',
+    run: () => Promise.all(undoActions.toReversed().map((undo) => undo())),
+  })
 }
 
 // Stars the whole selection; if every selected email is already starred the
@@ -301,12 +307,16 @@ function markSelectedRead() {
 
 // Soft-deletes every selected email.
 function deleteSelected() {
-  const count = selectedEmails.value.length
-  for (const email of selectedEmails.value) {
-    store.deleteEmail(email)
+  const emails = [...selectedEmails.value]
+  const undoActions = []
+  for (const email of emails) {
+    store.deleteEmail(email, false, undoActions)
   }
   clearSelection()
-  store.notify(`${count} ${count === 1 ? 'email' : 'emails'} deleted.`)
+  store.notify(`${emails.length} ${emails.length === 1 ? 'email' : 'emails'} deleted.`, 'info', {
+    label: 'Undo',
+    run: () => Promise.all(undoActions.toReversed().map((undo) => undo())),
+  })
 }
 
 // Applies a label to every selected email. Unlike toggleTag (which toggles),
@@ -341,16 +351,23 @@ function toggleTag(label) {
 
 async function scheduleSelected(choice) {
   const emails = [...selectedEmails.value]
+  const undoActions = []
   bulkScheduleOpen.value = false
   clearSelection()
   const results = await Promise.all(
     emails.map((email) =>
-      store.scheduleEmail(email, choice.date.toISOString(), choice.label, false),
+      store.scheduleEmail(email, choice.date.toISOString(), choice.label, false, undoActions),
     ),
   )
-  if (results.every(Boolean)) {
+  const scheduledCount = results.filter(Boolean).length
+  if (scheduledCount) {
     store.notify(
-      `${emails.length} ${emails.length === 1 ? 'email' : 'emails'} scheduled for ${choice.label}.`,
+      `${scheduledCount} ${scheduledCount === 1 ? 'email' : 'emails'} scheduled for ${choice.label}.`,
+      'info',
+      {
+        label: 'Undo',
+        run: () => Promise.all(undoActions.toReversed().map((undo) => undo())),
+      },
     )
   }
 }

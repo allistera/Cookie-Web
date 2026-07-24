@@ -447,6 +447,9 @@ onMounted(() => {
     <TransitionGroup name="toast">
       <div v-for="toast in store.toasts" :key="toast.id" class="toast" :class="`toast-${toast.kind}`">
         <span class="toast-message">{{ toast.message }}</span>
+        <button v-if="toast.action" class="toast-action" @click="store.runToastAction(toast.id)">
+          {{ toast.action.label }}
+        </button>
         <button class="toast-close" title="Dismiss" @click="store.dismissToast(toast.id)">
           <span class="material-symbols-outlined">close</span>
         </button>
