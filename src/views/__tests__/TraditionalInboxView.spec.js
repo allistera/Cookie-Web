@@ -365,6 +365,26 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.find('.ni-reader [title="Reschedule"]').exists()).toBe(false)
   })
 
+  it('shows opened status in sent rows and the reader', async () => {
+    routeMock.query = { filter: 'sent' }
+    const sent = makeEmail('sent-opened', Date.now() - HOUR)
+    sent.isSent = true
+    sent.to = 'reader@example.com'
+    sent.unread = false
+    sent.readAt = '2026-07-14T10:30:00.000Z'
+    store.sentEmails = [sent]
+    vi.spyOn(store, 'loadSentEmails').mockResolvedValue()
+
+    const wrapper = mount(TraditionalInboxView)
+
+    const rowStatus = wrapper.get('.ni-row .ni-read-status')
+    expect(rowStatus.text()).toContain('Opened')
+    expect(rowStatus.attributes('title')).toContain('Opened 14 Jul')
+
+    await wrapper.get('.ni-row').trigger('click')
+    expect(wrapper.get('.ni-reader .ni-read-status').text()).toContain('Opened 14 Jul')
+  })
+
   it('an unknown filter falls back to the unstarred inbox', () => {
     routeMock.query = { filter: 'bogus' }
     const wrapper = mount(TraditionalInboxView)

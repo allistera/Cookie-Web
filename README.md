@@ -31,6 +31,7 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
 - Per-label auto-tag controls and conservative spam classification.
 - Outbound delivery through Resend with stored sent copies.
+- Best-effort sent-mail read receipts using opaque tracking tokens.
 - Supabase Realtime pings for inbox refreshes.
 - Opt-in browser notifications for new mail while Cookie is open in a background tab.
 
@@ -80,6 +81,7 @@ The main runtime variables are:
 | `RESEND_API_KEY` | Outbound email delivery. |
 | `TODOIST_API_TOKEN` | Optional. Lets AI Today close a Todoist task when it is marked done. Without it, "done" only clears the task from Cookie. |
 | `EMAIL_FROM` | Optional sender identity for outbound mail. |
+| `PUBLIC_APP_URL` | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted. |
 | `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |
 | `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID exposed to the browser. |
 | `VITE_AUTH0_AUDIENCE` | Auth0 API audience exposed to the browser. |

@@ -63,6 +63,8 @@ describe('Inbox Store', () => {
         unread: true,
         starred: false,
         scheduledFor: null,
+        readAt: null,
+        readCount: 0,
         hasHtml: false,
         hasAiSummary: true,
         labels: [],
@@ -209,6 +211,53 @@ describe('Inbox Store', () => {
     // No cursor left: loadMoreSentEmails is a no-op.
     await store.loadMoreSentEmails()
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('hydrates best-effort read status after loading sent mail', async () => {
+    const openedAt = '2026-07-24T10:30:00.000Z'
+    const row = {
+      id: '11111111-1111-4111-8111-111111111111',
+      from_name: 'Allister',
+      from_address: 'me@example.com',
+      recipients: { to: [{ name: null, address: 'reader@example.com' }] },
+      subject: 'Status update',
+      snippet: 'Hello',
+      body_text: 'Hello',
+      sent_at: '2026-07-24T10:00:00.000Z',
+      is_unread: false,
+      is_starred: false,
+      is_sent: true,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            emails: [row],
+            nextCursor: null,
+            readReceiptsAvailable: true,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            receipts: [
+              { message_id: row.id, first_opened_at: openedAt, open_count: 2 },
+            ],
+          }),
+        }),
+    )
+
+    const store = useInboxStore()
+    await store.loadSentEmails()
+
+    expect(fetch).toHaveBeenLastCalledWith(
+      `/api/read-receipts?messageIds=${row.id}`,
+      { headers: { Authorization: 'Bearer test-access-token' } },
+    )
+    expect(store.sentEmails[0]).toMatchObject({ readAt: openedAt, readCount: 2 })
   })
 
   it('loads spam from its isolated server-backed folder', async () => {

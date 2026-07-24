@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { randomUUID } from 'node:crypto'
+import { Buffer } from 'node:buffer'
 import { fileURLToPath, URL } from 'node:url'
 
 import { defineConfig, loadEnv } from 'vite'
@@ -66,6 +67,7 @@ function localApiPlugin(mode) {
           nextCursor: null,
           unreadCount: emails.filter((e) => e.is_unread).length,
           userId: '11111111-1111-4111-8111-111111111111',
+          readReceiptsAvailable: folder === 'sent',
         }),
       )
       return
@@ -80,6 +82,38 @@ function localApiPlugin(mode) {
       return
     }
     const { default: handler } = await import('./api/send.js')
+    await handler(req, res)
+  }
+  const handleReadReceipts = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const url = new URL(req.url, 'http://localhost')
+      if (url.searchParams.has('token')) {
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'image/gif')
+        res.end(Buffer.from('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', 'base64'))
+        return
+      }
+      const ids = (url.searchParams.get('messageIds') || '').split(',')
+      const firstId = ids.find(Boolean)
+      const openedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          receipts: firstId
+            ? [
+                {
+                  message_id: firstId,
+                  first_opened_at: openedAt,
+                  last_opened_at: openedAt,
+                  open_count: 1,
+                },
+              ]
+            : [],
+        }),
+      )
+      return
+    }
+    const { default: handler } = await import('./api/read-receipts.js')
     await handler(req, res)
   }
   const handleMessages = async (req, res) => {
@@ -351,6 +385,7 @@ function localApiPlugin(mode) {
     await handler(req, res)
   }
   const mount = (server) => {
+    server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/tasks', handleTasks)
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)

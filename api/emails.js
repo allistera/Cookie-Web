@@ -131,6 +131,7 @@ export default async function handler(req, res) {
         // toISOString keeps millisecond precision; Date's default toString
         // truncates to seconds, which can skip same-second rows on page breaks.
         nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
+        readReceiptsAvailable: folder === 'sent',
         ...(cursor ? {} : { unreadCount: userRow?.unread ?? 0, userId: userRow?.user_id ?? null }),
       }),
     )

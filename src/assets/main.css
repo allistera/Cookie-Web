@@ -1286,9 +1286,33 @@ body {
 }
 
 .ni-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+.ni-read-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ni-read-status.opened {
+  color: var(--ni-accent);
+}
+
+.ni-read-status .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.ni-read-status-reader {
+  margin-left: 8px;
+  font-size: 13px;
 }
 
 /* Hover action toolbar */

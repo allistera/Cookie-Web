@@ -106,6 +106,8 @@ function mapEmailRow(message) {
     unread: message.is_unread,
     starred: message.is_starred,
     scheduledFor: message.scheduled_for ?? null,
+    readAt: null,
+    readCount: 0,
     // Whether the message has an HTML body (cheap boolean from the list
     // endpoint). Lets the reader show a spinner during the on-demand body fetch
     // instead of flashing the plain-text fallback before the iframe swaps in.
@@ -363,8 +365,11 @@ export const useInboxStore = defineStore('inbox', {
       const keys = FOLDER_STATE[folder]
       this[keys.refreshing] = true
       try {
-        const { emails, nextCursor } = await this.fetchEmailPage({ folder })
+        const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({ folder })
         this[keys.list] = emails.map(mapEmailRow)
+        if (folder === 'sent' && readReceiptsAvailable) {
+          await this.loadReadReceipts(this[keys.list])
+        }
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
         if (keys.loaded) this[keys.loaded] = true
@@ -383,11 +388,15 @@ export const useInboxStore = defineStore('inbox', {
       if (!this[keys.cursor] || this[keys.refreshing]) return
       this[keys.refreshing] = true
       try {
-        const { emails, nextCursor } = await this.fetchEmailPage({
+        const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
           folder,
           before: this[keys.cursor],
         })
-        this[keys.list].push(...emails.map(mapEmailRow))
+        const nextEmails = emails.map(mapEmailRow)
+        if (folder === 'sent' && readReceiptsAvailable) {
+          await this.loadReadReceipts(nextEmails)
+        }
+        this[keys.list].push(...nextEmails)
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
       } catch (error) {
@@ -403,6 +412,28 @@ export const useInboxStore = defineStore('inbox', {
     },
     loadMoreSentEmails() {
       return this.loadMoreFolder('sent')
+    },
+
+    async loadReadReceipts(emails) {
+      if (!emails.length) return
+      try {
+        const headers = await this.authHeaders()
+        const ids = emails.map((email) => email.id).join(',')
+        const response = await fetch(`/api/read-receipts?messageIds=${encodeURIComponent(ids)}`, {
+          headers,
+        })
+        if (!response.ok) throw new Error(`GET /api/read-receipts responded ${response.status}`)
+        const { receipts } = await response.json()
+        const byMessage = new Map(receipts.map((receipt) => [receipt.message_id, receipt]))
+        for (const email of emails) {
+          const receipt = byMessage.get(email.id)
+          email.readAt = receipt?.first_opened_at ?? null
+          email.readCount = receipt?.open_count ?? 0
+        }
+      } catch (error) {
+        // Receipt status is advisory; never make Sent unusable when it fails.
+        console.error('Failed to load read receipts:', error)
+      }
     },
     loadSpamEmails() {
       return this.loadFolder('spam')

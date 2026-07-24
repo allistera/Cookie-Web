@@ -770,11 +770,14 @@ test('Sent view lists the outbox with recipients and opens the reader', async ({
   const rows = page.locator('.ni-row')
   await expect(rows).not.toHaveCount(0)
   await expect(rows.first()).toContainText('To: info@citytileandstone.com')
+  await expect(rows.first().locator('.ni-read-status')).toContainText('Opened')
+  await expect(rows.first().locator('.ni-read-status')).toHaveAttribute('title', /Opened/)
 
   await rows.first().click()
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Tile Selection')
+  await expect(reader.locator('.ni-read-status')).toContainText('Opened')
 })
 
 test('Multi-select: checkboxes reveal bulk pills, Done archives, Esc clears', async ({

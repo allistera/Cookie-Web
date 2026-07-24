@@ -12,6 +12,34 @@ import { embedText, EMBEDDING_MODEL } from './_lib/embeddings.js'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SNIPPET_LENGTH = 100
 
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+export function buildReadReceiptUrl(token, env = process.env) {
+  const configured = env.PUBLIC_APP_URL || env.VERCEL_PROJECT_PRODUCTION_URL || env.VERCEL_URL
+  if (!configured || !UUID_RE.test(token)) return null
+  const base = /^https?:\/\//i.test(configured) ? configured : `https://${configured}`
+  try {
+    const url = new URL('/api/read-receipts', base)
+    url.searchParams.set('token', token)
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+export function appendReadReceipt(html, text, receiptUrl) {
+  if (!receiptUrl) return html
+  const content = html || escapeHtml(text).replaceAll('\n', '<br>')
+  return `${content}<img src="${receiptUrl}" width="1" height="1" alt="" style="display:none;width:1px;height:1px;border:0" />`
+}
+
 function makeSnippet(text) {
   const collapsed = text.replace(/\s+/g, ' ').trim()
   return collapsed.length > SNIPPET_LENGTH
@@ -38,7 +66,11 @@ export function parseRecipients(to) {
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
 // the inbox list, included in search). Threads with the replied-to message
 // when replyToMessageId is given; otherwise starts a fresh thread.
-async function storeSentMessage(sql, email, { recipients, subject, text, html, replyToMessageId, resendId }) {
+async function storeSentMessage(
+  sql,
+  email,
+  { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken },
+) {
   const [lookup] = await sql`
     SELECT u.id AS user_id,
            CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
@@ -96,6 +128,22 @@ async function storeSentMessage(sql, email, { recipients, subject, text, html, r
       await statement(sql)
     }
   })
+
+  // Best effort and outside the sent-copy transaction: during a rolling
+  // migration, a missing receipt table must not roll back the sent message.
+  if (readReceiptToken) {
+    try {
+      await sql`
+        INSERT INTO message_read_receipts (message_id, user_id, token)
+        SELECT m.id, m.user_id, ${readReceiptToken}::uuid
+        FROM messages m
+        WHERE m.id = ${messageUuid} AND m.user_id = ${lookup.user_id}
+        ON CONFLICT (message_id) DO NOTHING
+      `
+    } catch (err) {
+      console.error('failed to store read receipt:', err.message)
+    }
+  }
 
   // Best-effort embedding so sent mail is semantically searchable; NULL rows
   // are healed by the Backfill Embeddings workflow.
@@ -169,6 +217,9 @@ export default async function handler(req, res) {
     typeof replyToMessageId === 'string' && UUID_RE.test(replyToMessageId)
       ? replyToMessageId
       : null
+  const readReceiptToken = crypto.randomUUID()
+  const receiptUrl = buildReadReceiptUrl(readReceiptToken)
+  const trackedHtml = appendReadReceipt(bodyHtml, text, receiptUrl)
 
   try {
     const resend = new Resend(process.env.RESEND_API_KEY)
@@ -177,7 +228,7 @@ export default async function handler(req, res) {
       to: recipients,
       subject,
       text,
-      ...(bodyHtml ? { html: bodyHtml } : {}),
+      ...(trackedHtml ? { html: trackedHtml } : {}),
     })
     if (error) {
       console.error('Resend send failed:', error)
@@ -195,6 +246,7 @@ export default async function handler(req, res) {
         html: bodyHtml,
         replyToMessageId: replyTo,
         resendId: data.id,
+        readReceiptToken: receiptUrl ? readReceiptToken : null,
       })
     } catch (err) {
       console.error('failed to store sent copy:', err.message)

@@ -511,6 +511,17 @@ function rowSender(email) {
   return email.isSent ? `To: ${email.to ?? email.address}` : email.sender
 }
 
+function readReceiptTitle(email) {
+  if (!email.readAt) return 'Sent — not opened yet'
+  const openedAt = new Date(email.readAt).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return `Opened ${openedAt}`
+}
+
 // Keyboard shortcuts must not fire while the user is typing (reply textarea,
 // search bar, composer, command palette input, ...).
 function isTypingTarget(target) {
@@ -708,7 +719,20 @@ onUnmounted(() => {
               {{ label.name }}
             </span>
           </div>
-          <div class="ni-date">{{ email.date }}</div>
+          <div class="ni-date">
+            <span
+              v-if="email.isSent"
+              class="ni-read-status"
+              :class="{ opened: email.readAt }"
+              :title="readReceiptTitle(email)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">{{
+                email.readAt ? 'done_all' : 'check'
+              }}</span>
+              {{ email.readAt ? 'Opened' : 'Sent' }}
+            </span>
+            <span>{{ email.date }}</span>
+          </div>
           <div class="ni-actions" @click.stop>
             <button
               class="ni-action-btn"
@@ -997,6 +1021,17 @@ onUnmounted(() => {
                 <span class="material-symbols-outlined">reply</span>
               </button>
               <span class="ni-email-time">{{ openEmail.date }}</span>
+              <span
+                v-if="openEmail.isSent"
+                class="ni-read-status ni-read-status-reader"
+                :class="{ opened: openEmail.readAt }"
+                :title="readReceiptTitle(openEmail)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">{{
+                  openEmail.readAt ? 'done_all' : 'check'
+                }}</span>
+                {{ openEmail.readAt ? readReceiptTitle(openEmail) : 'Not opened' }}
+              </span>
             </div>
           </div>
           <EmailBody
