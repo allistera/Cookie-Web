@@ -27,6 +27,7 @@ const router = useRouter()
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 const showMoreNav = ref(false)
+const isCalendarView = computed(() => route.name === 'calendar')
 
 // Undo-send toast: hovering pauses the countdown and reveals the Undo button;
 // leaving resumes it. Undo cancels the send and reopens the composer.
@@ -280,15 +281,49 @@ onUnmounted(() => document.removeEventListener('keydown', onUndoKeydown))
     <!-- TOP HEADER -->
     <header class="app-header">
       <div class="header-left">
-        <div class="logo-container" @click="$router.push('/')">
-          <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
-          <span class="logo-text">Cookie</span>
-          <span class="logo-suffix">Email</span>
+        <div class="app-switcher">
+          <router-link
+            :to="isCalendarView ? '/calendar' : '/'"
+            class="logo-container"
+            :aria-label="`Cookie ${isCalendarView ? 'Calendar' : 'Email'} home`"
+          >
+            <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
+            <span class="logo-text">Cookie</span>
+            <span class="logo-suffix">{{ isCalendarView ? 'Calendar' : 'Email' }}</span>
+          </router-link>
+          <button
+            class="app-switcher-trigger"
+            type="button"
+            aria-label="Switch Cookie app"
+            aria-haspopup="menu"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span>
+          </button>
+          <div class="app-switcher-menu" role="menu">
+            <router-link
+              v-if="isCalendarView"
+              to="/"
+              class="app-switcher-menu-item"
+              role="menuitem"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">mail</span>
+              <span>Email</span>
+            </router-link>
+            <router-link
+              v-else
+              to="/calendar"
+              class="app-switcher-menu-item"
+              role="menuitem"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">calendar_month</span>
+              <span>Calendar</span>
+            </router-link>
+          </div>
         </div>
       </div>
 
       <div class="header-center">
-        <div class="search-bar-container" id="searchBarContainer">
+        <div v-if="!isCalendarView" class="search-bar-container" id="searchBarContainer">
           <span class="material-symbols-outlined search-icon">search</span>
           <input
             type="text"
@@ -346,7 +381,7 @@ onUnmounted(() => document.removeEventListener('keydown', onUndoKeydown))
 
     <div class="app-body">
       <!-- LEFT SIDEBAR -->
-      <aside class="left-sidebar">
+      <aside v-if="!isCalendarView" class="left-sidebar">
         <button class="compose-btn" @click="store.openComposer()">
           <span class="material-symbols-outlined">edit_square</span>
           <span>Compose</span>

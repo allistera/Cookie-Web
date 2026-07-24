@@ -113,6 +113,13 @@ body {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  text-decoration: none;
+}
+
+.app-switcher {
+  display: flex;
+  align-items: center;
+  position: relative;
 }
 
 .app-logo {
@@ -132,6 +139,85 @@ body {
   font-size: 20px;
   font-weight: 400;
   color: var(--text-secondary);
+}
+
+.app-switcher-trigger {
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-switcher-trigger:hover,
+.app-switcher-trigger:focus-visible {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.app-switcher-trigger .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.app-switcher-menu {
+  position: absolute;
+  top: 100%;
+  left: 72px;
+  width: 164px;
+  padding-top: 8px;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast),
+    visibility var(--transition-fast);
+}
+
+.app-switcher-trigger:hover + .app-switcher-menu,
+.app-switcher-trigger:focus + .app-switcher-menu,
+.app-switcher-menu:hover,
+.app-switcher-menu:focus-within {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.app-switcher-menu-item {
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background-color: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.app-switcher-menu-item:hover,
+.app-switcher-menu-item:focus-visible {
+  background-color: color-mix(in srgb, var(--bg-card) 92%, var(--text-primary) 8%);
+  outline: none;
+}
+
+.app-switcher-menu-item .material-symbols-outlined {
+  color: var(--text-secondary);
+  font-size: 20px;
 }
 
 .menu-btn {
@@ -414,6 +500,12 @@ body {
   overflow: hidden;
   position: relative;
   transition: background-color var(--transition-normal);
+}
+
+.calendar-view {
+  flex: 1;
+  min-height: 0;
+  background-color: var(--bg-card);
 }
 
 .view-panel {

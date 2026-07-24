@@ -1,5 +1,36 @@
 import { test, expect } from '@playwright/test'
 
+test('The header app switcher moves between Email and the empty Calendar view', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const trigger = page.getByRole('button', { name: 'Switch Cookie app' })
+  const suffix = page.locator('.logo-suffix')
+  await expect(suffix).toHaveText('Email')
+
+  const calendarLink = page.getByRole('menuitem', { name: 'Calendar' })
+  await expect(calendarLink).toBeHidden()
+  await trigger.hover()
+  await expect(calendarLink).toBeVisible()
+  await calendarLink.click()
+
+  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(suffix).toHaveText('Calendar')
+  await expect(page.locator('.calendar-view')).toBeVisible()
+  await expect(page.locator('.left-sidebar')).toHaveCount(0)
+  await expect(page.locator('#searchBarContainer')).toHaveCount(0)
+
+  const emailLink = page.getByRole('menuitem', { name: 'Email' })
+  await trigger.hover()
+  await expect(emailLink).toBeVisible()
+  await emailLink.click()
+
+  await expect(page).toHaveURL(/\/$/)
+  await expect(suffix).toHaveText('Email')
+  await expect(page.locator('.left-sidebar')).toBeVisible()
+})
+
 test('The root path shows the AI Today digest of suggested to-dos and topics', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
