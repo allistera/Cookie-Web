@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { filterContacts } from './lib/contactSuggest'
+import { clearCachedMail } from './lib/serviceWorker'
 import {
   appendRecipient,
   completedRecipients,
@@ -127,6 +128,7 @@ function openSettings() {
 }
 
 function handleLogout() {
+  clearCachedMail()
   logout({ logoutParams: { returnTo: window.location.origin } })
 }
 

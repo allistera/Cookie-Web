@@ -6,6 +6,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { getAuth0 } from './auth0-client'
+import { registerServiceWorker } from './lib/serviceWorker'
 import { initTheme } from './lib/theme'
 
 // Apply the saved theme (and start tracking the OS for 'system') before mount
@@ -25,6 +26,10 @@ if (!isE2E) {
 }
 
 app.mount('#app')
+
+// Keep development and deterministic E2E runs free of persistent workers;
+// production registers the offline shell and recent-mail cache after mount.
+if (!isE2E) registerServiceWorker()
 
 // Sentry initializes after mount via a dynamic import so its bundle (tracing
 // + session replay) stays off the first-paint critical path. Errors thrown
