@@ -675,8 +675,34 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
   const toast = page.locator('.toast', { hasText: 'Marked done.' })
   await expect(toast).toBeVisible()
 
-  await toast.getByRole('button', { name: 'Undo' }).click()
+  await page.keyboard.press('u')
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
+})
+
+test("Pressing 'u' cancels a queued send and restores its draft", async ({ page }) => {
+  let sendRequests = 0
+  await page.route('**/api/send', async (route) => {
+    sendRequests += 1
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'sent' }) })
+  })
+  await page.goto('/')
+  await page.locator('.compose-btn').click()
+
+  const composer = page.locator('#composerToast')
+  await composer.locator('.composer-to-inline').fill('person@example.com')
+  await composer.locator('.composer-subject-inline').fill('Shortcut undo')
+  await composer.locator('.composer-editor').fill('Keep this draft.')
+  await composer.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.locator('.undo-send-toast')).toBeVisible()
+
+  await page.keyboard.press('u')
+
+  await expect(page.locator('.undo-send-toast')).toHaveCount(0)
+  await expect(composer).toHaveClass(/active/)
+  await expect(composer.locator('.composer-to-inline')).toHaveValue('person@example.com')
+  await expect(composer.locator('.composer-subject-inline')).toHaveValue('Shortcut undo')
+  await expect(composer.locator('.composer-editor')).toContainText('Keep this draft.')
+  expect(sendRequests).toBe(0)
 })
 
 test('Escape closes the palette but keeps the reading panel open', async ({ page }) => {

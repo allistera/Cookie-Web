@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { filterContacts } from './lib/contactSuggest'
@@ -45,6 +45,28 @@ function onUndoSendLeave() {
 function undoSend() {
   undoSendHover.value = false
   store.undoPendingSend()
+}
+
+function onUndoKeydown(event) {
+  const target = event.target instanceof Element ? event.target : null
+  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
+  const canUndo = store.pendingSend || store.toasts.some((toast) => toast.action)
+  if (
+    event.key !== 'u' ||
+    event.repeat ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    isTyping ||
+    store.isCommandPaletteOpen ||
+    !canUndo
+  ) {
+    return
+  }
+
+  event.preventDefault()
+  if (store.pendingSend) undoSendHover.value = false
+  store.undoLatestAction()
 }
 
 // Composer "to" contact auto-suggest: matches contacts by name or address and
@@ -211,6 +233,7 @@ useTitleUnreadBadge(store)
 
 // Document level click listener to close search dropdown
 onMounted(() => {
+  document.addEventListener('keydown', onUndoKeydown)
   document.addEventListener('click', (e) => {
     const searchContainer = document.getElementById('searchBarContainer')
     if (searchContainer && !searchContainer.contains(e.target)) {
@@ -224,6 +247,8 @@ onMounted(() => {
     }
   })
 })
+
+onUnmounted(() => document.removeEventListener('keydown', onUndoKeydown))
 </script>
 
 <template>

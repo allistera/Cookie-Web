@@ -1074,6 +1074,20 @@ export const useInboxStore = defineStore('inbox', {
       await toast.action.run()
     },
 
+    async undoLatestAction() {
+      if (this.pendingSend) {
+        this.undoPendingSend()
+        return true
+      }
+      for (let index = this.toasts.length - 1; index >= 0; index--) {
+        const toast = this.toasts[index]
+        if (!toast.action) continue
+        await this.runToastAction(toast.id)
+        return true
+      }
+      return false
+    },
+
     // replyToMessageId (optional) threads the stored sent copy with the
     // message being replied to.
     async sendMail({ to, subject, text, html, replyToMessageId }) {

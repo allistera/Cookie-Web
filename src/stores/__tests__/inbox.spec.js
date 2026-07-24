@@ -779,6 +779,24 @@ describe('Inbox Store', () => {
       expect(store.composerTextArea).toBe('Checking in.')
     })
 
+    it('undoLatestAction prioritizes a queued send', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      const otherUndo = vi.fn()
+      store.notify('Marked done.', 'info', { label: 'Undo', run: otherUndo })
+
+      store.sendEmail()
+      await store.undoLatestAction()
+      await vi.advanceTimersByTimeAsync(6000)
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(otherUndo).not.toHaveBeenCalled()
+      expect(store.pendingSend).toBeNull()
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerTextArea).toBe('Checking in.')
+    })
+
     it('pause freezes the countdown until resumed', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()
@@ -1101,6 +1119,21 @@ describe('Inbox Store', () => {
 
     expect(run).toHaveBeenCalledTimes(1)
     expect(store.toasts).toHaveLength(0)
+  })
+
+  it('undoLatestAction runs the newest actionable toast', async () => {
+    const store = useInboxStore()
+    const olderUndo = vi.fn()
+    const newerUndo = vi.fn()
+    store.notify('Informational only.')
+    store.notify('Marked done.', 'info', { label: 'Undo', run: olderUndo })
+    store.notify('Deleted.', 'info', { label: 'Undo', run: newerUndo })
+
+    await expect(store.undoLatestAction()).resolves.toBe(true)
+
+    expect(newerUndo).toHaveBeenCalledTimes(1)
+    expect(olderUndo).not.toHaveBeenCalled()
+    expect(store.toasts.some((toast) => toast.message === 'Deleted.')).toBe(false)
   })
 
   it('sends mail through the API with the access token', async () => {
