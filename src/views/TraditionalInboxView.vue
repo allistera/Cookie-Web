@@ -389,6 +389,17 @@ function openReader(email) {
   if (active?.closest?.('input, textarea, select, [contenteditable="true"]')) {
     active.blur()
   }
+
+  // Auto-advance can cross from an expanded day into a collapsed one. Open
+  // the destination group as well so the row behind the reader stays visible.
+  if (!store.activeSearchQuery && !activeFilter.value) {
+    const group = emailGroups.value.find(({ emails }) =>
+      emails.some((candidate) => candidate.id === email.id),
+    )
+    if (group && !openGroups.value.has(group.label)) {
+      openGroups.value = new Set(openGroups.value).add(group.label)
+    }
+  }
   store.openReader(email)
 }
 

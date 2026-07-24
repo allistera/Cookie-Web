@@ -1088,6 +1088,29 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.openEmailId).toBe('today-2')
   })
 
+  it('expands the date group when auto-advance crosses into another day', async () => {
+    store.traditionalEmails = [
+      makeEmail('today-1', Date.now() - HOUR),
+      makeEmail('yesterday-1', Date.now() - DAY),
+    ]
+    await wrapper.vm.$nextTick()
+
+    const yesterdayHeader = wrapper
+      .findAll('.ni-group-header')
+      .find((header) => header.text().includes('Yesterday'))
+    expect(yesterdayHeader.attributes('aria-expanded')).toBe('false')
+    await wrapper.find('.ni-row').trigger('click')
+
+    pressD()
+    await wrapper.vm.$nextTick()
+
+    expect(store.openEmailId).toBe('yesterday-1')
+    expect(yesterdayHeader.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.ni-row').map((row) => row.text())).toContainEqual(
+      expect.stringContaining('Subject yesterday-1'),
+    )
+  })
+
   it('falls back to the previous email when the archived one was last', async () => {
     store.traditionalEmails = [
       makeEmail('today-1', Date.now() - HOUR),
