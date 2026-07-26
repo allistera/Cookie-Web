@@ -183,7 +183,7 @@ body {
     visibility var(--transition-fast);
 }
 
-.app-switcher-trigger:hover + .app-switcher-menu,
+.app-switcher:hover .app-switcher-menu,
 .app-switcher-trigger:focus + .app-switcher-menu,
 .app-switcher-menu:hover,
 .app-switcher-menu:focus-within {
