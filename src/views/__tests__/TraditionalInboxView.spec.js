@@ -722,7 +722,11 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
       .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
       .find((choice) => choice.text().includes('Pick date & time'))
     await custom.trigger('click')
-    await wrapper.find('.ni-schedule-custom input').setValue('2026-07-25T14:30')
+    const target = new Date(Date.now() + 3 * DAY)
+    target.setHours(14, 30, 0, 0)
+    const pad = (n) => String(n).padStart(2, '0')
+    const localValue = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T14:30`
+    await wrapper.find('.ni-schedule-custom input').setValue(localValue)
     await wrapper.find('.ni-schedule-custom').trigger('submit')
 
     await vi.waitFor(() => {
@@ -732,7 +736,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
       })
       expect(JSON.parse(patchRequest[1].body)).toMatchObject({
         id: 'today-1',
-        scheduled_for: new Date(2026, 6, 25, 14, 30).toISOString(),
+        scheduled_for: target.toISOString(),
       })
     })
   })
