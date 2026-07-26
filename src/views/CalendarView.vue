@@ -520,17 +520,19 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </button>
           </header>
 
-          <textarea
-            v-model="eventRequest"
-            class="new-event-request"
-            placeholder="e.g. Coffee with Sam next week, 30 min"
-            aria-label="Describe the event"
-          ></textarea>
-
-          <div class="new-event-preferences" aria-label="Scheduling preferences">
-            <span>Prefers afternoons</span>
-            <span>Defaults to 30 min</span>
-            <span>Adds a video link</span>
+          <div class="new-event-request-wrap">
+            <div class="composer-ai-inline">
+              <span class="material-symbols-outlined" aria-hidden="true">auto_fix_high</span>
+              <input
+                v-model="eventRequest"
+                type="text"
+                class="composer-ai-inline-input new-event-request"
+                maxlength="1000"
+                placeholder="e.g. Coffee with Sam next week, 30 min"
+                aria-label="Describe the event"
+                @keydown.enter.prevent="createEvent"
+              />
+            </div>
           </div>
 
           <footer class="new-event-dialog-actions">
@@ -715,7 +717,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .insight-actions,
 .new-event-button,
 .new-event-dialog-header,
-.new-event-preferences,
 .new-event-dialog-actions {
   display: flex;
   align-items: center;
@@ -1311,7 +1312,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   background: var(--calendar-overlay);
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
 }
 
 .new-event-dialog {
@@ -1320,7 +1321,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border-radius: 20px;
   background: var(--calendar-surface);
   box-shadow: var(--calendar-dialog-shadow);
-  transform: translateY(-20px);
 }
 
 .new-event-dialog-header {
@@ -1373,47 +1373,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   outline: none;
 }
 
-.new-event-request {
-  width: 100%;
-  height: 120px;
+.new-event-request-wrap {
   margin-top: 28px;
-  padding: 18px;
-  resize: none;
-  border: 1px solid var(--calendar-line);
-  border-radius: 12px;
-  outline: none;
-  background: var(--calendar-input);
-  color: var(--calendar-ink);
-  font-family: var(--font-stack);
-  font-size: 15px;
-  line-height: 1.4;
-}
-
-.new-event-request::placeholder {
-  color: var(--calendar-muted);
-  opacity: 1;
-}
-
-.new-event-request:focus {
-  border-color: var(--calendar-mint-strong);
-  box-shadow: 0 0 0 3px rgba(38, 183, 126, 0.12);
-}
-
-.new-event-preferences {
-  margin-top: 20px;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.new-event-preferences span {
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: var(--calendar-soft);
-  color: var(--calendar-event-ink);
-  display: flex;
-  align-items: center;
-  font-size: 12px;
 }
 
 .new-event-dialog-actions {
@@ -1646,14 +1607,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
   .new-event-overlay {
     padding: 16px;
-    justify-content: center;
   }
 
   .new-event-dialog {
     width: 100%;
     padding: 28px 22px 24px;
     border-radius: 28px;
-    transform: none;
   }
 
   .new-event-dialog-icon {
@@ -1673,24 +1632,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
   .new-event-dialog-header p {
     font-size: 16px;
-  }
-
-  .new-event-request {
-    height: 150px;
-    margin-top: 28px;
-    padding: 22px;
-    font-size: 19px;
-  }
-
-  .new-event-preferences {
-    margin-top: 24px;
-    gap: 8px;
-  }
-
-  .new-event-preferences span {
-    min-height: 42px;
-    padding-inline: 16px;
-    font-size: 15px;
   }
 
   .new-event-dialog-actions {
