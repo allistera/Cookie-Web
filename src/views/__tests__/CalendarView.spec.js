@@ -67,7 +67,7 @@ describe('CalendarView', () => {
   it('opens the New event dialog and adds a requested event to the selected date', async () => {
     const wrapper = mount(CalendarView, { attachTo: document.body })
 
-    await wrapper.get('.new-event-button').trigger('click')
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
     const create = wrapper.get('.new-event-create')
     expect(create.attributes('disabled')).toBeDefined()
 
