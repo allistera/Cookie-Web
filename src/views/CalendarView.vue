@@ -7,10 +7,14 @@ const WEEK_HOUR_HEIGHT = 72
 const START_HOUR = 8
 const END_HOUR = 19
 
+const SNAP_MINUTES = 15
+
 const viewMode = ref('day')
 const selectedDate = ref(new Date(REFERENCE_DATE))
 const showNewEvent = ref(false)
 const eventRequest = ref('')
+const eventDraft = ref(null)
+const dragDraft = ref(null)
 const conflictVisible = ref(true)
 const suggestionVisible = ref(true)
 const generatedEvents = ref([])
@@ -190,6 +194,45 @@ const weekEventStyle = (event) => {
   }
 }
 
+const snapMinutes = (minutes) => Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES
+const clampMinutes = (minutes) =>
+  Math.min(Math.max(minutes, START_HOUR * 60), END_HOUR * 60)
+
+const minutesFromOffset = (offsetY, hourHeight) =>
+  clampMinutes(snapMinutes(START_HOUR * 60 + (offsetY / hourHeight) * 60))
+
+const minutesToTimeString = (minutes) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+
+const timeStringToMinutes = (value) => {
+  const [hour, minute] = value.split(':').map(Number)
+  return hour * 60 + minute
+}
+
+const dragRangeStyle = ({ hourHeight, anchorMinutes, currentMinutes }) => {
+  const start = Math.min(anchorMinutes, currentMinutes)
+  const end = Math.max(anchorMinutes, currentMinutes)
+  return {
+    top: `${(start - START_HOUR * 60) * (hourHeight / 60)}px`,
+    height: `${Math.max((end - start) * (hourHeight / 60), 6)}px`,
+  }
+}
+
+const dayDragPreviewStyle = computed(() => {
+  if (!dragDraft.value || dragDraft.value.view !== 'day') return null
+  return dragRangeStyle(dragDraft.value)
+})
+
+const weekDragPreviewStyle = computed(() => {
+  if (!dragDraft.value || dragDraft.value.view !== 'week') return null
+  const dayIndex = weekDays.value.findIndex((date) => dateKey(date) === dateKey(dragDraft.value.date))
+  return {
+    ...dragRangeStyle(dragDraft.value),
+    left: `calc(${dayIndex} * (100% / 7) + 8px)`,
+    width: 'calc(100% / 7 - 16px)',
+  }
+})
+
 const eventTime = (event) => {
   const { hour, minute } = parseStart(event.start)
   const suffix = hour >= 12 ? 'PM' : 'AM'
@@ -223,28 +266,79 @@ function goToday() {
   selectedDate.value = new Date(REFERENCE_DATE)
 }
 
-function openNewEvent() {
+function openNewEvent(prefill) {
+  eventDraft.value = prefill
+    ? {
+        date: dateKey(prefill.date),
+        start: minutesToTimeString(prefill.startMinutes),
+        end: minutesToTimeString(prefill.endMinutes),
+      }
+    : null
   showNewEvent.value = true
 }
 
 function closeNewEvent() {
   showNewEvent.value = false
   eventRequest.value = ''
+  eventDraft.value = null
 }
 
 function createEvent() {
   const title = eventRequest.value.trim()
   if (!title) return
+  const draft = eventDraft.value
   generatedEvents.value.push({
     id: `generated-${Date.now()}`,
     title,
-    date: dateKey(selectedDate.value),
-    start: '14:00',
-    duration: 30,
+    date: draft ? draft.date : dateKey(selectedDate.value),
+    start: draft ? draft.start : '14:00',
+    duration: draft
+      ? Math.max(timeStringToMinutes(draft.end) - timeStringToMinutes(draft.start), SNAP_MINUTES)
+      : 30,
     tone: 'accepted',
     calendar: 'personal',
   })
   closeNewEvent()
+}
+
+function beginDrag(event, date, hourHeight, view) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const minutes = minutesFromOffset(event.clientY - rect.top, hourHeight)
+  dragDraft.value = {
+    date: new Date(date),
+    hourHeight,
+    rectTop: rect.top,
+    anchorMinutes: minutes,
+    currentMinutes: minutes,
+    view,
+  }
+  window.addEventListener('mousemove', onDragMove)
+  window.addEventListener('mouseup', onDragEnd)
+}
+
+function onDragMove(event) {
+  if (!dragDraft.value) return
+  const { hourHeight, rectTop } = dragDraft.value
+  dragDraft.value = {
+    ...dragDraft.value,
+    currentMinutes: minutesFromOffset(event.clientY - rectTop, hourHeight),
+  }
+}
+
+function onDragEnd() {
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('mouseup', onDragEnd)
+  if (!dragDraft.value) return
+  const { date, anchorMinutes, currentMinutes } = dragDraft.value
+  const startMinutes = Math.min(anchorMinutes, currentMinutes)
+  const endMinutes =
+    currentMinutes === anchorMinutes
+      ? clampMinutes(startMinutes + 30)
+      : Math.max(anchorMinutes, currentMinutes)
+  dragDraft.value = null
+  openNewEvent({ date, startMinutes, endMinutes })
 }
 
 function onKeydown(event) {
@@ -252,13 +346,17 @@ function onKeydown(event) {
 }
 
 onMounted(() => document.addEventListener('keydown', onKeydown))
-onUnmounted(() => document.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('mouseup', onDragEnd)
+})
 </script>
 
 <template>
   <section class="calendar-view" aria-label="Calendar">
     <aside class="left-sidebar calendar-sidebar" aria-label="Calendar sidebar">
-      <button type="button" class="compose-btn calendar-sidebar-create" @click="openNewEvent">
+      <button type="button" class="compose-btn calendar-sidebar-create" @click="openNewEvent()">
         <span class="material-symbols-outlined" aria-hidden="true">add</span>
         <span>New event</span>
       </button>
@@ -334,7 +432,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               v-if="viewMode === 'month'"
               type="button"
               class="new-event-button month-new-event-button"
-              @click="openNewEvent"
+              @click="openNewEvent()"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
@@ -397,7 +495,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           >
             <span>{{ timeLabel(hour) }}</span>
           </div>
-          <div class="day-event-lane">
+          <div
+            class="day-event-lane"
+            @mousedown.self="(event) => beginDrag(event, selectedDate, DAY_HOUR_HEIGHT, 'day')"
+          >
             <article
               v-for="event in eventsForDay"
               :key="event.id"
@@ -407,6 +508,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             >
               <strong>{{ event.title }}</strong>
             </article>
+            <div
+              v-if="dayDragPreviewStyle"
+              class="calendar-event day-event drag-preview"
+              :style="dayDragPreviewStyle"
+            ></div>
             <div class="current-time-line day-current-time" aria-label="Current time 11:30 AM">
               <span></span>
             </div>
@@ -434,7 +540,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </div>
           </div>
           <div class="week-grid">
-            <div v-for="date in weekDays" :key="dateKey(date)" class="week-day-column"></div>
+            <div
+              v-for="date in weekDays"
+              :key="dateKey(date)"
+              class="week-day-column"
+              @mousedown="(event) => beginDrag(event, date, WEEK_HOUR_HEIGHT, 'week')"
+            ></div>
             <div
               v-for="(_, index) in hours"
               :key="index"
@@ -460,6 +571,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             >
               <strong>Suggested</strong>
             </article>
+            <div
+              v-if="weekDragPreviewStyle"
+              class="calendar-event week-event drag-preview"
+              :style="weekDragPreviewStyle"
+            ></div>
             <div class="current-time-line week-current-time" aria-label="Current time 11:30 AM">
               <span></span>
             </div>
@@ -519,6 +635,21 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               </svg>
             </button>
           </header>
+
+          <div v-if="eventDraft" class="new-event-datetime">
+            <label class="new-event-datetime-field">
+              <span>Date</span>
+              <input v-model="eventDraft.date" type="date" />
+            </label>
+            <label class="new-event-datetime-field">
+              <span>Start</span>
+              <input v-model="eventDraft.start" type="time" />
+            </label>
+            <label class="new-event-datetime-field">
+              <span>End</span>
+              <input v-model="eventDraft.end" type="time" />
+            </label>
+          </div>
 
           <div class="new-event-request-wrap">
             <div class="composer-ai-inline">
@@ -1021,6 +1152,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   position: absolute;
   inset: 0 0 0 112px;
   border-left: 1px solid var(--calendar-line);
+  cursor: crosshair;
 }
 
 .calendar-event {
@@ -1070,6 +1202,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border: 2px dashed var(--calendar-suggested);
   background: var(--calendar-surface);
   color: var(--calendar-mint-strong);
+}
+
+.calendar-event.drag-preview {
+  z-index: 5;
+  border: 2px dashed var(--calendar-emphasis);
+  background: color-mix(in srgb, var(--calendar-emphasis) 14%, transparent);
+  pointer-events: none;
 }
 
 .current-time-line {
@@ -1179,6 +1318,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .week-day-column {
   border-right: 1px solid var(--calendar-line);
+  cursor: crosshair;
 }
 
 .week-day-column:last-of-type {
@@ -1371,6 +1511,50 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   background: var(--calendar-soft);
   color: var(--calendar-ink);
   outline: none;
+}
+
+.new-event-datetime {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.new-event-datetime-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.new-event-datetime-field span {
+  color: var(--calendar-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.new-event-datetime-field input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--calendar-line);
+  border-radius: 10px;
+  outline: none;
+  background: var(--calendar-input);
+  color: var(--calendar-ink);
+  font-family: var(--font-stack);
+  font-size: 14px;
+  color-scheme: light;
+}
+
+[data-theme='dark'] .new-event-datetime-field input {
+  color-scheme: dark;
+}
+
+.new-event-datetime-field input:focus {
+  border-color: var(--calendar-emphasis);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--calendar-emphasis) 20%, transparent);
 }
 
 .new-event-request-wrap {
@@ -1632,6 +1816,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
   .new-event-dialog-header p {
     font-size: 16px;
+  }
+
+  .new-event-datetime {
+    flex-direction: column;
   }
 
   .new-event-dialog-actions {

@@ -1,6 +1,20 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import CalendarView from '../CalendarView.vue'
+
+function mockRect(element) {
+  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    top: 0,
+    left: 0,
+    width: 700,
+    height: 1056,
+    right: 700,
+    bottom: 1056,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  })
+}
 
 describe('CalendarView', () => {
   it('shows the calendar sidebar and filters events by calendar', async () => {
@@ -77,6 +91,63 @@ describe('CalendarView', () => {
 
     expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
     expect(wrapper.text()).toContain('Lunch with Mia')
+    wrapper.unmount()
+  })
+
+  it('creates an event by dragging on the day timeline, prefilling date, start, and end', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+    const lane = wrapper.get('.day-event-lane')
+    mockRect(lane.element)
+
+    // DAY_HOUR_HEIGHT is 96px/hour starting at 8 AM: clientY 96 -> 9:00, clientY 192 -> 10:00.
+    await lane.trigger('mousedown', { clientY: 96, button: 0 })
+    await lane.trigger('mousemove', { clientY: 192, button: 0 })
+    await lane.trigger('mouseup', { clientY: 192, button: 0 })
+
+    expect(wrapper.find('.new-event-datetime').exists()).toBe(true)
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect(wrapper.get('input[type="date"]').element.value).toBe('2026-07-24')
+    expect(timeInputs[0].element.value).toBe('09:00')
+    expect(timeInputs[1].element.value).toBe('10:00')
+
+    await wrapper.get('.new-event-request').setValue('Dentist appointment')
+    await wrapper.get('.new-event-create').trigger('click')
+
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Dentist appointment')
+    wrapper.unmount()
+  })
+
+  it('creates an event by dragging on a week-view day column, prefilling that day', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+    await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+
+    const column = wrapper.findAll('.week-day-column')[2]
+    mockRect(column.element)
+
+    // WEEK_HOUR_HEIGHT is 72px/hour starting at 8 AM: clientY 72 -> 9:00, clientY 144 -> 10:00.
+    await column.trigger('mousedown', { clientY: 72, button: 0 })
+    await column.trigger('mousemove', { clientY: 144, button: 0 })
+    await column.trigger('mouseup', { clientY: 144, button: 0 })
+
+    expect(wrapper.get('input[type="date"]').element.value).toBe('2026-07-22')
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect(timeInputs[0].element.value).toBe('09:00')
+    expect(timeInputs[1].element.value).toBe('10:00')
+    wrapper.unmount()
+  })
+
+  it('defaults to a 30-minute slot when the timeline is clicked without dragging', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+    const lane = wrapper.get('.day-event-lane')
+    mockRect(lane.element)
+
+    await lane.trigger('mousedown', { clientY: 288, button: 0 })
+    await lane.trigger('mouseup', { clientY: 288, button: 0 })
+
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect(timeInputs[0].element.value).toBe('11:00')
+    expect(timeInputs[1].element.value).toBe('11:30')
     wrapper.unmount()
   })
 

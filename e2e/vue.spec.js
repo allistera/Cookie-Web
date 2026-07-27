@@ -59,6 +59,42 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
+test('Dragging on the day timeline opens New event with the date, start, and end pre-filled', async ({
+  page,
+}) => {
+  await page.goto('/calendar')
+  await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')
+
+  // The page header and insight cards push the hourly grid below the fold at the default
+  // viewport size, so scroll the 11 AM-12 PM slot into view before computing coordinates.
+  await page.evaluate(() => {
+    document.querySelector('.calendar-content').scrollTop = 400
+  })
+
+  const lane = page.locator('.day-event-lane')
+  const box = await lane.boundingBox()
+  const x = box.x + box.width / 2
+
+  // DAY_HOUR_HEIGHT is 96px/hour starting at 8 AM: +288 -> 11:00 AM, +384 -> 12:00 PM.
+  // (11 AM-12 PM is clear of the seeded Standup and Coffee with Sam events.)
+  await page.mouse.move(x, box.y + 288)
+  await page.mouse.down()
+  await page.mouse.move(x, box.y + 384)
+  await page.mouse.up()
+
+  const dialog = page.getByRole('dialog', { name: 'New event' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
+  const timeInputs = dialog.locator('input[type="time"]')
+  await expect(timeInputs.nth(0)).toHaveValue('11:00')
+  await expect(timeInputs.nth(1)).toHaveValue('12:00')
+
+  await dialog.getByRole('textbox', { name: 'Describe the event' }).fill('Dentist appointment')
+  await dialog.getByRole('button', { name: 'Create with Cookie' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.day-event', { hasText: 'Dentist appointment' })).toBeVisible()
+})
+
 test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('cookie-theme', 'dark'))
   await page.goto('/calendar')
