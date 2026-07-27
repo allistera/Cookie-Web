@@ -5,7 +5,8 @@ import { useCommands } from '../useCommands'
 import { useInboxStore } from '../../stores/inbox'
 
 const push = vi.fn()
-vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
+const routeMock = { name: 'ai-inbox' }
+vi.mock('vue-router', () => ({ useRouter: () => ({ push }), useRoute: () => routeMock }))
 
 vi.mock('../../auth0-client', () => ({
   getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
@@ -29,6 +30,7 @@ describe('useCommands', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     push.mockClear()
+    routeMock.name = 'ai-inbox'
     store = useInboxStore()
   })
 
@@ -44,6 +46,19 @@ describe('useCommands', () => {
     expect(ids).not.toContain('star')
     expect(ids).toContain('go-inbox')
     expect(ids).toContain('open-settings')
+  })
+
+  it('only offers Create Event while on the Calendar route, and it requests one from the store', () => {
+    expect(useCommands().commands.value.map((c) => c.id)).not.toContain('calendar-create-event')
+
+    routeMock.name = 'calendar'
+    const createEvent = useCommands().commands.value.find((c) => c.id === 'calendar-create-event')
+    expect(createEvent).toBeTruthy()
+    expect(createEvent.title).toBe('Create Event')
+
+    expect(store.calendarNewEventRequestId).toBe(0)
+    createEvent.run()
+    expect(store.calendarNewEventRequestId).toBe(1)
   })
 
   it('always offers a Compose command that opens the composer', () => {

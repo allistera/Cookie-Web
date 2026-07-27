@@ -333,6 +333,13 @@ watch(showNewEvent, (open) => {
   if (open) nextTick(() => eventTitleInput.value?.focus())
 })
 
+// The command palette's "Create Event" command (opened with '/') bumps this
+// counter instead of calling into the view directly.
+watch(
+  () => store.calendarNewEventRequestId,
+  () => openNewEvent(),
+)
+
 function beginDrag(event, date, hourHeight, view) {
   if (event.button !== 0) return
   event.preventDefault()

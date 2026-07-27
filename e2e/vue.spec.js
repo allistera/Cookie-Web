@@ -848,6 +848,30 @@ test("Command palette opens with '/', filters and navigates to Starred", async (
   await expect(page.locator('.ni-row').first()).toContainText("Homeowner's Insurance")
 })
 
+test("The '/' command palette offers Create Event only on the Calendar route", async ({ page }) => {
+  await page.goto('/inbox')
+  await page.keyboard.press('/')
+  await expect(page.locator('.cp-panel')).toBeVisible()
+  await expect(page.locator('.cp-item', { hasText: 'Create Event' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'Switch Cookie app' }).hover()
+  await page.getByRole('menuitem', { name: 'Calendar' }).click()
+  await expect(page).toHaveURL(/\/calendar$/)
+
+  await page.keyboard.press('/')
+  const panel = page.locator('.cp-panel')
+  await expect(panel).toBeVisible()
+  const createEvent = panel.locator('.cp-item', { hasText: 'Create Event' })
+  await expect(createEvent).toBeVisible()
+
+  await createEvent.click()
+  await expect(panel).toBeHidden()
+  const dialog = page.getByRole('dialog', { name: 'New event' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
+})
+
 test('Command palette Mark Done archives the open email', async ({ page }) => {
   await page.goto('/inbox')
 

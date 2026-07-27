@@ -291,6 +291,10 @@ export const useInboxStore = defineStore('inbox', {
 
     // Command palette (Cmd+K)
     isCommandPaletteOpen: false,
+    // Bumped by the command palette's "Create Event" command; CalendarView
+    // watches it to open its New Event dialog without the two views needing
+    // a direct reference to each other.
+    calendarNewEventRequestId: 0,
   }),
 
   getters: {
@@ -368,6 +372,10 @@ export const useInboxStore = defineStore('inbox', {
   },
 
   actions: {
+    requestCalendarNewEvent() {
+      this.calendarNewEventRequestId++
+    },
+
     // Bearer-token headers for API calls; Auth0 is absent in e2e/fixture mode.
     async authHeaders(extra = {}) {
       const headers = { ...extra }

@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useInboxStore } from '../stores/inbox'
 
@@ -10,10 +10,18 @@ import { useInboxStore } from '../stores/inbox'
 export function useCommands() {
   const store = useInboxStore()
   const router = useRouter()
+  const route = useRoute()
 
   const commands = computed(() => {
     const email = store.openEmail
     const list = [
+      {
+        id: 'calendar-create-event',
+        title: 'Create Event',
+        icon: 'add',
+        visible: route.name === 'calendar',
+        run: () => store.requestCalendarNewEvent(),
+      },
       {
         id: 'mark-done',
         title: 'Mark Done',

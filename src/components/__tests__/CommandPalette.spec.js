@@ -6,7 +6,7 @@ import CommandPalette from '../CommandPalette.vue'
 import { useInboxStore } from '../../stores/inbox'
 
 const push = vi.fn()
-vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push }), useRoute: () => ({ name: 'ai-inbox' }) }))
 
 vi.mock('../../auth0-client', () => ({
   getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
