@@ -66,6 +66,34 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
+test('Clicking an event opens it prefilled for editing, with a Delete button', async ({ page }) => {
+  await page.goto('/calendar')
+  await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')
+
+  await page.locator('.day-event', { hasText: 'Standup' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Edit event' })
+  await expect(dialog).toBeVisible()
+
+  const titleInput = dialog.getByRole('textbox', { name: 'Event title' })
+  await expect(titleInput).toHaveValue('Standup')
+  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
+  const timeInputs = dialog.locator('input[type="time"]')
+  await expect(timeInputs.nth(0)).toHaveValue('09:00')
+  await expect(timeInputs.nth(1)).toHaveValue('09:30')
+  await expect(dialog.getByRole('button', { name: 'Save Event' })).toBeVisible()
+
+  await titleInput.fill('Daily Standup')
+  await dialog.getByRole('button', { name: 'Save Event' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.day-event', { hasText: 'Daily Standup' })).toBeVisible()
+
+  await page.locator('.day-event', { hasText: 'Daily Standup' }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Delete' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.day-event', { hasText: 'Daily Standup' })).toHaveCount(0)
+})
+
 test('Dragging on the day timeline opens New event with the date, start, and end pre-filled', async ({
   page,
 }) => {

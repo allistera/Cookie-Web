@@ -163,6 +163,53 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  it('clicking an event opens it prefilled and saves edits', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+
+    const standup = wrapper.findAll('.day-event').find((event) => event.text().includes('Standup'))
+    await standup.trigger('click')
+
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('Standup')
+    expect(wrapper.get('input[type="date"]').element.value).toBe('2026-07-24')
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect(timeInputs[0].element.value).toBe('09:00')
+    expect(timeInputs[1].element.value).toBe('09:30')
+    expect(wrapper.get('.new-event-create').text()).toBe('Save Event')
+
+    await wrapper.get('.new-event-title-input').setValue('Daily Standup')
+    await wrapper.get('.new-event-create').trigger('click')
+
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    const dayEventTitles = wrapper.findAll('.day-event strong').map((el) => el.text())
+    expect(dayEventTitles).toContain('Daily Standup')
+    expect(dayEventTitles).not.toContain('Standup')
+    wrapper.unmount()
+  })
+
+  it('deletes an event from the edit dialog', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+
+    const standup = wrapper.findAll('.day-event').find((event) => event.text().includes('Standup'))
+    await standup.trigger('click')
+
+    expect(wrapper.get('.new-event-delete').exists).toBeTruthy()
+    await wrapper.get('.new-event-delete').trigger('click')
+
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Standup')
+    wrapper.unmount()
+  })
+
+  it('does not show a Delete button when creating a new event', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+
+    expect(wrapper.find('.new-event-delete').exists()).toBe(false)
+    expect(wrapper.get('.new-event-create').text()).toBe('Create Event')
+    wrapper.unmount()
+  })
+
   it('dismisses insight cards through their actions', async () => {
     const wrapper = mount(CalendarView)
 

@@ -13,11 +13,11 @@ const viewMode = ref('day')
 const selectedDate = ref(new Date(REFERENCE_DATE))
 const showNewEvent = ref(false)
 const eventForm = ref(null)
+const editingEventId = ref(null)
 const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
 const suggestionVisible = ref(true)
-const generatedEvents = ref([])
 const calendars = [
   { id: 'work', name: 'Work', color: '#4f7c6b' },
   { id: 'personal', name: 'Personal', color: '#2db985' },
@@ -27,7 +27,7 @@ const calendars = [
 ]
 const visibleCalendars = ref(new Set(calendars.map((calendar) => calendar.id)))
 
-const seedEvents = [
+const events = ref([
   {
     id: 'team-sync',
     title: 'Team sync',
@@ -87,7 +87,7 @@ const seedEvents = [
     tone: 'accepted',
     calendar: 'personal',
   },
-]
+])
 
 const suggestedEvent = {
   id: 'suggested',
@@ -99,9 +99,8 @@ const suggestedEvent = {
   calendar: 'work',
 }
 
-const allEvents = computed(() => [...seedEvents, ...generatedEvents.value])
 const visibleEvents = computed(() =>
-  allEvents.value.filter((event) => visibleCalendars.value.has(event.calendar)),
+  events.value.filter((event) => visibleCalendars.value.has(event.calendar)),
 )
 
 const dateKey = (date) =>
@@ -267,6 +266,7 @@ function goToday() {
 }
 
 function openNewEvent(prefill) {
+  editingEventId.value = null
   eventForm.value = {
     title: '',
     description: '',
@@ -278,26 +278,65 @@ function openNewEvent(prefill) {
   showNewEvent.value = true
 }
 
+function editEvent(event) {
+  editingEventId.value = event.id
+  eventForm.value = {
+    title: event.title,
+    description: event.description || '',
+    location: event.location || '',
+    date: event.date,
+    start: event.start,
+    end: minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
+  }
+  showNewEvent.value = true
+}
+
 function closeNewEvent() {
   showNewEvent.value = false
   eventForm.value = null
+  editingEventId.value = null
 }
 
-function createEvent() {
+function saveEvent() {
   const title = eventForm.value.title.trim()
   if (!title) return
   const { date, start, end, location, description } = eventForm.value
-  generatedEvents.value.push({
-    id: `generated-${Date.now()}`,
-    title,
-    date,
-    start,
-    duration: Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES),
-    tone: 'accepted',
-    calendar: 'personal',
-    location: location.trim() || undefined,
-    description: description.trim() || undefined,
-  })
+  const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
+  const trimmedLocation = location.trim() || undefined
+  const trimmedDescription = description.trim() || undefined
+
+  if (editingEventId.value) {
+    const index = events.value.findIndex((event) => event.id === editingEventId.value)
+    if (index !== -1) {
+      events.value[index] = {
+        ...events.value[index],
+        title,
+        date,
+        start,
+        duration,
+        location: trimmedLocation,
+        description: trimmedDescription,
+      }
+    }
+  } else {
+    events.value.push({
+      id: `generated-${Date.now()}`,
+      title,
+      date,
+      start,
+      duration,
+      tone: 'accepted',
+      calendar: 'personal',
+      location: trimmedLocation,
+      description: trimmedDescription,
+    })
+  }
+  closeNewEvent()
+}
+
+function deleteEvent() {
+  if (!editingEventId.value) return
+  events.value = events.value.filter((event) => event.id !== editingEventId.value)
   closeNewEvent()
 }
 
@@ -503,15 +542,17 @@ onUnmounted(() => {
             class="day-event-lane"
             @mousedown.self="(event) => beginDrag(event, selectedDate, DAY_HOUR_HEIGHT, 'day')"
           >
-            <article
+            <button
               v-for="event in eventsForDay"
               :key="event.id"
+              type="button"
               class="calendar-event day-event"
               :class="`tone-${event.tone || 'default'}`"
               :style="eventPosition(event, DAY_HOUR_HEIGHT)"
+              @click="editEvent(event)"
             >
               <strong>{{ event.title }}</strong>
-            </article>
+            </button>
             <div
               v-if="dayDragPreviewStyle"
               class="calendar-event day-event drag-preview"
@@ -556,18 +597,20 @@ onUnmounted(() => {
               class="week-hour-line"
               :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
             ></div>
-            <article
+            <button
               v-for="event in visibleEvents.filter((item) =>
                 weekDays.some((date) => dateKey(date) === item.date),
               )"
               :key="event.id"
+              type="button"
               class="calendar-event week-event"
               :class="`tone-${event.tone || 'default'}`"
               :style="weekEventStyle(event)"
+              @click="editEvent(event)"
             >
               <strong>{{ event.title }}</strong>
               <span v-if="event.duration >= 60">{{ eventTime(event) }} · {{ event.duration }} min</span>
-            </article>
+            </button>
             <article
               v-if="suggestionVisible"
               class="calendar-event week-event tone-suggested"
@@ -602,14 +645,16 @@ onUnmounted(() => {
           >
             <span class="month-date" :class="{ today: isToday(date) }">{{ date.getDate() }}</span>
             <div class="month-events">
-              <div
+              <button
                 v-for="event in eventsForDate(date)"
                 :key="event.id"
+                type="button"
                 class="month-event"
                 :class="`tone-${event.tone || 'default'}`"
+                @click="editEvent(event)"
               >
                 {{ event.title }}
-              </div>
+              </button>
             </div>
           </article>
         </div>
@@ -623,7 +668,7 @@ onUnmounted(() => {
           class="new-event-dialog"
           role="dialog"
           aria-modal="true"
-          aria-label="New event"
+          :aria-label="editingEventId ? 'Edit event' : 'New event'"
         >
           <header class="new-event-dialog-header">
             <div class="new-event-dialog-fields">
@@ -634,7 +679,7 @@ onUnmounted(() => {
                 class="new-event-title-input"
                 placeholder="New event"
                 aria-label="Event title"
-                @keydown.enter.prevent="createEvent"
+                @keydown.enter.prevent="saveEvent"
               />
               <input
                 v-model="eventForm.description"
@@ -674,15 +719,25 @@ onUnmounted(() => {
           </div>
 
           <footer class="new-event-dialog-actions">
-            <button type="button" class="new-event-cancel" @click="closeNewEvent">Cancel</button>
             <button
+              v-if="editingEventId"
               type="button"
-              class="new-event-create"
-              :disabled="!eventForm.title.trim()"
-              @click="createEvent"
+              class="new-event-delete"
+              @click="deleteEvent"
             >
-              Create Event
+              Delete
             </button>
+            <div class="new-event-dialog-actions-right">
+              <button type="button" class="new-event-cancel" @click="closeNewEvent">Cancel</button>
+              <button
+                type="button"
+                class="new-event-create"
+                :disabled="!eventForm.title.trim()"
+                @click="saveEvent"
+              >
+                {{ editingEventId ? 'Save Event' : 'Create Event' }}
+              </button>
+            </div>
           </footer>
         </section>
       </div>
@@ -1168,6 +1223,21 @@ onUnmounted(() => {
   background: var(--calendar-event-surface);
   color: var(--calendar-ink);
   overflow: hidden;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: filter var(--transition-fast);
+}
+
+.calendar-event:hover,
+.calendar-event:focus-visible {
+  filter: brightness(0.97);
+  outline: none;
+}
+
+[data-theme='dark'] .calendar-event:hover,
+[data-theme='dark'] .calendar-event:focus-visible {
+  filter: brightness(1.15);
 }
 
 .calendar-event strong {
@@ -1421,16 +1491,32 @@ onUnmounted(() => {
 }
 
 .month-event {
+  width: 100%;
   min-height: 28px;
   padding: 5px 8px;
   border: 1px solid var(--calendar-event-line);
   border-radius: 8px;
   background: var(--calendar-event-surface);
   color: var(--calendar-event-ink);
+  font-family: inherit;
   font-size: 12px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  transition: filter var(--transition-fast);
+}
+
+.month-event:hover,
+.month-event:focus-visible {
+  filter: brightness(0.97);
+  outline: none;
+}
+
+[data-theme='dark'] .month-event:hover,
+[data-theme='dark'] .month-event:focus-visible {
+  filter: brightness(1.15);
 }
 
 .month-event.tone-dark {
@@ -1596,12 +1682,20 @@ onUnmounted(() => {
 
 .new-event-dialog-actions {
   margin-top: 24px;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 12px;
 }
 
+.new-event-dialog-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
 .new-event-cancel,
-.new-event-create {
+.new-event-create,
+.new-event-delete {
   height: 42px;
   padding: 0 20px;
   border-radius: 999px;
@@ -1629,6 +1723,18 @@ onUnmounted(() => {
   background: var(--calendar-disabled);
   color: var(--calendar-disabled-ink);
   cursor: not-allowed;
+}
+
+.new-event-delete {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #ea4335;
+}
+
+.new-event-delete:hover,
+.new-event-delete:focus-visible {
+  background: rgba(234, 67, 53, 0.08);
+  outline: none;
 }
 
 .calendar-modal-enter-active,
@@ -1855,8 +1961,16 @@ onUnmounted(() => {
     gap: 10px;
   }
 
+  .new-event-dialog-actions-right {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    width: 100%;
+    margin-left: 0;
+  }
+
   .new-event-cancel,
-  .new-event-create {
+  .new-event-create,
+  .new-event-delete {
     width: 100%;
     min-width: 0;
     height: 56px;
