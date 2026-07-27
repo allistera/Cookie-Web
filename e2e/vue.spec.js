@@ -43,9 +43,16 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await page.locator('.calendar-page .new-event-button').click()
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Create with Cookie' })).toBeDisabled()
-  await dialog.getByRole('textbox', { name: 'Describe the event' }).fill('Lunch with Mia')
-  await dialog.getByRole('button', { name: 'Create with Cookie' }).click()
+  const titleInput = dialog.getByRole('textbox', { name: 'Event title' })
+  await expect(titleInput).toHaveAttribute('placeholder', 'New event')
+  await expect(titleInput).toBeFocused()
+  await expect(
+    dialog.getByRole('textbox', { name: 'Event description' }),
+  ).toHaveAttribute('placeholder', 'Tell Cookie what you need — it fills in the rest')
+  await expect(dialog.getByPlaceholder('Add location')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Create Event' })).toBeDisabled()
+  await titleInput.fill('Lunch with Mia')
+  await dialog.getByRole('button', { name: 'Create Event' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.month-event', { hasText: 'Lunch with Mia' })).toBeVisible()
 
@@ -89,8 +96,8 @@ test('Dragging on the day timeline opens New event with the date, start, and end
   await expect(timeInputs.nth(0)).toHaveValue('11:00')
   await expect(timeInputs.nth(1)).toHaveValue('12:00')
 
-  await dialog.getByRole('textbox', { name: 'Describe the event' }).fill('Dentist appointment')
-  await dialog.getByRole('button', { name: 'Create with Cookie' }).click()
+  await dialog.getByRole('textbox', { name: 'Event title' }).fill('Dentist appointment')
+  await dialog.getByRole('button', { name: 'Create Event' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.day-event', { hasText: 'Dentist appointment' })).toBeVisible()
 })

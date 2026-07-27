@@ -78,14 +78,26 @@ describe('CalendarView', () => {
     expect(wrapper.get('h1').text()).toBe('August 2026')
   })
 
-  it('opens the New event dialog and adds a requested event to the selected date', async () => {
+  it('opens the New event dialog as a manual form with title focused and no AI input', async () => {
     const wrapper = mount(CalendarView, { attachTo: document.body })
 
     await wrapper.get('.calendar-sidebar-create').trigger('click')
+
+    const title = wrapper.get('.new-event-title-input')
+    expect(title.attributes('placeholder')).toBe('New event')
+    expect(title.element).toBe(document.activeElement)
+
+    const description = wrapper.get('.new-event-description-input')
+    expect(description.attributes('placeholder')).toBe('Tell Cookie what you need — it fills in the rest')
+
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
+    expect(wrapper.find('input[placeholder="Add location"]').exists()).toBe(true)
+    expect(wrapper.get('.new-event-create').text()).toBe('Create Event')
+
     const create = wrapper.get('.new-event-create')
     expect(create.attributes('disabled')).toBeDefined()
 
-    await wrapper.get('.new-event-request').setValue('Lunch with Mia')
+    await title.setValue('Lunch with Mia')
     expect(wrapper.get('.new-event-create').attributes('disabled')).toBeUndefined()
     await wrapper.get('.new-event-create').trigger('click')
 
@@ -110,7 +122,7 @@ describe('CalendarView', () => {
     expect(timeInputs[0].element.value).toBe('09:00')
     expect(timeInputs[1].element.value).toBe('10:00')
 
-    await wrapper.get('.new-event-request').setValue('Dentist appointment')
+    await wrapper.get('.new-event-title-input').setValue('Dentist appointment')
     await wrapper.get('.new-event-create').trigger('click')
 
     expect(wrapper.find('.new-event-dialog').exists()).toBe(false)

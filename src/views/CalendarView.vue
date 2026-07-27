@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const REFERENCE_DATE = new Date(2026, 6, 24)
 const DAY_HOUR_HEIGHT = 96
@@ -12,8 +12,8 @@ const SNAP_MINUTES = 15
 const viewMode = ref('day')
 const selectedDate = ref(new Date(REFERENCE_DATE))
 const showNewEvent = ref(false)
-const eventRequest = ref('')
-const eventDraft = ref(null)
+const eventForm = ref(null)
+const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
 const suggestionVisible = ref(true)
@@ -267,39 +267,43 @@ function goToday() {
 }
 
 function openNewEvent(prefill) {
-  eventDraft.value = prefill
-    ? {
-        date: dateKey(prefill.date),
-        start: minutesToTimeString(prefill.startMinutes),
-        end: minutesToTimeString(prefill.endMinutes),
-      }
-    : null
+  eventForm.value = {
+    title: '',
+    description: '',
+    location: '',
+    date: dateKey(prefill ? prefill.date : selectedDate.value),
+    start: prefill ? minutesToTimeString(prefill.startMinutes) : '14:00',
+    end: prefill ? minutesToTimeString(prefill.endMinutes) : '14:30',
+  }
   showNewEvent.value = true
 }
 
 function closeNewEvent() {
   showNewEvent.value = false
-  eventRequest.value = ''
-  eventDraft.value = null
+  eventForm.value = null
 }
 
 function createEvent() {
-  const title = eventRequest.value.trim()
+  const title = eventForm.value.title.trim()
   if (!title) return
-  const draft = eventDraft.value
+  const { date, start, end, location, description } = eventForm.value
   generatedEvents.value.push({
     id: `generated-${Date.now()}`,
     title,
-    date: draft ? draft.date : dateKey(selectedDate.value),
-    start: draft ? draft.start : '14:00',
-    duration: draft
-      ? Math.max(timeStringToMinutes(draft.end) - timeStringToMinutes(draft.start), SNAP_MINUTES)
-      : 30,
+    date,
+    start,
+    duration: Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES),
     tone: 'accepted',
     calendar: 'personal',
+    location: location.trim() || undefined,
+    description: description.trim() || undefined,
   })
   closeNewEvent()
 }
+
+watch(showNewEvent, (open) => {
+  if (open) nextTick(() => eventTitleInput.value?.focus())
+})
 
 function beginDrag(event, date, hourHeight, view) {
   if (event.button !== 0) return
@@ -619,15 +623,26 @@ onUnmounted(() => {
           class="new-event-dialog"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="new-event-title"
+          aria-label="New event"
         >
           <header class="new-event-dialog-header">
-            <span class="new-event-dialog-icon material-symbols-outlined" aria-hidden="true">
-              auto_awesome
-            </span>
-            <div>
-              <h2 id="new-event-title">New event</h2>
-              <p>Tell Cookie what you need — it fills in the rest</p>
+            <div class="new-event-dialog-fields">
+              <input
+                ref="eventTitleInput"
+                v-model="eventForm.title"
+                type="text"
+                class="new-event-title-input"
+                placeholder="New event"
+                aria-label="Event title"
+                @keydown.enter.prevent="createEvent"
+              />
+              <input
+                v-model="eventForm.description"
+                type="text"
+                class="new-event-description-input"
+                placeholder="Tell Cookie what you need — it fills in the rest"
+                aria-label="Event description"
+              />
             </div>
             <button type="button" class="new-event-close" aria-label="Close" @click="closeNewEvent">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -636,34 +651,26 @@ onUnmounted(() => {
             </button>
           </header>
 
-          <div v-if="eventDraft" class="new-event-datetime">
-            <label class="new-event-datetime-field">
+          <div class="new-event-datetime">
+            <label class="new-event-field new-event-datetime-field">
               <span>Date</span>
-              <input v-model="eventDraft.date" type="date" />
+              <input v-model="eventForm.date" type="date" />
             </label>
-            <label class="new-event-datetime-field">
+            <label class="new-event-field new-event-datetime-field">
               <span>Start</span>
-              <input v-model="eventDraft.start" type="time" />
+              <input v-model="eventForm.start" type="time" />
             </label>
-            <label class="new-event-datetime-field">
+            <label class="new-event-field new-event-datetime-field">
               <span>End</span>
-              <input v-model="eventDraft.end" type="time" />
+              <input v-model="eventForm.end" type="time" />
             </label>
           </div>
 
-          <div class="new-event-request-wrap">
-            <div class="composer-ai-inline">
-              <span class="material-symbols-outlined" aria-hidden="true">auto_fix_high</span>
-              <input
-                v-model="eventRequest"
-                type="text"
-                class="composer-ai-inline-input new-event-request"
-                maxlength="1000"
-                placeholder="e.g. Coffee with Sam next week, 30 min"
-                aria-label="Describe the event"
-                @keydown.enter.prevent="createEvent"
-              />
-            </div>
+          <div class="new-event-location-wrap">
+            <label class="new-event-field">
+              <span>Location</span>
+              <input v-model="eventForm.location" type="text" placeholder="Add location" />
+            </label>
           </div>
 
           <footer class="new-event-dialog-actions">
@@ -671,10 +678,10 @@ onUnmounted(() => {
             <button
               type="button"
               class="new-event-create"
-              :disabled="!eventRequest.trim()"
+              :disabled="!eventForm.title.trim()"
               @click="createEvent"
             >
-              Create with Cookie
+              Create Event
             </button>
           </footer>
         </section>
@@ -1467,30 +1474,48 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.new-event-dialog-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 13px;
-  background: var(--calendar-mint);
-  color: var(--calendar-mint-strong);
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  font-size: 22px;
+.new-event-dialog-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.new-event-dialog-header h2 {
-  margin: 0;
+.new-event-title-input,
+.new-event-description-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--font-stack);
   color: var(--calendar-ink);
+  transition: border-color var(--transition-fast);
+}
+
+.new-event-title-input {
   font-size: 22px;
   font-weight: 600;
   line-height: 1.15;
 }
 
-.new-event-dialog-header p {
-  margin: 8px 0 0;
-  color: var(--calendar-muted);
+.new-event-description-input {
   font-size: 14px;
+}
+
+.new-event-title-input::placeholder,
+.new-event-description-input::placeholder {
+  color: var(--calendar-muted);
+  opacity: 1;
+}
+
+.new-event-title-input:hover,
+.new-event-title-input:focus,
+.new-event-description-input:hover,
+.new-event-description-input:focus {
+  border-bottom-color: var(--calendar-line);
 }
 
 .new-event-close {
@@ -1519,15 +1544,13 @@ onUnmounted(() => {
   margin-top: 24px;
 }
 
-.new-event-datetime-field {
-  flex: 1;
-  min-width: 0;
+.new-event-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.new-event-datetime-field span {
+.new-event-field span {
   color: var(--calendar-muted);
   font-size: 12px;
   font-weight: 600;
@@ -1535,7 +1558,7 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.new-event-datetime-field input {
+.new-event-field input {
   height: 40px;
   padding: 0 12px;
   border: 1px solid var(--calendar-line);
@@ -1548,17 +1571,27 @@ onUnmounted(() => {
   color-scheme: light;
 }
 
-[data-theme='dark'] .new-event-datetime-field input {
+[data-theme='dark'] .new-event-field input {
   color-scheme: dark;
 }
 
-.new-event-datetime-field input:focus {
+.new-event-field input::placeholder {
+  color: var(--calendar-muted);
+  opacity: 1;
+}
+
+.new-event-field input:focus {
   border-color: var(--calendar-emphasis);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--calendar-emphasis) 20%, transparent);
 }
 
-.new-event-request-wrap {
-  margin-top: 28px;
+.new-event-datetime-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.new-event-location-wrap {
+  margin-top: 16px;
 }
 
 .new-event-dialog-actions {
@@ -1585,7 +1618,7 @@ onUnmounted(() => {
 }
 
 .new-event-create {
-  min-width: 190px;
+  min-width: 150px;
   border: 1px solid var(--calendar-emphasis);
   background: var(--calendar-emphasis);
   color: var(--calendar-on-emphasis);
@@ -1799,22 +1832,15 @@ onUnmounted(() => {
     border-radius: 28px;
   }
 
-  .new-event-dialog-icon {
-    width: 54px;
-    height: 54px;
-    border-radius: 16px;
-    font-size: 26px;
-  }
-
   .new-event-dialog-header {
     gap: 14px;
   }
 
-  .new-event-dialog-header h2 {
+  .new-event-title-input {
     font-size: 26px;
   }
 
-  .new-event-dialog-header p {
+  .new-event-description-input {
     font-size: 16px;
   }
 
