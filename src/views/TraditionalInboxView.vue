@@ -393,6 +393,28 @@ function toggleThreadMessage(id) {
   else next.add(id)
   expandedThreadIds.value = next
 }
+
+// The open email's attachments. blob_url is only present once the ingestion
+// worker stores an actual downloadable blob (currently metadata-only), so a
+// chip with no blob_url renders as inert rather than a broken link.
+const openEmailAttachments = computed(() => store.openEmailAttachments)
+
+function attachmentIcon(contentType) {
+  if (!contentType) return 'attach_file'
+  if (contentType.startsWith('image/')) return 'image'
+  if (contentType.startsWith('video/')) return 'movie'
+  if (contentType.startsWith('audio/')) return 'audiotrack'
+  if (contentType === 'application/pdf') return 'picture_as_pdf'
+  if (contentType.includes('zip') || contentType.includes('compressed')) return 'folder_zip'
+  return 'draft'
+}
+
+function formatFileSize(bytes) {
+  if (typeof bytes !== 'number' || Number.isNaN(bytes)) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 // RFC header metadata wins. When it is confirmed absent, EmailBody may supply
 // a validated manual link discovered in the rendered message content.
 const contentUnsubscribe = ref(null)
@@ -773,6 +795,13 @@ onUnmounted(() => {
               }}</span>
               {{ email.readAt ? 'Opened' : 'Sent' }}
             </span>
+            <span
+              v-if="email.hasAttachments"
+              class="material-symbols-outlined ni-row-attachment-icon"
+              title="Has attachments"
+              aria-label="Has attachments"
+              >attach_file</span
+            >
             <span>{{ email.date }}</span>
           </div>
           <div class="ni-actions" @click.stop>
@@ -1111,6 +1140,31 @@ onUnmounted(() => {
             @keydown="forwardEmailKeydown"
             @unsubscribe-link="setContentUnsubscribe"
           />
+
+          <div v-if="openEmailAttachments.length" class="ni-attachments" aria-label="Attachments">
+            <component
+              :is="attachment.blob_url ? 'a' : 'div'"
+              v-for="attachment in openEmailAttachments"
+              :key="attachment.id"
+              class="ni-attachment"
+              :href="attachment.blob_url || undefined"
+              :target="attachment.blob_url ? '_blank' : undefined"
+              :rel="attachment.blob_url ? 'noopener noreferrer' : undefined"
+              :title="
+                attachment.blob_url
+                  ? `Download ${attachment.filename}`
+                  : `${attachment.filename} (download not yet available)`
+              "
+            >
+              <span class="material-symbols-outlined ni-attachment-icon" aria-hidden="true">
+                {{ attachmentIcon(attachment.content_type) }}
+              </span>
+              <span class="ni-attachment-name">{{ attachment.filename || 'Attachment' }}</span>
+              <span v-if="attachment.size_bytes != null" class="ni-attachment-size">{{
+                formatFileSize(attachment.size_bytes)
+              }}</span>
+            </component>
+          </div>
         </div>
 
         <!-- Inline reply box -->

@@ -67,6 +67,7 @@ describe('Inbox Store', () => {
         readCount: 0,
         hasHtml: false,
         hasAiSummary: true,
+        hasAttachments: false,
         labels: [],
       },
     ])
@@ -1362,7 +1363,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     const body = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
 
-    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [] })
+    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [], attachments: [] })
     store.traditionalEmails = [{ id: '11111111-1111-1111-1111-111111111111' }]
     store.openEmailId = '11111111-1111-1111-1111-111111111111'
     expect(store.openEmailSummary).toBe('The saved project update.')
@@ -1373,7 +1374,7 @@ describe('Inbox Store', () => {
 
     // Second call for the same id is served from cache — no second request.
     const again = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
-    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [] })
+    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [], attachments: [] })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -1396,6 +1397,7 @@ describe('Inbox Store', () => {
       text: 'plain only',
       unsubscribe: null,
       thread: [],
+      attachments: [],
     })
     expect(store.openEmailHtml).toBe(null)
   })
@@ -1430,6 +1432,34 @@ describe('Inbox Store', () => {
   it('openEmailThread is empty before the body fetch resolves or when there is no thread', () => {
     const store = useInboxStore()
     expect(store.openEmailThread).toEqual([])
+  })
+
+  it('openEmailAttachments exposes the open message\'s attachments once the body fetch lands', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'msg-1',
+          body_html: null,
+          body_text: 'See attached',
+          attachments: [
+            { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null },
+          ],
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'msg-1', body: 'See attached' }]
+    store.openEmailId = 'msg-1'
+    expect(store.openEmailAttachments).toEqual([])
+
+    await store.fetchMessageBody('msg-1')
+
+    expect(store.openEmailAttachments).toEqual([
+      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null },
+    ])
   })
 
   it('fetchMessageBody returns null and does not cache on failure', async () => {

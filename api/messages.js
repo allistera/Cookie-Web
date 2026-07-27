@@ -39,6 +39,20 @@ export function fetchThreadMessages(sql, threadId, email) {
   `
 }
 
+// A message's attachments, ordered by filename. blob_url is currently always
+// null in production (the inbound worker stores metadata only — see
+// migrations/0003), so the reader shows these as informational chips and
+// only renders a download link once a row actually carries a blob_url.
+// messageId ownership is already verified by the caller before this runs.
+export function fetchMessageAttachments(sql, messageId) {
+  return sql`
+    SELECT id, filename, content_type, size_bytes, blob_url
+    FROM attachments
+    WHERE message_id = ${messageId}
+    ORDER BY filename
+  `
+}
+
 // 404 for a message that is not the caller's (or does not exist), 400 for a
 // malformed id.
 async function handleGet(req, res, email) {
@@ -60,9 +74,14 @@ async function handleGet(req, res, email) {
     // Never return the raw sender-controlled headers to the client; expose only
     // the parsed, safe unsubscribe summary.
     const { headers, thread_id, ...rest } = rows[0]
-    const thread = thread_id ? await fetchThreadMessages(sql, thread_id, email) : []
+    const [thread, attachments] = await Promise.all([
+      thread_id ? fetchThreadMessages(sql, thread_id, email) : [],
+      fetchMessageAttachments(sql, id),
+    ])
     res.statusCode = 200
-    res.end(JSON.stringify({ ...rest, unsubscribe: parseListUnsubscribe(headers), thread }))
+    res.end(
+      JSON.stringify({ ...rest, unsubscribe: parseListUnsubscribe(headers), thread, attachments }),
+    )
   } catch (err) {
     console.error('GET /api/messages failed:', err)
     await captureApiError(err, { route: 'GET /api/messages' })

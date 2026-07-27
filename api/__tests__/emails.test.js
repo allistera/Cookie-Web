@@ -14,7 +14,7 @@ vi.mock('../_lib/db.js', () => ({
   getSql: () => () => Promise.resolve(rows),
 }))
 
-import handler from '../emails.js'
+import handler, { fetchEmails } from '../emails.js'
 
 function makeRes() {
   return {
@@ -54,5 +54,19 @@ describe('GET /api/emails handler', () => {
     expect(res.body).toMatchObject({ emails: [], nextCursor: null })
     expect(res.body).not.toHaveProperty('unreadCount')
     expect(res.body).not.toHaveProperty('userId')
+  })
+})
+
+describe('fetchEmails', () => {
+  it('includes a has_attachments flag scoped to each message', () => {
+    let query = ''
+    const sql = (strings) => {
+      query = strings.join('?')
+      return []
+    }
+
+    fetchEmails(sql, 'owner@example.com', 50, null, 'inbox')
+
+    expect(query).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments')
   })
 })

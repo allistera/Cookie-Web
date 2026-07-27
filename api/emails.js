@@ -19,6 +19,7 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
            m.is_sent, m.scheduled_for, ai.spam_score,
            BOOL_OR(NULLIF(BTRIM(ai.summary), '') IS NOT NULL) AS has_ai_summary,
            (m.body_html IS NOT NULL) AS has_html,
+           EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments,
            COALESCE(
              json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
                       ORDER BY l.name)

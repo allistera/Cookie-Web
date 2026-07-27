@@ -1780,6 +1780,57 @@ body {
   white-space: pre-wrap;
 }
 
+.ni-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ni-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-primary);
+  text-decoration: none;
+  max-width: 220px;
+}
+
+a.ni-attachment:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-secondary);
+}
+
+.ni-attachment-icon {
+  flex-shrink: 0;
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.ni-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ni-attachment-size {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.ni-row-attachment-icon {
+  font-size: 17px;
+  color: var(--text-secondary);
+}
+
 .ni-reader-topbar,
 .ni-reader-subject,
 .ni-reader-labels,

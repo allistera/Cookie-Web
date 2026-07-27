@@ -176,6 +176,7 @@ function mapEmailRow(message) {
     hasHtml: Boolean(message.has_html),
     // List endpoints expose only summary presence, never the generated text.
     hasAiSummary: Boolean(message.has_ai_summary),
+    hasAttachments: Boolean(message.has_attachments),
     labels: message.labels || [],
   }
 }
@@ -357,6 +358,12 @@ export const useInboxStore = defineStore('inbox', {
     openEmailThread(state) {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return (cached?.thread ?? []).filter((message) => message.id !== state.openEmailId)
+    },
+    // The open email's attachments (metadata only until the ingestion worker
+    // stores blobs — see fetchMessageAttachments in api/messages.js).
+    openEmailAttachments(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.attachments ?? []
     },
   },
 
@@ -786,12 +793,13 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
-        const { body_html, body_text, unsubscribe, summary, thread } = await response.json()
+        const { body_html, body_text, unsubscribe, summary, thread, attachments } = await response.json()
         const body = {
           html: body_html ?? null,
           text: body_text ?? null,
           unsubscribe: unsubscribe ?? null,
           thread: Array.isArray(thread) ? thread : [],
+          attachments: Array.isArray(attachments) ? attachments : [],
         }
         this.messageBodies.set(id, body)
         if (typeof summary === 'string' && summary.trim()) {

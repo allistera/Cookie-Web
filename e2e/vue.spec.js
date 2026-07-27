@@ -547,6 +547,21 @@ test('Reader shows earlier thread messages as expandable conversation history', 
   await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
 })
 
+test('Attachments show a paperclip in the list and a chip in the reader', async ({ page }) => {
+  await page.goto('/inbox')
+  const row = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(row.locator('.ni-row-attachment-icon')).toBeVisible()
+
+  await row.click()
+  const reader = page.locator('.ni-reader')
+  const attachment = reader.locator('.ni-attachment')
+  await expect(attachment).toHaveCount(1)
+  await expect(attachment).toContainText('Revised-Floor-Plan.pdf')
+  await expect(attachment).toContainText('2.3 MB')
+  // blob_url is metadata-only today, so the chip must not be a clickable link.
+  await expect(attachment).not.toHaveAttribute('href', /.+/)
+})
+
 test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({
   page,
 }) => {

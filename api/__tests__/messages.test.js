@@ -14,7 +14,7 @@ vi.mock('../_lib/db.js', () => ({
   getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
 }))
 
-import handler from '../messages.js'
+import handler, { fetchMessageAttachments } from '../messages.js'
 
 function makeRes() {
   return {
@@ -111,13 +111,14 @@ describe('GET /api/messages', () => {
     sqlQueue = []
   })
 
-  it('returns the message body plus its thread history, oldest first', async () => {
+  it('returns the message body plus its thread history and attachments', async () => {
     sqlQueue = [
       [{ id: MESSAGE_ID, thread_id: 'thread-1', body_html: '<p>Hi</p>', body_text: 'Hi', headers: {} }],
       [
         { id: 'earlier-id', from_name: 'Alice', snippet: 'Earlier message', sent_at: '2026-01-01T00:00:00Z' },
         { id: MESSAGE_ID, from_name: 'Bob', snippet: 'Hi', sent_at: '2026-01-02T00:00:00Z' },
       ],
+      [{ id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null }],
     ]
     const res = makeRes()
     await handler(get(MESSAGE_ID), res)
@@ -126,6 +127,9 @@ describe('GET /api/messages', () => {
     expect(res.body.body_html).toBe('<p>Hi</p>')
     expect(res.body.thread).toHaveLength(2)
     expect(res.body.thread[0].id).toBe('earlier-id')
+    expect(res.body.attachments).toEqual([
+      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null },
+    ])
     expect(res.body.headers).toBeUndefined()
   })
 
@@ -143,5 +147,24 @@ describe('GET /api/messages', () => {
     await handler(get('not-a-uuid'), res)
 
     expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('fetchMessageAttachments', () => {
+  it('reads the attachments table scoped to the message, ordered by filename', () => {
+    let query = ''
+    const values = []
+    const sql = (strings, ...vals) => {
+      query = strings.join('?')
+      values.push(...vals)
+      return []
+    }
+
+    fetchMessageAttachments(sql, MESSAGE_ID)
+
+    expect(query).toContain('FROM attachments')
+    expect(query).toContain('WHERE message_id =')
+    expect(query).toContain('ORDER BY filename')
+    expect(values).toEqual([MESSAGE_ID])
   })
 })
