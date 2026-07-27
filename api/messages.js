@@ -17,11 +17,25 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // reader can restore it without inflating every inbox-list response.
 export function fetchOwnedMessageBody(sql, id, email) {
   return sql`
-    SELECT m.id, m.body_html, m.body_text, m.headers, ai.summary
+    SELECT m.id, m.thread_id, m.body_html, m.body_text, m.headers, ai.summary
     FROM messages m
     JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     WHERE m.id = ${id} AND lower(u.email) = ${email}
+  `
+}
+
+// The other messages in this message's conversation (thread_id), oldest
+// first, for the reader's collapsed conversation history. Only the summary
+// fields are selected — body_html/blob URLs are deliberately left out, same
+// as the inbox list, since older thread messages render as plain text.
+export function fetchThreadMessages(sql, threadId, email) {
+  return sql`
+    SELECT m.id, m.from_name, m.from_address, m.snippet, m.body_text, m.sent_at, m.is_sent
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.thread_id = ${threadId} AND lower(u.email) = ${email}
+    ORDER BY m.sent_at ASC
   `
 }
 
@@ -45,9 +59,10 @@ async function handleGet(req, res, email) {
     }
     // Never return the raw sender-controlled headers to the client; expose only
     // the parsed, safe unsubscribe summary.
-    const { headers, ...rest } = rows[0]
+    const { headers, thread_id, ...rest } = rows[0]
+    const thread = thread_id ? await fetchThreadMessages(sql, thread_id, email) : []
     res.statusCode = 200
-    res.end(JSON.stringify({ ...rest, unsubscribe: parseListUnsubscribe(headers) }))
+    res.end(JSON.stringify({ ...rest, unsubscribe: parseListUnsubscribe(headers), thread }))
   } catch (err) {
     console.error('GET /api/messages failed:', err)
     await captureApiError(err, { route: 'GET /api/messages' })

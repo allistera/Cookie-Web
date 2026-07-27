@@ -95,7 +95,7 @@ function reversibleMessageUpdate(
 }
 
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
-function formatEmailDate(isoString) {
+export function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -350,6 +350,13 @@ export const useInboxStore = defineStore('inbox', {
     },
     isOpenSummaryLoading(state) {
       return state.summaryLoadingId !== null && state.summaryLoadingId === state.openEmailId
+    },
+    // The open email's other conversation messages (oldest first), excluding
+    // itself — empty until the body fetch lands, or when it is the thread's
+    // only message. Drives the reader's collapsed conversation history.
+    openEmailThread(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return (cached?.thread ?? []).filter((message) => message.id !== state.openEmailId)
     },
   },
 
@@ -779,11 +786,12 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
-        const { body_html, body_text, unsubscribe, summary } = await response.json()
+        const { body_html, body_text, unsubscribe, summary, thread } = await response.json()
         const body = {
           html: body_html ?? null,
           text: body_text ?? null,
           unsubscribe: unsubscribe ?? null,
+          thread: Array.isArray(thread) ? thread : [],
         }
         this.messageBodies.set(id, body)
         if (typeof summary === 'string' && summary.trim()) {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useInboxStore } from '../stores/inbox'
+import { useInboxStore, formatEmailDate } from '../stores/inbox'
 import EmailBody from '../components/EmailBody.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import { scheduleChoices } from '../utils/schedule'
@@ -379,6 +379,20 @@ const openEmail = computed(() => store.openEmail)
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
 // message has no HTML body (permanent text fallback).
 const openEmailHtml = computed(() => store.openEmailHtml)
+// Earlier messages in the open email's conversation, shown as collapsed
+// cards above it (expand-in-place to plain text) — a lightweight threaded
+// view. Reset per open so a previous email's expanded state never leaks.
+const threadHistory = computed(() => store.openEmailThread)
+const expandedThreadIds = ref(new Set())
+watch(() => store.openEmailId, () => {
+  expandedThreadIds.value = new Set()
+})
+function toggleThreadMessage(id) {
+  const next = new Set(expandedThreadIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedThreadIds.value = next
+}
 // RFC header metadata wins. When it is confirmed absent, EmailBody may supply
 // a validated manual link discovered in the rendered message content.
 const contentUnsubscribe = ref(null)
@@ -1030,6 +1044,30 @@ onUnmounted(() => {
             <span>AI summary</span>
           </div>
           <p>{{ openEmailSummary }}</p>
+        </div>
+
+        <div v-if="threadHistory.length" class="ni-thread-history" aria-label="Earlier messages">
+          <button
+            v-for="message in threadHistory"
+            :key="message.id"
+            type="button"
+            class="ni-thread-message"
+            :class="{ expanded: expandedThreadIds.has(message.id) }"
+            :aria-expanded="expandedThreadIds.has(message.id)"
+            @click="toggleThreadMessage(message.id)"
+          >
+            <div class="ni-thread-message-summary">
+              <span class="ni-thread-message-sender">{{ message.from_name || message.from_address }}</span>
+              <span class="ni-thread-message-time">{{ formatEmailDate(message.sent_at) }}</span>
+              <span class="material-symbols-outlined ni-thread-message-chevron" aria-hidden="true">
+                {{ expandedThreadIds.has(message.id) ? 'expand_less' : 'expand_more' }}
+              </span>
+            </div>
+            <p v-if="!expandedThreadIds.has(message.id)" class="ni-thread-message-snippet">
+              {{ message.snippet }}
+            </p>
+            <p v-else class="ni-thread-message-body">{{ message.body_text }}</p>
+          </button>
         </div>
 
         <div class="ni-email-card">

@@ -521,6 +521,32 @@ test('Reader restores a saved AI summary and offers to regenerate it', async ({ 
   await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
 })
 
+test('Reader shows earlier thread messages as expandable conversation history', async ({ page }) => {
+  await page.goto('/inbox')
+  const row = page.locator('.ni-row', { hasText: 'City Construction' })
+  await row.click()
+
+  const reader = page.locator('.ni-reader')
+  const history = reader.locator('.ni-thread-history')
+  await expect(history).toBeVisible()
+
+  const earlierMessage = history.locator('.ni-thread-message')
+  await expect(earlierMessage).toHaveCount(1)
+  await expect(earlierMessage).toContainText('City Construction')
+  await expect(earlierMessage).toContainText('Quick check-in before we finalize the kitchen floor plan design.')
+  await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
+
+  await earlierMessage.click()
+  await expect(earlierMessage).toHaveClass(/expanded/)
+  await expect(earlierMessage.locator('.ni-thread-message-body')).toContainText(
+    'any thoughts on the window placement we discussed',
+  )
+
+  await earlierMessage.click()
+  await expect(earlierMessage).not.toHaveClass(/expanded/)
+  await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
+})
+
 test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({
   page,
 }) => {

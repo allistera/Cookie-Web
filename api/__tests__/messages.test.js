@@ -37,6 +37,10 @@ function post(body) {
   return { method: 'POST', url: '/api/messages', headers: {}, body }
 }
 
+function get(id) {
+  return { method: 'GET', url: `/api/messages?id=${id}`, headers: {} }
+}
+
 describe('POST /api/messages label actions', () => {
   beforeEach(() => {
     sqlQueue = []
@@ -97,6 +101,46 @@ describe('POST /api/messages label actions', () => {
   it('rejects an unknown action with 400', async () => {
     const res = makeRes()
     await handler(post({ id: MESSAGE_ID, action: 'frobnicate' }), res)
+
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('GET /api/messages', () => {
+  beforeEach(() => {
+    sqlQueue = []
+  })
+
+  it('returns the message body plus its thread history, oldest first', async () => {
+    sqlQueue = [
+      [{ id: MESSAGE_ID, thread_id: 'thread-1', body_html: '<p>Hi</p>', body_text: 'Hi', headers: {} }],
+      [
+        { id: 'earlier-id', from_name: 'Alice', snippet: 'Earlier message', sent_at: '2026-01-01T00:00:00Z' },
+        { id: MESSAGE_ID, from_name: 'Bob', snippet: 'Hi', sent_at: '2026-01-02T00:00:00Z' },
+      ],
+    ]
+    const res = makeRes()
+    await handler(get(MESSAGE_ID), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.body_html).toBe('<p>Hi</p>')
+    expect(res.body.thread).toHaveLength(2)
+    expect(res.body.thread[0].id).toBe('earlier-id')
+    expect(res.body.headers).toBeUndefined()
+  })
+
+  it('404s when the message does not exist or is not the caller’s', async () => {
+    sqlQueue = [[]]
+    const res = makeRes()
+    await handler(get(MESSAGE_ID), res)
+
+    expect(res.statusCode).toBe(404)
+    expect(res.body.error).toBe('Message not found')
+  })
+
+  it('rejects a malformed id with 400', async () => {
+    const res = makeRes()
+    await handler(get('not-a-uuid'), res)
 
     expect(res.statusCode).toBe(400)
   })

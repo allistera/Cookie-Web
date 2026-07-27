@@ -1362,7 +1362,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     const body = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
 
-    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null })
+    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [] })
     store.traditionalEmails = [{ id: '11111111-1111-1111-1111-111111111111' }]
     store.openEmailId = '11111111-1111-1111-1111-111111111111'
     expect(store.openEmailSummary).toBe('The saved project update.')
@@ -1373,7 +1373,7 @@ describe('Inbox Store', () => {
 
     // Second call for the same id is served from cache — no second request.
     const again = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
-    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null })
+    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [] })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -1391,8 +1391,45 @@ describe('Inbox Store', () => {
     store.openEmailId = 'abc'
     await store.fetchMessageBody('abc')
 
-    expect(store.messageBodies.get('abc')).toEqual({ html: null, text: 'plain only', unsubscribe: null })
+    expect(store.messageBodies.get('abc')).toEqual({
+      html: null,
+      text: 'plain only',
+      unsubscribe: null,
+      thread: [],
+    })
     expect(store.openEmailHtml).toBe(null)
+  })
+
+  it('openEmailThread exposes the conversation history, excluding the open message itself', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'msg-2',
+          body_html: null,
+          body_text: 'Latest reply',
+          thread: [
+            { id: 'msg-1', from_name: 'Alice', snippet: 'First message', sent_at: '2026-01-01T00:00:00Z' },
+            { id: 'msg-2', from_name: 'Bob', snippet: 'Latest reply', sent_at: '2026-01-02T00:00:00Z' },
+          ],
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'msg-2', body: 'Latest reply' }]
+    store.openEmailId = 'msg-2'
+    await store.fetchMessageBody('msg-2')
+
+    expect(store.openEmailThread).toEqual([
+      { id: 'msg-1', from_name: 'Alice', snippet: 'First message', sent_at: '2026-01-01T00:00:00Z' },
+    ])
+  })
+
+  it('openEmailThread is empty before the body fetch resolves or when there is no thread', () => {
+    const store = useInboxStore()
+    expect(store.openEmailThread).toEqual([])
   })
 
   it('fetchMessageBody returns null and does not cache on failure', async () => {

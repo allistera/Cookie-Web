@@ -26,6 +26,27 @@ export function fixtureMessageBody(id) {
       body_html: HOSTILE_HTML,
       body_text: 'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
       unsubscribe: null,
+      thread: [
+        {
+          id: 'fixture-1-earlier',
+          from_name: 'City Construction',
+          from_address: 'updates@cityconstruction.com',
+          snippet: 'Quick check-in before we finalize the kitchen floor plan design.',
+          body_text:
+            'Hi Allister, quick check-in before we finalize the kitchen floor plan design — any thoughts on the window placement we discussed?',
+          sent_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+          is_sent: false,
+        },
+        {
+          id,
+          from_name: 'City Construction',
+          from_address: 'updates@cityconstruction.com',
+          snippet: 'Hi Allister, here is the updated design bringing more natural light...',
+          body_text: 'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
+          sent_at: new Date(Date.now() - 0.5 * 60 * 60 * 1000).toISOString(),
+          is_sent: false,
+        },
+      ],
     }
   }
   // The Daily Bites newsletter (see api/_fixtures/emails.js) advertises
@@ -41,7 +62,8 @@ export function fixtureMessageBody(id) {
         url: 'https://news.dailybites.example/unsubscribe?u=42',
         mailto: { address: 'unsubscribe@dailybites.example', subject: null },
       },
+      thread: [],
     }
   }
-  return { id: id ?? null, body_html: null, body_text: null, unsubscribe: null }
+  return { id: id ?? null, body_html: null, body_text: null, unsubscribe: null, thread: [] }
 }

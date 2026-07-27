@@ -1713,6 +1713,73 @@ body {
   white-space: pre-wrap;
 }
 
+.ni-thread-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ni-thread-message {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ni-thread-message.expanded {
+  background: var(--bg-card);
+}
+
+.ni-thread-message-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ni-thread-message-sender {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ni-thread-message-time {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ni-thread-message-chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.ni-thread-message-snippet,
+.ni-thread-message-body {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ni-thread-message-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ni-thread-message-body {
+  white-space: pre-wrap;
+}
+
 .ni-reader-topbar,
 .ni-reader-subject,
 .ni-reader-labels,
