@@ -1,7 +1,7 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
-import { readJsonBody } from './_lib/body.js'
+import { getSql } from './db.js'
+import { verifyAccessToken } from './auth.js'
+import { captureApiError } from './sentry.js'
+import { readJsonBody } from './body.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLOR_RE = /^#[0-9a-f]{6}$/i
@@ -189,9 +189,9 @@ async function deleteCalendar(sql, email, body, res) {
   res.end(JSON.stringify({ ok: true }))
 }
 
-// /api/calendars — GET lists the user's calendars (seeding defaults for a
-// brand new user), POST creates one, PATCH renames one, DELETE removes one
-// (rejected while it still has events).
+// /api/calendar-events?resource=calendars — GET lists the user's calendars
+// (seeding defaults for a brand new user), POST creates one, PATCH renames
+// one, DELETE removes one (rejected while it still has events).
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -232,8 +232,8 @@ export default async function handler(req, res) {
       res.end(JSON.stringify({ error: 'Calendar management is being upgraded. Try again shortly.' }))
       return
     }
-    console.error(`${req.method} /api/calendars failed:`, err)
-    await captureApiError(err, { route: `${req.method} /api/calendars` })
+    console.error(`${req.method} calendar management failed:`, err)
+    await captureApiError(err, { route: `${req.method} calendar management` })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Calendars request failed' }))
   }

@@ -121,9 +121,24 @@ function localApiPlugin(mode) {
   const handleMessages = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
+      const url = new URL(req.url, 'http://localhost')
+      if (url.searchParams.get('resource') === 'contacts') {
+        const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+        const contacts = new Map()
+        for (const email of fixtureEmails()) {
+          if (email.from_address) {
+            contacts.set(email.from_address, {
+              address: email.from_address,
+              name: email.from_name || null,
+            })
+          }
+        }
+        res.end(JSON.stringify({ contacts: [...contacts.values()] }))
+        return
+      }
       if (req.method === 'GET') {
         const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
-        const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+        const id = url.searchParams.get('id')
         const { summaries } = fixtureMailboxState(req, res)
         res.end(JSON.stringify({ ...fixtureMessageBody(id), summary: summaries.get(id) ?? null }))
         return
@@ -387,6 +402,11 @@ function localApiPlugin(mode) {
     await handler(req, res)
   }
   const handleCalendarEvents = async (req, res) => {
+    const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+    if (resource === 'calendars') {
+      await handleCalendars(req, res)
+      return
+    }
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const state = fixtureMailboxState(req, res)
       if (!state.calendarEvents) {
@@ -509,14 +529,13 @@ function localApiPlugin(mode) {
       res.end(JSON.stringify({ error: 'Method not allowed' }))
       return
     }
-    const { default: handler } = await import('./api/calendars.js')
+    const { default: handler } = await import('./api/_lib/calendars.js')
     await handler(req, res)
   }
   const mount = (server) => {
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/tasks', handleTasks)
     server.middlewares.use('/api/calendar-events', handleCalendarEvents)
-    server.middlewares.use('/api/calendars', handleCalendars)
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)

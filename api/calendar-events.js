@@ -2,6 +2,7 @@ import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
+import calendarsHandler from './_lib/calendars.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -218,6 +219,12 @@ async function deleteEvent(sql, email, body, res) {
 // /api/calendar-events — GET lists the user's events, POST creates one,
 // PATCH replaces one (full update, keyed by id), DELETE removes one.
 export default async function handler(req, res) {
+  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+  if (resource === 'calendars') {
+    await calendarsHandler(req, res)
+    return
+  }
+
   res.setHeader('Content-Type', 'application/json')
 
   let email

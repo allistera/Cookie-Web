@@ -1,4 +1,4 @@
-// Fixture rows in the same shape as GET /api/calendars. Served by the local
+// Fixture rows in the same shape as the calendar-management API. Served by the local
 // Vite middleware in e2e mode (and in dev when DATABASE_URL is unset) so the
 // Calendar view works without a database. Ids match the `calendar` field on
 // the seed rows in api/_fixtures/calendarEvents.js.

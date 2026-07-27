@@ -574,7 +574,7 @@ describe('Inbox Store', () => {
 
     await store.loadContacts() // already loaded: no second request
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/contacts')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/messages?resource=contacts')
   })
 
   it('setSignature persists the signature and openComposer prefills a fresh draft with it', () => {
@@ -611,7 +611,9 @@ describe('Inbox Store', () => {
 
     store.openComposer()
     expect(store.isComposerActive).toBe(true)
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/contacts', expect.anything()))
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/messages?resource=contacts', expect.anything()),
+    )
   })
 
   it('loadTasks fetches once and populates tasks for the AI dashboard', async () => {

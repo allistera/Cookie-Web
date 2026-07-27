@@ -14,7 +14,7 @@ vi.mock('../_lib/db.js', () => ({
   getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
 }))
 
-import handler, { fetchCalendars } from '../calendars.js'
+import handler, { fetchCalendars } from '../_lib/calendars.js'
 
 function makeRes() {
   return {
@@ -33,16 +33,16 @@ function makeRes() {
 const CALENDAR_ID = '11111111-1111-1111-1111-111111111111'
 
 function get() {
-  return { method: 'GET', url: '/api/calendars', headers: {} }
+  return { method: 'GET', url: '/api/calendar-events?resource=calendars', headers: {} }
 }
 function post(body) {
-  return { method: 'POST', url: '/api/calendars', headers: {}, body }
+  return { method: 'POST', url: '/api/calendar-events?resource=calendars', headers: {}, body }
 }
 function patch(body) {
-  return { method: 'PATCH', url: '/api/calendars', headers: {}, body }
+  return { method: 'PATCH', url: '/api/calendar-events?resource=calendars', headers: {}, body }
 }
 function del(body) {
-  return { method: 'DELETE', url: '/api/calendars', headers: {}, body }
+  return { method: 'DELETE', url: '/api/calendar-events?resource=calendars', headers: {}, body }
 }
 
 describe('fetchCalendars', () => {
@@ -65,7 +65,7 @@ describe('fetchCalendars', () => {
   })
 })
 
-describe('GET /api/calendars', () => {
+describe('GET calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
   })
@@ -122,7 +122,7 @@ describe('GET /api/calendars', () => {
   })
 })
 
-describe('POST /api/calendars', () => {
+describe('POST calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
   })
@@ -155,7 +155,7 @@ describe('POST /api/calendars', () => {
   })
 })
 
-describe('PATCH /api/calendars', () => {
+describe('PATCH calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
   })
@@ -196,7 +196,7 @@ describe('PATCH /api/calendars', () => {
   })
 })
 
-describe('DELETE /api/calendars', () => {
+describe('DELETE calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
   })

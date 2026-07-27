@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fetchContacts } from '../contacts.js'
+import { fetchContacts } from '../_lib/contacts.js'
 
 describe('fetchContacts', () => {
   it('reads the contacts view scoped to the authenticated user', () => {

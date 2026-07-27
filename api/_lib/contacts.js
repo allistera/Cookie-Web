@@ -1,6 +1,6 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { getSql } from './db.js'
+import { verifyAccessToken } from './auth.js'
+import { captureApiError } from './sentry.js'
 
 // The authenticated user's contacts — addresses that appear in their mailbox
 // (received senders or sent recipients) — from the contacts view, ordered for
@@ -15,7 +15,7 @@ export function fetchContacts(sql, email) {
   `
 }
 
-// GET /api/contacts — { contacts: [{ address, name }] } for compose auto-suggest.
+// GET /api/messages?resource=contacts — compose auto-suggest contacts.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -40,8 +40,8 @@ export default async function handler(req, res) {
     res.statusCode = 200
     res.end(JSON.stringify({ contacts: rows.map((r) => ({ address: r.address, name: r.name })) }))
   } catch (err) {
-    console.error('GET /api/contacts failed:', err)
-    await captureApiError(err, { route: 'GET /api/contacts' })
+    console.error('GET contacts failed:', err)
+    await captureApiError(err, { route: 'GET contacts' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load contacts' }))
   }

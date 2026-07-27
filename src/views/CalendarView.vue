@@ -46,12 +46,13 @@ const editingCalendarName = ref('')
 const editingCalendarInput = ref(null)
 const confirmingDeleteId = ref(null)
 const calendarError = ref('')
+const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 
 async function loadCalendars() {
   try {
     const headers = await store.authHeaders()
-    const response = await fetch('/api/calendars', { headers })
-    if (!response.ok) throw new Error(`GET /api/calendars responded ${response.status}`)
+    const response = await fetch(CALENDARS_ENDPOINT, { headers })
+    if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
     const { calendars: rows } = await response.json()
     calendars.value = rows
     visibleCalendars.value = new Set(rows.map((calendar) => calendar.id))
@@ -83,7 +84,7 @@ async function createCalendar() {
   const color = NEW_CALENDAR_PALETTE[calendars.value.length % NEW_CALENDAR_PALETTE.length]
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    const response = await fetch('/api/calendars', {
+    const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'POST',
       headers,
       body: JSON.stringify({ name, color }),
@@ -92,7 +93,7 @@ async function createCalendar() {
       calendarError.value = 'A calendar with that name already exists.'
       return
     }
-    if (!response.ok) throw new Error(`POST /api/calendars responded ${response.status}`)
+    if (!response.ok) throw new Error(`POST calendars responded ${response.status}`)
     const { calendar } = await response.json()
     calendars.value.push(calendar)
     visibleCalendars.value = new Set([...visibleCalendars.value, calendar.id])
@@ -125,7 +126,7 @@ async function renameCalendar() {
   if (!name || !id) return
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    const response = await fetch('/api/calendars', {
+    const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({ id, name }),
@@ -134,7 +135,7 @@ async function renameCalendar() {
       calendarError.value = 'A calendar with that name already exists.'
       return
     }
-    if (!response.ok) throw new Error(`PATCH /api/calendars responded ${response.status}`)
+    if (!response.ok) throw new Error(`PATCH calendars responded ${response.status}`)
     const { calendar } = await response.json()
     const index = calendars.value.findIndex((item) => item.id === id)
     if (index !== -1) calendars.value[index] = calendar
@@ -156,7 +157,7 @@ async function confirmDeleteCalendar() {
   if (!id) return
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    const response = await fetch('/api/calendars', {
+    const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'DELETE',
       headers,
       body: JSON.stringify({ id }),

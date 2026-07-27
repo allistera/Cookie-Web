@@ -52,8 +52,9 @@ const SEED_CALENDARS = [
   { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
   { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
 ]
+const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 
-// Stands in for /api/calendar-events and /api/calendars with in-memory
+// Stands in for the calendar-events and calendar-management APIs with in-memory
 // lists, mirroring the local Vite fixture middleware's behavior closely
 // enough for these tests.
 function mockCalendarApi() {
@@ -84,7 +85,7 @@ function mockCalendarApi() {
         }
       }
 
-      if (url === '/api/calendars') {
+      if (url === CALENDARS_ENDPOINT) {
         if (method === 'GET') return { ok: true, json: async () => clone({ calendars }) }
         if (method === 'POST') {
           if (calendars.some((calendar) => calendar.name === body.name)) {

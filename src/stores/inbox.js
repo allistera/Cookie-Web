@@ -1179,8 +1179,8 @@ export const useInboxStore = defineStore('inbox', {
       if (this.contactsLoaded) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/contacts', { headers })
-        if (!response.ok) throw new Error(`GET /api/contacts responded ${response.status}`)
+        const response = await fetch('/api/messages?resource=contacts', { headers })
+        if (!response.ok) throw new Error(`GET contacts responded ${response.status}`)
         const { contacts } = await response.json()
         this.contacts = contacts
         this.contactsLoaded = true

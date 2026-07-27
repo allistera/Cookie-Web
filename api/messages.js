@@ -7,6 +7,7 @@ import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { parseListUnsubscribe, isSafeUnsubscribeUrl } from './_lib/unsubscribe.js'
+import contactsHandler from './_lib/contacts.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -295,6 +296,12 @@ async function handlePost(req, res, email) {
 // 'remove_label' with a label_id); PATCH updates flags (is_unread, is_starred,
 // is_archived, scheduled_for) on a message owned by the authenticated user.
 export default async function handler(req, res) {
+  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+  if (resource === 'contacts') {
+    await contactsHandler(req, res)
+    return
+  }
+
   res.setHeader('Content-Type', 'application/json')
 
   if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'POST') {
