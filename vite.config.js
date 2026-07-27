@@ -25,6 +25,7 @@ function localApiPlugin(mode) {
         schedules: new Map(),
         archived: new Set(),
         summaries: new Map(),
+        calendarEvents: null,
       })
     }
     return stubMailboxState.get(sessionId)
@@ -384,9 +385,61 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/tasks.js')
     await handler(req, res)
   }
+  const handleCalendarEvents = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const state = fixtureMailboxState(req, res)
+      if (!state.calendarEvents) {
+        const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
+        state.calendarEvents = fixtureCalendarEvents()
+      }
+      res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'GET') {
+        res.end(JSON.stringify({ events: state.calendarEvents }))
+        return
+      }
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const body = JSON.parse(raw || '{}')
+      if (req.method === 'POST') {
+        const event = { id: `stub-event-${randomUUID()}`, ...body }
+        state.calendarEvents.push(event)
+        res.statusCode = 201
+        res.end(JSON.stringify({ event }))
+        return
+      }
+      if (req.method === 'PATCH') {
+        const index = state.calendarEvents.findIndex((event) => event.id === body.id)
+        if (index === -1) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Event not found' }))
+          return
+        }
+        state.calendarEvents[index] = { ...state.calendarEvents[index], ...body }
+        res.end(JSON.stringify({ event: state.calendarEvents[index] }))
+        return
+      }
+      if (req.method === 'DELETE') {
+        const before = state.calendarEvents.length
+        state.calendarEvents = state.calendarEvents.filter((event) => event.id !== body.id)
+        if (state.calendarEvents.length === before) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Event not found' }))
+          return
+        }
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
+    const { default: handler } = await import('./api/calendar-events.js')
+    await handler(req, res)
+  }
   const mount = (server) => {
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/tasks', handleTasks)
+    server.middlewares.use('/api/calendar-events', handleCalendarEvents)
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)

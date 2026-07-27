@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { getStoredCalendarEvents, saveStoredCalendarEvents } from '../lib/calendarEvents.js'
+import { useInboxStore } from '../stores/inbox'
+
+const store = useInboxStore()
 
 const REFERENCE_DATE = new Date(2026, 6, 24)
 const DAY_HOUR_HEIGHT = 96
@@ -28,69 +30,20 @@ const calendars = [
 ]
 const visibleCalendars = ref(new Set(calendars.map((calendar) => calendar.id)))
 
-const defaultEvents = [
-  {
-    id: 'team-sync',
-    title: 'Team sync',
-    date: '2026-07-20',
-    start: '09:00',
-    duration: 30,
-    calendar: 'work',
-  },
-  {
-    id: 'priya',
-    title: '1:1 with Priya',
-    date: '2026-07-21',
-    start: '10:00',
-    duration: 30,
-    calendar: 'work',
-  },
-  {
-    id: 'focus',
-    title: 'Focus — Q3 planning',
-    date: '2026-07-22',
-    start: '13:00',
-    duration: 120,
-    tone: 'dark',
-    calendar: 'focus',
-  },
-  {
-    id: 'design',
-    title: 'Design review',
-    date: '2026-07-23',
-    start: '11:00',
-    duration: 60,
-    calendar: 'work',
-  },
-  {
-    id: 'client-call',
-    title: 'Client call — Meridian',
-    date: '2026-07-23',
-    start: '11:30',
-    duration: 60,
-    tone: 'conflict',
-    calendar: 'work',
-  },
-  {
-    id: 'standup',
-    title: 'Standup',
-    date: '2026-07-24',
-    start: '09:00',
-    duration: 30,
-    calendar: 'work',
-  },
-  {
-    id: 'coffee',
-    title: 'Coffee with Sam',
-    date: '2026-07-24',
-    start: '14:30',
-    duration: 30,
-    tone: 'accepted',
-    calendar: 'personal',
-  },
-]
+const events = ref([])
 
-const events = ref(getStoredCalendarEvents() ?? defaultEvents)
+async function loadEvents() {
+  try {
+    const headers = await store.authHeaders()
+    const response = await fetch('/api/calendar-events', { headers })
+    if (!response.ok) throw new Error(`GET /api/calendar-events responded ${response.status}`)
+    const { events: rows } = await response.json()
+    events.value = rows
+  } catch (error) {
+    console.error('Failed to load calendar events:', error)
+    store.notify('Failed to load calendar events.', 'error')
+  }
+}
 
 const suggestedEvent = {
   id: 'suggested',
@@ -300,49 +253,80 @@ function closeNewEvent() {
   editingEventId.value = null
 }
 
-function saveEvent() {
+async function saveEvent() {
   const title = eventForm.value.title.trim()
   if (!title) return
   const { date, start, end, location, description } = eventForm.value
   const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
-  const trimmedLocation = location.trim() || undefined
-  const trimmedDescription = description.trim() || undefined
+  const trimmedLocation = location.trim() || null
+  const trimmedDescription = description.trim() || null
 
-  if (editingEventId.value) {
-    const index = events.value.findIndex((event) => event.id === editingEventId.value)
-    if (index !== -1) {
-      events.value[index] = {
-        ...events.value[index],
-        title,
-        date,
-        start,
-        duration,
-        location: trimmedLocation,
-        description: trimmedDescription,
-      }
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (editingEventId.value) {
+      const existing = events.value.find((event) => event.id === editingEventId.value)
+      const response = await fetch('/api/calendar-events', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          id: editingEventId.value,
+          title,
+          date,
+          start,
+          duration,
+          location: trimmedLocation,
+          description: trimmedDescription,
+          calendar: existing?.calendar ?? 'personal',
+          tone: existing?.tone ?? null,
+        }),
+      })
+      if (!response.ok) throw new Error(`PATCH /api/calendar-events responded ${response.status}`)
+      const { event } = await response.json()
+      const index = events.value.findIndex((item) => item.id === editingEventId.value)
+      if (index !== -1) events.value[index] = event
+    } else {
+      const response = await fetch('/api/calendar-events', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title,
+          date,
+          start,
+          duration,
+          location: trimmedLocation,
+          description: trimmedDescription,
+          calendar: 'personal',
+          tone: 'accepted',
+        }),
+      })
+      if (!response.ok) throw new Error(`POST /api/calendar-events responded ${response.status}`)
+      const { event } = await response.json()
+      events.value.push(event)
     }
-  } else {
-    events.value.push({
-      id: `generated-${Date.now()}`,
-      title,
-      date,
-      start,
-      duration,
-      tone: 'accepted',
-      calendar: 'personal',
-      location: trimmedLocation,
-      description: trimmedDescription,
-    })
+    closeNewEvent()
+  } catch (error) {
+    console.error('Failed to save calendar event:', error)
+    store.notify('Failed to save event.', 'error')
   }
-  closeNewEvent()
-  saveStoredCalendarEvents(events.value)
 }
 
-function deleteEvent() {
+async function deleteEvent() {
   if (!editingEventId.value) return
-  events.value = events.value.filter((event) => event.id !== editingEventId.value)
-  closeNewEvent()
-  saveStoredCalendarEvents(events.value)
+  const id = editingEventId.value
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    const response = await fetch('/api/calendar-events', {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ id }),
+    })
+    if (!response.ok) throw new Error(`DELETE /api/calendar-events responded ${response.status}`)
+    events.value = events.value.filter((event) => event.id !== id)
+    closeNewEvent()
+  } catch (error) {
+    console.error('Failed to delete calendar event:', error)
+    store.notify('Failed to delete event.', 'error')
+  }
 }
 
 watch(showNewEvent, (open) => {
@@ -393,7 +377,10 @@ function onKeydown(event) {
   if (event.key === 'Escape' && showNewEvent.value) closeNewEvent()
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  loadEvents()
+})
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('mousemove', onDragMove)
