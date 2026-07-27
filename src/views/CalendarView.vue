@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { getStoredCalendarEvents, saveStoredCalendarEvents } from '../lib/calendarEvents.js'
 
 const REFERENCE_DATE = new Date(2026, 6, 24)
 const DAY_HOUR_HEIGHT = 96
@@ -27,7 +28,7 @@ const calendars = [
 ]
 const visibleCalendars = ref(new Set(calendars.map((calendar) => calendar.id)))
 
-const events = ref([
+const defaultEvents = [
   {
     id: 'team-sync',
     title: 'Team sync',
@@ -87,7 +88,9 @@ const events = ref([
     tone: 'accepted',
     calendar: 'personal',
   },
-])
+]
+
+const events = ref(getStoredCalendarEvents() ?? defaultEvents)
 
 const suggestedEvent = {
   id: 'suggested',
@@ -332,12 +335,14 @@ function saveEvent() {
     })
   }
   closeNewEvent()
+  saveStoredCalendarEvents(events.value)
 }
 
 function deleteEvent() {
   if (!editingEventId.value) return
   events.value = events.value.filter((event) => event.id !== editingEventId.value)
   closeNewEvent()
+  saveStoredCalendarEvents(events.value)
 }
 
 watch(showNewEvent, (open) => {

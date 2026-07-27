@@ -1,6 +1,10 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarView from '../CalendarView.vue'
+
+beforeEach(() => {
+  localStorage.clear()
+})
 
 function mockRect(element) {
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
@@ -208,6 +212,29 @@ describe('CalendarView', () => {
     expect(wrapper.find('.new-event-delete').exists()).toBe(false)
     expect(wrapper.get('.new-event-create').text()).toBe('Create Event')
     wrapper.unmount()
+  })
+
+  it('persists created, edited, and deleted events across a simulated reload', async () => {
+    const wrapper = mount(CalendarView, { attachTo: document.body })
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-title-input').setValue('Board game night')
+    await wrapper.get('.new-event-create').trigger('click')
+    wrapper.unmount()
+
+    // A fresh mount simulates a page reload: the component re-reads localStorage on setup.
+    const reloaded = mount(CalendarView, { attachTo: document.body })
+    expect(reloaded.text()).toContain('Board game night')
+    expect(reloaded.text()).toContain('Standup')
+
+    const standup = reloaded.findAll('.day-event').find((event) => event.text() === 'Standup')
+    await standup.trigger('click')
+    await reloaded.get('.new-event-delete').trigger('click')
+    reloaded.unmount()
+
+    const afterDelete = mount(CalendarView, { attachTo: document.body })
+    expect(afterDelete.text()).not.toContain('Standup')
+    expect(afterDelete.text()).toContain('Board game night')
+    afterDelete.unmount()
   })
 
   it('dismisses insight cards through their actions', async () => {
