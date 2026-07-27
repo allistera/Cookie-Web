@@ -45,33 +45,81 @@ const SEED_EVENTS = [
 // not a real bug — see the git history for how this was diagnosed).
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
-// Stands in for /api/calendar-events with an in-memory list, mirroring the
-// local Vite fixture middleware's behavior closely enough for these tests.
+const SEED_CALENDARS = [
+  { id: 'work', name: 'Work', color: '#4f7c6b' },
+  { id: 'personal', name: 'Personal', color: '#2db985' },
+  { id: 'focus', name: 'Focus time', color: '#795da8' },
+  { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
+  { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
+]
+
+// Stands in for /api/calendar-events and /api/calendars with in-memory
+// lists, mirroring the local Vite fixture middleware's behavior closely
+// enough for these tests.
 function mockCalendarApi() {
   let events = SEED_EVENTS.map((event) => ({ ...event }))
+  let calendars = SEED_CALENDARS.map((calendar) => ({ ...calendar }))
   let nextId = 1
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, options = {}) => {
-      if (url !== '/api/calendar-events') throw new Error(`Unexpected fetch URL: ${url}`)
       const method = options.method || 'GET'
       const body = options.body ? JSON.parse(options.body) : {}
-      if (method === 'GET') return { ok: true, json: async () => clone({ events }) }
-      if (method === 'POST') {
-        const event = { id: `generated-${nextId++}`, ...body }
-        events = [...events, event]
-        return { ok: true, json: async () => clone({ event }) }
+
+      if (url === '/api/calendar-events') {
+        if (method === 'GET') return { ok: true, json: async () => clone({ events }) }
+        if (method === 'POST') {
+          const event = { id: `generated-${nextId++}`, ...body }
+          events = [...events, event]
+          return { ok: true, json: async () => clone({ event }) }
+        }
+        if (method === 'PATCH') {
+          const index = events.findIndex((item) => item.id === body.id)
+          events[index] = { ...events[index], ...body }
+          return { ok: true, json: async () => clone({ event: events[index] }) }
+        }
+        if (method === 'DELETE') {
+          events = events.filter((item) => item.id !== body.id)
+          return { ok: true, json: async () => ({ ok: true }) }
+        }
       }
-      if (method === 'PATCH') {
-        const index = events.findIndex((item) => item.id === body.id)
-        events[index] = { ...events[index], ...body }
-        return { ok: true, json: async () => clone({ event: events[index] }) }
+
+      if (url === '/api/calendars') {
+        if (method === 'GET') return { ok: true, json: async () => clone({ calendars }) }
+        if (method === 'POST') {
+          if (calendars.some((calendar) => calendar.name === body.name)) {
+            return { ok: false, status: 409, json: async () => ({ error: 'duplicate' }) }
+          }
+          const calendar = { id: `generated-calendar-${nextId++}`, ...body }
+          calendars = [...calendars, calendar]
+          return { ok: true, json: async () => clone({ calendar }) }
+        }
+        if (method === 'PATCH') {
+          const index = calendars.findIndex((item) => item.id === body.id)
+          if (index === -1) return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
+          if (calendars.some((item) => item.id !== body.id && item.name === body.name)) {
+            return { ok: false, status: 409, json: async () => ({ error: 'duplicate' }) }
+          }
+          calendars[index] = { ...calendars[index], name: body.name }
+          return { ok: true, json: async () => clone({ calendar: calendars[index] }) }
+        }
+        if (method === 'DELETE') {
+          const eventCount = events.filter((event) => event.calendar === body.id).length
+          if (eventCount > 0) {
+            return {
+              ok: false,
+              status: 409,
+              json: async () => ({
+                error: `This calendar has ${eventCount} event${eventCount === 1 ? '' : 's'}. Delete or move them first.`,
+              }),
+            }
+          }
+          calendars = calendars.filter((item) => item.id !== body.id)
+          return { ok: true, json: async () => ({ ok: true }) }
+        }
       }
-      if (method === 'DELETE') {
-        events = events.filter((item) => item.id !== body.id)
-        return { ok: true, json: async () => ({ ok: true }) }
-      }
-      throw new Error(`Unexpected fetch method: ${method}`)
+
+      throw new Error(`Unexpected fetch: ${method} ${url}`)
     }),
   )
 }
@@ -98,6 +146,10 @@ async function mountCalendar(options) {
   return wrapper
 }
 
+function findCalendarRow(wrapper, name) {
+  return wrapper.findAll('.calendar-list-row').find((row) => row.text().includes(name))
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   const store = useInboxStore()
@@ -112,7 +164,7 @@ describe('CalendarView', () => {
     const calendarButtons = wrapper.findAll('.calendar-list-item')
 
     expect(calendarButtons).toHaveLength(5)
-    expect(calendarButtons.map((button) => button.text())).toEqual([
+    expect(calendarButtons.map((button) => button.get('.nav-text').text())).toEqual([
       'Work',
       'Personal',
       'Focus time',
@@ -266,9 +318,12 @@ describe('CalendarView', () => {
     const timeInputs = wrapper.findAll('input[type="time"]')
     expect(timeInputs[0].element.value).toBe('09:00')
     expect(timeInputs[1].element.value).toBe('09:30')
+    const calendarSelect = wrapper.get('select[aria-label="Event calendar"]')
+    expect(calendarSelect.element.value).toBe('work')
     expect(wrapper.get('.new-event-create').text()).toBe('Save Event')
 
     await wrapper.get('.new-event-title-input').setValue('Daily Standup')
+    await calendarSelect.setValue('personal')
     await wrapper.get('.new-event-create').trigger('click')
     await flushPromises()
 
@@ -276,6 +331,10 @@ describe('CalendarView', () => {
     const dayEventTitles = wrapper.findAll('.day-event strong').map((el) => el.text())
     expect(dayEventTitles).toContain('Daily Standup')
     expect(dayEventTitles).not.toContain('Standup')
+    const updateCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH')
+    expect(JSON.parse(updateCall[1].body).calendar).toBe('personal')
     wrapper.unmount()
   })
 
@@ -328,6 +387,98 @@ describe('CalendarView', () => {
     expect(afterDelete.text()).not.toContain('Standup')
     expect(afterDelete.text()).toContain('Board game night')
     afterDelete.unmount()
+  })
+
+  it('creates a new calendar and can assign events to it', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.calendar-add-btn').trigger('click')
+    await wrapper.get('input[aria-label="New calendar name"]').setValue('Trips')
+    await wrapper.get('.calendar-edit-form').trigger('submit')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.nav-text').map((el) => el.text())
+    expect(rows).toContain('Trips')
+    expect(wrapper.find('.calendar-edit-form').exists()).toBe(false)
+
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    const calendarSelect = wrapper.get('select[aria-label="Event calendar"]')
+    expect(calendarSelect.findAll('option').map((option) => option.text())).toContain('Trips')
+    await calendarSelect.setValue('generated-calendar-1')
+    await wrapper.get('.new-event-title-input').setValue('Pack for holiday')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const createCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'POST')
+    expect(JSON.parse(createCall[1].body).calendar).toBe('generated-calendar-1')
+    expect(wrapper.text()).toContain('Pack for holiday')
+    wrapper.unmount()
+  })
+
+  it('shows an inline error and keeps the form open when creating a duplicate calendar name', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.calendar-add-btn').trigger('click')
+    await wrapper.get('input[aria-label="New calendar name"]').setValue('Work')
+    await wrapper.get('.calendar-edit-form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('.calendar-edit-error').text()).toContain('already exists')
+    expect(wrapper.find('.calendar-edit-form').exists()).toBe(true)
+  })
+
+  it('renames a calendar', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    const workRow = findCalendarRow(wrapper, 'Work')
+    const editButton = workRow.get('.calendar-list-edit-icon')
+    expect(editButton.element.tagName).toBe('BUTTON')
+    expect(editButton.attributes('aria-label')).toBe('Edit Work')
+    await editButton.trigger('click')
+
+    await wrapper.get('input[aria-label="Rename Work"]').setValue('Day Job')
+    await wrapper.get('.calendar-edit-form').trigger('submit')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.nav-text').map((el) => el.text())
+    expect(rows).toContain('Day Job')
+    expect(rows).not.toContain('Work')
+  })
+
+  it('requires a second click to delete a calendar with no events', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    const birthdaysRow = findCalendarRow(wrapper, 'Birthdays')
+    await birthdaysRow.get('.calendar-list-edit-icon').trigger('click')
+
+    const deleteBtn = wrapper.get('.calendar-delete-btn')
+    await deleteBtn.trigger('click')
+    expect(wrapper.get('.calendar-delete-btn').classes()).toContain('confirming')
+    // Still mid-edit after the first (arming) click — the row hasn't been removed.
+    expect(wrapper.find('input[aria-label="Rename Birthdays"]').exists()).toBe(true)
+
+    await wrapper.get('.calendar-delete-btn').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.nav-text').map((el) => el.text())).not.toContain('Birthdays')
+  })
+
+  it('refuses to delete a calendar that still has events', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const store = useInboxStore()
+    vi.spyOn(store, 'notify')
+
+    const workRow = findCalendarRow(wrapper, 'Work')
+    await workRow.get('.calendar-list-edit-icon').trigger('click')
+    await wrapper.get('.calendar-delete-btn').trigger('click')
+    await wrapper.get('.calendar-delete-btn').trigger('click')
+    await flushPromises()
+
+    expect(store.notify).toHaveBeenCalledWith(expect.stringContaining('event'), 'error')
+    // The failed delete leaves the row in edit mode rather than removing it.
+    expect(wrapper.find('input[aria-label="Rename Work"]').exists()).toBe(true)
   })
 
   it('dismisses insight cards through their actions', async () => {

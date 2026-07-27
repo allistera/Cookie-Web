@@ -21,7 +21,7 @@ test('The header app switcher opens the interactive Calendar views and returns t
   const calendarSidebar = page.getByRole('complementary', { name: 'Calendar sidebar' })
   await expect(calendarSidebar).toBeVisible()
   await expect(calendarSidebar.getByRole('navigation', { name: 'Calendars' })).toBeVisible()
-  const workCalendar = calendarSidebar.getByRole('button', { name: 'Work' })
+  const workCalendar = calendarSidebar.getByRole('button', { name: 'Work', exact: true })
   await expect(workCalendar).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('#searchBarContainer')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true })).toHaveCount(2)

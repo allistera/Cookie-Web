@@ -26,6 +26,7 @@ function localApiPlugin(mode) {
         archived: new Set(),
         summaries: new Map(),
         calendarEvents: null,
+        calendars: null,
       })
     }
     return stubMailboxState.get(sessionId)
@@ -436,10 +437,86 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/calendar-events.js')
     await handler(req, res)
   }
+  const handleCalendars = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const state = fixtureMailboxState(req, res)
+      if (!state.calendars) {
+        const { fixtureCalendars } = await import('./api/_fixtures/calendars.js')
+        state.calendars = fixtureCalendars()
+      }
+      res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'GET') {
+        res.end(JSON.stringify({ calendars: state.calendars }))
+        return
+      }
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const body = JSON.parse(raw || '{}')
+      if (req.method === 'POST') {
+        if (state.calendars.some((calendar) => calendar.name === body.name)) {
+          res.statusCode = 409
+          res.end(JSON.stringify({ error: 'A calendar with that name already exists' }))
+          return
+        }
+        const calendar = { id: `stub-calendar-${randomUUID()}`, name: body.name, color: body.color }
+        state.calendars.push(calendar)
+        res.statusCode = 201
+        res.end(JSON.stringify({ calendar }))
+        return
+      }
+      if (req.method === 'PATCH') {
+        const index = state.calendars.findIndex((calendar) => calendar.id === body.id)
+        if (index === -1) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Calendar not found' }))
+          return
+        }
+        if (state.calendars.some((calendar) => calendar.id !== body.id && calendar.name === body.name)) {
+          res.statusCode = 409
+          res.end(JSON.stringify({ error: 'A calendar with that name already exists' }))
+          return
+        }
+        state.calendars[index] = { ...state.calendars[index], name: body.name }
+        res.end(JSON.stringify({ calendar: state.calendars[index] }))
+        return
+      }
+      if (req.method === 'DELETE') {
+        if (!state.calendarEvents) {
+          const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
+          state.calendarEvents = fixtureCalendarEvents()
+        }
+        const eventCount = state.calendarEvents.filter((event) => event.calendar === body.id).length
+        if (eventCount > 0) {
+          res.statusCode = 409
+          res.end(
+            JSON.stringify({
+              error: `This calendar has ${eventCount} event${eventCount === 1 ? '' : 's'}. Delete or move them first.`,
+            }),
+          )
+          return
+        }
+        const before = state.calendars.length
+        state.calendars = state.calendars.filter((calendar) => calendar.id !== body.id)
+        if (state.calendars.length === before) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Calendar not found' }))
+          return
+        }
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
+    const { default: handler } = await import('./api/calendars.js')
+    await handler(req, res)
+  }
   const mount = (server) => {
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/tasks', handleTasks)
     server.middlewares.use('/api/calendar-events', handleCalendarEvents)
+    server.middlewares.use('/api/calendars', handleCalendars)
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)

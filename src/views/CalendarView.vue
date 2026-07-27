@@ -21,14 +21,163 @@ const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
 const suggestionVisible = ref(true)
-const calendars = [
-  { id: 'work', name: 'Work', color: '#4f7c6b' },
-  { id: 'personal', name: 'Personal', color: '#2db985' },
-  { id: 'focus', name: 'Focus time', color: '#795da8' },
-  { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
-  { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
+
+// New calendars cycle through this palette by creation order, rather than
+// asking the user to pick a color — one less control for a feature that's
+// mostly about naming and grouping.
+const NEW_CALENDAR_PALETTE = [
+  '#3b82f6',
+  '#e5484d',
+  '#f2a900',
+  '#8b5cf6',
+  '#06b6d4',
+  '#f97316',
+  '#84cc16',
+  '#ec4899',
 ]
-const visibleCalendars = ref(new Set(calendars.map((calendar) => calendar.id)))
+
+const calendars = ref([])
+const visibleCalendars = ref(new Set())
+const isAddingCalendar = ref(false)
+const newCalendarName = ref('')
+const newCalendarInput = ref(null)
+const editingCalendarId = ref(null)
+const editingCalendarName = ref('')
+const editingCalendarInput = ref(null)
+const confirmingDeleteId = ref(null)
+const calendarError = ref('')
+
+async function loadCalendars() {
+  try {
+    const headers = await store.authHeaders()
+    const response = await fetch('/api/calendars', { headers })
+    if (!response.ok) throw new Error(`GET /api/calendars responded ${response.status}`)
+    const { calendars: rows } = await response.json()
+    calendars.value = rows
+    visibleCalendars.value = new Set(rows.map((calendar) => calendar.id))
+  } catch (error) {
+    console.error('Failed to load calendars:', error)
+    store.notify('Failed to load calendars.', 'error')
+  }
+}
+
+function defaultCalendarId() {
+  return calendars.value.find((calendar) => calendar.name === 'Personal')?.id ?? calendars.value[0]?.id
+}
+
+function openAddCalendar() {
+  editingCalendarId.value = null
+  isAddingCalendar.value = true
+  newCalendarName.value = ''
+  calendarError.value = ''
+  nextTick(() => newCalendarInput.value?.focus())
+}
+
+function closeAddCalendar() {
+  isAddingCalendar.value = false
+}
+
+async function createCalendar() {
+  const name = newCalendarName.value.trim()
+  if (!name) return
+  const color = NEW_CALENDAR_PALETTE[calendars.value.length % NEW_CALENDAR_PALETTE.length]
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    const response = await fetch('/api/calendars', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name, color }),
+    })
+    if (response.status === 409) {
+      calendarError.value = 'A calendar with that name already exists.'
+      return
+    }
+    if (!response.ok) throw new Error(`POST /api/calendars responded ${response.status}`)
+    const { calendar } = await response.json()
+    calendars.value.push(calendar)
+    visibleCalendars.value = new Set([...visibleCalendars.value, calendar.id])
+    closeAddCalendar()
+  } catch (error) {
+    console.error('Failed to create calendar:', error)
+    store.notify('Failed to create calendar.', 'error')
+  }
+}
+
+function startRenameCalendar(calendar) {
+  isAddingCalendar.value = false
+  editingCalendarId.value = calendar.id
+  editingCalendarName.value = calendar.name
+  confirmingDeleteId.value = null
+  calendarError.value = ''
+  // The rename input lives inside a v-for, so Vue collects the ref into an
+  // array; only one row is ever in edit mode, so it's the sole element.
+  nextTick(() => editingCalendarInput.value?.[0]?.focus())
+}
+
+function cancelRenameCalendar() {
+  editingCalendarId.value = null
+  confirmingDeleteId.value = null
+}
+
+async function renameCalendar() {
+  const name = editingCalendarName.value.trim()
+  const id = editingCalendarId.value
+  if (!name || !id) return
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    const response = await fetch('/api/calendars', {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ id, name }),
+    })
+    if (response.status === 409) {
+      calendarError.value = 'A calendar with that name already exists.'
+      return
+    }
+    if (!response.ok) throw new Error(`PATCH /api/calendars responded ${response.status}`)
+    const { calendar } = await response.json()
+    const index = calendars.value.findIndex((item) => item.id === id)
+    if (index !== -1) calendars.value[index] = calendar
+    editingCalendarId.value = null
+  } catch (error) {
+    console.error('Failed to rename calendar:', error)
+    store.notify('Failed to rename calendar.', 'error')
+  }
+}
+
+// Deleting is a two-click confirm inline (click once to arm, again to
+// commit) rather than a modal — the button itself becomes the confirmation.
+function requestDeleteCalendar(id) {
+  confirmingDeleteId.value = id
+}
+
+async function confirmDeleteCalendar() {
+  const id = confirmingDeleteId.value
+  if (!id) return
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    const response = await fetch('/api/calendars', {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ id }),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      store.notify(body.error || 'Failed to delete calendar.', 'error')
+      confirmingDeleteId.value = null
+      return
+    }
+    calendars.value = calendars.value.filter((calendar) => calendar.id !== id)
+    const next = new Set(visibleCalendars.value)
+    next.delete(id)
+    visibleCalendars.value = next
+    confirmingDeleteId.value = null
+    editingCalendarId.value = null
+  } catch (error) {
+    console.error('Failed to delete calendar:', error)
+    store.notify('Failed to delete calendar.', 'error')
+  }
+}
 
 const events = ref([])
 
@@ -230,6 +379,7 @@ function openNewEvent(prefill) {
     date: dateKey(prefill ? prefill.date : selectedDate.value),
     start: prefill ? minutesToTimeString(prefill.startMinutes) : '14:00',
     end: prefill ? minutesToTimeString(prefill.endMinutes) : '14:30',
+    calendar: defaultCalendarId(),
   }
   showNewEvent.value = true
 }
@@ -243,6 +393,7 @@ function editEvent(event) {
     date: event.date,
     start: event.start,
     end: minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
+    calendar: event.calendar,
   }
   showNewEvent.value = true
 }
@@ -260,6 +411,11 @@ async function saveEvent() {
   const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
+  const calendar = eventForm.value.calendar || defaultCalendarId()
+  if (!calendar) {
+    store.notify('Create a calendar before adding events.', 'error')
+    return
+  }
 
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
@@ -276,7 +432,7 @@ async function saveEvent() {
           duration,
           location: trimmedLocation,
           description: trimmedDescription,
-          calendar: existing?.calendar ?? 'personal',
+          calendar,
           tone: existing?.tone ?? null,
         }),
       })
@@ -295,7 +451,7 @@ async function saveEvent() {
           duration,
           location: trimmedLocation,
           description: trimmedDescription,
-          calendar: 'personal',
+          calendar,
           tone: 'accepted',
         }),
       })
@@ -386,6 +542,7 @@ function onKeydown(event) {
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
+  loadCalendars()
   loadEvents()
 })
 onUnmounted(() => {
@@ -409,25 +566,117 @@ onUnmounted(() => {
         </div>
 
         <nav class="sidebar-nav calendar-list" aria-label="Calendars">
-          <button
-            v-for="calendar in calendars"
-            :key="calendar.id"
-            type="button"
-            class="nav-item calendar-list-item"
-            :class="{ muted: !visibleCalendars.has(calendar.id) }"
-            :aria-pressed="visibleCalendars.has(calendar.id)"
-            @click="toggleCalendar(calendar.id)"
-          >
-            <span
-              class="calendar-color"
-              :style="{ '--calendar-list-color': calendar.color }"
-              aria-hidden="true"
+          <div v-for="calendar in calendars" :key="calendar.id" class="calendar-list-row">
+            <form
+              v-if="editingCalendarId === calendar.id"
+              class="calendar-edit-form"
+              @submit.prevent="renameCalendar"
             >
-              <svg v-if="visibleCalendars.has(calendar.id)" viewBox="0 0 16 16">
-                <path d="m3.5 8 2.7 2.7 6.3-6.2" />
-              </svg>
-            </span>
-            <span class="nav-text">{{ calendar.name }}</span>
+              <input
+                ref="editingCalendarInput"
+                v-model="editingCalendarName"
+                type="text"
+                class="calendar-edit-input"
+                maxlength="50"
+                :aria-label="`Rename ${calendar.name}`"
+                @keydown.escape="cancelRenameCalendar"
+              />
+              <button
+                type="submit"
+                class="calendar-edit-icon-btn"
+                title="Save"
+                :disabled="!editingCalendarName.trim()"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">check</span>
+              </button>
+              <button
+                type="button"
+                class="calendar-edit-icon-btn"
+                title="Cancel"
+                @click="cancelRenameCalendar"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+              <button
+                type="button"
+                class="calendar-edit-icon-btn calendar-delete-btn"
+                :class="{ confirming: confirmingDeleteId === calendar.id }"
+                :title="
+                  confirmingDeleteId === calendar.id
+                    ? `Click again to delete ${calendar.name}`
+                    : `Delete ${calendar.name}`
+                "
+                @click="
+                  confirmingDeleteId === calendar.id
+                    ? confirmDeleteCalendar()
+                    : requestDeleteCalendar(calendar.id)
+                "
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+              </button>
+            </form>
+            <div v-else class="calendar-list-display">
+              <button
+                type="button"
+                class="nav-item calendar-list-item"
+                :class="{ muted: !visibleCalendars.has(calendar.id) }"
+                :aria-pressed="visibleCalendars.has(calendar.id)"
+                @click="toggleCalendar(calendar.id)"
+              >
+                <span
+                  class="calendar-color"
+                  :style="{ '--calendar-list-color': calendar.color }"
+                  aria-hidden="true"
+                >
+                  <svg v-if="visibleCalendars.has(calendar.id)" viewBox="0 0 16 16">
+                    <path d="m3.5 8 2.7 2.7 6.3-6.2" />
+                  </svg>
+                </span>
+                <span class="nav-text">{{ calendar.name }}</span>
+              </button>
+              <button
+                type="button"
+                class="material-symbols-outlined calendar-list-edit-icon"
+                :aria-label="`Edit ${calendar.name}`"
+                @click="startRenameCalendar(calendar)"
+              >
+                edit
+              </button>
+            </div>
+            <p v-if="calendarError && editingCalendarId === calendar.id" class="calendar-edit-error">
+              {{ calendarError }}
+            </p>
+          </div>
+
+          <div v-if="isAddingCalendar" class="calendar-list-row">
+            <form class="calendar-edit-form" @submit.prevent="createCalendar">
+              <input
+                ref="newCalendarInput"
+                v-model="newCalendarName"
+                type="text"
+                class="calendar-edit-input"
+                placeholder="Calendar name"
+                maxlength="50"
+                aria-label="New calendar name"
+                @keydown.escape="closeAddCalendar"
+              />
+              <button
+                type="submit"
+                class="calendar-edit-icon-btn"
+                title="Create"
+                :disabled="!newCalendarName.trim()"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">check</span>
+              </button>
+              <button type="button" class="calendar-edit-icon-btn" title="Cancel" @click="closeAddCalendar">
+                <span class="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+            </form>
+            <p v-if="calendarError" class="calendar-edit-error">{{ calendarError }}</p>
+          </div>
+          <button v-else type="button" class="nav-item calendar-add-btn" @click="openAddCalendar">
+            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+            <span class="nav-text">Add calendar</span>
           </button>
         </nav>
       </div>
@@ -715,6 +964,14 @@ onUnmounted(() => {
               <span>Location</span>
               <input v-model="eventForm.location" type="text" placeholder="Add location" />
             </label>
+            <label class="new-event-field">
+              <span>Calendar</span>
+              <select v-model="eventForm.calendar" aria-label="Event calendar">
+                <option v-for="calendar in calendars" :key="calendar.id" :value="calendar.id">
+                  {{ calendar.name }}
+                </option>
+              </select>
+            </label>
           </div>
 
           <footer class="new-event-dialog-actions">
@@ -862,6 +1119,124 @@ onUnmounted(() => {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
+}
+
+.calendar-list-row {
+  min-width: 0;
+}
+
+.calendar-list-display {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.calendar-list-edit-icon {
+  position: absolute;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 17px;
+  color: var(--calendar-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.calendar-list-display:hover .calendar-list-edit-icon,
+.calendar-list-edit-icon:focus-visible {
+  opacity: 1;
+}
+
+.calendar-list-edit-icon:hover {
+  background: var(--calendar-line);
+  color: var(--calendar-ink);
+}
+
+.calendar-add-btn {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--calendar-muted);
+  cursor: pointer;
+  font-family: var(--font-stack);
+  text-align: left;
+}
+
+.calendar-add-btn:hover,
+.calendar-add-btn:focus-visible {
+  background: var(--calendar-soft);
+  color: var(--calendar-ink);
+  outline: none;
+}
+
+.calendar-add-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.calendar-edit-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+}
+
+.calendar-edit-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--calendar-emphasis);
+  border-radius: 6px;
+  outline: none;
+  background: var(--calendar-input);
+  color: var(--calendar-ink);
+  font-family: var(--font-stack);
+  font-size: 14px;
+}
+
+.calendar-edit-icon-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--calendar-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.calendar-edit-icon-btn .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.calendar-edit-icon-btn:hover,
+.calendar-edit-icon-btn:focus-visible {
+  background: var(--calendar-soft);
+  color: var(--calendar-ink);
+  outline: none;
+}
+
+.calendar-edit-icon-btn:disabled {
+  color: var(--calendar-disabled-ink);
+  cursor: not-allowed;
+}
+
+.calendar-delete-btn:hover,
+.calendar-delete-btn.confirming {
+  background: var(--calendar-coral-soft);
+  color: var(--calendar-coral);
+}
+
+.calendar-edit-error {
+  margin: 2px 6px 0;
+  color: var(--calendar-coral);
+  font-size: 12px;
 }
 
 .calendar-content {
@@ -1643,7 +2018,8 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.new-event-field input {
+.new-event-field input,
+.new-event-field select {
   height: 40px;
   padding: 0 12px;
   border: 1px solid var(--calendar-line);
@@ -1656,7 +2032,8 @@ onUnmounted(() => {
   color-scheme: light;
 }
 
-[data-theme='dark'] .new-event-field input {
+[data-theme='dark'] .new-event-field input,
+[data-theme='dark'] .new-event-field select {
   color-scheme: dark;
 }
 
@@ -1665,7 +2042,8 @@ onUnmounted(() => {
   opacity: 1;
 }
 
-.new-event-field input:focus {
+.new-event-field input:focus,
+.new-event-field select:focus {
   border-color: var(--calendar-emphasis);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--calendar-emphasis) 20%, transparent);
 }
@@ -1676,6 +2054,9 @@ onUnmounted(() => {
 }
 
 .new-event-location-wrap {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
   margin-top: 16px;
 }
 
@@ -1820,6 +2201,12 @@ onUnmounted(() => {
     width: auto;
     min-width: max-content;
     padding-inline: 10px;
+  }
+
+  .calendar-list-edit-icon {
+    position: static;
+    flex: 0 0 24px;
+    opacity: 1;
   }
 
   .calendar-page {
