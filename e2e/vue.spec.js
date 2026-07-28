@@ -775,12 +775,11 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })
 
-test('Header search filters the inbox and clearing restores it', async ({ page }) => {
+test('Header search filters as the user types and clearing restores the inbox', async ({ page }) => {
   await page.goto('/')
 
   const searchInput = page.locator('.search-input')
   await searchInput.fill('zoom')
-  await searchInput.press('Enter')
   await expect(page).toHaveURL(/\/inbox$/)
 
   const rows = page.locator('.ni-row')
@@ -790,6 +789,20 @@ test('Header search filters the inbox and clearing restores it', async ({ page }
   // Clearing the search restores the full inbox (Today group, newest first).
   await page.locator('.search-clear-icon').click()
   await expect(page.locator('.ni-row').first()).toContainText('City Construction')
+})
+
+test('Header search supports tag: and sender: properties', async ({ page }) => {
+  await page.goto('/')
+
+  const searchInput = page.locator('.search-input')
+  await searchInput.fill('tag:Finance')
+  await expect(page).toHaveURL(/\/inbox$/)
+  await expect(page.locator('.ni-row')).toHaveCount(3)
+  await expect(page.locator('.ni-row', { hasText: 'Zoom Video' })).toBeVisible()
+
+  await searchInput.fill('sender:billing@zoom.us')
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
 })
 
 test('Navigating away from search results clears the active search', async ({ page }) => {
@@ -852,6 +865,15 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   const starBtn = row.locator('[title="Star"]')
   await row.hover()
+
+  const [rowBox, actionsBox, labelBox] = await Promise.all([
+    row.boundingBox(),
+    row.locator('.ni-actions').boundingBox(),
+    row.locator('.ni-row-labels').boundingBox(),
+  ])
+  expect(actionsBox.x).toBeGreaterThanOrEqual(labelBox.x + labelBox.width)
+  expect(rowBox.x + rowBox.width - (actionsBox.x + actionsBox.width)).toBeGreaterThanOrEqual(16)
+
   await starBtn.click()
 
   await expect(page.locator('.toast', { hasText: 'Failed to update starred state.' })).toBeVisible()

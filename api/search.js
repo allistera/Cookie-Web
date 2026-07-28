@@ -72,8 +72,8 @@ export default async function handler(req, res) {
   }
 
   // Split the raw query into free text, a prefix tsquery, and structured
-  // operators (from:/to:/has:/before:/after:). A query that is only an unknown
-  // operator leaves nothing to search on.
+  // operators (sender:/tag:/from:/to:/has:/before:/after:). A query that is
+  // only an unknown operator leaves nothing to search on.
   const spec = parseSearchQuery(q)
   const hasFilters = Object.keys(spec.filters).length > 0
   if (!spec.text && !hasFilters) {

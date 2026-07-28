@@ -26,7 +26,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 
 - Inbox, Starred, Sent, Snoozed, Spam, Done, and label views.
 - Auth0 authentication and per-user mailbox queries.
-- Keyword and semantic search over stored mail.
+- Debounced keyword and semantic search over stored mail, with filters such as
+  `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
 - Per-label auto-tag controls and conservative spam classification.

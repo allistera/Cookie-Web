@@ -757,6 +757,13 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    // Invalidates an in-flight search without changing the currently displayed
+    // results. Used when the same header input is submitted to mailbox Q&A.
+    cancelPendingSearch() {
+      this.searchSeq++
+      this.isRefreshing = false
+    },
+
     // Leaves search mode and reloads the full inbox. Bumping searchSeq also
     // invalidates any search still in flight.
     clearSearch() {

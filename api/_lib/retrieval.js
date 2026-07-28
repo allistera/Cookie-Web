@@ -43,6 +43,15 @@ function filterClause(sql, filters = {}) {
   if (filters.to) {
     parts.push(sql`AND m.recipients::text ILIKE ${`%${filters.to}%`}`)
   }
+  if (filters.tag) {
+    const like = `%${filters.tag}%`
+    parts.push(sql`AND EXISTS (
+      SELECT 1
+      FROM message_labels tagged_ml
+      JOIN labels tagged_l ON tagged_l.id = tagged_ml.label_id
+      WHERE tagged_ml.message_id = m.id AND tagged_l.name ILIKE ${like}
+    )`)
+  }
   if (filters.hasAttachment) {
     parts.push(sql`AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)`)
   }
@@ -91,7 +100,8 @@ export function recencyLeg(sql, email, spec, limit) {
 
 // Vector leg: cosine distance over pgvector embeddings. Takes the query vector
 // (already embedded) so callers can cache or skip embedding, plus the same
-// structured filters so semantic results honour from:/to:/date operators too.
+// structured filters so semantic results honour sender:/tag:/to:/date
+// operators too.
 export function vectorLeg(sql, email, vector, filters, limit) {
   return sql`
     SELECT m.id

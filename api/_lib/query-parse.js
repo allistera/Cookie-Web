@@ -1,13 +1,15 @@
 // Parses a raw search string into the free-text portion, a prefix tsquery for
-// search-as-you-type, and structured operators (from:/to:/has:/before:/after:).
+// search-as-you-type, and structured operators
+// (from:/sender:/to:/tag:/has:/before:/after:).
 // Kept separate from the SQL legs so the parsing rules can be unit-tested
 // without a database.
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-// from:alice  to:"Jane Doe"  has:attachment  before:2026-01-31  after:2026-01-01
+// sender:alice  to:"Jane Doe"  tag:Personal  has:attachment
+// before:2026-01-31  after:2026-01-01
 // The value is either a "quoted phrase" or an unbroken run of non-space chars.
-const OPERATOR_RE = /(from|to|has|before|after):("[^"]*"|\S+)/gi
+const OPERATOR_RE = /(from|sender|to|tag|has|before|after):("[^"]*"|\S+)/gi
 
 // Builds a prefix tsquery like `kitchen & tile:*` from free text: every word is
 // required (AND) and the final word is a prefix match, so an in-progress last
@@ -28,10 +30,14 @@ export function parseSearchQuery(raw) {
       const value = rawValue.startsWith('"') ? rawValue.slice(1, -1).trim() : rawValue.trim()
       switch (key.toLowerCase()) {
         case 'from':
+        case 'sender':
           if (value) filters.from = value
           break
         case 'to':
           if (value) filters.to = value
+          break
+        case 'tag':
+          if (value) filters.tag = value
           break
         case 'has':
           if (/^attachments?$/i.test(value)) filters.hasAttachment = true

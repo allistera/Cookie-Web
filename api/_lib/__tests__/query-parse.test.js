@@ -24,6 +24,19 @@ describe('parseSearchQuery', () => {
     expect(filters).toEqual({ from: 'alice' })
   })
 
+  it('supports sender: as a readable alias for from:', () => {
+    const { text, filters } = parseSearchQuery('sender:foo@bar.com invoice')
+    expect(text).toBe('invoice')
+    expect(filters).toEqual({ from: 'foo@bar.com' })
+  })
+
+  it('extracts tag: filters, including quoted tag names', () => {
+    expect(parseSearchQuery('tag:Personal').filters).toEqual({ tag: 'Personal' })
+    expect(parseSearchQuery('tag:"Close Friends" photos').filters).toEqual({
+      tag: 'Close Friends',
+    })
+  })
+
   it('supports quoted operator values', () => {
     const { text, filters } = parseSearchQuery('to:"Jane Doe" lunch')
     expect(text).toBe('lunch')
@@ -56,8 +69,10 @@ describe('parseSearchQuery', () => {
   })
 
   it('combines several operators with free text', () => {
-    const { text, filters } = parseSearchQuery('from:bob to:alice after:2026-01-01 budget plan')
+    const { text, filters } = parseSearchQuery(
+      'sender:bob to:alice tag:Work after:2026-01-01 budget plan',
+    )
     expect(text).toBe('budget plan')
-    expect(filters).toEqual({ from: 'bob', to: 'alice', after: '2026-01-01' })
+    expect(filters).toEqual({ from: 'bob', to: 'alice', tag: 'Work', after: '2026-01-01' })
   })
 })

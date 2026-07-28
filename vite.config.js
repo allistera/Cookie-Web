@@ -214,15 +214,38 @@ function localApiPlugin(mode) {
   const handleSearch = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails } = await import('./api/_fixtures/emails.js')
-      const q = (new URL(req.url, 'http://localhost').searchParams.get('q') || '').toLowerCase()
+      const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
+      const rawQuery = new URL(req.url, 'http://localhost').searchParams.get('q') || ''
+      const { text, filters } = parseSearchQuery(rawQuery)
+      const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
       const { summaries } = fixtureMailboxState(req, res)
       const emails = fixtureEmails()
-        .filter((email) =>
-          [email.subject, email.body_text, email.from_name, email.from_address]
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-        )
+        .filter((email) => {
+          const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
+          const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
+          if (!terms.every((term) => haystack.includes(term))) return false
+          if (filters.from && !sender.includes(filters.from.toLowerCase())) return false
+          if (
+            filters.to &&
+            !JSON.stringify(email.recipients || {})
+              .toLowerCase()
+              .includes(filters.to.toLowerCase())
+          ) {
+            return false
+          }
+          if (
+            filters.tag &&
+            !email.labels.some((label) =>
+              label.name.toLowerCase().includes(filters.tag.toLowerCase()),
+            )
+          ) {
+            return false
+          }
+          if (filters.hasAttachment && !email.has_attachments) return false
+          if (filters.before && email.sent_at >= `${filters.before}T00:00:00.000Z`) return false
+          if (filters.after && email.sent_at < `${filters.after}T00:00:00.000Z`) return false
+          return true
+        })
         .map((email) => ({
           ...email,
           has_ai_summary: email.has_ai_summary || summaries.has(email.id),

@@ -158,34 +158,47 @@ function handleLogout() {
 // Header Search
 const searchInputVal = ref('')
 const isSearchSuggestionsActive = ref(false)
+const AUTO_SEARCH_DELAY_MS = 400
 let isNavigatingToSearchResults = false
+let autoSearchTimer
+
+function cancelScheduledSearch() {
+  window.clearTimeout(autoSearchTimer)
+  autoSearchTimer = undefined
+}
 
 // The dropdown's single "Search Cookie" item sends the typed text to the
 // mailbox Q&A assistant instead of the search index.
 function askFromSearch() {
   const query = searchInputVal.value.trim()
   if (!query) return
+  cancelScheduledSearch()
+  store.cancelPendingSearch()
   isSearchSuggestionsActive.value = false
   store.askGemini(query)
 }
 
-// Enter searches the mailbox (hybrid keyword + semantic); the dropdown's
-// "Search Cookie" item routes the same text to the Q&A assistant instead.
-async function handleSearchEnter() {
-  const query = searchInputVal.value.trim()
-  if (query) {
-    isSearchSuggestionsActive.value = false
-    const searchRequest = store.searchEmails(query)
-    if (route.name !== 'traditional-inbox') {
-      isNavigatingToSearchResults = true
-      try {
-        await router.push('/inbox')
-      } finally {
-        isNavigatingToSearchResults = false
-      }
+async function runMailboxSearch(query) {
+  if (!query || query === store.activeSearchQuery) return
+
+  const searchRequest = store.searchEmails(query)
+  if (route.name !== 'traditional-inbox') {
+    isNavigatingToSearchResults = true
+    try {
+      await router.push('/inbox')
+    } finally {
+      isNavigatingToSearchResults = false
     }
-    return searchRequest
   }
+  return searchRequest
+}
+
+// Enter searches immediately; typing searches after a short pause. The
+// dropdown's "Search Cookie" item routes the same text to Q&A instead.
+function handleSearchEnter() {
+  cancelScheduledSearch()
+  isSearchSuggestionsActive.value = false
+  return runMailboxSearch(searchInputVal.value.trim())
 }
 
 function leaveSearchResults() {
@@ -208,6 +221,22 @@ watch(
     if (!isNavigatingToSearchResults) leaveSearchResults()
   },
 )
+
+watch(searchInputVal, (value) => {
+  cancelScheduledSearch()
+  const query = value.trim()
+
+  // Do not issue broad one-character searches. Clearing or shortening the
+  // value also restores the inbox and invalidates any request still in flight.
+  if (query.length < 2) {
+    store.clearSearch()
+    return
+  }
+
+  autoSearchTimer = window.setTimeout(() => {
+    runMailboxSearch(query)
+  }, AUTO_SEARCH_DELAY_MS)
+})
 
 // Load the inbox once the user is authenticated (immediately in E2E mode,
 // after the Auth0 redirect completes otherwise).
@@ -249,7 +278,10 @@ onMounted(() => {
   })
 })
 
-onUnmounted(() => document.removeEventListener('keydown', onUndoKeydown))
+onUnmounted(() => {
+  cancelScheduledSearch()
+  document.removeEventListener('keydown', onUndoKeydown)
+})
 </script>
 
 <template>
@@ -328,10 +360,11 @@ onUnmounted(() => document.removeEventListener('keydown', onUndoKeydown))
           <input
             type="text"
             class="search-input"
-            placeholder="Search Cookie..."
+            placeholder="Search mail — try tag:Personal"
+            aria-label="Search mail. Use tag:Personal or sender:foo@bar.com to filter."
             v-model="searchInputVal"
             @focus="isSearchSuggestionsActive = true"
-            @keypress.enter="handleSearchEnter"
+            @keydown.enter.prevent="handleSearchEnter"
           />
           <span
             class="material-symbols-outlined search-clear-icon"

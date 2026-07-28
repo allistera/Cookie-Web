@@ -44,7 +44,7 @@ describe('keywordLeg', () => {
     expect(q).toContain('GREATEST(')
   })
 
-  it('applies from/to/date/attachment filters', () => {
+  it('applies sender/tag/to/date/attachment filters', () => {
     const { sql, render } = makeSql()
     const q = render(
       keywordLeg(
@@ -53,7 +53,14 @@ describe('keywordLeg', () => {
         {
           text: 'x',
           prefixQuery: null,
-          filters: { from: 'alice', to: 'bob', hasAttachment: true, before: '2026-01-31', after: '2026-01-01' },
+          filters: {
+            from: 'alice',
+            tag: 'Personal',
+            to: 'bob',
+            hasAttachment: true,
+            before: '2026-01-31',
+            after: '2026-01-01',
+          },
         },
         20,
       ),
@@ -61,6 +68,9 @@ describe('keywordLeg', () => {
     expect(q).toContain('m.from_address ILIKE')
     expect(q).toContain('coalesce(m.from_name')
     expect(q).toContain('m.recipients::text ILIKE')
+    expect(q).toContain('FROM message_labels tagged_ml')
+    expect(q).toContain('JOIN labels tagged_l ON tagged_l.id = tagged_ml.label_id')
+    expect(q).toContain('tagged_l.name ILIKE')
     expect(q).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)')
     expect(q).toContain('m.sent_at < $::date')
     expect(q).toContain('m.sent_at >= $::date')
