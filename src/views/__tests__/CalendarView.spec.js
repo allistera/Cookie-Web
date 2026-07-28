@@ -42,7 +42,8 @@ const SEED_EVENTS = [
     date: '2026-07-24',
     start: '00:00',
     duration: 1440,
-    allDay: true,
+    // Legacy rows may not include allDay even though their timing identifies
+    // them as whole-day events.
     calendar: 'holidays',
   },
 ]
@@ -232,7 +233,7 @@ describe('CalendarView', () => {
     expect(wrapper.find('.calendar-insights').exists()).toBe(true)
   })
 
-  it('renders an all-day event as a banner chip in Day view, not a positioned block', async () => {
+  it('renders a legacy 24-hour event as a banner chip in Day view, not a positioned block', async () => {
     const wrapper = await mountCalendar()
 
     const banner = wrapper.get('.all-day-row')

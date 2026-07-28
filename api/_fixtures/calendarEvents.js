@@ -67,7 +67,8 @@ const rows = [
     date: '2026-07-24',
     start: '00:00',
     duration: 1440,
-    allDay: true,
+    // Exercises the compatibility path for rows created before all_day was
+    // added to the calendar schema.
     calendar: 'holidays',
   },
 ]

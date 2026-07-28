@@ -84,6 +84,26 @@ test('Calendar sidebar separates subscribed calendars from regular calendars', a
   await expect(calendars.getByRole('button', { name: 'Team Feed', exact: true })).toHaveCount(0)
 })
 
+test('All-day events stay below the date header and outside the hourly lane', async ({ page }) => {
+  await page.goto('/calendar')
+
+  const dateHeader = page.locator('.day-calendar > h2')
+  const allDayRow = page.getByRole('group', { name: 'All-day events' })
+  const holiday = allDayRow.getByRole('button', { name: 'Company Holiday' })
+  const timeline = page.locator('.day-timeline')
+
+  await expect(holiday).toBeVisible()
+  await expect(page.locator('.day-event', { hasText: 'Company Holiday' })).toHaveCount(0)
+
+  const [headerBox, rowBox, timelineBox] = await Promise.all([
+    dateHeader.boundingBox(),
+    allDayRow.boundingBox(),
+    timeline.boundingBox(),
+  ])
+  expect(rowBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1)
+  expect(timelineBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1)
+})
+
 test('Clicking an event opens it prefilled for editing, with a Delete button', async ({ page }) => {
   await page.goto('/calendar')
   await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')

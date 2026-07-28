@@ -249,7 +249,15 @@ async function loadEvents() {
     const response = await fetch('/api/calendar-events', { headers })
     if (!response.ok) throw new Error(`GET /api/calendar-events responded ${response.status}`)
     const { events: rows } = await response.json()
-    events.value = rows
+    events.value = rows.map((event) => ({
+      ...event,
+      // Older calendar rows can predate the all_day flag. Midnight events
+      // spanning a complete day are still all-day events and must never be
+      // positioned against the visible hourly timeline.
+      allDay:
+        event.allDay === true ||
+        (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
+    }))
   } catch (error) {
     console.error('Failed to load calendar events:', error)
     store.notify('Failed to load calendar events.', 'error')
@@ -357,9 +365,18 @@ const parseStart = (start) => {
 
 const eventPosition = (event, hourHeight) => {
   const { hour, minute } = parseStart(event.start)
+  const startMinutes = hour * 60 + minute
+  const endMinutes = startMinutes + Number(event.duration)
+  const visibleStart = START_HOUR * 60
+  const visibleEnd = END_HOUR * 60
+  const clippedStart = Math.max(startMinutes, visibleStart)
+  const clippedEnd = Math.min(endMinutes, visibleEnd)
+
+  if (clippedEnd <= clippedStart) return { display: 'none' }
+
   return {
-    top: `${(hour - START_HOUR + minute / 60) * hourHeight}px`,
-    height: `${Math.max((event.duration / 60) * hourHeight, 38)}px`,
+    top: `${((clippedStart - visibleStart) / 60) * hourHeight}px`,
+    height: `${Math.max(((clippedEnd - clippedStart) / 60) * hourHeight, 38)}px`,
   }
 }
 
@@ -909,7 +926,7 @@ onUnmounted(() => {
 
       <section v-if="viewMode === 'day'" class="day-calendar calendar-surface" aria-label="Day view">
         <h2>{{ formatLongDate(selectedDate) }}</h2>
-        <div v-if="allDayEventsForDay.length" class="all-day-row" aria-label="All-day events">
+        <div v-if="allDayEventsForDay.length" class="all-day-row" role="group" aria-label="All-day events">
           <button
             v-for="event in allDayEventsForDay"
             :key="event.id"
@@ -968,6 +985,7 @@ onUnmounted(() => {
         <div
           v-if="allDayEventsForWeek.some((dayEvents) => dayEvents.length)"
           class="all-day-row week-all-day-row"
+          role="group"
           aria-label="All-day events"
         >
           <div class="week-time-spacer"></div>
@@ -1880,7 +1898,11 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 0;
+  padding: 10px 36px 10px 112px;
+}
+
+.day-calendar .all-day-event {
+  max-width: 100%;
 }
 
 .week-all-day-row {
