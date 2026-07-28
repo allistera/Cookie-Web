@@ -24,7 +24,7 @@ vi.mock('../_lib/db.js', () => ({
 }))
 
 import { issueSignedToken, presignUrl } from '@vercel/blob'
-import handler, { privateBlobPathname } from '../attachments.js'
+import handler, { privateBlobPathname } from '../messages.js'
 
 const ATTACHMENT_ID = '22222222-2222-4222-8222-222222222222'
 
@@ -43,10 +43,14 @@ function makeRes() {
 }
 
 function get(id = ATTACHMENT_ID) {
-  return { method: 'GET', url: `/api/attachments?id=${id}`, headers: {} }
+  return {
+    method: 'GET',
+    url: `/api/messages?resource=attachment&id=${id}`,
+    headers: {},
+  }
 }
 
-describe('GET /api/attachments', () => {
+describe('GET /api/messages?resource=attachment', () => {
   beforeEach(() => {
     sqlRows = []
     vi.clearAllMocks()

@@ -830,11 +830,12 @@ export const useInboxStore = defineStore('inbox', {
       if (!attachment?.id || !attachment.downloadable) return false
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`/api/attachments?id=${encodeURIComponent(attachment.id)}`, {
-          headers,
-        })
+        const response = await fetch(
+          `/api/messages?resource=attachment&id=${encodeURIComponent(attachment.id)}`,
+          { headers },
+        )
         if (!response.ok) {
-          throw new Error(`GET /api/attachments responded ${response.status}`)
+          throw new Error(`GET attachment endpoint responded ${response.status}`)
         }
         const { url, filename } = await response.json()
         if (typeof url !== 'string' || !url) throw new Error('Attachment URL is missing')

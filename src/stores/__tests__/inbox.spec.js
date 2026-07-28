@@ -1482,7 +1482,7 @@ describe('Inbox Store', () => {
       store.downloadAttachment({ id: 'att-1', filename: 'plan.pdf', downloadable: true }),
     ).resolves.toBe(true)
 
-    expect(fetch).toHaveBeenCalledWith('/api/attachments?id=att-1', {
+    expect(fetch).toHaveBeenCalledWith('/api/messages?resource=attachment&id=att-1', {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(click).toHaveBeenCalledOnce()
