@@ -421,7 +421,7 @@ test('Reader offers to add a detected email event to Calendar with details prefi
 
   const suggestion = page.getByRole('region', { name: 'Calendar suggestion' })
   await expect(suggestion).toContainText('Event detected')
-  await expect(suggestion).toContainText('Wed 12 Aug')
+  await expect(suggestion).toContainText(/Wed,? 12 Aug/)
   await expect(suggestion).toContainText('10:00')
   await suggestion.getByRole('button', { name: 'Add to calendar' }).click()
 
