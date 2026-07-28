@@ -1,5 +1,6 @@
 import process from 'node:process'
 import crypto from 'node:crypto'
+import { Buffer } from 'node:buffer'
 
 import { Resend } from 'resend'
 
@@ -11,6 +12,12 @@ import { embedText, EMBEDDING_MODEL } from './_lib/embeddings.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SNIPPET_LENGTH = 100
+export const MAX_OUTBOUND_RECIPIENTS = 20
+export const MAX_OUTBOUND_SUBJECT_BYTES = 998
+export const MAX_OUTBOUND_TEXT_BYTES = 100_000
+export const MAX_OUTBOUND_HTML_BYTES = 200_000
+export const MAX_OUTBOUND_TOTAL_BYTES = 256_000
+const OUTBOUND_SENDS_PER_MINUTE = 10
 
 function escapeHtml(value) {
   return value
@@ -60,7 +67,68 @@ function parseFromEnv(from) {
 // non-empty ones. Exported for testing.
 export function parseRecipients(to) {
   if (typeof to !== 'string') return []
-  return to.split(',').map((address) => address.trim()).filter(Boolean)
+  const recipients = to.split(',').map((address) => address.trim()).filter(Boolean)
+  if (recipients.length > MAX_OUTBOUND_RECIPIENTS) return []
+  return recipients
+}
+
+export function validateOutboundMessage({ to, subject, text, html }) {
+  const recipients = parseRecipients(to)
+  const bodyHtml = typeof html === 'string' && html.trim() ? html : null
+  if (
+    recipients.length === 0 ||
+    !recipients.every((address) => address.length <= 320 && address.includes('@')) ||
+    typeof subject !== 'string' || !subject.trim() ||
+    typeof text !== 'string' || !text.trim()
+  ) {
+    return { error: 'to, subject and text are required and must be valid' }
+  }
+
+  const subjectBytes = Buffer.byteLength(subject)
+  const textBytes = Buffer.byteLength(text)
+  const htmlBytes = bodyHtml ? Buffer.byteLength(bodyHtml) : 0
+  if (
+    subjectBytes > MAX_OUTBOUND_SUBJECT_BYTES ||
+    textBytes > MAX_OUTBOUND_TEXT_BYTES ||
+    htmlBytes > MAX_OUTBOUND_HTML_BYTES ||
+    subjectBytes + textBytes + htmlBytes > MAX_OUTBOUND_TOTAL_BYTES
+  ) {
+    return { error: 'The email exceeds the allowed content size' }
+  }
+  return { recipients, bodyHtml }
+}
+
+export async function claimOutboundEmailQuota(sql, email) {
+  const [result] = await sql`
+    WITH app_user AS (
+      SELECT id
+      FROM users
+      WHERE lower(email) = ${email}
+      LIMIT 1
+    ), claimed AS (
+      INSERT INTO outbound_email_quotas (user_id, window_start, send_count)
+      SELECT id, date_trunc('minute', now()), 1
+      FROM app_user
+      ON CONFLICT (user_id) DO UPDATE SET
+        window_start = CASE
+          WHEN outbound_email_quotas.window_start < date_trunc('minute', now())
+            THEN EXCLUDED.window_start
+          ELSE outbound_email_quotas.window_start
+        END,
+        send_count = CASE
+          WHEN outbound_email_quotas.window_start < date_trunc('minute', now()) THEN 1
+          ELSE outbound_email_quotas.send_count + 1
+        END,
+        updated_at = now()
+      WHERE outbound_email_quotas.window_start < date_trunc('minute', now())
+         OR outbound_email_quotas.send_count < ${OUTBOUND_SENDS_PER_MINUTE}
+      RETURNING user_id
+    )
+    SELECT
+      EXISTS (SELECT 1 FROM app_user) AS authorized,
+      EXISTS (SELECT 1 FROM claimed) AS quota_claimed
+  `
+  return result || { authorized: false, quota_claimed: false }
 }
 
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
@@ -200,16 +268,33 @@ export default async function handler(req, res) {
   }
 
   const { to, subject, text, html, replyToMessageId } = body
-  const recipients = parseRecipients(to)
-  // Rich-composer HTML body (optional); the plain text remains the fallback.
-  const bodyHtml = typeof html === 'string' && html.trim() ? html : null
-  if (
-    recipients.length === 0 || !recipients.every((address) => address.includes('@')) ||
-    typeof subject !== 'string' || !subject.trim() ||
-    typeof text !== 'string' || !text.trim()
-  ) {
+  const validated = validateOutboundMessage({ to, subject, text, html })
+  if (validated.error) {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: 'to, subject and text are required' }))
+    res.end(JSON.stringify({ error: validated.error }))
+    return
+  }
+  const { recipients, bodyHtml } = validated
+
+  let sql
+  try {
+    sql = getSql()
+    const quota = await claimOutboundEmailQuota(sql, email)
+    if (!quota.authorized) {
+      res.statusCode = 403
+      res.end(JSON.stringify({ error: 'Mailbox access is not provisioned' }))
+      return
+    }
+    if (!quota.quota_claimed) {
+      res.statusCode = 429
+      res.end(JSON.stringify({ error: 'Outbound email quota exceeded; try again shortly' }))
+      return
+    }
+  } catch (err) {
+    console.error('failed to enforce outbound email quota:', err.message)
+    await captureApiError(err, { route: 'POST /api/send (quota)' })
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Email sending is temporarily unavailable' }))
     return
   }
   // Fixture ids from e2e/dev mode aren't UUIDs — ignore them rather than error.
@@ -238,7 +323,6 @@ export default async function handler(req, res) {
     }
 
     try {
-      const sql = getSql()
       await storeSentMessage(sql, email, {
         recipients,
         subject,

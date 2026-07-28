@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 describe('thread summarization', () => {
-  it('loads every message from the owned selected message thread in chronological order', () => {
+  it('loads a bounded owned thread and restores chronological order', () => {
     let query = ''
     const sql = (strings) => {
       query = strings.join('?')
@@ -53,7 +53,10 @@ describe('thread summarization', () => {
     expect(query).toContain('tm.thread_id = selected.thread_id')
     expect(query).toContain('tm.user_id = selected.user_id')
     expect(query).toContain('lower(u.email) =')
-    expect(query).toContain('ORDER BY tm.sent_at ASC, tm.id ASC')
+    expect(query).toContain("left(coalesce(tm.body_text, ''),")
+    expect(query).toContain('ORDER BY tm.sent_at DESC, tm.id DESC')
+    expect(query).toContain('LIMIT')
+    expect(query).toContain('ORDER BY bounded.sent_at ASC, bounded.id ASC')
   })
 
   it('includes every body and message boundary in the model transcript', () => {
@@ -66,6 +69,22 @@ describe('thread summarization', () => {
     expect(transcript.indexOf('The cabinets arrive Tuesday.')).toBeLessThan(
       transcript.indexOf('Tuesday works.'),
     )
+  })
+
+  it('rejects a thread whose message count exceeds the summary work budget', () => {
+    const oversized = Array.from({ length: 51 }, (_, index) => ({
+      ...messages()[0],
+      id: `message-${index}`,
+      body_text: `Message ${index}`,
+    }))
+
+    expect(() => buildThreadTranscript(oversized)).toThrow(/too large/i)
+  })
+
+  it('rejects a thread whose aggregate body exceeds the summary input budget', () => {
+    const oversized = [{ ...messages()[0], body_text: 'x'.repeat(100_001) }]
+
+    expect(() => buildThreadTranscript(oversized)).toThrow(/too large/i)
   })
 
   it('sends the complete thread as untrusted context and returns the structured summary', async () => {

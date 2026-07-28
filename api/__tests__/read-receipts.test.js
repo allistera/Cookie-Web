@@ -25,6 +25,8 @@ describe('read receipt queries', () => {
     expect(capture.query()).toContain('first_opened_at = COALESCE(first_opened_at, now())')
     expect(capture.query()).toContain('open_count = open_count + 1')
     expect(capture.query()).toContain('WHERE token =')
+    expect(capture.query()).toContain('expires_at > now()')
+    expect(capture.query()).toContain("last_opened_at < now() - interval '5 minutes'")
     expect(capture.values()).toEqual([token])
   })
 

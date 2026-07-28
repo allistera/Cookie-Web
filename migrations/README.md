@@ -46,6 +46,10 @@ AI failure state is recoverable and never changes the mail-forwarding outcome. O
 
 `0021_read_receipts.sql` stores opaque per-message tokens and best-effort open timestamps for sent mail. The tracking pixel contains no mailbox or message identifier, the receipt table is server-only, and stored sent HTML excludes the pixel so opening Cookie's own sent copy does not mark it read. Image blocking can suppress receipts and security scanners can trigger them, so the UI treats status as indicative rather than guaranteed.
 
+`0028_security_boundaries.sql` expires receipt capabilities after 90 days,
+deduplicates rapid receipt opens in the API, and adds the server-only durable
+per-user quota row used to bound outbound mail across function instances.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

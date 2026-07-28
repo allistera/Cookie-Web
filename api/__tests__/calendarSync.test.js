@@ -1,13 +1,20 @@
 import process from 'node:process'
+import { Buffer } from 'node:buffer'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('node:dns/promises', () => ({
-  default: { lookup: vi.fn() },
+vi.mock('../_lib/safe-https.js', () => ({
+  requestPublicHttps: vi.fn(),
 }))
 
-import dns from 'node:dns/promises'
+import { requestPublicHttps } from '../_lib/safe-https.js'
 import { syncCalendarSubscription, validSubscriptionUrl } from '../_lib/calendarSync.js'
+
+const httpsResponse = (body = '', status = 200, headers = {}) => ({
+  body: Buffer.from(body),
+  headers,
+  status,
+})
 
 describe('validSubscriptionUrl', () => {
   it('accepts a well-formed https URL', () => {
@@ -39,40 +46,56 @@ function makeSql(queue) {
 
 describe('syncCalendarSubscription', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('BEGIN:VCALENDAR\nEND:VCALENDAR', { status: 200 })),
+    vi.mocked(requestPublicHttps).mockResolvedValue(
+      httpsResponse('BEGIN:VCALENDAR\nEND:VCALENDAR'),
     )
   })
   afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.mocked(dns.lookup).mockReset()
+    vi.mocked(requestPublicHttps).mockReset()
   })
 
   it('refuses to fetch a URL that resolves to a private IP (SSRF guard)', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '127.0.0.1' })
+    vi.mocked(requestPublicHttps).mockRejectedValue(
+      new Error('The remote URL points to a disallowed address'),
+    )
     const sql = makeSql([])
 
     const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://internal.example.com/feed.ics')
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('disallowed address')
-    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('refuses link-local and cloud-metadata-range addresses', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '169.254.169.254' })
+    vi.mocked(requestPublicHttps).mockRejectedValue(
+      new Error('The remote URL points to a disallowed address'),
+    )
     const sql = makeSql([])
 
     const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://metadata.example.com/feed.ics')
 
     expect(result.ok).toBe(false)
-    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses the pinned public-HTTPS boundary with response and timeout caps', async () => {
+    const sql = makeSql([])
+
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://rebind.example.com/feed.ics',
+    )
+
+    expect(result.ok).toBe(true)
+    expect(requestPublicHttps).toHaveBeenCalledWith(
+      'https://rebind.example.com/feed.ics',
+      expect.objectContaining({ timeoutMs: 10_000, maxResponseBytes: 5 * 1024 * 1024 }),
+    )
   })
 
   it('does not follow redirects', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 302, headers: { Location: '/other' } })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse('', 302, { location: '/other' }))
     const sql = makeSql([])
 
     const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
@@ -82,8 +105,7 @@ describe('syncCalendarSubscription', () => {
   })
 
   it('records the error on the calendar row without touching events when fetch fails', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 500 })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse('', 500))
     const queue = [[]]
     const sql = makeSql(queue)
 
@@ -94,7 +116,6 @@ describe('syncCalendarSubscription', () => {
   })
 
   it('parses events (including an expanded RRULE series) and replaces the calendar contents', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
     const now = new Date()
     const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     const dtstamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}T000000Z`
@@ -112,7 +133,7 @@ describe('syncCalendarSubscription', () => {
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n')
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
 
     const inserted = []
     const queue = []
@@ -152,7 +173,6 @@ describe('syncCalendarSubscription', () => {
   }
 
   it('renders a single-day all-day event as one all_day row, not a ~24h timed block', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -165,7 +185,7 @@ describe('syncCalendarSubscription', () => {
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n')
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
     const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
@@ -185,7 +205,6 @@ describe('syncCalendarSubscription', () => {
   })
 
   it('expands a multi-day all-day event into one row per day it spans (exclusive DTEND)', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -198,7 +217,7 @@ describe('syncCalendarSubscription', () => {
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n')
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
     const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
@@ -209,7 +228,6 @@ describe('syncCalendarSubscription', () => {
   })
 
   it('expands a recurring all-day event across occurrences', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -223,7 +241,7 @@ describe('syncCalendarSubscription', () => {
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n')
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
     const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
@@ -236,7 +254,6 @@ describe('syncCalendarSubscription', () => {
     const originalTz = process.env.TZ
     process.env.TZ = 'Pacific/Kiritimati' // UTC+14 — the timezone most likely to expose a UTC-based off-by-one
     try {
-      vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
       const ics = [
         'BEGIN:VCALENDAR',
         'VERSION:2.0',
@@ -249,7 +266,7 @@ describe('syncCalendarSubscription', () => {
         'END:VEVENT',
         'END:VCALENDAR',
       ].join('\r\n')
-      vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+      vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
       const { sql, inserted } = captureInsertedRows()
 
       const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
@@ -261,9 +278,36 @@ describe('syncCalendarSubscription', () => {
     }
   })
 
+  it('bounds work for many attacker-sized all-day spans before output caps apply', async () => {
+    const events = Array.from({ length: 100 }, (_, index) => [
+      'BEGIN:VEVENT',
+      `UID:oversized-${index}@example.com`,
+      'DTSTAMP:20260101T000000Z',
+      'DTSTART;VALUE=DATE:90000101',
+      'DTEND;VALUE=DATE:99991231',
+      `SUMMARY:Oversized ${index}`,
+      'END:VEVENT',
+    ].join('\r\n'))
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...events, 'END:VCALENDAR'].join('\r\n')
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
+    const { sql } = captureInsertedRows()
+
+    const started = performance.now()
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+    )
+
+    expect(result.ok).toBe(true)
+    expect(performance.now() - started).toBeLessThan(1_000)
+  })
+
   it('catches a failure inside the replace transaction and records it as a sync error', async () => {
-    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('BEGIN:VCALENDAR\nEND:VCALENDAR', { status: 200 })))
+    vi.mocked(requestPublicHttps).mockResolvedValue(
+      httpsResponse('BEGIN:VCALENDAR\nEND:VCALENDAR'),
+    )
     const updates = []
     const sql = (strings, ...values) => {
       updates.push({ text: strings.join('?'), values })

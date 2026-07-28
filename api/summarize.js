@@ -11,20 +11,37 @@ const RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const SUMMARY_MODEL =
   process.env.OPENAI_SUMMARY_MODEL || process.env.OPENAI_COMPOSE_MODEL || 'gpt-5.6-luna'
 const RATE_LIMIT = { limit: 10, windowMs: 60_000 }
+export const MAX_SUMMARY_MESSAGES = 50
+export const MAX_SUMMARY_BODY_CHARS = 20_000
+export const MAX_SUMMARY_TRANSCRIPT_CHARS = 100_000
+
+export class SummaryInputTooLargeError extends Error {
+  constructor() {
+    super('The email thread is too large to summarize safely')
+    this.name = 'SummaryInputTooLargeError'
+  }
+}
 
 // Resolve the selected message and its complete thread in one ownership-scoped
 // query. The client sends only the message id; sender-controlled email bodies
 // are loaded on the server and never trusted as client-supplied context.
 export function fetchThreadMessages(sql, email, id) {
   return sql`
-    SELECT tm.id, tm.from_name, tm.from_address, tm.recipients, tm.subject,
-           tm.body_text, tm.sent_at, tm.is_sent
-    FROM messages selected
-    JOIN users u ON u.id = selected.user_id
-    JOIN messages tm
-      ON tm.thread_id = selected.thread_id AND tm.user_id = selected.user_id
-    WHERE selected.id = ${id} AND lower(u.email) = ${email}
-    ORDER BY tm.sent_at ASC, tm.id ASC
+    SELECT bounded.id, bounded.from_name, bounded.from_address, bounded.recipients,
+           bounded.subject, bounded.body_text, bounded.sent_at, bounded.is_sent
+    FROM (
+      SELECT tm.id, tm.from_name, tm.from_address, tm.recipients, tm.subject,
+             left(coalesce(tm.body_text, ''), ${MAX_SUMMARY_BODY_CHARS + 1}) AS body_text,
+             tm.sent_at, tm.is_sent
+      FROM messages selected
+      JOIN users u ON u.id = selected.user_id
+      JOIN messages tm
+        ON tm.thread_id = selected.thread_id AND tm.user_id = selected.user_id
+      WHERE selected.id = ${id} AND lower(u.email) = ${email}
+      ORDER BY tm.sent_at DESC, tm.id DESC
+      LIMIT ${MAX_SUMMARY_MESSAGES + 1}
+    ) bounded
+    ORDER BY bounded.sent_at ASC, bounded.id ASC
   `
 }
 
@@ -36,10 +53,18 @@ function recipientList(recipients) {
     .join(', ')
 }
 
-// Keep every plain-text body in chronological order. Delimiters and explicit
-// field labels help the model distinguish message metadata from body content.
+// Delimiters and explicit field labels help the model distinguish message
+// metadata from body content. Reject rather than silently truncate when the
+// bounded database read shows that the complete thread exceeds the budget.
 export function buildThreadTranscript(messages) {
-  return messages
+  if (
+    messages.length > MAX_SUMMARY_MESSAGES ||
+    messages.some((message) => String(message.body_text || '').length > MAX_SUMMARY_BODY_CHARS)
+  ) {
+    throw new SummaryInputTooLargeError()
+  }
+
+  const transcript = messages
     .map((message, index) => {
       const from = message.from_name || message.from_address || 'Unknown sender'
       const to = recipientList(message.recipients) || 'Unknown recipient'
@@ -55,6 +80,10 @@ export function buildThreadTranscript(messages) {
       ].join('\n')
     })
     .join('\n\n--- END MESSAGE ---\n\n')
+  if (transcript.length > MAX_SUMMARY_TRANSCRIPT_CHARS) {
+    throw new SummaryInputTooLargeError()
+  }
+  return transcript
 }
 
 function outputText(body) {
@@ -185,6 +214,11 @@ export default async function handler(req, res) {
     res.statusCode = 200
     res.end(JSON.stringify({ summary, messageCount: messages.length, model: SUMMARY_MODEL }))
   } catch (err) {
+    if (err instanceof SummaryInputTooLargeError) {
+      res.statusCode = 413
+      res.end(JSON.stringify({ error: err.message }))
+      return
+    }
     console.error('POST /api/summarize failed:', err)
     await captureApiError(err, { route: 'POST /api/summarize' })
     res.statusCode = 502

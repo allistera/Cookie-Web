@@ -98,7 +98,7 @@ const srcdoc = computed(() => {
   const fg = dark ? '#e6e6e6' : '#1f1f1f'
   const link = dark ? '#7cc4ff' : '#2383e2'
   return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: cid:; script-src 'nonce-${scriptNonce}'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline' https:; font-src https: data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${scriptNonce}'; connect-src 'none'; img-src data: cid:; media-src data: cid:; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; font-src data:">
 <style>
 :root { color-scheme: ${dark ? 'dark' : 'light'}; }
 html, body { margin: 0; padding: 0; background: transparent; }

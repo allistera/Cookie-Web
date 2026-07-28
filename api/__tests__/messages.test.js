@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../_lib/auth.js', () => ({
@@ -5,6 +7,9 @@ vi.mock('../_lib/auth.js', () => ({
 }))
 vi.mock('../_lib/sentry.js', () => ({
   captureApiError: vi.fn(async () => undefined),
+}))
+vi.mock('../_lib/safe-https.js', () => ({
+  requestPublicHttps: vi.fn(),
 }))
 
 // Each tagged-template query resolves to the next queued result, so a test can
@@ -15,6 +20,7 @@ vi.mock('../_lib/db.js', () => ({
 }))
 
 import handler, { fetchMessageAttachments } from '../messages.js'
+import { requestPublicHttps } from '../_lib/safe-https.js'
 
 function makeRes() {
   return {
@@ -44,6 +50,7 @@ function get(id) {
 describe('POST /api/messages label actions', () => {
   beforeEach(() => {
     sqlQueue = []
+    vi.mocked(requestPublicHttps).mockReset()
   })
 
   it('applies a label and returns the message label set', async () => {
@@ -103,6 +110,36 @@ describe('POST /api/messages label actions', () => {
     await handler(post({ id: MESSAGE_ID, action: 'frobnicate' }), res)
 
     expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('POST /api/messages unsubscribe action', () => {
+  beforeEach(() => {
+    sqlQueue = []
+    vi.mocked(requestPublicHttps).mockReset()
+  })
+
+  it('sends one-click unsubscribe through the pinned public-HTTPS boundary', async () => {
+    sqlQueue = [[{
+      headers: [
+        { key: 'List-Unsubscribe', value: '<https://news.example/unsubscribe?id=123>' },
+        { key: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
+      ],
+    }]]
+    vi.mocked(requestPublicHttps).mockResolvedValue({ status: 204, headers: {}, body: Buffer.alloc(0) })
+    const res = makeRes()
+
+    await handler(post({ id: MESSAGE_ID, action: 'unsubscribe' }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(requestPublicHttps).toHaveBeenCalledWith(
+      'https://news.example/unsubscribe?id=123',
+      expect.objectContaining({
+        method: 'POST',
+        body: 'List-Unsubscribe=One-Click',
+        timeoutMs: 10_000,
+      }),
+    )
   })
 })
 

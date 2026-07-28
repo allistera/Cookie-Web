@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer'
-import dns from 'node:dns/promises'
-import { isIPv4, isIPv6 } from 'node:net'
 
 import ical from 'node-ical'
+
+import { requestPublicHttps } from './safe-https.js'
 
 const MAX_TITLE = 200
 const MAX_LOCATION = 200
@@ -14,60 +14,6 @@ const MAX_OCCURRENCES_PER_EVENT = 366
 const MAX_EVENTS_PER_SYNC = 1000
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
-
-// Fetching a user-supplied URL from the server is a classic SSRF vector (the
-// "calendar URL" field becomes a way to probe internal services or cloud
-// metadata endpoints). This blocks the well-known private/reserved ranges by
-// resolving the hostname up front and refusing to fetch if it lands there,
-// disables redirect-following (each hop would need the same check), and caps
-// both the fetch time and response size. It does not close a DNS-rebinding
-// race between this lookup and the fetch() call's own resolution — doing so
-// would require pinning the connection to the resolved IP via a custom
-// undici dispatcher, which is more machinery than this feature currently
-// warrants.
-function ipv4ToInt(ip) {
-  return ip.split('.').reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0
-}
-
-const PRIVATE_IPV4_RANGES = [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.0.2.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['198.51.100.0', 24],
-  ['203.0.113.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
-]
-
-function isPrivateIPv4(ip) {
-  const int = ipv4ToInt(ip)
-  return PRIVATE_IPV4_RANGES.some(([base, bits]) => {
-    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0
-    return (int & mask) === (ipv4ToInt(base) & mask)
-  })
-}
-
-function isPrivateIPv6(ip) {
-  const normalized = ip.toLowerCase()
-  if (normalized === '::1' || normalized === '::') return true
-  if (/^fe[89ab]/.test(normalized)) return true // link-local fe80::/10
-  if (/^f[cd]/.test(normalized)) return true // unique local fc00::/7
-  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-  return mapped ? isPrivateIPv4(mapped[1]) : false
-}
-
-function isDisallowedIp(ip) {
-  if (isIPv4(ip)) return isPrivateIPv4(ip)
-  if (isIPv6(ip)) return isPrivateIPv6(ip)
-  return true // unrecognized format — fail closed
-}
 
 export function validSubscriptionUrl(value) {
   if (typeof value !== 'string' || value.length > 2000) return null
@@ -81,40 +27,18 @@ export function validSubscriptionUrl(value) {
 }
 
 async function fetchIcs(url) {
-  const parsed = new URL(url)
-  let address
-  try {
-    ;({ address } = await dns.lookup(parsed.hostname))
-  } catch {
-    throw new Error('Could not resolve the calendar URL')
-  }
-  if (isDisallowedIp(address)) throw new Error('The calendar URL points to a disallowed address')
-
-  const response = await fetch(url, {
-    redirect: 'manual',
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  const response = await requestPublicHttps(url, {
+    timeoutMs: FETCH_TIMEOUT_MS,
+    maxResponseBytes: MAX_RESPONSE_BYTES,
     headers: { Accept: 'text/calendar, text/plain, */*' },
   })
   if (response.status >= 300 && response.status < 400) {
     throw new Error('The calendar URL redirected; redirects are not followed')
   }
-  if (!response.ok) throw new Error(`The calendar URL responded with status ${response.status}`)
-
-  const reader = response.body?.getReader()
-  if (!reader) return response.text()
-  const chunks = []
-  let bytes = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    bytes += value.byteLength
-    if (bytes > MAX_RESPONSE_BYTES) {
-      await reader.cancel()
-      throw new Error('The calendar feed is too large')
-    }
-    chunks.push(value)
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`The calendar URL responded with status ${response.status}`)
   }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8')
+  return Buffer.from(response.body).toString('utf8')
 }
 
 const pad2 = (n) => String(n).padStart(2, '0')
@@ -130,6 +54,10 @@ function addDaysLocal(date, days) {
   const next = new Date(date)
   next.setDate(next.getDate() + days)
   return next
+}
+
+function startOfLocalDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
 // A timed (non-all-day) occurrence: one row, positioned by its actual
@@ -156,17 +84,24 @@ function timedOccurrences(event, windowStart, windowEnd) {
 // positioning it in the hourly grid (which is what previously made a single
 // all-day event stretch across the entire visible timeline). RFC5545 all-day
 // DTEND is exclusive — a "Aug 10-13" span covers the 10th, 11th, and 12th.
-function allDayOccurrences(event, windowStart, windowEnd) {
+export function allDayOccurrences(event, windowStart, windowEnd) {
   const spanDays = Math.max(Math.round((event.end.getTime() - event.start.getTime()) / MS_PER_DAY), 1)
   const starts = event.rrule
     ? event.rrule.between(windowStart, windowEnd, true).slice(0, MAX_OCCURRENCES_PER_EVENT)
     : [event.start]
 
   const rows = []
+  const firstWindowDay = startOfLocalDay(windowStart)
+  const afterLastWindowDay = addDaysLocal(startOfLocalDay(windowEnd), 1)
   for (const occurrenceStart of starts) {
-    for (let offset = 0; offset < spanDays; offset += 1) {
-      const day = addDaysLocal(new Date(occurrenceStart), offset)
-      if (day < windowStart || day > windowEnd) continue
+    const firstOccurrenceDay = startOfLocalDay(new Date(occurrenceStart))
+    const afterLastOccurrenceDay = addDaysLocal(firstOccurrenceDay, spanDays)
+    const firstDay = firstOccurrenceDay < firstWindowDay ? firstWindowDay : firstOccurrenceDay
+    const afterLastDay = afterLastOccurrenceDay > afterLastWindowDay
+      ? afterLastWindowDay
+      : afterLastOccurrenceDay
+
+    for (let day = firstDay; day < afterLastDay; day = addDaysLocal(day, 1)) {
       rows.push({ date: toDateKeyLocal(day), time: '00:00', durationMinutes: 1440, allDay: true })
       if (rows.length >= MAX_OCCURRENCES_PER_EVENT) return rows
     }

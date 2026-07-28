@@ -39,6 +39,24 @@ describe('EmailBody', () => {
     expect(srcdoc).toContain('rel="noopener noreferrer"')
   })
 
+  it('blocks sender-controlled remote resources while preserving embedded content', () => {
+    const wrapper = mount(EmailBody, {
+      props: {
+        html:
+          '<img src="https://tracker.example/open.gif">' +
+          '<img src="data:image/png;base64,iVBORw0KGgo=">' +
+          '<p style="background-image:url(https://tracker.example/style.gif)">Body</p>',
+      },
+    })
+
+    const srcdoc = wrapper.find('iframe').attributes('srcdoc')
+    const csp = srcdoc.match(/Content-Security-Policy" content="([^"]+)/)?.[1]
+    expect(csp).toBeDefined()
+    expect(csp).not.toMatch(/(?:default|img|style|font)-src[^;]*https?:/)
+    expect(csp).toContain('img-src data: cid:')
+    expect(csp).toContain("style-src 'unsafe-inline'")
+  })
+
   it('forwards key presses from the iframe document to the reader', async () => {
     const wrapper = mount(EmailBody, {
       props: { html: '<p><a href="https://example.com">link</a></p>', text: 'fallback' },

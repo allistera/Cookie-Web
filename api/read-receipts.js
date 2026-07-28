@@ -17,6 +17,11 @@ export function recordReadReceipt(sql, token) {
         last_opened_at = now(),
         open_count = open_count + 1
     WHERE token = ${token}
+      AND expires_at > now()
+      AND (
+        last_opened_at IS NULL OR
+        last_opened_at < now() - interval '5 minutes'
+      )
   `
 }
 

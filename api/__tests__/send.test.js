@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { appendReadReceipt, buildReadReceiptUrl, parseRecipients } from '../send.js'
+import {
+  appendReadReceipt,
+  buildReadReceiptUrl,
+  claimOutboundEmailQuota,
+  parseRecipients,
+  validateOutboundMessage,
+} from '../send.js'
 
 describe('parseRecipients', () => {
   it('parses a comma-separated to field into trimmed addresses', () => {
@@ -14,6 +20,56 @@ describe('parseRecipients', () => {
     expect(parseRecipients(undefined)).toEqual([])
     expect(parseRecipients(null)).toEqual([])
     expect(parseRecipients(42)).toEqual([])
+  })
+
+  it('rejects recipient fan-out above the application limit', () => {
+    const recipients = Array.from({ length: 21 }, (_, index) => `user${index}@example.com`).join(',')
+
+    expect(parseRecipients(recipients)).toEqual([])
+  })
+})
+
+describe('outbound email abuse bounds', () => {
+  const valid = {
+    to: 'recipient@example.com',
+    subject: 'Hello',
+    text: 'Plain text',
+    html: '<p>Plain text</p>',
+  }
+
+  it('accepts a normal bounded message', () => {
+    expect(validateOutboundMessage(valid)).toEqual({
+      recipients: ['recipient@example.com'],
+      bodyHtml: '<p>Plain text</p>',
+    })
+  })
+
+  it('rejects oversized subject, text, HTML, and aggregate content', () => {
+    expect(validateOutboundMessage({ ...valid, subject: 'x'.repeat(999) }).error).toMatch(/size/i)
+    expect(validateOutboundMessage({ ...valid, text: 'x'.repeat(100_001) }).error).toMatch(/size/i)
+    expect(validateOutboundMessage({ ...valid, html: 'x'.repeat(200_001) }).error).toMatch(/size/i)
+    expect(
+      validateOutboundMessage({ ...valid, text: 'x'.repeat(100_000), html: 'y'.repeat(160_000) }).error,
+    ).toMatch(/size/i)
+  })
+
+  it('uses one atomic server-side quota claim scoped to a provisioned user', async () => {
+    let query = ''
+    const values = []
+    const sql = (strings, ...parameters) => {
+      query = strings.join('?')
+      values.push(...parameters)
+      return [{ authorized: true, quota_claimed: true }]
+    }
+
+    await expect(claimOutboundEmailQuota(sql, 'owner@example.com')).resolves.toEqual({
+      authorized: true,
+      quota_claimed: true,
+    })
+    expect(query).toContain('INSERT INTO outbound_email_quotas')
+    expect(query).toContain('ON CONFLICT (user_id) DO UPDATE')
+    expect(query).toContain('outbound_email_quotas.send_count <')
+    expect(values).toEqual(['owner@example.com', 10])
   })
 })
 

@@ -8,6 +8,7 @@ import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { parseListUnsubscribe, isSafeUnsubscribeUrl } from './_lib/unsubscribe.js'
+import { requestPublicHttps } from './_lib/safe-https.js'
 import contactsHandler from './_lib/contacts.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -283,12 +284,11 @@ async function handlePost(req, res, email) {
     // 1. RFC 8058 one-click: server-side POST, only to an SSRF-safe https URL.
     if (oneClick && url && isSafeUnsubscribeUrl(url)) {
       try {
-        const resp = await fetch(url, {
+        const resp = await requestPublicHttps(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: 'List-Unsubscribe=One-Click',
-          redirect: 'manual',
-          signal: AbortSignal.timeout(10000),
+          timeoutMs: 10_000,
         })
         if (resp.status < 400) {
           res.statusCode = 200
