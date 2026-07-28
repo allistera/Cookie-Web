@@ -67,18 +67,31 @@ async function resolveCalendarId(sql, email, calendarId) {
   const legacyName = LEGACY_CALENDAR_NAMES.get(calendarId) ?? null
   try {
     const [row] = await sql`
-      SELECT c.id
+      SELECT c.id, c.subscription_url AS "subscriptionUrl"
       FROM calendars c
       JOIN users u ON u.id = c.user_id
       WHERE lower(u.email) = ${email}
         AND (c.id::text = ${calendarId} OR c.name = ${legacyName})
       LIMIT 1
     `
-    return row?.id ?? null
+    return row ? { id: row.id, subscriptionUrl: row.subscriptionUrl } : null
   } catch (error) {
+    if (error?.code === '42703') {
+      // Migration 0026 (subscription columns) hasn't landed yet; the table
+      // itself is fine, so retry without referencing them.
+      const [row] = await sql`
+        SELECT c.id
+        FROM calendars c
+        JOIN users u ON u.id = c.user_id
+        WHERE lower(u.email) = ${email}
+          AND (c.id::text = ${calendarId} OR c.name = ${legacyName})
+        LIMIT 1
+      `
+      return row ? { id: row.id, subscriptionUrl: null } : null
+    }
     // During the expand rollout, the new API may be live briefly before the
     // calendars table exists. Legacy slugs remain valid until migration 0024.
-    if (error?.code === '42P01') return legacyName ? calendarId : null
+    if (error?.code === '42P01') return legacyName ? { id: calendarId, subscriptionUrl: null } : null
     throw error
   }
 }
@@ -220,8 +233,25 @@ export function expandEvents(events, now = new Date()) {
 // Migration 0024 installs the composite FK that makes this ownership check
 // authoritative in the database and closes resolve-then-write races.
 async function ownsCalendar(sql, email, calendarId) {
-  const resolved = await resolveCalendarId(sql, email, calendarId)
-  return resolved ? String(resolved) : null
+  return resolveCalendarId(sql, email, calendarId)
+}
+
+const READ_ONLY_ERROR = 'This calendar is read-only — its events sync automatically.'
+
+async function isEventInSubscribedCalendar(sql, email, eventId) {
+  try {
+    const [row] = await sql`
+      SELECT c.subscription_url IS NOT NULL AS "isSubscribed"
+      FROM calendar_events ce
+      JOIN users u ON u.id = ce.user_id
+      LEFT JOIN calendars c ON c.id = ce.calendar
+      WHERE ce.id = ${eventId} AND lower(u.email) = ${email}
+    `
+    return row?.isSubscribed ?? false
+  } catch (error) {
+    if (error?.code === '42703') return false // migration 0026 hasn't landed yet
+    throw error
+  }
 }
 
 async function listEvents(sql, email, res) {
@@ -243,12 +273,17 @@ async function createEvent(sql, email, body, res) {
     res.end(JSON.stringify({ error: 'Calendar not found' }))
     return
   }
+  if (calendar.subscriptionUrl) {
+    res.statusCode = 403
+    res.end(JSON.stringify({ error: READ_ONLY_ERROR }))
+    return
+  }
 
   const [event] = await sql`
     INSERT INTO calendar_events
       (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone, recurrence_rule)
     SELECT u.id, ${fields.title}, ${fields.description}, ${fields.location}, ${fields.date},
-           ${fields.start}, ${fields.duration}, ${calendar}, ${fields.tone}, ${fields.recurrenceRule}
+           ${fields.start}, ${fields.duration}, ${calendar.id}, ${fields.tone}, ${fields.recurrenceRule}
     FROM users u
     WHERE lower(u.email) = ${email}
     RETURNING id, title, description, location, event_date AS date, start_time AS start,
@@ -277,6 +312,11 @@ async function updateEvent(sql, email, body, res) {
     res.end(JSON.stringify({ error: 'Calendar not found' }))
     return
   }
+  if (calendar.subscriptionUrl || (await isEventInSubscribedCalendar(sql, email, id))) {
+    res.statusCode = 403
+    res.end(JSON.stringify({ error: READ_ONLY_ERROR }))
+    return
+  }
 
   const [event] = await sql`
     UPDATE calendar_events ce
@@ -286,7 +326,7 @@ async function updateEvent(sql, email, body, res) {
         event_date = ${fields.date},
         start_time = ${fields.start},
         duration_minutes = ${fields.duration},
-        calendar = ${calendar},
+        calendar = ${calendar.id},
         tone = ${fields.tone},
         recurrence_rule = ${fields.recurrenceRule},
         updated_at = now()
@@ -310,6 +350,11 @@ async function deleteEvent(sql, email, body, res) {
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))
+    return
+  }
+  if (await isEventInSubscribedCalendar(sql, email, id)) {
+    res.statusCode = 403
+    res.end(JSON.stringify({ error: READ_ONLY_ERROR }))
     return
   }
   const rows = await sql`

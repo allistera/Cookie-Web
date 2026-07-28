@@ -17,6 +17,7 @@ const selectedDate = ref(new Date(REFERENCE_DATE))
 const showNewEvent = ref(false)
 const eventForm = ref(null)
 const editingEventId = ref(null)
+const eventFormReadOnly = ref(false)
 const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
@@ -39,14 +40,21 @@ const NEW_CALENDAR_PALETTE = [
 const calendars = ref([])
 const visibleCalendars = ref(new Set())
 const isAddingCalendar = ref(false)
+const isAddingSubscription = ref(false)
 const newCalendarName = ref('')
+const newCalendarSubscriptionUrl = ref('')
 const newCalendarInput = ref(null)
 const editingCalendarId = ref(null)
 const editingCalendarName = ref('')
 const editingCalendarInput = ref(null)
 const confirmingDeleteId = ref(null)
 const calendarError = ref('')
+const syncingCalendarId = ref(null)
 const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
+
+// Manually-created calendars accept events; subscribed ones are entirely
+// sync-managed, so they're excluded from anywhere an event gets filed.
+const writableCalendars = computed(() => calendars.value.filter((calendar) => !calendar.subscriptionUrl))
 
 async function loadCalendars() {
   try {
@@ -63,13 +71,18 @@ async function loadCalendars() {
 }
 
 function defaultCalendarId() {
-  return calendars.value.find((calendar) => calendar.name === 'Personal')?.id ?? calendars.value[0]?.id
+  return (
+    writableCalendars.value.find((calendar) => calendar.name === 'Personal')?.id ??
+    writableCalendars.value[0]?.id
+  )
 }
 
 function openAddCalendar() {
   editingCalendarId.value = null
   isAddingCalendar.value = true
+  isAddingSubscription.value = false
   newCalendarName.value = ''
+  newCalendarSubscriptionUrl.value = ''
   calendarError.value = ''
   nextTick(() => newCalendarInput.value?.focus())
 }
@@ -81,13 +94,15 @@ function closeAddCalendar() {
 async function createCalendar() {
   const name = newCalendarName.value.trim()
   if (!name) return
+  const subscriptionUrl = isAddingSubscription.value ? newCalendarSubscriptionUrl.value.trim() : undefined
+  if (isAddingSubscription.value && !subscriptionUrl) return
   const color = NEW_CALENDAR_PALETTE[calendars.value.length % NEW_CALENDAR_PALETTE.length]
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ name, color }),
+      body: JSON.stringify({ name, color, subscriptionUrl }),
     })
     if (response.status === 409) {
       calendarError.value = 'A calendar with that name already exists.'
@@ -98,9 +113,44 @@ async function createCalendar() {
     calendars.value.push(calendar)
     visibleCalendars.value = new Set([...visibleCalendars.value, calendar.id])
     closeAddCalendar()
+    if (calendar.subscriptionUrl) {
+      if (calendar.subscriptionError) store.notify(`Sync failed: ${calendar.subscriptionError}`, 'error')
+      await loadEvents()
+    }
   } catch (error) {
     console.error('Failed to create calendar:', error)
     store.notify('Failed to create calendar.', 'error')
+  }
+}
+
+async function syncCalendarNow(calendar) {
+  syncingCalendarId.value = calendar.id
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    const response = await fetch(CALENDARS_ENDPOINT, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'sync', id: calendar.id }),
+    })
+    const body = await response.json().catch(() => ({}))
+    const index = calendars.value.findIndex((item) => item.id === calendar.id)
+    if (index !== -1) {
+      calendars.value[index] = {
+        ...calendars.value[index],
+        subscriptionSyncedAt: body.subscriptionSyncedAt ?? calendars.value[index].subscriptionSyncedAt,
+        subscriptionError: body.subscriptionError ?? null,
+      }
+    }
+    if (!response.ok) {
+      store.notify(`Sync failed: ${body.subscriptionError || 'unknown error'}`, 'error')
+      return
+    }
+    await loadEvents()
+  } catch (error) {
+    console.error('Failed to sync calendar:', error)
+    store.notify('Failed to sync calendar.', 'error')
+  } finally {
+    syncingCalendarId.value = null
   }
 }
 
@@ -386,6 +436,7 @@ function parseRepeatUntil(recurrenceRule) {
 
 function openNewEvent(prefill) {
   editingEventId.value = null
+  eventFormReadOnly.value = false
   eventForm.value = {
     title: '',
     description: '',
@@ -402,6 +453,9 @@ function openNewEvent(prefill) {
 
 function editEvent(event) {
   editingEventId.value = event.seriesId ?? event.id
+  // Subscribed-calendar events are entirely sync-managed — the dialog opens
+  // read-only rather than letting the user hit a 403 on save/delete.
+  eventFormReadOnly.value = !writableCalendars.value.some((calendar) => calendar.id === event.calendar)
   eventForm.value = {
     title: event.title,
     description: event.description || '',
@@ -644,6 +698,18 @@ onUnmounted(() => {
                 <span class="nav-text">{{ calendar.name }}</span>
               </button>
               <button
+                v-if="calendar.subscriptionUrl"
+                type="button"
+                class="material-symbols-outlined calendar-list-edit-icon calendar-sync-icon"
+                :class="{ syncing: syncingCalendarId === calendar.id }"
+                :aria-label="`Sync ${calendar.name}`"
+                :title="calendar.subscriptionError || 'Sync now'"
+                :disabled="syncingCalendarId === calendar.id"
+                @click="syncCalendarNow(calendar)"
+              >
+                sync
+              </button>
+              <button
                 type="button"
                 class="material-symbols-outlined calendar-list-edit-icon"
                 :aria-label="`Edit ${calendar.name}`"
@@ -654,6 +720,9 @@ onUnmounted(() => {
             </div>
             <p v-if="calendarError && editingCalendarId === calendar.id" class="calendar-edit-error">
               {{ calendarError }}
+            </p>
+            <p v-else-if="calendar.subscriptionUrl && calendar.subscriptionError" class="calendar-edit-error">
+              Sync failed: {{ calendar.subscriptionError }}
             </p>
           </div>
 
@@ -673,7 +742,7 @@ onUnmounted(() => {
                 type="submit"
                 class="calendar-edit-icon-btn"
                 title="Create"
-                :disabled="!newCalendarName.trim()"
+                :disabled="!newCalendarName.trim() || (isAddingSubscription && !newCalendarSubscriptionUrl.trim())"
               >
                 <span class="material-symbols-outlined" aria-hidden="true">check</span>
               </button>
@@ -681,6 +750,23 @@ onUnmounted(() => {
                 <span class="material-symbols-outlined" aria-hidden="true">close</span>
               </button>
             </form>
+            <input
+              v-if="isAddingSubscription"
+              v-model="newCalendarSubscriptionUrl"
+              type="url"
+              class="calendar-edit-input calendar-subscription-url-input"
+              placeholder="https://example.com/calendar.ics"
+              aria-label="Calendar subscription URL"
+              @keydown.enter.prevent="createCalendar"
+              @keydown.escape="closeAddCalendar"
+            />
+            <button
+              type="button"
+              class="calendar-subscription-toggle"
+              @click="isAddingSubscription = !isAddingSubscription"
+            >
+              {{ isAddingSubscription ? 'Create a calendar instead' : 'Subscribe via URL instead' }}
+            </button>
             <p v-if="calendarError" class="calendar-edit-error">{{ calendarError }}</p>
           </div>
           <button v-else type="button" class="nav-item calendar-add-btn" @click="openAddCalendar">
@@ -936,6 +1022,7 @@ onUnmounted(() => {
                 class="new-event-title-input"
                 placeholder="New event"
                 aria-label="Event title"
+                :disabled="eventFormReadOnly"
                 @keydown.enter.prevent="saveEvent"
               />
               <input
@@ -944,6 +1031,7 @@ onUnmounted(() => {
                 class="new-event-description-input"
                 placeholder="Tell Cookie what you need — it fills in the rest"
                 aria-label="Event description"
+                :disabled="eventFormReadOnly"
               />
             </div>
             <button type="button" class="new-event-close" aria-label="Close" @click="closeNewEvent">
@@ -953,37 +1041,50 @@ onUnmounted(() => {
             </button>
           </header>
 
+          <p v-if="eventFormReadOnly" class="new-event-readonly-note">
+            Synced from an external calendar — read-only.
+          </p>
+
           <div class="new-event-datetime">
             <label class="new-event-field new-event-datetime-field">
               <span>Date</span>
-              <input v-model="eventForm.date" type="date" />
+              <input v-model="eventForm.date" type="date" :disabled="eventFormReadOnly" />
             </label>
             <label class="new-event-field new-event-datetime-field">
               <span>Start</span>
-              <input v-model="eventForm.start" type="time" />
+              <input v-model="eventForm.start" type="time" :disabled="eventFormReadOnly" />
             </label>
             <label class="new-event-field new-event-datetime-field">
               <span>End</span>
-              <input v-model="eventForm.end" type="time" />
+              <input v-model="eventForm.end" type="time" :disabled="eventFormReadOnly" />
             </label>
           </div>
 
           <div class="new-event-location-wrap">
             <label class="new-event-field">
               <span>Location</span>
-              <input v-model="eventForm.location" type="text" placeholder="Add location" />
+              <input
+                v-model="eventForm.location"
+                type="text"
+                placeholder="Add location"
+                :disabled="eventFormReadOnly"
+              />
             </label>
             <label class="new-event-field">
               <span>Calendar</span>
-              <select v-model="eventForm.calendar" aria-label="Event calendar">
-                <option v-for="calendar in calendars" :key="calendar.id" :value="calendar.id">
+              <select v-model="eventForm.calendar" aria-label="Event calendar" :disabled="eventFormReadOnly">
+                <option
+                  v-for="calendar in eventFormReadOnly ? calendars : writableCalendars"
+                  :key="calendar.id"
+                  :value="calendar.id"
+                >
                   {{ calendar.name }}
                 </option>
               </select>
             </label>
           </div>
 
-          <div class="new-event-location-wrap">
+          <div v-if="!eventFormReadOnly" class="new-event-location-wrap">
             <label class="new-event-field">
               <span>Repeats</span>
               <select v-model="eventForm.repeat" aria-label="Event repeats">
@@ -1005,7 +1106,12 @@ onUnmounted(() => {
             </label>
           </div>
 
-          <footer class="new-event-dialog-actions">
+          <footer v-if="eventFormReadOnly" class="new-event-dialog-actions">
+            <div class="new-event-dialog-actions-right">
+              <button type="button" class="new-event-cancel" @click="closeNewEvent">Close</button>
+            </div>
+          </footer>
+          <footer v-else class="new-event-dialog-actions">
             <button
               v-if="editingEventId"
               type="button"
@@ -1185,6 +1291,42 @@ onUnmounted(() => {
 .calendar-list-edit-icon:hover {
   background: var(--calendar-line);
   color: var(--calendar-ink);
+}
+
+.calendar-sync-icon {
+  right: 28px;
+  font-size: 15px;
+}
+
+.calendar-sync-icon.syncing {
+  opacity: 1;
+  animation: calendar-sync-spin 1s linear infinite;
+}
+
+@keyframes calendar-sync-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.calendar-subscription-toggle {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--calendar-muted);
+  font-family: var(--font-stack);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.calendar-subscription-url-input {
+  width: 100%;
+  margin-top: 4px;
 }
 
 .calendar-add-btn {
@@ -2027,6 +2169,12 @@ onUnmounted(() => {
   background: var(--calendar-soft);
   color: var(--calendar-ink);
   outline: none;
+}
+
+.new-event-readonly-note {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--calendar-muted);
 }
 
 .new-event-datetime {

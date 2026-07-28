@@ -9,9 +9,20 @@ vi.mock('../_lib/sentry.js', () => ({
 
 // Each tagged-template query resolves to the next queued result, so a test
 // can script the sequence of reads/writes the handler issues in order.
+// sql.begin(fn) runs fn against the same queue-consuming function, since
+// none of these tests need real transactional isolation.
 let sqlQueue = []
+const queriesRun = []
+function makeSql() {
+  const run = (strings, ...values) => {
+    queriesRun.push({ text: strings.join('?'), values })
+    return Promise.resolve(sqlQueue.shift() ?? [])
+  }
+  run.begin = async (fn) => fn(run)
+  return run
+}
 vi.mock('../_lib/db.js', () => ({
-  getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
+  getSql: () => makeSql(),
 }))
 
 import handler, { fetchCalendars } from '../_lib/calendars.js'
@@ -68,6 +79,7 @@ describe('fetchCalendars', () => {
 describe('GET calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
+    queriesRun.length = 0
   })
 
   it('returns existing calendars without seeding', async () => {
@@ -125,6 +137,7 @@ describe('GET calendar management', () => {
 describe('POST calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
+    queriesRun.length = 0
   })
 
   it('creates a calendar', async () => {
@@ -158,6 +171,7 @@ describe('POST calendar management', () => {
 describe('PATCH calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
+    queriesRun.length = 0
   })
 
   it('renames a calendar', async () => {
@@ -199,11 +213,12 @@ describe('PATCH calendar management', () => {
 describe('DELETE calendar management', () => {
   beforeEach(() => {
     sqlQueue = []
+    queriesRun.length = 0
   })
 
   it('deletes a calendar with no events', async () => {
     sqlQueue = [
-      [{ calendar: true }], // ownership check
+      [{ isSubscribed: false }], // ownership + subscription check
       [{ count: 0 }], // event count
       [], // DELETE
     ]
@@ -216,7 +231,7 @@ describe('DELETE calendar management', () => {
 
   it('409s if the database FK catches a concurrent event create', async () => {
     sqlQueue = [
-      [{ calendar: true }],
+      [{ isSubscribed: false }],
       [{ count: 0 }],
       Promise.reject(Object.assign(new Error('still referenced'), { code: '23503' })),
     ]
@@ -228,7 +243,7 @@ describe('DELETE calendar management', () => {
   })
 
   it('409s with the event count when the calendar still has events', async () => {
-    sqlQueue = [[{ calendar: true }], [{ count: 3 }]]
+    sqlQueue = [[{ isSubscribed: false }], [{ count: 3 }]]
     const res = makeRes()
     await handler(del({ id: CALENDAR_ID }), res)
 
@@ -237,11 +252,23 @@ describe('DELETE calendar management', () => {
   })
 
   it('404s when the calendar is not the caller’s', async () => {
-    sqlQueue = [[{ calendar: false }]]
+    sqlQueue = [[]]
     const res = makeRes()
     await handler(del({ id: CALENDAR_ID }), res)
 
     expect(res.statusCode).toBe(404)
+  })
+
+  it('cascade-deletes a subscribed calendar even though it has events, skipping the event-count check', async () => {
+    sqlQueue = [[{ isSubscribed: true }]]
+    const res = makeRes()
+    await handler(del({ id: CALENDAR_ID }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ ok: true })
+    expect(queriesRun.some((q) => q.text.includes('DELETE FROM calendar_events'))).toBe(true)
+    expect(queriesRun.some((q) => q.text.includes('DELETE FROM calendars'))).toBe(true)
+    expect(queriesRun.some((q) => q.text.includes('count(*)'))).toBe(false)
   })
 
   it('rejects a malformed id with 400', async () => {

@@ -2,6 +2,7 @@ import { getSql } from './db.js'
 import { verifyAccessToken } from './auth.js'
 import { captureApiError } from './sentry.js'
 import { readJsonBody } from './body.js'
+import { syncCalendarSubscription, validSubscriptionUrl } from './calendarSync.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLOR_RE = /^#[0-9a-f]{6}$/i
@@ -17,14 +18,28 @@ const DEFAULT_CALENDARS = [
 
 const isUndefinedTable = (error) => error?.code === '42P01'
 
-export function fetchCalendars(sql, email) {
-  return sql`
-    SELECT c.id, c.name, c.color
-    FROM calendars c
-    JOIN users u ON u.id = c.user_id
-    WHERE lower(u.email) = ${email}
-    ORDER BY c.created_at, c.id
-  `
+export async function fetchCalendars(sql, email) {
+  try {
+    return await sql`
+      SELECT c.id, c.name, c.color, c.subscription_url AS "subscriptionUrl",
+             c.subscription_synced_at AS "subscriptionSyncedAt", c.subscription_error AS "subscriptionError"
+      FROM calendars c
+      JOIN users u ON u.id = c.user_id
+      WHERE lower(u.email) = ${email}
+      ORDER BY c.created_at, c.id
+    `
+  } catch (error) {
+    // During the rollout window before migration 0026 lands, fall back to a
+    // read that doesn't reference the new subscription columns.
+    if (error?.code !== '42703') throw error
+    return sql`
+      SELECT c.id, c.name, c.color
+      FROM calendars c
+      JOIN users u ON u.id = c.user_id
+      WHERE lower(u.email) = ${email}
+      ORDER BY c.created_at, c.id
+    `
+  }
 }
 
 // New users have no calendars until this runs once; seed the same five
@@ -78,27 +93,79 @@ function validName(name) {
 async function createCalendar(sql, email, body, res) {
   const name = validName(body.name)
   const color = typeof body.color === 'string' ? body.color : ''
-  if (!name || !COLOR_RE.test(color)) {
+  const subscriptionUrl =
+    body.subscriptionUrl !== undefined && body.subscriptionUrl !== null && body.subscriptionUrl !== ''
+      ? validSubscriptionUrl(body.subscriptionUrl)
+      : null
+  if (!name || !COLOR_RE.test(color) || (body.subscriptionUrl && !subscriptionUrl)) {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: 'name (max 50) and a hex color are required' }))
+    res.end(
+      JSON.stringify({
+        error: 'name (max 50), a hex color, and (if subscribing) a valid https calendar URL are required',
+      }),
+    )
     return
   }
 
-  const [calendar] = await sql`
-    INSERT INTO calendars (user_id, name, color)
-    SELECT u.id, ${name}, ${color}
+  const [row] = await sql`
+    INSERT INTO calendars (user_id, name, color, subscription_url)
+    SELECT u.id, ${name}, ${color}, ${subscriptionUrl}
     FROM users u
     WHERE lower(u.email) = ${email}
     ON CONFLICT (user_id, name) DO NOTHING
-    RETURNING id, name, color
+    RETURNING id, name, color, user_id AS "userId"
   `
-  if (!calendar) {
+  if (!row) {
     res.statusCode = 409
     res.end(JSON.stringify({ error: 'A calendar with that name already exists' }))
     return
   }
+
+  let calendar = { id: row.id, name: row.name, color: row.color }
+  if (subscriptionUrl) {
+    const sync = await syncCalendarSubscription(sql, row.id, row.userId, subscriptionUrl)
+    calendar = {
+      ...calendar,
+      subscriptionUrl,
+      subscriptionSyncedAt: sync.ok ? new Date().toISOString() : null,
+      subscriptionError: sync.ok ? null : sync.error,
+    }
+  }
   res.statusCode = 201
   res.end(JSON.stringify({ calendar }))
+}
+
+// Manual re-sync of an existing subscribed calendar, triggered from the
+// sidebar's "Sync now" action.
+async function syncCalendar(sql, email, body, res) {
+  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  if (!id) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'id is required' }))
+    return
+  }
+
+  const [row] = await sql`
+    SELECT c.id, c.user_id AS "userId", c.subscription_url AS "subscriptionUrl"
+    FROM calendars c
+    JOIN users u ON u.id = c.user_id
+    WHERE c.id = ${id} AND lower(u.email) = ${email}
+  `
+  if (!row?.subscriptionUrl) {
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: 'Subscribed calendar not found' }))
+    return
+  }
+
+  const sync = await syncCalendarSubscription(sql, row.id, row.userId, row.subscriptionUrl)
+  res.statusCode = sync.ok ? 200 : 502
+  res.end(
+    JSON.stringify(
+      sync.ok
+        ? { ok: true, subscriptionSyncedAt: new Date().toISOString(), subscriptionError: null }
+        : { ok: false, subscriptionError: sync.error },
+    ),
+  )
 }
 
 async function renameCalendar(sql, email, body, res) {
@@ -137,9 +204,12 @@ async function renameCalendar(sql, email, body, res) {
   res.end(JSON.stringify({ calendar }))
 }
 
-// Blocks deleting a calendar that still has events, rather than silently
-// cascading the delete or orphaning them — the client asks the user to
-// delete or move those events first.
+// Blocks deleting a manually-managed calendar that still has events, rather
+// than silently cascading the delete or orphaning them — the client asks the
+// user to delete or move those events first. Subscribed calendars are
+// exempt: their events are entirely sync-owned (never hand-edited), so
+// deleting the subscription cascades its events rather than asking the user
+// to clear a calendar they can't otherwise edit.
 async function deleteCalendar(sql, email, body, res) {
   const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
   if (!id) {
@@ -148,15 +218,36 @@ async function deleteCalendar(sql, email, body, res) {
     return
   }
 
-  const [owns] = await sql`
-    SELECT EXISTS (
-      SELECT 1 FROM calendars c JOIN users u ON u.id = c.user_id
+  let owned
+  try {
+    ;[owned] = await sql`
+      SELECT c.subscription_url IS NOT NULL AS "isSubscribed"
+      FROM calendars c JOIN users u ON u.id = c.user_id
       WHERE c.id = ${id} AND lower(u.email) = ${email}
-    ) AS calendar
-  `
-  if (!owns?.calendar) {
+    `
+  } catch (error) {
+    if (error?.code !== '42703') throw error
+    // Rollout window before migration 0026 lands: no calendar can be a
+    // subscription yet, so behave exactly like the pre-subscription check.
+    ;[owned] = await sql`
+      SELECT false AS "isSubscribed"
+      FROM calendars c JOIN users u ON u.id = c.user_id
+      WHERE c.id = ${id} AND lower(u.email) = ${email}
+    `
+  }
+  if (!owned) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Calendar not found' }))
+    return
+  }
+
+  if (owned.isSubscribed) {
+    await sql.begin(async (tx) => {
+      await tx`DELETE FROM calendar_events WHERE calendar = ${id}`
+      await tx`DELETE FROM calendars WHERE id = ${id}`
+    })
+    res.statusCode = 200
+    res.end(JSON.stringify({ ok: true }))
     return
   }
 
@@ -219,7 +310,8 @@ export default async function handler(req, res) {
         res.end(JSON.stringify({ error: 'Invalid JSON body' }))
         return
       }
-      if (req.method === 'POST') await createCalendar(sql, email, body, res)
+      if (req.method === 'POST' && body.action === 'sync') await syncCalendar(sql, email, body, res)
+      else if (req.method === 'POST') await createCalendar(sql, email, body, res)
       else if (req.method === 'PATCH') await renameCalendar(sql, email, body, res)
       else await deleteCalendar(sql, email, body, res)
       return

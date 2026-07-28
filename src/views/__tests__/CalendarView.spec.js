@@ -87,11 +87,30 @@ function mockCalendarApi() {
 
       if (url === CALENDARS_ENDPOINT) {
         if (method === 'GET') return { ok: true, json: async () => clone({ calendars }) }
+        if (method === 'POST' && body.action === 'sync') {
+          const calendar = calendars.find((item) => item.id === body.id)
+          if (!calendar?.subscriptionUrl) return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
+          calendar.subscriptionSyncedAt = '2026-07-24T12:00:00.000Z'
+          calendar.subscriptionError = null
+          events = [
+            ...events.filter((event) => event.calendar !== calendar.id),
+            { id: `synced-${nextId++}`, title: 'Synced meetup', date: '2026-07-24', start: '16:00', duration: 30, calendar: calendar.id },
+          ]
+          return { ok: true, json: async () => ({ ok: true, subscriptionSyncedAt: calendar.subscriptionSyncedAt, subscriptionError: null }) }
+        }
         if (method === 'POST') {
           if (calendars.some((calendar) => calendar.name === body.name)) {
             return { ok: false, status: 409, json: async () => ({ error: 'duplicate' }) }
           }
           const calendar = { id: `generated-calendar-${nextId++}`, ...body }
+          if (body.subscriptionUrl) {
+            calendar.subscriptionSyncedAt = '2026-07-24T12:00:00.000Z'
+            calendar.subscriptionError = null
+            events = [
+              ...events,
+              { id: `synced-${nextId++}`, title: 'Imported standup', date: '2026-07-24', start: '10:00', duration: 30, calendar: calendar.id },
+            ]
+          }
           calendars = [...calendars, calendar]
           return { ok: true, json: async () => clone({ calendar }) }
         }
@@ -415,6 +434,68 @@ describe('CalendarView', () => {
       .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'POST')
     expect(JSON.parse(createCall[1].body).calendar).toBe('generated-calendar-1')
     expect(wrapper.text()).toContain('Pack for holiday')
+    wrapper.unmount()
+  })
+
+  it('subscribes to a calendar via URL and shows its synced events', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.calendar-add-btn').trigger('click')
+    await wrapper.get('input[aria-label="New calendar name"]').setValue('Team Feed')
+    await wrapper.get('.calendar-subscription-toggle').trigger('click')
+    await wrapper.get('input[aria-label="Calendar subscription URL"]').setValue('https://example.com/team.ics')
+    await wrapper.get('.calendar-edit-form').trigger('submit')
+    await flushPromises()
+
+    const createCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, options]) => url === CALENDARS_ENDPOINT && options?.method === 'POST')
+    expect(JSON.parse(createCall[1].body).subscriptionUrl).toBe('https://example.com/team.ics')
+    expect(wrapper.findAll('.nav-text').map((el) => el.text())).toContain('Team Feed')
+    expect(wrapper.text()).toContain('Imported standup')
+    wrapper.unmount()
+  })
+
+  it('manually re-syncs a subscribed calendar', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    await wrapper.get('.calendar-add-btn').trigger('click')
+    await wrapper.get('input[aria-label="New calendar name"]').setValue('Team Feed')
+    await wrapper.get('.calendar-subscription-toggle').trigger('click')
+    await wrapper.get('input[aria-label="Calendar subscription URL"]').setValue('https://example.com/team.ics')
+    await wrapper.get('.calendar-edit-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Imported standup')
+
+    await wrapper.get('button[aria-label="Sync Team Feed"]').trigger('click')
+    await flushPromises()
+
+    const syncCall = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, options]) => url === CALENDARS_ENDPOINT && JSON.parse(options?.body || '{}').action === 'sync',
+      )
+    expect(syncCall).toBeTruthy()
+    expect(wrapper.text()).toContain('Synced meetup')
+    expect(wrapper.text()).not.toContain('Imported standup')
+    wrapper.unmount()
+  })
+
+  it('opens a subscribed-calendar event read-only, without Save or Delete', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    await wrapper.get('.calendar-add-btn').trigger('click')
+    await wrapper.get('input[aria-label="New calendar name"]').setValue('Team Feed')
+    await wrapper.get('.calendar-subscription-toggle').trigger('click')
+    await wrapper.get('input[aria-label="Calendar subscription URL"]').setValue('https://example.com/team.ics')
+    await wrapper.get('.calendar-edit-form').trigger('submit')
+    await flushPromises()
+
+    const synced = wrapper.findAll('.day-event').find((event) => event.text().includes('Imported standup'))
+    await synced.trigger('click')
+
+    expect(wrapper.get('.new-event-title-input').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.new-event-delete').exists()).toBe(false)
+    expect(wrapper.find('.new-event-create').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Synced from an external calendar')
     wrapper.unmount()
   })
 

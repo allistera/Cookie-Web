@@ -484,6 +484,38 @@ function localApiPlugin(mode) {
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
+      // Subscription sync makes a real outbound fetch in production; the dev
+      // fixture stubs it out with one fake synced event so the UI can be
+      // exercised offline and deterministically.
+      if (req.method === 'POST' && body.action === 'sync') {
+        const calendar = state.calendars.find((item) => item.id === body.id)
+        if (!calendar?.subscriptionUrl) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Subscribed calendar not found' }))
+          return
+        }
+        calendar.subscriptionSyncedAt = new Date().toISOString()
+        calendar.subscriptionError = null
+        if (!state.calendarEvents) {
+          const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
+          state.calendarEvents = fixtureCalendarEvents()
+        }
+        state.calendarEvents = [
+          ...state.calendarEvents.filter((event) => event.calendar !== calendar.id),
+          {
+            id: `stub-synced-${randomUUID()}`,
+            title: 'Synced from subscription (dev stub)',
+            date: new Date().toISOString().slice(0, 10),
+            start: '16:00',
+            duration: 30,
+            calendar: calendar.id,
+          },
+        ]
+        res.end(
+          JSON.stringify({ ok: true, subscriptionSyncedAt: calendar.subscriptionSyncedAt, subscriptionError: null }),
+        )
+        return
+      }
       if (req.method === 'POST') {
         if (state.calendars.some((calendar) => calendar.name === body.name)) {
           res.statusCode = 409
@@ -491,6 +523,26 @@ function localApiPlugin(mode) {
           return
         }
         const calendar = { id: `stub-calendar-${randomUUID()}`, name: body.name, color: body.color }
+        if (body.subscriptionUrl) {
+          calendar.subscriptionUrl = body.subscriptionUrl
+          calendar.subscriptionSyncedAt = new Date().toISOString()
+          calendar.subscriptionError = null
+          if (!state.calendarEvents) {
+            const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
+            state.calendarEvents = fixtureCalendarEvents()
+          }
+          state.calendarEvents = [
+            ...state.calendarEvents,
+            {
+              id: `stub-synced-${randomUUID()}`,
+              title: 'Synced from subscription (dev stub)',
+              date: new Date().toISOString().slice(0, 10),
+              start: '10:00',
+              duration: 30,
+              calendar: calendar.id,
+            },
+          ]
+        }
         state.calendars.push(calendar)
         res.statusCode = 201
         res.end(JSON.stringify({ calendar }))
@@ -513,12 +565,18 @@ function localApiPlugin(mode) {
         return
       }
       if (req.method === 'DELETE') {
+        const target = state.calendars.find((calendar) => calendar.id === body.id)
+        if (!target) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Calendar not found' }))
+          return
+        }
         if (!state.calendarEvents) {
           const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
           state.calendarEvents = fixtureCalendarEvents()
         }
         const eventCount = state.calendarEvents.filter((event) => event.calendar === body.id).length
-        if (eventCount > 0) {
+        if (eventCount > 0 && !target.subscriptionUrl) {
           res.statusCode = 409
           res.end(
             JSON.stringify({
@@ -527,13 +585,8 @@ function localApiPlugin(mode) {
           )
           return
         }
-        const before = state.calendars.length
+        state.calendarEvents = state.calendarEvents.filter((event) => event.calendar !== body.id)
         state.calendars = state.calendars.filter((calendar) => calendar.id !== body.id)
-        if (state.calendars.length === before) {
-          res.statusCode = 404
-          res.end(JSON.stringify({ error: 'Calendar not found' }))
-          return
-        }
         res.end(JSON.stringify({ ok: true }))
         return
       }
