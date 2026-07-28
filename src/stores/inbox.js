@@ -364,8 +364,8 @@ export const useInboxStore = defineStore('inbox', {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return (cached?.thread ?? []).filter((message) => message.id !== state.openEmailId)
     },
-    // The open email's attachments (metadata only until the ingestion worker
-    // stores blobs — see fetchMessageAttachments in api/messages.js).
+    // The open email's attachment metadata. Private Blob URLs remain server-side;
+    // downloadable tells the reader whether it can request a short-lived URL.
     openEmailAttachments(state) {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.attachments ?? []
@@ -823,6 +823,34 @@ export const useInboxStore = defineStore('inbox', {
         // Always clear, whether the fetch succeeded or failed, but only if this
         // call is still the one in flight (a newer open may have superseded it).
         if (this.bodyLoadingId === id) this.bodyLoadingId = null
+      }
+    },
+
+    async downloadAttachment(attachment) {
+      if (!attachment?.id || !attachment.downloadable) return false
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`/api/attachments?id=${encodeURIComponent(attachment.id)}`, {
+          headers,
+        })
+        if (!response.ok) {
+          throw new Error(`GET /api/attachments responded ${response.status}`)
+        }
+        const { url, filename } = await response.json()
+        if (typeof url !== 'string' || !url) throw new Error('Attachment URL is missing')
+
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename || attachment.filename || 'attachment'
+        link.rel = 'noopener'
+        document.body.append(link)
+        link.click()
+        link.remove()
+        return true
+      } catch (error) {
+        console.error('Failed to download attachment:', error)
+        this.notify('Failed to download attachment.', 'error')
+        return false
       }
     },
 

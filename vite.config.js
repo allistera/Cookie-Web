@@ -195,6 +195,27 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/messages.js')
     await handler(req, res)
   }
+  const handleAttachments = async (req, res) => {
+    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+      res.setHeader('Content-Type', 'application/json')
+      if (id !== 'fixture-1-attachment-1') {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Attachment is not available' }))
+        return
+      }
+      res.end(
+        JSON.stringify({
+          url: 'data:application/pdf;base64,JVBERi0xLjQKJSBDb29raWUgZml4dHVyZQo=',
+          filename: 'Revised-Floor-Plan.pdf',
+          contentType: 'application/pdf',
+        }),
+      )
+      return
+    }
+    const { default: handler } = await import('./api/attachments.js')
+    await handler(req, res)
+  }
   const handleSearch = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails } = await import('./api/_fixtures/emails.js')
@@ -604,6 +625,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/api/emails', handleEmails)
     server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/messages', handleMessages)
+    server.middlewares.use('/api/attachments', handleAttachments)
     server.middlewares.use('/api/search', handleSearch)
     server.middlewares.use('/api/ask', handleAsk)
     server.middlewares.use('/api/compose', handleCompose)

@@ -1853,9 +1853,15 @@ body {
   color: var(--text-primary);
   text-decoration: none;
   max-width: 220px;
+  background: transparent;
+  font: inherit;
 }
 
-a.ni-attachment:hover {
+button.ni-attachment {
+  cursor: pointer;
+}
+
+button.ni-attachment:hover {
   background: var(--bg-hover);
   border-color: var(--text-secondary);
 }

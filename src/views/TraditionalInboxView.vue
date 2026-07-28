@@ -400,9 +400,8 @@ function toggleThreadMessage(id) {
   expandedThreadIds.value = next
 }
 
-// The open email's attachments. blob_url is only present once the ingestion
-// worker stores an actual downloadable blob (currently metadata-only), so a
-// chip with no blob_url renders as inert rather than a broken link.
+// The open email's attachments. Private Blob URLs stay server-side; legacy
+// metadata-only rows remain inert while stored attachments become buttons.
 const openEmailAttachments = computed(() => store.openEmailAttachments)
 
 function attachmentIcon(contentType) {
@@ -1172,18 +1171,17 @@ onUnmounted(() => {
 
           <div v-if="openEmailAttachments.length" class="ni-attachments" aria-label="Attachments">
             <component
-              :is="attachment.blob_url ? 'a' : 'div'"
+              :is="attachment.downloadable ? 'button' : 'div'"
               v-for="attachment in openEmailAttachments"
               :key="attachment.id"
               class="ni-attachment"
-              :href="attachment.blob_url || undefined"
-              :target="attachment.blob_url ? '_blank' : undefined"
-              :rel="attachment.blob_url ? 'noopener noreferrer' : undefined"
+              :type="attachment.downloadable ? 'button' : undefined"
               :title="
-                attachment.blob_url
+                attachment.downloadable
                   ? `Download ${attachment.filename}`
                   : `${attachment.filename} (download not yet available)`
               "
+              @click="attachment.downloadable && store.downloadAttachment(attachment)"
             >
               <span class="material-symbols-outlined ni-attachment-icon" aria-hidden="true">
                 {{ attachmentIcon(attachment.content_type) }}

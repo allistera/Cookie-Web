@@ -53,10 +53,7 @@ export function fixtureMessageBody(id) {
           filename: 'Revised-Floor-Plan.pdf',
           content_type: 'application/pdf',
           size_bytes: 2_415_820,
-          // Metadata-only in production today (see fetchMessageAttachments) —
-          // null here on purpose so the fixture matches real behavior: the
-          // chip renders but is not a clickable download link.
-          blob_url: null,
+          downloadable: true,
         },
       ],
     }

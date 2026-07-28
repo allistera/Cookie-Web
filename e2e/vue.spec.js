@@ -587,7 +587,7 @@ test('Reader shows earlier thread messages as expandable conversation history', 
   await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
 })
 
-test('Attachments show a paperclip in the list and a chip in the reader', async ({ page }) => {
+test('Attachments show in the reader and download when clicked', async ({ page }) => {
   await page.goto('/inbox')
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   await expect(row.locator('.ni-row-attachment-icon')).toBeVisible()
@@ -598,8 +598,10 @@ test('Attachments show a paperclip in the list and a chip in the reader', async 
   await expect(attachment).toHaveCount(1)
   await expect(attachment).toContainText('Revised-Floor-Plan.pdf')
   await expect(attachment).toContainText('2.3 MB')
-  // blob_url is metadata-only today, so the chip must not be a clickable link.
-  await expect(attachment).not.toHaveAttribute('href', /.+/)
+  await expect(attachment).toHaveAttribute('title', 'Download Revised-Floor-Plan.pdf')
+
+  const [download] = await Promise.all([page.waitForEvent('download'), attachment.click()])
+  expect(download.suggestedFilename()).toBe('Revised-Floor-Plan.pdf')
 })
 
 test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({

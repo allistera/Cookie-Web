@@ -40,14 +40,13 @@ export function fetchThreadMessages(sql, threadId, email) {
   `
 }
 
-// A message's attachments, ordered by filename. blob_url is currently always
-// null in production (the inbound worker stores metadata only — see
-// migrations/0003), so the reader shows these as informational chips and
-// only renders a download link once a row actually carries a blob_url.
+// A message's attachments, ordered by filename. The private Blob URL never
+// leaves the server; the client only learns whether the ownership-checked
+// attachment download endpoint can issue a short-lived URL.
 // messageId ownership is already verified by the caller before this runs.
 export function fetchMessageAttachments(sql, messageId) {
   return sql`
-    SELECT id, filename, content_type, size_bytes, blob_url
+    SELECT id, filename, content_type, size_bytes, (blob_url IS NOT NULL) AS downloadable
     FROM attachments
     WHERE message_id = ${messageId}
     ORDER BY filename

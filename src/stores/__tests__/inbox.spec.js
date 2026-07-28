@@ -1446,7 +1446,7 @@ describe('Inbox Store', () => {
           body_html: null,
           body_text: 'See attached',
           attachments: [
-            { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null },
+            { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true },
           ],
         }),
       }),
@@ -1460,8 +1460,32 @@ describe('Inbox Store', () => {
     await store.fetchMessageBody('msg-1')
 
     expect(store.openEmailAttachments).toEqual([
-      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null },
+      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true },
     ])
+  })
+
+  it('requests a signed attachment URL and starts a named browser download', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          url: 'https://store.private.blob.vercel-storage.com/file?signed=1&download=1',
+          filename: 'plan.pdf',
+        }),
+      }),
+    )
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const store = useInboxStore()
+
+    await expect(
+      store.downloadAttachment({ id: 'att-1', filename: 'plan.pdf', downloadable: true }),
+    ).resolves.toBe(true)
+
+    expect(fetch).toHaveBeenCalledWith('/api/attachments?id=att-1', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(click).toHaveBeenCalledOnce()
   })
 
   it('fetchMessageBody returns null and does not cache on failure', async () => {

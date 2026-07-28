@@ -118,7 +118,7 @@ describe('GET /api/messages', () => {
         { id: 'earlier-id', from_name: 'Alice', snippet: 'Earlier message', sent_at: '2026-01-01T00:00:00Z' },
         { id: MESSAGE_ID, from_name: 'Bob', snippet: 'Hi', sent_at: '2026-01-02T00:00:00Z' },
       ],
-      [{ id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null }],
+      [{ id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true }],
     ]
     const res = makeRes()
     await handler(get(MESSAGE_ID), res)
@@ -128,7 +128,7 @@ describe('GET /api/messages', () => {
     expect(res.body.thread).toHaveLength(2)
     expect(res.body.thread[0].id).toBe('earlier-id')
     expect(res.body.attachments).toEqual([
-      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, blob_url: null },
+      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true },
     ])
     expect(res.body.headers).toBeUndefined()
   })
@@ -163,6 +163,7 @@ describe('fetchMessageAttachments', () => {
     fetchMessageAttachments(sql, MESSAGE_ID)
 
     expect(query).toContain('FROM attachments')
+    expect(query).toContain('blob_url IS NOT NULL')
     expect(query).toContain('WHERE message_id =')
     expect(query).toContain('ORDER BY filename')
     expect(values).toEqual([MESSAGE_ID])
