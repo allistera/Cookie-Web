@@ -117,8 +117,12 @@ describe('syncCalendarSubscription', () => {
     const sql = (strings, ...values) => {
       const text = strings.join('?')
       if (text.includes('json_to_recordset')) {
-        const jsonValue = values.find((value) => typeof value === 'string' && value.startsWith('['))
-        inserted.push(JSON.parse(jsonValue))
+        // Regression guard: the ::json parameter must be the raw JS array,
+        // not a pre-stringified string — see the comment above this query in
+        // calendarSync.js for why postgres.js double-encodes the latter into
+        // a scalar that json_to_recordset then rejects (COOKIE-WEB-C).
+        const jsonValue = values.find((value) => Array.isArray(value))
+        inserted.push(jsonValue)
       }
       return Promise.resolve(queue.shift() ?? [])
     }
@@ -130,5 +134,24 @@ describe('syncCalendarSubscription', () => {
     expect(result.count).toBe(3)
     expect(inserted[0]).toHaveLength(3)
     expect(inserted[0][0].title).toBe('Standup')
+  })
+
+  it('catches a failure inside the replace transaction and records it as a sync error', async () => {
+    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('BEGIN:VCALENDAR\nEND:VCALENDAR', { status: 200 })))
+    const updates = []
+    const sql = (strings, ...values) => {
+      updates.push({ text: strings.join('?'), values })
+      return Promise.resolve([])
+    }
+    sql.begin = async () => {
+      throw new Error('cannot call json_to_recordset on a scalar')
+    }
+
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('json_to_recordset')
+    expect(updates.some((update) => update.text.includes('subscription_error'))).toBe(true)
   })
 })

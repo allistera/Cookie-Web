@@ -181,16 +181,27 @@ export async function syncCalendarSubscription(sql, calendarId, userId, url) {
     return { ok: false, error: message }
   }
 
-  await sql.begin(async (tx) => {
-    await tx`DELETE FROM calendar_events WHERE calendar = ${calendarId}`
-    if (rows.length > 0) {
-      await tx`
-        INSERT INTO calendar_events (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone)
-        SELECT ${userId}, row.title, row.description, row.location, row.date, row.start, row.duration::int, ${calendarId}, 'default'
-        FROM json_to_recordset(${JSON.stringify(rows)}::json) AS row(title text, description text, location text, date text, start text, duration int)
-      `
-    }
-    await tx`UPDATE calendars SET subscription_synced_at = now(), subscription_error = null WHERE id = ${calendarId}`
-  })
+  try {
+    await sql.begin(async (tx) => {
+      await tx`DELETE FROM calendar_events WHERE calendar = ${calendarId}`
+      if (rows.length > 0) {
+        // Pass the array itself, not a pre-stringified JSON string: postgres.js
+        // resolves the ::json cast's OID from the server and applies its own
+        // JSON.stringify when binding, so stringifying here too double-encodes
+        // the value into a JSON string (a scalar) instead of an array, which
+        // json_to_recordset then rejects.
+        await tx`
+          INSERT INTO calendar_events (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone)
+          SELECT ${userId}, row.title, row.description, row.location, row.date, row.start, row.duration::int, ${calendarId}, 'default'
+          FROM json_to_recordset(${rows}::json) AS row(title text, description text, location text, date text, start text, duration int)
+        `
+      }
+      await tx`UPDATE calendars SET subscription_synced_at = now(), subscription_error = null WHERE id = ${calendarId}`
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sync failed'
+    await sql`UPDATE calendars SET subscription_error = ${message} WHERE id = ${calendarId}`
+    return { ok: false, error: message }
+  }
   return { ok: true, count: rows.length }
 }

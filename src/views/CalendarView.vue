@@ -133,16 +133,17 @@ async function syncCalendarNow(calendar) {
       body: JSON.stringify({ action: 'sync', id: calendar.id }),
     })
     const body = await response.json().catch(() => ({}))
+    const errorMessage = body.subscriptionError || body.error || null
     const index = calendars.value.findIndex((item) => item.id === calendar.id)
     if (index !== -1) {
       calendars.value[index] = {
         ...calendars.value[index],
         subscriptionSyncedAt: body.subscriptionSyncedAt ?? calendars.value[index].subscriptionSyncedAt,
-        subscriptionError: body.subscriptionError ?? null,
+        subscriptionError: errorMessage,
       }
     }
     if (!response.ok) {
-      store.notify(`Sync failed: ${body.subscriptionError || 'unknown error'}`, 'error')
+      store.notify(`Sync failed: ${errorMessage || 'unknown error'}`, 'error')
       return
     }
     await loadEvents()
