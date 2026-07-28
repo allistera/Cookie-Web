@@ -1,13 +1,15 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore, formatEmailDate } from '../stores/inbox'
 import EmailBody from '../components/EmailBody.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import { scheduleChoices } from '../utils/schedule'
+import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 
 const store = useInboxStore()
 const route = useRoute()
+const router = useRouter()
 
 // --- Filtered views (?filter=starred|snoozed|sent|done|label&label=<name>) ---
 // Starred and label views filter the loaded list client-side (rows already
@@ -375,6 +377,10 @@ async function scheduleSelected(choice) {
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
+const openEmailCalendarSuggestion = computed(() => detectCalendarSuggestion(openEmail.value))
+const openEmailCalendarSuggestionLabel = computed(() =>
+  formatCalendarSuggestion(openEmailCalendarSuggestion.value),
+)
 // Sanitized-and-sandboxed HTML rendering is driven by the on-demand body
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
 // message has no HTML body (permanent text fallback).
@@ -515,6 +521,12 @@ function setContentUnsubscribe(target) {
 
 function summarizeOpenEmail() {
   store.summarizeEmail(openEmail.value)
+}
+
+function addOpenEmailToCalendar() {
+  if (!openEmailCalendarSuggestion.value) return
+  store.requestCalendarNewEvent(openEmailCalendarSuggestion.value)
+  router.push({ name: 'calendar' })
 }
 
 function starOpenEmail() {
@@ -1066,6 +1078,23 @@ onUnmounted(() => {
             {{ label.name }}
           </span>
         </div>
+
+        <section
+          v-if="openEmailCalendarSuggestion"
+          class="ni-calendar-suggestion"
+          aria-label="Calendar suggestion"
+        >
+          <span class="material-symbols-outlined ni-calendar-suggestion-icon" aria-hidden="true">
+            event_available
+          </span>
+          <div class="ni-calendar-suggestion-copy">
+            <strong>Event detected</strong>
+            <span>{{ openEmailCalendarSuggestionLabel }}</span>
+          </div>
+          <button type="button" class="ni-calendar-suggestion-action" @click="addOpenEmailToCalendar">
+            Add to calendar
+          </button>
+        </section>
 
         <div v-if="openEmailSummary" class="ni-summary-box" role="status" aria-live="polite">
           <div class="ni-summary-heading">

@@ -9,7 +9,8 @@ import { scheduleChoices } from '../../utils/schedule'
 
 // The view reads route.query.filter; mutate routeMock.query per test.
 const routeMock = { query: {} }
-vi.mock('vue-router', () => ({ useRoute: () => routeMock }))
+const routerMock = { push: vi.fn() }
+vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => routerMock }))
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -36,6 +37,7 @@ describe('TraditionalInboxView day accordion', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     routeMock.query = {}
+    routerMock.push.mockReset()
     store = useInboxStore()
     store.traditionalEmails = [
       makeEmail('today-1', Date.now() - HOUR),
@@ -91,6 +93,29 @@ describe('TraditionalInboxView day accordion', () => {
     const readerSubject = wrapper.find('.ni-reader-subject')
     expect(readerSubject.find('.ni-ai-generated-icon').text()).toBe('auto_awesome')
     expect(readerSubject.text()).toContain('auto_awesomeSubject today-1')
+  })
+
+  it('offers to add a detected email event to the calendar', async () => {
+    const eventEmail = makeEmail('event-offer', Date.now() - HOUR)
+    eventEmail.sender = 'Campus Tours'
+    eventEmail.subject = 'Confirmation: 2099-08-12 guided tour at 10:00 AM'
+    eventEmail.snippet = 'Meet at the Visitor Center.'
+    store.traditionalEmails.unshift(eventEmail)
+    const wrapper = mount(TraditionalInboxView)
+
+    await wrapper.findAll('.ni-row').find((row) => row.text().includes('guided tour')).trigger('click')
+
+    expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
+    expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Add to calendar')
+    await wrapper.get('.ni-calendar-suggestion-action').trigger('click')
+
+    expect(store.calendarNewEventDraft).toMatchObject({
+      title: '2099-08-12 guided tour at 10:00 AM',
+      date: '2099-08-12',
+      start: '10:00',
+      end: '11:00',
+    })
+    expect(routerMock.push).toHaveBeenCalledWith({ name: 'calendar' })
   })
 
   it('shows due scheduled emails in an expanded Due Today group above Today', () => {

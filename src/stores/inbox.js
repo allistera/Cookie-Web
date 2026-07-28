@@ -295,6 +295,7 @@ export const useInboxStore = defineStore('inbox', {
     // watches it to open its New Event dialog without the two views needing
     // a direct reference to each other.
     calendarNewEventRequestId: 0,
+    calendarNewEventDraft: null,
   }),
 
   getters: {
@@ -372,7 +373,8 @@ export const useInboxStore = defineStore('inbox', {
   },
 
   actions: {
-    requestCalendarNewEvent() {
+    requestCalendarNewEvent(draft = null) {
+      this.calendarNewEventDraft = draft
       this.calendarNewEventRequestId++
     },
 

@@ -1660,6 +1660,60 @@ body {
   font-size: 12px;
 }
 
+.ni-calendar-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--text-blue) 30%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-blue) 7%, var(--bg-card));
+  color: var(--text-primary);
+}
+
+.ni-calendar-suggestion-icon {
+  color: var(--text-blue);
+  font-size: 23px;
+}
+
+.ni-calendar-suggestion-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ni-calendar-suggestion-copy strong {
+  font-size: 14px;
+}
+
+.ni-calendar-suggestion-copy span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ni-calendar-suggestion-action {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--text-blue);
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ni-calendar-suggestion-action:hover,
+.ni-calendar-suggestion-action:focus-visible {
+  filter: brightness(0.93);
+  outline: 2px solid color-mix(in srgb, var(--text-blue) 28%, transparent);
+  outline-offset: 2px;
+}
+
 .ni-row-labels {
   display: flex;
   align-items: center;
@@ -1834,6 +1888,7 @@ a.ni-attachment:hover {
 .ni-reader-topbar,
 .ni-reader-subject,
 .ni-reader-labels,
+.ni-calendar-suggestion,
 .ni-summary-box,
 .ni-reader-footer {
   flex-shrink: 0;
@@ -3647,6 +3702,15 @@ a.ni-attachment:hover {
   .ni-summary-box,
   .ni-email-card {
     padding: 16px;
+  }
+
+  .ni-calendar-suggestion {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ni-calendar-suggestion-action {
+    width: 100%;
   }
 
   .ni-email-card-header {

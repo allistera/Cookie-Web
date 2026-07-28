@@ -460,13 +460,14 @@ function parseRepeatUntil(recurrenceRule) {
 function openNewEvent(prefill) {
   editingEventId.value = null
   eventFormReadOnly.value = false
+  const prefillDate = prefill?.date
   eventForm.value = {
-    title: '',
-    description: '',
-    location: '',
-    date: dateKey(prefill ? prefill.date : selectedDate.value),
-    start: prefill ? minutesToTimeString(prefill.startMinutes) : '14:00',
-    end: prefill ? minutesToTimeString(prefill.endMinutes) : '14:30',
+    title: prefill?.title || '',
+    description: prefill?.description || '',
+    location: prefill?.location || '',
+    date: typeof prefillDate === 'string' ? prefillDate : dateKey(prefillDate || selectedDate.value),
+    start: prefill?.start ?? (prefill ? minutesToTimeString(prefill.startMinutes) : '14:00'),
+    end: prefill?.end ?? (prefill ? minutesToTimeString(prefill.endMinutes) : '14:30'),
     calendar: defaultCalendarId(),
     repeat: 'none',
     repeatUntil: '',
@@ -582,7 +583,11 @@ watch(showNewEvent, (open) => {
 // counter instead of calling into the view directly.
 watch(
   () => store.calendarNewEventRequestId,
-  () => openNewEvent(),
+  () => {
+    const draft = store.calendarNewEventDraft
+    store.calendarNewEventDraft = null
+    openNewEvent(draft)
+  },
 )
 
 function beginDrag(event, date, hourHeight, view) {
@@ -629,10 +634,14 @@ function onKeydown(event) {
   if (event.key === 'Escape' && showNewEvent.value) closeNewEvent()
 }
 
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
-  loadCalendars()
-  loadEvents()
+  await Promise.all([loadCalendars(), loadEvents()])
+  if (store.calendarNewEventDraft) {
+    const draft = store.calendarNewEventDraft
+    store.calendarNewEventDraft = null
+    openNewEvent(draft)
+  }
 })
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)

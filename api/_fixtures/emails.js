@@ -52,11 +52,11 @@ const rows = [
   {
     from_name: 'Univ of State Tours',
     from_address: 'tours@univstate.edu',
-    subject: 'Confirmation: June 12th guided tour',
+    subject: 'Confirmation: August 12th guided tour',
     snippet:
       'Thank you for scheduling a campus visit. Please complete the waiver in the link...',
     body_text:
-      'Thank you for scheduling a campus visit. Please complete the waiver in the link below before arriving for the June 12th guided tour.\n\nTours depart from the Visitor Center at 10:00 AM sharp. Parking passes will be emailed two days before your visit.',
+      'Thank you for scheduling a campus visit. Please complete the waiver in the link below before arriving for the August 12th guided tour.\n\nTours depart from the Visitor Center at 10:00 AM sharp. Parking passes will be emailed two days before your visit.',
     ageMs: 1 * DAY + 4 * HOUR,
     is_unread: false,
     is_starred: false,
