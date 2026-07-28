@@ -371,6 +371,19 @@ function goToday() {
   selectedDate.value = new Date(REFERENCE_DATE)
 }
 
+const REPEAT_FREQUENCIES = ['none', 'daily', 'weekly', 'monthly', 'yearly']
+
+function parseRepeatFrequency(recurrenceRule) {
+  if (!recurrenceRule) return 'none'
+  const freq = recurrenceRule.split(';')[0].toLowerCase()
+  return REPEAT_FREQUENCIES.includes(freq) ? freq : 'none'
+}
+
+function parseRepeatUntil(recurrenceRule) {
+  const match = recurrenceRule?.match(/UNTIL=(\d{4}-\d{2}-\d{2})/)
+  return match ? match[1] : ''
+}
+
 function openNewEvent(prefill) {
   editingEventId.value = null
   eventForm.value = {
@@ -381,12 +394,14 @@ function openNewEvent(prefill) {
     start: prefill ? minutesToTimeString(prefill.startMinutes) : '14:00',
     end: prefill ? minutesToTimeString(prefill.endMinutes) : '14:30',
     calendar: defaultCalendarId(),
+    repeat: 'none',
+    repeatUntil: '',
   }
   showNewEvent.value = true
 }
 
 function editEvent(event) {
-  editingEventId.value = event.id
+  editingEventId.value = event.seriesId ?? event.id
   eventForm.value = {
     title: event.title,
     description: event.description || '',
@@ -395,6 +410,8 @@ function editEvent(event) {
     start: event.start,
     end: minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
     calendar: event.calendar,
+    repeat: parseRepeatFrequency(event.recurrenceRule),
+    repeatUntil: parseRepeatUntil(event.recurrenceRule),
   }
   showNewEvent.value = true
 }
@@ -408,7 +425,7 @@ function closeNewEvent() {
 async function saveEvent() {
   const title = eventForm.value.title.trim()
   if (!title) return
-  const { date, start, end, location, description } = eventForm.value
+  const { date, start, end, location, description, repeat, repeatUntil } = eventForm.value
   const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
@@ -418,48 +435,39 @@ async function saveEvent() {
     return
   }
 
+  const fields = {
+    title,
+    date,
+    start,
+    duration,
+    location: trimmedLocation,
+    description: trimmedDescription,
+    calendar,
+    repeat,
+    repeatUntil: repeat === 'none' ? null : repeatUntil || null,
+  }
+
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (editingEventId.value) {
-      const existing = events.value.find((event) => event.id === editingEventId.value)
+      const existing = events.value.find((event) => (event.seriesId ?? event.id) === editingEventId.value)
       const response = await fetch('/api/calendar-events', {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({
-          id: editingEventId.value,
-          title,
-          date,
-          start,
-          duration,
-          location: trimmedLocation,
-          description: trimmedDescription,
-          calendar,
-          tone: existing?.tone ?? null,
-        }),
+        body: JSON.stringify({ id: editingEventId.value, ...fields, tone: existing?.tone ?? null }),
       })
       if (!response.ok) throw new Error(`PATCH /api/calendar-events responded ${response.status}`)
-      const { event } = await response.json()
-      const index = events.value.findIndex((item) => item.id === editingEventId.value)
-      if (index !== -1) events.value[index] = event
     } else {
       const response = await fetch('/api/calendar-events', {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          title,
-          date,
-          start,
-          duration,
-          location: trimmedLocation,
-          description: trimmedDescription,
-          calendar,
-          tone: 'accepted',
-        }),
+        body: JSON.stringify({ ...fields, tone: 'accepted' }),
       })
       if (!response.ok) throw new Error(`POST /api/calendar-events responded ${response.status}`)
-      const { event } = await response.json()
-      events.value.push(event)
     }
+    // Recurring series are expanded into occurrences server-side, so a full
+    // reload is the simplest way to keep every occurrence in sync.
+    await loadEvents()
     closeNewEvent()
   } catch (error) {
     console.error('Failed to save calendar event:', error)
@@ -478,7 +486,7 @@ async function deleteEvent() {
       body: JSON.stringify({ id }),
     })
     if (!response.ok) throw new Error(`DELETE /api/calendar-events responded ${response.status}`)
-    events.value = events.value.filter((event) => event.id !== id)
+    await loadEvents()
     closeNewEvent()
   } catch (error) {
     console.error('Failed to delete calendar event:', error)
@@ -975,6 +983,28 @@ onUnmounted(() => {
             </label>
           </div>
 
+          <div class="new-event-location-wrap">
+            <label class="new-event-field">
+              <span>Repeats</span>
+              <select v-model="eventForm.repeat" aria-label="Event repeats">
+                <option value="none">Does not repeat</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </label>
+            <label v-if="eventForm.repeat !== 'none'" class="new-event-field">
+              <span>Ends</span>
+              <input
+                v-model="eventForm.repeatUntil"
+                type="date"
+                aria-label="Repeat ends"
+                :min="eventForm.date"
+              />
+            </label>
+          </div>
+
           <footer class="new-event-dialog-actions">
             <button
               v-if="editingEventId"
@@ -982,7 +1012,7 @@ onUnmounted(() => {
               class="new-event-delete"
               @click="deleteEvent"
             >
-              Delete
+              {{ eventForm.repeat !== 'none' ? 'Delete series' : 'Delete' }}
             </button>
             <div class="new-event-dialog-actions-right">
               <button type="button" class="new-event-cancel" @click="closeNewEvent">Cancel</button>

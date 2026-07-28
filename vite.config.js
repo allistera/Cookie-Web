@@ -408,6 +408,7 @@ function localApiPlugin(mode) {
       return
     }
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const { expandEvents, buildRecurrenceRule } = await import('./api/calendar-events.js')
       const state = fixtureMailboxState(req, res)
       if (!state.calendarEvents) {
         const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
@@ -415,14 +416,21 @@ function localApiPlugin(mode) {
       }
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'GET') {
-        res.end(JSON.stringify({ events: state.calendarEvents }))
+        res.end(JSON.stringify({ events: expandEvents(state.calendarEvents) }))
         return
       }
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
+      // Mirrors api/calendar-events.js: the wire format sends repeat/repeatUntil,
+      // the stored/expanded shape uses recurrenceRule.
+      const { repeat, repeatUntil, ...rest } = body
       if (req.method === 'POST') {
-        const event = { id: `stub-event-${randomUUID()}`, ...body }
+        const event = {
+          id: `stub-event-${randomUUID()}`,
+          ...rest,
+          recurrenceRule: buildRecurrenceRule(repeat ?? 'none', repeatUntil),
+        }
         state.calendarEvents.push(event)
         res.statusCode = 201
         res.end(JSON.stringify({ event }))
@@ -435,7 +443,11 @@ function localApiPlugin(mode) {
           res.end(JSON.stringify({ error: 'Event not found' }))
           return
         }
-        state.calendarEvents[index] = { ...state.calendarEvents[index], ...body }
+        state.calendarEvents[index] = {
+          ...state.calendarEvents[index],
+          ...rest,
+          recurrenceRule: buildRecurrenceRule(repeat ?? 'none', repeatUntil),
+        }
         res.end(JSON.stringify({ event: state.calendarEvents[index] }))
         return
       }

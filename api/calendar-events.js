@@ -18,6 +18,16 @@ const LEGACY_CALENDAR_NAMES = new Map([
   ['holidays', 'Holidays'],
 ])
 const ALLOWED_TONES = new Set(['default', 'dark', 'conflict', 'accepted', 'suggested'])
+const REPEAT_FREQUENCIES = new Set(['none', 'daily', 'weekly', 'monthly', 'yearly'])
+
+// The UI only offers a fixed set of frequencies with an optional end date, so
+// the stored rule is a small custom format rather than full RFC5545 — see
+// migration 0025.
+export function buildRecurrenceRule(repeat, repeatUntil) {
+  if (repeat === 'none') return null
+  const freq = repeat.toUpperCase()
+  return repeatUntil ? `${freq};UNTIL=${repeatUntil}` : freq
+}
 
 function validEventFields(body) {
   const title = typeof body.title === 'string' ? body.title.trim() : ''
@@ -28,6 +38,8 @@ function validEventFields(body) {
   const duration = Number.isFinite(body.duration) ? Math.trunc(body.duration) : 0
   const calendar = typeof body.calendar === 'string' ? body.calendar : ''
   const tone = typeof body.tone === 'string' ? body.tone : null
+  const repeat = typeof body.repeat === 'string' ? body.repeat : 'none'
+  const repeatUntil = typeof body.repeatUntil === 'string' && body.repeatUntil ? body.repeatUntil : null
 
   if (
     !title ||
@@ -38,11 +50,14 @@ function validEventFields(body) {
     !(UUID_RE.test(calendar) || LEGACY_CALENDAR_NAMES.has(calendar)) ||
     (tone !== null && !ALLOWED_TONES.has(tone)) ||
     (location && location.length > MAX_LOCATION) ||
-    (description && description.length > MAX_DESCRIPTION)
+    (description && description.length > MAX_DESCRIPTION) ||
+    !REPEAT_FREQUENCIES.has(repeat) ||
+    (repeatUntil && !DATE_RE.test(repeatUntil))
   ) {
     return null
   }
-  return { title, description, location, date, start, duration, calendar, tone }
+  const recurrenceRule = buildRecurrenceRule(repeat, repeat === 'none' ? null : repeatUntil)
+  return { title, description, location, date, start, duration, calendar, tone, recurrenceRule }
 }
 
 // A calendar id in the request body must actually belong to the caller —
@@ -72,6 +87,33 @@ async function fetchNormalizedEvents(sql, email) {
   return sql`
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
+           COALESCE(c.id::text, ce.calendar::text) AS calendar, ce.tone,
+           ce.recurrence_rule AS "recurrenceRule"
+    FROM calendar_events ce
+    JOIN users u ON u.id = ce.user_id
+    LEFT JOIN calendars c
+      ON c.user_id = ce.user_id
+     AND (
+       c.id::text = ce.calendar::text
+       OR c.name = CASE ce.calendar::text
+         WHEN 'work' THEN 'Work'
+         WHEN 'personal' THEN 'Personal'
+         WHEN 'focus' THEN 'Focus time'
+         WHEN 'birthdays' THEN 'Birthdays'
+         WHEN 'holidays' THEN 'Holidays'
+       END
+     )
+    WHERE lower(u.email) = ${email}
+    ORDER BY ce.event_date, ce.start_time
+  `
+}
+
+// Same as fetchNormalizedEvents, minus recurrence_rule — used while migration
+// 0025 hasn't landed yet on a database this deploy is already talking to.
+async function fetchNormalizedEventsWithoutRecurrence(sql, email) {
+  return sql`
+    SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
+           ce.start_time AS start, ce.duration_minutes AS duration,
            COALESCE(c.id::text, ce.calendar::text) AS calendar, ce.tone
     FROM calendar_events ce
     JOIN users u ON u.id = ce.user_id
@@ -96,6 +138,7 @@ export async function fetchEvents(sql, email) {
   try {
     return await fetchNormalizedEvents(sql, email)
   } catch (error) {
+    if (error?.code === '42703') return fetchNormalizedEventsWithoutRecurrence(sql, email)
     if (error?.code !== '42P01') throw error
     return sql`
       SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
@@ -108,6 +151,72 @@ export async function fetchEvents(sql, email) {
   }
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+const EXPAND_PAST_DAYS = 365
+const EXPAND_FUTURE_DAYS = 730
+const MAX_OCCURRENCES_PER_SERIES = 366
+const RECURRENCE_RE = /^(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;UNTIL=(\d{4}-\d{2}-\d{2}))?$/
+
+function parseRecurrenceRule(rule) {
+  const match = typeof rule === 'string' ? rule.match(RECURRENCE_RE) : null
+  if (!match) return null
+  return { freq: match[1], until: match[2] ?? null }
+}
+
+// Clamps day-of-month so e.g. "31st of every month" lands on the last day of
+// short months instead of overflowing into the next one.
+function stepDate(date, freq) {
+  const next = new Date(date)
+  if (freq === 'DAILY') {
+    next.setUTCDate(next.getUTCDate() + 1)
+    return next
+  }
+  if (freq === 'WEEKLY') {
+    next.setUTCDate(next.getUTCDate() + 7)
+    return next
+  }
+  const day = next.getUTCDate()
+  const month = freq === 'YEARLY' ? next.getUTCMonth() : next.getUTCMonth() + 1
+  const yearsAhead = freq === 'YEARLY' ? 1 : 0
+  next.setUTCDate(1)
+  next.setUTCFullYear(next.getUTCFullYear() + yearsAhead)
+  next.setUTCMonth(month)
+  const daysInTargetMonth = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate()
+  next.setUTCDate(Math.min(day, daysInTargetMonth))
+  return next
+}
+
+const toDateKey = (date) => date.toISOString().slice(0, 10)
+
+// Expands one series-master row into its occurrences within [windowStart,
+// windowEnd]. Non-recurring events pass through unchanged. There's no
+// support for per-occurrence exceptions: editing or deleting any occurrence
+// acts on the whole series.
+function expandEvent(event, windowStart, windowEnd) {
+  const rule = parseRecurrenceRule(event.recurrenceRule)
+  if (!rule) return [{ ...event, seriesId: event.id }]
+
+  const dtstart = new Date(`${event.date}T${event.start}:00Z`)
+  const until = rule.until ? new Date(`${rule.until}T23:59:59Z`) : null
+  const occurrences = []
+  let cursor = dtstart
+  let index = 0
+  while (cursor <= windowEnd && (!until || cursor <= until) && occurrences.length < MAX_OCCURRENCES_PER_SERIES) {
+    if (cursor >= windowStart) {
+      occurrences.push({ ...event, id: `${event.id}:${index}`, seriesId: event.id, date: toDateKey(cursor) })
+    }
+    cursor = stepDate(cursor, rule.freq)
+    index += 1
+  }
+  return occurrences
+}
+
+export function expandEvents(events, now = new Date()) {
+  const windowStart = new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
+  const windowEnd = new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
+  return events.flatMap((event) => expandEvent(event, windowStart, windowEnd))
+}
+
 // Migration 0024 installs the composite FK that makes this ownership check
 // authoritative in the database and closes resolve-then-write races.
 async function ownsCalendar(sql, email, calendarId) {
@@ -118,7 +227,7 @@ async function ownsCalendar(sql, email, calendarId) {
 async function listEvents(sql, email, res) {
   const events = await fetchEvents(sql, email)
   res.statusCode = 200
-  res.end(JSON.stringify({ events }))
+  res.end(JSON.stringify({ events: expandEvents(events) }))
 }
 
 async function createEvent(sql, email, body, res) {
@@ -137,13 +246,13 @@ async function createEvent(sql, email, body, res) {
 
   const [event] = await sql`
     INSERT INTO calendar_events
-      (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone)
+      (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone, recurrence_rule)
     SELECT u.id, ${fields.title}, ${fields.description}, ${fields.location}, ${fields.date},
-           ${fields.start}, ${fields.duration}, ${calendar}, ${fields.tone}
+           ${fields.start}, ${fields.duration}, ${calendar}, ${fields.tone}, ${fields.recurrenceRule}
     FROM users u
     WHERE lower(u.email) = ${email}
     RETURNING id, title, description, location, event_date AS date, start_time AS start,
-              duration_minutes AS duration, calendar, tone
+              duration_minutes AS duration, calendar, tone, recurrence_rule AS "recurrenceRule"
   `
   if (!event) {
     res.statusCode = 404
@@ -179,11 +288,13 @@ async function updateEvent(sql, email, body, res) {
         duration_minutes = ${fields.duration},
         calendar = ${calendar},
         tone = ${fields.tone},
+        recurrence_rule = ${fields.recurrenceRule},
         updated_at = now()
     FROM users u
     WHERE ce.id = ${id} AND ce.user_id = u.id AND lower(u.email) = ${email}
     RETURNING ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
-              ce.start_time AS start, ce.duration_minutes AS duration, ce.calendar, ce.tone
+              ce.start_time AS start, ce.duration_minutes AS duration, ce.calendar, ce.tone,
+              ce.recurrence_rule AS "recurrenceRule"
   `
   if (!event) {
     res.statusCode = 404
