@@ -200,6 +200,7 @@ describe('CalendarView', () => {
       'Birthdays',
       'Holidays',
     ])
+    expect(wrapper.findAll('.calendar-sidebar-label').map((label) => label.text())).toEqual(['Calendars'])
     expect(wrapper.find('.day-event').text()).toContain('Standup')
 
     await calendarButtons[0].trigger('click')
@@ -487,6 +488,13 @@ describe('CalendarView', () => {
       .mock.calls.find(([url, options]) => url === CALENDARS_ENDPOINT && options?.method === 'POST')
     expect(JSON.parse(createCall[1].body).subscriptionUrl).toBe('https://example.com/team.ics')
     expect(wrapper.findAll('.nav-text').map((el) => el.text())).toContain('Team Feed')
+    const sections = wrapper.findAll('.calendar-sidebar-section')
+    expect(sections.map((section) => section.get('.calendar-sidebar-label').text())).toEqual([
+      'Calendars',
+      'Subscribed calendars',
+    ])
+    expect(sections[0].findAll('.calendar-list-item .nav-text').map((el) => el.text())).not.toContain('Team Feed')
+    expect(sections[1].findAll('.calendar-list-item .nav-text').map((el) => el.text())).toEqual(['Team Feed'])
     expect(wrapper.text()).toContain('Imported standup')
     wrapper.unmount()
   })

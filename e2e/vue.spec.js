@@ -66,6 +66,24 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
+test('Calendar sidebar separates subscribed calendars from regular calendars', async ({ page }) => {
+  await page.goto('/calendar')
+
+  const calendars = page.getByRole('navigation', { name: 'Calendars', exact: true })
+  await expect(calendars.getByRole('button', { name: 'Work', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Subscribed calendars' })).toHaveCount(0)
+
+  await calendars.getByRole('button', { name: 'Add calendar' }).click()
+  await page.getByRole('textbox', { name: 'New calendar name' }).fill('Team Feed')
+  await page.getByRole('button', { name: 'Subscribe via URL instead' }).click()
+  await page.getByRole('textbox', { name: 'Calendar subscription URL' }).fill('https://example.com/team.ics')
+  await page.locator('.calendar-edit-form button[type="submit"]').click()
+
+  const subscribed = page.getByRole('navigation', { name: 'Subscribed calendars' })
+  await expect(subscribed.getByRole('button', { name: 'Team Feed', exact: true })).toBeVisible()
+  await expect(calendars.getByRole('button', { name: 'Team Feed', exact: true })).toHaveCount(0)
+})
+
 test('Clicking an event opens it prefilled for editing, with a Delete button', async ({ page }) => {
   await page.goto('/calendar')
   await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')

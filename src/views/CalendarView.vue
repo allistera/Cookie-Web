@@ -55,6 +55,13 @@ const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 // Manually-created calendars accept events; subscribed ones are entirely
 // sync-managed, so they're excluded from anywhere an event gets filed.
 const writableCalendars = computed(() => calendars.value.filter((calendar) => !calendar.subscriptionUrl))
+const subscribedCalendars = computed(() => calendars.value.filter((calendar) => calendar.subscriptionUrl))
+const calendarSections = computed(() => [
+  { id: 'calendars', label: 'Calendars', calendars: writableCalendars.value },
+  ...(subscribedCalendars.value.length
+    ? [{ id: 'subscribed-calendars', label: 'Subscribed calendars', calendars: subscribedCalendars.value }]
+    : []),
+])
 
 async function loadCalendars() {
   try {
@@ -84,7 +91,10 @@ function openAddCalendar() {
   newCalendarName.value = ''
   newCalendarSubscriptionUrl.value = ''
   calendarError.value = ''
-  nextTick(() => newCalendarInput.value?.focus())
+  nextTick(() => {
+    const input = Array.isArray(newCalendarInput.value) ? newCalendarInput.value[0] : newCalendarInput.value
+    input?.focus()
+  })
 }
 
 function closeAddCalendar() {
@@ -639,13 +649,13 @@ onUnmounted(() => {
         <span>New event</span>
       </button>
 
-      <div class="calendar-sidebar-section">
+      <div v-for="section in calendarSections" :key="section.id" class="calendar-sidebar-section">
         <div class="sb-section-label calendar-sidebar-label">
-          <span>Calendars</span>
+          <span>{{ section.label }}</span>
         </div>
 
-        <nav class="sidebar-nav calendar-list" aria-label="Calendars">
-          <div v-for="calendar in calendars" :key="calendar.id" class="calendar-list-row">
+        <nav class="sidebar-nav calendar-list" :aria-label="section.label">
+          <div v-for="calendar in section.calendars" :key="calendar.id" class="calendar-list-row">
             <form
               v-if="editingCalendarId === calendar.id"
               class="calendar-edit-form"
@@ -742,53 +752,55 @@ onUnmounted(() => {
             </p>
           </div>
 
-          <div v-if="isAddingCalendar" class="calendar-list-row">
-            <form class="calendar-edit-form" @submit.prevent="createCalendar">
+          <template v-if="section.id === 'calendars'">
+            <div v-if="isAddingCalendar" class="calendar-list-row">
+              <form class="calendar-edit-form" @submit.prevent="createCalendar">
+                <input
+                  ref="newCalendarInput"
+                  v-model="newCalendarName"
+                  type="text"
+                  class="calendar-edit-input"
+                  placeholder="Calendar name"
+                  maxlength="50"
+                  aria-label="New calendar name"
+                  @keydown.escape="closeAddCalendar"
+                />
+                <button
+                  type="submit"
+                  class="calendar-edit-icon-btn"
+                  title="Create"
+                  :disabled="!newCalendarName.trim() || (isAddingSubscription && !newCalendarSubscriptionUrl.trim())"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">check</span>
+                </button>
+                <button type="button" class="calendar-edit-icon-btn" title="Cancel" @click="closeAddCalendar">
+                  <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                </button>
+              </form>
               <input
-                ref="newCalendarInput"
-                v-model="newCalendarName"
-                type="text"
-                class="calendar-edit-input"
-                placeholder="Calendar name"
-                maxlength="50"
-                aria-label="New calendar name"
+                v-if="isAddingSubscription"
+                v-model="newCalendarSubscriptionUrl"
+                type="url"
+                class="calendar-edit-input calendar-subscription-url-input"
+                placeholder="https://example.com/calendar.ics"
+                aria-label="Calendar subscription URL"
+                @keydown.enter.prevent="createCalendar"
                 @keydown.escape="closeAddCalendar"
               />
               <button
-                type="submit"
-                class="calendar-edit-icon-btn"
-                title="Create"
-                :disabled="!newCalendarName.trim() || (isAddingSubscription && !newCalendarSubscriptionUrl.trim())"
+                type="button"
+                class="calendar-subscription-toggle"
+                @click="isAddingSubscription = !isAddingSubscription"
               >
-                <span class="material-symbols-outlined" aria-hidden="true">check</span>
+                {{ isAddingSubscription ? 'Create a calendar instead' : 'Subscribe via URL instead' }}
               </button>
-              <button type="button" class="calendar-edit-icon-btn" title="Cancel" @click="closeAddCalendar">
-                <span class="material-symbols-outlined" aria-hidden="true">close</span>
-              </button>
-            </form>
-            <input
-              v-if="isAddingSubscription"
-              v-model="newCalendarSubscriptionUrl"
-              type="url"
-              class="calendar-edit-input calendar-subscription-url-input"
-              placeholder="https://example.com/calendar.ics"
-              aria-label="Calendar subscription URL"
-              @keydown.enter.prevent="createCalendar"
-              @keydown.escape="closeAddCalendar"
-            />
-            <button
-              type="button"
-              class="calendar-subscription-toggle"
-              @click="isAddingSubscription = !isAddingSubscription"
-            >
-              {{ isAddingSubscription ? 'Create a calendar instead' : 'Subscribe via URL instead' }}
+              <p v-if="calendarError" class="calendar-edit-error">{{ calendarError }}</p>
+            </div>
+            <button v-else type="button" class="nav-item calendar-add-btn" @click="openAddCalendar">
+              <span class="material-symbols-outlined" aria-hidden="true">add</span>
+              <span class="nav-text">Add calendar</span>
             </button>
-            <p v-if="calendarError" class="calendar-edit-error">{{ calendarError }}</p>
-          </div>
-          <button v-else type="button" class="nav-item calendar-add-btn" @click="openAddCalendar">
-            <span class="material-symbols-outlined" aria-hidden="true">add</span>
-            <span class="nav-text">Add calendar</span>
-          </button>
+          </template>
         </nav>
       </div>
     </aside>
