@@ -259,6 +259,12 @@ const suggestedEvent = {
 const visibleEvents = computed(() =>
   events.value.filter((event) => visibleCalendars.value.has(event.calendar)),
 )
+// All-day events (e.g. holidays synced from a subscribed calendar) render in
+// a compact banner rather than being positioned by start time/duration in
+// the hourly grid — that's what previously made one stretch across the
+// entire visible timeline.
+const timedVisibleEvents = computed(() => visibleEvents.value.filter((event) => !event.allDay))
+const allDayVisibleEvents = computed(() => visibleEvents.value.filter((event) => event.allDay))
 
 const dateKey = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -319,7 +325,13 @@ const weekBodyHeight = (END_HOUR - START_HOUR) * WEEK_HOUR_HEIGHT
 const dayBodyHeight = (END_HOUR - START_HOUR) * DAY_HOUR_HEIGHT
 
 const eventsForDay = computed(() =>
-  visibleEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
+  timedVisibleEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
+)
+const allDayEventsForDay = computed(() =>
+  allDayVisibleEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
+)
+const allDayEventsForWeek = computed(() =>
+  weekDays.value.map((date) => allDayVisibleEvents.value.filter((event) => event.date === dateKey(date))),
 )
 
 const timeLabel = (hour) => {
@@ -463,7 +475,10 @@ function editEvent(event) {
     location: event.location || '',
     date: event.date,
     start: event.start,
-    end: minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
+    // An all-day event's 1440-minute duration would overflow into an
+    // invalid "24:00" end time; there's no meaningful end-of-day time to
+    // show anyway since it's rendered as an all-day banner, not a slot.
+    end: event.allDay ? '23:59' : minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
     calendar: event.calendar,
     repeat: parseRepeatFrequency(event.recurrenceRule),
     repeatUntil: parseRepeatUntil(event.recurrenceRule),
@@ -873,6 +888,18 @@ onUnmounted(() => {
 
       <section v-if="viewMode === 'day'" class="day-calendar calendar-surface" aria-label="Day view">
         <h2>{{ formatLongDate(selectedDate) }}</h2>
+        <div v-if="allDayEventsForDay.length" class="all-day-row" aria-label="All-day events">
+          <button
+            v-for="event in allDayEventsForDay"
+            :key="event.id"
+            type="button"
+            class="calendar-event all-day-event"
+            :class="`tone-${event.tone || 'default'}`"
+            @click="editEvent(event)"
+          >
+            {{ event.title }}
+          </button>
+        </div>
         <div class="day-timeline" :style="{ height: `${dayBodyHeight}px` }">
           <div
             v-for="(hour, index) in hours"
@@ -917,6 +944,25 @@ onUnmounted(() => {
             <strong :class="{ today: isToday(date) }">{{ date.getDate() }}</strong>
           </div>
         </div>
+        <div
+          v-if="allDayEventsForWeek.some((dayEvents) => dayEvents.length)"
+          class="all-day-row week-all-day-row"
+          aria-label="All-day events"
+        >
+          <div class="week-time-spacer"></div>
+          <div v-for="(dayEvents, index) in allDayEventsForWeek" :key="dateKey(weekDays[index])" class="week-all-day-cell">
+            <button
+              v-for="event in dayEvents"
+              :key="event.id"
+              type="button"
+              class="calendar-event all-day-event"
+              :class="`tone-${event.tone || 'default'}`"
+              @click="editEvent(event)"
+            >
+              {{ event.title }}
+            </button>
+          </div>
+        </div>
         <div class="week-timeline" :style="{ height: `${weekBodyHeight}px` }">
           <div class="week-time-axis">
             <div
@@ -942,7 +988,7 @@ onUnmounted(() => {
               :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
             ></div>
             <button
-              v-for="event in visibleEvents.filter((item) =>
+              v-for="event in timedVisibleEvents.filter((item) =>
                 weekDays.some((date) => dateKey(date) === item.date),
               )"
               :key="event.id"
@@ -1803,6 +1849,43 @@ onUnmounted(() => {
   right: 0;
   padding: 8px 12px;
   font-size: 14px;
+}
+
+.all-day-row {
+  border-bottom: 1px solid var(--calendar-line);
+}
+
+.day-calendar .all-day-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.week-all-day-row {
+  display: grid;
+  grid-template-columns: 76px repeat(7, minmax(0, 1fr));
+}
+
+.week-all-day-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--calendar-line);
+}
+
+.week-all-day-cell:last-child {
+  border-right: 0;
+}
+
+.all-day-event {
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tone-dark {

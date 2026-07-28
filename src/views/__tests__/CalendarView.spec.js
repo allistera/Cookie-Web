@@ -36,6 +36,15 @@ const SEED_EVENTS = [
     tone: 'accepted',
     calendar: 'personal',
   },
+  {
+    id: 'holiday',
+    title: 'Company Holiday',
+    date: '2026-07-24',
+    start: '00:00',
+    duration: 1440,
+    allDay: true,
+    calendar: 'holidays',
+  },
 ]
 
 // A real fetch response always round-trips through JSON, so the object a
@@ -220,6 +229,32 @@ describe('CalendarView', () => {
     expect(wrapper.find('.month-calendar').exists()).toBe(true)
     expect(wrapper.findAll('.month-day')).toHaveLength(35)
     expect(wrapper.find('.calendar-insights').exists()).toBe(true)
+  })
+
+  it('renders an all-day event as a banner chip in Day view, not a positioned block', async () => {
+    const wrapper = await mountCalendar()
+
+    const banner = wrapper.get('.all-day-row')
+    expect(banner.text()).toContain('Company Holiday')
+    expect(wrapper.findAll('.day-event').map((el) => el.text())).not.toContain('Company Holiday')
+  })
+
+  it('renders an all-day event in the week view banner under its own day column, not the hourly grid', async () => {
+    const wrapper = await mountCalendar()
+    await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+
+    const banner = wrapper.get('.week-all-day-row')
+    expect(banner.text()).toContain('Company Holiday')
+    expect(wrapper.findAll('.week-event').map((el) => el.text())).not.toContain('Company Holiday')
+  })
+
+  it('opens an all-day event from its banner chip', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.all-day-event').trigger('click')
+
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('Company Holiday')
+    wrapper.unmount()
   })
 
   it('navigates by the active view period and returns to the reference date', async () => {

@@ -23,6 +23,7 @@ describe('fetchEvents', () => {
     expect(query).toContain('ce.start_time AS start')
     expect(query).toContain('ce.duration_minutes AS duration')
     expect(query).toContain('ce.recurrence_rule AS "recurrenceRule"')
+    expect(query).toContain('ce.all_day AS "allDay"')
     expect(query).toContain('ORDER BY ce.event_date, ce.start_time')
     expect(values).toEqual(['owner@example.com'])
   })

@@ -1,3 +1,5 @@
+import process from 'node:process'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('node:dns/promises', () => ({
@@ -134,6 +136,129 @@ describe('syncCalendarSubscription', () => {
     expect(result.count).toBe(3)
     expect(inserted[0]).toHaveLength(3)
     expect(inserted[0][0].title).toBe('Standup')
+  })
+
+  function captureInsertedRows() {
+    const inserted = []
+    const sql = (strings, ...values) => {
+      const text = strings.join('?')
+      if (text.includes('json_to_recordset')) {
+        inserted.push(values.find((value) => Array.isArray(value)))
+      }
+      return Promise.resolve([])
+    }
+    sql.begin = async (fn) => fn(sql)
+    return { sql, inserted }
+  }
+
+  it('renders a single-day all-day event as one all_day row, not a ~24h timed block', async () => {
+    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:holiday@example.com',
+      'DTSTAMP:20260101T000000Z',
+      'DTSTART;VALUE=DATE:20260801',
+      'DTEND;VALUE=DATE:20260802',
+      'SUMMARY:Company Holiday',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    const { sql, inserted } = captureInsertedRows()
+
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+
+    expect(result.ok).toBe(true)
+    expect(inserted[0]).toEqual([
+      {
+        title: 'Company Holiday',
+        description: null,
+        location: null,
+        date: '2026-08-01',
+        start: '00:00',
+        duration: 1440,
+        all_day: true,
+      },
+    ])
+  })
+
+  it('expands a multi-day all-day event into one row per day it spans (exclusive DTEND)', async () => {
+    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:trip@example.com',
+      'DTSTAMP:20260101T000000Z',
+      'DTSTART;VALUE=DATE:20260810',
+      'DTEND;VALUE=DATE:20260813',
+      'SUMMARY:Multi-day trip',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    const { sql, inserted } = captureInsertedRows()
+
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+
+    expect(result.ok).toBe(true)
+    expect(inserted[0].map((row) => row.date)).toEqual(['2026-08-10', '2026-08-11', '2026-08-12'])
+    expect(inserted[0].every((row) => row.all_day && row.duration === 1440)).toBe(true)
+  })
+
+  it('expands a recurring all-day event across occurrences', async () => {
+    vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:anniversary@example.com',
+      'DTSTAMP:20260101T000000Z',
+      'DTSTART;VALUE=DATE:20260101',
+      'DTEND;VALUE=DATE:20260102',
+      'SUMMARY:Yearly Holiday',
+      'RRULE:FREQ=YEARLY;COUNT=3',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+    const { sql, inserted } = captureInsertedRows()
+
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+
+    expect(result.ok).toBe(true)
+    expect(inserted[0].map((row) => row.date)).toEqual(['2026-01-01', '2027-01-01', '2028-01-01'])
+  })
+
+  it('recovers the correct calendar date for an all-day event regardless of server timezone', async () => {
+    const originalTz = process.env.TZ
+    process.env.TZ = 'Pacific/Kiritimati' // UTC+14 — the timezone most likely to expose a UTC-based off-by-one
+    try {
+      vi.mocked(dns.lookup).mockResolvedValue({ address: '93.184.216.34' })
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'BEGIN:VEVENT',
+        'UID:holiday@example.com',
+        'DTSTAMP:20260101T000000Z',
+        'DTSTART;VALUE=DATE:20260801',
+        'DTEND;VALUE=DATE:20260802',
+        'SUMMARY:Company Holiday',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n')
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(ics, { status: 200 })))
+      const { sql, inserted } = captureInsertedRows()
+
+      const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+
+      expect(result.ok).toBe(true)
+      expect(inserted[0][0].date).toBe('2026-08-01')
+    } finally {
+      process.env.TZ = originalTz
+    }
   })
 
   it('catches a failure inside the replace transaction and records it as a sync error', async () => {

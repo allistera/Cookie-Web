@@ -101,7 +101,7 @@ async function fetchNormalizedEvents(sql, email) {
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
            COALESCE(c.id::text, ce.calendar::text) AS calendar, ce.tone,
-           ce.recurrence_rule AS "recurrenceRule"
+           ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay"
     FROM calendar_events ce
     JOIN users u ON u.id = ce.user_id
     LEFT JOIN calendars c
@@ -121,8 +121,9 @@ async function fetchNormalizedEvents(sql, email) {
   `
 }
 
-// Same as fetchNormalizedEvents, minus recurrence_rule — used while migration
-// 0025 hasn't landed yet on a database this deploy is already talking to.
+// Same as fetchNormalizedEvents, minus recurrence_rule and all_day — used
+// while migrations 0025/0027 haven't landed yet on a database this deploy is
+// already talking to.
 async function fetchNormalizedEventsWithoutRecurrence(sql, email) {
   return sql`
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
@@ -281,13 +282,13 @@ async function createEvent(sql, email, body, res) {
 
   const [event] = await sql`
     INSERT INTO calendar_events
-      (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone, recurrence_rule)
+      (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone, recurrence_rule, all_day)
     SELECT u.id, ${fields.title}, ${fields.description}, ${fields.location}, ${fields.date},
-           ${fields.start}, ${fields.duration}, ${calendar.id}, ${fields.tone}, ${fields.recurrenceRule}
+           ${fields.start}, ${fields.duration}, ${calendar.id}, ${fields.tone}, ${fields.recurrenceRule}, false
     FROM users u
     WHERE lower(u.email) = ${email}
     RETURNING id, title, description, location, event_date AS date, start_time AS start,
-              duration_minutes AS duration, calendar, tone, recurrence_rule AS "recurrenceRule"
+              duration_minutes AS duration, calendar, tone, recurrence_rule AS "recurrenceRule", all_day AS "allDay"
   `
   if (!event) {
     res.statusCode = 404
@@ -329,12 +330,13 @@ async function updateEvent(sql, email, body, res) {
         calendar = ${calendar.id},
         tone = ${fields.tone},
         recurrence_rule = ${fields.recurrenceRule},
+        all_day = false,
         updated_at = now()
     FROM users u
     WHERE ce.id = ${id} AND ce.user_id = u.id AND lower(u.email) = ${email}
     RETURNING ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
               ce.start_time AS start, ce.duration_minutes AS duration, ce.calendar, ce.tone,
-              ce.recurrence_rule AS "recurrenceRule"
+              ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay"
   `
   if (!event) {
     res.statusCode = 404

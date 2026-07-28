@@ -61,6 +61,15 @@ const rows = [
     tone: 'accepted',
     calendar: 'personal',
   },
+  {
+    id: 'holiday',
+    title: 'Company Holiday',
+    date: '2026-07-24',
+    start: '00:00',
+    duration: 1440,
+    allDay: true,
+    calendar: 'holidays',
+  },
 ]
 
 export function fixtureCalendarEvents() {
