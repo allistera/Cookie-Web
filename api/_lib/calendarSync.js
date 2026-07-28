@@ -117,16 +117,24 @@ async function fetchIcs(url) {
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8')
 }
 
-const toDateKey = (date) =>
-  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
-const toTimeKey = (date) => `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`
+const pad2 = (n) => String(n).padStart(2, '0')
+const toDateKeyUTC = (date) => `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`
+const toTimeKeyUTC = (date) => `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}`
+// node-ical builds a date-only (VALUE=DATE) VEVENT's start/end by
+// interpreting the date components as local time, so recovering the
+// intended calendar date must use local getters too — UTC getters would
+// shift the date by a day in any timezone that isn't UTC+0.
+const toDateKeyLocal = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 
-// Occurrences are materialized as plain rows rather than stored as our own
-// recurrence_rule: an arbitrary ICS RRULE (BYDAY, BYSETPOS, exceptions, ...)
-// doesn't map onto the app's own small daily/weekly/monthly/yearly model, and
-// these events are sync-managed and never hand-edited, so there's no need to
-// keep them re-expandable.
-function eventOccurrences(event, windowStart, windowEnd) {
+function addDaysLocal(date, days) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+// A timed (non-all-day) occurrence: one row, positioned by its actual
+// start time and duration.
+function timedOccurrences(event, windowStart, windowEnd) {
   const starts = event.rrule
     ? event.rrule.between(windowStart, windowEnd, true).slice(0, MAX_OCCURRENCES_PER_EVENT)
     : event.start >= windowStart && event.start <= windowEnd
@@ -134,7 +142,47 @@ function eventOccurrences(event, windowStart, windowEnd) {
       : []
 
   const durationMs = Math.max(new Date(event.end).getTime() - new Date(event.start).getTime(), 60_000)
-  return starts.map((start) => ({ start: new Date(start), durationMinutes: Math.round(durationMs / 60_000) }))
+  const durationMinutes = Math.round(durationMs / 60_000)
+  return starts.map((start) => ({
+    date: toDateKeyUTC(new Date(start)),
+    time: toTimeKeyUTC(new Date(start)),
+    durationMinutes,
+    allDay: false,
+  }))
+}
+
+// An all-day occurrence is expanded into one row per calendar day it spans,
+// each flagged all_day so the UI renders it as a compact banner instead of
+// positioning it in the hourly grid (which is what previously made a single
+// all-day event stretch across the entire visible timeline). RFC5545 all-day
+// DTEND is exclusive — a "Aug 10-13" span covers the 10th, 11th, and 12th.
+function allDayOccurrences(event, windowStart, windowEnd) {
+  const spanDays = Math.max(Math.round((event.end.getTime() - event.start.getTime()) / MS_PER_DAY), 1)
+  const starts = event.rrule
+    ? event.rrule.between(windowStart, windowEnd, true).slice(0, MAX_OCCURRENCES_PER_EVENT)
+    : [event.start]
+
+  const rows = []
+  for (const occurrenceStart of starts) {
+    for (let offset = 0; offset < spanDays; offset += 1) {
+      const day = addDaysLocal(new Date(occurrenceStart), offset)
+      if (day < windowStart || day > windowEnd) continue
+      rows.push({ date: toDateKeyLocal(day), time: '00:00', durationMinutes: 1440, allDay: true })
+      if (rows.length >= MAX_OCCURRENCES_PER_EVENT) return rows
+    }
+  }
+  return rows
+}
+
+// Occurrences are materialized as plain rows rather than stored as our own
+// recurrence_rule: an arbitrary ICS RRULE (BYDAY, BYSETPOS, exceptions, ...)
+// doesn't map onto the app's own small daily/weekly/monthly/yearly model, and
+// these events are sync-managed and never hand-edited, so there's no need to
+// keep them re-expandable.
+function eventOccurrences(event, windowStart, windowEnd) {
+  return event.datetype === 'date'
+    ? allDayOccurrences(event, windowStart, windowEnd)
+    : timedOccurrences(event, windowStart, windowEnd)
 }
 
 function parseEvents(icsText, windowStart, windowEnd) {
@@ -146,14 +194,15 @@ function parseEvents(icsText, windowStart, windowEnd) {
     const description = value.description ? String(value.description).slice(0, MAX_DESCRIPTION) : null
     const location = value.location ? String(value.location).slice(0, MAX_LOCATION) : null
 
-    for (const { start, durationMinutes } of eventOccurrences(value, windowStart, windowEnd)) {
+    for (const occurrence of eventOccurrences(value, windowStart, windowEnd)) {
       rows.push({
         title,
         description,
         location,
-        date: toDateKey(start),
-        start: toTimeKey(start),
-        duration: durationMinutes,
+        date: occurrence.date,
+        start: occurrence.time,
+        duration: occurrence.durationMinutes,
+        all_day: occurrence.allDay,
       })
       if (rows.length >= MAX_EVENTS_PER_SYNC) return rows
     }
@@ -191,9 +240,9 @@ export async function syncCalendarSubscription(sql, calendarId, userId, url) {
         // the value into a JSON string (a scalar) instead of an array, which
         // json_to_recordset then rejects.
         await tx`
-          INSERT INTO calendar_events (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone)
-          SELECT ${userId}, row.title, row.description, row.location, row.date, row.start, row.duration::int, ${calendarId}, 'default'
-          FROM json_to_recordset(${rows}::json) AS row(title text, description text, location text, date text, start text, duration int)
+          INSERT INTO calendar_events (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone, all_day)
+          SELECT ${userId}, row.title, row.description, row.location, row.date, row.start, row.duration::int, ${calendarId}, 'default', row.all_day
+          FROM json_to_recordset(${rows}::json) AS row(title text, description text, location text, date text, start text, duration int, all_day boolean)
         `
       }
       await tx`UPDATE calendars SET subscription_synced_at = now(), subscription_error = null WHERE id = ${calendarId}`
