@@ -30,6 +30,7 @@ const sections = [
   { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
   { id: 'notifications', label: 'Notifications', icon: 'notifications' },
   { id: 'labels', label: 'Labels', icon: 'label' },
+  { id: 'rules', label: 'Rules', icon: 'rule' },
 ]
 const activeSection = ref('account')
 
@@ -39,6 +40,7 @@ watch(
     if (open) {
       activeSection.value = 'account'
       store.loadLabels()
+      store.loadRules()
     }
   },
   { immediate: true },
@@ -223,6 +225,117 @@ async function submitLabelRename(label) {
     }
     cancelRenamingLabel()
   }
+}
+
+// --- Tag rules ---
+const RULE_FIELDS = [
+  { value: 'subject', label: 'Subject' },
+  { value: 'body', label: 'Body' },
+  { value: 'from', label: 'From' },
+  { value: 'to', label: 'To' },
+]
+const RULE_OPERATORS = [
+  { value: 'contains', label: 'contains' },
+  { value: 'equals', label: 'equals' },
+  { value: 'starts_with', label: 'starts with' },
+  { value: 'ends_with', label: 'ends with' },
+]
+
+function blankCondition() {
+  return { field: 'subject', operator: 'contains', value: '' }
+}
+
+function blankRuleDraft() {
+  return {
+    name: '',
+    label_id: '',
+    match_type: 'all',
+    conditions: [blankCondition()],
+  }
+}
+
+const ruleDraft = reactive(blankRuleDraft())
+const isSavingRule = ref(false)
+const editingRuleId = ref(null)
+const ruleError = ref('')
+
+const userLabels = computed(() => store.labels.filter((label) => label.kind === 'user'))
+
+function addRuleCondition() {
+  ruleDraft.conditions.push(blankCondition())
+}
+
+function removeRuleCondition(index) {
+  if (ruleDraft.conditions.length <= 1) return
+  ruleDraft.conditions.splice(index, 1)
+}
+
+function resetRuleDraft() {
+  Object.assign(ruleDraft, blankRuleDraft())
+  ruleDraft.conditions = [blankCondition()]
+  editingRuleId.value = null
+  ruleError.value = ''
+}
+
+function editRule(rule) {
+  ruleDraft.name = rule.name || ''
+  ruleDraft.label_id = rule.label_id
+  ruleDraft.match_type = rule.match_type
+  ruleDraft.conditions = rule.conditions.map((condition) => ({ ...condition }))
+  editingRuleId.value = rule.id
+  ruleError.value = ''
+  nextTick(() => document.querySelector('.rule-editor-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+}
+
+async function submitRule() {
+  if (isSavingRule.value) return
+  if (!ruleDraft.label_id) {
+    ruleError.value = 'Choose a label to apply.'
+    return
+  }
+  const conditions = ruleDraft.conditions
+    .map((condition) => ({ ...condition, value: condition.value.trim() }))
+    .filter((condition) => condition.value)
+  if (conditions.length === 0) {
+    ruleError.value = 'Add at least one condition with a value.'
+    return
+  }
+
+  isSavingRule.value = true
+  const payload = {
+    name: ruleDraft.name.trim() || null,
+    label_id: ruleDraft.label_id,
+    match_type: ruleDraft.match_type,
+    conditions,
+  }
+
+  let ok
+  if (editingRuleId.value) {
+    const rule = store.rules.find((r) => r.id === editingRuleId.value)
+    ok = rule ? await store.updateRule(rule, payload) : false
+  } else {
+    ok = Boolean(await store.createRule(payload))
+  }
+
+  isSavingRule.value = false
+  if (ok) resetRuleDraft()
+  else ruleError.value = 'Failed to save the rule.'
+}
+
+function labelName(labelId) {
+  return store.labels.find((label) => label.id === labelId)?.name || 'Unknown label'
+}
+
+function fieldLabel(field) {
+  return RULE_FIELDS.find((f) => f.value === field)?.label || field
+}
+
+function operatorLabel(operator) {
+  return RULE_OPERATORS.find((o) => o.value === operator)?.label || operator
+}
+
+function toggleRuleEnabled(rule) {
+  store.updateRule(rule, { enabled: !rule.enabled })
 }
 </script>
 
@@ -490,6 +603,113 @@ async function submitLabelRename(label) {
                   :disabled="!newLabel.name.trim() || isSavingLabel"
                 >
                   Create
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <!-- Rules -->
+          <section v-if="activeSection === 'rules'" class="settings-section">
+            <h3 class="settings-section-title">Rules</h3>
+            <p class="settings-section-hint">
+              Automatically apply a tag to new mail that matches conditions on subject, body, from, or to. Rules run when mail arrives, before AI auto-tagging.
+            </p>
+
+            <div class="rule-list" v-if="store.rules.length">
+              <div class="rule-row" v-for="rule in store.rules" :key="rule.id">
+                <div class="rule-row-main">
+                  <span class="rule-row-name">{{ rule.name || 'Untitled rule' }}</span>
+                  <span
+                    class="ni-label-pill"
+                    :style="{
+                      color: store.labels.find((l) => l.id === rule.label_id)?.color,
+                      backgroundColor: (store.labels.find((l) => l.id === rule.label_id)?.color || '#64748b') + '1f',
+                    }"
+                  >
+                    {{ labelName(rule.label_id) }}
+                  </span>
+                  <span class="rule-row-summary">
+                    {{ rule.match_type === 'any' ? 'Any of' : 'All of' }}:
+                    {{ rule.conditions.map((c) => `${fieldLabel(c.field)} ${operatorLabel(c.operator)} "${c.value}"`).join(rule.match_type === 'any' ? ' · or ' : ' · and ') }}
+                  </span>
+                </div>
+                <div class="rule-row-actions">
+                  <input
+                    type="checkbox"
+                    class="settings-switch"
+                    :aria-label="`Enable ${rule.name || 'rule'}`"
+                    :checked="rule.enabled"
+                    @change="toggleRuleEnabled(rule)"
+                  />
+                  <div class="label-row-actions">
+                    <button class="ni-action-btn" :title="`Edit ${rule.name || 'rule'}`" @click="editRule(rule)">
+                      <span class="material-symbols-outlined">edit</span>
+                    </button>
+                    <button
+                      class="ni-action-btn label-delete-btn"
+                      :title="`Delete ${rule.name || 'rule'}`"
+                      @click="store.deleteRule(rule.id)"
+                    >
+                      <span class="material-symbols-outlined">delete</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p v-else class="settings-section-hint">No rules yet — create your first below.</p>
+
+            <form class="rule-editor-form" @submit.prevent="submitRule">
+              <input
+                v-model="ruleDraft.name"
+                class="label-input"
+                maxlength="100"
+                placeholder="Rule name (optional)"
+              />
+
+              <div class="rule-condition-row" v-for="(condition, index) in ruleDraft.conditions" :key="index">
+                <select class="settings-select" v-model="condition.field">
+                  <option v-for="field in RULE_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+                </select>
+                <select class="settings-select" v-model="condition.operator">
+                  <option v-for="operator in RULE_OPERATORS" :key="operator.value" :value="operator.value">{{ operator.label }}</option>
+                </select>
+                <input v-model="condition.value" class="label-input" maxlength="200" placeholder="Value" />
+                <button
+                  type="button"
+                  class="ni-action-btn label-delete-btn"
+                  title="Remove condition"
+                  :disabled="ruleDraft.conditions.length <= 1"
+                  @click="removeRuleCondition(index)"
+                >
+                  <span class="material-symbols-outlined">close</span>
+                </button>
+              </div>
+              <button type="button" class="btn btn-secondary rule-add-condition-btn" @click="addRuleCondition">
+                + Add condition
+              </button>
+
+              <div class="rule-create-fields">
+                <label class="settings-row">
+                  <span>Match</span>
+                  <select class="settings-select" v-model="ruleDraft.match_type">
+                    <option value="all">All conditions</option>
+                    <option value="any">Any condition</option>
+                  </select>
+                </label>
+                <label class="settings-row">
+                  <span>Apply label</span>
+                  <select class="settings-select" v-model="ruleDraft.label_id">
+                    <option value="" disabled>Choose a label</option>
+                    <option v-for="label in userLabels" :key="label.id" :value="label.id">{{ label.name }}</option>
+                  </select>
+                </label>
+              </div>
+
+              <p v-if="ruleError" class="snippet-error" role="alert">{{ ruleError }}</p>
+              <div class="label-create-actions">
+                <button v-if="editingRuleId" type="button" class="btn btn-secondary" @click="resetRuleDraft">Cancel</button>
+                <button type="submit" class="btn btn-primary" :disabled="isSavingRule">
+                  {{ editingRuleId ? 'Save rule' : 'Add rule' }}
                 </button>
               </div>
             </form>

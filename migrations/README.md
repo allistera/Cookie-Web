@@ -50,6 +50,12 @@ AI failure state is recoverable and never changes the mail-forwarding outcome. O
 deduplicates rapid receipt opens in the API, and adds the server-only durable
 per-user quota row used to bound outbound mail across function instances.
 
+## Label rules
+
+`0029_label_rules.sql` adds `label_rules` and `label_rule_conditions` for deterministic, user-defined tagging (subject/body/from/to conditions, matched with `contains`/`equals`/`starts_with`/`ends_with`, combined with `all`/`any`). Cookie-Worker evaluates enabled rules inside the same transaction that stores an inbound message and writes matches to `message_labels` with `source = 'rule'` and the new `rule_id` provenance column. Unlike AI auto-tagging, rule matching is synchronous and has no recovery cron because it never leaves the message's own storage transaction.
+
+Apply `0029` before deploying Cookie-Worker code that reads `label_rules`.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

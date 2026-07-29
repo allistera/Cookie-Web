@@ -3543,6 +3543,85 @@ button.ni-attachment:hover {
   font-size: 13px;
 }
 
+.rule-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.rule-row-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rule-row-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.rule-row-summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.rule-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rule-condition-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-condition-row .label-input {
+  flex: 1;
+}
+
+.rule-add-condition-btn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.rule-create-fields {
+  display: flex;
+  gap: 16px;
+}
+
+.rule-create-fields .settings-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0;
+}
+
 /* Profile Dropdown styling */
 .profile-container {
   position: relative;

@@ -27,6 +27,17 @@ const FIXTURE_LABELS = [
   { id: 'l2', name: 'Home', color: '#e5484d', kind: 'user', description: null, auto_apply: false, message_count: 5 },
 ]
 
+const FIXTURE_RULES = [
+  {
+    id: 'r1',
+    name: 'Bills',
+    label_id: 'l1',
+    match_type: 'all',
+    enabled: true,
+    conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }],
+  },
+]
+
 describe('SettingsModal', () => {
   let pinia
   let router
@@ -45,10 +56,14 @@ describe('SettingsModal', () => {
     localStorage.clear()
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
+      vi.fn().mockImplementation(async (url) => ({
         ok: true,
-        json: async () => ({ labels: FIXTURE_LABELS.map((label) => ({ ...label })) }),
-      }),
+        json: async () => (
+          url === '/api/label-rules'
+            ? { rules: FIXTURE_RULES.map((rule) => ({ ...rule, conditions: rule.conditions.map((c) => ({ ...c })) })) }
+            : { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
+        ),
+      })),
     )
   })
 
@@ -65,6 +80,7 @@ describe('SettingsModal', () => {
     store.activeModal = 'settings'
     const wrapper = mountModal()
     await vi.waitFor(() => expect(store.labels).toHaveLength(2))
+    await vi.waitFor(() => expect(store.rules).toHaveLength(1))
     await wrapper.vm.$nextTick()
     return wrapper
   }
@@ -73,6 +89,13 @@ describe('SettingsModal', () => {
     await wrapper
       .findAll('.settings-nav-item')
       .find((n) => n.text().includes('Labels'))
+      .trigger('click')
+  }
+
+  async function openRulesPane(wrapper) {
+    await wrapper
+      .findAll('.settings-nav-item')
+      .find((n) => n.text().includes('Rules'))
       .trigger('click')
   }
 
@@ -90,8 +113,8 @@ describe('SettingsModal', () => {
     const wrapper = await openModal()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(6)
-    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Snippets', 'Notifications', 'Labels'].entries()) {
+    expect(navItems).toHaveLength(7)
+    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Snippets', 'Notifications', 'Labels', 'Rules'].entries()) {
       expect(navItems[i]).toContain(name)
     }
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
@@ -306,6 +329,87 @@ describe('SettingsModal', () => {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'l1' }),
+    })
+  })
+
+  it('lists rules with their target label and condition summary', async () => {
+    const wrapper = await openModal()
+    await openRulesPane(wrapper)
+
+    const rows = wrapper.findAll('.rule-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].find('.rule-row-name').text()).toBe('Bills')
+    expect(rows[0].find('.ni-label-pill').text()).toBe('Finance')
+    expect(rows[0].find('.rule-row-summary').text()).toContain('Subject contains "invoice"')
+    expect(rows[0].find('input[type="checkbox"]').element.checked).toBe(true)
+  })
+
+  it('toggles whether a rule is enabled', async () => {
+    const wrapper = await openModal()
+    await openRulesPane(wrapper)
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ rule: { ...FIXTURE_RULES[0], enabled: false } }) })
+
+    await wrapper.find('.rule-row input[type="checkbox"]').setValue(false)
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/label-rules', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'r1', enabled: false }),
+    })
+    expect(store.rules[0].enabled).toBe(false)
+  })
+
+  it('creates a rule from the form and resets it', async () => {
+    const wrapper = await openModal()
+    await openRulesPane(wrapper)
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        rule: {
+          id: 'r2',
+          name: 'Newsletters',
+          label_id: 'l2',
+          match_type: 'all',
+          enabled: true,
+          conditions: [{ field: 'from', operator: 'contains', value: 'news@', position: 0 }],
+        },
+      }),
+    })
+
+    await wrapper.find('.rule-editor-form > input.label-input').setValue('Newsletters')
+    await wrapper.find('.rule-condition-row select').setValue('from')
+    await wrapper.find('.rule-condition-row input.label-input').setValue('news@')
+    await wrapper.findAll('.rule-create-fields select')[1].setValue('l2')
+    await wrapper.find('.rule-editor-form').trigger('submit')
+
+    await vi.waitFor(() => expect(store.rules).toHaveLength(2))
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/label-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Newsletters',
+        label_id: 'l2',
+        match_type: 'all',
+        conditions: [{ field: 'from', operator: 'contains', value: 'news@' }],
+      }),
+    })
+  })
+
+  it('deletes a rule from its row', async () => {
+    const wrapper = await openModal()
+    await openRulesPane(wrapper)
+
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+    await wrapper.find('.rule-row .label-delete-btn').trigger('click')
+    await vi.waitFor(() => expect(store.rules).toHaveLength(0))
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/label-rules', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'r1' }),
     })
   })
 

@@ -1090,6 +1090,98 @@ describe('Inbox Store', () => {
     expect(store.toasts.at(-1)?.message).toBe('Label renamed.')
   })
 
+  it('loads tag rules from the API', async () => {
+    const rule = {
+      id: 'rule-1',
+      name: 'Bills',
+      label_id: 'label-1',
+      match_type: 'all',
+      enabled: true,
+      conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rules: [rule] }) }))
+
+    const store = useInboxStore()
+    await store.loadRules()
+
+    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.rules).toEqual([rule])
+  })
+
+  it('creates a tag rule', async () => {
+    const rule = {
+      id: 'rule-1', name: 'Bills', label_id: 'label-1', match_type: 'all', enabled: true,
+      conditions: [{ field: 'subject', operator: 'contains', value: 'invoice', position: 0 }],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rule }) }))
+
+    const store = useInboxStore()
+    const payload = {
+      name: 'Bills',
+      label_id: 'label-1',
+      match_type: 'all',
+      conditions: [{ field: 'subject', operator: 'contains', value: 'invoice' }],
+    }
+    await expect(store.createRule(payload)).resolves.toEqual(rule)
+
+    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
+      body: JSON.stringify(payload),
+    })
+    expect(store.rules).toEqual([rule])
+    expect(store.toasts.at(-1)?.message).toBe('Rule created.')
+  })
+
+  it('returns null and notifies when creating a rule fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+
+    const store = useInboxStore()
+    await expect(store.createRule({ label_id: 'label-1', conditions: [] })).resolves.toBeNull()
+    expect(store.toasts.at(-1)?.message).toBe('Failed to create rule.')
+  })
+
+  it('updates a rule and rolls back on failure', async () => {
+    const rule = { id: 'rule-1', name: 'Bills', enabled: true }
+    const store = useInboxStore()
+    store.rules = [rule]
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    await expect(store.updateRule(rule, { enabled: false })).resolves.toBe(false)
+    expect(rule.enabled).toBe(true)
+    expect(store.toasts.at(-1)?.message).toBe('Failed to update rule.')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rule: { ...rule, enabled: false } }) }),
+    )
+    await expect(store.updateRule(rule, { enabled: false })).resolves.toBe(true)
+    expect(rule.enabled).toBe(false)
+    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
+      body: JSON.stringify({ id: 'rule-1', enabled: false }),
+    })
+  })
+
+  it('deletes a rule', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+
+    const store = useInboxStore()
+    store.rules = [{ id: 'rule-1' }, { id: 'rule-2' }]
+    await store.deleteRule('rule-1')
+
+    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
+      body: JSON.stringify({ id: 'rule-1' }),
+    })
+    expect(store.rules).toEqual([{ id: 'rule-2' }])
+    expect(store.toasts.at(-1)?.message).toBe('Rule deleted.')
+  })
+
   it('shows a toast and auto-dismisses it', () => {
     vi.useFakeTimers()
     const store = useInboxStore()

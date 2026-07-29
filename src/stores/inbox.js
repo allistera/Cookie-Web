@@ -219,6 +219,7 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
+    rules: [], // tag rules from /api/label-rules (settings Rules manager)
 
     // Chat state
     chatHistory: [],
@@ -725,6 +726,87 @@ export const useInboxStore = defineStore('inbox', {
         label.auto_apply = previous
         console.error('Failed to update label auto-tagging:', error)
         this.notify('Failed to update auto-tagging.', 'error')
+      }
+    },
+
+    async loadRules() {
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/label-rules', { headers })
+        if (!response.ok) {
+          throw new Error(`GET /api/label-rules responded ${response.status}`)
+        }
+        const { rules } = await response.json()
+        this.rules = rules
+      } catch (error) {
+        console.error('Failed to load rules:', error)
+        this.notify('Failed to load tag rules.', 'error')
+      }
+    },
+
+    // Returns the created rule on success (so the settings form knows to reset), or null.
+    // `newRule` uses API shape directly: { name, label_id, match_type, conditions }.
+    async createRule(newRule) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/label-rules', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(newRule),
+        })
+        if (!response.ok) {
+          throw new Error(`POST /api/label-rules responded ${response.status}`)
+        }
+        const { rule } = await response.json()
+        this.rules = [...this.rules, rule]
+        this.notify('Rule created.')
+        return rule
+      } catch (error) {
+        console.error('Failed to create rule:', error)
+        this.notify('Failed to create rule.', 'error')
+        return null
+      }
+    },
+
+    // `changes` uses API shape directly, e.g. { enabled: false } or { conditions: [...] }.
+    async updateRule(rule, changes) {
+      const previous = { ...rule }
+      Object.assign(rule, changes)
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/label-rules', {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: rule.id, ...changes }),
+        })
+        if (!response.ok) throw new Error(`PATCH /api/label-rules responded ${response.status}`)
+        const { rule: updatedRule } = await response.json()
+        Object.assign(rule, updatedRule)
+        return true
+      } catch (error) {
+        Object.assign(rule, previous)
+        console.error('Failed to update rule:', error)
+        this.notify('Failed to update rule.', 'error')
+        return false
+      }
+    },
+
+    async deleteRule(id) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/label-rules', {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ id }),
+        })
+        if (!response.ok) {
+          throw new Error(`DELETE /api/label-rules responded ${response.status}`)
+        }
+        this.rules = this.rules.filter((rule) => rule.id !== id)
+        this.notify('Rule deleted.')
+      } catch (error) {
+        console.error('Failed to delete rule:', error)
+        this.notify('Failed to delete rule.', 'error')
       }
     },
 
