@@ -219,7 +219,7 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
-    rules: [], // tag rules from /api/label-rules (settings Rules manager)
+    rules: [], // tag rules from /api/labels?resource=rules (settings Rules manager)
 
     // Chat state
     chatHistory: [],
@@ -732,9 +732,9 @@ export const useInboxStore = defineStore('inbox', {
     async loadRules() {
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/label-rules', { headers })
+        const response = await fetch('/api/labels?resource=rules', { headers })
         if (!response.ok) {
-          throw new Error(`GET /api/label-rules responded ${response.status}`)
+          throw new Error(`GET /api/labels?resource=rules responded ${response.status}`)
         }
         const { rules } = await response.json()
         this.rules = rules
@@ -749,13 +749,13 @@ export const useInboxStore = defineStore('inbox', {
     async createRule(newRule) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/label-rules', {
+        const response = await fetch('/api/labels?resource=rules', {
           method: 'POST',
           headers,
           body: JSON.stringify(newRule),
         })
         if (!response.ok) {
-          throw new Error(`POST /api/label-rules responded ${response.status}`)
+          throw new Error(`POST /api/labels?resource=rules responded ${response.status}`)
         }
         const { rule } = await response.json()
         this.rules = [...this.rules, rule]
@@ -774,12 +774,12 @@ export const useInboxStore = defineStore('inbox', {
       Object.assign(rule, changes)
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/label-rules', {
+        const response = await fetch('/api/labels?resource=rules', {
           method: 'PATCH',
           headers,
           body: JSON.stringify({ id: rule.id, ...changes }),
         })
-        if (!response.ok) throw new Error(`PATCH /api/label-rules responded ${response.status}`)
+        if (!response.ok) throw new Error(`PATCH /api/labels?resource=rules responded ${response.status}`)
         const { rule: updatedRule } = await response.json()
         Object.assign(rule, updatedRule)
         return true
@@ -794,13 +794,13 @@ export const useInboxStore = defineStore('inbox', {
     async deleteRule(id) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/label-rules', {
+        const response = await fetch('/api/labels?resource=rules', {
           method: 'DELETE',
           headers,
           body: JSON.stringify({ id }),
         })
         if (!response.ok) {
-          throw new Error(`DELETE /api/label-rules responded ${response.status}`)
+          throw new Error(`DELETE /api/labels?resource=rules responded ${response.status}`)
         }
         this.rules = this.rules.filter((rule) => rule.id !== id)
         this.notify('Rule deleted.')

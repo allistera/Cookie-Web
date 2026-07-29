@@ -59,7 +59,7 @@ describe('SettingsModal', () => {
       vi.fn().mockImplementation(async (url) => ({
         ok: true,
         json: async () => (
-          url === '/api/label-rules'
+          url === '/api/labels?resource=rules'
             ? { rules: FIXTURE_RULES.map((rule) => ({ ...rule, conditions: rule.conditions.map((c) => ({ ...c })) })) }
             : { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
         ),
@@ -351,7 +351,7 @@ describe('SettingsModal', () => {
 
     await wrapper.find('.rule-row input[type="checkbox"]').setValue(false)
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'r1', enabled: false }),
@@ -386,7 +386,7 @@ describe('SettingsModal', () => {
 
     await vi.waitFor(() => expect(store.rules).toHaveLength(2))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -406,7 +406,7 @@ describe('SettingsModal', () => {
     await wrapper.find('.rule-row .label-delete-btn').trigger('click')
     await vi.waitFor(() => expect(store.rules).toHaveLength(0))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'r1' }),

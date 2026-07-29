@@ -1,7 +1,7 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
-import { readJsonBody } from './_lib/body.js'
+import { getSql } from './db.js'
+import { verifyAccessToken } from './auth.js'
+import { captureApiError } from './sentry.js'
+import { readJsonBody } from './body.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FIELDS = ['subject', 'body', 'from', 'to']
@@ -218,10 +218,13 @@ async function deleteRule(sql, email, body, res) {
   res.end(JSON.stringify({ ok: true }))
 }
 
-// /api/label-rules — GET lists the user's tag rules (with conditions), POST
-// creates one, PATCH edits name/label/match-type/enabled/conditions, DELETE
-// removes one. Rule matching itself runs in Cookie-Worker at inbound storage
-// time; this endpoint only manages rule definitions.
+// /api/labels?resource=rules — GET lists the user's tag rules (with
+// conditions), POST creates one, PATCH edits name/label/match-type/enabled/
+// conditions, DELETE removes one. Rule matching itself runs in Cookie-Worker
+// at inbound storage time; this endpoint only manages rule definitions.
+// Lives under _lib (not a top-level api/*.js file) to stay within Vercel
+// Hobby's 12-serverless-function-per-deployment limit; api/labels.js
+// dispatches here by resource query param instead of Vercel routing it.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -257,8 +260,8 @@ export default async function handler(req, res) {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
   } catch (err) {
-    console.error(`${req.method} /api/label-rules failed:`, err)
-    await captureApiError(err, { route: `${req.method} /api/label-rules` })
+    console.error(`${req.method} /api/labels?resource=rules failed:`, err)
+    await captureApiError(err, { route: `${req.method} /api/labels?resource=rules` })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Label rules request failed' }))
   }

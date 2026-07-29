@@ -19,7 +19,7 @@ vi.mock('../_lib/db.js', () => ({
   },
 }))
 
-import handler from '../label-rules.js'
+import handler from '../_lib/label-rules.js'
 
 function makeRes() {
   return {

@@ -1104,7 +1104,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadRules()
 
-    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.rules).toEqual([rule])
@@ -1126,7 +1126,7 @@ describe('Inbox Store', () => {
     }
     await expect(store.createRule(payload)).resolves.toEqual(rule)
 
-    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
       body: JSON.stringify(payload),
@@ -1159,7 +1159,7 @@ describe('Inbox Store', () => {
     )
     await expect(store.updateRule(rule, { enabled: false })).resolves.toBe(true)
     expect(rule.enabled).toBe(false)
-    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
       body: JSON.stringify({ id: 'rule-1', enabled: false }),
@@ -1173,7 +1173,7 @@ describe('Inbox Store', () => {
     store.rules = [{ id: 'rule-1' }, { id: 'rule-2' }]
     await store.deleteRule('rule-1')
 
-    expect(fetch).toHaveBeenCalledWith('/api/label-rules', {
+    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
       body: JSON.stringify({ id: 'rule-1' }),

@@ -2,6 +2,7 @@ import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
+import labelRulesHandler from './_lib/label-rules.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLOR_RE = /^#[0-9a-f]{6}$/i
@@ -128,7 +129,14 @@ async function deleteLabel(sql, email, body, res) {
 
 // /api/labels — GET lists the user's labels (with message counts),
 // POST creates one, PATCH renames or changes auto-apply, DELETE removes one.
+// ?resource=rules delegates to the tag-rules CRUD handler — kept out of its
+// own api/*.js file to stay within Vercel Hobby's function-count limit.
 export default async function handler(req, res) {
+  if (new URL(req.url, 'http://localhost').searchParams.get('resource') === 'rules') {
+    await labelRulesHandler(req, res)
+    return
+  }
+
   res.setHeader('Content-Type', 'application/json')
 
   let email
