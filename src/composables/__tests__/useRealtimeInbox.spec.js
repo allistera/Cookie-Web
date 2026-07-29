@@ -215,6 +215,79 @@ describe('useRealtimeInbox', () => {
     expect(Notification).not.toHaveBeenCalled()
   })
 
+  // Regression check for an installed standalone PWA: its window can sit
+  // visible on screen (document.hidden stays false) while the user works in
+  // another app, so hasFocus() — not just document.hidden — must also gate
+  // notifications, or an installed app never notifies at all.
+  it('shows a notification when the window is visible but unfocused', async () => {
+    const client = makeMockClient()
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    localStorage.setItem(
+      `cookie-browser-notifications:${store.userId}`,
+      JSON.stringify({ enabled: true }),
+    )
+    const NotificationMock = vi.fn(function Notification(title, options) {
+      this.title = title
+      this.options = options
+      this.close = vi.fn()
+    })
+    NotificationMock.permission = 'granted'
+    vi.stubGlobal('Notification', NotificationMock)
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            claimToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            message: { id: 'message-1', sender: 'City Construction', subject: 'Kitchen update' },
+          }),
+        })
+        .mockResolvedValueOnce({ ok: true, status: 204 }),
+    )
+    mount(client)
+
+    setHidden(false)
+    client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
+    await vi.advanceTimersByTimeAsync(1500)
+
+    await vi.waitFor(() => expect(NotificationMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('does not show a notification while the window is visible and focused', async () => {
+    const client = makeMockClient()
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    localStorage.setItem(
+      `cookie-browser-notifications:${store.userId}`,
+      JSON.stringify({ enabled: true }),
+    )
+    vi.stubGlobal('Notification', Object.assign(vi.fn(), { permission: 'granted' }))
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          message: { id: 'message-1', sender: 'City Construction', subject: 'Kitchen update' },
+        }),
+      }),
+    )
+    mount(client)
+
+    setHidden(false)
+    client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(Notification).not.toHaveBeenCalled()
+  })
+
   it('does not refresh while a search is active', () => {
     const client = makeMockClient()
     store.userId = 'user-1'

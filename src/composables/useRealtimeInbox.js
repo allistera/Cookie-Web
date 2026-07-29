@@ -27,13 +27,23 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   const pendingNotificationEventIds = new Set()
   const notificationRetryTimers = new Set()
 
+  // A background *tab* reliably reports document.hidden. An installed
+  // standalone PWA (its own window, no tabs) only goes hidden when minimized
+  // or fully occluded — switching focus to another app while it sits visible
+  // on screen leaves document.hidden false, so document.hidden alone never
+  // fires notifications for an installed app the user isn't looking at.
+  // hasFocus() catches that case too.
+  function isBackgrounded() {
+    return document.hidden || !document.hasFocus()
+  }
+
   function canShowBrowserNotification(userId, version) {
     return (
       !disposed &&
       version === lifecycleVersion &&
       isAuthenticated.value &&
       store.userId === userId &&
-      document.hidden &&
+      isBackgrounded() &&
       browserNotificationPermission() === 'granted' &&
       browserNotificationsEnabled(userId)
     )
