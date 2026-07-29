@@ -1,6 +1,8 @@
 // Shared hybrid-retrieval legs for /api/search and /api/ask. All return ranked
-// lists of message ids scoped to the authenticated user's non-archived mail
-// (sent copies included — finding your own replies is a feature).
+// lists of message ids scoped to the authenticated user's mail, always
+// excluding trashed messages and — unless filters.in says otherwise (see
+// folderClause below) — excluding Done/archived mail too (sent copies are
+// included by default; finding your own replies is a feature).
 //
 // The legs take a parsed spec { text, prefixQuery, filters } (see
 // query-parse.js). `text` is the free-text query, `prefixQuery` is an optional
@@ -32,10 +34,35 @@ function rankExpr(sql, text, prefixQuery) {
   return sql`ts_rank(m.search, websearch_to_tsquery('english', ${text}))`
 }
 
+// Scopes a leg to one folder (in:inbox/sent/spam/snoozed/done/all), mirroring
+// api/emails.js's folder predicates exactly so `in:` search results match
+// what that folder actually shows. No `in:` filter preserves the long-
+// standing default (everything except Done), now also excluding trashed
+// mail, which every leg had omitted despite migration 0020's "excluded from
+// all list queries" intent.
+function folderClause(sql, folder) {
+  if (folder === 'all') return sql`AND NOT m.is_deleted`
+  if (folder === 'done') return sql`AND NOT m.is_deleted AND m.is_archived`
+  if (folder === 'sent') return sql`AND NOT m.is_deleted AND NOT m.is_archived AND m.is_sent`
+  if (folder === 'spam') {
+    return sql`AND NOT m.is_deleted AND NOT m.is_archived AND NOT m.is_sent AND ai.spam_verdict = 'spam'`
+  }
+  if (folder === 'snoozed') {
+    return sql`AND NOT m.is_deleted AND NOT m.is_archived AND NOT m.is_sent
+               AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam' AND m.scheduled_for > now()`
+  }
+  if (folder === 'inbox') {
+    return sql`AND NOT m.is_deleted AND NOT m.is_archived AND NOT m.is_sent
+               AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+               AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())`
+  }
+  return sql`AND NOT m.is_deleted AND NOT m.is_archived`
+}
+
 // Structured-operator predicates, ANDed into a leg's WHERE. Returns an empty
 // fragment when no filters are set.
 function filterClause(sql, filters = {}) {
-  const parts = []
+  const parts = [folderClause(sql, filters.in)]
   if (filters.from) {
     const like = `%${filters.from}%`
     parts.push(sql`AND (m.from_address ILIKE ${like} OR coalesce(m.from_name, '') ILIKE ${like})`)
@@ -71,9 +98,10 @@ export function keywordLeg(sql, email, spec, limit) {
     SELECT m.id
     FROM messages m
     JOIN users u ON u.id = m.user_id
-    WHERE lower(u.email) = ${email} AND NOT m.is_archived
-      AND ${textMatch(sql, text, prefixQuery)}
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
+    WHERE lower(u.email) = ${email}
       ${filterClause(sql, filters)}
+      AND ${textMatch(sql, text, prefixQuery)}
     ORDER BY ${rankExpr(sql, text, prefixQuery)} DESC, m.sent_at DESC
     LIMIT ${limit}
   `
@@ -90,9 +118,10 @@ export function recencyLeg(sql, email, spec, limit) {
     SELECT m.id
     FROM messages m
     JOIN users u ON u.id = m.user_id
-    WHERE lower(u.email) = ${email} AND NOT m.is_archived
-      ${match}
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
+    WHERE lower(u.email) = ${email}
       ${filterClause(sql, filters)}
+      ${match}
     ORDER BY m.sent_at DESC
     LIMIT ${limit}
   `
@@ -100,16 +129,17 @@ export function recencyLeg(sql, email, spec, limit) {
 
 // Vector leg: cosine distance over pgvector embeddings. Takes the query vector
 // (already embedded) so callers can cache or skip embedding, plus the same
-// structured filters so semantic results honour sender:/tag:/to:/date
+// structured filters so semantic results honour sender:/tag:/to:/date/in:
 // operators too.
 export function vectorLeg(sql, email, vector, filters, limit) {
   return sql`
     SELECT m.id
     FROM messages m
     JOIN users u ON u.id = m.user_id
-    WHERE lower(u.email) = ${email} AND NOT m.is_archived
-      AND m.embedding IS NOT NULL
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
+    WHERE lower(u.email) = ${email}
       ${filterClause(sql, filters)}
+      AND m.embedding IS NOT NULL
     ORDER BY m.embedding <=> ${vector}::extensions.vector
     LIMIT ${limit}
   `

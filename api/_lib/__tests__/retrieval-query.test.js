@@ -121,3 +121,51 @@ describe('filterClause via keywordLeg', () => {
     expect(q).not.toContain('ILIKE')
   })
 })
+
+describe('in: folder scoping', () => {
+  it('scopes every leg to non-archived, non-deleted mail by default (no in:)', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'x', prefixQuery: null, filters: {} }, 20))
+    expect(q).toContain('AND NOT m.is_deleted AND NOT m.is_archived')
+    expect(q).not.toContain('m.is_sent')
+    expect(q).toContain('LEFT JOIN message_ai ai ON ai.message_id = m.id')
+  })
+
+  it('in:all drops the archived restriction but still excludes trashed mail', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'x', prefixQuery: null, filters: { in: 'all' } }, 20))
+    expect(q).toContain('AND NOT m.is_deleted')
+    expect(q).not.toContain('is_archived')
+  })
+
+  it('in:done scopes to archived mail only', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'x', prefixQuery: null, filters: { in: 'done' } }, 20))
+    expect(q).toContain('AND NOT m.is_deleted AND m.is_archived')
+  })
+
+  it('in:spam matches the spam folder predicate (non-archived, not sent, spam verdict)', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'x', prefixQuery: null, filters: { in: 'spam' } }, 20))
+    expect(q).toContain('NOT m.is_archived AND NOT m.is_sent AND ai.spam_verdict = ')
+  })
+
+  it('in:sent, in:snoozed, and in:inbox scope recencyLeg and vectorLeg too', () => {
+    const { sql, render } = makeSql()
+    expect(
+      render(recencyLeg(sql, 'me@example.com', { text: '', prefixQuery: null, filters: { in: 'sent' } }, 20)),
+    ).toContain('AND m.is_sent')
+    expect(
+      render(recencyLeg(sql, 'me@example.com', { text: '', prefixQuery: null, filters: { in: 'snoozed' } }, 20)),
+    ).toContain('m.scheduled_for > now()')
+    expect(render(vectorLeg(sql, 'me@example.com', '[0.1]', { in: 'inbox' }, 20))).toContain(
+      'm.scheduled_for IS NULL OR m.scheduled_for <= now()',
+    )
+  })
+
+  it('ignores an unrecognised in: value the same as no filter', () => {
+    const { sql, render } = makeSql()
+    const q = render(keywordLeg(sql, 'me@example.com', { text: 'x', prefixQuery: null, filters: { in: 'trash' } }, 20))
+    expect(q).toContain('AND NOT m.is_deleted AND NOT m.is_archived')
+  })
+})

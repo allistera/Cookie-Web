@@ -75,4 +75,19 @@ describe('parseSearchQuery', () => {
     expect(text).toBe('budget plan')
     expect(filters).toEqual({ from: 'bob', to: 'alice', tag: 'Work', after: '2026-01-01' })
   })
+
+  it('extracts in: for every supported folder, case-insensitively', () => {
+    expect(parseSearchQuery('in:all project').filters).toEqual({ in: 'all' })
+    expect(parseSearchQuery('in:Done project').filters).toEqual({ in: 'done' })
+    expect(parseSearchQuery('in:SPAM project').filters).toEqual({ in: 'spam' })
+    expect(parseSearchQuery('in:inbox').filters).toEqual({ in: 'inbox' })
+    expect(parseSearchQuery('in:sent').filters).toEqual({ in: 'sent' })
+    expect(parseSearchQuery('in:snoozed').filters).toEqual({ in: 'snoozed' })
+  })
+
+  it('leaves an unknown in: value as free text', () => {
+    const { text, filters } = parseSearchQuery('in:trash report')
+    expect(filters).toEqual({})
+    expect(text).toBe('in:trash report')
+  })
 })

@@ -364,8 +364,8 @@ onUnmounted(() => {
           <input
             type="text"
             class="search-input"
-            placeholder="Search mail — try tag:Personal"
-            aria-label="Search mail. Use tag:Personal or sender:foo@bar.com to filter."
+            placeholder="Search mail — try tag:Personal or in:done"
+            aria-label="Search mail. Use tag:Personal, sender:foo@bar.com, or in:done/spam/all to filter."
             v-model="searchInputVal"
             @focus="isSearchSuggestionsActive = true"
             @keydown.enter.prevent="handleSearchEnter"
