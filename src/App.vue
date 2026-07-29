@@ -18,6 +18,7 @@ import ComposerEditor from './components/ComposerEditor.vue'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
+import { useAppBadge } from './composables/useAppBadge'
 import { supabase } from './lib/supabase'
 
 const store = useInboxStore()
@@ -260,6 +261,9 @@ useRealtimeInbox(store, supabase, isAuthenticated)
 // "(2) Cookie AI Inbox …" tab-title badge for emails that arrive while the
 // tab is in the background.
 useTitleUnreadBadge(store)
+
+// Dock/taskbar icon badge with the unread inbox count, once installed as a PWA.
+useAppBadge(store)
 
 // Document level click listener to close search dropdown
 onMounted(() => {
