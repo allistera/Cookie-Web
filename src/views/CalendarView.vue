@@ -63,6 +63,18 @@ const calendarSections = computed(() => [
     : []),
 ])
 
+const calendarColorById = computed(() => new Map(calendars.value.map((calendar) => [calendar.id, calendar.color])))
+
+// Sets the --event-color custom property an event chip reads for its tint, so
+// entries visually match their owning calendar the same way the sidebar list
+// does. Left unset (falls back to the neutral default) for a calendar that's
+// been removed or hasn't loaded yet — status tones (conflict/accepted/
+// suggested/dark) still take over via CSS class specificity regardless.
+function eventColorVars(event) {
+  const color = calendarColorById.value.get(event.calendar)
+  return color ? { '--event-color': color } : {}
+}
+
 async function loadCalendars() {
   try {
     const headers = await store.authHeaders()
@@ -377,6 +389,7 @@ const eventPosition = (event, hourHeight) => {
   return {
     top: `${((clippedStart - visibleStart) / 60) * hourHeight}px`,
     height: `${Math.max(((clippedEnd - clippedStart) / 60) * hourHeight, 38)}px`,
+    ...eventColorVars(event),
   }
 }
 
@@ -933,6 +946,7 @@ onUnmounted(() => {
             type="button"
             class="calendar-event all-day-event"
             :class="`tone-${event.tone || 'default'}`"
+            :style="eventColorVars(event)"
             @click="editEvent(event)"
           >
             {{ event.title }}
@@ -996,6 +1010,7 @@ onUnmounted(() => {
               type="button"
               class="calendar-event all-day-event"
               :class="`tone-${event.tone || 'default'}`"
+              :style="eventColorVars(event)"
               @click="editEvent(event)"
             >
               {{ event.title }}
@@ -1080,6 +1095,7 @@ onUnmounted(() => {
                 type="button"
                 class="month-event"
                 :class="`tone-${event.tone || 'default'}`"
+                :style="eventColorVars(event)"
                 @click="editEvent(event)"
               >
                 {{ event.title }}
@@ -1851,10 +1867,13 @@ onUnmounted(() => {
 }
 
 .calendar-event {
-  border: 1px solid var(--calendar-event-line);
+  /* --event-color is set per-event from its owning calendar's color (see
+     eventColorVars in the script) so entries match the sidebar's calendar
+     list; status tones below override it for conflict/accepted/suggested. */
+  border: 1px solid var(--event-color, var(--calendar-event-line));
   border-radius: 10px;
-  background: var(--calendar-event-surface);
-  color: var(--calendar-ink);
+  background: color-mix(in srgb, var(--event-color, var(--calendar-event-surface)) 16%, var(--calendar-surface));
+  color: var(--event-color, var(--calendar-ink));
   overflow: hidden;
   font-family: inherit;
   text-align: left;
@@ -2168,10 +2187,10 @@ onUnmounted(() => {
   width: 100%;
   min-height: 28px;
   padding: 5px 8px;
-  border: 1px solid var(--calendar-event-line);
+  border: 1px solid var(--event-color, var(--calendar-event-line));
   border-radius: 8px;
-  background: var(--calendar-event-surface);
-  color: var(--calendar-event-ink);
+  background: color-mix(in srgb, var(--event-color, var(--calendar-event-surface)) 16%, var(--calendar-surface));
+  color: var(--event-color, var(--calendar-event-ink));
   font-family: inherit;
   font-size: 12px;
   text-align: left;

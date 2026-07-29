@@ -214,6 +214,20 @@ describe('CalendarView', () => {
     expect(wrapper.text()).toContain('Standup')
   })
 
+  it('colors an event chip to match its owning calendar', async () => {
+    const wrapper = await mountCalendar()
+
+    // Standup is on the Work calendar (#4f7c6b) with the default tone, so it
+    // should pick up the calendar's color rather than a fixed neutral.
+    const standup = wrapper.find('.day-event')
+    expect(standup.text()).toContain('Standup')
+    expect(standup.element.style.getPropertyValue('--event-color')).toBe('#4f7c6b')
+
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    const designReview = wrapper.findAll('.month-event').find((event) => event.text().includes('Design review'))
+    expect(designReview.element.style.getPropertyValue('--event-color')).toBe('#4f7c6b')
+  })
+
   it('switches between the supplied Day, Week, and Month calendar states', async () => {
     const wrapper = await mountCalendar()
 
