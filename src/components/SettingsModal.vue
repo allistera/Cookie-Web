@@ -248,6 +248,7 @@ function blankCondition() {
 function blankRuleDraft() {
   return {
     name: '',
+    action: 'apply_label',
     label_id: '',
     match_type: 'all',
     conditions: [blankCondition()],
@@ -279,7 +280,8 @@ function resetRuleDraft() {
 
 function editRule(rule) {
   ruleDraft.name = rule.name || ''
-  ruleDraft.label_id = rule.label_id
+  ruleDraft.action = rule.action || 'apply_label'
+  ruleDraft.label_id = rule.label_id || ''
   ruleDraft.match_type = rule.match_type
   ruleDraft.conditions = rule.conditions.map((condition) => ({ ...condition }))
   editingRuleId.value = rule.id
@@ -289,7 +291,7 @@ function editRule(rule) {
 
 async function submitRule() {
   if (isSavingRule.value) return
-  if (!ruleDraft.label_id) {
+  if (ruleDraft.action === 'apply_label' && !ruleDraft.label_id) {
     ruleError.value = 'Choose a label to apply.'
     return
   }
@@ -304,9 +306,13 @@ async function submitRule() {
   isSavingRule.value = true
   const payload = {
     name: ruleDraft.name.trim() || null,
-    label_id: ruleDraft.label_id,
+    action: ruleDraft.action,
     match_type: ruleDraft.match_type,
     conditions,
+    // label_id is omitted entirely for mark_done: the API treats the key's
+    // mere presence (even null) as "set this label", so switching a rule to
+    // mark_done must drop the key rather than null it out.
+    ...(ruleDraft.action === 'apply_label' ? { label_id: ruleDraft.label_id } : {}),
   }
 
   let ok
@@ -612,7 +618,7 @@ function toggleRuleEnabled(rule) {
           <section v-if="activeSection === 'rules'" class="settings-section">
             <h3 class="settings-section-title">Rules</h3>
             <p class="settings-section-hint">
-              Automatically apply a tag to new mail that matches conditions on subject, body, from, or to. Rules run when mail arrives, before AI auto-tagging.
+              Automatically apply a tag or mark mail done when new mail matches conditions on subject, body, from, or to. Rules run when mail arrives, before AI auto-tagging.
             </p>
 
             <div class="rule-list" v-if="store.rules.length">
@@ -620,6 +626,14 @@ function toggleRuleEnabled(rule) {
                 <div class="rule-row-main">
                   <span class="rule-row-name">{{ rule.name || 'Untitled rule' }}</span>
                   <span
+                    v-if="rule.action === 'mark_done'"
+                    class="ni-label-pill"
+                    :style="{ color: '#64748b', backgroundColor: '#64748b1f' }"
+                  >
+                    Mark done
+                  </span>
+                  <span
+                    v-else
                     class="ni-label-pill"
                     :style="{
                       color: store.labels.find((l) => l.id === rule.label_id)?.color,
@@ -697,6 +711,13 @@ function toggleRuleEnabled(rule) {
                   </select>
                 </label>
                 <label class="settings-row">
+                  <span>Action</span>
+                  <select class="settings-select" v-model="ruleDraft.action">
+                    <option value="apply_label">Apply a label</option>
+                    <option value="mark_done">Mark done</option>
+                  </select>
+                </label>
+                <label v-if="ruleDraft.action === 'apply_label'" class="settings-row">
                   <span>Apply label</span>
                   <select class="settings-select" v-model="ruleDraft.label_id">
                     <option value="" disabled>Choose a label</option>

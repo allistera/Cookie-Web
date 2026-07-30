@@ -56,6 +56,10 @@ per-user quota row used to bound outbound mail across function instances.
 
 Apply `0029` before deploying Cookie-Worker code that reads `label_rules`.
 
+`0030_rule_actions.sql` adds `label_rules.action` (`apply_label` or `mark_done`) and makes `label_id` nullable, so a rule can mark matching mail done (`is_archived`/`is_unread`, the same state the "Marked done" archive flow sets) instead of only applying a label. A CHECK keeps `label_id` required for `apply_label` and null for `mark_done`.
+
+Apply `0030` before deploying Cookie-Worker code that reads `label_rules.action`.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

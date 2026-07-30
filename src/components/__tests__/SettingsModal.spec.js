@@ -31,6 +31,7 @@ const FIXTURE_RULES = [
   {
     id: 'r1',
     name: 'Bills',
+    action: 'apply_label',
     label_id: 'l1',
     match_type: 'all',
     enabled: true,
@@ -344,6 +345,30 @@ describe('SettingsModal', () => {
     expect(rows[0].find('input[type="checkbox"]').element.checked).toBe(true)
   })
 
+  it('switches a rule to mark_done and drops its label_id', async () => {
+    const wrapper = await openModal()
+    await openRulesPane(wrapper)
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        rule: { ...FIXTURE_RULES[0], action: 'mark_done', label_id: null },
+      }),
+    })
+
+    await wrapper.find('.rule-row .ni-action-btn').trigger('click')
+    await wrapper.findAll('.rule-create-fields select')[1].setValue('mark_done')
+    await wrapper.find('.rule-editor-form').trigger('submit')
+
+    await vi.waitFor(() => expect(store.rules[0].action).toBe('mark_done'))
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'r1', name: 'Bills', action: 'mark_done', match_type: 'all', conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }] }),
+    })
+  })
+
   it('toggles whether a rule is enabled', async () => {
     const wrapper = await openModal()
     await openRulesPane(wrapper)
@@ -370,6 +395,7 @@ describe('SettingsModal', () => {
         rule: {
           id: 'r2',
           name: 'Newsletters',
+          action: 'apply_label',
           label_id: 'l2',
           match_type: 'all',
           enabled: true,
@@ -381,7 +407,7 @@ describe('SettingsModal', () => {
     await wrapper.find('.rule-editor-form > input.label-input').setValue('Newsletters')
     await wrapper.find('.rule-condition-row select').setValue('from')
     await wrapper.find('.rule-condition-row input.label-input').setValue('news@')
-    await wrapper.findAll('.rule-create-fields select')[1].setValue('l2')
+    await wrapper.findAll('.rule-create-fields select')[2].setValue('l2')
     await wrapper.find('.rule-editor-form').trigger('submit')
 
     await vi.waitFor(() => expect(store.rules).toHaveLength(2))
@@ -391,9 +417,50 @@ describe('SettingsModal', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'Newsletters',
-        label_id: 'l2',
+        action: 'apply_label',
         match_type: 'all',
         conditions: [{ field: 'from', operator: 'contains', value: 'news@' }],
+        label_id: 'l2',
+      }),
+    })
+  })
+
+  it('creates a mark_done rule without a label', async () => {
+    const wrapper = await openModal()
+    await openRulesPane(wrapper)
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        rule: {
+          id: 'r2',
+          name: 'Spam',
+          action: 'mark_done',
+          label_id: null,
+          match_type: 'all',
+          enabled: true,
+          conditions: [{ field: 'from', operator: 'contains', value: 'noreply@', position: 0 }],
+        },
+      }),
+    })
+
+    await wrapper.find('.rule-editor-form > input.label-input').setValue('Spam')
+    await wrapper.find('.rule-condition-row select').setValue('from')
+    await wrapper.find('.rule-condition-row input.label-input').setValue('noreply@')
+    await wrapper.findAll('.rule-create-fields select')[1].setValue('mark_done')
+    await wrapper.find('.rule-editor-form').trigger('submit')
+
+    await vi.waitFor(() => expect(store.rules).toHaveLength(2))
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Spam',
+        action: 'mark_done',
+        match_type: 'all',
+        conditions: [{ field: 'from', operator: 'contains', value: 'noreply@' }],
       }),
     })
   })

@@ -745,7 +745,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Returns the created rule on success (so the settings form knows to reset), or null.
-    // `newRule` uses API shape directly: { name, label_id, match_type, conditions }.
+    // `newRule` uses API shape directly: { name, action, label_id, match_type, conditions }.
     async createRule(newRule) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })

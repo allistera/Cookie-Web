@@ -50,11 +50,11 @@ describe('GET /api/label-rules', () => {
   it('groups condition rows under their rule', async () => {
     sqlQueue = [[
       {
-        id: RULE_ID, name: 'Bills', label_id: LABEL_ID, match_type: 'all', enabled: true,
+        id: RULE_ID, name: 'Bills', label_id: LABEL_ID, action: 'apply_label', match_type: 'all', enabled: true,
         created_at: '2026-01-01', condition_id: 'c1', field: 'subject', operator: 'contains', value: 'invoice', position: 0,
       },
       {
-        id: RULE_ID, name: 'Bills', label_id: LABEL_ID, match_type: 'all', enabled: true,
+        id: RULE_ID, name: 'Bills', label_id: LABEL_ID, action: 'apply_label', match_type: 'all', enabled: true,
         created_at: '2026-01-01', condition_id: 'c2', field: 'from', operator: 'contains', value: 'billing@', position: 1,
       },
     ]]
@@ -137,6 +137,36 @@ describe('POST /api/label-rules', () => {
     expect(res.statusCode).toBe(404)
     expect(res.body.error).toBe('Label not found')
   })
+
+  it('creates a mark_done rule with no label_id', async () => {
+    sqlQueue = [
+      [{ id: RULE_ID, name: 'Spam', label_id: null, action: 'mark_done', match_type: 'all', enabled: true }], // INSERT rule
+      [], // INSERT condition
+    ]
+    const res = makeRes()
+    await handler(req('POST', {
+      name: 'Spam',
+      action: 'mark_done',
+      conditions: [{ field: 'from', operator: 'contains', value: 'noreply@' }],
+    }), res)
+
+    expect(res.statusCode).toBe(201)
+    expect(res.body.rule).toEqual({
+      id: RULE_ID, name: 'Spam', label_id: null, action: 'mark_done', match_type: 'all', enabled: true,
+      conditions: [{ field: 'from', operator: 'contains', value: 'noreply@', position: 0 }],
+    })
+  })
+
+  it('rejects a mark_done rule with a label_id', async () => {
+    const res = makeRes()
+    await handler(req('POST', {
+      action: 'mark_done',
+      label_id: LABEL_ID,
+      conditions: [{ field: 'subject', operator: 'contains', value: 'invoice' }],
+    }), res)
+
+    expect(res.statusCode).toBe(400)
+  })
 })
 
 describe('PATCH /api/label-rules', () => {
@@ -179,6 +209,37 @@ describe('PATCH /api/label-rules', () => {
     await handler(req('PATCH', { id: RULE_ID, enabled: false }), res)
 
     expect(res.statusCode).toBe(404)
+  })
+
+  it('switches a rule to mark_done and clears its label_id', async () => {
+    sqlQueue = [
+      [{ name: 'Bills', label_id: LABEL_ID, action: 'apply_label', match_type: 'all', enabled: true }], // existing
+      [{ id: RULE_ID, name: 'Bills', label_id: null, action: 'mark_done', match_type: 'all', enabled: true }], // UPDATE
+      [{ field: 'subject', operator: 'contains', value: 'invoice', position: 0 }], // conditions read-back
+    ]
+    const res = makeRes()
+    await handler(req('PATCH', { id: RULE_ID, action: 'mark_done' }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.rule.action).toBe('mark_done')
+    expect(res.body.rule.label_id).toBeNull()
+  })
+
+  it('rejects setting label_id alongside a mark_done action', async () => {
+    sqlQueue = [
+      [{ name: 'Bills', label_id: LABEL_ID, action: 'apply_label', match_type: 'all', enabled: true }], // existing
+    ]
+    const res = makeRes()
+    await handler(req('PATCH', { id: RULE_ID, action: 'mark_done', label_id: LABEL_ID }), res)
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejects an invalid action', async () => {
+    const res = makeRes()
+    await handler(req('PATCH', { id: RULE_ID, action: 'delete_forever' }), res)
+
+    expect(res.statusCode).toBe(400)
   })
 
   it('rejects a body with no recognized fields', async () => {

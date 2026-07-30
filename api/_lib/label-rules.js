@@ -7,6 +7,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const FIELDS = ['subject', 'body', 'from', 'to']
 const OPERATORS = ['contains', 'equals', 'starts_with', 'ends_with']
 const MATCH_TYPES = ['all', 'any']
+const ACTIONS = ['apply_label', 'mark_done']
 const MAX_NAME = 100
 const MAX_VALUE = 200
 const MAX_CONDITIONS = 10
@@ -28,7 +29,7 @@ function normalizeConditions(input) {
 
 async function listRules(sql, email, res) {
   const rows = await sql`
-    SELECT r.id, r.name, r.label_id, r.match_type, r.enabled, r.created_at,
+    SELECT r.id, r.name, r.label_id, r.action, r.match_type, r.enabled, r.created_at,
            c.id AS condition_id, c.field, c.operator, c.value, c.position
     FROM label_rules r
     JOIN users u ON u.id = r.user_id
@@ -45,6 +46,7 @@ async function listRules(sql, email, res) {
         id: row.id,
         name: row.name,
         label_id: row.label_id,
+        action: row.action,
         match_type: row.match_type,
         enabled: row.enabled,
         conditions: [],
@@ -67,29 +69,51 @@ async function listRules(sql, email, res) {
 
 async function createRule(sql, email, body, res) {
   const name = typeof body.name === 'string' ? body.name.trim() || null : null
+  const action = ACTIONS.includes(body.action) ? body.action : 'apply_label'
   const labelId = typeof body.label_id === 'string' && UUID_RE.test(body.label_id) ? body.label_id : null
   const matchType = MATCH_TYPES.includes(body.match_type) ? body.match_type : 'all'
   const enabled = typeof body.enabled === 'boolean' ? body.enabled : true
   const conditions = normalizeConditions(body.conditions)
 
-  if (!labelId || !conditions || (name && name.length > MAX_NAME)) {
+  if (
+    !conditions ||
+    (name && name.length > MAX_NAME) ||
+    (action === 'apply_label' && !labelId) ||
+    (action === 'mark_done' && labelId)
+  ) {
     res.statusCode = 400
-    res.end(JSON.stringify({ error: 'label_id and 1-10 valid conditions are required' }))
+    res.end(JSON.stringify({ error: 'A valid action (with label_id for apply_label) and 1-10 valid conditions are required' }))
     return
   }
 
-  const [rule] = await sql`
-    INSERT INTO label_rules (user_id, label_id, name, match_type, enabled)
-    SELECT u.id, ${labelId}, ${name}, ${matchType}, ${enabled}
-    FROM users u
-    JOIN labels l ON l.id = ${labelId} AND l.user_id = u.id AND l.kind = 'user'
-    WHERE lower(u.email) = ${email}
-    RETURNING id, name, label_id, match_type, enabled
-  `
-  if (!rule) {
-    res.statusCode = 404
-    res.end(JSON.stringify({ error: 'Label not found' }))
-    return
+  let rule
+  if (action === 'apply_label') {
+    ;[rule] = await sql`
+      INSERT INTO label_rules (user_id, label_id, name, action, match_type, enabled)
+      SELECT u.id, ${labelId}, ${name}, ${action}, ${matchType}, ${enabled}
+      FROM users u
+      JOIN labels l ON l.id = ${labelId} AND l.user_id = u.id AND l.kind = 'user'
+      WHERE lower(u.email) = ${email}
+      RETURNING id, name, label_id, action, match_type, enabled
+    `
+    if (!rule) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Label not found' }))
+      return
+    }
+  } else {
+    ;[rule] = await sql`
+      INSERT INTO label_rules (user_id, label_id, name, action, match_type, enabled)
+      SELECT u.id, NULL, ${name}, ${action}, ${matchType}, ${enabled}
+      FROM users u
+      WHERE lower(u.email) = ${email}
+      RETURNING id, name, label_id, action, match_type, enabled
+    `
+    if (!rule) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'User not found' }))
+      return
+    }
   }
 
   await sql.begin(async (tx) => {
@@ -112,6 +136,7 @@ async function createRule(sql, email, body, res) {
 async function updateRule(sql, email, body, res) {
   const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
   const hasName = Object.hasOwn(body, 'name')
+  const hasAction = Object.hasOwn(body, 'action')
   const hasLabelId = Object.hasOwn(body, 'label_id')
   const hasMatchType = Object.hasOwn(body, 'match_type')
   const hasEnabled = Object.hasOwn(body, 'enabled')
@@ -123,7 +148,8 @@ async function updateRule(sql, email, body, res) {
 
   if (
     !id ||
-    (!hasName && !hasLabelId && !hasMatchType && !hasEnabled && !hasConditions) ||
+    (!hasName && !hasAction && !hasLabelId && !hasMatchType && !hasEnabled && !hasConditions) ||
+    (hasAction && !ACTIONS.includes(body.action)) ||
     (hasLabelId && !labelId) ||
     (hasName && name && name.length > MAX_NAME) ||
     (hasMatchType && !MATCH_TYPES.includes(body.match_type)) ||
@@ -136,7 +162,7 @@ async function updateRule(sql, email, body, res) {
   }
 
   const [existing] = await sql`
-    SELECT r.name, r.label_id, r.match_type, r.enabled
+    SELECT r.name, r.label_id, r.action, r.match_type, r.enabled
     FROM label_rules r
     JOIN users u ON u.id = r.user_id
     WHERE r.id = ${id} AND lower(u.email) = ${email}
@@ -147,7 +173,21 @@ async function updateRule(sql, email, body, res) {
     return
   }
 
-  if (hasLabelId) {
+  const resultAction = hasAction ? body.action : existing.action
+  // mark_done clears any label, even one already on the rule, since a rule
+  // can only carry a label meaningful to its own action.
+  const resultLabelId = resultAction === 'mark_done' ? null : (hasLabelId ? labelId : existing.label_id)
+
+  if (
+    (resultAction === 'apply_label' && !resultLabelId) ||
+    (resultAction === 'mark_done' && hasLabelId)
+  ) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'apply_label requires label_id; mark_done cannot set one' }))
+    return
+  }
+
+  if (hasLabelId && resultAction === 'apply_label') {
     const [label] = await sql`
       SELECT 1 FROM labels l
       JOIN users u ON u.id = l.user_id
@@ -163,13 +203,14 @@ async function updateRule(sql, email, body, res) {
   const [rule] = await sql`
     UPDATE label_rules r
     SET name = ${hasName ? name : existing.name},
-        label_id = ${hasLabelId ? labelId : existing.label_id},
+        label_id = ${resultLabelId},
+        action = ${resultAction},
         match_type = ${hasMatchType ? body.match_type : existing.match_type},
         enabled = ${hasEnabled ? body.enabled : existing.enabled},
         updated_at = now()
     FROM users u
     WHERE r.id = ${id} AND r.user_id = u.id AND lower(u.email) = ${email}
-    RETURNING r.id, r.name, r.label_id, r.match_type, r.enabled
+    RETURNING r.id, r.name, r.label_id, r.action, r.match_type, r.enabled
   `
 
   if (hasConditions) {
@@ -219,9 +260,11 @@ async function deleteRule(sql, email, body, res) {
 }
 
 // /api/labels?resource=rules — GET lists the user's tag rules (with
-// conditions), POST creates one, PATCH edits name/label/match-type/enabled/
-// conditions, DELETE removes one. Rule matching itself runs in Cookie-Worker
-// at inbound storage time; this endpoint only manages rule definitions.
+// conditions), POST creates one, PATCH edits name/action/label/match-type/
+// enabled/conditions, DELETE removes one. A rule's action is either
+// apply_label (label_id required) or mark_done (label_id must be null).
+// Rule matching itself runs in Cookie-Worker at inbound storage time; this
+// endpoint only manages rule definitions.
 // Lives under _lib (not a top-level api/*.js file) to stay within Vercel
 // Hobby's 12-serverless-function-per-deployment limit; api/labels.js
 // dispatches here by resource query param instead of Vercel routing it.
