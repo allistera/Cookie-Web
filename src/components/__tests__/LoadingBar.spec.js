@@ -32,11 +32,20 @@ describe('LoadingBar', () => {
     expect(wrapper.find('.loading-bar').exists()).toBe(false)
   })
 
-  it('also shows while the sent list is loading', async () => {
+  it.each([
+    ['sent', 'isSentRefreshing'],
+    ['spam', 'isSpamRefreshing'],
+    ['snoozed', 'isSnoozedRefreshing'],
+    ['done', 'isDoneRefreshing'],
+  ])('also shows while the %s list is loading', async (_folder, flag) => {
     const wrapper = mount(LoadingBar)
 
-    store.isSentRefreshing = true
+    store[flag] = true
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.loading-bar').exists()).toBe(true)
+
+    store[flag] = false
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.loading-bar').exists()).toBe(false)
   })
 })

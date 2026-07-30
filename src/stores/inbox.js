@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 import { recipientsValid } from '../lib/recipients'
+import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
@@ -1000,10 +1001,14 @@ export const useInboxStore = defineStore('inbox', {
           const cached = this.messageBodies.get(email.id)
           if (cached) this.messageBodies.set(email.id, { ...cached, unsubscribed: true })
           this.notify(`Unsubscribed from ${email.sender}.`)
-        } else if (result.status === 'manual' && result.url) {
+        } else if (result.status === 'manual' && isSafeUnsubscribeUrl(result.url)) {
           window.open(result.url, '_blank', 'noopener')
           this.notify('Finish unsubscribing on the page that just opened.')
-        } else if (result.status === 'manual' && result.mailto) {
+        } else if (
+          result.status === 'manual' &&
+          typeof result.mailto === 'string' &&
+          result.mailto.startsWith('mailto:')
+        ) {
           window.location.href = result.mailto
         } else {
           this.notify('This sender offers no automated unsubscribe.', 'error')
@@ -1264,10 +1269,10 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    // Saves the personal signature (from the settings WYSIWYG editor).
+    // Saves the personal signature (from the settings WYSIWYG editor). Keeps the
+    // in-memory copy identical to the sanitized value that was persisted.
     setSignature(html) {
-      this.signatureHtml = html || ''
-      saveStoredSignature(this.signatureHtml)
+      this.signatureHtml = saveStoredSignature(html)
     },
 
     setSnippets(snippets) {

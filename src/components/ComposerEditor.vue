@@ -46,16 +46,17 @@ function textBeforeCaret() {
 function updateSlashMenu() {
   const before = textBeforeCaret()
   const match = before && SLASH_RE.exec(before.text)
-  const matchingCommands = match
-    ? filterSlashCommands(match[1], getSlashSnippetCommands(props.snippets)).filter(
-        (command) => !(props.hideGenerate && command.id === 'generate'),
-      )
-    : []
-  if (!match || matchingCommands.length === 0) {
+  if (!match) {
     menuOpen.value = false
     return
   }
+  // Set the query first so menuCommands — the very list the menu renders —
+  // decides whether there is anything to show, rather than filtering twice.
   menuQuery.value = match[1]
+  if (!menuCommands.value.length) {
+    menuOpen.value = false
+    return
+  }
   menuIndex.value = 0
   const range = window.getSelection().getRangeAt(0)
   const host = editorRef.value.getBoundingClientRect()

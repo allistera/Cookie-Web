@@ -265,26 +265,29 @@ useTitleUnreadBadge(store)
 // Dock/taskbar icon badge with the unread inbox count, once installed as a PWA.
 useAppBadge(store)
 
-// Document level click listener to close search dropdown
+// Document level click listener to close the search dropdown and profile menu
+function onDocumentClick(e) {
+  const searchContainer = document.getElementById('searchBarContainer')
+  if (searchContainer && !searchContainer.contains(e.target)) {
+    isSearchSuggestionsActive.value = false
+  }
+
+  // Close profile dropdown when clicking outside
+  const profileContainer = document.querySelector('.profile-container')
+  if (profileContainer && !profileContainer.contains(e.target)) {
+    showLogoutMenu.value = false
+  }
+}
+
 onMounted(() => {
   document.addEventListener('keydown', onUndoKeydown)
-  document.addEventListener('click', (e) => {
-    const searchContainer = document.getElementById('searchBarContainer')
-    if (searchContainer && !searchContainer.contains(e.target)) {
-      isSearchSuggestionsActive.value = false
-    }
-
-    // Close profile dropdown when clicking outside
-    const profileContainer = document.querySelector('.profile-container')
-    if (profileContainer && !profileContainer.contains(e.target)) {
-      showLogoutMenu.value = false
-    }
-  })
+  document.addEventListener('click', onDocumentClick)
 })
 
 onUnmounted(() => {
   cancelScheduledSearch()
   document.removeEventListener('keydown', onUndoKeydown)
+  document.removeEventListener('click', onDocumentClick)
 })
 </script>
 

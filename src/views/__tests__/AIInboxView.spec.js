@@ -121,6 +121,23 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.get('.ai-greeting').text()).toContain('8 to-dos')
   })
 
+  // Task URLs reach the app from Todoist via /api/tasks, so they are external
+  // input rendered straight into an href.
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['data:', 'data:text/html,<script>alert(1)</script>'],
+    ['a relative path', '/app/task/task-1'],
+  ])('does not render %s as an Open link', (_label, url) => {
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url },
+    ]
+
+    const rows = mountView().get('[data-testid="todoist-rows"]').findAll('.todo-row')
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].find('a.action-pill-btn').exists()).toBe(false)
+  })
+
   it('generates a follow-up draft from an email task', async () => {
     const task = {
       id: 'task-email',

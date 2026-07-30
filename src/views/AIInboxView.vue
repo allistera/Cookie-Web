@@ -111,9 +111,20 @@ async function draftFollowUp(task) {
   if (generated) store.notify('Follow-up draft ready to review.')
 }
 
+// Task links come from Todoist via /api/tasks. Only ever render a real web link
+// as an href, so an unexpected value can't become a javascript:/data: navigation.
+function taskLink(task) {
+  try {
+    const { protocol } = new URL(task.url)
+    return protocol === 'https:' || protocol === 'http:' ? task.url : null
+  } catch {
+    return null
+  }
+}
+
 onMounted(() => store.loadTasks())
 
-const statusTime = ref('Updated just now')
+const statusTime = 'Updated just now'
 const isRefreshing = ref(false)
 
 function completeTodo(id) {
@@ -128,7 +139,6 @@ function showAllTodos() {
 function refresh() {
   if (isRefreshing.value) return
   isRefreshing.value = true
-  statusTime.value = 'Updated just now'
   setTimeout(() => {
     isRefreshing.value = false
   }, 600)
@@ -210,9 +220,9 @@ function refresh() {
 
             <div class="todo-actions">
               <a
-                v-if="task.url"
+                v-if="taskLink(task)"
                 class="action-pill-btn"
-                :href="task.url"
+                :href="taskLink(task)"
                 target="_blank"
                 rel="noopener noreferrer"
               >

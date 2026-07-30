@@ -1580,6 +1580,87 @@ describe('Inbox Store', () => {
     expect(click).toHaveBeenCalledOnce()
   })
 
+  describe('unsubscribe', () => {
+    const EMAIL = { id: 'news-1', sender: 'Daily Bites' }
+
+    function stubUnsubscribeResponse(result) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => result }))
+    }
+
+    it('records a one-click unsubscribe against the cached body', async () => {
+      stubUnsubscribeResponse({ status: 'unsubscribed', method: 'one-click' })
+      const store = useInboxStore()
+      store.messageBodies.set('news-1', { html: null, text: 'hi' })
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(store.messageBodies.get('news-1').unsubscribed).toBe(true)
+      expect(store.toasts.at(-1).message).toBe('Unsubscribed from Daily Bites.')
+      expect(store.unsubscribingId).toBe(null)
+    })
+
+    it('opens a safe manual unsubscribe link in a disowned new tab', async () => {
+      stubUnsubscribeResponse({ status: 'manual', method: 'link', url: 'https://x.example/u?t=1' })
+      const open = vi.fn()
+      vi.stubGlobal('open', open)
+      const store = useInboxStore()
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(open).toHaveBeenCalledWith('https://x.example/u?t=1', '_blank', 'noopener')
+    })
+
+    // Defence in depth: the URL ultimately comes from a sender-controlled
+    // List-Unsubscribe header, so the client re-applies the same policy the
+    // API uses rather than navigating to whatever it is handed.
+    it.each([
+      ['javascript:', 'javascript:alert(1)'],
+      ['plain http', 'http://x.example/u'],
+      ['credentials in the authority', 'https://user:pw@x.example/u'],
+      ['a private host', 'https://intranet.internal/u'],
+    ])('refuses to open a manual link with %s', async (_label, url) => {
+      stubUnsubscribeResponse({ status: 'manual', method: 'link', url })
+      const open = vi.fn()
+      vi.stubGlobal('open', open)
+      const store = useInboxStore()
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(open).not.toHaveBeenCalled()
+      expect(store.toasts.at(-1).message).toBe('This sender offers no automated unsubscribe.')
+    })
+
+    it('ignores a manual fallback whose mailto is not actually a mailto URI', async () => {
+      stubUnsubscribeResponse({ status: 'manual', method: 'mailto', mailto: 'javascript:alert(1)' })
+      const store = useInboxStore()
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(store.toasts.at(-1).message).toBe('This sender offers no automated unsubscribe.')
+    })
+
+    it('notifies and clears the in-flight id when the request fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(store.toasts.at(-1).message).toBe('Failed to unsubscribe. Please try again.')
+      expect(store.unsubscribingId).toBe(null)
+    })
+
+    it('ignores a second request while one is already in flight', async () => {
+      stubUnsubscribeResponse({ status: 'unsubscribed' })
+      const store = useInboxStore()
+      store.unsubscribingId = 'news-1'
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(fetch).not.toHaveBeenCalled()
+    })
+  })
+
   it('fetchMessageBody returns null and does not cache on failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
     vi.spyOn(console, 'error').mockImplementation(() => {})

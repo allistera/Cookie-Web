@@ -3,9 +3,17 @@ import { computed } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 
 // Thin indeterminate bar fixed to the top of the viewport, visible while any
-// email list fetch is in flight (initial load, refresh, search, sent view).
+// email list fetch is in flight — the inbox (initial load, refresh, search) and
+// every server-backed folder.
 const store = useInboxStore()
-const isLoading = computed(() => store.isRefreshing || store.isSentRefreshing)
+const isLoading = computed(
+  () =>
+    store.isRefreshing ||
+    store.isSentRefreshing ||
+    store.isSpamRefreshing ||
+    store.isSnoozedRefreshing ||
+    store.isDoneRefreshing,
+)
 </script>
 
 <template>

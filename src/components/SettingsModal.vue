@@ -273,7 +273,6 @@ function removeRuleCondition(index) {
 
 function resetRuleDraft() {
   Object.assign(ruleDraft, blankRuleDraft())
-  ruleDraft.conditions = [blankCondition()]
   editingRuleId.value = null
   ruleError.value = ''
 }

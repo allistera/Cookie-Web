@@ -560,7 +560,7 @@ async function sendReply() {
   const text = replyText.value
   try {
     await store.sendMail({
-      to: senderAddress(email),
+      to: email.address,
       subject: `Re: ${email.subject}`,
       text,
       replyToMessageId: email.id,
@@ -572,12 +572,6 @@ async function sendReply() {
     console.error('Failed to send reply:', error)
     store.notify('Failed to send reply. Please try again.', 'error')
   }
-}
-
-function senderAddress(email) {
-  if (email.address) return email.address
-  const slug = email.sender.toLowerCase().replace(/[^a-z0-9]+/g, '')
-  return `no-reply@${slug}.com`
 }
 
 // Outbound rows (Sent view, and sent copies surfaced by search) show who the
@@ -1132,7 +1126,7 @@ onUnmounted(() => {
             <div class="ni-email-meta">
               <div>
                 <span class="ni-email-sender">{{ openEmail.sender }}</span>
-                <span class="ni-email-address">{{ senderAddress(openEmail) }}</span>
+                <span class="ni-email-address">{{ openEmail.address }}</span>
               </div>
               <div class="ni-email-to">
                 {{ openEmail.isSent ? `To ${openEmail.to ?? openEmail.address}` : 'To me' }}
