@@ -14,7 +14,14 @@ const MAX_OCCURRENCES_PER_EVENT = 366
 const MAX_EVENTS_PER_SYNC = 1000
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+// A sync failure message can quote remote-controlled feed content (node-ical
+// echoes the offending line back), and the column is unbounded text that the
+// sidebar renders. Bound it before it is stored.
+const MAX_SYNC_ERROR_CHARS = 500
 
+// Credential-bearing URLs are rejected here rather than only at the egress
+// boundary (resolvePublicHttpsUrl), so subscribing to one fails as a 400 at
+// create time instead of storing a calendar whose every sync errors out.
 export function validSubscriptionUrl(value) {
   if (typeof value !== 'string' || value.length > 2000) return null
   let parsed
@@ -23,7 +30,8 @@ export function validSubscriptionUrl(value) {
   } catch {
     return null
   }
-  return parsed.protocol === 'https:' ? parsed.toString() : null
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null
+  return parsed.toString()
 }
 
 async function fetchIcs(url) {
@@ -145,6 +153,15 @@ function parseEvents(icsText, windowStart, windowEnd) {
   return rows
 }
 
+async function recordSyncError(sql, calendarId, error) {
+  const message = (error instanceof Error ? error.message : 'Sync failed').slice(
+    0,
+    MAX_SYNC_ERROR_CHARS,
+  )
+  await sql`UPDATE calendars SET subscription_error = ${message} WHERE id = ${calendarId}`
+  return { ok: false, error: message }
+}
+
 // Re-syncing replaces every event in the calendar wholesale rather than
 // diffing against the previous fetch — subscribed calendars are entirely
 // sync-owned, so there's no local edit state to preserve across a resync,
@@ -160,9 +177,7 @@ export async function syncCalendarSubscription(sql, calendarId, userId, url) {
     const icsText = await fetchIcs(url)
     rows = parseEvents(icsText, windowStart, windowEnd)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Sync failed'
-    await sql`UPDATE calendars SET subscription_error = ${message} WHERE id = ${calendarId}`
-    return { ok: false, error: message }
+    return recordSyncError(sql, calendarId, error)
   }
 
   try {
@@ -183,9 +198,7 @@ export async function syncCalendarSubscription(sql, calendarId, userId, url) {
       await tx`UPDATE calendars SET subscription_synced_at = now(), subscription_error = null WHERE id = ${calendarId}`
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Sync failed'
-    await sql`UPDATE calendars SET subscription_error = ${message} WHERE id = ${calendarId}`
-    return { ok: false, error: message }
+    return recordSyncError(sql, calendarId, error)
   }
   return { ok: true, count: rows.length }
 }

@@ -56,16 +56,22 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
 // Also returns the user's id (needed by the client to subscribe to their
 // Realtime inbox-ping channel) so loading the inbox stays a two-round-trip
 // operation instead of three.
-function fetchUnreadCount(sql, email) {
+// The spam exclusion belongs in the aggregate's FILTER, not the WHERE: as a
+// WHERE predicate it drops the joined rows AND, when every candidate message
+// is spam, the user's own row with them — leaving the client with a null
+// userId and no Realtime subscription.
+export function fetchUnreadCount(sql, email) {
   return sql`
-    SELECT u.id AS user_id, count(m.id) FILTER (WHERE m.is_unread)::int AS unread
+    SELECT u.id AS user_id,
+           count(m.id) FILTER (
+             WHERE m.is_unread AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+           )::int AS unread
     FROM users u
     LEFT JOIN messages m
       ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent AND NOT m.is_deleted
       AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     WHERE lower(u.email) = ${email}
-      AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
     GROUP BY u.id
   `
 }

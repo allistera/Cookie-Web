@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fetchEmails } from '../../emails.js'
+import { fetchEmails, fetchUnreadCount } from '../../emails.js'
 
 function captureQuery() {
   let text = ''
@@ -57,5 +57,24 @@ describe('fetchEmails', () => {
     expect(capture.query()).toContain("? = 'done' AND m.is_archived")
     expect(capture.query()).toContain('OR (NOT m.is_archived AND (')
     expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+  })
+})
+
+describe('fetchUnreadCount', () => {
+  // As a WHERE predicate the spam test drops the joined message rows *and*,
+  // when every candidate message is spam, the user's own row along with them —
+  // leaving the handler to report userId: null, so the client never subscribes
+  // to its Realtime inbox channel. It has to live in the aggregate's FILTER.
+  it('excludes spam inside the aggregate filter, not the WHERE clause', () => {
+    const capture = captureQuery()
+
+    fetchUnreadCount(capture.sql, 'owner@example.com')
+
+    expect(capture.query()).toMatch(
+      /count\(m\.id\) FILTER \(\s*WHERE m\.is_unread AND COALESCE\(ai\.spam_verdict, 'inbox'\) <> 'spam'\s*\)/,
+    )
+    const whereOnwards = capture.query().slice(capture.query().indexOf('WHERE lower(u.email)'))
+    expect(whereOnwards).not.toContain('spam')
+    expect(whereOnwards).toContain('GROUP BY u.id')
   })
 })

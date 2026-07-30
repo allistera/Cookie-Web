@@ -107,4 +107,31 @@ describe('expandEvents', () => {
     expect(occurrences.length).toBeGreaterThan(0)
     expect(occurrences.at(-1).date <= '2029-07-28').toBe(true)
   })
+
+  // Occurrences before the window are stepped over without being emitted, so
+  // the per-series occurrence cap alone leaves the loop unbounded. Both
+  // DATE_RE and migration 0022's CHECK accept a year-0001 event_date, so any
+  // user could otherwise make every calendar load burn ~740k steps per series.
+  it('bounds stepping for a series dated far before the window', () => {
+    const ancient = { id: 'abc', date: '0001-01-01', start: '09:00', recurrenceRule: 'DAILY' }
+
+    const started = Date.now()
+    const occurrences = expandEvents(
+      Array.from({ length: 20 }, (_unused, index) => ({ ...ancient, id: `e${index}` })),
+      now,
+    )
+
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(occurrences.length).toBeLessThanOrEqual(20 * 366)
+  })
+
+  it('still expands long-running realistic series that predate the window', () => {
+    const birthday = { id: 'abc', date: '1985-03-04', start: '09:00', recurrenceRule: 'YEARLY' }
+
+    expect(expandEvents([birthday], now).map((occurrence) => occurrence.date)).toEqual([
+      '2026-03-04',
+      '2027-03-04',
+      '2028-03-04',
+    ])
+  })
 })

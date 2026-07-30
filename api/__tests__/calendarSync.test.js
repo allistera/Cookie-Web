@@ -34,6 +34,14 @@ describe('validSubscriptionUrl', () => {
     expect(validSubscriptionUrl(123)).toBeNull()
     expect(validSubscriptionUrl('https://example.com/' + 'a'.repeat(2000))).toBeNull()
   })
+
+  // The egress boundary rejects these too, but only at sync time — validating
+  // here keeps a credential-bearing URL from being stored as a calendar whose
+  // every sync then fails.
+  it('rejects URLs carrying embedded credentials', () => {
+    expect(validSubscriptionUrl('https://user:pass@example.com/feed.ics')).toBeNull()
+    expect(validSubscriptionUrl('https://user@example.com/feed.ics')).toBeNull()
+  })
 })
 
 // A minimal stand-in for the postgres.js sql tagged-template + sql.begin,
@@ -113,6 +121,25 @@ describe('syncCalendarSubscription', () => {
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('500')
+  })
+
+  // subscription_error is unbounded text that the sidebar renders, and the
+  // message can quote remote-controlled feed content, so it is capped before
+  // it reaches the calendar row.
+  it('caps an oversized sync failure message before storing it', async () => {
+    vi.mocked(requestPublicHttps).mockRejectedValue(new Error('x'.repeat(5000)))
+    const stored = []
+    const sql = (_strings, ...values) => {
+      stored.push(values)
+      return Promise.resolve([])
+    }
+    sql.begin = async (fn) => fn(sql)
+
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toHaveLength(500)
+    expect(stored[0][0]).toHaveLength(500)
   })
 
   it('parses events (including an expanded RRULE series) and replaces the calendar contents', async () => {

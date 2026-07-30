@@ -62,7 +62,9 @@ function validEventFields(body) {
 
 // A calendar id in the request body must actually belong to the caller —
 // otherwise any authenticated user could file events under another user's
-// calendar id (or a nonexistent one).
+// calendar id (or a nonexistent one). Migration 0024 installs the composite FK
+// that makes this ownership check authoritative in the database and closes
+// resolve-then-write races.
 async function resolveCalendarId(sql, email, calendarId) {
   const legacyName = LEGACY_CALENDAR_NAMES.get(calendarId) ?? null
   try {
@@ -169,6 +171,12 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 const EXPAND_PAST_DAYS = 365
 const EXPAND_FUTURE_DAYS = 730
 const MAX_OCCURRENCES_PER_SERIES = 366
+// Occurrences before the window are stepped over without being emitted, so the
+// occurrence cap alone does not bound the work: a DAILY series dated 0001-01-01
+// (which both DATE_RE and migration 0022's CHECK accept) would step ~740k times
+// on every calendar load. Cap total steps too — 10k covers a daily series
+// starting ~27 years back, weekly ~190 years, monthly ~830 years.
+const MAX_STEPS_PER_SERIES = 10_000
 const RECURRENCE_RE = /^(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;UNTIL=(\d{4}-\d{2}-\d{2}))?$/
 
 function parseRecurrenceRule(rule) {
@@ -215,7 +223,12 @@ function expandEvent(event, windowStart, windowEnd) {
   const occurrences = []
   let cursor = dtstart
   let index = 0
-  while (cursor <= windowEnd && (!until || cursor <= until) && occurrences.length < MAX_OCCURRENCES_PER_SERIES) {
+  while (
+    cursor <= windowEnd &&
+    (!until || cursor <= until) &&
+    occurrences.length < MAX_OCCURRENCES_PER_SERIES &&
+    index < MAX_STEPS_PER_SERIES
+  ) {
     if (cursor >= windowStart) {
       occurrences.push({ ...event, id: `${event.id}:${index}`, seriesId: event.id, date: toDateKey(cursor) })
     }
@@ -229,12 +242,6 @@ export function expandEvents(events, now = new Date()) {
   const windowStart = new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
   const windowEnd = new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
   return events.flatMap((event) => expandEvent(event, windowStart, windowEnd))
-}
-
-// Migration 0024 installs the composite FK that makes this ownership check
-// authoritative in the database and closes resolve-then-write races.
-async function ownsCalendar(sql, email, calendarId) {
-  return resolveCalendarId(sql, email, calendarId)
 }
 
 const READ_ONLY_ERROR = 'This calendar is read-only — its events sync automatically.'
@@ -268,7 +275,7 @@ async function createEvent(sql, email, body, res) {
     res.end(JSON.stringify({ error: 'Invalid event fields' }))
     return
   }
-  const calendar = await ownsCalendar(sql, email, fields.calendar)
+  const calendar = await resolveCalendarId(sql, email, fields.calendar)
   if (!calendar) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Calendar not found' }))
@@ -307,7 +314,7 @@ async function updateEvent(sql, email, body, res) {
     res.end(JSON.stringify({ error: 'id and valid event fields are required' }))
     return
   }
-  const calendar = await ownsCalendar(sql, email, fields.calendar)
+  const calendar = await resolveCalendarId(sql, email, fields.calendar)
   if (!calendar) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Calendar not found' }))
