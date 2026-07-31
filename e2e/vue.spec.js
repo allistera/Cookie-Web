@@ -864,14 +864,21 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
 
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   const starBtn = row.locator('[title="Star"]')
+  const rowBoxBeforeHover = await row.boundingBox()
   await row.hover()
 
-  const [rowBox, actionsBox, labelBox] = await Promise.all([
+  const [rowBox, actionsBox] = await Promise.all([
     row.boundingBox(),
     row.locator('.ni-actions').boundingBox(),
-    row.locator('.ni-row-labels').boundingBox(),
   ])
-  expect(actionsBox.x).toBeGreaterThanOrEqual(labelBox.x + labelBox.width)
+  // The action toolbar is absolutely positioned over the row precisely so that
+  // revealing it on hover (its buttons are taller than the .ni-date it covers)
+  // does not stretch the row's height.
+  expect(rowBox.height).toBe(rowBoxBeforeHover.height)
+  // It should be vertically centred within the row, not just clipped to it.
+  const rowMidY = rowBox.y + rowBox.height / 2
+  const actionsMidY = actionsBox.y + actionsBox.height / 2
+  expect(Math.abs(actionsMidY - rowMidY)).toBeLessThanOrEqual(1)
   expect(rowBox.x + rowBox.width - (actionsBox.x + actionsBox.width)).toBeGreaterThanOrEqual(16)
 
   await starBtn.click()

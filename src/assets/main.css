@@ -1413,14 +1413,18 @@ body {
   font-size: 13px;
 }
 
-/* Hover action toolbar */
+/* Hover action toolbar. Positioned absolutely (over .ni-row, which is
+   position: relative) rather than sitting in the flex flow, since its
+   buttons are taller than the .ni-date it replaces on hover — in flow,
+   revealing it would stretch the whole row's height. */
 .ni-actions {
   display: none;
   align-items: center;
-  flex-shrink: 0;
   gap: 2px;
-  margin-left: auto;
-  margin-right: 4px;
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
   padding: 4px 6px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
