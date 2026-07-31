@@ -66,7 +66,9 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
-test('Calendar sidebar separates subscribed calendars from regular calendars', async ({ page }) => {
+test('A subscribed calendar lists separately, pulls in its events, and re-syncs on demand', async ({
+  page,
+}) => {
   await page.goto('/calendar')
 
   const calendars = page.getByRole('navigation', { name: 'Calendars', exact: true })
@@ -82,6 +84,21 @@ test('Calendar sidebar separates subscribed calendars from regular calendars', a
   const subscribed = page.getByRole('navigation', { name: 'Subscribed calendars' })
   await expect(subscribed.getByRole('button', { name: 'Team Feed', exact: true })).toBeVisible()
   await expect(calendars.getByRole('button', { name: 'Team Feed', exact: true })).toHaveCount(0)
+
+  // Subscribing imports the feed's events straight onto the calendar.
+  const syncedEvent = page.locator('.day-event', { hasText: 'Synced from subscription' })
+  await expect(syncedEvent).toBeVisible()
+
+  const syncNow = subscribed.getByRole('button', { name: 'Sync Team Feed' })
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/calendar-events') && response.request().method() === 'POST',
+    ),
+    syncNow.click(),
+  ])
+  await expect(syncNow).toBeEnabled()
+  await expect(syncedEvent).toBeVisible()
 })
 
 test('All-day events stay below the date header and outside the hourly lane', async ({ page }) => {
@@ -805,6 +822,30 @@ test('Header search supports tag: and sender: properties', async ({ page }) => {
   await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
 })
 
+test('Header search supports in: to reach mail the default search hides', async ({ page }) => {
+  await page.goto('/inbox')
+
+  const subject = 'Revised Floor Plan - Natural Light adjustments'
+  const row = page.locator('.ni-row', { hasText: subject })
+  await row.hover()
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().includes('/api/messages') && response.request().method() === 'PATCH',
+    ),
+    row.locator('[title="Done"]').click(),
+  ])
+
+  // Search skips Done mail unless in: asks for it — the operator the search
+  // placeholder advertises.
+  const searchInput = page.locator('.search-input')
+  await searchInput.fill('floor plan')
+  await expect(page.locator('.ni-row')).toHaveCount(0)
+
+  await searchInput.fill('in:done floor plan')
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await expect(page.locator('.ni-row').first()).toContainText('City Construction')
+})
+
 test('Navigating away from search results clears the active search', async ({ page }) => {
   await page.goto('/')
 
@@ -887,11 +928,8 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
   await expect(starBtn).not.toHaveClass(/starred/)
 })
 
-test('Settings Labels pane lists, creates and renames labels', async ({ page }, testInfo) => {
-  // The dev-server labels stub is shared across browser projects and retries;
-  // a unique name keeps this test isolated.
-  const labelSuffix = `${testInfo.project.name}-${testInfo.retry}-${Date.now()}`
-  const labelName = `Receipts-${labelSuffix}`
+test('Settings Labels pane lists, creates and renames labels', async ({ page }) => {
+  const labelName = 'Receipts'
   await page.goto('/')
 
   // Open settings via the profile dropdown
@@ -911,7 +949,7 @@ test('Settings Labels pane lists, creates and renames labels', async ({ page }, 
   await expect(modal.locator('.ni-label-pill', { hasText: labelName }).first()).toBeVisible()
 
   // Rename the new label inline.
-  const renamedLabel = `Renamed-${labelSuffix}`
+  const renamedLabel = 'Invoices'
   await modal.getByTitle(`Rename ${labelName}`).click()
   const renameInput = modal.getByLabel(`Rename ${labelName}`)
   await renameInput.fill(renamedLabel)
@@ -1067,6 +1105,38 @@ test('Hovering the Today unread count reveals Mark Read, which clears the day', 
   await expect(page.locator('.ni-row.unread')).toHaveCount(0)
   await expect(todayHeader.locator('.ni-group-count')).toHaveCount(0)
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
+})
+
+test('The installed app icon is badged with the live unread inbox count', async ({ page }) => {
+  // Headless engines have no Dock/taskbar, so record what the app asks the
+  // Badging API for while driving the real inbox.
+  await page.addInitScript(() => {
+    globalThis.appBadgeCalls = []
+    for (const name of ['setAppBadge', 'clearAppBadge']) {
+      Object.defineProperty(navigator, name, {
+        configurable: true,
+        value: (count = 0) => {
+          globalThis.appBadgeCalls.push(count)
+          return Promise.resolve()
+        },
+      })
+    }
+  })
+  await page.goto('/inbox')
+
+  const unreadBadge = page.locator('.nav-item', { hasText: 'Inbox' }).locator('.nav-badge')
+  const unreadCount = Number(await unreadBadge.textContent())
+  expect(unreadCount).toBeGreaterThan(0)
+  await expect
+    .poll(() => page.evaluate(() => globalThis.appBadgeCalls.at(-1)))
+    .toBe(unreadCount)
+
+  // Opening an unread email marks it read, and the icon badge follows.
+  await page.locator('.ni-row.unread').first().click()
+  await expect(unreadBadge).toHaveText(String(unreadCount - 1))
+  await expect
+    .poll(() => page.evaluate(() => globalThis.appBadgeCalls.at(-1)))
+    .toBe(unreadCount - 1)
 })
 
 test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) => {

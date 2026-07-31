@@ -25,8 +25,11 @@ function localApiPlugin(mode) {
         schedules: new Map(),
         archived: new Set(),
         summaries: new Map(),
+        messageLabels: new Map(),
         calendarEvents: null,
         calendars: null,
+        labels: null,
+        rules: [],
       })
     }
     return stubMailboxState.get(sessionId)
@@ -168,10 +171,9 @@ function localApiPlugin(mode) {
           return
         }
         if (body.action === 'add_label' || body.action === 'remove_label') {
-          const labels = await ensureStubLabels()
-          const label = labels.find((l) => l.id === body.label_id)
           const state = fixtureMailboxState(req, res)
-          if (!state.messageLabels) state.messageLabels = new Map()
+          const labels = await ensureStubLabels(state)
+          const label = labels.find((l) => l.id === body.label_id)
           let current = state.messageLabels.get(body.id)
           if (!current) {
             const { fixtureEmails } = await import('./api/_fixtures/emails.js')
@@ -213,14 +215,32 @@ function localApiPlugin(mode) {
   }
   const handleSearch = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+      const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
       const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
       const rawQuery = new URL(req.url, 'http://localhost').searchParams.get('q') || ''
       const { text, filters } = parseSearchQuery(rawQuery)
       const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
-      const { summaries } = fixtureMailboxState(req, res)
-      const emails = fixtureEmails()
+      const { summaries, archived, schedules } = fixtureMailboxState(req, res)
+      const now = Date.now()
+      // Mirrors api/_lib/retrieval.js: `in:` scopes results to one folder, and
+      // without it a search covers everything except Done (sent copies
+      // included). No fixture mail is classified as spam.
+      const inFolder = (email) => {
+        const scheduledFor = schedules.get(email.id)
+        const snoozed = Boolean(scheduledFor) && Date.parse(scheduledFor) > now
+        if (filters.in === 'all') return true
+        if (filters.in === 'done') return archived.has(email.id)
+        if (filters.in === 'sent') return Boolean(email.is_sent)
+        if (filters.in === 'spam') return false
+        if (filters.in === 'snoozed') return !archived.has(email.id) && snoozed
+        if (filters.in === 'inbox') {
+          return !archived.has(email.id) && !email.is_sent && !snoozed
+        }
+        return !archived.has(email.id)
+      }
+      const emails = [...fixtureEmails(), ...fixtureSentEmails()]
         .filter((email) => {
+          if (!inFolder(email)) return false
           const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
           const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
           if (!terms.every((term) => haystack.includes(term))) return false
@@ -320,16 +340,17 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/summarize.js')
     await handler(req, res)
   }
-  // Stateful in e2e/no-DB mode so create/delete are visible within a session.
-  let stubLabels = null
-  const ensureStubLabels = async () => {
-    if (!stubLabels) {
+  // Seeded from the tags the fixture mail already carries, then kept in session
+  // state so create/rename/delete are visible within a session without leaking
+  // into other browser contexts.
+  const ensureStubLabels = async (state) => {
+    if (!state.labels) {
       const { fixtureEmails } = await import('./api/_fixtures/emails.js')
       const byName = new Map()
       for (const email of fixtureEmails()) {
         for (const label of email.labels || []) byName.set(label.name, label)
       }
-      stubLabels = [...byName.values()]
+      state.labels = [...byName.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((label, i) => ({
           id: `stub-label-${i + 1}`,
@@ -341,11 +362,69 @@ function localApiPlugin(mode) {
           message_count: 0,
         }))
     }
-    return stubLabels
+    return state.labels
+  }
+  // /api/labels?resource=rules — mirrors api/_lib/label-rules.js's wire shape
+  // (rules carry conditions inline; mark_done rules carry no label) so the
+  // settings Rules manager works against fixtures.
+  const handleLabelRules = async (req, res) => {
+    const state = fixtureMailboxState(req, res)
+    res.setHeader('Content-Type', 'application/json')
+    if (req.method === 'GET') {
+      res.end(JSON.stringify({ rules: state.rules }))
+      return
+    }
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}')
+    if (req.method === 'POST') {
+      const rule = {
+        id: `stub-rule-${randomUUID()}`,
+        name: body.name ?? null,
+        label_id: body.action === 'mark_done' ? null : (body.label_id ?? null),
+        action: body.action || 'apply_label',
+        match_type: body.match_type || 'all',
+        enabled: true,
+        conditions: body.conditions.map((condition, i) => ({ ...condition, position: i })),
+      }
+      state.rules.push(rule)
+      res.statusCode = 201
+      res.end(JSON.stringify({ rule }))
+      return
+    }
+    const index = state.rules.findIndex((rule) => rule.id === body.id)
+    if (index === -1) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Rule not found' }))
+      return
+    }
+    if (req.method === 'DELETE') {
+      state.rules.splice(index, 1)
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
+    if (req.method === 'PATCH') {
+      // body.id repeats the rule's own id, so spreading it changes nothing.
+      const rule = { ...state.rules[index], ...body }
+      // Matches the real handler: mark_done drops any label the rule carried,
+      // and conditions are renumbered whenever they are replaced.
+      if (rule.action === 'mark_done') rule.label_id = null
+      rule.conditions = rule.conditions.map((condition, i) => ({ ...condition, position: i }))
+      state.rules[index] = rule
+      res.end(JSON.stringify({ rule }))
+      return
+    }
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
   }
   const handleLabels = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const labels = await ensureStubLabels()
+      if (new URL(req.url, 'http://localhost').searchParams.get('resource') === 'rules') {
+        await handleLabelRules(req, res)
+        return
+      }
+      const state = fixtureMailboxState(req, res)
+      const labels = await ensureStubLabels(state)
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'POST') {
         let raw = ''
@@ -369,7 +448,7 @@ function localApiPlugin(mode) {
         let raw = ''
         for await (const chunk of req) raw += chunk
         const body = JSON.parse(raw || '{}')
-        stubLabels = labels.filter((l) => l.id !== body.id)
+        state.labels = labels.filter((l) => l.id !== body.id)
         res.end(JSON.stringify({ ok: true }))
         return
       }
@@ -440,6 +519,27 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/tasks.js')
     await handler(req, res)
   }
+  const ensureCalendarEvents = async (state) => {
+    if (!state.calendarEvents) {
+      const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
+      state.calendarEvents = fixtureCalendarEvents()
+    }
+    return state
+  }
+  // Subscription sync makes a real outbound ICS fetch in production; the
+  // fixture stubs it out with one fake synced event, replacing whatever that
+  // calendar already held, so the UI can be exercised offline and
+  // deterministically.
+  const stubSubscriptionSync = async (state, calendar) => {
+    const { fixtureSubscribedEvent } = await import('./api/_fixtures/calendarEvents.js')
+    await ensureCalendarEvents(state)
+    state.calendarEvents = [
+      ...state.calendarEvents.filter((event) => event.calendar !== calendar.id),
+      fixtureSubscribedEvent(calendar.id),
+    ]
+    calendar.subscriptionSyncedAt = new Date().toISOString()
+    calendar.subscriptionError = null
+  }
   const handleCalendarEvents = async (req, res) => {
     const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
     if (resource === 'calendars') {
@@ -448,11 +548,7 @@ function localApiPlugin(mode) {
     }
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { expandEvents, buildRecurrenceRule } = await import('./api/calendar-events.js')
-      const state = fixtureMailboxState(req, res)
-      if (!state.calendarEvents) {
-        const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
-        state.calendarEvents = fixtureCalendarEvents()
-      }
+      const state = await ensureCalendarEvents(fixtureMailboxState(req, res))
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'GET') {
         res.end(JSON.stringify({ events: expandEvents(state.calendarEvents) }))
@@ -523,9 +619,6 @@ function localApiPlugin(mode) {
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
-      // Subscription sync makes a real outbound fetch in production; the dev
-      // fixture stubs it out with one fake synced event so the UI can be
-      // exercised offline and deterministically.
       if (req.method === 'POST' && body.action === 'sync') {
         const calendar = state.calendars.find((item) => item.id === body.id)
         if (!calendar?.subscriptionUrl) {
@@ -533,23 +626,7 @@ function localApiPlugin(mode) {
           res.end(JSON.stringify({ error: 'Subscribed calendar not found' }))
           return
         }
-        calendar.subscriptionSyncedAt = new Date().toISOString()
-        calendar.subscriptionError = null
-        if (!state.calendarEvents) {
-          const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
-          state.calendarEvents = fixtureCalendarEvents()
-        }
-        state.calendarEvents = [
-          ...state.calendarEvents.filter((event) => event.calendar !== calendar.id),
-          {
-            id: `stub-synced-${randomUUID()}`,
-            title: 'Synced from subscription (dev stub)',
-            date: new Date().toISOString().slice(0, 10),
-            start: '16:00',
-            duration: 30,
-            calendar: calendar.id,
-          },
-        ]
+        await stubSubscriptionSync(state, calendar)
         res.end(
           JSON.stringify({ ok: true, subscriptionSyncedAt: calendar.subscriptionSyncedAt, subscriptionError: null }),
         )
@@ -564,23 +641,7 @@ function localApiPlugin(mode) {
         const calendar = { id: `stub-calendar-${randomUUID()}`, name: body.name, color: body.color }
         if (body.subscriptionUrl) {
           calendar.subscriptionUrl = body.subscriptionUrl
-          calendar.subscriptionSyncedAt = new Date().toISOString()
-          calendar.subscriptionError = null
-          if (!state.calendarEvents) {
-            const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
-            state.calendarEvents = fixtureCalendarEvents()
-          }
-          state.calendarEvents = [
-            ...state.calendarEvents,
-            {
-              id: `stub-synced-${randomUUID()}`,
-              title: 'Synced from subscription (dev stub)',
-              date: new Date().toISOString().slice(0, 10),
-              start: '10:00',
-              duration: 30,
-              calendar: calendar.id,
-            },
-          ]
+          await stubSubscriptionSync(state, calendar)
         }
         state.calendars.push(calendar)
         res.statusCode = 201
@@ -610,10 +671,7 @@ function localApiPlugin(mode) {
           res.end(JSON.stringify({ error: 'Calendar not found' }))
           return
         }
-        if (!state.calendarEvents) {
-          const { fixtureCalendarEvents } = await import('./api/_fixtures/calendarEvents.js')
-          state.calendarEvents = fixtureCalendarEvents()
-        }
+        await ensureCalendarEvents(state)
         const eventCount = state.calendarEvents.filter((event) => event.calendar === body.id).length
         if (eventCount > 0 && !target.subscriptionUrl) {
           res.statusCode = 409

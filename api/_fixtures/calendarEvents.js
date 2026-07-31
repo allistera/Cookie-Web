@@ -76,3 +76,19 @@ const rows = [
 export function fixtureCalendarEvents() {
   return rows.map((row) => ({ ...row }))
 }
+
+// Stands in for the events a real ICS subscription would pull in — the local
+// middleware serves this instead of making an outbound fetch. Dated to the day
+// the Calendar view opens on (REFERENCE_DATE in src/views/CalendarView.vue,
+// which the seed rows above also sit around) rather than the real today, so a
+// synced event is actually visible where the fixture calendar starts.
+export function fixtureSubscribedEvent(calendarId) {
+  return {
+    id: `subscribed-${calendarId}`,
+    title: 'Synced from subscription (dev stub)',
+    date: '2026-07-24',
+    start: '16:00',
+    duration: 30,
+    calendar: calendarId,
+  }
+}
