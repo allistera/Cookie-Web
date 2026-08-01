@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest'
 
-import { expandEvents, fetchEvents } from '../calendar-events.js'
+import { buildRecurrenceRule, expandEvents, fetchEvents } from '../calendar-events.js'
+
+describe('buildRecurrenceRule', () => {
+  it('returns null for "none"', () => {
+    expect(buildRecurrenceRule('none', null, null)).toBeNull()
+  })
+
+  it('omits BYDAY for non-weekly frequencies even if repeatDays is set', () => {
+    expect(buildRecurrenceRule('daily', null, ['MO', 'TU'])).toBe('DAILY')
+  })
+
+  it('includes BYDAY for weekly with specific days, before UNTIL', () => {
+    expect(buildRecurrenceRule('weekly', '2026-12-31', ['MO', 'TU', 'WE', 'TH', 'FR'])).toBe(
+      'WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=2026-12-31',
+    )
+  })
+
+  it('omits BYDAY for weekly with no days selected', () => {
+    expect(buildRecurrenceRule('weekly', null, [])).toBe('WEEKLY')
+  })
+})
 
 describe('fetchEvents', () => {
   it('normalizes legacy calendar slugs to owned calendar ids', async () => {
@@ -133,5 +153,46 @@ describe('expandEvents', () => {
       '2027-03-04',
       '2028-03-04',
     ])
+  })
+
+  it('expands a weekly BYDAY series onto only the selected weekdays', () => {
+    // 2026-07-27 is a Monday.
+    const event = {
+      id: 'abc',
+      date: '2026-07-27',
+      start: '09:00',
+      recurrenceRule: 'WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=2026-08-07',
+    }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual([
+      '2026-07-27',
+      '2026-07-28',
+      '2026-07-29',
+      '2026-07-30',
+      '2026-07-31',
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+    ])
+    expect(occurrences.every((occurrence) => occurrence.seriesId === 'abc')).toBe(true)
+    expect(new Set(occurrences.map((occurrence) => occurrence.id)).size).toBe(occurrences.length)
+  })
+
+  it('skips the series start date for a weekly BYDAY series if its weekday is not selected', () => {
+    // 2026-08-01 is a Saturday, not in the Monday-Friday selection.
+    const event = {
+      id: 'abc',
+      date: '2026-08-01',
+      start: '09:00',
+      recurrenceRule: 'WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=2026-08-05',
+    }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual(['2026-08-03', '2026-08-04', '2026-08-05'])
   })
 })

@@ -475,6 +475,15 @@ function goToday() {
 }
 
 const REPEAT_FREQUENCIES = ['none', 'daily', 'weekly', 'monthly', 'yearly']
+const WEEKDAY_OPTIONS = [
+  { code: 'MO', label: 'M' },
+  { code: 'TU', label: 'T' },
+  { code: 'WE', label: 'W' },
+  { code: 'TH', label: 'T' },
+  { code: 'FR', label: 'F' },
+  { code: 'SA', label: 'S' },
+  { code: 'SU', label: 'S' },
+]
 
 function parseRepeatFrequency(recurrenceRule) {
   if (!recurrenceRule) return 'none'
@@ -485,6 +494,11 @@ function parseRepeatFrequency(recurrenceRule) {
 function parseRepeatUntil(recurrenceRule) {
   const match = recurrenceRule?.match(/UNTIL=(\d{4}-\d{2}-\d{2})/)
   return match ? match[1] : ''
+}
+
+function parseRepeatDays(recurrenceRule) {
+  const match = recurrenceRule?.match(/BYDAY=([A-Z,]+)/)
+  return match ? match[1].split(',') : []
 }
 
 function openNewEvent(prefill) {
@@ -501,8 +515,14 @@ function openNewEvent(prefill) {
     calendar: defaultCalendarId(),
     repeat: 'none',
     repeatUntil: '',
+    repeatDays: [],
   }
   showNewEvent.value = true
+}
+
+function toggleRepeatDay(code) {
+  const days = eventForm.value.repeatDays
+  eventForm.value.repeatDays = days.includes(code) ? days.filter((day) => day !== code) : [...days, code]
 }
 
 function editEvent(event) {
@@ -523,6 +543,7 @@ function editEvent(event) {
     calendar: event.calendar,
     repeat: parseRepeatFrequency(event.recurrenceRule),
     repeatUntil: parseRepeatUntil(event.recurrenceRule),
+    repeatDays: parseRepeatDays(event.recurrenceRule),
   }
   showNewEvent.value = true
 }
@@ -536,7 +557,7 @@ function closeNewEvent() {
 async function saveEvent() {
   const title = eventForm.value.title.trim()
   if (!title) return
-  const { date, start, end, location, description, repeat, repeatUntil } = eventForm.value
+  const { date, start, end, location, description, repeat, repeatUntil, repeatDays } = eventForm.value
   const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
@@ -556,6 +577,7 @@ async function saveEvent() {
     calendar,
     repeat,
     repeatUntil: repeat === 'none' ? null : repeatUntil || null,
+    repeatDays: repeat === 'weekly' && repeatDays.length ? repeatDays : null,
   }
 
   try {
@@ -1206,6 +1228,20 @@ onUnmounted(() => {
                 :min="eventForm.date"
               />
             </label>
+          </div>
+
+          <div v-if="eventForm.repeat === 'weekly'" class="new-event-repeat-days" role="group" aria-label="Repeat on days">
+            <button
+              v-for="day in WEEKDAY_OPTIONS"
+              :key="day.code"
+              type="button"
+              class="new-event-repeat-day"
+              :class="{ 'is-selected': eventForm.repeatDays.includes(day.code) }"
+              :aria-pressed="eventForm.repeatDays.includes(day.code)"
+              @click="toggleRepeatDay(day.code)"
+            >
+              {{ day.label }}
+            </button>
           </div>
 
           <footer v-if="eventFormReadOnly" class="new-event-dialog-actions">
@@ -2383,6 +2419,34 @@ onUnmounted(() => {
   grid-template-columns: 2fr 1fr;
   gap: 12px;
   margin-top: 16px;
+}
+
+.new-event-repeat-days {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.new-event-repeat-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--calendar-line);
+  border-radius: 999px;
+  background: var(--calendar-input);
+  color: var(--calendar-ink);
+  font-family: var(--font-stack);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.new-event-repeat-day.is-selected {
+  border-color: var(--calendar-emphasis);
+  background: var(--calendar-emphasis);
+  color: var(--calendar-emphasis-ink, #fff);
 }
 
 .new-event-dialog-actions {

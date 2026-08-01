@@ -19,14 +19,19 @@ const LEGACY_CALENDAR_NAMES = new Map([
 ])
 const ALLOWED_TONES = new Set(['default', 'dark', 'conflict', 'accepted', 'suggested'])
 const REPEAT_FREQUENCIES = new Set(['none', 'daily', 'weekly', 'monthly', 'yearly'])
+// RFC5545-style two-letter weekday codes, in week order (index doubles as the
+// Date#getUTCDay() value for that weekday).
+const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
-// The UI only offers a fixed set of frequencies with an optional end date, so
-// the stored rule is a small custom format rather than full RFC5545 — see
-// migration 0025.
-export function buildRecurrenceRule(repeat, repeatUntil) {
+// The UI only offers a fixed set of frequencies with an optional end date and,
+// for weekly series, an optional set of specific weekdays — so the stored
+// rule is a small custom format rather than full RFC5545 — see migrations
+// 0025 and 0031.
+export function buildRecurrenceRule(repeat, repeatUntil, repeatDays) {
   if (repeat === 'none') return null
   const freq = repeat.toUpperCase()
-  return repeatUntil ? `${freq};UNTIL=${repeatUntil}` : freq
+  const byday = repeat === 'weekly' && repeatDays?.length ? `;BYDAY=${repeatDays.join(',')}` : ''
+  return repeatUntil ? `${freq}${byday};UNTIL=${repeatUntil}` : `${freq}${byday}`
 }
 
 function validEventFields(body) {
@@ -40,6 +45,7 @@ function validEventFields(body) {
   const tone = typeof body.tone === 'string' ? body.tone : null
   const repeat = typeof body.repeat === 'string' ? body.repeat : 'none'
   const repeatUntil = typeof body.repeatUntil === 'string' && body.repeatUntil ? body.repeatUntil : null
+  const repeatDaysRaw = Array.isArray(body.repeatDays) ? body.repeatDays : null
 
   if (
     !title ||
@@ -52,11 +58,18 @@ function validEventFields(body) {
     (location && location.length > MAX_LOCATION) ||
     (description && description.length > MAX_DESCRIPTION) ||
     !REPEAT_FREQUENCIES.has(repeat) ||
-    (repeatUntil && !DATE_RE.test(repeatUntil))
+    (repeatUntil && !DATE_RE.test(repeatUntil)) ||
+    (repeatDaysRaw &&
+      (repeat !== 'weekly' ||
+        repeatDaysRaw.length === 0 ||
+        repeatDaysRaw.some((day) => !WEEKDAY_CODES.includes(day))))
   ) {
     return null
   }
-  const recurrenceRule = buildRecurrenceRule(repeat, repeat === 'none' ? null : repeatUntil)
+  // Stored in a fixed week order regardless of the order the client sent, so
+  // the recurrence_rule string stays stable/comparable across edits.
+  const repeatDays = repeatDaysRaw ? WEEKDAY_CODES.filter((code) => repeatDaysRaw.includes(code)) : null
+  const recurrenceRule = buildRecurrenceRule(repeat, repeat === 'none' ? null : repeatUntil, repeatDays)
   return { title, description, location, date, start, duration, calendar, tone, recurrenceRule }
 }
 
@@ -175,14 +188,19 @@ const MAX_OCCURRENCES_PER_SERIES = 366
 // occurrence cap alone does not bound the work: a DAILY series dated 0001-01-01
 // (which both DATE_RE and migration 0022's CHECK accept) would step ~740k times
 // on every calendar load. Cap total steps too — 10k covers a daily series
-// starting ~27 years back, weekly ~190 years, monthly ~830 years.
+// starting ~27 years back, weekly ~190 years, monthly ~830 years. A WEEKLY
+// series with BYDAY steps day-by-day (see expandEvent), so it shares DAILY's
+// ~27-year reach rather than WEEKLY's.
 const MAX_STEPS_PER_SERIES = 10_000
-const RECURRENCE_RE = /^(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;UNTIL=(\d{4}-\d{2}-\d{2}))?$/
+const WEEKDAY_RE = '(?:SU|MO|TU|WE|TH|FR|SA)'
+const RECURRENCE_RE = new RegExp(
+  `^(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;BYDAY=(${WEEKDAY_RE}(?:,${WEEKDAY_RE}){0,6}))?(?:;UNTIL=(\\d{4}-\\d{2}-\\d{2}))?$`,
+)
 
 function parseRecurrenceRule(rule) {
   const match = typeof rule === 'string' ? rule.match(RECURRENCE_RE) : null
   if (!match) return null
-  return { freq: match[1], until: match[2] ?? null }
+  return { freq: match[1], byday: match[2] ? match[2].split(',') : null, until: match[3] ?? null }
 }
 
 // Clamps day-of-month so e.g. "31st of every month" lands on the last day of
@@ -220,6 +238,11 @@ function expandEvent(event, windowStart, windowEnd) {
 
   const dtstart = new Date(`${event.date}T${event.start}:00Z`)
   const until = rule.until ? new Date(`${rule.until}T23:59:59Z`) : null
+  // BYDAY (e.g. "Monday to Friday") only makes sense for WEEKLY, and needs
+  // day-by-day stepping to land on each selected weekday rather than jumping
+  // 7 days from the series' own start-date weekday.
+  const weekdays = rule.byday ? new Set(rule.byday.map((code) => WEEKDAY_CODES.indexOf(code))) : null
+  const stepFreq = weekdays ? 'DAILY' : rule.freq
   const occurrences = []
   let cursor = dtstart
   let index = 0
@@ -229,10 +252,10 @@ function expandEvent(event, windowStart, windowEnd) {
     occurrences.length < MAX_OCCURRENCES_PER_SERIES &&
     index < MAX_STEPS_PER_SERIES
   ) {
-    if (cursor >= windowStart) {
+    if (cursor >= windowStart && (!weekdays || weekdays.has(cursor.getUTCDay()))) {
       occurrences.push({ ...event, id: `${event.id}:${index}`, seriesId: event.id, date: toDateKey(cursor) })
     }
-    cursor = stepDate(cursor, rule.freq)
+    cursor = stepDate(cursor, stepFreq)
     index += 1
   }
   return occurrences
