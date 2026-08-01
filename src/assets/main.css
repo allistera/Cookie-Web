@@ -1312,6 +1312,7 @@ body {
 .ni-checkbox {
   display: none;
   font-size: 20px;
+  line-height: 1;
   color: var(--text-secondary);
 }
 
