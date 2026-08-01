@@ -1114,7 +1114,8 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-.ni-schedule-wrap-bulk .ni-schedule-menu {
+.ni-schedule-wrap-bulk .ni-schedule-menu,
+.ni-schedule-wrap-upward .ni-schedule-menu {
   top: auto;
   bottom: calc(100% + 8px);
 }
@@ -2970,6 +2971,35 @@ button.ni-attachment:hover {
 }
 
 .composer-send-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer-send-split {
+  display: flex;
+  align-items: stretch;
+}
+
+.composer-send-btn-split {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.composer-schedule-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.composer-schedule-caret .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.composer-schedule-caret:disabled {
   opacity: 0.5;
   cursor: default;
 }

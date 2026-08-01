@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 defineProps({
   choices: { type: Array, required: true },
+  submitLabel: { type: String, default: 'Snooze' },
 })
 
 const emit = defineEmits(['select'])
@@ -79,7 +80,7 @@ function selectCustom() {
         <input v-model="customValue" type="datetime-local" :min="minimumValue" required />
       </label>
       <button type="submit" class="ni-schedule-custom-submit" :disabled="!customIsValid">
-        Snooze
+        {{ submitLabel }}
       </button>
     </form>
   </div>

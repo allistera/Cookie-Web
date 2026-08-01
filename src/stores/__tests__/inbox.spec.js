@@ -852,6 +852,122 @@ describe('Inbox Store', () => {
     })
   })
 
+  describe('Send Later', () => {
+    function armComposer(store) {
+      store.composerTo = 'someone@example.com'
+      store.composerSubject = 'Hello'
+      store.composerTextArea = 'Checking in.'
+    }
+
+    it('POSTs sendAt to /api/send and closes the composer without a countdown', async () => {
+      const scheduledSend = {
+        id: 'sched-1',
+        toAddresses: 'someone@example.com',
+        subject: 'Hello',
+        scheduledFor: '2026-08-02T09:00:00.000Z',
+      }
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ scheduledSend }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+
+      const result = await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+
+      expect(result).toBe(true)
+      expect(store.pendingSend).toBeNull()
+      expect(store.isComposerActive).toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url, options] = fetchMock.mock.calls[0]
+      expect(url).toBe('/api/send')
+      expect(JSON.parse(options.body)).toMatchObject({
+        to: 'someone@example.com',
+        subject: 'Hello',
+        sendAt: '2026-08-02T09:00:00.000Z',
+      })
+      expect(store.toasts.at(-1)?.message).toBe('Email scheduled for Tomorrow.')
+    })
+
+    it('does nothing when the composer has no valid recipient', async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+
+      const result = await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+
+      expect(result).toBe(false)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('restores the draft into the composer if scheduling fails', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 429 })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+
+      const result = await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+
+      expect(result).toBe(false)
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerTo).toBe('someone@example.com')
+      expect(store.toasts.at(-1)?.message).toMatch(/failed/i)
+    })
+
+    it('loads the pending scheduled-send queue once and caches it', async () => {
+      const scheduledSends = [{ id: 'sched-1', subject: 'Hello', scheduledFor: '2026-08-02T09:00:00.000Z' }]
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ scheduledSends }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+
+      await store.loadScheduledSends()
+      await store.loadScheduledSends()
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls[0][0]).toBe('/api/send?resource=scheduled')
+      expect(store.scheduledSends).toEqual(scheduledSends)
+    })
+
+    it('cancels a scheduled send and reopens its content in the composer', async () => {
+      const canceled = {
+        id: 'sched-1',
+        toAddresses: 'someone@example.com',
+        subject: 'Hello',
+        text: 'Checking in.',
+        html: '<p>Checking in.</p>',
+        replyToMessageId: null,
+      }
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ scheduledSend: canceled }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.scheduledSends = [{ id: 'sched-1' }, { id: 'sched-2' }]
+
+      await store.cancelScheduledSend({ id: 'sched-1' })
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/send?resource=scheduled',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ id: 'sched-1' })
+      expect(store.scheduledSends).toEqual([{ id: 'sched-2' }])
+      expect(store.composerTo).toBe('someone@example.com')
+      expect(store.composerTextArea).toBe('Checking in.')
+      expect(store.isComposerActive).toBe(true)
+    })
+
+    it('throws if the scheduled send can no longer be canceled', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+
+      await expect(store.cancelScheduledSend({ id: 'sched-1' })).rejects.toThrow(
+        'DELETE scheduled send responded 404',
+      )
+    })
+  })
+
   it('finds the open email in the sent list too', async () => {
     const store = useInboxStore()
     store.sentEmails = [{ id: 'sent-1', subject: 'Re: Hello', unread: false }]

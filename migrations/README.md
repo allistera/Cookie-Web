@@ -60,6 +60,21 @@ Apply `0029` before deploying Cookie-Worker code that reads `label_rules`.
 
 Apply `0030` before deploying Cookie-Worker code that reads `label_rules.action`.
 
+## Scheduled sends
+
+`0032_scheduled_sends.sql` adds `scheduled_sends` for "Send Later": a composed
+message queued for a future `scheduled_for` instead of sending immediately.
+Unlike inbound snooze (`0012_scheduled_messages.sql`), where a due message
+just becomes visible again the next time it's queried, sending mail is an
+active operation — so a Cloudflare Worker cron in Cookie-Worker polls
+`POST /api/send?resource=flush` on an interval, and that endpoint claims due
+rows, calls the mail provider, and files the result back onto `messages` the
+same way an immediate send does.
+
+Apply `0032` before deploying the Cookie-Worker `scheduled-send-flusher`
+worker, since its flush calls will 404/error against an API that doesn't yet
+recognize `resource=scheduled`/`resource=flush`.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

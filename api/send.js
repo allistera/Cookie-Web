@@ -18,6 +18,15 @@ export const MAX_OUTBOUND_TEXT_BYTES = 100_000
 export const MAX_OUTBOUND_HTML_BYTES = 200_000
 export const MAX_OUTBOUND_TOTAL_BYTES = 256_000
 const OUTBOUND_SENDS_PER_MINUTE = 10
+// A scheduled send needs enough lead time that it can't fire before the
+// composer has even finished closing — matches ScheduleMenu's own minimum.
+const MIN_SCHEDULE_LEAD_MS = 60_000
+export const MAX_PENDING_SCHEDULED_SENDS = 50
+const FLUSH_BATCH_SIZE = 20
+// After this many failed delivery attempts a scheduled send stops retrying
+// and is surfaced to the user as failed, rather than silently retried on
+// every flush forever.
+const MAX_SCHEDULED_SEND_ATTEMPTS = 5
 
 function escapeHtml(value) {
   return value
@@ -98,6 +107,16 @@ export function validateOutboundMessage({ to, subject, text, html }) {
   return { recipients, bodyHtml }
 }
 
+// A future ISO timestamp at least MIN_SCHEDULE_LEAD_MS out; anything else
+// (missing, unparsable, in the past, or too soon) is rejected. Exported for
+// testing.
+export function parseScheduledFor(sendAt) {
+  if (typeof sendAt !== 'string') return null
+  const timestamp = Date.parse(sendAt)
+  if (Number.isNaN(timestamp) || timestamp < Date.now() + MIN_SCHEDULE_LEAD_MS) return null
+  return new Date(timestamp).toISOString()
+}
+
 export async function claimOutboundEmailQuota(sql, email) {
   const [result] = await sql`
     WITH app_user AS (
@@ -133,7 +152,9 @@ export async function claimOutboundEmailQuota(sql, email) {
 
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
 // the inbox list, included in search). Threads with the replied-to message
-// when replyToMessageId is given; otherwise starts a fresh thread.
+// when replyToMessageId is given; otherwise starts a fresh thread. Returns
+// the new message's id so callers (e.g. the scheduled-send flush job) can
+// link back to it.
 async function storeSentMessage(
   sql,
   email,
@@ -229,26 +250,274 @@ async function storeSentMessage(
       console.error('sent-message embedding failed:', err.message)
     }
   }
+
+  return { messageUuid }
 }
 
-// POST /api/send — send an email through Resend as the app's mailbox address,
-// then store the sent copy. Sending always wins: a storage failure is logged
-// and the response is still a success.
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
+// Sends immediately through Resend, from the shared inbound handler (a
+// logged-in user's request) and the flush job (a claimed scheduled row)
+// alike. Throws on failure; callers decide how to react.
+async function deliverMail(sql, email, { recipients, subject, text, html, replyToMessageId }) {
+  const readReceiptToken = crypto.randomUUID()
+  const receiptUrl = buildReadReceiptUrl(readReceiptToken)
+  const trackedHtml = appendReadReceipt(html, text, receiptUrl)
 
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  const { data, error } = await resend.emails.send({
+    from: process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
+    to: recipients,
+    subject,
+    text,
+    ...(trackedHtml ? { html: trackedHtml } : {}),
+  })
+  if (error) throw new Error(error.message || 'Failed to send email')
+
+  let messageUuid = null
+  try {
+    ;({ messageUuid } = await storeSentMessage(sql, email, {
+      recipients,
+      subject,
+      text,
+      html,
+      replyToMessageId,
+      resendId: data.id,
+      readReceiptToken: receiptUrl ? readReceiptToken : null,
+    }))
+  } catch (err) {
+    // Sending always wins: a storage failure is logged but the mail really
+    // did go out, so this must never be treated as a failed send.
+    console.error('failed to store sent copy:', err.message)
+  }
+  return { resendId: data.id, messageUuid }
+}
+
+// Inserts a pending scheduled_sends row, capped at MAX_PENDING_SCHEDULED_SENDS
+// per user so a runaway client can't queue unbounded future sends. Returns
+// null if the cap is hit or the authenticated email has no users row.
+async function createScheduledSend(
+  sql,
+  email,
+  { recipients, subject, text, html, replyToMessageId, scheduledFor },
+) {
+  const [row] = await sql`
+    INSERT INTO scheduled_sends
+      (user_id, to_addresses, subject, body_text, body_html, reply_to_message_id, scheduled_for)
+    SELECT u.id, ${recipients.join(', ')}, ${subject}, ${text}, ${html ?? null},
+           ${replyToMessageId}::uuid, ${scheduledFor}::timestamptz
+    FROM users u
+    WHERE lower(u.email) = ${email}
+      AND (
+        SELECT count(*) FROM scheduled_sends s
+        WHERE s.user_id = u.id AND s.status = 'pending'
+      ) < ${MAX_PENDING_SCHEDULED_SENDS}
+    RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor"
+  `
+  return row ?? null
+}
+
+async function listScheduledSends(sql, email) {
+  return sql`
+    SELECT s.id, s.to_addresses AS "toAddresses", s.subject, s.scheduled_for AS "scheduledFor",
+           s.status, s.last_error AS "lastError"
+    FROM scheduled_sends s
+    JOIN users u ON u.id = s.user_id
+    WHERE lower(u.email) = ${email} AND s.status IN ('pending', 'failed')
+    ORDER BY s.scheduled_for ASC
+  `
+}
+
+// Only a still-pending row can be canceled — one already claimed by the
+// flush job (status 'sending') or already resolved ('sent'/'failed') is
+// left alone. Returns the full content so the client can reopen it in the
+// composer, mirroring undoPendingSend's immediate-send equivalent.
+async function cancelScheduledSend(sql, email, id) {
+  const [row] = await sql`
+    DELETE FROM scheduled_sends s
+    USING users u
+    WHERE s.id = ${id} AND s.user_id = u.id AND lower(u.email) = ${email} AND s.status = 'pending'
+    RETURNING s.id, s.to_addresses AS "toAddresses", s.subject,
+              s.body_text AS "text", s.body_html AS "html",
+              s.reply_to_message_id AS "replyToMessageId"
+  `
+  return row ?? null
+}
+
+// Atomically claims up to `limit` due rows so two overlapping flush calls
+// (e.g. a slow run overlapping the next tick) never send the same row twice
+// — FOR UPDATE SKIP LOCKED lets a concurrent call skip rows this one already
+// has locked instead of blocking on them.
+async function claimDueScheduledSends(sql, limit) {
+  return sql`
+    UPDATE scheduled_sends s
+    SET status = 'sending'
+    FROM (
+      SELECT id FROM scheduled_sends
+      WHERE status = 'pending' AND scheduled_for <= now()
+      ORDER BY scheduled_for
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    ) due
+    WHERE s.id = due.id
+    RETURNING s.id, s.user_id, s.to_addresses AS "toAddresses", s.subject,
+              s.body_text AS "text", s.body_html AS "html",
+              s.reply_to_message_id AS "replyToMessageId", s.attempts
+  `
+}
+
+async function markScheduledSendFailed(sql, id, error, attempts = null) {
+  await sql`
+    UPDATE scheduled_sends
+    SET status = 'failed', last_error = ${error},
+        attempts = COALESCE(${attempts}, attempts)
+    WHERE id = ${id}
+  `
+}
+
+// Delivers one claimed row. Never leaves a row claimed ('sending' status)
+// without resolving it to 'pending' (retry), 'sent', or 'failed'.
+async function deliverScheduledSend(sql, row) {
+  const [owner] = await sql`SELECT lower(email) AS email FROM users WHERE id = ${row.user_id}`
+  if (!owner) {
+    await markScheduledSendFailed(sql, row.id, 'Owning user no longer exists')
+    return 'failed'
+  }
+
+  const quota = await claimOutboundEmailQuota(sql, owner.email)
+  if (!quota.authorized) {
+    await markScheduledSendFailed(sql, row.id, 'Mailbox access is not provisioned')
+    return 'failed'
+  }
+  if (!quota.quota_claimed) {
+    // Rate-limited, not the message's fault — leave it pending for the next
+    // flush instead of spending a retry attempt.
+    await sql`UPDATE scheduled_sends SET status = 'pending' WHERE id = ${row.id}`
+    return 'retried'
+  }
+
+  const recipients = parseRecipients(row.toAddresses)
+  try {
+    const { messageUuid } = await deliverMail(sql, owner.email, {
+      recipients,
+      subject: row.subject,
+      text: row.text,
+      html: row.html,
+      replyToMessageId: row.replyToMessageId,
+    })
+    await sql`
+      UPDATE scheduled_sends
+      SET status = 'sent', sent_at = now(), sent_message_id = ${messageUuid}
+      WHERE id = ${row.id}
+    `
+    return 'sent'
+  } catch (err) {
+    const attempts = row.attempts + 1
+    console.error(`scheduled send ${row.id} delivery failed (attempt ${attempts}):`, err.message)
+    if (attempts >= MAX_SCHEDULED_SEND_ATTEMPTS) {
+      await markScheduledSendFailed(sql, row.id, err.message, attempts)
+      return 'failed'
+    }
+    await sql`
+      UPDATE scheduled_sends
+      SET status = 'pending', attempts = ${attempts}, last_error = ${err.message}
+      WHERE id = ${row.id}
+    `
+    return 'retried'
+  }
+}
+
+// GET/DELETE /api/send?resource=scheduled — list or cancel the authenticated
+// user's own pending (or recently failed) scheduled sends.
+async function handleScheduled(req, res, email) {
+  const sql = getSql()
+  if (req.method === 'GET') {
+    const scheduledSends = await listScheduledSends(sql, email)
+    res.statusCode = 200
+    res.end(JSON.stringify({ scheduledSends }))
+    return
+  }
+  if (req.method === 'DELETE') {
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+      return
+    }
+    const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+    if (!id) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'id is required' }))
+      return
+    }
+    const scheduledSend = await cancelScheduledSend(sql, email, id)
+    if (!scheduledSend) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Scheduled send not found or already sent' }))
+      return
+    }
+    res.statusCode = 200
+    res.end(JSON.stringify({ scheduledSend }))
+    return
+  }
+  res.statusCode = 405
+  res.end(JSON.stringify({ error: 'Method not allowed' }))
+}
+
+// POST /api/send?resource=flush — called on a schedule by the
+// scheduled-send-flusher Worker cron in Cookie-Worker (never by the browser
+// app), bearer-authenticated with a secret shared out-of-band. Claims and
+// delivers due scheduled sends in small batches so one slow invocation
+// doesn't run unbounded.
+async function handleFlush(req, res) {
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
     return
   }
-
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
+  const token = process.env.SCHEDULED_SEND_FLUSH_TOKEN
+  if (!token || req.headers.authorization !== `Bearer ${token}`) {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
+  if (!process.env.RESEND_API_KEY) {
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Email sending is not configured' }))
+    return
+  }
+
+  try {
+    const sql = getSql()
+    const claimed = await claimDueScheduledSends(sql, FLUSH_BATCH_SIZE)
+    const results = []
+    for (const row of claimed) {
+      results.push(await deliverScheduledSend(sql, row))
+    }
+    res.statusCode = 200
+    res.end(JSON.stringify({
+      claimed: claimed.length,
+      sent: results.filter((result) => result === 'sent').length,
+      retried: results.filter((result) => result === 'retried').length,
+      failed: results.filter((result) => result === 'failed').length,
+    }))
+  } catch (err) {
+    console.error('POST /api/send?resource=flush failed:', err)
+    await captureApiError(err, { route: 'POST /api/send?resource=flush' })
+    res.statusCode = 500
+    res.end(JSON.stringify({ error: 'Flush failed' }))
+  }
+}
+
+// POST /api/send — send an email through Resend as the app's mailbox
+// address and store the sent copy, or (given a future `sendAt`) queue it as
+// a scheduled_sends row for the flush job to deliver later. Immediate
+// sending always wins: a storage failure is logged and the response is
+// still a success.
+async function handleSend(req, res, email) {
+  if (req.method !== 'POST') {
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
     return
   }
 
@@ -267,7 +536,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const { to, subject, text, html, replyToMessageId } = body
+  const { to, subject, text, html, replyToMessageId, sendAt } = body
   const validated = validateOutboundMessage({ to, subject, text, html })
   if (validated.error) {
     res.statusCode = 400
@@ -275,6 +544,44 @@ export default async function handler(req, res) {
     return
   }
   const { recipients, bodyHtml } = validated
+  // Fixture ids from e2e/dev mode aren't UUIDs — ignore them rather than error.
+  const replyTo =
+    typeof replyToMessageId === 'string' && UUID_RE.test(replyToMessageId)
+      ? replyToMessageId
+      : null
+
+  if (sendAt !== undefined) {
+    const scheduledFor = parseScheduledFor(sendAt)
+    if (!scheduledFor) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'sendAt must be an ISO timestamp at least a minute out' }))
+      return
+    }
+    try {
+      const sql = getSql()
+      const scheduledSend = await createScheduledSend(sql, email, {
+        recipients,
+        subject,
+        text,
+        html: bodyHtml,
+        replyToMessageId: replyTo,
+        scheduledFor,
+      })
+      if (!scheduledSend) {
+        res.statusCode = 429
+        res.end(JSON.stringify({ error: 'Too many pending scheduled sends' }))
+        return
+      }
+      res.statusCode = 201
+      res.end(JSON.stringify({ scheduledSend }))
+    } catch (err) {
+      console.error('POST /api/send (schedule) failed:', err)
+      await captureApiError(err, { route: 'POST /api/send (schedule)' })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to schedule email' }))
+    }
+    return
+  }
 
   let sql
   try {
@@ -297,50 +604,53 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ error: 'Email sending is temporarily unavailable' }))
     return
   }
-  // Fixture ids from e2e/dev mode aren't UUIDs — ignore them rather than error.
-  const replyTo =
-    typeof replyToMessageId === 'string' && UUID_RE.test(replyToMessageId)
-      ? replyToMessageId
-      : null
-  const readReceiptToken = crypto.randomUUID()
-  const receiptUrl = buildReadReceiptUrl(readReceiptToken)
-  const trackedHtml = appendReadReceipt(bodyHtml, text, receiptUrl)
 
   try {
-    const resend = new Resend(process.env.RESEND_API_KEY)
-    const { data, error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
-      to: recipients,
+    const { resendId } = await deliverMail(sql, email, {
+      recipients,
       subject,
       text,
-      ...(trackedHtml ? { html: trackedHtml } : {}),
+      html: bodyHtml,
+      replyToMessageId: replyTo,
     })
-    if (error) {
-      console.error('Resend send failed:', error)
-      res.statusCode = 502
-      res.end(JSON.stringify({ error: 'Failed to send email' }))
+    res.statusCode = 200
+    res.end(JSON.stringify({ id: resendId }))
+  } catch (err) {
+    console.error('Resend send failed:', err)
+    res.statusCode = 502
+    res.end(JSON.stringify({ error: 'Failed to send email' }))
+  }
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/json')
+  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+
+  // The flush job authenticates with its own bearer secret, not a user
+  // Auth0 token, so it must be dispatched before verifyAccessToken runs.
+  if (resource === 'flush') {
+    await handleFlush(req, res)
+    return
+  }
+
+  let email
+  try {
+    ;({ email } = await verifyAccessToken(req))
+  } catch {
+    res.statusCode = 401
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
+
+  try {
+    if (resource === 'scheduled') {
+      await handleScheduled(req, res, email)
       return
     }
-
-    try {
-      await storeSentMessage(sql, email, {
-        recipients,
-        subject,
-        text,
-        html: bodyHtml,
-        replyToMessageId: replyTo,
-        resendId: data.id,
-        readReceiptToken: receiptUrl ? readReceiptToken : null,
-      })
-    } catch (err) {
-      console.error('failed to store sent copy:', err.message)
-    }
-
-    res.statusCode = 200
-    res.end(JSON.stringify({ id: data.id }))
+    await handleSend(req, res, email)
   } catch (err) {
-    console.error('POST /api/send failed:', err)
-    await captureApiError(err, { route: 'POST /api/send' })
+    console.error(`${req.method} /api/send failed:`, err)
+    await captureApiError(err, { route: `${req.method} /api/send` })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to send email' }))
   }

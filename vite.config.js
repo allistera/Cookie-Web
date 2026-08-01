@@ -30,6 +30,7 @@ function localApiPlugin(mode) {
         calendars: null,
         labels: null,
         rules: [],
+        scheduledSends: [],
       })
     }
     return stubMailboxState.get(sessionId)
@@ -80,9 +81,79 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/emails.js')
     await handler(req, res)
   }
+  // Mirrors api/send.js's three concerns: an immediate send (default),
+  // resource=scheduled (list/cancel a "Send Later" queue), and resource=flush
+  // (what the Cookie-Worker cron calls) — all against the per-session
+  // fixture state instead of Postgres/Resend.
   const handleSend = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
+      const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+      const state = fixtureMailboxState(req, res)
       res.setHeader('Content-Type', 'application/json')
+
+      if (resource === 'scheduled') {
+        if (req.method === 'GET') {
+          res.end(
+            JSON.stringify({
+              scheduledSends: state.scheduledSends.filter((item) => item.status === 'pending'),
+            }),
+          )
+          return
+        }
+        if (req.method === 'DELETE') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          const body = JSON.parse(raw || '{}')
+          const index = state.scheduledSends.findIndex(
+            (item) => item.id === body.id && item.status === 'pending',
+          )
+          if (index === -1) {
+            res.statusCode = 404
+            res.end(JSON.stringify({ error: 'Scheduled send not found or already sent' }))
+            return
+          }
+          const [scheduledSend] = state.scheduledSends.splice(index, 1)
+          res.end(JSON.stringify({ scheduledSend }))
+          return
+        }
+        res.statusCode = 405
+        res.end(JSON.stringify({ error: 'Method not allowed' }))
+        return
+      }
+
+      if (resource === 'flush') {
+        const now = Date.now()
+        let sent = 0
+        for (const item of state.scheduledSends) {
+          if (item.status === 'pending' && Date.parse(item.scheduledFor) <= now) {
+            item.status = 'sent'
+            sent += 1
+          }
+        }
+        res.end(JSON.stringify({ claimed: sent, sent, retried: 0, failed: 0 }))
+        return
+      }
+
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      const body = JSON.parse(raw || '{}')
+      if (body.sendAt) {
+        const scheduledSend = {
+          id: `stub-scheduled-${randomUUID()}`,
+          toAddresses: body.to,
+          subject: body.subject,
+          text: body.text,
+          html: body.html ?? null,
+          replyToMessageId: body.replyToMessageId ?? null,
+          scheduledFor: body.sendAt,
+          status: 'pending',
+        }
+        state.scheduledSends.push(scheduledSend)
+        res.statusCode = 201
+        res.end(JSON.stringify({ scheduledSend }))
+        return
+      }
+
       res.end(JSON.stringify({ id: 'e2e-fixture' }))
       return
     }
@@ -557,14 +628,14 @@ function localApiPlugin(mode) {
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
-      // Mirrors api/calendar-events.js: the wire format sends repeat/repeatUntil,
-      // the stored/expanded shape uses recurrenceRule.
-      const { repeat, repeatUntil, ...rest } = body
+      // Mirrors api/calendar-events.js: the wire format sends
+      // repeat/repeatUntil/repeatDays, the stored/expanded shape uses recurrenceRule.
+      const { repeat, repeatUntil, repeatDays, ...rest } = body
       if (req.method === 'POST') {
         const event = {
           id: `stub-event-${randomUUID()}`,
           ...rest,
-          recurrenceRule: buildRecurrenceRule(repeat ?? 'none', repeatUntil),
+          recurrenceRule: buildRecurrenceRule(repeat ?? 'none', repeatUntil, repeatDays),
         }
         state.calendarEvents.push(event)
         res.statusCode = 201
@@ -581,7 +652,7 @@ function localApiPlugin(mode) {
         state.calendarEvents[index] = {
           ...state.calendarEvents[index],
           ...rest,
-          recurrenceRule: buildRecurrenceRule(repeat ?? 'none', repeatUntil),
+          recurrenceRule: buildRecurrenceRule(repeat ?? 'none', repeatUntil, repeatDays),
         }
         res.end(JSON.stringify({ event: state.calendarEvents[index] }))
         return

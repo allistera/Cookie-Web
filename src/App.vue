@@ -15,6 +15,8 @@ import LoadingBar from './components/LoadingBar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ComposerEditor from './components/ComposerEditor.vue'
+import ScheduleMenu from './components/ScheduleMenu.vue'
+import { scheduleChoices } from './utils/schedule'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
@@ -88,6 +90,16 @@ const composerToValid = computed(() => recipientsValid(store.composerTo))
 const isSendDisabled = computed(
   () => store.isSendingEmail || !composerToValid.value || !store.composerTextArea.trim(),
 )
+
+// "Send Later" popover on the composer's Send button, reusing the same
+// ScheduleMenu/presets the inbox uses for snoozing mail.
+const scheduleSendOpen = ref(false)
+const scheduleSendOptions = computed(() => scheduleChoices())
+
+function selectScheduleSend(choice) {
+  scheduleSendOpen.value = false
+  store.sendEmailLater(choice.date.toISOString(), choice.label)
+}
 
 function openContactSuggest() {
   contactSuggestOpen.value = true
@@ -276,6 +288,10 @@ function onDocumentClick(e) {
   const profileContainer = document.querySelector('.profile-container')
   if (profileContainer && !profileContainer.contains(e.target)) {
     showLogoutMenu.value = false
+  }
+
+  if (!e.target.closest('.ni-schedule-wrap')) {
+    scheduleSendOpen.value = false
   }
 }
 
@@ -466,6 +482,14 @@ onUnmounted(() => {
             >
               <span class="material-symbols-outlined">schedule</span>
               <span class="nav-text">Snoozed</span>
+            </router-link>
+            <router-link
+              :to="{ path: '/scheduled' }"
+              class="nav-item"
+              :class="{ active: route.name === 'scheduled-sends' }"
+            >
+              <span class="material-symbols-outlined">upcoming</span>
+              <span class="nav-text">Scheduled</span>
             </router-link>
             <router-link
               :to="{ path: '/inbox', query: { filter: 'done' } }"
@@ -661,14 +685,35 @@ onUnmounted(() => {
     </div>
     <div class="composer-footer">
       <div class="composer-send-actions">
-        <button
-          class="btn btn-primary composer-send-btn"
-          :disabled="isSendDisabled"
-          :aria-busy="store.isSendingEmail"
-          @click="store.sendEmail"
-        >
-          {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
-        </button>
+        <div class="composer-send-split">
+          <button
+            class="btn btn-primary composer-send-btn composer-send-btn-split"
+            :disabled="isSendDisabled"
+            :aria-busy="store.isSendingEmail"
+            @click="store.sendEmail"
+          >
+            {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
+          </button>
+          <div class="ni-schedule-wrap ni-schedule-wrap-upward">
+            <button
+              type="button"
+              class="btn btn-primary composer-schedule-caret"
+              :disabled="isSendDisabled"
+              aria-haspopup="menu"
+              :aria-expanded="scheduleSendOpen"
+              title="Schedule send"
+              @click="scheduleSendOpen = !scheduleSendOpen"
+            >
+              <span class="material-symbols-outlined">expand_less</span>
+            </button>
+            <ScheduleMenu
+              v-if="scheduleSendOpen"
+              :choices="scheduleSendOptions"
+              submit-label="Schedule"
+              @select="selectScheduleSend"
+            />
+          </div>
+        </div>
       </div>
       <div class="composer-ai-inline">
         <span class="material-symbols-outlined">auto_fix_high</span>

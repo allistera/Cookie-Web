@@ -82,6 +82,7 @@ The main runtime variables are:
 | `RESEND_API_KEY` | Outbound email delivery. |
 | `TODOIST_API_TOKEN` | Optional. Lets AI Today close a Todoist task when it is marked done. Without it, "done" only clears the task from Cookie. |
 | `EMAIL_FROM` | Optional sender identity for outbound mail. |
+| `SCHEDULED_SEND_FLUSH_TOKEN` | Bearer secret authorizing `POST /api/send?resource=flush`. Shared with the `scheduled-send-flusher` Cloudflare Worker in Cookie-Worker, which is the only caller. |
 | `PUBLIC_APP_URL` | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted. |
 | `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |
 | `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID exposed to the browser. |

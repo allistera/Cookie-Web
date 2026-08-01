@@ -414,6 +414,37 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   expect(sendRequests).toBe(1)
 })
 
+test('Composer "Send Later" queues a scheduled send instead of sending immediately', async ({ page }) => {
+  let sendRequestBody
+  await page.route('**/api/send', async (route) => {
+    sendRequestBody = route.request().postDataJSON()
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        scheduledSend: { id: 'sched-1', toAddresses: 'person@example.com', subject: '', scheduledFor: sendRequestBody.sendAt },
+      }),
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('.compose-btn').click()
+
+  const composer = page.locator('#composerToast')
+  await composer.locator('.composer-to-inline').fill('person@example.com')
+  await composer.locator('.composer-editor').fill('See you tomorrow.')
+
+  await composer.locator('.composer-schedule-caret').click()
+  const scheduleMenu = composer.locator('.ni-schedule-menu')
+  await expect(scheduleMenu.getByRole('menuitem', { name: /Tomorrow/ })).toBeVisible()
+  await scheduleMenu.getByRole('menuitem', { name: /Tomorrow/ }).click()
+
+  await expect(page.locator('.toast', { hasText: 'Email scheduled for Tomorrow.' })).toBeVisible()
+  await expect(composer).not.toHaveClass(/active/)
+  expect(sendRequestBody).toMatchObject({ to: 'person@example.com', text: 'See you tomorrow.' })
+  expect(typeof sendRequestBody.sendAt).toBe('string')
+})
+
 test('Clicking an inbox email slides in the reading panel', async ({ page }) => {
   await page.goto('/inbox')
 

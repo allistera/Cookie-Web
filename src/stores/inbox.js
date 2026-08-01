@@ -250,6 +250,12 @@ export const useInboxStore = defineStore('inbox', {
     // secondsLeft, paused } while a queued send is counting down.
     pendingSend: null,
 
+    // "Send Later" queue (?resource=scheduled), loaded lazily when the
+    // Scheduled view opens. A Cloudflare Worker cron flushes due rows
+    // server-side; the client only ever lists/cancels them.
+    scheduledSends: [],
+    isScheduledSendsLoaded: false,
+
     // Compose auto-suggest: [{ address, name }] of mailbox correspondents,
     // loaded lazily on first composer open.
     contacts: [],
@@ -1526,6 +1532,88 @@ export const useInboxStore = defineStore('inbox', {
       } finally {
         this.isSendingEmail = false
       }
+    },
+
+    // Composer analog of scheduleEmail (inbound snooze): queues the current
+    // draft to go out later instead of now. Validation mirrors sendEmail; the
+    // actual delivery happens server-side once scheduled_for is due — see
+    // POST /api/send?resource=flush, called on an interval by the
+    // scheduled-send-flusher Worker cron in Cookie-Worker.
+    async sendEmailLater(sendAt, label) {
+      if (this.isSendingEmail || this.pendingSend) return false
+      if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
+      const draft = {
+        to: this.composerTo,
+        subject: this.composerSubject,
+        text: this.composerTextArea,
+        html: sanitizeEmailHtml(this.composerHtml),
+        replyToMessageId: this.composerReplyToMessageId,
+      }
+      this.closeComposer()
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/send', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ ...draft, sendAt }),
+        })
+        if (!response.ok) throw new Error(`POST /api/send responded ${response.status}`)
+        const { scheduledSend } = await response.json()
+        if (this.isScheduledSendsLoaded) this.scheduledSends.unshift(scheduledSend)
+        this.notify(`Email scheduled for ${label}.`)
+        return true
+      } catch (error) {
+        console.error('Failed to schedule email:', error)
+        this.notify('Failed to schedule email. Please try again.', 'error')
+        this.composerTo = draft.to
+        this.composerSubject = draft.subject
+        this.composerTextArea = draft.text
+        this.composerHtml = draft.html
+        this.composerReplyToMessageId = draft.replyToMessageId
+        this.isComposerActive = true
+        return false
+      }
+    },
+
+    // Loads the user's pending "Send Later" queue for the Scheduled view.
+    // Best-effort and cached, like loadContacts/loadTasks.
+    async loadScheduledSends() {
+      if (this.isScheduledSendsLoaded) return
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/send?resource=scheduled', { headers })
+        if (!response.ok) throw new Error(`GET scheduled sends responded ${response.status}`)
+        const { scheduledSends } = await response.json()
+        this.scheduledSends = scheduledSends
+        this.isScheduledSendsLoaded = true
+      } catch (error) {
+        console.error('Failed to load scheduled sends:', error)
+      }
+    },
+
+    // Cancels a still-pending scheduled send and reopens its content in the
+    // composer for further editing — the "Send Later" equivalent of
+    // undoPendingSend. Throws if it can no longer be canceled (e.g. it
+    // already went out) so the caller can tell the user rather than silently
+    // losing the row.
+    async cancelScheduledSend(scheduledSend) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch('/api/send?resource=scheduled', {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify({ id: scheduledSend.id }),
+      })
+      if (!response.ok) {
+        throw new Error(`DELETE scheduled send responded ${response.status}`)
+      }
+      const { scheduledSend: canceled } = await response.json()
+      this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
+      this.composerTo = canceled.toAddresses
+      this.composerSubject = canceled.subject
+      this.composerTextArea = canceled.text
+      this.composerHtml = canceled.html || plainTextToHtml(canceled.text)
+      this.composerReplyToMessageId = canceled.replyToMessageId
+      this.isComposerActive = true
     },
 
     // Real RAG: /api/ask retrieves the most relevant stored emails via
