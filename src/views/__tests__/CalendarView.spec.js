@@ -32,11 +32,13 @@ const SEED_EVENTS = [
     tone: 'dark',
     calendar: 'focus',
   },
-  { id: 'design', title: 'Design review', date: '2026-07-23', start: '11:00', duration: 60, calendar: 'work' },
+  // Dated within the next 30 days (REFERENCE_DATE is 2026-07-24) so the real
+  // conflict detector in CalendarView.vue actually finds this overlap.
+  { id: 'design', title: 'Design review', date: '2026-07-25', start: '11:00', duration: 60, calendar: 'work' },
   {
     id: 'client-call',
     title: 'Client call — Meridian',
-    date: '2026-07-23',
+    date: '2026-07-25',
     start: '11:30',
     duration: 60,
     tone: 'conflict',
@@ -673,5 +675,58 @@ describe('CalendarView', () => {
     )
     const bare = await mountCalendar()
     expect(bare.find('.auto-scheduled-card').exists()).toBe(false)
+  })
+
+  function stubEventsOnly(events) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, options = {}) => {
+        const method = options.method || 'GET'
+        if (url === '/api/calendar-events' && method === 'GET') {
+          return { ok: true, json: async () => clone({ events }) }
+        }
+        if (url === CALENDARS_ENDPOINT && method === 'GET') {
+          return { ok: true, json: async () => clone({ calendars: SEED_CALENDARS }) }
+        }
+        throw new Error(`Unexpected fetch: ${method} ${url}`)
+      }),
+    )
+  }
+
+  it('shows the scheduling conflict card with a real detected overlap', async () => {
+    const wrapper = await mountCalendar()
+
+    expect(wrapper.text()).toContain(
+      '"Client call — Meridian" overlaps "Design review" by 30 min on Sat.',
+    )
+  })
+
+  it('hides the scheduling conflict card when no events overlap', async () => {
+    stubEventsOnly(
+      SEED_EVENTS.filter((event) => event.id !== 'design' && event.id !== 'client-call'),
+    )
+    const wrapper = await mountCalendar()
+
+    expect(wrapper.text()).not.toContain('Scheduling conflict')
+  })
+
+  it('ignores an overlap more than 30 days out', async () => {
+    stubEventsOnly([
+      { id: 'far-a', title: 'Far A', date: '2026-09-10', start: '11:00', duration: 60, calendar: 'work' },
+      { id: 'far-b', title: 'Far B', date: '2026-09-10', start: '11:30', duration: 60, calendar: 'work' },
+    ])
+    const wrapper = await mountCalendar()
+
+    expect(wrapper.text()).not.toContain('Scheduling conflict')
+  })
+
+  it('ignores an all-day event overlapping a timed one', async () => {
+    stubEventsOnly([
+      { id: 'holiday-2', title: 'Company Holiday', date: '2026-07-25', start: '00:00', duration: 1440, allDay: true, calendar: 'holidays' },
+      { id: 'meeting', title: 'Team meeting', date: '2026-07-25', start: '10:00', duration: 30, calendar: 'work' },
+    ])
+    const wrapper = await mountCalendar()
+
+    expect(wrapper.text()).not.toContain('Scheduling conflict')
   })
 })

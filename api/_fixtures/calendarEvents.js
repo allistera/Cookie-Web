@@ -34,7 +34,9 @@ const rows = [
   {
     id: 'design',
     title: 'Design review',
-    date: '2026-07-23',
+    // Within the next 30 days (REFERENCE_DATE in CalendarView.vue is
+    // 2026-07-24), so the real conflict detector actually finds this overlap.
+    date: '2026-07-25',
     start: '11:00',
     duration: 60,
     calendar: 'work',
@@ -42,7 +44,7 @@ const rows = [
   {
     id: 'client-call',
     title: 'Client call — Meridian',
-    date: '2026-07-23',
+    date: '2026-07-25',
     start: '11:30',
     duration: 60,
     tone: 'conflict',

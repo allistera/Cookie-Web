@@ -327,6 +327,51 @@ const autoScheduledCount = computed(
       .length,
 )
 
+// Only surfaced within a bounded lookahead: a double-booking three months out
+// is easy to fix before it matters, so it isn't worth an actionable warning
+// today the way one happening this week or next is.
+const CONFLICT_WINDOW_DAYS = 30
+
+const eventInterval = (event) => {
+  const start = new Date(`${event.date}T${event.start}:00`)
+  return { start, end: new Date(start.getTime() + event.duration * 60_000) }
+}
+
+// The first (earliest-starting) pair of timed events whose intervals overlap
+// within the next CONFLICT_WINDOW_DAYS, or null if there isn't one. All-day
+// events (holidays, etc.) are excluded — they aren't "conflicts" in the
+// scheduling sense. Exported shape mirrors the card's original hardcoded
+// copy: "<later event>" overlaps "<earlier event>" by N min on <day>.
+const detectedConflict = computed(() => {
+  const windowStart = REFERENCE_DATE
+  const windowEnd = addDays(REFERENCE_DATE, CONFLICT_WINDOW_DAYS)
+  const candidates = visibleEvents.value
+    .filter((event) => !event.allDay)
+    .filter((event) => {
+      const eventDate = new Date(`${event.date}T00:00:00`)
+      return eventDate >= windowStart && eventDate <= windowEnd
+    })
+    .map((event) => ({ event, ...eventInterval(event) }))
+    .sort((a, b) => a.start - b.start)
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const earlier = candidates[i]
+      const later = candidates[j]
+      if (earlier.start < later.end && later.start < earlier.end) {
+        const overlapMs = Math.min(earlier.end, later.end) - Math.max(earlier.start, later.start)
+        return {
+          earlierTitle: earlier.event.title,
+          laterTitle: later.event.title,
+          overlapMinutes: Math.round(overlapMs / 60_000),
+          dayLabel: earlier.start.toLocaleDateString('en-US', { weekday: 'short' }),
+        }
+      }
+    }
+  }
+  return null
+})
+
 const formatLongDate = (date) =>
   new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
@@ -934,13 +979,16 @@ onUnmounted(() => {
       </header>
 
       <section v-if="viewMode !== 'week'" class="calendar-insights" aria-label="Calendar insights">
-        <article v-if="conflictVisible" class="calendar-insight-card">
+        <article v-if="conflictVisible && detectedConflict" class="calendar-insight-card">
           <span class="insight-icon conflict-icon material-symbols-outlined" aria-hidden="true">
             warning_amber
           </span>
           <div class="insight-copy">
             <h2>Scheduling conflict</h2>
-            <p>"Client call — Meridian" overlaps "Design review" by 30 min on Thu.</p>
+            <p>
+              "{{ detectedConflict.laterTitle }}" overlaps "{{ detectedConflict.earlierTitle }}" by
+              {{ detectedConflict.overlapMinutes }} min on {{ detectedConflict.dayLabel }}.
+            </p>
             <button type="button" class="primary-small-button" @click="conflictVisible = false">
               Resolve
             </button>
