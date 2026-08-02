@@ -114,6 +114,15 @@ describe('useCommands', () => {
     byId['go-starred'].run()
     expect(push).toHaveBeenCalledWith({ path: '/inbox', query: { filter: 'starred' } })
 
+    byId['go-done'].run()
+    expect(push).toHaveBeenCalledWith({ path: '/inbox', query: { filter: 'done' } })
+
+    byId['go-scheduled'].run()
+    expect(push).toHaveBeenCalledWith({ path: '/scheduled' })
+
+    byId['go-spam'].run()
+    expect(push).toHaveBeenCalledWith({ path: '/inbox', query: { filter: 'spam' } })
+
     byId['open-settings'].run()
     expect(store.activeModal).toBe('settings')
   })

@@ -95,10 +95,28 @@ export function useCommands() {
         run: () => router.push({ path: '/inbox', query: { filter: 'snoozed' } }),
       },
       {
+        id: 'go-scheduled',
+        title: 'Go to Scheduled',
+        icon: 'upcoming',
+        run: () => router.push({ path: '/scheduled' }),
+      },
+      {
+        id: 'go-done',
+        title: 'Go to Done',
+        icon: 'task_alt',
+        run: () => router.push({ path: '/inbox', query: { filter: 'done' } }),
+      },
+      {
         id: 'go-sent',
         title: 'Go to Sent',
         icon: 'send',
         run: () => router.push({ path: '/inbox', query: { filter: 'sent' } }),
+      },
+      {
+        id: 'go-spam',
+        title: 'Go to Spam',
+        icon: 'report',
+        run: () => router.push({ path: '/inbox', query: { filter: 'spam' } }),
       },
       ...store.allLabels.map((label) => ({
         id: `go-label-${label.name}`,
