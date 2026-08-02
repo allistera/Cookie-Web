@@ -44,6 +44,7 @@ describe('fetchEvents', () => {
     expect(query).toContain('ce.duration_minutes AS duration')
     expect(query).toContain('ce.recurrence_rule AS "recurrenceRule"')
     expect(query).toContain('ce.all_day AS "allDay"')
+    expect(query).toContain('ce.is_auto_scheduled AS "autoScheduled"')
     expect(query).toContain('ORDER BY ce.event_date, ce.start_time')
     expect(values).toEqual(['owner@example.com'])
   })
@@ -80,6 +81,8 @@ describe('fetchEvents', () => {
     expect(queries).toHaveLength(2)
     expect(queries[1]).toContain('LEFT JOIN calendars')
     expect(queries[1]).not.toContain('recurrence_rule')
+    // Also predates 0033: a DB this old can't have is_auto_scheduled either.
+    expect(queries[1]).not.toContain('is_auto_scheduled')
   })
 })
 

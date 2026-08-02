@@ -116,7 +116,8 @@ async function fetchNormalizedEvents(sql, email) {
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
            COALESCE(c.id::text, ce.calendar::text) AS calendar, ce.tone,
-           ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay"
+           ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay",
+           ce.is_auto_scheduled AS "autoScheduled"
     FROM calendar_events ce
     JOIN users u ON u.id = ce.user_id
     LEFT JOIN calendars c
@@ -318,7 +319,8 @@ async function createEvent(sql, email, body, res) {
     FROM users u
     WHERE lower(u.email) = ${email}
     RETURNING id, title, description, location, event_date AS date, start_time AS start,
-              duration_minutes AS duration, calendar, tone, recurrence_rule AS "recurrenceRule", all_day AS "allDay"
+              duration_minutes AS duration, calendar, tone, recurrence_rule AS "recurrenceRule", all_day AS "allDay",
+              is_auto_scheduled AS "autoScheduled"
   `
   if (!event) {
     res.statusCode = 404
@@ -366,7 +368,8 @@ async function updateEvent(sql, email, body, res) {
     WHERE ce.id = ${id} AND ce.user_id = u.id AND lower(u.email) = ${email}
     RETURNING ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
               ce.start_time AS start, ce.duration_minutes AS duration, ce.calendar, ce.tone,
-              ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay"
+              ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay",
+              ce.is_auto_scheduled AS "autoScheduled"
   `
   if (!event) {
     res.statusCode = 404

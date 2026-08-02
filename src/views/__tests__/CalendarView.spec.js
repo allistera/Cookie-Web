@@ -5,8 +5,24 @@ import CalendarView from '../CalendarView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
 const SEED_EVENTS = [
-  { id: 'team-sync', title: 'Team sync', date: '2026-07-20', start: '09:00', duration: 30, calendar: 'work' },
-  { id: 'priya', title: '1:1 with Priya', date: '2026-07-21', start: '10:00', duration: 30, calendar: 'work' },
+  {
+    id: 'team-sync',
+    title: 'Team sync',
+    date: '2026-07-20',
+    start: '09:00',
+    duration: 30,
+    calendar: 'work',
+    autoScheduled: true,
+  },
+  {
+    id: 'priya',
+    title: '1:1 with Priya',
+    date: '2026-07-21',
+    start: '10:00',
+    duration: 30,
+    calendar: 'work',
+    autoScheduled: true,
+  },
   {
     id: 'focus',
     title: 'Focus — Q3 planning',
@@ -630,5 +646,32 @@ describe('CalendarView', () => {
     await wrapper.get('.secondary-small-button').trigger('click')
     expect(wrapper.text()).not.toContain('Suggested slot')
     expect(wrapper.text()).toContain('Auto-scheduled')
+  })
+
+  it('reports a real auto-scheduled count for this week, and hides the card when there are none', async () => {
+    const wrapper = await mountCalendar()
+    expect(wrapper.text()).toContain('Cookie booked 2 events this week around your availability.')
+
+    // Rebuild the API with no auto-scheduled events: the card must hide
+    // entirely rather than show fabricated/zeroed copy.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, options = {}) => {
+        const method = options.method || 'GET'
+        if (url === '/api/calendar-events' && method === 'GET') {
+          return {
+            ok: true,
+            json: async () =>
+              clone({ events: SEED_EVENTS.map(({ autoScheduled: _autoScheduled, ...event }) => event) }),
+          }
+        }
+        if (url === CALENDARS_ENDPOINT && method === 'GET') {
+          return { ok: true, json: async () => clone({ calendars: SEED_CALENDARS }) }
+        }
+        throw new Error(`Unexpected fetch: ${method} ${url}`)
+      }),
+    )
+    const bare = await mountCalendar()
+    expect(bare.find('.auto-scheduled-card').exists()).toBe(false)
   })
 })

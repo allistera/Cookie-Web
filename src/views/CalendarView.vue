@@ -312,6 +312,21 @@ const startOfWeek = (date) => {
   return start
 }
 
+// The real current week (anchored on REFERENCE_DATE/"today"), independent of
+// whatever day/week/month the user has navigated to — the "Auto-scheduled"
+// insight card reports on this week, not the one being viewed.
+const THIS_WEEK_DATE_KEYS = new Set(
+  Array.from({ length: 7 }, (_, index) => dateKey(addDays(startOfWeek(REFERENCE_DATE), index))),
+)
+// Genuine count, not fabricated copy: true only for events flagged
+// is_auto_scheduled server-side (migration 0033). No feature sets that flag
+// yet, so this reads 0 until an actual auto-scheduling feature exists.
+const autoScheduledCount = computed(
+  () =>
+    visibleEvents.value.filter((event) => event.autoScheduled && THIS_WEEK_DATE_KEYS.has(event.date))
+      .length,
+)
+
 const formatLongDate = (date) =>
   new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
@@ -950,11 +965,14 @@ onUnmounted(() => {
           </div>
         </article>
 
-        <article class="calendar-insight-card auto-scheduled-card">
+        <article v-if="autoScheduledCount > 0" class="calendar-insight-card auto-scheduled-card">
           <span class="insight-icon auto-icon material-symbols-outlined" aria-hidden="true">bolt</span>
           <div class="insight-copy">
             <h2>Auto-scheduled</h2>
-            <p>Cookie booked 2 events this week around your availability.</p>
+            <p>
+              Cookie booked {{ autoScheduledCount }}
+              {{ autoScheduledCount === 1 ? 'event' : 'events' }} this week around your availability.
+            </p>
           </div>
         </article>
       </section>

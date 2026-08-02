@@ -75,6 +75,15 @@ Apply `0032` before deploying the Cookie-Worker `scheduled-send-flusher`
 worker, since its flush calls will 404/error against an API that doesn't yet
 recognize `resource=scheduled`/`resource=flush`.
 
+## Calendar auto-scheduled
+
+`0033_calendar_auto_scheduled.sql` adds `calendar_events.is_auto_scheduled`
+(default `false`) so the Calendar view's "Auto-scheduled" insight card can
+report a real count instead of hardcoded copy. No feature sets this column to
+`true` yet, so the card reads 0 until an actual auto-scheduling feature
+exists — this migration is plumbing ahead of that feature, not the feature
+itself.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
