@@ -14,6 +14,12 @@ import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
 const UNDO_SEND_SECONDS = 5
 let sendCountdownTimer = null
 
+// A body fetch that resolves faster than this would otherwise flash straight
+// from click to rendered content with no visible feedback at all — hold the
+// reveal open at least this long so the reader's loading spinner is always
+// perceivable, not just on a slow connection.
+const MIN_BODY_LOADING_MS = 200
+
 // AI compose should draft the message body only. The personal signature is
 // boilerplate the user pre-configured (and we prefill it into fresh drafts), so
 // feeding it back as "existing text" makes the model reply to its own footer.
@@ -893,6 +899,11 @@ export const useInboxStore = defineStore('inbox', {
       // Only flag loading for an actual fetch — cache hits above return early so
       // reopening a message never spins.
       this.bodyLoadingId = id
+      // Only an HTML body ever shows the spinner (EmailBody.vue) — a text-only
+      // message renders instantly from the list's own body_text, so there's
+      // nothing to hold up for it.
+      const willShowSpinner = this.openEmail?.hasHtml === true
+      const startedAt = Date.now()
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`/api/messages?id=${encodeURIComponent(id)}`, { headers })
@@ -906,6 +917,12 @@ export const useInboxStore = defineStore('inbox', {
           unsubscribe: unsubscribe ?? null,
           thread: Array.isArray(thread) ? thread : [],
           attachments: Array.isArray(attachments) ? attachments : [],
+        }
+        if (willShowSpinner) {
+          const elapsed = Date.now() - startedAt
+          if (elapsed < MIN_BODY_LOADING_MS) {
+            await new Promise((resolve) => setTimeout(resolve, MIN_BODY_LOADING_MS - elapsed))
+          }
         }
         this.messageBodies.set(id, body)
         if (typeof summary === 'string' && summary.trim()) {

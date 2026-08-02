@@ -1840,6 +1840,61 @@ describe('Inbox Store', () => {
     expect(store.isOpenBodyLoading).toBe(false)
   })
 
+  it('holds an HTML-body reveal open for a minimum duration so the spinner is perceivable', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ body_html: '<p>hi</p>', body_text: 'hi' }),
+        }),
+      )
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', hasHtml: true }]
+      store.openEmailId = 'msg-1'
+
+      const promise = store.fetchMessageBody('msg-1')
+      // The mocked fetch/json resolve instantly, but the reveal must still be
+      // held back — otherwise a fast response never shows the spinner at all.
+      await vi.advanceTimersByTimeAsync(0)
+      expect(store.messageBodies.has('msg-1')).toBe(false)
+      expect(store.isOpenBodyLoading).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(200)
+      await promise
+
+      expect(store.messageBodies.get('msg-1')).toMatchObject({ html: '<p>hi</p>' })
+      expect(store.isOpenBodyLoading).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not delay revealing a text-only body, since it never shows a spinner', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ body_html: null, body_text: 'plain only' }),
+        }),
+      )
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-2', hasHtml: false }]
+      store.openEmailId = 'msg-2'
+
+      const promise = store.fetchMessageBody('msg-2')
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(store.messageBodies.has('msg-2')).toBe(true)
+      await promise
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('openReader triggers an on-demand body fetch for the opened email', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
