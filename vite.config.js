@@ -547,6 +547,8 @@ function localApiPlugin(mode) {
         res.end(JSON.stringify({ ok: true, closedInTodoist: true }))
         return
       }
+      // Held three hours back so AI Today's staleness line is deterministic.
+      const gatheredAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
       res.end(
         JSON.stringify({
           tasks: [
@@ -559,6 +561,7 @@ function localApiPlugin(mode) {
               priority: 4,
               url: 'https://app.todoist.com/app/task/stub-task-1',
               message_id: null,
+              gathered_at: gatheredAt,
             },
             {
               id: 'stub-task-2',
@@ -569,6 +572,7 @@ function localApiPlugin(mode) {
               priority: 2,
               url: 'https://app.todoist.com/app/task/stub-task-2',
               message_id: null,
+              gathered_at: gatheredAt,
             },
             {
               id: 'stub-email-task-1',
@@ -581,6 +585,7 @@ function localApiPlugin(mode) {
               message_id: 'fixture-1',
               reply_to: 'updates@cityconstruction.com',
               message_subject: 'Revised Floor Plan - Natural Light adjustments',
+              gathered_at: gatheredAt,
             },
           ],
         }),

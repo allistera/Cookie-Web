@@ -1,97 +1,25 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
+const { user } = useAuth()
 
-// "AI Today" pairs a static design mock of the daily digest (suggested to-dos
-// and topics to catch up on) with the user's real Todoist tasks, which are
-// appended to the suggested to-dos list below.
-const todos = ref([
-  {
-    id: 'todo-kitchen',
-    title: 'Kitchen Renovation',
-    description:
-      "A reply to the tile vendor is due, confirming selection so they can order in time to have it installed by the contractor's timeline.",
-    from: ['Email'],
-    btnText: 'Reply',
-    btnIcon: 'edit',
-    visible: true,
-    completed: false,
-  },
-  {
-    id: 'todo-waiver',
-    title: 'RSVP for College Tour',
-    description:
-      'The University of State sent a confirmation for the June 12th tour. You need to sign the digital waiver for your daughter.',
-    from: ['Email'],
-    btnText: 'View',
-    btnIcon: 'mail',
-    visible: true,
-    completed: false,
-  },
-  {
-    id: 'todo-soccer',
-    title: 'Bring snack to soccer practice',
-    description:
-      "Coach Mike reminded you it's your turn to bring snacks for 20 people tomorrow and to log what you're bringing; one child has a peanut allergy.",
-    from: ['Email', 'Sheet'],
-    btnText: 'Open',
-    btnIcon: 'table_chart',
-    visible: true,
-    completed: false,
-  },
-  {
-    id: 'todo-marketplace',
-    title: 'Resale Marketplace Sale',
-    description:
-      'Resale Marketplace has notified you that the baby winter coat bundle is now marked as sold for $15. You need to contact buyer within 3 days.',
-    from: ['Email'],
-    btnText: 'Open',
-    btnIcon: 'link',
-    visible: false,
-    completed: false,
-  },
-  {
-    id: 'todo-chicago',
-    title: 'Chicago Summer Trip',
-    description:
-      'Confirm your upgrade to the Deluxe room at the Palm House by Tuesday. The hotel has updated your reservation details.',
-    from: ['Email'],
-    btnText: 'View',
-    btnIcon: 'mail',
-    visible: false,
-    completed: false,
-  },
-])
-
-const showAll = ref(false)
+// "AI Today" lists what the data-enricher Worker gathered overnight into
+// public.tasks: Todoist tasks due today, plus action items it extracted from
+// important mail. The "Topics to catch up on" card below is still a design
+// mock. Completing a task hides it immediately, then persists via the store
+// (which closes it in Todoist); a failure rolls the row back.
 const topicCount = 4
 
-// Real Todoist tasks gathered into public.tasks, appended after the mock
-// to-dos. Completing one hides it immediately, then persists via the store
-// (which closes it in Todoist); a failure rolls the row back.
 const completingTaskIds = ref(new Set())
-const todoistTasks = computed(() =>
-  store.tasks.filter((t) => t.source === 'todoist' && !completingTaskIds.value.has(t.id)),
-)
-const emailTasks = computed(() =>
-  store.tasks.filter(
-    (t) => t.source === 'email' && t.message_id && !completingTaskIds.value.has(t.id),
-  ),
-)
+// The API already orders these most-pressing first (soonest due, then highest
+// priority), so render them in the order they arrive rather than by source.
+const tasks = computed(() => store.tasks.filter((t) => !completingTaskIds.value.has(t.id)))
+const activeCount = computed(() => tasks.value.length)
 
-const visibleTodos = computed(() =>
-  todos.value.filter((t) => !t.completed && (showAll.value || t.visible)),
-)
-const activeCount = computed(
-  () =>
-    todos.value.filter((t) => !t.completed).length +
-    todoistTasks.value.length +
-    emailTasks.value.length,
-)
-const hiddenCount = computed(() => todos.value.filter((t) => !t.completed && !t.visible).length)
-const showFooter = computed(() => !showAll.value && hiddenCount.value > 0)
+const firstName = computed(() => String(user.value?.name || '').trim().split(/\s+/)[0])
 
 async function completeTask(task) {
   completingTaskIds.value = new Set(completingTaskIds.value).add(task.id)
@@ -122,27 +50,45 @@ function taskLink(task) {
   }
 }
 
-onMounted(() => store.loadTasks())
+// How stale the gathered set is, from the most recent gathered_at the enricher
+// stamped. `now` is only re-read on mount and on refresh; this is a dashboard
+// glanced at, not a live clock.
+const now = ref(Date.now())
 
-const statusTime = 'Updated just now'
+const gatheredAt = computed(() => {
+  const stamps = store.tasks
+    .map((t) => Date.parse(t.gathered_at))
+    .filter((ms) => Number.isFinite(ms))
+  return stamps.length ? Math.max(...stamps) : null
+})
+
+const statusTime = computed(() => {
+  if (gatheredAt.value === null) return 'Not gathered yet'
+  const minutes = Math.floor((now.value - gatheredAt.value) / 60_000)
+  if (minutes < 1) return 'Updated just now'
+  if (minutes < 60) return `Updated ${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `Updated ${hours}h ago`
+  return `Updated ${Math.floor(hours / 24)}d ago`
+})
+
 const isRefreshing = ref(false)
 
-function completeTodo(id) {
-  const todo = todos.value.find((t) => t.id === id)
-  if (todo) todo.completed = true
-}
-
-function showAllTodos() {
-  showAll.value = true
-}
-
-function refresh() {
+async function refresh() {
   if (isRefreshing.value) return
   isRefreshing.value = true
-  setTimeout(() => {
+  try {
+    await store.loadTasks({ force: true })
+    now.value = Date.now()
+  } finally {
     isRefreshing.value = false
-  }, 600)
+  }
 }
+
+onMounted(async () => {
+  await store.loadTasks()
+  now.value = Date.now()
+})
 </script>
 
 <template>
@@ -150,7 +96,7 @@ function refresh() {
     <div class="ai-header">
       <div class="beta-badge">Beta</div>
       <h1 id="ai-today-title" class="ai-greeting">
-        Hi Allister 👋 You have
+        Hi{{ firstName ? ` ${firstName}` : '' }} 👋 You have
         <span class="counter-text">{{ activeCount }} to-dos</span>
         and
         <span class="counter-text">{{ topicCount }} topics</span>
@@ -171,39 +117,8 @@ function refresh() {
           <h2>Suggested to-dos</h2>
         </div>
 
-        <TransitionGroup name="todo-list" tag="div" class="todo-rows" data-testid="todo-rows">
-          <div v-for="todo in visibleTodos" :key="todo.id" class="todo-row">
-            <div class="todo-checkbox-container">
-              <button class="todo-check-btn" title="Mark complete" @click="completeTodo(todo.id)">
-                <span class="material-symbols-outlined">circle</span>
-              </button>
-            </div>
-
-            <div class="todo-text">
-              <strong>{{ todo.title }}</strong> – {{ todo.description }}
-              <span class="from-links-container">
-                From:
-                <template v-for="(f, index) in todo.from" :key="f">
-                  <span class="email-link">{{ f }}</span>
-                  <span v-if="index < todo.from.length - 1"> • </span>
-                </template>
-              </span>
-            </div>
-
-            <div class="todo-actions">
-              <button class="action-pill-btn">
-                <span class="material-symbols-outlined">{{ todo.btnIcon }}</span>
-                <span>{{ todo.btnText }}</span>
-              </button>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
-              </button>
-            </div>
-          </div>
-        </TransitionGroup>
-
-        <div v-if="todoistTasks.length" class="todo-rows" data-testid="todoist-rows">
-          <div v-for="task in todoistTasks" :key="task.id" class="todo-row">
+        <TransitionGroup name="todo-list" tag="div" class="todo-rows" data-testid="task-rows">
+          <div v-for="task in tasks" :key="task.id" class="todo-row">
             <div class="todo-checkbox-container">
               <button class="todo-check-btn" title="Mark done" @click="completeTask(task)">
                 <span class="material-symbols-outlined">circle</span>
@@ -214,7 +129,8 @@ function refresh() {
               <strong>{{ task.content }}</strong
               ><template v-if="task.description"> – {{ task.description }}</template>
               <span class="from-links-container">
-                From: <span class="email-link">Todoist</span>
+                From:
+                <span class="email-link">{{ task.source === 'todoist' ? 'Todoist' : 'Email' }}</span>
               </span>
             </div>
 
@@ -229,31 +145,8 @@ function refresh() {
                 <span class="material-symbols-outlined">open_in_new</span>
                 <span>Open</span>
               </a>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="emailTasks.length" class="todo-rows" data-testid="email-task-rows">
-          <div v-for="task in emailTasks" :key="task.id" class="todo-row">
-            <div class="todo-checkbox-container">
-              <button class="todo-check-btn" title="Mark done" @click="completeTask(task)">
-                <span class="material-symbols-outlined">circle</span>
-              </button>
-            </div>
-
-            <div class="todo-text">
-              <strong>{{ task.content }}</strong
-              ><template v-if="task.description"> – {{ task.description }}</template>
-              <span class="from-links-container">
-                From: <span class="email-link">Email</span>
-              </span>
-            </div>
-
-            <div class="todo-actions">
               <button
+                v-else-if="task.message_id"
                 class="action-pill-btn"
                 :disabled="Boolean(store.followUpDraftTaskId)"
                 :aria-busy="store.followUpDraftTaskId === task.id"
@@ -267,14 +160,12 @@ function refresh() {
               </button>
             </div>
           </div>
-        </div>
+        </TransitionGroup>
 
-        <div v-if="showFooter" class="card-footer">
-          <button class="show-more-btn" @click="showAllTodos">
-            <span class="material-symbols-outlined">keyboard_arrow_down</span>
-            <span>Show {{ hiddenCount }} more</span>
-          </button>
-        </div>
+        <p v-if="!tasks.length" class="todo-empty" data-testid="tasks-empty">
+          Nothing gathered for today. Todoist tasks due today and action items from important mail
+          show up here after the overnight run.
+        </p>
       </section>
 
       <!-- TOPICS TO CATCH UP ON -->
@@ -465,11 +356,30 @@ function refresh() {
 
 .refresh-icon {
   font-size: 14px;
-  transition: transform 0.6s ease;
 }
 
+/* The fetch has no fixed duration, so spin until it resolves. */
 .refreshing {
-  transform: rotate(360deg);
+  animation: refresh-spin 0.6s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshing {
+    animation: none;
+  }
+}
+
+.todo-empty {
+  padding: 16px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .from-links-container {

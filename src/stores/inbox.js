@@ -1338,9 +1338,10 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Loads gathered tasks for the AI dashboard. Best-effort and cached: a
-    // failure just leaves the "Needs attention" list empty.
-    async loadTasks() {
-      if (this.tasksLoaded) return
+    // failure just leaves the "Needs attention" list empty. AI Today's refresh
+    // control passes force to re-read past the cache.
+    async loadTasks({ force = false } = {}) {
+      if (this.tasksLoaded && !force) return
       try {
         const headers = await this.authHeaders()
         const response = await fetch('/api/tasks', { headers })

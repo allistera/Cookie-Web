@@ -13,7 +13,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function fetchTasks(sql, email) {
   return sql`
     SELECT t.id, t.source, t.content, t.description, t.due_date,
-           t.priority, t.url, t.message_id,
+           t.priority, t.url, t.message_id, t.gathered_at,
            m.from_address AS reply_to, m.subject AS message_subject
     FROM tasks t
     JOIN users u ON u.id = t.user_id
@@ -124,8 +124,8 @@ async function handlePost(req, res, email) {
 }
 
 // GET /api/tasks — { tasks: [{ id, source, content, description, due_date,
-// priority, url, message_id, reply_to, message_subject }] } for the AI
-// dashboard. POST completes a task.
+// priority, url, message_id, gathered_at, reply_to, message_subject }] } for
+// the AI dashboard. POST completes a task.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 

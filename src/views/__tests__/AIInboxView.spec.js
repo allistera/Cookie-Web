@@ -5,8 +5,16 @@ import { createPinia, setActivePinia } from 'pinia'
 import AIInboxView from '../AIInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
+vi.mock('@auth0/auth0-vue', () => ({
+  useAuth0: () => ({ user: { value: { name: 'Allister Antosik' } } }),
+}))
+
 function mountView() {
   return mount(AIInboxView)
+}
+
+function rowsOf(wrapper) {
+  return wrapper.get('[data-testid="task-rows"]').findAll('.todo-row')
 }
 
 describe('AIInboxView (AI Today)', () => {
@@ -20,43 +28,21 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = []
   })
 
-  it('greets Allister with the to-do and topic counters', () => {
-    const wrapper = mountView()
-    const greeting = wrapper.get('.ai-greeting').text()
+  it('greets the signed-in user by first name with the counters', () => {
+    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+
+    const greeting = mountView().get('.ai-greeting').text()
     expect(greeting).toContain('Hi Allister')
-    expect(greeting).toContain('5 to-dos')
+    expect(greeting).not.toContain('Antosik')
+    expect(greeting).toContain('1 to-dos')
     expect(greeting).toContain('4 topics')
   })
 
-  it('shows three suggested to-dos with a "Show 2 more" toggle', () => {
+  it('shows an empty state and a zero count when nothing was gathered', () => {
     const wrapper = mountView()
-    const rows = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')
-    expect(rows).toHaveLength(3)
-
-    const text = wrapper.text()
-    expect(text).toContain('Kitchen Renovation')
-    expect(text).toContain('RSVP for College Tour')
-    expect(text).toContain('Bring snack to soccer practice')
-    expect(wrapper.get('.show-more-btn').text()).toContain('Show 2 more')
-  })
-
-  it('reveals the hidden to-dos when "Show more" is clicked', async () => {
-    const wrapper = mountView()
-    await wrapper.get('.show-more-btn').trigger('click')
-
-    const rows = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')
-    expect(rows).toHaveLength(5)
-    expect(wrapper.find('.show-more-btn').exists()).toBe(false)
-  })
-
-  it('completing a to-do removes it and decrements the counter', async () => {
-    const wrapper = mountView()
-    const firstRow = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')[0]
-    await firstRow.get('.todo-check-btn').trigger('click')
-
-    const rows = wrapper.get('[data-testid="todo-rows"]').findAll('.todo-row')
-    expect(rows).toHaveLength(2)
-    expect(wrapper.get('.ai-greeting').text()).toContain('4 to-dos')
+    expect(rowsOf(wrapper)).toHaveLength(0)
+    expect(wrapper.get('[data-testid="tasks-empty"]').text()).toContain('Nothing gathered for today')
+    expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
   it('renders the four catch-up topics', () => {
@@ -69,7 +55,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(titles[3]).toContain('More Updates')
   })
 
-  it('appends Todoist tasks and renders email tasks with a Draft action', () => {
+  it('renders gathered tasks in API order with source-appropriate actions', () => {
     store.tasks = [
       {
         id: 'task-1',
@@ -77,13 +63,6 @@ describe('AIInboxView (AI Today)', () => {
         content: 'Renew car insurance',
         description: 'Policy expires Friday',
         url: 'https://app.todoist.com/app/task/task-1',
-      },
-      {
-        id: 'task-2',
-        source: 'todoist',
-        content: 'Book dentist',
-        description: null,
-        url: null,
       },
       {
         id: 'task-3',
@@ -95,30 +74,40 @@ describe('AIInboxView (AI Today)', () => {
         message_subject: 'Your support request',
         url: null,
       },
+      {
+        id: 'task-2',
+        source: 'todoist',
+        content: 'Book dentist',
+        description: null,
+        url: null,
+      },
     ]
 
     const wrapper = mountView()
-    const todoist = wrapper.get('[data-testid="todoist-rows"]')
-    const rows = todoist.findAll('.todo-row')
-    expect(rows).toHaveLength(2) // only the two todoist tasks
+    const rows = rowsOf(wrapper)
+    // One list, kept in the order the API returned (most pressing first).
+    expect(rows).toHaveLength(3)
+    expect(rows.map((r) => r.get('strong').text())).toEqual([
+      'Renew car insurance',
+      'Reply to Apple',
+      'Book dentist',
+    ])
 
     // Title is bold, description sits beside it.
-    expect(rows[0].get('strong').text()).toBe('Renew car insurance')
     expect(rows[0].text()).toContain('Renew car insurance – Policy expires Friday')
     expect(rows[0].text()).toContain('From: Todoist')
+    expect(rows[1].text()).toContain('From: Email')
 
-    // A task with a url gets an Open link; one without does not.
+    // A Todoist task with a url gets an Open link; one without gets no action.
     const openLink = rows[0].get('a.action-pill-btn')
     expect(openLink.attributes('href')).toBe('https://app.todoist.com/app/task/task-1')
     expect(openLink.attributes('target')).toBe('_blank')
-    expect(rows[1].find('a.action-pill-btn').exists()).toBe(false)
+    expect(rows[2].find('.action-pill-btn').exists()).toBe(false)
 
-    const emailRows = wrapper.get('[data-testid="email-task-rows"]')
-    expect(emailRows.text()).toContain('Reply to Apple – From an email')
-    expect(emailRows.get('.action-pill-btn').text()).toContain('Draft')
+    // An email-sourced task offers a follow-up draft instead.
+    expect(rows[1].get('.action-pill-btn').text()).toContain('Draft')
 
-    // The counter includes all gathered tasks (5 mock + 2 Todoist + 1 email).
-    expect(wrapper.get('.ai-greeting').text()).toContain('8 to-dos')
+    expect(wrapper.get('.ai-greeting').text()).toContain('3 to-dos')
   })
 
   // Task URLs reach the app from Todoist via /api/tasks, so they are external
@@ -132,7 +121,7 @@ describe('AIInboxView (AI Today)', () => {
       { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url },
     ]
 
-    const rows = mountView().get('[data-testid="todoist-rows"]').findAll('.todo-row')
+    const rows = rowsOf(mountView())
 
     expect(rows).toHaveLength(1)
     expect(rows[0].find('a.action-pill-btn').exists()).toBe(false)
@@ -153,7 +142,7 @@ describe('AIInboxView (AI Today)', () => {
     const notify = vi.spyOn(store, 'notify')
 
     const wrapper = mountView()
-    await wrapper.get('[data-testid="email-task-rows"] .action-pill-btn').trigger('click')
+    await wrapper.get('[data-testid="task-rows"] .action-pill-btn').trigger('click')
     await flushPromises()
 
     expect(draftFollowUp).toHaveBeenCalledWith(task)
@@ -167,14 +156,14 @@ describe('AIInboxView (AI Today)', () => {
     const completeTask = vi.spyOn(store, 'completeTask').mockResolvedValue({ ok: true })
 
     const wrapper = mountView()
-    expect(wrapper.get('.ai-greeting').text()).toContain('6 to-dos')
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 to-dos')
 
-    await wrapper.get('[data-testid="todoist-rows"] .todo-check-btn').trigger('click')
+    await wrapper.get('[data-testid="task-rows"] .todo-check-btn').trigger('click')
     await flushPromises()
 
     expect(completeTask).toHaveBeenCalledWith('task-1')
-    expect(wrapper.find('[data-testid="todoist-rows"]').exists()).toBe(false)
-    expect(wrapper.get('.ai-greeting').text()).toContain('5 to-dos')
+    expect(rowsOf(wrapper)).toHaveLength(0)
+    expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
   it('rolls a Todoist task back into the list when completion fails', async () => {
@@ -185,12 +174,39 @@ describe('AIInboxView (AI Today)', () => {
     const notify = vi.spyOn(store, 'notify')
 
     const wrapper = mountView()
-    await wrapper.get('[data-testid="todoist-rows"] .todo-check-btn').trigger('click')
+    await wrapper.get('[data-testid="task-rows"] .todo-check-btn').trigger('click')
     await flushPromises()
 
     // The row returns and the counter is restored.
-    expect(wrapper.get('[data-testid="todoist-rows"]').findAll('.todo-row')).toHaveLength(1)
-    expect(wrapper.get('.ai-greeting').text()).toContain('6 to-dos')
+    expect(rowsOf(wrapper)).toHaveLength(1)
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 to-dos')
     expect(notify).toHaveBeenCalledWith('Failed to mark task done.', 'error')
+  })
+
+  it('reports how stale the gathered set is and re-reads past the cache', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    store.tasks = [
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        url: null,
+        gathered_at: twoHoursAgo,
+      },
+    ]
+    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
+
+    const wrapper = mountView()
+    expect(wrapper.get('.status-time').text()).toBe('Updated 2h ago')
+
+    await wrapper.get('.ai-update-status').trigger('click')
+    await flushPromises()
+
+    expect(loadTasks).toHaveBeenCalledWith({ force: true })
+  })
+
+  it('falls back when no task carries a gathered_at', () => {
+    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+    expect(mountView().get('.status-time').text()).toBe('Not gathered yet')
   })
 })

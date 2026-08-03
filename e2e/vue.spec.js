@@ -205,26 +205,22 @@ test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog'
   )
 })
 
-test('The root path shows the AI Today digest of suggested to-dos and topics', async ({ page }) => {
+test('The root path shows the AI Today digest of gathered to-dos and topics', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
-  // Five mock to-dos plus two Todoist tasks and one email follow-up.
-  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('8 to-dos')
+  // Two Todoist tasks and one email follow-up, all really gathered.
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('3 to-dos')
 
   // Sidebar labels this view "AI Today".
   await expect(page.locator('.nav-item', { hasText: 'AI Today' })).toBeVisible()
 
-  // Three mock to-dos are shown, with the rest behind "Show 2 more".
-  const todos = page.getByTestId('todo-rows')
-  await expect(todos.locator('.todo-row')).toHaveCount(3)
-  await expect(todos).toContainText('Kitchen Renovation')
-  await page.locator('.show-more-btn', { hasText: 'Show 2 more' }).click()
-  await expect(todos.locator('.todo-row')).toHaveCount(5)
+  // Staleness comes from the newest gathered_at, not a hardcoded string.
+  await expect(page.locator('.status-time')).toHaveText('Updated 3h ago')
 
-  // Real Todoist tasks are appended below, with a bold title and description.
-  const todoist = page.getByTestId('todoist-rows')
-  await expect(todoist.locator('.todo-row')).toHaveCount(2)
-  const firstTask = todoist.locator('.todo-row').first()
+  // One list, ordered as the API returned it, with a bold title and description.
+  const todos = page.getByTestId('task-rows')
+  await expect(todos.locator('.todo-row')).toHaveCount(3)
+  const firstTask = todos.locator('.todo-row').first()
   await expect(firstTask.locator('strong')).toHaveText('Renew car insurance')
   await expect(firstTask).toContainText('Renew car insurance – Policy lapses on Friday')
   await expect(firstTask).toContainText('From: Todoist')
@@ -234,8 +230,8 @@ test('The root path shows the AI Today digest of suggested to-dos and topics', a
   )
 
   // Email action items offer a one-click, editable follow-up draft.
-  const emailTask = page.getByTestId('email-task-rows').locator('.todo-row').first()
-  await expect(emailTask).toContainText('Confirm the revised floor plan')
+  const emailTask = todos.locator('.todo-row', { hasText: 'Confirm the revised floor plan' })
+  await expect(emailTask).toContainText('From: Email')
   await emailTask.locator('.action-pill-btn', { hasText: 'Draft' }).click()
   const composer = page.locator('#composerToast')
   await expect(composer).toHaveClass(/active/)
@@ -264,17 +260,17 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
   })
 
   await page.goto('/')
-  const todoist = page.getByTestId('todoist-rows')
-  const firstTask = todoist.locator('.todo-row').first()
+  const todos = page.getByTestId('task-rows')
+  const firstTask = todos.locator('.todo-row').first()
   await expect(firstTask.locator('strong')).toHaveText('Renew car insurance')
-  await expect(todoist.locator('.todo-row')).toHaveCount(2)
+  await expect(todos.locator('.todo-row')).toHaveCount(3)
 
   // Clicking the leading checkbox completes the task.
   await firstTask.locator('.todo-check-btn').click()
 
-  await expect(todoist.locator('.todo-row')).toHaveCount(1)
+  await expect(todos.locator('.todo-row')).toHaveCount(2)
   await expect(page.locator('.toast', { hasText: 'Marked "Renew car insurance" done.' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('7 to-dos')
+  await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('2 to-dos')
   expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
 })
 
