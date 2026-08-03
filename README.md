@@ -29,6 +29,10 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Debounced keyword and semantic search over stored mail, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
+- AI Today: gathered to-dos (Todoist tasks due today plus action items extracted
+  from important mail) and a nightly digest grouping unread mail into topics to
+  catch up on. Both are produced by the `data-enricher` Worker in Cookie-Worker
+  and read through `/api/tasks`.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
 - Per-label auto-tag controls and conservative spam classification.
 - Outbound delivery through Resend with stored sent copies.

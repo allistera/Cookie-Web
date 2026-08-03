@@ -1975,4 +1975,55 @@ describe('Inbox Store', () => {
     expect(store.unreadInboxCount).toBe(1)
     expect(store.toasts.at(-1)).toMatchObject({ message: 'Failed to schedule email.', kind: 'error' })
   })
+
+  describe('markTopicRead', () => {
+    const topic = () => ({
+      title: 'Kitchen',
+      items: [
+        { message_id: 'msg-1', unread: true },
+        { message_id: 'msg-2', unread: false },
+        { message_id: 'msg-3', unread: true },
+      ],
+    })
+
+    it('marks only the unread messages, clearing dots, rows and the badge', async () => {
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', unread: true }]
+      store.unreadInboxCount = 5
+      const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+
+      const subject = topic()
+      await expect(store.markTopicRead(subject)).resolves.toBe(2)
+
+      // The already-read message is left alone.
+      expect(updateMessage.mock.calls.map(([id]) => id)).toEqual(['msg-1', 'msg-3'])
+      expect(updateMessage).toHaveBeenCalledWith('msg-1', { is_unread: false })
+      expect(subject.items.map((i) => i.unread)).toEqual([false, false, false])
+      expect(store.traditionalEmails[0].unread).toBe(false)
+      expect(store.unreadInboxCount).toBe(3)
+    })
+
+    it('keeps the dot and the count for a message that failed to update', async () => {
+      const store = useInboxStore()
+      store.unreadInboxCount = 5
+      vi.spyOn(store, 'updateMessage').mockImplementation(async (id) => {
+        if (id === 'msg-3') throw new Error('boom')
+        return { ok: true }
+      })
+
+      const subject = topic()
+      await expect(store.markTopicRead(subject)).resolves.toBe(1)
+
+      expect(subject.items.map((i) => i.unread)).toEqual([false, false, true])
+      expect(store.unreadInboxCount).toBe(4)
+    })
+
+    it('does nothing when the topic has nothing unread', async () => {
+      const store = useInboxStore()
+      const updateMessage = vi.spyOn(store, 'updateMessage')
+      await expect(store.markTopicRead({ items: [{ message_id: 'msg-1', unread: false }] })).resolves.toBe(0)
+      expect(updateMessage).not.toHaveBeenCalled()
+    })
+  })
+
 })

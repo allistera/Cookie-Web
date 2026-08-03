@@ -272,6 +272,10 @@ export const useInboxStore = defineStore('inbox', {
     tasks: [],
     tasksLoaded: false,
 
+    // AI Today's "Topics to catch up on": the newest digest the enricher
+    // wrote, { overview, created_at, topics } or null. Arrives with tasks.
+    digest: null,
+
     // Toast notifications
     toasts: [],
     nextToastId: 1,
@@ -1346,12 +1350,40 @@ export const useInboxStore = defineStore('inbox', {
         const headers = await this.authHeaders()
         const response = await fetch('/api/tasks', { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
-        const { tasks } = await response.json()
+        const { tasks, digest } = await response.json()
         this.tasks = tasks
+        this.digest = digest ?? null
         this.tasksLoaded = true
       } catch (error) {
         console.error('Failed to load tasks:', error)
       }
+    },
+
+    // Marks every still-unread message in one digest topic as read, clearing
+    // its dots in place. Goes through updateMessage rather than setUnread
+    // because the digest cites messages by id whether or not the inbox list
+    // has loaded them, and because awaiting each write gives an accurate count
+    // to report back. Settled per message, so one failure does not abandon the
+    // rest.
+    async markTopicRead(topic) {
+      const unread = (topic?.items || []).filter((item) => item.unread)
+      if (unread.length === 0) return 0
+      const results = await Promise.allSettled(
+        unread.map((item) => this.updateMessage(item.message_id, { is_unread: false })),
+      )
+      let marked = 0
+      results.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return
+        marked += 1
+        const { message_id: id } = unread[index]
+        unread[index].unread = false
+        const email = this.traditionalEmails.find((e) => e.id === id)
+        if (email) email.unread = false
+      })
+      // A digest only ever cites unread inbox mail, so each success is one
+      // fewer unread in the inbox badge.
+      this.unreadInboxCount = Math.max(0, this.unreadInboxCount - marked)
+      return marked
     },
 
     // Marks a gathered task done (POST /api/tasks). Todoist tasks are closed in

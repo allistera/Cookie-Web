@@ -24,6 +24,70 @@ export function fetchTasks(sql, email) {
   `
 }
 
+// The newest daily digest ("topics to catch up on"), written by the
+// data-enricher Worker. Digest rows are the ones carrying no message_id.
+export function fetchDigest(sql, email) {
+  return sql`
+    SELECT s.summary, s.raw, s.created_at
+    FROM summaries s
+    JOIN users u ON u.id = s.user_id
+    WHERE lower(u.email) = ${email}
+      AND s.kind = 'daily_digest'
+      AND s.message_id IS NULL
+    ORDER BY s.created_at DESC
+    LIMIT 1
+  `
+}
+
+// Live state for the messages a digest cites. The digest is a snapshot from
+// the overnight run, so by the time it is read some of its mail may have been
+// read, archived or deleted.
+export function fetchMessageStates(sql, email, ids) {
+  return sql`
+    SELECT m.id, m.is_unread
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    WHERE lower(u.email) = ${email}
+      AND m.id = ANY(${ids}::uuid[])
+      AND NOT m.is_deleted
+      AND NOT m.is_archived
+  `
+}
+
+// Message ids the stored digest cites, in citation order. Written by a model,
+// so anything that is not a plain uuid is discarded rather than reaching a
+// ::uuid[] cast.
+export function digestMessageIds(row) {
+  const topics = Array.isArray(row?.raw?.topics) ? row.raw.topics : []
+  const ids = topics.flatMap((topic) =>
+    (Array.isArray(topic?.items) ? topic.items : []).map((item) => item?.message_id),
+  )
+  return [...new Set(ids.filter((id) => typeof id === 'string' && UUID_RE.test(id)))]
+}
+
+// Fold live message state into the stored digest: drop items whose message is
+// gone from the mailbox, drop topics that empties, and mark what is still
+// unread so the card never shows a dot for mail already read.
+export function buildDigest(row, states) {
+  if (!row) return null
+  const unreadById = new Map(states.map((state) => [state.id, state.is_unread]))
+  const topics = []
+  for (const topic of Array.isArray(row.raw?.topics) ? row.raw.topics : []) {
+    const items = (Array.isArray(topic?.items) ? topic.items : [])
+      .filter((item) => unreadById.has(item?.message_id))
+      .map((item) => ({
+        message_id: item.message_id,
+        headline: String(item.headline ?? ''),
+        note: String(item.note ?? ''),
+        unread: unreadById.get(item.message_id),
+      }))
+    if (items.length > 0) {
+      topics.push({ emoji: String(topic.emoji ?? ''), title: String(topic.title ?? ''), items })
+    }
+  }
+  return { overview: row.summary ?? '', created_at: row.created_at, topics }
+}
+
 // One gathered task owned by the caller, returning what completion needs.
 export function fetchOwnedTask(sql, id, email) {
   return sql`
@@ -124,8 +188,10 @@ async function handlePost(req, res, email) {
 }
 
 // GET /api/tasks — { tasks: [{ id, source, content, description, due_date,
-// priority, url, message_id, gathered_at, reply_to, message_subject }] } for
-// the AI dashboard. POST completes a task.
+// priority, url, message_id, gathered_at, reply_to, message_subject }],
+// digest: { overview, created_at, topics } | null } for the AI dashboard.
+// Both halves are returned together because AI Today always renders both.
+// POST completes a task.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
@@ -150,9 +216,14 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql()
-    const tasks = await fetchTasks(sql, email)
+    const [tasks, [digestRow]] = await Promise.all([
+      fetchTasks(sql, email),
+      fetchDigest(sql, email),
+    ])
+    const ids = digestMessageIds(digestRow)
+    const states = ids.length ? await fetchMessageStates(sql, email, ids) : []
     res.statusCode = 200
-    res.end(JSON.stringify({ tasks }))
+    res.end(JSON.stringify({ tasks, digest: buildDigest(digestRow, states) }))
   } catch (err) {
     console.error('GET /api/tasks failed:', err)
     await captureApiError(err, { route: 'GET /api/tasks' })

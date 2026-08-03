@@ -42,6 +42,7 @@ function makeRes() {
 }
 
 const TASK_ID = '11111111-1111-1111-1111-111111111111'
+const MESSAGE_ID = '22222222-2222-4222-8222-222222222222'
 
 function req(method, body) {
   return { method, url: '/api/tasks', headers: {}, body }
@@ -68,6 +69,55 @@ describe('GET /api/tasks', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body.tasks).toHaveLength(1)
     expect(statements[0]).toContain('lower(u.email) = ?')
+  })
+
+  it('returns a null digest when the enricher has not written one', async () => {
+    sqlQueue = [[], []]
+    const res = makeRes()
+
+    await handler(req('GET'), res)
+
+    expect(res.body.digest).toBeNull()
+    // No cited ids, so no read-state round trip.
+    expect(statements).toHaveLength(2)
+  })
+
+  it('returns the digest with live read-state alongside the tasks', async () => {
+    sqlQueue = [
+      [], // fetchTasks
+      [
+        {
+          summary: 'Mostly kitchen news.',
+          created_at: '2026-08-03T05:00:00.000Z',
+          raw: {
+            topics: [
+              {
+                emoji: '🍳',
+                title: 'Kitchen',
+                items: [
+                  { message_id: MESSAGE_ID, headline: 'Floor plan', note: 'Revised design.' },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      [{ id: MESSAGE_ID, is_unread: true }], // fetchMessageStates
+    ]
+    const res = makeRes()
+
+    await handler(req('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(statements[1]).toContain("s.kind = 'daily_digest'")
+    expect(statements[2]).toContain('m.is_unread')
+    expect(res.body.digest.topics).toHaveLength(1)
+    expect(res.body.digest.topics[0].items[0]).toEqual({
+      message_id: MESSAGE_ID,
+      headline: 'Floor plan',
+      note: 'Revised design.',
+      unread: true,
+    })
   })
 })
 

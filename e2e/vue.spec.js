@@ -241,9 +241,38 @@ test('The root path shows the AI Today digest of gathered to-dos and topics', as
   )
   await expect(composer.locator('.composer-editor')).toContainText('A reviewable AI-generated draft.')
 
-  // Four catch-up topics are listed.
-  await expect(page.locator('.topic-title')).toHaveCount(4)
-  await expect(page.locator('.topic-title').first()).toContainText('Kitchen Renovation')
+  // Topics come from the stored digest, with a dot only on unread mail.
+  await expect(page.locator('.topic-title')).toHaveCount(2)
+  const kitchen = page.locator('.topic-section').first()
+  await expect(kitchen.locator('.topic-title')).toContainText('🍳 Kitchen Renovation')
+  await expect(kitchen).toContainText('Revised Floor Plan – City Construction reworked')
+  await expect(kitchen.locator('.topic-meta')).toContainText('2 sources')
+  await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
+})
+
+test('Marking a digest topic read clears its unread dots', async ({ page }) => {
+  const reads = []
+  await page.route('**/api/messages', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      reads.push(route.request().postDataJSON())
+      await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  const kitchen = page.locator('.topic-section').first()
+  await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
+
+  await kitchen.locator('.topic-action-btn', { hasText: 'Mark all emails as read' }).click()
+
+  await expect(kitchen.locator('.unread-dot')).toHaveCount(0)
+  await expect(page.locator('.toast', { hasText: 'Marked 1 email read.' })).toBeVisible()
+  // Only the still-unread message is written back.
+  expect(reads).toEqual([{ id: 'fixture-1', is_unread: false }])
+  // With nothing left unread the action retires itself.
+  await expect(kitchen.locator('.topic-action-btn')).toHaveCount(0)
 })
 
 test('Marking a Todoist task done removes it from AI Today and confirms with a toast', async ({

@@ -6,12 +6,13 @@ import { useInboxStore } from '../stores/inbox'
 const store = useInboxStore()
 const { user } = useAuth()
 
-// "AI Today" lists what the data-enricher Worker gathered overnight into
-// public.tasks: Todoist tasks due today, plus action items it extracted from
-// important mail. The "Topics to catch up on" card below is still a design
-// mock. Completing a task hides it immediately, then persists via the store
-// (which closes it in Todoist); a failure rolls the row back.
-const topicCount = 4
+// "AI Today" shows what the data-enricher Worker gathered overnight: tasks
+// (Todoist tasks due today plus action items extracted from important mail)
+// and a digest clustering the unread inbox into topics. Completing a task
+// hides it immediately, then persists via the store (which closes it in
+// Todoist); a failure rolls the row back.
+const topics = computed(() => store.digest?.topics ?? [])
+const topicCount = computed(() => topics.value.length)
 
 const completingTaskIds = ref(new Set())
 // The API already orders these most-pressing first (soonest due, then highest
@@ -31,6 +32,29 @@ async function completeTask(task) {
     next.delete(task.id)
     completingTaskIds.value = next
     store.notify('Failed to mark task done.', 'error')
+  }
+}
+
+const markingTopic = ref(null)
+
+function unreadCount(topic) {
+  return topic.items.filter((item) => item.unread).length
+}
+
+async function markTopicRead(topic) {
+  if (markingTopic.value) return
+  markingTopic.value = topic.title
+  const wanted = unreadCount(topic)
+  try {
+    const marked = await store.markTopicRead(topic)
+    if (marked < wanted) {
+      // The dots still showing are the ones that failed.
+      store.notify('Some emails could not be marked read.', 'error')
+    } else {
+      store.notify(`Marked ${marked} ${marked === 1 ? 'email' : 'emails'} read.`)
+    }
+  } finally {
+    markingTopic.value = null
   }
 }
 
@@ -174,163 +198,43 @@ onMounted(async () => {
           <h2>Topics to catch up on</h2>
         </div>
 
-        <div class="topics-container">
-          <!-- Kitchen Renovation -->
-          <div class="topic-section">
+        <div v-if="topics.length" class="topics-container" data-testid="topic-sections">
+          <div v-for="topic in topics" :key="topic.title" class="topic-section">
             <div class="topic-title-row">
-              <h3 class="topic-title">🍳 Kitchen Renovation</h3>
+              <h3 class="topic-title">{{ topic.emoji }} {{ topic.title }}</h3>
               <button class="icon-btn" title="More options">
                 <span class="material-symbols-outlined">more_vert</span>
               </button>
             </div>
             <div class="topic-emails">
-              <div class="topic-email-row">
+              <div v-for="item in topic.items" :key="item.message_id" class="topic-email-row">
                 <p>
-                  <strong>Revised Floor Plan</strong> – City Construction sent a revised design this
-                  morning that takes into account the desire to redo the bay window, so you can get
-                  more natural light in your kitchen. From:
+                  <strong>{{ item.headline }}</strong> – {{ item.note }} From:
                   <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-              <div class="topic-email-row">
-                <p>
-                  <strong>Insurance Claim Processed</strong> – Your homeowner's insurance carrier has
-                  processed your claim and you should expect to hear back in one week. From:
-                  <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
+                  <span v-if="item.unread" class="unread-dot"></span>
                 </p>
               </div>
             </div>
             <div class="topic-footer">
               <div class="topic-meta">
                 <span class="material-symbols-outlined font-sm">link</span>
-                <span>2 sources</span>
+                <span>{{ topic.items.length }} {{ topic.items.length === 1 ? 'source' : 'sources' }}</span>
               </div>
-              <button class="topic-action-btn">Mark all emails as read</button>
-            </div>
-          </div>
-
-          <!-- College Search -->
-          <div class="topic-section">
-            <div class="topic-title-row">
-              <h3 class="topic-title">🎓 College Search</h3>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
+              <button
+                v-if="unreadCount(topic)"
+                class="topic-action-btn"
+                :disabled="markingTopic === topic.title"
+                @click="markTopicRead(topic)"
+              >
+                Mark all emails as read
               </button>
-            </div>
-            <div class="topic-emails">
-              <div class="topic-email-row">
-                <p>
-                  <strong>New Application Dates</strong> – Lincoln High shared new FAFSA deadlines,
-                  which shifted from last year. From:
-                  <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-              <div class="topic-email-row">
-                <p>
-                  <strong>Webinar Recording Available</strong> – The "College Prep 101" webinar
-                  recording was shared and provides valuable application information. From:
-                  <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-              <div class="topic-email-row">
-                <p>
-                  <strong>Scholarship for the Arts</strong> – The Lincoln High college counselor
-                  mentioned that your daughter might qualify for this specific aid package. From:
-                  <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-            </div>
-            <div class="topic-footer">
-              <div class="topic-meta">
-                <span class="material-symbols-outlined font-sm">link</span>
-                <span>3 sources</span>
-              </div>
-              <button class="topic-action-btn">Mark all emails as read</button>
-            </div>
-          </div>
-
-          <!-- Soccer Spring Season -->
-          <div class="topic-section">
-            <div class="topic-title-row">
-              <h3 class="topic-title">⚽ Soccer Spring Season</h3>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
-              </button>
-            </div>
-            <div class="topic-emails">
-              <div class="topic-email-row">
-                <p>
-                  <strong>Practice Location Moved</strong> – The U10 team scrimmage has moved to West
-                  Side Park for the rest of the month due to field maintenance. From:
-                  <span class="email-link">Email</span>
-                  •
-                  <span class="email-link">Doc</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-              <div class="topic-email-row">
-                <p>
-                  <strong>Team Pizza Party</strong> – Parents are debating if this should be held
-                  before or after semifinals. From:
-                  <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-            </div>
-            <div class="topic-footer">
-              <div class="topic-meta">
-                <span class="material-symbols-outlined font-sm">link</span>
-                <span>2 sources</span>
-              </div>
-              <button class="topic-action-btn">Mark all emails as read</button>
-            </div>
-          </div>
-
-          <!-- More Updates -->
-          <div class="topic-section">
-            <div class="topic-title-row">
-              <h3 class="topic-title">📣 More Updates</h3>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
-              </button>
-            </div>
-            <div class="topic-emails">
-              <div class="topic-email-row">
-                <p>
-                  <strong>Chicago Summer Trip</strong> – Your room at the Palm House was upgraded from
-                  Standard to Deluxe. From: <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-              <div class="topic-email-row">
-                <p>
-                  <strong>Resale Marketplace Sale</strong> – You sold the baby winter coat bundle for
-                  $15. Please contact buyer within 3 days. From:
-                  <span class="email-link">Email</span> <span class="unread-dot"></span>
-                </p>
-              </div>
-              <div class="topic-email-row">
-                <p>
-                  <strong>Resale Marketplace Inquiry</strong> – A buyer asked if the toddler shoe lot
-                  is still available. From: <span class="email-link">Email</span>
-                  <span class="unread-dot"></span>
-                </p>
-              </div>
-            </div>
-            <div class="topic-footer">
-              <div class="topic-meta">
-                <span class="material-symbols-outlined font-sm">link</span>
-                <span>3 sources</span>
-              </div>
-              <button class="topic-action-btn">Mark all emails as read</button>
             </div>
           </div>
         </div>
+
+        <p v-else class="topic-empty" data-testid="topics-empty">
+          No topics yet. The overnight run groups unread mail into topics to catch up on.
+        </p>
       </section>
     </div>
   </div>
@@ -375,7 +279,8 @@ onMounted(async () => {
   }
 }
 
-.todo-empty {
+.todo-empty,
+.topic-empty {
   padding: 16px;
   margin: 0;
   font-size: 13px;

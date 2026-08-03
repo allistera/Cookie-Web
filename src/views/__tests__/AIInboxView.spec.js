@@ -17,6 +17,32 @@ function rowsOf(wrapper) {
   return wrapper.get('[data-testid="task-rows"]').findAll('.todo-row')
 }
 
+// A fresh copy per test: marking a topic read mutates its items in place.
+const DIGEST = () => ({
+  overview: 'Mostly kitchen news.',
+  created_at: '2026-08-03T05:00:00.000Z',
+  topics: [
+    {
+      emoji: '🍳',
+      title: 'Kitchen Renovation',
+      items: [
+        {
+          message_id: 'msg-1',
+          headline: 'Floor plan',
+          note: 'Revised design for the bay window.',
+          unread: true,
+        },
+        { message_id: 'msg-2', headline: 'Claim', note: 'Processed.', unread: false },
+      ],
+    },
+    {
+      emoji: '⚽',
+      title: 'Soccer',
+      items: [{ message_id: 'msg-3', headline: 'Practice moved', note: 'West Side Park.', unread: false }],
+    },
+  ],
+})
+
 describe('AIInboxView (AI Today)', () => {
   let store
 
@@ -26,16 +52,18 @@ describe('AIInboxView (AI Today)', () => {
     // Short-circuit onMounted's loadTasks() so it never hits the network.
     store.tasksLoaded = true
     store.tasks = []
+    store.digest = null
   })
 
   it('greets the signed-in user by first name with the counters', () => {
     store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+    store.digest = DIGEST()
 
     const greeting = mountView().get('.ai-greeting').text()
     expect(greeting).toContain('Hi Allister')
     expect(greeting).not.toContain('Antosik')
     expect(greeting).toContain('1 to-dos')
-    expect(greeting).toContain('4 topics')
+    expect(greeting).toContain('2 topics')
   })
 
   it('shows an empty state and a zero count when nothing was gathered', () => {
@@ -45,14 +73,62 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
-  it('renders the four catch-up topics', () => {
+  it('renders the digest topics with a source count and unread dots', () => {
+    store.digest = DIGEST()
     const wrapper = mountView()
+
     const titles = wrapper.findAll('.topic-title').map((t) => t.text())
-    expect(titles).toHaveLength(4)
-    expect(titles[0]).toContain('Kitchen Renovation')
-    expect(titles[1]).toContain('College Search')
-    expect(titles[2]).toContain('Soccer Spring Season')
-    expect(titles[3]).toContain('More Updates')
+    expect(titles).toEqual(['🍳 Kitchen Renovation', '⚽ Soccer'])
+    expect(wrapper.get('.ai-greeting').text()).toContain('2 topics')
+
+    const kitchen = wrapper.findAll('.topic-section')[0]
+    expect(kitchen.text()).toContain('Floor plan – Revised design for the bay window.')
+    expect(kitchen.get('.topic-meta').text()).toContain('2 sources')
+    // Only the still-unread message keeps a dot.
+    expect(kitchen.findAll('.unread-dot')).toHaveLength(1)
+
+    // A topic with nothing left unread offers no "mark all read".
+    const soccer = wrapper.findAll('.topic-section')[1]
+    expect(soccer.get('.topic-meta').text()).toContain('1 source')
+    expect(soccer.find('.topic-action-btn').exists()).toBe(false)
+  })
+
+  it('shows an empty state when no digest has been written', () => {
+    const wrapper = mountView()
+    expect(wrapper.find('[data-testid="topic-sections"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="topics-empty"]').text()).toContain('No topics yet')
+    expect(wrapper.get('.ai-greeting').text()).toContain('0 topics')
+  })
+
+  it('marks a topic read, clearing its dots and confirming with a toast', async () => {
+    store.digest = DIGEST()
+    const markTopicRead = vi.spyOn(store, 'markTopicRead').mockImplementation(async (topic) => {
+      topic.items.forEach((item) => {
+        item.unread = false
+      })
+      return 1
+    })
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
+    await flushPromises()
+
+    expect(markTopicRead).toHaveBeenCalledWith(store.digest.topics[0])
+    expect(notify).toHaveBeenCalledWith('Marked 1 email read.')
+    expect(wrapper.findAll('.topic-section')[0].findAll('.unread-dot')).toHaveLength(0)
+  })
+
+  it('reports when some of a topic could not be marked read', async () => {
+    store.digest = DIGEST()
+    vi.spyOn(store, 'markTopicRead').mockResolvedValue(0)
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith('Some emails could not be marked read.', 'error')
   })
 
   it('renders gathered tasks in API order with source-appropriate actions', () => {

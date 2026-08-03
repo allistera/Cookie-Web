@@ -1,6 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchTasks, fetchOwnedTask, deleteOwnedTask, closeTodoistTask } from '../tasks.js'
+import {
+  fetchTasks,
+  fetchOwnedTask,
+  deleteOwnedTask,
+  closeTodoistTask,
+  fetchDigest,
+  fetchMessageStates,
+  digestMessageIds,
+  buildDigest,
+} from '../tasks.js'
+
+const ID_A = '11111111-1111-4111-8111-111111111111'
+const ID_B = '22222222-2222-4222-8222-222222222222'
+const ID_C = '33333333-3333-4333-8333-333333333333'
+
+function digestRow(topics, summary = 'Mostly kitchen news.') {
+  return { summary, raw: { topics }, created_at: '2026-08-03T05:00:00.000Z' }
+}
 
 describe('fetchTasks', () => {
   it('reads the tasks table scoped to the user, most-pressing first', () => {
@@ -20,6 +37,116 @@ describe('fetchTasks', () => {
     expect(query).toContain('m.from_address AS reply_to')
     expect(query).toContain('m.subject AS message_subject')
     expect(query).toContain('ORDER BY t.due_date ASC NULLS LAST, t.priority DESC NULLS LAST')
+    expect(query).toContain('t.gathered_at')
+  })
+})
+
+describe('fetchDigest', () => {
+  it('reads the newest digest row for the user', () => {
+    let query = ''
+    const sql = (strings) => {
+      query = strings.join('?')
+      return []
+    }
+
+    fetchDigest(sql, 'owner@example.com')
+
+    expect(query).toContain('FROM summaries s')
+    expect(query).toContain('JOIN users u ON u.id = s.user_id')
+    expect(query).toContain("s.kind = 'daily_digest'")
+    // Digest rows are the ones with no message; per-message summaries are not.
+    expect(query).toContain('s.message_id IS NULL')
+    expect(query).toContain('ORDER BY s.created_at DESC')
+    expect(query).toContain('LIMIT 1')
+  })
+})
+
+describe('fetchMessageStates', () => {
+  it('reads live read-state, excluding deleted and archived mail', () => {
+    let query = ''
+    const values = []
+    const sql = (strings, ...vals) => {
+      query = strings.join('?')
+      values.push(...vals)
+      return []
+    }
+
+    fetchMessageStates(sql, 'owner@example.com', [ID_A])
+
+    expect(query).toContain('m.is_unread')
+    expect(query).toContain('WHERE lower(u.email) =')
+    expect(query).toContain('::uuid[]')
+    expect(query).toContain('NOT m.is_deleted')
+    expect(query).toContain('NOT m.is_archived')
+    expect(values).toEqual(['owner@example.com', [ID_A]])
+  })
+})
+
+describe('digestMessageIds', () => {
+  it('collects the cited ids without duplicates', () => {
+    const row = digestRow([
+      { items: [{ message_id: ID_A }, { message_id: ID_B }] },
+      { items: [{ message_id: ID_A }, { message_id: ID_C }] },
+    ])
+    expect(digestMessageIds(row)).toEqual([ID_A, ID_B, ID_C])
+  })
+
+  // The ids are model output, so they must never reach a ::uuid[] cast unchecked.
+  it('discards anything that is not a uuid', () => {
+    const row = digestRow([
+      { items: [{ message_id: ID_A }, { message_id: "'); DROP TABLE messages;--" }] },
+      { items: [{ message_id: null }, { message_id: 42 }, {}] },
+    ])
+    expect(digestMessageIds(row)).toEqual([ID_A])
+  })
+
+  it('returns nothing for a missing or malformed row', () => {
+    expect(digestMessageIds(undefined)).toEqual([])
+    expect(digestMessageIds({ raw: null })).toEqual([])
+    expect(digestMessageIds({ raw: { topics: 'nope' } })).toEqual([])
+  })
+})
+
+describe('buildDigest', () => {
+  it('folds live read-state into the stored digest', () => {
+    const row = digestRow([
+      {
+        emoji: '🍳',
+        title: 'Kitchen',
+        items: [
+          { message_id: ID_A, headline: 'Floor plan', note: 'Revised design.' },
+          { message_id: ID_B, headline: 'Claim', note: 'Processed.' },
+        ],
+      },
+    ])
+    const digest = buildDigest(row, [
+      { id: ID_A, is_unread: true },
+      { id: ID_B, is_unread: false },
+    ])
+
+    expect(digest.overview).toBe('Mostly kitchen news.')
+    expect(digest.created_at).toBe('2026-08-03T05:00:00.000Z')
+    expect(digest.topics[0].items).toEqual([
+      { message_id: ID_A, headline: 'Floor plan', note: 'Revised design.', unread: true },
+      { message_id: ID_B, headline: 'Claim', note: 'Processed.', unread: false },
+    ])
+  })
+
+  // The digest is an overnight snapshot; mail can be trashed or archived since.
+  it('drops items whose message left the mailbox, and topics that empties', () => {
+    const row = digestRow([
+      { emoji: '🍳', title: 'Kitchen', items: [{ message_id: ID_A }, { message_id: ID_B }] },
+      { emoji: '📣', title: 'Gone', items: [{ message_id: ID_C }] },
+    ])
+    const digest = buildDigest(row, [{ id: ID_A, is_unread: true }])
+
+    expect(digest.topics).toHaveLength(1)
+    expect(digest.topics[0].title).toBe('Kitchen')
+    expect(digest.topics[0].items.map((i) => i.message_id)).toEqual([ID_A])
+  })
+
+  it('is null when no digest has been written yet', () => {
+    expect(buildDigest(undefined, [])).toBeNull()
   })
 })
 
