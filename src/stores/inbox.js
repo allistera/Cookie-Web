@@ -1359,6 +1359,20 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    // Asks the enricher to rebuild AI Today's digest now, then re-reads it.
+    // Resolves to false when the deployment has no enricher wired up (501), so
+    // the caller can fall back to a plain re-read instead of showing an error.
+    // Throws on a real failure.
+    async rebuildDigest() {
+      const headers = await this.authHeaders()
+      const response = await fetch('/api/tasks?resource=refresh', { method: 'POST', headers })
+      if (response.status === 501) return false
+      if (!response.ok) {
+        throw new Error(`POST /api/tasks?resource=refresh responded ${response.status}`)
+      }
+      return true
+    },
+
     // Marks every still-unread message in one digest topic as read, clearing
     // its dots in place. Goes through updateMessage rather than setUnread
     // because the digest cites messages by id whether or not the inbox list

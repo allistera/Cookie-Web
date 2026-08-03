@@ -271,6 +271,7 @@ describe('AIInboxView (AI Today)', () => {
       },
     ]
     const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
+    const rebuildDigest = vi.spyOn(store, 'rebuildDigest').mockResolvedValue(true)
 
     const wrapper = mountView()
     expect(wrapper.get('.status-time').text()).toBe('Updated 2h ago')
@@ -278,6 +279,46 @@ describe('AIInboxView (AI Today)', () => {
     await wrapper.get('.ai-update-status').trigger('click')
     await flushPromises()
 
+    // Rebuild first so the re-read picks up mail that arrived since the cron.
+    expect(rebuildDigest).toHaveBeenCalled()
+    expect(loadTasks).toHaveBeenCalledWith({ force: true })
+    expect(rebuildDigest.mock.invocationCallOrder[0]).toBeLessThan(
+      loadTasks.mock.invocationCallOrder.at(-1),
+    )
+  })
+
+  it('still re-reads when the digest rebuild fails', async () => {
+    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
+    vi.spyOn(store, 'rebuildDigest').mockRejectedValue(new Error('boom'))
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    await wrapper.get('.ai-update-status').trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith(
+      'Could not rebuild the digest; showing the latest stored one.',
+      'error',
+    )
+    expect(loadTasks).toHaveBeenCalledWith({ force: true })
+  })
+
+  it('does not fire a second refresh while one is in flight', async () => {
+    let release
+    vi.spyOn(store, 'rebuildDigest').mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
+
+    const wrapper = mountView()
+    await wrapper.get('.ai-update-status').trigger('click')
+    await wrapper.get('.ai-update-status').trigger('click')
+    expect(store.rebuildDigest).toHaveBeenCalledTimes(1)
+
+    release(true)
+    await flushPromises()
     expect(loadTasks).toHaveBeenCalledWith({ force: true })
   })
 

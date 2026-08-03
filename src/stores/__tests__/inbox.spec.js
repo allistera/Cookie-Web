@@ -1976,6 +1976,36 @@ describe('Inbox Store', () => {
     expect(store.toasts.at(-1)).toMatchObject({ message: 'Failed to schedule email.', kind: 'error' })
   })
 
+  describe('rebuildDigest', () => {
+    it('asks the API to rebuild and reports success', async () => {
+      const store = useInboxStore()
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(store.rebuildDigest()).resolves.toBe(true)
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(url).toBe('/api/tasks?resource=refresh')
+      expect(init.method).toBe('POST')
+    })
+
+    // 501 means this deployment has no enricher wired up: a permanent state
+    // the caller handles by falling back, not an error to surface.
+    it('resolves false when refresh is not configured', async () => {
+      const store = useInboxStore()
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 501 }))
+
+      await expect(store.rebuildDigest()).resolves.toBe(false)
+    })
+
+    it('throws on a real failure', async () => {
+      const store = useInboxStore()
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }))
+
+      await expect(store.rebuildDigest()).rejects.toThrow('502')
+    })
+  })
+
   describe('markTopicRead', () => {
     const topic = () => ({
       title: 'Kitchen',

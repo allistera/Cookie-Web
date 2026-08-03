@@ -542,6 +542,13 @@ function localApiPlugin(mode) {
   const handleTasks = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
+      const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+      if (resource === 'refresh') {
+        // No enricher Worker locally: pretend the digest rebuild succeeded so
+        // the refresh control still exercises its real path.
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
       if (req.method === 'POST') {
         // Completing a task: pretend the Todoist close + row delete succeeded.
         res.end(JSON.stringify({ ok: true, closedInTodoist: true }))

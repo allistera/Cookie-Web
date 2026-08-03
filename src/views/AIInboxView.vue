@@ -98,9 +98,17 @@ const statusTime = computed(() => {
 
 const isRefreshing = ref(false)
 
+// Rebuild the digest first so refreshing surfaces mail that arrived since the
+// overnight run, then re-read. A deployment without the enricher wired up
+// still gets the plain re-read rather than an error.
 async function refresh() {
   if (isRefreshing.value) return
   isRefreshing.value = true
+  try {
+    await store.rebuildDigest()
+  } catch {
+    store.notify('Could not rebuild the digest; showing the latest stored one.', 'error')
+  }
   try {
     await store.loadTasks({ force: true })
     now.value = Date.now()

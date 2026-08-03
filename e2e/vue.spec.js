@@ -250,6 +250,30 @@ test('The root path shows the AI Today digest of gathered to-dos and topics', as
   await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
 })
 
+test('The AI Today refresh control rebuilds the digest, then re-reads it', async ({ page }) => {
+  const calls = []
+  await page.route('**/api/tasks*', async (route) => {
+    const url = route.request().url()
+    if (route.request().method() === 'POST' && url.includes('resource=refresh')) {
+      calls.push('rebuild')
+      await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
+      return
+    }
+    if (route.request().method() === 'GET') calls.push('read')
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await expect(page.locator('.status-time')).toHaveText('Updated 3h ago')
+  calls.length = 0
+
+  await page.locator('.ai-update-status').click()
+
+  // Rebuild first, then re-read, so fresh topics land in the same click.
+  await expect.poll(() => calls).toEqual(['rebuild', 'read'])
+  await expect(page.locator('.topic-title')).toHaveCount(2)
+})
+
 test('Marking a digest topic read clears its unread dots', async ({ page }) => {
   const reads = []
   await page.route('**/api/messages', async (route) => {

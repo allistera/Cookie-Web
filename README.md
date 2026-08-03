@@ -32,7 +32,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - AI Today: gathered to-dos (Todoist tasks due today plus action items extracted
   from important mail) and a nightly digest grouping unread mail into topics to
   catch up on. Both are produced by the `data-enricher` Worker in Cookie-Worker
-  and read through `/api/tasks`.
+  and read through `/api/tasks`. Refresh rebuilds the digest on demand when
+  `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` are set.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
 - Per-label auto-tag controls and conservative spam classification.
 - Outbound delivery through Resend with stored sent copies.
@@ -87,6 +88,8 @@ The main runtime variables are:
 | `TODOIST_API_TOKEN` | Optional. Lets AI Today close a Todoist task when it is marked done. Without it, "done" only clears the task from Cookie. |
 | `EMAIL_FROM` | Optional sender identity for outbound mail. |
 | `SCHEDULED_SEND_FLUSH_TOKEN` | Bearer secret authorizing `POST /api/send?resource=flush`. Shared with the `scheduled-send-flusher` Cloudflare Worker in Cookie-Worker, which is the only caller. |
+| `ENRICHER_RUN_URL` | Optional. The `data-enricher` Worker's `POST /run` URL. Lets AI Today's refresh rebuild the digest on demand; without it refresh only re-reads the stored one. |
+| `ENRICHER_TRIGGER_TOKEN` | Optional. Bearer secret sent to `ENRICHER_RUN_URL`; must match that Worker's `HTTP_TRIGGER_TOKEN`. |
 | `PUBLIC_APP_URL` | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted. |
 | `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |
 | `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID exposed to the browser. |

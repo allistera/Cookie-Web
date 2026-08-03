@@ -121,6 +121,40 @@ describe('GET /api/tasks', () => {
   })
 })
 
+describe('POST /api/tasks?resource=refresh', () => {
+  it('dispatches to the enricher trigger instead of task completion', async () => {
+    process.env.ENRICHER_RUN_URL = 'https://data-enricher.example.workers.dev/run'
+    process.env.ENRICHER_TRIGGER_TOKEN = 'trigger-secret'
+    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200 })
+    const res = makeRes()
+
+    await handler(
+      { method: 'POST', url: '/api/tasks?resource=refresh', headers: {} },
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ ok: true })
+    // The refresh path touches the Worker, never the database.
+    expect(statements).toHaveLength(0)
+    expect(fetch.mock.calls[0][0].toString()).toContain('phase=digest')
+
+    delete process.env.ENRICHER_RUN_URL
+    delete process.env.ENRICHER_TRIGGER_TOKEN
+  })
+
+  it('requires authentication like every other route', async () => {
+    const auth = await import('../_lib/auth.js')
+    auth.verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
+    const res = makeRes()
+
+    await handler({ method: 'POST', url: '/api/tasks?resource=refresh', headers: {} }, res)
+
+    expect(res.statusCode).toBe(401)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /api/tasks', () => {
   it('completes an email-sourced task without calling Todoist', async () => {
     sqlQueue = [

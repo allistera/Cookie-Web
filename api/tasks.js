@@ -4,6 +4,7 @@ import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
+import { handleRefresh } from './_lib/enricher.js'
 
 const RESULTS = 25
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -208,6 +209,10 @@ export default async function handler(req, res) {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
     return
+  }
+
+  if (new URL(req.url, 'http://localhost').searchParams.get('resource') === 'refresh') {
+    return handleRefresh(req, res, email)
   }
 
   if (req.method === 'POST') {
