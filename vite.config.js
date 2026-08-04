@@ -643,6 +643,50 @@ function localApiPlugin(mode) {
               },
             ],
           },
+          news: {
+            created_at: gatheredAt,
+            sections: [
+              {
+                emoji: '💻',
+                title: 'GitHub',
+                items: [
+                  {
+                    title: 'acme/rocket',
+                    url: 'https://github.com/acme/rocket',
+                    description: 'A tiny edge runtime.',
+                    note: 'Matches your interest in Cloudflare Workers.',
+                    meta: 'Rust · ★ 1200',
+                  },
+                ],
+              },
+              {
+                emoji: '🚀',
+                title: 'Product Hunt',
+                items: [
+                  {
+                    title: 'Hearth',
+                    url: 'https://www.producthunt.com/posts/hearth',
+                    description: 'Self-hosted dashboards without the yak-shaving.',
+                    note: 'You follow self-hosting.',
+                    meta: '▲ 340',
+                  },
+                ],
+              },
+              {
+                emoji: '📰',
+                title: 'UK headlines',
+                items: [
+                  {
+                    title: 'Rail strike talks resume',
+                    url: 'https://www.bbc.co.uk/news/uk-00000001',
+                    description: 'Unions and operators return to the table.',
+                    note: '',
+                    meta: '08:12',
+                  },
+                ],
+              },
+            ],
+          },
         }),
       )
       return

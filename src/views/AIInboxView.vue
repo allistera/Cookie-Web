@@ -13,6 +13,7 @@ const { user } = useAuth()
 // Todoist); a failure rolls the row back.
 const topics = computed(() => store.digest?.topics ?? [])
 const topicCount = computed(() => topics.value.length)
+const newsSections = computed(() => store.news?.sections ?? [])
 
 const completingTaskIds = ref(new Set())
 // The API already orders these most-pressing first (soonest due, then highest
@@ -244,6 +245,38 @@ onMounted(async () => {
           No topics yet. The overnight run groups unread mail into topics to catch up on.
         </p>
       </section>
+
+      <!-- TODAY'S NEWS -->
+      <section class="ai-card topics-card">
+        <div class="card-header">
+          <h2>Today's news</h2>
+        </div>
+
+        <div v-if="newsSections.length" class="topics-container" data-testid="news-sections">
+          <div v-for="section in newsSections" :key="section.title" class="topic-section">
+            <div class="topic-title-row">
+              <h3 class="topic-title">{{ section.emoji }} {{ section.title }}</h3>
+            </div>
+            <div class="topic-emails">
+              <div v-for="item in section.items" :key="item.url" class="topic-email-row">
+                <p>
+                  <a class="news-link" :href="item.url" target="_blank" rel="noopener noreferrer">
+                    {{ item.title }}
+                  </a>
+                  <template v-if="item.description"> – {{ item.description }}</template>
+                  <span v-if="item.note" class="news-note">{{ item.note }}</span>
+                  <span v-if="item.meta" class="news-meta">{{ item.meta }}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p v-else class="topic-empty" data-testid="news-empty">
+          No news yet. The overnight run gathers GitHub, Product Hunt and UK headlines — add topics
+          under Settings → Personalisation to have the first two picked for you.
+        </p>
+      </section>
     </div>
   </div>
 </template>
@@ -285,6 +318,31 @@ onMounted(async () => {
   .refreshing {
     animation: none;
   }
+}
+
+.news-link {
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.news-link:hover {
+  text-decoration: underline;
+}
+
+/* The model's reason this item is worth the reader's time. */
+.news-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.news-meta {
+  margin-left: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .todo-empty,

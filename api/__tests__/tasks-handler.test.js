@@ -71,15 +71,16 @@ describe('GET /api/tasks', () => {
     expect(statements[0]).toContain('lower(u.email) = ?')
   })
 
-  it('returns a null digest when the enricher has not written one', async () => {
-    sqlQueue = [[], []]
+  it('returns a null digest and news when the enricher has not written them', async () => {
+    sqlQueue = [[], [], []]
     const res = makeRes()
 
     await handler(req('GET'), res)
 
     expect(res.body.digest).toBeNull()
-    // No cited ids, so no read-state round trip.
-    expect(statements).toHaveLength(2)
+    expect(res.body.news).toBeNull()
+    // Tasks, digest, news — no cited ids, so no read-state round trip.
+    expect(statements).toHaveLength(3)
   })
 
   it('returns the digest with live read-state alongside the tasks', async () => {
@@ -102,6 +103,7 @@ describe('GET /api/tasks', () => {
           },
         },
       ],
+      [], // fetchLatestSummary('daily_news')
       [{ id: MESSAGE_ID, is_unread: true }], // fetchMessageStates
     ]
     const res = makeRes()
@@ -109,8 +111,8 @@ describe('GET /api/tasks', () => {
     await handler(req('GET'), res)
 
     expect(res.statusCode).toBe(200)
-    expect(statements[1]).toContain("s.kind = 'daily_digest'")
-    expect(statements[2]).toContain('m.is_unread')
+    expect(statements[1]).toContain('FROM summaries s')
+    expect(statements[3]).toContain('m.is_unread')
     expect(res.body.digest.topics).toHaveLength(1)
     expect(res.body.digest.topics[0].items[0]).toEqual({
       message_id: MESSAGE_ID,
@@ -118,6 +120,56 @@ describe('GET /api/tasks', () => {
       note: 'Revised design.',
       unread: true,
     })
+  })
+
+  it('returns the news round-up, dropping items without a usable link', async () => {
+    sqlQueue = [
+      [], // fetchTasks
+      [], // fetchLatestSummary('daily_digest')
+      [
+        {
+          summary: '',
+          created_at: '2026-08-04T05:00:00.000Z',
+          raw: {
+            sections: [
+              {
+                emoji: '💻',
+                title: 'GitHub',
+                items: [
+                  {
+                    title: 'acme/rocket',
+                    url: 'https://github.com/acme/rocket',
+                    description: 'Fast',
+                    note: 'Rust, like you asked for',
+                    meta: '★ 10',
+                  },
+                  // Model output reaches the browser as an href, so anything
+                  // that is not a real web link is dropped here.
+                  { title: 'Bad', url: 'javascript:alert(1)', description: '', note: '', meta: '' },
+                ],
+              },
+              { emoji: '🚀', title: 'Empty', items: [] },
+            ],
+          },
+        },
+      ],
+    ]
+    const res = makeRes()
+
+    await handler(req('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.news.created_at).toBe('2026-08-04T05:00:00.000Z')
+    expect(res.body.news.sections).toHaveLength(1)
+    expect(res.body.news.sections[0].items).toEqual([
+      {
+        title: 'acme/rocket',
+        url: 'https://github.com/acme/rocket',
+        description: 'Fast',
+        note: 'Rust, like you asked for',
+        meta: '★ 10',
+      },
+    ])
   })
 })
 
@@ -137,7 +189,7 @@ describe('POST /api/tasks?resource=refresh', () => {
     expect(res.body).toEqual({ ok: true })
     // The refresh path touches the Worker, never the database.
     expect(statements).toHaveLength(0)
-    expect(fetch.mock.calls[0][0].toString()).toContain('phase=digest')
+    expect(fetch.mock.calls[0][0].toString()).toContain('phase=today')
 
     delete process.env.ENRICHER_RUN_URL
     delete process.env.ENRICHER_TRIGGER_TOKEN

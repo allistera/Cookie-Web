@@ -39,11 +39,11 @@ afterEach(() => {
 })
 
 describe('triggerDigestRebuild', () => {
-  it('asks the Worker for the digest phase only, with the bearer secret', async () => {
+  it('asks the Worker for both AI Today cards, with the bearer secret', async () => {
     await triggerDigestRebuild()
 
     const [url, init] = fetch.mock.calls[0]
-    expect(url.toString()).toBe('https://data-enricher.example.workers.dev/run?phase=digest')
+    expect(url.toString()).toBe('https://data-enricher.example.workers.dev/run?phase=today')
     expect(init.method).toBe('POST')
     expect(init.headers.Authorization).toBe('Bearer trigger-secret')
   })

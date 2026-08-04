@@ -53,6 +53,7 @@ describe('AIInboxView (AI Today)', () => {
     store.tasksLoaded = true
     store.tasks = []
     store.digest = null
+    store.news = null
   })
 
   it('greets the signed-in user by first name with the counters', () => {
@@ -98,6 +99,55 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.find('[data-testid="topic-sections"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="topics-empty"]').text()).toContain('No topics yet')
     expect(wrapper.get('.ai-greeting').text()).toContain('0 topics')
+  })
+
+  it('renders the news round-up with links, notes and meta', () => {
+    store.news = {
+      created_at: '2026-08-04T05:00:00.000Z',
+      sections: [
+        {
+          emoji: '💻',
+          title: 'GitHub',
+          items: [
+            {
+              title: 'acme/rocket',
+              url: 'https://github.com/acme/rocket',
+              description: 'Fast things',
+              note: 'Rust, which you follow',
+              meta: 'Rust · ★ 1200',
+            },
+          ],
+        },
+        {
+          emoji: '📰',
+          title: 'UK headlines',
+          items: [
+            { title: 'Storm warning', url: 'https://bbc.co.uk/news/9', description: 'Wind', note: '', meta: '10:00' },
+          ],
+        },
+      ],
+    }
+
+    const wrapper = mountView()
+    const sections = wrapper.get('[data-testid="news-sections"]').findAll('.topic-section')
+    expect(sections.map((s) => s.get('.topic-title').text())).toEqual(['💻 GitHub', '📰 UK headlines'])
+
+    const link = sections[0].get('a.news-link')
+    expect(link.attributes('href')).toBe('https://github.com/acme/rocket')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toContain('noopener')
+    expect(sections[0].text()).toContain('Fast things')
+    expect(sections[0].get('.news-note').text()).toBe('Rust, which you follow')
+    expect(sections[0].get('.news-meta').text()).toBe('Rust · ★ 1200')
+
+    // Headlines carry no personalisation note, since they are never ranked.
+    expect(sections[1].find('.news-note').exists()).toBe(false)
+  })
+
+  it('shows a news empty state pointing at the settings pane', () => {
+    const wrapper = mountView()
+    expect(wrapper.find('[data-testid="news-sections"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="news-empty"]').text()).toContain('Settings → Personalisation')
   })
 
   it('marks a topic read, clearing its dots and confirming with a toast', async () => {

@@ -241,13 +241,49 @@ test('The root path shows the AI Today digest of gathered to-dos and topics', as
   )
   await expect(composer.locator('.composer-editor')).toContainText('A reviewable AI-generated draft.')
 
-  // Topics come from the stored digest, with a dot only on unread mail.
-  await expect(page.locator('.topic-title')).toHaveCount(2)
-  const kitchen = page.locator('.topic-section').first()
+  // Topics come from the stored digest, with a dot only on unread mail. Both
+  // cards use .topic-section, so scope to the digest card's testid.
+  const topics = page.getByTestId('topic-sections')
+  await expect(topics.locator('.topic-title')).toHaveCount(2)
+  const kitchen = topics.locator('.topic-section').first()
   await expect(kitchen.locator('.topic-title')).toContainText('🍳 Kitchen Renovation')
   await expect(kitchen).toContainText('Revised Floor Plan – City Construction reworked')
   await expect(kitchen.locator('.topic-meta')).toContainText('2 sources')
   await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
+
+  // The news round-up sits in its own card beneath the mail topics.
+  const news = page.getByTestId('news-sections')
+  await expect(news.locator('.topic-section')).toHaveCount(3)
+  await expect(news.locator('.topic-title').nth(2)).toContainText('📰 UK headlines')
+  const repo = news.locator('.topic-section').first().locator('a.news-link')
+  await expect(repo).toHaveAttribute('href', 'https://github.com/acme/rocket')
+  await expect(repo).toHaveAttribute('target', '_blank')
+  await expect(news.locator('.news-note').first()).toContainText('Cloudflare Workers')
+})
+
+test('Settings Personalisation pane adds and removes news topics', async ({ page }) => {
+  const saved = []
+  await page.route('**/api/tasks?resource=interests', async (route) => {
+    if (route.request().method() === 'PUT') saved.push(route.request().postDataJSON())
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await page.locator('.profile-container').click()
+  await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
+  await page.locator('.settings-nav-item', { hasText: 'Personalisation' }).click()
+
+  const pane = page.getByTestId('personalisation-section')
+  await expect(pane).toContainText('UK headlines are never filtered')
+  await expect(page.getByTestId('interest-chips').locator('.interest-chip')).toHaveCount(3)
+
+  await pane.locator('.interest-add input').fill('Postgres')
+  await pane.locator('.interest-add button', { hasText: 'Add' }).click()
+
+  await expect(page.getByTestId('interest-chips').locator('.interest-chip')).toHaveCount(4)
+  expect(saved.at(-1)).toEqual({
+    interests: ['Cloudflare Workers', 'Vue', 'self-hosting', 'Postgres'],
+  })
 })
 
 test('The AI Today refresh control rebuilds the digest, then re-reads it', async ({ page }) => {
@@ -271,7 +307,7 @@ test('The AI Today refresh control rebuilds the digest, then re-reads it', async
 
   // Rebuild first, then re-read, so fresh topics land in the same click.
   await expect.poll(() => calls).toEqual(['rebuild', 'read'])
-  await expect(page.locator('.topic-title')).toHaveCount(2)
+  await expect(page.getByTestId('topic-sections').locator('.topic-title')).toHaveCount(2)
 })
 
 test('Marking a digest topic read clears its unread dots', async ({ page }) => {
@@ -286,7 +322,7 @@ test('Marking a digest topic read clears its unread dots', async ({ page }) => {
   })
 
   await page.goto('/')
-  const kitchen = page.locator('.topic-section').first()
+  const kitchen = page.getByTestId('topic-sections').locator('.topic-section').first()
   await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
 
   await kitchen.locator('.topic-action-btn', { hasText: 'Mark all emails as read' }).click()

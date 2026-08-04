@@ -19,17 +19,18 @@ export class EnricherNotConfiguredError extends Error {
   }
 }
 
-// Ask the data-enricher Worker to rebuild only the daily digest. The URL and
-// token come from the environment, never from the request, so this is not an
-// SSRF surface and needs no safe-https treatment; the token stays server-side
-// so the browser never holds a Worker credential.
+// Ask the data-enricher Worker to rebuild both AI Today cards — the mail
+// digest and the news round-up — and nothing else. The URL and token come from
+// the environment, never from the request, so this is not an SSRF surface and
+// needs no safe-https treatment; the token stays server-side so the browser
+// never holds a Worker credential.
 export async function triggerDigestRebuild() {
   const runUrl = process.env.ENRICHER_RUN_URL
   const token = process.env.ENRICHER_TRIGGER_TOKEN
   if (!runUrl || !token) throw new EnricherNotConfiguredError()
 
   const url = new URL(runUrl)
-  url.searchParams.set('phase', 'digest')
+  url.searchParams.set('phase', 'today')
   const response = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },

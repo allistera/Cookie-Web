@@ -26,19 +26,54 @@ export function fetchTasks(sql, email) {
   `
 }
 
-// The newest daily digest ("topics to catch up on"), written by the
-// data-enricher Worker. Digest rows are the ones carrying no message_id.
-export function fetchDigest(sql, email) {
+// The newest whole-mailbox summary of a given kind, written by the
+// data-enricher Worker: 'daily_digest' for the mail topics, 'daily_news' for
+// the news round-up. These are the rows carrying no message_id.
+export function fetchLatestSummary(sql, email, kind) {
   return sql`
     SELECT s.summary, s.raw, s.created_at
     FROM summaries s
     JOIN users u ON u.id = s.user_id
     WHERE lower(u.email) = ${email}
-      AND s.kind = 'daily_digest'
+      AND s.kind = ${kind}
       AND s.message_id IS NULL
     ORDER BY s.created_at DESC
     LIMIT 1
   `
+}
+
+// Only ever hand the browser a real web link. The Worker already discards
+// picks whose url was not among the candidates it fetched, but these links
+// leave the app, so the render path does not take that on trust.
+function safeLink(url) {
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'https:' || protocol === 'http:' ? url : null
+  } catch {
+    return null
+  }
+}
+
+// Shape the stored news round-up for the client, dropping anything that is not
+// a usable link.
+export function buildNews(row) {
+  if (!row) return null
+  const sections = []
+  for (const section of Array.isArray(row.raw?.sections) ? row.raw.sections : []) {
+    const items = (Array.isArray(section?.items) ? section.items : [])
+      .filter((item) => safeLink(item?.url))
+      .map((item) => ({
+        title: String(item.title ?? ''),
+        url: item.url,
+        description: String(item.description ?? ''),
+        note: String(item.note ?? ''),
+        meta: String(item.meta ?? ''),
+      }))
+    if (items.length > 0) {
+      sections.push({ emoji: String(section.emoji ?? ''), title: String(section.title ?? ''), items })
+    }
+  }
+  return { created_at: row.created_at, sections }
 }
 
 // Live state for the messages a digest cites. The digest is a snapshot from
@@ -191,8 +226,9 @@ async function handlePost(req, res, email) {
 
 // GET /api/tasks — { tasks: [{ id, source, content, description, due_date,
 // priority, url, message_id, gathered_at, reply_to, message_subject }],
-// digest: { overview, created_at, topics } | null } for the AI dashboard.
-// Both halves are returned together because AI Today always renders both.
+// digest: { overview, created_at, topics } | null,
+// news: { created_at, sections } | null } for the AI dashboard. All three are
+// returned together because AI Today always renders all of them.
 // POST completes a task.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
@@ -228,14 +264,21 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql()
-    const [tasks, [digestRow]] = await Promise.all([
+    const [tasks, [digestRow], [newsRow]] = await Promise.all([
       fetchTasks(sql, email),
-      fetchDigest(sql, email),
+      fetchLatestSummary(sql, email, 'daily_digest'),
+      fetchLatestSummary(sql, email, 'daily_news'),
     ])
     const ids = digestMessageIds(digestRow)
     const states = ids.length ? await fetchMessageStates(sql, email, ids) : []
     res.statusCode = 200
-    res.end(JSON.stringify({ tasks, digest: buildDigest(digestRow, states) }))
+    res.end(
+      JSON.stringify({
+        tasks,
+        digest: buildDigest(digestRow, states),
+        news: buildNews(newsRow),
+      }),
+    )
   } catch (err) {
     console.error('GET /api/tasks failed:', err)
     await captureApiError(err, { route: 'GET /api/tasks' })

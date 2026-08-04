@@ -5,7 +5,7 @@ import {
   fetchOwnedTask,
   deleteOwnedTask,
   closeTodoistTask,
-  fetchDigest,
+  fetchLatestSummary,
   fetchMessageStates,
   digestMessageIds,
   buildDigest,
@@ -41,23 +41,25 @@ describe('fetchTasks', () => {
   })
 })
 
-describe('fetchDigest', () => {
-  it('reads the newest digest row for the user', () => {
+describe('fetchLatestSummary', () => {
+  it('reads the newest whole-mailbox row of the given kind', () => {
     let query = ''
-    const sql = (strings) => {
+    const values = []
+    const sql = (strings, ...vals) => {
       query = strings.join('?')
+      values.push(...vals)
       return []
     }
 
-    fetchDigest(sql, 'owner@example.com')
+    fetchLatestSummary(sql, 'owner@example.com', 'daily_digest')
 
     expect(query).toContain('FROM summaries s')
     expect(query).toContain('JOIN users u ON u.id = s.user_id')
-    expect(query).toContain("s.kind = 'daily_digest'")
-    // Digest rows are the ones with no message; per-message summaries are not.
+    // These are the rows with no message; per-message summaries are not.
     expect(query).toContain('s.message_id IS NULL')
     expect(query).toContain('ORDER BY s.created_at DESC')
     expect(query).toContain('LIMIT 1')
+    expect(values).toEqual(['owner@example.com', 'daily_digest'])
   })
 })
 

@@ -30,10 +30,15 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
 - AI Today: gathered to-dos (Todoist tasks due today plus action items extracted
-  from important mail) and a nightly digest grouping unread mail into topics to
-  catch up on. Both are produced by the `data-enricher` Worker in Cookie-Worker
-  and read through `/api/tasks`. Refresh rebuilds the digest on demand when
-  `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` are set.
+  from important mail), a nightly digest grouping unread mail into topics to
+  catch up on, and a personalised news round-up (new GitHub repos and Product
+  Hunt launches ranked against your interests, plus BBC UK headlines, which are
+  never filtered). All are produced by the `data-enricher` Worker in
+  Cookie-Worker and read through `/api/tasks`. Refresh rebuilds the digest and
+  news on demand when `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` are set.
+- Settings → Personalisation edits the topics the news round-up is ranked
+  against. Stored server-side in `users.prefs` rather than the browser, since
+  the Worker reads them overnight.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
 - Per-label auto-tag controls and conservative spam classification.
 - Outbound delivery through Resend with stored sent copies.

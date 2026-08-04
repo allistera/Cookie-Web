@@ -276,6 +276,10 @@ export const useInboxStore = defineStore('inbox', {
     // wrote, { overview, created_at, topics } or null. Arrives with tasks.
     digest: null,
 
+    // AI Today's news round-up, { created_at, sections } or null. Also
+    // arrives with tasks.
+    news: null,
+
     // Personalisation topics for AI Today's news section, edited in settings.
     // Server-side (users.prefs) rather than localStorage, because the enricher
     // Worker reads them overnight with no browser running.
@@ -1356,9 +1360,10 @@ export const useInboxStore = defineStore('inbox', {
         const headers = await this.authHeaders()
         const response = await fetch('/api/tasks', { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
-        const { tasks, digest } = await response.json()
+        const { tasks, digest, news } = await response.json()
         this.tasks = tasks
         this.digest = digest ?? null
+        this.news = news ?? null
         this.tasksLoaded = true
       } catch (error) {
         console.error('Failed to load tasks:', error)
