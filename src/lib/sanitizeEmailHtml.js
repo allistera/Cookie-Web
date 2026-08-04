@@ -63,3 +63,23 @@ export function sanitizeEmailHtml(dirty) {
   installLinkHook()
   return DOMPurify.sanitize(dirty, CONFIG)
 }
+
+// Whether this (already-sanitized) HTML references a remote image the
+// reader's default img-src (data:/cid: only) will have blocked, so the
+// "Show images" control only appears when there is actually something for
+// it to unblock. Deliberately narrow to <img src> and CSS background-image/
+// legacy background= (both governed by the img-src CSP directive) rather
+// than any https?:// substring, so a plain link in the body text doesn't
+// trigger a false positive.
+const REMOTE_IMG_TAG_RE = /<img\b[^>]*\bsrc\s*=\s*["']?\s*https?:\/\//i
+const REMOTE_BACKGROUND_URL_RE = /\burl\(\s*['"]?\s*https?:\/\//i
+const REMOTE_BACKGROUND_ATTR_RE = /\bbackground\s*=\s*["']?\s*https?:\/\//i
+
+export function hasBlockedRemoteImages(safeHtml) {
+  if (typeof safeHtml !== 'string' || safeHtml === '') return false
+  return (
+    REMOTE_IMG_TAG_RE.test(safeHtml) ||
+    REMOTE_BACKGROUND_URL_RE.test(safeHtml) ||
+    REMOTE_BACKGROUND_ATTR_RE.test(safeHtml)
+  )
+}

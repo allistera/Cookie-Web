@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import { hasBlockedRemoteImages, sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import {
   BRIDGE_HINT_SOURCE,
   selectPlainTextUnsubscribeTarget,
@@ -59,6 +59,15 @@ let latestLinksRevision = 0
 const safeHtml = computed(() => sanitizeEmailHtml(props.html))
 const hasHtml = computed(() => safeHtml.value.trim().length > 0)
 
+// Remote images are blocked by default (see the CSP in srcdoc below) so a
+// sender's tracking pixel can't silently fire just by opening the message.
+// The reader is remounted per message (v-key on openEmail.id), so this
+// naturally resets to blocked for every new email rather than needing a watch.
+const imagesAllowed = ref(false)
+const remoteImagesBlocked = computed(
+  () => !imagesAllowed.value && hasBlockedRemoteImages(safeHtml.value),
+)
+
 watch(
   safeHtml,
   () => {
@@ -97,8 +106,10 @@ const srcdoc = computed(() => {
   const dark = currentTheme() === 'dark'
   const fg = dark ? '#e6e6e6' : '#1f1f1f'
   const link = dark ? '#7cc4ff' : '#2383e2'
+  // Widened only once the reader clicks "Show images" for this message.
+  const imgSrc = imagesAllowed.value ? 'data: cid: https: http:' : 'data: cid:'
   return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${scriptNonce}'; connect-src 'none'; img-src data: cid:; media-src data: cid:; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; font-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${scriptNonce}'; connect-src 'none'; img-src ${imgSrc}; media-src data: cid:; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; font-src data:">
 <style>
 :root { color-scheme: ${dark ? 'dark' : 'light'}; }
 html, body { margin: 0; padding: 0; background: transparent; }
@@ -288,6 +299,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <div v-if="remoteImagesBlocked" class="ni-email-images-notice">
+    <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span>
+    <span>Images are hidden to protect your privacy.</span>
+    <button type="button" class="btn btn-secondary" @click="imagesAllowed = true">
+      Show images
+    </button>
+  </div>
   <iframe
     v-if="hasHtml"
     ref="frameRef"
@@ -335,5 +353,25 @@ onBeforeUnmount(() => {
   height: 28px;
   border-width: 3px;
   margin-bottom: 0;
+}
+
+.ni-email-images-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ni-email-images-notice .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.ni-email-images-notice span:nth-child(2) {
+  flex: 1;
 }
 </style>

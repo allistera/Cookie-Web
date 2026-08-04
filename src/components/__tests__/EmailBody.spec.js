@@ -52,9 +52,43 @@ describe('EmailBody', () => {
     const srcdoc = wrapper.find('iframe').attributes('srcdoc')
     const csp = srcdoc.match(/Content-Security-Policy" content="([^"]+)/)?.[1]
     expect(csp).toBeDefined()
-    expect(csp).not.toMatch(/(?:default|img|style|font)-src[^;]*https?:/)
+    expect(csp).not.toMatch(/(?:default|style|font)-src[^;]*https?:/)
     expect(csp).toContain('img-src data: cid:')
     expect(csp).toContain("style-src 'unsafe-inline'")
+  })
+
+  it('shows a "Show images" control only when remote images were actually blocked, and unblocks them on click', async () => {
+    const withRemote = mount(EmailBody, {
+      props: { html: '<img src="https://tracker.example/logo.png">' },
+    })
+    const notice = withRemote.find('.ni-email-images-notice')
+    expect(notice.exists()).toBe(true)
+    expect(notice.text()).toContain('Show images')
+
+    let csp = withRemote
+      .find('iframe')
+      .attributes('srcdoc')
+      .match(/Content-Security-Policy" content="([^"]+)/)?.[1]
+    expect(csp).toContain('img-src data: cid:')
+    expect(csp).not.toContain('https:')
+
+    await notice.find('button').trigger('click')
+    expect(withRemote.find('.ni-email-images-notice').exists()).toBe(false)
+    csp = withRemote
+      .find('iframe')
+      .attributes('srcdoc')
+      .match(/Content-Security-Policy" content="([^"]+)/)?.[1]
+    expect(csp).toContain('img-src data: cid: https: http:')
+
+    const withoutRemote = mount(EmailBody, {
+      props: { html: '<p>No images here, just <a href="https://example.com">a link</a>.</p>' },
+    })
+    expect(withoutRemote.find('.ni-email-images-notice').exists()).toBe(false)
+
+    const embeddedOnly = mount(EmailBody, {
+      props: { html: '<img src="data:image/png;base64,iVBORw0KGgo=">' },
+    })
+    expect(embeddedOnly.find('.ni-email-images-notice').exists()).toBe(false)
   })
 
   it('forwards key presses from the iframe document to the reader', async () => {
