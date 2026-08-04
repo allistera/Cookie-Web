@@ -15,6 +15,9 @@ function recordingSql(rows = []) {
     return Promise.resolve(rows)
   }
   sql.calls = calls
+  // Mirrors postgres.js's sql.json: marks a value to be sent as a real jsonb
+  // parameter instead of pre-stringifying it into a jsonb string scalar.
+  sql.json = (value) => ({ __pgJson: value })
   return sql
 }
 
@@ -67,7 +70,9 @@ describe('saveInterests', () => {
     // The || merge preserves any other settings-modal preferences stored there.
     expect(sql.calls[0].text).toContain('prefs = coalesce(prefs')
     expect(sql.calls[0].text).toContain('||')
-    expect(sql.calls[0].values[0]).toBe(JSON.stringify({ interests: ['Vue'] }))
+    // Must go through sql.json (a real jsonb parameter), not a manually
+    // JSON.stringify'd string cast with ::jsonb - see saveInterests' comment.
+    expect(sql.calls[0].values[0]).toEqual({ __pgJson: { interests: ['Vue'] } })
     expect(sql.calls[0].values).toContain('owner@example.com')
   })
 })

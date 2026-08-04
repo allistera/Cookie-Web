@@ -18,9 +18,14 @@ export function fetchInterests(sql, email) {
 }
 
 export function saveInterests(sql, email, interests) {
+  // sql.json (not a manually JSON.stringify'd string cast with ::jsonb) is
+  // required here: postgres.js sends a pre-stringified string parameter as
+  // jsonb text that Postgres parses back into a jsonb *string scalar*, not an
+  // object, which turns the || below into an array-append instead of a
+  // key merge and silently drops every previous save.
   return sql`
     UPDATE users
-    SET prefs = coalesce(prefs, '{}'::jsonb) || ${JSON.stringify({ interests })}::jsonb
+    SET prefs = coalesce(prefs, '{}'::jsonb) || ${sql.json({ interests })}
     WHERE lower(email) = ${email}
     RETURNING coalesce(prefs -> 'interests', '[]'::jsonb) AS interests
   `
