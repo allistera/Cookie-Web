@@ -39,6 +39,18 @@ describe('fetchTasks', () => {
     expect(query).toContain('ORDER BY t.due_date ASC NULLS LAST, t.priority DESC NULLS LAST')
     expect(query).toContain('t.gathered_at')
   })
+
+  it('scopes Todoist tasks to due today or overdue, leaving email tasks unfiltered', () => {
+    let query = ''
+    const sql = (strings) => {
+      query = strings.join('?')
+      return []
+    }
+
+    fetchTasks(sql, 'owner@example.com')
+
+    expect(query).toContain("t.source <> 'todoist' OR t.due_date <= CURRENT_DATE")
+  })
 })
 
 describe('fetchLatestSummary', () => {

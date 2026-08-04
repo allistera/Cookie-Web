@@ -12,6 +12,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // The authenticated user's gathered tasks (Todoist tasks + AI-extracted email
 // action items), most-pressing first: soonest due, then highest priority.
+// Todoist tasks are further scoped to due today or overdue - AI Today is a
+// daily view, so a Todoist item due next week would just be backlog noise
+// here (and, with no due date at all, has no "today" claim to make). Email
+// action items carry no such expectation and are unfiltered by due_date.
 export function fetchTasks(sql, email) {
   return sql`
     SELECT t.id, t.source, t.content, t.description, t.due_date,
@@ -21,6 +25,7 @@ export function fetchTasks(sql, email) {
     JOIN users u ON u.id = t.user_id
     LEFT JOIN messages m ON m.id = t.message_id AND m.user_id = t.user_id
     WHERE lower(u.email) = ${email}
+      AND (t.source <> 'todoist' OR t.due_date <= CURRENT_DATE)
     ORDER BY t.due_date ASC NULLS LAST, t.priority DESC NULLS LAST, t.created_at DESC
     LIMIT ${RESULTS}
   `
