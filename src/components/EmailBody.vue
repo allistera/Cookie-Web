@@ -302,7 +302,7 @@ onBeforeUnmount(() => {
   <div v-if="remoteImagesBlocked" class="ni-email-images-notice">
     <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span>
     <span>Images are hidden to protect your privacy.</span>
-    <button type="button" class="btn btn-secondary" @click="imagesAllowed = true">
+    <button type="button" class="btn btn-secondary" @click.stop="imagesAllowed = true">
       Show images
     </button>
   </div>

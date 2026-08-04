@@ -72,7 +72,15 @@ describe('EmailBody', () => {
     expect(csp).toContain('img-src data: cid:')
     expect(csp).not.toContain('https:')
 
+    // Regression guard: the reader closes on any document click that lands
+    // outside .ni-reader (TraditionalInboxView's onDocumentClick), so this
+    // button must never let its click bubble past the component.
+    const onDocumentClick = vi.fn()
+    document.addEventListener('click', onDocumentClick)
     await notice.find('button').trigger('click')
+    document.removeEventListener('click', onDocumentClick)
+    expect(onDocumentClick).not.toHaveBeenCalled()
+
     expect(withRemote.find('.ni-email-images-notice').exists()).toBe(false)
     csp = withRemote
       .find('iframe')
