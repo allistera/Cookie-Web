@@ -337,6 +337,30 @@ describe('AIInboxView (AI Today)', () => {
     )
   })
 
+  it('moves the status text forward on a successful refresh even when no task changed', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', url: null, gathered_at: twoHoursAgo },
+    ]
+    vi.spyOn(store, 'rebuildDigest').mockResolvedValue(true)
+    // Refresh only ever rebuilds the digest/news - the task itself (and its
+    // gathered_at) is untouched, same as a real refresh where nothing new
+    // was gathered from Todoist/email since the overnight run.
+    vi.spyOn(store, 'loadTasks').mockImplementation(async () => {
+      store.digest = { ...DIGEST(), created_at: new Date().toISOString() }
+    })
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    expect(wrapper.get('.status-time').text()).toBe('Updated 2h ago')
+
+    await wrapper.get('.ai-update-status').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.status-time').text()).toBe('Updated just now')
+    expect(notify).toHaveBeenCalledWith('AI Today updated.')
+  })
+
   it('still re-reads when the digest rebuild fails', async () => {
     const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
     vi.spyOn(store, 'rebuildDigest').mockRejectedValue(new Error('boom'))

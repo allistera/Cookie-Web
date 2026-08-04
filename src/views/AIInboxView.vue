@@ -75,15 +75,21 @@ function taskLink(task) {
   }
 }
 
-// How stale the gathered set is, from the most recent gathered_at the enricher
-// stamped. `now` is only re-read on mount and on refresh; this is a dashboard
-// glanced at, not a live clock.
+// How stale the gathered set is, from the most recent of: a task's
+// gathered_at, or the digest's/news's created_at. Refresh only ever rebuilds
+// the digest and news (tasks come from Todoist/email gathering, untouched by
+// it), so anchoring this to tasks alone left the status text - the one
+// visible sign a refresh did anything - stuck on the last overnight run even
+// after a successful rebuild. `now` is only re-read on mount and on refresh;
+// this is a dashboard glanced at, not a live clock.
 const now = ref(Date.now())
 
 const gatheredAt = computed(() => {
-  const stamps = store.tasks
-    .map((t) => Date.parse(t.gathered_at))
-    .filter((ms) => Number.isFinite(ms))
+  const stamps = [
+    ...store.tasks.map((t) => Date.parse(t.gathered_at)),
+    Date.parse(store.digest?.created_at),
+    Date.parse(store.news?.created_at),
+  ].filter((ms) => Number.isFinite(ms))
   return stamps.length ? Math.max(...stamps) : null
 })
 
@@ -113,6 +119,7 @@ async function refresh() {
   try {
     await store.loadTasks({ force: true })
     now.value = Date.now()
+    store.notify('AI Today updated.')
   } finally {
     isRefreshing.value = false
   }
