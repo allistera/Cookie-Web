@@ -3578,6 +3578,63 @@ button.ni-attachment:hover {
   font-size: 13px;
 }
 
+/* Personalisation topics (settings) */
+.interest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.interest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background-color: var(--bg-hover);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.interest-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.interest-remove:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.interest-remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.interest-remove .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.interest-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.interest-add .label-input {
+  flex: 1;
+}
+
 .rule-list {
   display: grid;
   gap: 8px;

@@ -5,6 +5,7 @@ import { verifyAccessToken } from './_lib/auth.js'
 import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { handleRefresh } from './_lib/enricher.js'
+import { handleInterests } from './_lib/interests.js'
 
 const RESULTS = 25
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -196,7 +197,9 @@ async function handlePost(req, res, email) {
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
-  if (req.method !== 'GET' && req.method !== 'POST') {
+  // PUT is only meaningful for ?resource=interests; that handler rejects the
+  // methods it does not serve.
+  if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'PUT') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
     return
@@ -211,8 +214,12 @@ export default async function handler(req, res) {
     return
   }
 
-  if (new URL(req.url, 'http://localhost').searchParams.get('resource') === 'refresh') {
+  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+  if (resource === 'refresh') {
     return handleRefresh(req, res, email)
+  }
+  if (resource === 'interests') {
+    return handleInterests(req, res, email)
   }
 
   if (req.method === 'POST') {

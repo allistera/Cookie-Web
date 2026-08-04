@@ -543,6 +543,18 @@ function localApiPlugin(mode) {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
       const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+      if (resource === 'interests') {
+        const state = fixtureMailboxState(req, res)
+        state.interests ??= ['Cloudflare Workers', 'Vue', 'self-hosting']
+        if (req.method === 'PUT') {
+          const chunks = []
+          for await (const chunk of req) chunks.push(chunk)
+          const body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
+          state.interests = Array.isArray(body.interests) ? body.interests : []
+        }
+        res.end(JSON.stringify({ interests: state.interests }))
+        return
+      }
       if (resource === 'refresh') {
         // No enricher Worker locally: pretend the digest rebuild succeeded so
         // the refresh control still exercises its real path.

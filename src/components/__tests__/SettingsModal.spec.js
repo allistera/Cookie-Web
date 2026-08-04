@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -59,11 +59,13 @@ describe('SettingsModal', () => {
       'fetch',
       vi.fn().mockImplementation(async (url) => ({
         ok: true,
-        json: async () => (
-          url === '/api/labels?resource=rules'
-            ? { rules: FIXTURE_RULES.map((rule) => ({ ...rule, conditions: rule.conditions.map((c) => ({ ...c })) })) }
-            : { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
-        ),
+        json: async () => {
+          if (url === '/api/labels?resource=rules') {
+            return { rules: FIXTURE_RULES.map((rule) => ({ ...rule, conditions: rule.conditions.map((c) => ({ ...c })) })) }
+          }
+          if (String(url).includes('resource=interests')) return { interests: [] }
+          return { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
+        },
       })),
     )
   })
@@ -114,8 +116,8 @@ describe('SettingsModal', () => {
     const wrapper = await openModal()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(7)
-    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Snippets', 'Notifications', 'Labels', 'Rules'].entries()) {
+    expect(navItems).toHaveLength(8)
+    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Snippets', 'Notifications', 'Personalisation', 'Labels', 'Rules'].entries()) {
       expect(navItems[i]).toContain(name)
     }
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
@@ -486,4 +488,85 @@ describe('SettingsModal', () => {
     await wrapper.find('.modal-footer .btn-secondary').trigger('click')
     expect(store.activeModal).toBe(null)
   })
+
+  describe('Personalisation pane', () => {
+    async function openPersonalisationPane(wrapper) {
+      await wrapper
+        .findAll('.settings-nav-item')
+        .find((n) => n.text().includes('Personalisation'))
+        .trigger('click')
+    }
+
+    it('lists the stored topics and explains what they affect', async () => {
+      store.interests = ['Cloudflare Workers', 'Postgres']
+      store.interestsLoaded = true
+
+      const wrapper = await openModal()
+      await openPersonalisationPane(wrapper)
+
+      const section = wrapper.get('[data-testid="personalisation-section"]')
+      expect(section.text()).toContain('UK headlines are never filtered')
+      const chips = wrapper
+        .get('[data-testid="interest-chips"]')
+        .findAll('.interest-chip > span:first-child')
+      expect(chips.map((c) => c.text())).toEqual(['Cloudflare Workers', 'Postgres'])
+    })
+
+    it('adds a topic and persists the whole list', async () => {
+      store.interests = ['Postgres']
+      store.interestsLoaded = true
+      const saveInterests = vi.spyOn(store, 'saveInterests').mockResolvedValue(['Postgres', 'Vue'])
+
+      const wrapper = await openModal()
+      await openPersonalisationPane(wrapper)
+      await wrapper.get('.interest-add input').setValue('Vue')
+      await wrapper.get('.interest-add').trigger('submit')
+      await flushPromises()
+
+      expect(saveInterests).toHaveBeenCalledWith(['Postgres', 'Vue'])
+    })
+
+    it('refuses a duplicate without calling the API', async () => {
+      store.interests = ['Vue']
+      store.interestsLoaded = true
+      const saveInterests = vi.spyOn(store, 'saveInterests')
+
+      const wrapper = await openModal()
+      await openPersonalisationPane(wrapper)
+      await wrapper.get('.interest-add input').setValue('vue')
+      await wrapper.get('.interest-add').trigger('submit')
+      await flushPromises()
+
+      expect(saveInterests).not.toHaveBeenCalled()
+      expect(wrapper.get('.snippet-error').text()).toContain('Already on the list')
+    })
+
+    it('removes a topic', async () => {
+      store.interests = ['Vue', 'Postgres']
+      store.interestsLoaded = true
+      const saveInterests = vi.spyOn(store, 'saveInterests').mockResolvedValue(['Postgres'])
+
+      const wrapper = await openModal()
+      await openPersonalisationPane(wrapper)
+      await wrapper.get('.interest-chip .interest-remove').trigger('click')
+      await flushPromises()
+
+      expect(saveInterests).toHaveBeenCalledWith(['Postgres'])
+    })
+
+    it('reports a failed save', async () => {
+      store.interests = []
+      store.interestsLoaded = true
+      vi.spyOn(store, 'saveInterests').mockRejectedValue(new Error('boom'))
+
+      const wrapper = await openModal()
+      await openPersonalisationPane(wrapper)
+      await wrapper.get('.interest-add input').setValue('Vue')
+      await wrapper.get('.interest-add').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.get('.snippet-error').text()).toContain('Could not save')
+    })
+  })
+
 })

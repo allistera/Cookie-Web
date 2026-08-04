@@ -276,6 +276,12 @@ export const useInboxStore = defineStore('inbox', {
     // wrote, { overview, created_at, topics } or null. Arrives with tasks.
     digest: null,
 
+    // Personalisation topics for AI Today's news section, edited in settings.
+    // Server-side (users.prefs) rather than localStorage, because the enricher
+    // Worker reads them overnight with no browser running.
+    interests: [],
+    interestsLoaded: false,
+
     // Toast notifications
     toasts: [],
     nextToastId: 1,
@@ -1357,6 +1363,42 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         console.error('Failed to load tasks:', error)
       }
+    },
+
+    // Loads the personalisation topics. Best-effort and cached, like
+    // loadTasks: a failure leaves the settings list empty rather than blocking
+    // the modal.
+    async loadInterests() {
+      if (this.interestsLoaded) return
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/tasks?resource=interests', { headers })
+        if (!response.ok) throw new Error(`GET interests responded ${response.status}`)
+        const { interests } = await response.json()
+        this.interests = interests
+        this.interestsLoaded = true
+      } catch (error) {
+        console.error('Failed to load interests:', error)
+      }
+    },
+
+    // Replaces the stored personalisation topics. Throws on failure so the
+    // settings pane can report it; the server's normalized list wins, so the
+    // in-memory copy matches what the enricher will actually read.
+    async saveInterests(interests) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch('/api/tasks?resource=interests', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ interests }),
+      })
+      if (!response.ok) {
+        throw new Error(`PUT interests responded ${response.status}`)
+      }
+      const saved = await response.json()
+      this.interests = saved.interests
+      this.interestsLoaded = true
+      return this.interests
     },
 
     // Asks the enricher to rebuild AI Today's digest now, then re-reads it.

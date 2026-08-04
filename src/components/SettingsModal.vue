@@ -29,6 +29,7 @@ const sections = [
   { id: 'signature', label: 'Signature', icon: 'draw' },
   { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
   { id: 'notifications', label: 'Notifications', icon: 'notifications' },
+  { id: 'personalisation', label: 'Personalisation', icon: 'interests' },
   { id: 'labels', label: 'Labels', icon: 'label' },
   { id: 'rules', label: 'Rules', icon: 'rule' },
 ]
@@ -41,10 +42,45 @@ watch(
       activeSection.value = 'account'
       store.loadLabels()
       store.loadRules()
+      store.loadInterests()
     }
   },
   { immediate: true },
 )
+
+// --- Personalisation (server-side: the enricher Worker reads these) ---
+const interestDraft = ref('')
+const interestError = ref('')
+const isSavingInterests = ref(false)
+
+// Every edit writes the whole list straight through, so the overnight run can
+// never use a list the user believes they changed.
+async function persistInterests(next) {
+  interestError.value = ''
+  isSavingInterests.value = true
+  try {
+    await store.saveInterests(next)
+  } catch {
+    interestError.value = 'Could not save. Try again.'
+  } finally {
+    isSavingInterests.value = false
+  }
+}
+
+async function addInterest() {
+  const value = interestDraft.value.trim()
+  if (!value) return
+  if (store.interests.some((i) => i.toLowerCase() === value.toLowerCase())) {
+    interestError.value = 'Already on the list.'
+    return
+  }
+  interestDraft.value = ''
+  await persistInterests([...store.interests, value])
+}
+
+async function removeInterest(interest) {
+  await persistInterests(store.interests.filter((i) => i !== interest))
+}
 
 // --- Compose snippets (persisted locally through the inbox store) ---
 const snippetDraft = reactive({ name: '', html: '' })
@@ -493,6 +529,58 @@ function toggleRuleEnabled(rule) {
           </section>
 
           <!-- Labels -->
+          <!-- Personalisation -->
+          <section
+            v-if="activeSection === 'personalisation'"
+            class="settings-section"
+            data-testid="personalisation-section"
+          >
+            <h3 class="settings-section-title">Personalisation</h3>
+            <p class="settings-section-hint">
+              Topics AI Today ranks your daily news against — GitHub projects and Product Hunt
+              launches are picked to match these. UK headlines are never filtered. Leave the list
+              empty to see the day's top items unpersonalised.
+            </p>
+
+            <ul v-if="store.interests.length" class="interest-chips" data-testid="interest-chips">
+              <li v-for="interest in store.interests" :key="interest" class="interest-chip">
+                <span>{{ interest }}</span>
+                <button
+                  class="interest-remove"
+                  :title="`Remove ${interest}`"
+                  :aria-label="`Remove ${interest}`"
+                  :disabled="isSavingInterests"
+                  @click="removeInterest(interest)"
+                >
+                  <span class="material-symbols-outlined">close</span>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="settings-section-hint">
+              No topics yet — add a few, like "Cloudflare Workers" or "self-hosting".
+            </p>
+
+            <form class="interest-add" @submit.prevent="addInterest">
+              <input
+                v-model="interestDraft"
+                class="label-input"
+                type="text"
+                maxlength="60"
+                placeholder="Add a topic"
+                :disabled="isSavingInterests"
+                aria-label="Add a personalisation topic"
+              />
+              <button
+                class="btn btn-primary"
+                type="submit"
+                :disabled="isSavingInterests || !interestDraft.trim()"
+              >
+                Add
+              </button>
+            </form>
+            <p v-if="interestError" class="snippet-error">{{ interestError }}</p>
+          </section>
+
           <section v-if="activeSection === 'labels'" class="settings-section">
             <h3 class="settings-section-title">Labels</h3>
             <p class="settings-section-hint">
