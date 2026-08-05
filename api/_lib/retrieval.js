@@ -59,19 +59,28 @@ function folderClause(sql, folder) {
   return sql`AND NOT m.is_deleted AND NOT m.is_archived`
 }
 
+// Postgres's default LIKE/ILIKE escape character is backslash. Without this,
+// a literal %/_ typed by the user in a from:/to:/tag: value is interpreted as
+// a wildcard instead of a literal character (e.g. tag:50%_off matching far
+// more broadly than the literal string) — parameterized, so never an
+// injection risk, only a matching-correctness one.
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
 // Structured-operator predicates, ANDed into a leg's WHERE. Returns an empty
 // fragment when no filters are set.
 function filterClause(sql, filters = {}) {
   const parts = [folderClause(sql, filters.in)]
   if (filters.from) {
-    const like = `%${filters.from}%`
+    const like = `%${escapeLikePattern(filters.from)}%`
     parts.push(sql`AND (m.from_address ILIKE ${like} OR coalesce(m.from_name, '') ILIKE ${like})`)
   }
   if (filters.to) {
-    parts.push(sql`AND m.recipients::text ILIKE ${`%${filters.to}%`}`)
+    parts.push(sql`AND m.recipients::text ILIKE ${`%${escapeLikePattern(filters.to)}%`}`)
   }
   if (filters.tag) {
-    const like = `%${filters.tag}%`
+    const like = `%${escapeLikePattern(filters.tag)}%`
     parts.push(sql`AND EXISTS (
       SELECT 1
       FROM message_labels tagged_ml
