@@ -240,9 +240,14 @@ watch(searchInputVal, (value) => {
   const query = value.trim()
 
   // Do not issue broad one-character searches. Clearing or shortening the
-  // value also restores the inbox and invalidates any request still in flight.
+  // value also restores the inbox and invalidates any request still in
+  // flight. Only call clearSearch() when a search is actually active: this
+  // watcher also fires as a side effect of leaveSearchResults() setting
+  // searchInputVal to '', which already called clearSearch() itself — a
+  // second, redundant call here would otherwise still bump the store's
+  // listSeq and discard that first call's own in-flight inbox reload.
   if (query.length < 2) {
-    store.clearSearch()
+    if (store.activeSearchQuery) store.clearSearch()
     return
   }
 

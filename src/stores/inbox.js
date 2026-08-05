@@ -39,6 +39,27 @@ function followUpSubject(subject) {
   return /^re:/i.test(value) ? value : `Re: ${value}`
 }
 
+// Bounds on the in-memory caches below, so a long-lived tab reading many
+// emails or asking many questions doesn't grow these without limit. Same
+// delete-then-set-to-refresh-recency LRU pattern as embedTextCached
+// (api/_lib/embeddings.js).
+const MAX_CACHED_MESSAGE_BODIES = 100
+const MAX_CACHED_SUMMARIES = 100
+const MAX_CHAT_HISTORY = 200
+
+function cacheSet(map, key, value, maxSize) {
+  map.delete(key)
+  map.set(key, value)
+  if (map.size > maxSize) {
+    map.delete(map.keys().next().value)
+  }
+}
+
+function pushCapped(array, item, maxSize) {
+  array.push(item)
+  if (array.length > maxSize) array.splice(0, array.length - maxSize)
+}
+
 function captureListPositions(email, lists) {
   return lists.map((list) => ({ list, index: list.indexOf(email) }))
 }
@@ -195,7 +216,12 @@ export const useInboxStore = defineStore('inbox', {
     userId: null, // the authenticated user's uuid, for the Realtime inbox-ping channel
     isRefreshing: false,
     activeSearchQuery: '',
-    searchSeq: 0,
+    // Guards every async operation that populates traditionalEmails
+    // (loadEmails, loadMoreEmails, searchEmails) against out-of-order
+    // responses: only the response whose seq still matches listSeq at
+    // resolution time may apply. Whichever of those started last wins,
+    // regardless of which resolves first.
+    listSeq: 0,
     emailsCursor: null,
     hasMoreEmails: false,
 
@@ -432,10 +458,15 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
+    // listSeq-guarded: a search started (and resolved) while this fetch was
+    // in flight must not have its stale inbox page overwrite the search
+    // results still being displayed. See the listSeq state comment.
     async loadEmails() {
+      const seq = ++this.listSeq
       this.isRefreshing = true
       try {
         const { emails, nextCursor, unreadCount, userId } = await this.fetchEmailPage()
+        if (seq !== this.listSeq) return
         this.traditionalEmails = emails.map(mapEmailRow)
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
@@ -445,28 +476,35 @@ export const useInboxStore = defineStore('inbox', {
             : this.traditionalEmails.filter((e) => e.unread).length
         if (userId) this.userId = userId
       } catch (error) {
+        if (seq !== this.listSeq) return
         console.error('Failed to load inbox:', error)
         this.notify('Failed to load inbox.', 'error')
       } finally {
-        this.isRefreshing = false
+        if (seq === this.listSeq) this.isRefreshing = false
       }
     },
 
     // Appends the next keyset page. No-op while a load is already running,
     // when there is no further page, or while search results are displayed.
+    // listSeq-guarded like loadEmails: a search that starts and resolves
+    // while this page fetch is in flight must not have a stale page appended
+    // after it.
     async loadMoreEmails() {
       if (!this.emailsCursor || this.isRefreshing || this.activeSearchQuery) return
+      const seq = ++this.listSeq
       this.isRefreshing = true
       try {
         const { emails, nextCursor } = await this.fetchEmailPage({ before: this.emailsCursor })
+        if (seq !== this.listSeq) return
         this.traditionalEmails.push(...emails.map(mapEmailRow))
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
       } catch (error) {
+        if (seq !== this.listSeq) return
         console.error('Failed to load more emails:', error)
         this.notify('Failed to load more emails.', 'error')
       } finally {
-        this.isRefreshing = false
+        if (seq === this.listSeq) this.isRefreshing = false
       }
     },
 
@@ -838,12 +876,12 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Hybrid (keyword + semantic) search via /api/search; the results replace
-    // the inbox list until clearSearch() restores it. searchSeq guards against
-    // out-of-order responses: only the latest issued search may apply.
+    // the inbox list until clearSearch() restores it. listSeq guards against
+    // out-of-order responses: only the latest issued search/load may apply.
     async searchEmails(query) {
       const q = query.trim()
       if (!q) return
-      const seq = ++this.searchSeq
+      const seq = ++this.listSeq
       this.isRefreshing = true
       try {
         const headers = await this.authHeaders()
@@ -852,15 +890,15 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/search responded ${response.status}`)
         }
         const { emails } = await response.json()
-        if (seq !== this.searchSeq) return
+        if (seq !== this.listSeq) return
         this.activeSearchQuery = q
         this.traditionalEmails = emails.map(mapEmailRow)
       } catch (error) {
-        if (seq !== this.searchSeq) return
+        if (seq !== this.listSeq) return
         console.error('Search failed:', error)
         this.notify('Search failed. Please try again.', 'error')
       } finally {
-        if (seq === this.searchSeq) {
+        if (seq === this.listSeq) {
           this.isRefreshing = false
         }
       }
@@ -869,15 +907,15 @@ export const useInboxStore = defineStore('inbox', {
     // Invalidates an in-flight search without changing the currently displayed
     // results. Used when the same header input is submitted to mailbox Q&A.
     cancelPendingSearch() {
-      this.searchSeq++
+      this.listSeq++
       this.isRefreshing = false
     },
 
-    // Leaves search mode and reloads the full inbox. Bumping searchSeq also
-    // invalidates any search still in flight.
+    // Leaves search mode and reloads the full inbox. Bumping listSeq also
+    // invalidates any search or load still in flight.
     clearSearch() {
       const hadActiveSearch = Boolean(this.activeSearchQuery)
-      this.searchSeq++
+      this.listSeq++
       this.activeSearchQuery = ''
       this.isRefreshing = false
       if (hadActiveSearch) return this.loadEmails()
@@ -938,9 +976,9 @@ export const useInboxStore = defineStore('inbox', {
             await new Promise((resolve) => setTimeout(resolve, MIN_BODY_LOADING_MS - elapsed))
           }
         }
-        this.messageBodies.set(id, body)
+        cacheSet(this.messageBodies, id, body, MAX_CACHED_MESSAGE_BODIES)
         if (typeof summary === 'string' && summary.trim()) {
-          this.messageSummaries.set(id, summary.trim())
+          cacheSet(this.messageSummaries, id, summary.trim(), MAX_CACHED_SUMMARIES)
         }
         return body
       } catch (error) {
@@ -1001,7 +1039,7 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error('POST /api/summarize returned an invalid summary')
         }
         const normalized = summary.trim()
-        this.messageSummaries.set(id, normalized)
+        cacheSet(this.messageSummaries, id, normalized, MAX_CACHED_SUMMARIES)
         return normalized
       } catch (error) {
         console.error('AI summarization failed:', error)
@@ -1036,7 +1074,9 @@ export const useInboxStore = defineStore('inbox', {
         const result = await response.json()
         if (result.status === 'unsubscribed') {
           const cached = this.messageBodies.get(email.id)
-          if (cached) this.messageBodies.set(email.id, { ...cached, unsubscribed: true })
+          if (cached) {
+            cacheSet(this.messageBodies, email.id, { ...cached, unsubscribed: true }, MAX_CACHED_MESSAGE_BODIES)
+          }
           this.notify(`Unsubscribed from ${email.sender}.`)
         } else if (result.status === 'manual' && isSafeUnsubscribeUrl(result.url)) {
           window.open(result.url, '_blank', 'noopener')
@@ -1731,7 +1771,7 @@ export const useInboxStore = defineStore('inbox', {
     // hybrid search and answers with the sources it used.
     async askGemini(query) {
       this.isChatDrawerActive = true
-      this.chatHistory.push({ text: query, sender: 'user' })
+      pushCapped(this.chatHistory, { text: query, sender: 'user' }, MAX_CHAT_HISTORY)
       this.isChatLoading = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
@@ -1744,14 +1784,18 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`POST /api/ask responded ${response.status}`)
         }
         const { answer, sources } = await response.json()
-        this.chatHistory.push({ text: answer, sender: 'ai', sources: sources || [] })
+        pushCapped(this.chatHistory, { text: answer, sender: 'ai', sources: sources || [] }, MAX_CHAT_HISTORY)
       } catch (error) {
         console.error('Ask failed:', error)
-        this.chatHistory.push({
-          text: "Sorry, I couldn't reach the assistant. Please try again.",
-          sender: 'ai',
-          sources: [],
-        })
+        pushCapped(
+          this.chatHistory,
+          {
+            text: "Sorry, I couldn't reach the assistant. Please try again.",
+            sender: 'ai',
+            sources: [],
+          },
+          MAX_CHAT_HISTORY,
+        )
       } finally {
         this.isChatLoading = false
       }
