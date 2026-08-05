@@ -464,6 +464,17 @@ async function handleScheduled(req, res, email) {
   res.end(JSON.stringify({ error: 'Method not allowed' }))
 }
 
+// Hashing both sides to a fixed-length digest before comparing means
+// crypto.timingSafeEqual (which requires equal-length buffers) works
+// regardless of the two strings' actual lengths, and neither a length nor a
+// byte-value mismatch is distinguishable by comparison time.
+function timingSafeEqualStrings(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
+  const digestA = crypto.createHash('sha256').update(a).digest()
+  const digestB = crypto.createHash('sha256').update(b).digest()
+  return crypto.timingSafeEqual(digestA, digestB)
+}
+
 // POST /api/send?resource=flush — called on a schedule by the
 // scheduled-send-flusher Worker cron in Cookie-Worker (never by the browser
 // app), bearer-authenticated with a secret shared out-of-band. Claims and
@@ -476,7 +487,7 @@ async function handleFlush(req, res) {
     return
   }
   const token = process.env.SCHEDULED_SEND_FLUSH_TOKEN
-  if (!token || req.headers.authorization !== `Bearer ${token}`) {
+  if (!token || !timingSafeEqualStrings(req.headers.authorization, `Bearer ${token}`)) {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
     return
