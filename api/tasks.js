@@ -83,7 +83,9 @@ export function buildNews(row) {
 
 // Live state for the messages a digest cites. The digest is a snapshot from
 // the overnight run, so by the time it is read some of its mail may have been
-// read, archived or deleted.
+// read, archived or deleted. Archived mail stays included - archiving is how
+// a topic gets dealt with, not a reason to hide it until tomorrow's digest;
+// only deletion actually removes the message the topic is about.
 export function fetchMessageStates(sql, email, ids) {
   return sql`
     SELECT m.id, m.is_unread
@@ -92,7 +94,6 @@ export function fetchMessageStates(sql, email, ids) {
     WHERE lower(u.email) = ${email}
       AND m.id = ANY(${ids}::uuid[])
       AND NOT m.is_deleted
-      AND NOT m.is_archived
   `
 }
 
@@ -108,8 +109,8 @@ export function digestMessageIds(row) {
 }
 
 // Fold live message state into the stored digest: drop items whose message is
-// gone from the mailbox, drop topics that empties, and mark what is still
-// unread so the card never shows a dot for mail already read.
+// deleted from the mailbox, drop topics that empties, and mark what is still
+// unread so the card never shows a dot for mail already read or archived.
 export function buildDigest(row, states) {
   if (!row) return null
   const unreadById = new Map(states.map((state) => [state.id, state.is_unread]))

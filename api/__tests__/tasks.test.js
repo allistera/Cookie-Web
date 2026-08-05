@@ -76,7 +76,7 @@ describe('fetchLatestSummary', () => {
 })
 
 describe('fetchMessageStates', () => {
-  it('reads live read-state, excluding deleted and archived mail', () => {
+  it('reads live read-state, excluding deleted mail but keeping archived mail', () => {
     let query = ''
     const values = []
     const sql = (strings, ...vals) => {
@@ -91,7 +91,7 @@ describe('fetchMessageStates', () => {
     expect(query).toContain('WHERE lower(u.email) =')
     expect(query).toContain('::uuid[]')
     expect(query).toContain('NOT m.is_deleted')
-    expect(query).toContain('NOT m.is_archived')
+    expect(query).not.toContain('is_archived')
     expect(values).toEqual(['owner@example.com', [ID_A]])
   })
 })
@@ -146,7 +146,8 @@ describe('buildDigest', () => {
     ])
   })
 
-  // The digest is an overnight snapshot; mail can be trashed or archived since.
+  // The digest is an overnight snapshot; mail can be deleted since (archiving
+  // no longer drops it - fetchMessageStates keeps archived mail in states).
   it('drops items whose message left the mailbox, and topics that empties', () => {
     const row = digestRow([
       { emoji: '🍳', title: 'Kitchen', items: [{ message_id: ID_A }, { message_id: ID_B }] },
