@@ -1,12 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import emailBodyBridgeUrl from '../lib/emailBodyBridge.js?worker&url'
+import { BRIDGE_SOURCE, RESIZE_INTERVAL_MS } from '../lib/emailBodyBridgeConstants'
 import { hasBlockedRemoteImages, sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
-import {
-  BRIDGE_HINT_SOURCE,
-  selectPlainTextUnsubscribeTarget,
-  selectUnsubscribeTarget,
-} from '../lib/unsubscribeContent'
+import { selectPlainTextUnsubscribeTarget, selectUnsubscribeTarget } from '../lib/unsubscribeContent'
 
 const props = defineProps({
   // Raw, untrusted, sender-controlled body_html (null until fetched / absent).
@@ -33,8 +31,6 @@ const emit = defineEmits(['keydown', 'unsubscribe-link'])
 // Hard cap on the iframe height so a hostile email can't force a multi-million
 // pixel frame; taller bodies scroll inside the frame.
 const MAX_FRAME_HEIGHT = 12000
-const BRIDGE_SOURCE = 'cookie-email-body'
-const RESIZE_INTERVAL_MS = 250
 const SCRIPT_CLOSE = '</scr' + 'ipt>'
 
 function randomToken() {
@@ -121,110 +117,8 @@ body {
 img { max-width: 100%; height: auto; }
 table { max-width: 100%; border-collapse: collapse; }
 a { color: ${link}; }
-</style></head><body>${safeHtml.value}
-<script nonce="${scriptNonce}">
-(() => {
-  const source = ${JSON.stringify(BRIDGE_SOURCE)}
-  const token = ${JSON.stringify(frameToken)}
-  const generation = ${JSON.stringify(frameGeneration.value)}
-  const hintPattern = new RegExp(${JSON.stringify(BRIDGE_HINT_SOURCE)}, 'i')
-  const send = (type, detail) => parent.postMessage({ source, token, type, ...detail }, '*')
-  let lastHeight = 0
-  let resizeTimer = null
-  let linksRevision = 0
-  const sendResize = () => {
-    resizeTimer = null
-    const height = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
-    if (height === lastHeight) return
-    lastHeight = height
-    send('resize', { height })
-  }
-  const scheduleResize = () => {
-    if (resizeTimer !== null) return
-    resizeTimer = setTimeout(sendResize, ${RESIZE_INTERVAL_MS})
-  }
-  const decodedForMatching = (value) => {
-    try { return decodeURIComponent(value) } catch { return value }
-  }
-  const collectLinkSnapshot = () => {
-    const plausible = []
-    for (const anchor of document.querySelectorAll('a[href]')) {
-      const href = anchor.getAttribute('href') || ''
-      if (!href || href.length > 4096) continue
-      const imageAlt = Array.from(anchor.querySelectorAll('img[alt]'))
-        .map((image) => image.getAttribute('alt') || '')
-        .join(' ')
-        .slice(0, 1000)
-      const cheap = {
-        href,
-        text: (anchor.textContent || '').slice(0, 1000),
-        ariaLabel: (anchor.getAttribute('aria-label') || '').slice(0, 1000),
-        title: (anchor.getAttribute('title') || '').slice(0, 1000),
-        imageAlt,
-        context: (anchor.parentElement?.textContent || '').slice(0, 1000),
-      }
-      const haystack = [
-        cheap.href,
-        decodedForMatching(cheap.href),
-        cheap.text,
-        cheap.ariaLabel,
-        cheap.title,
-        cheap.imageAlt,
-        cheap.context,
-      ].join(' ')
-      if (!hintPattern.test(haystack)) continue
-      plausible.push({ anchor, cheap })
-      if (plausible.length > 200) {
-        send('unsubscribe-links', { generation, revision: ++linksRevision, candidates: [] })
-        return
-      }
-    }
-
-    const candidates = plausible.flatMap(({ anchor, cheap }) => {
-      const style = getComputedStyle(anchor)
-      const hiddenAncestor = anchor.closest('[hidden], [aria-hidden="true"]')
-      if (
-        hiddenAncestor ||
-        style.display === 'none' ||
-        style.visibility === 'hidden' ||
-        Number.parseFloat(style.opacity) === 0 ||
-        anchor.getClientRects().length === 0
-      ) {
-        return []
-      }
-      return [{ ...cheap, text: (anchor.innerText || cheap.text).slice(0, 1000) }]
-    })
-    send('unsubscribe-links', { generation, revision: ++linksRevision, candidates })
-  }
-  const scheduleLinkSnapshot = () => requestAnimationFrame(collectLinkSnapshot)
-  addEventListener('keydown', (event) => {
-    const target = event.target instanceof Element ? event.target : null
-    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
-    if (
-      !event.metaKey && !event.ctrlKey && !event.altKey &&
-      (event.key === 'd' || event.key === '/' || event.key === 'Escape')
-    ) {
-      event.preventDefault()
-    }
-    send('keydown', {
-      key: event.key,
-      code: event.code,
-      repeat: event.repeat,
-      metaKey: event.metaKey,
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      shiftKey: event.shiftKey,
-    })
-  })
-  addEventListener('load', () => {
-    sendResize()
-    scheduleLinkSnapshot()
-  })
-  new ResizeObserver(scheduleResize).observe(document.documentElement)
-  sendResize()
-  scheduleLinkSnapshot()
-})()
-${SCRIPT_CLOSE}</body></html>`
+</style></head><body data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}">${safeHtml.value}
+<script nonce="${scriptNonce}" src="${emailBodyBridgeUrl}">${SCRIPT_CLOSE}</body></html>`
 })
 
 function applyFrameHeight(height) {
