@@ -30,6 +30,16 @@ describe('fetchEmails', () => {
     expect(capture.query()).toContain('m.scheduled_for IS NULL OR m.scheduled_for <= now()')
   })
 
+  it('normalizes double-encoded recipients to a jsonb object, like the contacts view does', () => {
+    const capture = captureQuery()
+
+    fetchEmails(capture.sql, 'owner@example.com', 50, null, 'inbox')
+
+    expect(capture.query()).toContain("jsonb_typeof(m.recipients) = 'string'")
+    expect(capture.query()).toContain("(m.recipients #>> '{}')::jsonb")
+    expect(capture.query()).toContain('ELSE m.recipients END AS recipients')
+  })
+
   it.each([null, { sentAt: '2026-07-13T12:00:00.000Z', id: '11111111-1111-1111-1111-111111111111' }])(
     'selects only future scheduled messages for the snoozed folder',
     (cursor) => {

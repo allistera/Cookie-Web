@@ -14,7 +14,11 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // outbound rows.
 export function fetchEmails(sql, email, limit, cursor, folder) {
   return sql`
-    SELECT m.id, m.from_name, m.from_address, m.recipients, m.subject,
+    SELECT m.id, m.from_name, m.from_address,
+           CASE WHEN jsonb_typeof(m.recipients) = 'string'
+                THEN (m.recipients #>> '{}')::jsonb
+                ELSE m.recipients END AS recipients,
+           m.subject,
            m.snippet, m.body_text, m.sent_at, m.is_unread, m.is_starred,
            m.is_sent, m.scheduled_for, ai.spam_score,
            BOOL_OR(NULLIF(BTRIM(ai.summary), '') IS NOT NULL) AS has_ai_summary,
