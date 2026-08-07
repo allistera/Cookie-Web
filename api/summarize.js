@@ -46,8 +46,7 @@ export function fetchThreadMessages(sql, email, id) {
 }
 
 function recipientList(recipients) {
-  const parsed = typeof recipients === 'string' ? JSON.parse(recipients) : recipients
-  return (parsed?.to || [])
+  return (recipients?.to || [])
     .map((recipient) => recipient?.name || recipient?.address)
     .filter(Boolean)
     .join(', ')
