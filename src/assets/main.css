@@ -772,6 +772,19 @@ body {
   padding-left: 0px;
 }
 
+/* Topics to catch up on: adds a done checkbox beside each email item,
+   without affecting the plain .topic-email-row rows used by Today's news. */
+.topic-catchup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.topic-catchup-row p {
+  flex: 1;
+  margin: 0;
+}
+
 .topic-email-row strong {
   color: var(--text-primary);
 }

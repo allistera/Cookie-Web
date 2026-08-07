@@ -1460,31 +1460,31 @@ export const useInboxStore = defineStore('inbox', {
       return true
     },
 
+    // Marks one digest item's message read (no-op if already read), updating
+    // both the digest item and the inbox list in place. Goes through
+    // updateMessage rather than setUnread because the digest cites messages
+    // by id whether or not the inbox list has loaded them. Throws on failure
+    // so a caller acting on a single item (e.g. a per-item done checkbox) can
+    // roll back its optimistic UI.
+    async markTopicItemRead(item) {
+      if (!item?.unread) return
+      await this.updateMessage(item.message_id, { is_unread: false })
+      item.unread = false
+      const email = this.traditionalEmails.find((e) => e.id === item.message_id)
+      if (email) email.unread = false
+      // A digest only ever cites unread inbox mail, so this is one fewer
+      // unread in the inbox badge.
+      this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+    },
+
     // Marks every still-unread message in one digest topic as read, clearing
-    // its dots in place. Goes through updateMessage rather than setUnread
-    // because the digest cites messages by id whether or not the inbox list
-    // has loaded them, and because awaiting each write gives an accurate count
-    // to report back. Settled per message, so one failure does not abandon the
-    // rest.
+    // its dots in place. Settled per message, so one failure does not abandon
+    // the rest.
     async markTopicRead(topic) {
       const unread = (topic?.items || []).filter((item) => item.unread)
       if (unread.length === 0) return 0
-      const results = await Promise.allSettled(
-        unread.map((item) => this.updateMessage(item.message_id, { is_unread: false })),
-      )
-      let marked = 0
-      results.forEach((result, index) => {
-        if (result.status !== 'fulfilled') return
-        marked += 1
-        const { message_id: id } = unread[index]
-        unread[index].unread = false
-        const email = this.traditionalEmails.find((e) => e.id === id)
-        if (email) email.unread = false
-      })
-      // A digest only ever cites unread inbox mail, so each success is one
-      // fewer unread in the inbox badge.
-      this.unreadInboxCount = Math.max(0, this.unreadInboxCount - marked)
-      return marked
+      const results = await Promise.allSettled(unread.map((item) => this.markTopicItemRead(item)))
+      return results.filter((result) => result.status === 'fulfilled').length
     },
 
     // Marks a gathered task done (POST /api/tasks). Todoist tasks are closed in

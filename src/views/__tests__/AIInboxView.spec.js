@@ -181,6 +181,55 @@ describe('AIInboxView (AI Today)', () => {
     expect(notify).toHaveBeenCalledWith('Some emails could not be marked read.', 'error')
   })
 
+  it('marks a topic item done, persists it, and hides just that row', async () => {
+    store.digest = DIGEST()
+    const markTopicItemRead = vi.spyOn(store, 'markTopicItemRead').mockResolvedValue(undefined)
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    const kitchen = wrapper.findAll('.topic-section')[0]
+    expect(kitchen.findAll('.topic-catchup-row')).toHaveLength(2)
+
+    await kitchen.findAll('.topic-catchup-row')[0].get('.todo-check-btn').trigger('click')
+    await flushPromises()
+
+    expect(markTopicItemRead).toHaveBeenCalledWith(store.digest.topics[0].items[0])
+    expect(notify).toHaveBeenCalledWith('Marked "Floor plan" done.')
+    // The topic still has one item left, so it stays on screen.
+    const kitchenAfter = wrapper.findAll('.topic-section')[0]
+    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(1)
+    expect(wrapper.get('.ai-greeting').text()).toContain('2 topics')
+  })
+
+  it('drops a topic entirely once its last item is marked done', async () => {
+    store.digest = DIGEST()
+    vi.spyOn(store, 'markTopicItemRead').mockResolvedValue(undefined)
+
+    const wrapper = mountView()
+    // Soccer is the second topic and has a single, already-read item.
+    const soccer = wrapper.findAll('.topic-section')[1]
+    await soccer.get('.todo-check-btn').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['🍳 Kitchen Renovation'])
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 topics')
+  })
+
+  it('rolls a topic item back into view when marking it done fails', async () => {
+    store.digest = DIGEST()
+    vi.spyOn(store, 'markTopicItemRead').mockRejectedValue(new Error('boom'))
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    const kitchen = wrapper.findAll('.topic-section')[0]
+    await kitchen.findAll('.topic-catchup-row')[0].get('.todo-check-btn').trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith('Failed to mark email done.', 'error')
+    const kitchenAfter = wrapper.findAll('.topic-section')[0]
+    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(2)
+  })
+
   it('renders gathered tasks in API order with source-appropriate actions', () => {
     store.tasks = [
       {

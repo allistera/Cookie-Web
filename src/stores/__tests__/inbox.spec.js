@@ -2056,4 +2056,40 @@ describe('Inbox Store', () => {
     })
   })
 
+  describe('markTopicItemRead', () => {
+    it('marks an unread item read, clearing its dot, row and the badge', async () => {
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', unread: true }]
+      store.unreadInboxCount = 5
+      const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+
+      const item = { message_id: 'msg-1', unread: true }
+      await store.markTopicItemRead(item)
+
+      expect(updateMessage).toHaveBeenCalledWith('msg-1', { is_unread: false })
+      expect(item.unread).toBe(false)
+      expect(store.traditionalEmails[0].unread).toBe(false)
+      expect(store.unreadInboxCount).toBe(4)
+    })
+
+    it('does nothing for an item that is already read', async () => {
+      const store = useInboxStore()
+      const updateMessage = vi.spyOn(store, 'updateMessage')
+      await store.markTopicItemRead({ message_id: 'msg-1', unread: false })
+      expect(updateMessage).not.toHaveBeenCalled()
+    })
+
+    it('leaves the dot and the count when the update fails, and rejects', async () => {
+      const store = useInboxStore()
+      store.unreadInboxCount = 5
+      vi.spyOn(store, 'updateMessage').mockRejectedValue(new Error('boom'))
+
+      const item = { message_id: 'msg-1', unread: true }
+      await expect(store.markTopicItemRead(item)).rejects.toThrow('boom')
+
+      expect(item.unread).toBe(true)
+      expect(store.unreadInboxCount).toBe(5)
+    })
+  })
+
 })

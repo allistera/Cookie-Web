@@ -11,7 +11,18 @@ const { user } = useAuth()
 // and a digest clustering the unread inbox into topics. Completing a task
 // hides it immediately, then persists via the store (which closes it in
 // Todoist); a failure rolls the row back.
-const topics = computed(() => store.digest?.topics ?? [])
+// Dismissing a topic-item's done checkbox hides it immediately (mirroring
+// completeTask below), so topics are re-derived to drop dismissed items and
+// any topic left with none.
+const completingItemIds = ref(new Set())
+const topics = computed(() =>
+  (store.digest?.topics ?? [])
+    .map((topic) => ({
+      ...topic,
+      items: topic.items.filter((item) => !completingItemIds.value.has(item.message_id)),
+    }))
+    .filter((topic) => topic.items.length > 0),
+)
 const topicCount = computed(() => topics.value.length)
 const newsSections = computed(() => store.news?.sections ?? [])
 
@@ -56,6 +67,19 @@ async function markTopicRead(topic) {
     }
   } finally {
     markingTopic.value = null
+  }
+}
+
+async function completeTopicItem(item) {
+  completingItemIds.value = new Set(completingItemIds.value).add(item.message_id)
+  try {
+    await store.markTopicItemRead(item)
+    store.notify(`Marked "${item.headline}" done.`)
+  } catch {
+    const next = new Set(completingItemIds.value)
+    next.delete(item.message_id)
+    completingItemIds.value = next
+    store.notify('Failed to mark email done.', 'error')
   }
 }
 
@@ -195,9 +219,6 @@ onMounted(async () => {
                 <span class="material-symbols-outlined">edit</span>
                 <span>{{ store.followUpDraftTaskId === task.id ? 'Drafting…' : 'Draft' }}</span>
               </button>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
-              </button>
             </div>
           </div>
         </TransitionGroup>
@@ -218,19 +239,25 @@ onMounted(async () => {
           <div v-for="topic in topics" :key="topic.title" class="topic-section">
             <div class="topic-title-row">
               <h3 class="topic-title">{{ topic.emoji }} {{ topic.title }}</h3>
-              <button class="icon-btn" title="More options">
-                <span class="material-symbols-outlined">more_vert</span>
-              </button>
             </div>
-            <div class="topic-emails">
-              <div v-for="item in topic.items" :key="item.message_id" class="topic-email-row">
+            <TransitionGroup name="todo-list" tag="div" class="topic-emails">
+              <div
+                v-for="item in topic.items"
+                :key="item.message_id"
+                class="topic-email-row topic-catchup-row"
+              >
+                <div class="todo-checkbox-container">
+                  <button class="todo-check-btn" title="Mark done" @click="completeTopicItem(item)">
+                    <span class="material-symbols-outlined">circle</span>
+                  </button>
+                </div>
                 <p>
                   <strong>{{ item.headline }}</strong> – {{ item.note }} From:
                   <span class="email-link">Email</span>
                   <span v-if="item.unread" class="unread-dot"></span>
                 </p>
               </div>
-            </div>
+            </TransitionGroup>
             <div class="topic-footer">
               <div class="topic-meta">
                 <span class="material-symbols-outlined font-sm">link</span>
