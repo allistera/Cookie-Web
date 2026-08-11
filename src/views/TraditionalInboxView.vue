@@ -436,6 +436,7 @@ const summarizeLabel = computed(() => {
 })
 const isReplyOpen = ref(false)
 const replyText = ref('')
+const isSendingReply = ref(false)
 const replyTextareaRef = ref(null)
 
 function openReader(email) {
@@ -556,8 +557,10 @@ function discardReply() {
 }
 
 async function sendReply() {
+  if (isSendingReply.value) return
   const email = openEmail.value
   const text = replyText.value
+  isSendingReply.value = true
   try {
     await store.sendMail({
       to: email.address,
@@ -571,6 +574,8 @@ async function sendReply() {
   } catch (error) {
     console.error('Failed to send reply:', error)
     store.notify('Failed to send reply. Please try again.', 'error')
+  } finally {
+    isSendingReply.value = false
   }
 }
 
@@ -1202,8 +1207,13 @@ onUnmounted(() => {
               placeholder="Write your reply..."
             ></textarea>
             <div class="ni-reply-footer">
-              <button class="btn btn-primary" :disabled="!replyText.trim()" @click="sendReply">
-                Send
+              <button
+                class="btn btn-primary"
+                :disabled="isSendingReply || !replyText.trim()"
+                :aria-busy="isSendingReply"
+                @click="sendReply"
+              >
+                {{ isSendingReply ? 'Sending…' : 'Send' }}
               </button>
               <button class="btn btn-text" @click="discardReply">Discard</button>
             </div>

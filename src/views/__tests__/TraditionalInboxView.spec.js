@@ -500,6 +500,80 @@ describe('TraditionalInboxView reading panel', () => {
   })
 })
 
+describe('TraditionalInboxView reply send button', () => {
+  let store
+  let wrapper
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routeMock.query = {}
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  async function openReplyBox() {
+    wrapper = mount(TraditionalInboxView)
+    await wrapper.find('.ni-row').trigger('click')
+    await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
+    await wrapper.find('.ni-reply-textarea').setValue('Sounds good!')
+    return wrapper.find('.ni-reply-footer .btn-primary')
+  }
+
+  it('disables the Send button while the reply is in flight', async () => {
+    let resolveSend
+    vi.spyOn(store, 'sendMail').mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve
+      }),
+    )
+    const sendButton = await openReplyBox()
+    expect(sendButton.attributes()).not.toHaveProperty('disabled')
+
+    await sendButton.trigger('click')
+
+    expect(sendButton.attributes()).toHaveProperty('disabled')
+    expect(sendButton.attributes('aria-busy')).toBe('true')
+    expect(sendButton.text()).toContain('Sending…')
+
+    resolveSend()
+    await vi.waitFor(() => expect(wrapper.find('.ni-reply-box').exists()).toBe(false))
+  })
+
+  it('sends only once when Send is clicked twice in quick succession', async () => {
+    vi.spyOn(store, 'sendMail').mockReturnValue(new Promise(() => {}))
+    const sendButton = await openReplyBox()
+
+    await sendButton.trigger('click')
+    await sendButton.trigger('click')
+
+    expect(store.sendMail).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-enables the Send button after a failed send so the user can retry', async () => {
+    vi.spyOn(store, 'sendMail').mockRejectedValue(new Error('boom'))
+    const sendButton = await openReplyBox()
+
+    await sendButton.trigger('click')
+    await vi.waitFor(() => {
+      expect(store.toasts.some((toast) => toast.kind === 'error')).toBe(true)
+    })
+
+    expect(sendButton.attributes()).not.toHaveProperty('disabled')
+    expect(sendButton.text()).toContain('Send')
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+  })
+})
+
 describe('TraditionalInboxView multi-select', () => {
   let store
 
