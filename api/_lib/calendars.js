@@ -221,7 +221,7 @@ async function deleteCalendar(sql, email, body, res) {
   let owned
   try {
     ;[owned] = await sql`
-      SELECT c.subscription_url IS NOT NULL AS "isSubscribed"
+      SELECT c.user_id AS "userId", c.subscription_url IS NOT NULL AS "isSubscribed"
       FROM calendars c JOIN users u ON u.id = c.user_id
       WHERE c.id = ${id} AND lower(u.email) = ${email}
     `
@@ -230,7 +230,7 @@ async function deleteCalendar(sql, email, body, res) {
     // Rollout window before migration 0026 lands: no calendar can be a
     // subscription yet, so behave exactly like the pre-subscription check.
     ;[owned] = await sql`
-      SELECT false AS "isSubscribed"
+      SELECT c.user_id AS "userId", false AS "isSubscribed"
       FROM calendars c JOIN users u ON u.id = c.user_id
       WHERE c.id = ${id} AND lower(u.email) = ${email}
     `
@@ -241,9 +241,12 @@ async function deleteCalendar(sql, email, body, res) {
     return
   }
 
+  // user_id rides along in these statements not for authorization (the
+  // ownership check above already settled that) but so the composite index
+  // (user_id, calendar) applies — calendar alone has no usable index.
   if (owned.isSubscribed) {
     await sql.begin(async (tx) => {
-      await tx`DELETE FROM calendar_events WHERE calendar = ${id}`
+      await tx`DELETE FROM calendar_events WHERE user_id = ${owned.userId} AND calendar = ${id}`
       await tx`DELETE FROM calendars WHERE id = ${id}`
     })
     res.statusCode = 200
@@ -252,7 +255,8 @@ async function deleteCalendar(sql, email, body, res) {
   }
 
   const [{ count }] = await sql`
-    SELECT count(*)::int AS count FROM calendar_events WHERE calendar = ${id}
+    SELECT count(*)::int AS count
+    FROM calendar_events WHERE user_id = ${owned.userId} AND calendar = ${id}
   `
   if (count > 0) {
     res.statusCode = 409

@@ -186,7 +186,10 @@ export async function syncCalendarSubscription(sql, calendarId, userId, url) {
 
   try {
     await sql.begin(async (tx) => {
-      await tx`DELETE FROM calendar_events WHERE calendar = ${calendarId}`
+      // user_id isn't authorization here (callers own the calendar id); it
+      // lets the composite (user_id, calendar) index serve the delete —
+      // calendar alone has no usable index and seq-scanned on every sync.
+      await tx`DELETE FROM calendar_events WHERE user_id = ${userId} AND calendar = ${calendarId}`
       if (rows.length > 0) {
         // Pass the array itself, not a pre-stringified JSON string: postgres.js
         // resolves the ::json cast's OID from the server and applies its own
