@@ -11,7 +11,7 @@ const e2eAuth = {
   user: ref({
     name: 'Allister',
     email: 'allisteraall@gmail.com',
-    picture: '/rose_avatar.jpg',
+    picture: '/rose_avatar.webp',
   }),
   loginWithRedirect: async () => {},
   logout: async () => {},

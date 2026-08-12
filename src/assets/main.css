@@ -22,8 +22,8 @@
   --shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.08);
 
   /* Font Families */
-  --font-stack: 'Outfit', 'Roboto', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Roboto Mono', monospace;
+  --font-stack: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Transitions */
   --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);

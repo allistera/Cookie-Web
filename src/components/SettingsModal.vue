@@ -412,7 +412,7 @@ function toggleRuleEnabled(rule) {
           <section v-if="activeSection === 'account'" class="settings-section">
             <h3 class="settings-section-title">Account</h3>
             <div class="settings-account-row">
-              <img :src="user?.picture || '/rose_avatar.jpg'" :alt="user?.name" class="settings-avatar" />
+              <img :src="user?.picture || '/rose_avatar.webp'" :alt="user?.name" class="settings-avatar" />
               <div class="settings-account-info">
                 <span class="settings-account-name">{{ user?.name || 'Allister' }}</span>
                 <span class="settings-account-email">{{ user?.email || '' }}</span>

@@ -380,7 +380,7 @@ onUnmounted(() => {
 
       <div class="header-right">
         <div class="profile-container" :title="user?.name || 'Account'" @click="showLogoutMenu = !showLogoutMenu">
-          <img :src="user?.picture || '/rose_avatar.jpg'" :alt="user?.name || 'Account'" class="profile-img" />
+          <img :src="user?.picture || '/rose_avatar.webp'" :alt="user?.name || 'Account'" class="profile-img" />
 
           <!-- Dropdown/Logout menu -->
           <div class="profile-dropdown" v-if="showLogoutMenu" @click.stop>
