@@ -194,14 +194,14 @@ test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog'
     const style = getComputedStyle(element)
     return { background: style.backgroundColor, color: style.color }
   })
-  expect(palette).toEqual({ background: 'rgb(8, 9, 10)', color: 'rgb(247, 248, 248)' })
+  expect(palette).toEqual({ background: 'rgb(16, 17, 19)', color: 'rgb(247, 248, 248)' })
 
   const sidebar = page.getByRole('complementary', { name: 'Calendar sidebar' })
-  await expect(sidebar).toHaveCSS('background-color', 'rgb(8, 9, 10)')
+  await expect(sidebar).toHaveCSS('background-color', 'rgb(16, 17, 19)')
   await sidebar.getByRole('button', { name: 'New event', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'New event' })).toHaveCSS(
     'background-color',
-    'rgb(16, 17, 19)',
+    'rgb(23, 24, 27)',
   )
 })
 

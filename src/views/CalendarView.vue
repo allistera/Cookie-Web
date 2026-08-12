@@ -1446,8 +1446,8 @@ onUnmounted(() => {
 
 <style scoped>
 .calendar-view {
-  --calendar-canvas: var(--bg-app);
-  --calendar-surface: var(--bg-card);
+  --calendar-canvas: var(--bg-card);
+  --calendar-surface: var(--bg-dialog);
   --calendar-ink: var(--text-primary);
   --calendar-muted: var(--text-secondary);
   --calendar-label: var(--text-secondary);
