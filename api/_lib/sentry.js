@@ -1,7 +1,5 @@
 import process from 'node:process'
 
-import * as Sentry from '@sentry/node'
-
 // Same Sentry project as the SPA (public DSN, see src/main.js); override with
 // SENTRY_DSN. Reporting is active on Vercel or when a DSN is set explicitly —
 // local dev and tests stay silent.
@@ -10,6 +8,7 @@ const DSN =
   'https://e5f70dd45644023807e0b6d18cb6896a@o4510748410576896.ingest.de.sentry.io/4511682260566096'
 
 let initialized = false
+let sentryPromise
 
 function enabled() {
   return Boolean(process.env.VERCEL || process.env.SENTRY_DSN)
@@ -21,8 +20,10 @@ function enabled() {
 export async function captureApiError(err, context = {}) {
   if (!enabled()) return
   try {
+    sentryPromise ||= import('@sentry/node')
+    const Sentry = await sentryPromise
     if (!initialized) {
-      Sentry.init({ dsn: DSN, tracesSampleRate: 0 })
+      Sentry.init({ dsn: DSN })
       initialized = true
     }
     Sentry.captureException(err, { extra: context })

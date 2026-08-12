@@ -31,26 +31,9 @@ app.mount('#app')
 // production registers the offline shell and recent-mail cache after mount.
 if (!isE2E) registerServiceWorker()
 
-// Sentry initializes after mount via a dynamic import so its bundle (tracing
-// + session replay) stays off the first-paint critical path. Errors thrown
-// before this resolves go unreported — an accepted trade-off.
+// Sentry initializes after mount via a dynamic import so its SDK stays off the
+// first-paint critical path. Only error reporting is configured: no tracing,
+// Session Replay, or Sentry Logs.
 if (!isE2E) {
-  import('@sentry/vue').then((Sentry) => {
-    Sentry.init({
-      app,
-      dsn: 'https://e5f70dd45644023807e0b6d18cb6896a@o4510748410576896.ingest.de.sentry.io/4511682260566096',
-      integrations: [
-        Sentry.browserTracingIntegration({ router }),
-        Sentry.replayIntegration(),
-        Sentry.consoleLoggingIntegration(),
-      ],
-      // Sampled tracing/replay: a personal mailbox does not need every
-      // session recorded, and replay instruments every DOM mutation.
-      tracesSampleRate: 0.2,
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-      // Structured Logging
-      enableLogs: true,
-    })
-  })
+  import('./lib/errorMonitoring').then(({ initErrorMonitoring }) => initErrorMonitoring(app))
 }
