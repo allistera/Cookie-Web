@@ -394,7 +394,11 @@ async function scheduleSelected(choice) {
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
-const openEmailCalendarSuggestion = computed(() => detectCalendarSuggestion(openEmail.value))
+const openEmailCalendarSuggestion = computed(() =>
+  detectCalendarSuggestion(
+    openEmail.value ? { ...openEmail.value, body: store.openEmailText } : null,
+  ),
+)
 const openEmailCalendarSuggestionLabel = computed(() =>
   formatCalendarSuggestion(openEmailCalendarSuggestion.value),
 )

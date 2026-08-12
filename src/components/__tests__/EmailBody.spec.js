@@ -30,6 +30,8 @@ describe('EmailBody', () => {
     // nonce-restricted, app-owned bridge script survives.
     const srcdoc = frame.attributes('srcdoc')
     expect(srcdoc.match(/<script/g)).toHaveLength(1)
+    expect(srcdoc).not.toContain('<script type="module"')
+    expect(srcdoc).toContain('data-bridge-source="cookie-email-body"')
     expect(srcdoc).toContain("script-src 'nonce-")
     expect(srcdoc).not.toContain('window.evil')
     expect(srcdoc.toLowerCase()).not.toContain('onerror')

@@ -1,20 +1,13 @@
-// Runs inside the sandboxed email-body iframe (loaded via <script type="module"
-// src="..." nonce="...">, never inlined — see EmailBody.vue for why: the
-// srcdoc document inherits the app shell's CSP in addition to its own, and an
-// inline <script> has no way to satisfy a shell script-src of 'self' with no
-// nonce/hash. A same-origin src="" script does, with zero relaxation of that
-// policy.
-//
-// Per-message identifiers can't be baked into this file's text (it's a single
-// static, hashed build asset shared by every open message), so they travel as
-// data attributes on <body> instead and are read back here at start-up.
-import { BRIDGE_HINT_SOURCE } from './unsubscribeContent'
-import { BRIDGE_SOURCE, RESIZE_INTERVAL_MS } from './emailBodyBridgeConstants'
-
-const source = BRIDGE_SOURCE
+// Runs inside the sandboxed email-body iframe. This file lives in public/ so
+// Vite serves it byte-for-byte in development: transforming it as a worker
+// injects an ES-module import that cannot run in an opaque-origin srcdoc frame.
+// Configuration and per-message identifiers travel as data attributes on
+// <body>, allowing one cacheable bridge file to serve every open message.
+const source = document.body.dataset.bridgeSource
 const token = document.body.dataset.bridgeToken
 const generation = document.body.dataset.bridgeGeneration
-const hintPattern = new RegExp(BRIDGE_HINT_SOURCE, 'i')
+const hintPattern = new RegExp(document.body.dataset.bridgeHintSource, 'i')
+const resizeInterval = Number(document.body.dataset.bridgeResizeInterval)
 const send = (type, detail) => parent.postMessage({ source, token, type, ...detail }, '*')
 
 let lastHeight = 0
@@ -31,7 +24,7 @@ const sendResize = () => {
 
 const scheduleResize = () => {
   if (resizeTimer !== null) return
-  resizeTimer = setTimeout(sendResize, RESIZE_INTERVAL_MS)
+  resizeTimer = setTimeout(sendResize, resizeInterval)
 }
 
 const decodedForMatching = (value) => {

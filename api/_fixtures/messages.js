@@ -1,3 +1,5 @@
+import { fixtureEmails, fixtureSentEmails } from './emails.js'
+
 // Fixture body for GET /api/messages, served by the local Vite middleware in
 // e2e mode (and dev without DATABASE_URL). The first fixture message carries a
 // deliberately hostile HTML body — a <script> tag and an onerror <img> plus a
@@ -75,10 +77,11 @@ export function fixtureMessageBody(id) {
       attachments: [],
     }
   }
+  const email = [...fixtureEmails(), ...fixtureSentEmails()].find((row) => row.id === id)
   return {
     id: id ?? null,
     body_html: null,
-    body_text: null,
+    body_text: email?.body_text ?? null,
     unsubscribe: null,
     thread: [],
     attachments: [],

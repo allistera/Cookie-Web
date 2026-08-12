@@ -1,10 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import emailBodyBridgeUrl from '../lib/emailBodyBridge.js?worker&url'
 import { BRIDGE_SOURCE, RESIZE_INTERVAL_MS } from '../lib/emailBodyBridgeConstants'
 import { hasBlockedRemoteImages, sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
-import { selectPlainTextUnsubscribeTarget, selectUnsubscribeTarget } from '../lib/unsubscribeContent'
+import {
+  BRIDGE_HINT_SOURCE,
+  selectPlainTextUnsubscribeTarget,
+  selectUnsubscribeTarget,
+} from '../lib/unsubscribeContent'
 
 const props = defineProps({
   // Raw, untrusted, sender-controlled body_html (null until fetched / absent).
@@ -32,6 +35,7 @@ const emit = defineEmits(['keydown', 'unsubscribe-link'])
 // pixel frame; taller bodies scroll inside the frame.
 const MAX_FRAME_HEIGHT = 12000
 const SCRIPT_CLOSE = '</scr' + 'ipt>'
+const emailBodyBridgeUrl = '/email-body-bridge.js'
 
 function randomToken() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -117,7 +121,7 @@ body {
 img { max-width: 100%; height: auto; }
 table { max-width: 100%; border-collapse: collapse; }
 a { color: ${link}; }
-</style></head><body data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}">${safeHtml.value}
+</style></head><body data-bridge-source="${BRIDGE_SOURCE}" data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}" data-bridge-hint-source="${BRIDGE_HINT_SOURCE}" data-bridge-resize-interval="${RESIZE_INTERVAL_MS}">${safeHtml.value}
 <script nonce="${scriptNonce}" src="${emailBodyBridgeUrl}">${SCRIPT_CLOSE}</body></html>`
 })
 

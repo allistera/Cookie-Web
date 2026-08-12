@@ -1320,6 +1320,7 @@ body {
   align-items: center;
   justify-content: flex-start;
   width: 14px;
+  height: 20px;
   flex-shrink: 0;
 }
 

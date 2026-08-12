@@ -118,6 +118,30 @@ describe('TraditionalInboxView day accordion', () => {
     expect(routerMock.push).toHaveBeenCalledWith({ name: 'calendar' })
   })
 
+  it('detects calendar details after the full message body loads on demand', async () => {
+    const eventEmail = makeEmail('event-body', Date.now() - HOUR)
+    eventEmail.sender = 'Campus Tours'
+    eventEmail.subject = 'Guided tour confirmation'
+    eventEmail.snippet = 'Your booking is confirmed.'
+    eventEmail.body = undefined
+    store.traditionalEmails.unshift(eventEmail)
+    const wrapper = mount(TraditionalInboxView)
+
+    await wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('Guided tour'))
+      .trigger('click')
+    expect(wrapper.find('.ni-calendar-suggestion').exists()).toBe(false)
+
+    store.messageBodies.set('event-body', {
+      html: null,
+      text: 'Meet at the Visitor Center for the August 12th 2099 tour at 10:00 AM.',
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
+  })
+
   it('shows due scheduled emails in an expanded Due Today group above Today', () => {
     const due = makeEmail('due-1', Date.now() - 5 * DAY)
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()
