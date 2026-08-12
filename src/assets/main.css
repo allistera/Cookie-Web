@@ -1,28 +1,32 @@
-/* CSS Reset & Variables */
+/* CSS Reset & Variables — Linear-style theme */
 :root {
   /* Colors */
-  --bg-app: #f6f8fc;
-  --bg-sidebar-active: #c2e7ff;
+  --bg-app: #f9f8f9;
+  --bg-sidebar-active: rgba(0, 0, 0, 0.06);
   --bg-card: #ffffff;
-  --bg-header: #f6f8fc;
-  --bg-input: #eaf1fb;
+  --bg-header: #f9f8f9;
+  --bg-input: #f1f0f3;
   --bg-hover: rgba(0, 0, 0, 0.04);
   --bg-dialog: #ffffff;
-  --border-color: #e0e0e0;
+  --border-color: #e4e2e7;
 
-  --text-primary: #1f1f1f;
-  --text-secondary: #474747;
-  --text-blue: #0b57d0;
-  --text-blue-dark: #001d35;
-  --text-purple: #a970ff;
-  --gemini-purple: #a970ff;
+  --text-primary: #282a30;
+  --text-secondary: #6b6f76;
+  --accent: #5e6ad2;
+  --accent-hover: #5058bf;
+  --accent-soft: rgba(94, 106, 210, 0.12);
+  --text-blue: var(--accent);
+  --text-blue-dark: #2e3358;
+  --text-purple: #6e79d6;
+  --gemini-purple: #6e79d6;
 
-  --shadow-sm: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  --shadow-md: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
-  --shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.16);
 
   /* Font Families */
-  --font-stack: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-stack:
+    'Inter Variable', Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Transitions */
@@ -39,23 +43,26 @@
 
 /* Dark Mode Variables */
 [data-theme='dark'] {
-  --bg-app: #101314;
-  --bg-sidebar-active: #004b73;
-  --bg-card: #1c2022;
-  --bg-header: #101314;
-  --bg-input: #23272a;
-  --bg-hover: rgba(255, 255, 255, 0.08);
-  --bg-dialog: #1c2022;
-  --border-color: #33393b;
+  --bg-app: #08090a;
+  --bg-sidebar-active: rgba(255, 255, 255, 0.08);
+  --bg-card: #101113;
+  --bg-header: #08090a;
+  --bg-input: #1c1d21;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-dialog: #17181b;
+  --border-color: #26282e;
 
-  --text-primary: #e3e3e3;
-  --text-secondary: #c4c7c5;
-  --text-blue: #7fcfff;
-  --text-blue-dark: #e8f0fe;
+  --text-primary: #f7f8f8;
+  --text-secondary: #8a8f98;
+  --accent: #5e6ad2;
+  --accent-hover: #6e79e0;
+  --accent-soft: rgba(94, 106, 210, 0.24);
+  --text-blue: #858df8;
+  --text-blue-dark: #e3e6ff;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -87,7 +94,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
+  height: 56px;
   padding: 0 16px;
   background-color: var(--bg-header);
   border-bottom: 1px solid var(--border-color);
@@ -130,13 +137,14 @@ body {
 }
 
 .logo-text {
-  font-size: 22px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
 .logo-suffix {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 400;
   color: var(--text-secondary);
 }
@@ -247,18 +255,18 @@ body {
   display: flex;
   align-items: center;
   background-color: var(--bg-input);
-  border-radius: 100px;
-  padding: 0 16px;
-  height: 48px;
+  border-radius: 8px;
+  padding: 0 12px;
+  height: 38px;
   transition: all var(--transition-fast);
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   position: relative;
 }
 
 .search-bar-container:focus-within {
   background-color: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-  border-color: var(--text-blue);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .search-bar-container:hover {
@@ -277,8 +285,8 @@ body {
   outline: none;
   height: 100%;
   font-family: var(--font-stack);
-  font-size: 16px;
-  padding: 0 12px;
+  font-size: 14px;
+  padding: 0 10px;
   color: var(--text-primary);
 }
 
@@ -296,11 +304,11 @@ body {
 .search-suggestions {
   display: none;
   position: absolute;
-  top: 54px;
+  top: 44px;
   left: 0;
   right: 0;
   background-color: var(--bg-card);
-  border-radius: 16px;
+  border-radius: 10px;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-color);
   padding: 8px 0;
@@ -362,7 +370,7 @@ body {
 }
 
 .gemini-color {
-  background: linear-gradient(135deg, #1a73e8, #a970ff, #ff6e40);
+  background: linear-gradient(135deg, #5e6ad2, #8b93f8, #b59aff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   display: inline-block;
@@ -529,10 +537,10 @@ body {
 }
 
 .beta-badge {
-  background-color: #e8f0fe;
-  color: #1a73e8;
+  background-color: var(--accent-soft);
+  color: var(--text-blue);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 2px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -540,15 +548,10 @@ body {
   width: fit-content;
 }
 
-[data-theme='dark'] .beta-badge {
-  background-color: #0b2240;
-  color: #7fcfff;
-}
-
 .ai-greeting {
-  font-size: 32px;
-  font-weight: 500;
-  letter-spacing: -0.5px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
   display: flex;
   align-items: center;
@@ -572,9 +575,9 @@ body {
 .ai-card {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 20px;
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition:
     border-color var(--transition-normal),
     box-shadow var(--transition-normal);
@@ -683,10 +686,10 @@ body {
   gap: 8px;
   background-color: var(--bg-input);
   border: none;
-  border-radius: 100px;
-  padding: 8px 16px;
+  border-radius: 8px;
+  padding: 7px 14px;
   font-family: var(--font-stack);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-blue-dark);
   cursor: pointer;
@@ -837,12 +840,12 @@ body {
 
 /* Traditional Inbox View (Notion Mail style) */
 :root {
-  --ni-accent: #2383e2;
+  --ni-accent: #5e6ad2;
   --ni-accent-bg: rgba(35, 131, 226, 0.1);
 }
 
 [data-theme='dark'] {
-  --ni-accent: #7fcfff;
+  --ni-accent: #858df8;
   --ni-accent-bg: rgba(127, 207, 255, 0.12);
 }
 
@@ -1089,11 +1092,11 @@ body {
 }
 
 .ni-bulk-pill--danger {
-  color: var(--danger, #d32f2f);
+  color: var(--danger, #e5484d);
 }
 
 .ni-bulk-pill--danger:hover {
-  background: color-mix(in srgb, var(--danger, #d32f2f) 8%, transparent);
+  background: color-mix(in srgb, var(--danger, #e5484d) 8%, transparent);
 }
 
 .ni-label-dot {
@@ -1480,7 +1483,7 @@ body {
 }
 
 .ni-action-btn.starred {
-  color: #f4b400;
+  color: #f2c94c;
 }
 
 .ni-row.selected {
@@ -1631,7 +1634,7 @@ body {
 }
 
 .ni-reader-btn.starred {
-  color: #f4b400;
+  color: #f2c94c;
 }
 
 .ni-reader-btn:disabled {
@@ -1742,7 +1745,7 @@ body {
 
 .ni-email-card {
   border: 1px solid var(--border-color);
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 18px 22px;
   box-shadow: var(--shadow-sm);
   flex-shrink: 0;
@@ -1752,7 +1755,7 @@ body {
   margin-bottom: 22px;
   padding: 17px 19px;
   border: 1px solid color-mix(in srgb, var(--gemini-purple) 42%, transparent);
-  border-radius: 14px;
+  border-radius: 10px;
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--gemini-purple) 15%, var(--bg-card)),
@@ -1980,7 +1983,7 @@ button.ni-attachment:hover {
 /* Inline reply box */
 .ni-reply-box {
   border: 1px solid var(--border-color);
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 16px 20px;
   margin-top: 16px;
   box-shadow: var(--shadow-sm);
@@ -2066,7 +2069,7 @@ button.ni-attachment:hover {
   max-width: 420px;
   padding: 22px 18px 22px 26px;
   background-color: var(--bg-card);
-  border-left: 4px solid #4c9ffe;
+  border-left: 4px solid var(--accent);
   border-radius: 2px;
   box-shadow:
     0 1px 3px rgba(15, 15, 15, 0.1),
@@ -2160,7 +2163,7 @@ button.ni-attachment:hover {
 }
 
 .text-green {
-  color: #0f9d58;
+  color: #4cb782;
 }
 
 .voice-icon-size {
@@ -2221,7 +2224,7 @@ button.ni-attachment:hover {
 .drawer-input {
   flex-grow: 1;
   border: 1px solid var(--border-color);
-  border-radius: 100px;
+  border-radius: 8px;
   padding: 8px 16px;
   outline: none;
   font-family: var(--font-stack);
@@ -2249,7 +2252,7 @@ button.ni-attachment:hover {
 }
 
 .drawer-send-btn:hover {
-  background-color: #004bbf;
+  background-color: var(--accent-hover);
 }
 
 /* Chat bubble styling */
@@ -2261,7 +2264,7 @@ button.ni-attachment:hover {
   font-size: 14px;
   line-height: 1.5;
   padding: 10px 14px;
-  border-radius: 16px;
+  border-radius: 10px;
   animation: fade-in 0.3s ease;
 }
 
@@ -2313,7 +2316,7 @@ button.ni-attachment:hover {
   margin: 12px auto 20px;
   padding: 6px 18px;
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: 8px;
   background: none;
   color: var(--text-secondary);
   font: inherit;
@@ -2391,8 +2394,8 @@ button.ni-attachment:hover {
 }
 
 .modal-container {
-  background-color: var(--bg-card);
-  border-radius: 20px;
+  background-color: var(--bg-dialog);
+  border-radius: 12px;
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
@@ -2459,22 +2462,22 @@ button.ni-attachment:hover {
 /* Button UI */
 .btn {
   font-family: var(--font-stack);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  padding: 10px 20px;
-  border-radius: 100px;
+  padding: 8px 14px;
+  border-radius: 8px;
   cursor: pointer;
   border: none;
   transition: all var(--transition-fast);
 }
 
 .btn-primary {
-  background-color: var(--text-blue);
+  background-color: var(--accent);
   color: #ffffff;
 }
 
 .btn-primary:hover {
-  background-color: #004bbf;
+  background-color: var(--accent-hover);
 }
 
 .btn-secondary {
@@ -2488,12 +2491,12 @@ button.ni-attachment:hover {
 }
 
 .btn-success {
-  background-color: #0f9d58;
+  background-color: #4cb782;
   color: #ffffff;
 }
 
 .btn-success:hover {
-  background-color: #0b8043;
+  background-color: #3fa572;
 }
 
 .btn-text {
@@ -2563,7 +2566,7 @@ button.ni-attachment:hover {
 
 .sheet-inline-input:focus {
   outline: none;
-  border-color: #0f9d58;
+  border-color: var(--accent);
   background-color: var(--bg-card);
 }
 
@@ -2575,13 +2578,13 @@ button.ni-attachment:hover {
 }
 
 .status-pending {
-  background-color: #fff7e0;
-  color: #b06000;
+  background-color: rgba(242, 153, 74, 0.16);
+  color: #b25e09;
 }
 
 .status-confirmed {
-  background-color: #e6f4ea;
-  color: #137333;
+  background-color: rgba(76, 183, 130, 0.16);
+  color: #1d7f56;
 }
 
 /* Waiver Specific Signature Pad */
@@ -2790,7 +2793,7 @@ button.ni-attachment:hover {
 }
 
 .composer-field-input::placeholder {
-  color: #b8b8b8;
+  color: var(--text-secondary);
 }
 
 .composer-body {
@@ -2812,7 +2815,7 @@ button.ni-attachment:hover {
 }
 
 .composer-body textarea::placeholder {
-  color: #b8b8b8;
+  color: var(--text-secondary);
   letter-spacing: 2px;
 }
 
@@ -2853,7 +2856,7 @@ button.ni-attachment:hover {
 
 .composer-editor:empty::before {
   content: attr(data-placeholder);
-  color: #b8b8b8;
+  color: var(--text-secondary);
   pointer-events: none;
 }
 
@@ -3025,7 +3028,7 @@ button.ni-attachment:hover {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  border-radius: 100px;
+  border-radius: 8px;
   background-color: var(--bg-input);
 }
 
@@ -3135,8 +3138,8 @@ button.ni-attachment:hover {
   background: var(--bg-dialog);
   border: 1px solid var(--border-color);
   padding: 48px;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3803,7 +3806,7 @@ button.ni-attachment:hover {
   width: 100%;
   background: none;
   border: none;
-  color: #ea4335;
+  color: #e5484d;
   font-size: 14px;
   font-weight: 500;
   padding: 8px 12px;
@@ -3838,7 +3841,7 @@ button.ni-attachment:hover {
 }
 
 .ni-inbox-zero-icon {
-  color: #0f9d58;
+  color: #4cb782;
   font-size: 84px;
   font-variation-settings: 'FILL' 1;
 }
@@ -3932,7 +3935,7 @@ button.ni-attachment:hover {
 .cp-panel {
   width: 560px;
   max-width: 92vw;
-  background: #2a2a2a;
+  background: #17181a;
   color: #e8e8e8;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);

@@ -4,8 +4,8 @@
   "description": "Workspace intelligence and automation",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f8ff",
-  "theme_color": "#f5f8ff",
+  "background_color": "#f9f8f9",
+  "theme_color": "#f9f8f9",
   "icons": [
     {
       "src": "/icons/icon-192.png",

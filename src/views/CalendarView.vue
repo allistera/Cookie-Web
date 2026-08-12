@@ -1456,22 +1456,22 @@ onUnmounted(() => {
   --calendar-soft: var(--bg-hover);
   --calendar-mint: var(--bg-input);
   --calendar-mint-strong: var(--text-blue);
-  --calendar-coral: #d93025;
-  --calendar-coral-soft: rgba(217, 48, 37, 0.1);
+  --calendar-coral: #e5484d;
+  --calendar-coral-soft: rgba(229, 72, 77, 0.1);
   --calendar-event-line: var(--border-color);
   --calendar-event-surface: var(--bg-input);
   --calendar-event-ink: var(--text-primary);
-  --calendar-conflict-line: #d93025;
-  --calendar-conflict-surface: rgba(217, 48, 37, 0.1);
-  --calendar-accepted-line: #0f9d58;
-  --calendar-accepted-surface: rgba(15, 157, 88, 0.12);
-  --calendar-accepted-ink: #0f9d58;
+  --calendar-conflict-line: #e5484d;
+  --calendar-conflict-surface: rgba(229, 72, 77, 0.1);
+  --calendar-accepted-line: #4cb782;
+  --calendar-accepted-surface: rgba(76, 183, 130, 0.12);
+  --calendar-accepted-ink: #1d7f56;
   --calendar-suggested: var(--text-purple);
   --calendar-input: var(--bg-input);
   --calendar-overlay: rgba(0, 0, 0, 0.35);
   --calendar-emphasis: var(--text-blue);
   --calendar-on-emphasis: #ffffff;
-  --calendar-time-line: #d93025;
+  --calendar-time-line: #e5484d;
   --calendar-disabled: var(--border-color);
   --calendar-disabled-ink: var(--text-secondary);
   --calendar-card-shadow: var(--shadow-sm);
@@ -1485,14 +1485,14 @@ onUnmounted(() => {
 }
 
 [data-theme='dark'] .calendar-view {
-  --calendar-coral: #f28b82;
-  --calendar-coral-soft: rgba(242, 139, 130, 0.16);
-  --calendar-conflict-line: #f28b82;
-  --calendar-conflict-surface: rgba(242, 139, 130, 0.16);
-  --calendar-accepted-line: #81c995;
-  --calendar-accepted-surface: rgba(129, 201, 149, 0.16);
-  --calendar-accepted-ink: #81c995;
-  --calendar-time-line: #f28b82;
+  --calendar-coral: #eb6e6e;
+  --calendar-coral-soft: rgba(235, 110, 110, 0.16);
+  --calendar-conflict-line: #eb6e6e;
+  --calendar-conflict-surface: rgba(235, 110, 110, 0.16);
+  --calendar-accepted-line: #62d29c;
+  --calendar-accepted-surface: rgba(98, 210, 156, 0.16);
+  --calendar-accepted-ink: #62d29c;
+  --calendar-time-line: #eb6e6e;
   --calendar-overlay: rgba(0, 0, 0, 0.68);
   color-scheme: dark;
 }
@@ -2441,7 +2441,7 @@ onUnmounted(() => {
 .new-event-dialog {
   width: min(640px, calc(100vw - 32px));
   padding: 28px;
-  border-radius: 20px;
+  border-radius: 12px;
   background: var(--calendar-surface);
   box-shadow: var(--calendar-dialog-shadow);
 }
@@ -2658,12 +2658,12 @@ onUnmounted(() => {
 .new-event-delete {
   border: 1px solid transparent;
   background: transparent;
-  color: #ea4335;
+  color: #e5484d;
 }
 
 .new-event-delete:hover,
 .new-event-delete:focus-visible {
-  background: rgba(234, 67, 53, 0.08);
+  background: rgba(229, 72, 77, 0.08);
   outline: none;
 }
 

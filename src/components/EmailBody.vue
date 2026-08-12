@@ -104,8 +104,8 @@ function currentTheme() {
 const srcdoc = computed(() => {
   if (!hasHtml.value) return ''
   const dark = currentTheme() === 'dark'
-  const fg = dark ? '#e6e6e6' : '#1f1f1f'
-  const link = dark ? '#7cc4ff' : '#2383e2'
+  const fg = dark ? '#f7f8f8' : '#282a30'
+  const link = dark ? '#858df8' : '#5e6ad2'
   // Widened only once the reader clicks "Show images" for this message.
   const imgSrc = imagesAllowed.value ? 'data: cid: https: http:' : 'data: cid:'
   return `<!doctype html><html><head><meta charset="utf-8">
