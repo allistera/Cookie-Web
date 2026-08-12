@@ -127,18 +127,21 @@ function reversibleMessageUpdate(
   return { persistence, undo }
 }
 
+// Hoisted formatter instances: toLocale* constructs a formatter internally on
+// every call, and formatEmailDate runs once per row on every inbox load and
+// realtime refresh.
+const EMAIL_TIME_FMT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
+const EMAIL_DAY_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' })
+
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 export function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   if (sentAt >= startOfToday) {
-    return sentAt
-      .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      .toLowerCase()
-      .replace(/\s/g, ' ')
+    return EMAIL_TIME_FMT.format(sentAt).toLowerCase().replace(/\s/g, ' ')
   }
-  return sentAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return EMAIL_DAY_FMT.format(sentAt)
 }
 
 const PAGE_SIZE = 50
