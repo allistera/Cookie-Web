@@ -146,7 +146,8 @@ export default async function handler(req, res) {
     }
 
     const rows = await sql`
-      SELECT m.id, m.from_name, m.from_address, m.subject, m.body_text, m.sent_at
+      SELECT m.id, m.from_name, m.from_address, m.subject,
+             LEFT(m.body_text, ${CONTEXT_BODY_CHARS}) AS body_text, m.sent_at
       FROM messages m
       JOIN users u ON u.id = m.user_id
       WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])

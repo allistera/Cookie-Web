@@ -75,14 +75,18 @@ describe('fetchUnreadCount', () => {
   // when every candidate message is spam, the user's own row along with them —
   // leaving the handler to report userId: null, so the client never subscribes
   // to its Realtime inbox channel. It has to live in the aggregate's FILTER.
+  // is_unread, by contrast, belongs in the JOIN's ON: there the join touches
+  // only unread rows (matching the partial index messages_unread_idx) while
+  // the user row still survives via the LEFT JOIN.
   it('excludes spam inside the aggregate filter, not the WHERE clause', () => {
     const capture = captureQuery()
 
     fetchUnreadCount(capture.sql, 'owner@example.com')
 
     expect(capture.query()).toMatch(
-      /count\(m\.id\) FILTER \(\s*WHERE m\.is_unread AND COALESCE\(ai\.spam_verdict, 'inbox'\) <> 'spam'\s*\)/,
+      /count\(m\.id\) FILTER \(\s*WHERE COALESCE\(ai\.spam_verdict, 'inbox'\) <> 'spam'\s*\)/,
     )
+    expect(capture.query()).toContain('ON m.user_id = u.id AND m.is_unread')
     const whereOnwards = capture.query().slice(capture.query().indexOf('WHERE lower(u.email)'))
     expect(whereOnwards).not.toContain('spam')
     expect(whereOnwards).toContain('GROUP BY u.id')
