@@ -20,7 +20,7 @@
     "@sentry/vue": "^10.66.0",
     "@supabase/realtime-js": "^2.112.3",
     "@vercel/blob": "^2.6.1",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.13",
     "jose": "^6.2.3",
     "node-ical": "^0.27.1",
     "pinia": "^3.0.4",
