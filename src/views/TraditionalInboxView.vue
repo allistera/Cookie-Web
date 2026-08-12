@@ -3,6 +3,7 @@ import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore, formatEmailDate } from '../stores/inbox'
 import EmailBody from '../components/EmailBody.vue'
+import EmailRow from '../components/EmailRow.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import { scheduleChoices } from '../utils/schedule'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
@@ -239,6 +240,10 @@ function toggleStar(email) {
   store.toggleStar(email)
 }
 
+function toggleUnread(email) {
+  store.setUnread(email, !email.unread)
+}
+
 // Marks every unread email of one day group as read (each persists via the
 // store's optimistic per-email setUnread, which reverts on failure).
 function markGroupRead(group) {
@@ -339,7 +344,12 @@ function labelSelected(label) {
 const bulkScheduleOpen = ref(false)
 const readerScheduleOpen = ref(false)
 const readerTagOpen = ref(false)
-const scheduleOptions = computed(() => scheduleChoices())
+// Depends on the menus' open flags so the presets recompute from the current
+// clock each time a menu opens — with no reactive deps this cached its
+// "Later today"/"Tomorrow" dates once at mount for the whole session.
+const scheduleOptions = computed(() =>
+  bulkScheduleOpen.value || readerScheduleOpen.value ? scheduleChoices() : [],
+)
 
 // Reader tag menu: whether a palette label is already on the open email (matched
 // by name, since the email's labels carry name/color/kind but not id).
@@ -747,119 +757,25 @@ onUnmounted(() => {
             </span>
           </span>
         </button>
-        <div
+        <!-- Handlers are stable function references on purpose: inline
+             arrows would get a new identity on every parent render and
+             defeat EmailRow's props-equality re-render skip. -->
+        <EmailRow
           v-for="email in isGroupOpen(group.label) ? group.emails : []"
           :key="email.id"
-          v-memo="[
-            // Everything this row renders that can change without the email
-            // object being replaced. With hundreds of loaded rows, a change
-            // to one email otherwise re-diffs every row's vdom. `email`
-            // itself covers wholesale replacement on reload; unread/starred
-            // mutate in place; labels is swapped by reference on tag edits.
-            email,
-            email.unread,
-            email.starred,
-            email.labels,
-            email.readAt,
-            isSelected(email),
-            openEmail === email,
-            emailHasAiSummary(email),
-            activeFilter,
-          ]"
-          class="ni-row"
-          :class="{
-            unread: email.unread,
-            selected: openEmail === email,
-            checked: isSelected(email),
-          }"
-          @click="openReader(email)"
-        >
-          <div class="ni-lead">
-            <span
-              class="material-symbols-outlined ni-checkbox"
-              :class="{ checked: isSelected(email) }"
-              role="checkbox"
-              tabindex="0"
-              :aria-checked="isSelected(email) ? 'true' : 'false'"
-              :aria-label="`Select ${email.subject}`"
-              @click.stop="toggleSelect(email)"
-              @keydown.enter.stop.prevent="toggleSelect(email)"
-              @keydown.space.stop.prevent="toggleSelect(email)"
-              >{{ isSelected(email) ? 'check_box' : 'check_box_outline_blank' }}</span
-            >
-            <span class="ni-dot" v-if="email.unread"></span>
-          </div>
-          <div class="ni-sender">{{ rowSender(email) }}</div>
-          <div class="ni-subject">
-            <span
-              v-if="emailHasAiSummary(email)"
-              class="material-symbols-outlined ni-ai-generated-icon"
-              aria-hidden="true"
-              >auto_awesome</span
-            >
-            <span class="ni-subject-text">{{ email.subject }}</span>
-          </div>
-          <div class="ni-row-labels">
-            <span
-              v-for="label in email.labels"
-              :key="label.name"
-              class="ni-label-pill ni-label-pill-sm"
-              :style="{ color: label.color, backgroundColor: label.color + '1f' }"
-            >
-              {{ label.name }}
-            </span>
-          </div>
-          <div class="ni-date">
-            <span
-              v-if="email.isSent"
-              class="ni-read-status"
-              :class="{ opened: email.readAt }"
-              :title="readReceiptTitle(email)"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">{{
-                email.readAt ? 'done_all' : 'check'
-              }}</span>
-              {{ email.readAt ? 'Opened' : 'Sent' }}
-            </span>
-            <span
-              v-if="email.hasAttachments"
-              class="material-symbols-outlined ni-row-attachment-icon"
-              title="Has attachments"
-              aria-label="Has attachments"
-              >attach_file</span
-            >
-            <span>{{ email.date }}</span>
-          </div>
-          <div class="ni-actions" @click.stop>
-            <button
-              class="ni-action-btn"
-              :class="{ starred: email.starred }"
-              title="Star"
-              @click="toggleStar(email)"
-            >
-              <span class="material-symbols-outlined">{{
-                email.starred ? 'star' : 'star_border'
-              }}</span>
-            </button>
-            <button
-              v-if="activeFilter !== 'done'"
-              class="ni-action-btn"
-              title="Done"
-              @click="removeEmail(email)"
-            >
-              <span class="material-symbols-outlined">check_box</span>
-            </button>
-            <button
-              class="ni-action-btn"
-              :title="email.unread ? 'Mark as read' : 'Mark as unread'"
-              @click="store.setUnread(email, !email.unread)"
-            >
-              <span class="material-symbols-outlined">{{
-                email.unread ? 'mark_email_read' : 'mark_email_unread'
-              }}</span>
-            </button>
-          </div>
-        </div>
+          :email="email"
+          :sender="rowSender(email)"
+          :read-receipt-title="email.isSent ? readReceiptTitle(email) : ''"
+          :checked="isSelected(email)"
+          :open="openEmail === email"
+          :has-ai-summary="emailHasAiSummary(email)"
+          :show-done="activeFilter !== 'done'"
+          @open="openReader"
+          @toggle-select="toggleSelect"
+          @toggle-star="toggleStar"
+          @done="removeEmail"
+          @toggle-unread="toggleUnread"
+        />
       </template>
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
