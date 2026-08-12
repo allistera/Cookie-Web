@@ -1,12 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { fetchContacts } from '../_lib/contacts.js'
+vi.mock('../_lib/auth.js', () => ({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+}))
+vi.mock('../_lib/sentry.js', () => ({
+  captureApiError: vi.fn(async () => undefined),
+}))
+vi.mock('../_lib/db.js', () => ({
+  getSql: () => () => Promise.resolve([{ address: 'a@example.com', name: 'A' }]),
+}))
+
+import contactsHandler, { fetchContacts } from '../_lib/contacts.js'
 
 describe('fetchContacts', () => {
-  it('reads the contacts view scoped to the authenticated user', () => {
+  it('reads the contacts view scoped to the authenticated user, bounded', () => {
     let query = ''
-    const sql = (strings) => {
+    const values = []
+    const sql = (strings, ...vals) => {
       query = strings.join('?')
+      values.push(...vals)
       return []
     }
 
@@ -18,5 +30,28 @@ describe('fetchContacts', () => {
     expect(query).toContain('c.address')
     expect(query).toContain('c.name')
     expect(query).toContain('ORDER BY')
+    expect(query).toContain('LIMIT')
+    expect(values).toEqual(['owner@example.com', 2000])
+  })
+})
+
+describe('GET contacts handler', () => {
+  it('marks the response privately cacheable — the view recomputes the whole mailbox per read', async () => {
+    const res = {
+      statusCode: 0,
+      headers: {},
+      body: null,
+      setHeader(name, value) {
+        this.headers[name] = value
+      },
+      end(payload) {
+        this.body = JSON.parse(payload)
+      },
+    }
+    await contactsHandler({ method: 'GET', url: '/api/messages?resource=contacts', headers: {} }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['Cache-Control']).toBe('private, max-age=300')
+    expect(res.body).toEqual({ contacts: [{ address: 'a@example.com', name: 'A' }] })
   })
 })
