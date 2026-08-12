@@ -94,7 +94,10 @@ const isSendDisabled = computed(
 // "Send Later" popover on the composer's Send button, reusing the same
 // ScheduleMenu/presets the inbox uses for snoozing mail.
 const scheduleSendOpen = ref(false)
-const scheduleSendOptions = computed(() => scheduleChoices())
+// Depends on the popover's open flag so the presets recompute from the
+// current clock each time it opens — with no reactive deps this cached its
+// dates once at mount for the whole session.
+const scheduleSendOptions = computed(() => (scheduleSendOpen.value ? scheduleChoices() : []))
 
 function selectScheduleSend(choice) {
   scheduleSendOpen.value = false
