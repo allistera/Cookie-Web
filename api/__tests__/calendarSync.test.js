@@ -21,10 +21,20 @@ describe('validSubscriptionUrl', () => {
     expect(validSubscriptionUrl('https://example.com/feed.ics')).toBe('https://example.com/feed.ics')
   })
 
+  it('accepts webcal URLs, normalized to their https equivalent', () => {
+    expect(validSubscriptionUrl('webcal://example.com/feed.ics')).toBe('https://example.com/feed.ics')
+    expect(validSubscriptionUrl('WEBCAL://example.com/feed.ics')).toBe('https://example.com/feed.ics')
+    expect(validSubscriptionUrl('webcal://example.com:8443/a/feed.ics?token=x')).toBe(
+      'https://example.com:8443/a/feed.ics?token=x',
+    )
+  })
+
   it('rejects non-https URLs', () => {
     expect(validSubscriptionUrl('http://example.com/feed.ics')).toBeNull()
     expect(validSubscriptionUrl('file:///etc/passwd')).toBeNull()
     expect(validSubscriptionUrl('gopher://example.com')).toBeNull()
+    // Only a leading scheme is rewritten — webcal elsewhere is not a scheme.
+    expect(validSubscriptionUrl('http://evil.example/webcal://example.com')).toBeNull()
   })
 
   it('rejects malformed input', () => {
@@ -41,6 +51,7 @@ describe('validSubscriptionUrl', () => {
   it('rejects URLs carrying embedded credentials', () => {
     expect(validSubscriptionUrl('https://user:pass@example.com/feed.ics')).toBeNull()
     expect(validSubscriptionUrl('https://user@example.com/feed.ics')).toBeNull()
+    expect(validSubscriptionUrl('webcal://user:pass@example.com/feed.ics')).toBeNull()
   })
 })
 

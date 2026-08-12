@@ -22,11 +22,15 @@ const MAX_SYNC_ERROR_CHARS = 500
 // Credential-bearing URLs are rejected here rather than only at the egress
 // boundary (resolvePublicHttpsUrl), so subscribing to one fails as a 400 at
 // create time instead of storing a calendar whose every sync errors out.
+// webcal:// (the scheme calendar apps hand out for ICS feeds) is accepted and
+// stored as its https:// equivalent, so every later sync goes through the
+// same public-HTTPS egress path as a plain https subscription.
 export function validSubscriptionUrl(value) {
   if (typeof value !== 'string' || value.length > 2000) return null
+  const normalized = value.replace(/^webcal:\/\//i, 'https://')
   let parsed
   try {
-    parsed = new URL(value)
+    parsed = new URL(normalized)
   } catch {
     return null
   }
