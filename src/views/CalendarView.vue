@@ -398,13 +398,17 @@ const detectedConflict = computed(() => {
     for (let j = i + 1; j < candidates.length; j += 1) {
       const earlier = candidates[i]
       const later = candidates[j]
-      if (earlier.start < later.end && later.start < earlier.end) {
+      // Sorted by start, so once a candidate starts at/after this one's end,
+      // every later candidate does too — the no-conflict common case is
+      // linear instead of scanning all pairs.
+      if (later.start >= earlier.end) break
+      if (earlier.start < later.end) {
         const overlapMs = Math.min(earlier.end, later.end) - Math.max(earlier.start, later.start)
         return {
           earlierTitle: earlier.event.title,
           laterTitle: later.event.title,
           overlapMinutes: Math.round(overlapMs / 60_000),
-          dayLabel: earlier.start.toLocaleDateString('en-US', { weekday: 'short' }),
+          dayLabel: formatWeekdayShort(earlier.start),
         }
       }
     }
@@ -412,19 +416,24 @@ const detectedConflict = computed(() => {
   return null
 })
 
-const formatLongDate = (date) =>
-  new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(date)
+// One formatter instance per shape, not per call — Intl.DateTimeFormat
+// construction is expensive and several of these run inside render paths
+// (header title, week headings, drag re-renders).
+const LONG_DATE_FMT = new Intl.DateTimeFormat('en-US', {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
+const MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' })
+const SHORT_MONTH_DAY_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+const WEEKDAY_SHORT_FMT = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
+const TIME_FMT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
 
-const formatMonth = (date) =>
-  new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(date)
-
-const formatShortMonthDay = (date) =>
-  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date)
+const formatLongDate = (date) => LONG_DATE_FMT.format(date)
+const formatMonth = (date) => MONTH_FMT.format(date)
+const formatShortMonthDay = (date) => SHORT_MONTH_DAY_FMT.format(date)
+const formatWeekdayShort = (date) => WEEKDAY_SHORT_FMT.format(date)
 
 const headerTitle = computed(() => {
   if (viewMode.value === 'day') return formatLongDate(selectedDate.value)
@@ -550,7 +559,27 @@ const eventTime = (event) => {
 
 const isToday = (date) => dateKey(date) === dateKey(REFERENCE_DATE)
 const isCurrentMonth = (date) => date.getMonth() === selectedDate.value.getMonth()
-const eventsForDate = (date) => visibleEvents.value.filter((event) => event.date === dateKey(date))
+// One O(N) bucketing pass instead of a full-array filter per month cell —
+// the 42-cell month grid made that O(42×N) on every render.
+const visibleEventsByDate = computed(() => {
+  const byDate = new Map()
+  for (const event of visibleEvents.value) {
+    const bucket = byDate.get(event.date)
+    if (bucket) bucket.push(event)
+    else byDate.set(event.date, [event])
+  }
+  return byDate
+})
+const EMPTY_EVENTS = []
+const eventsForDate = (date) => visibleEventsByDate.value.get(dateKey(date)) ?? EMPTY_EVENTS
+
+// The week grid previously filtered every timed event against all seven day
+// keys inline in the template — O(events × 7) per render, and drag-to-create
+// re-renders on every snapped mousemove.
+const weekDateKeys = computed(() => new Set(weekDays.value.map(dateKey)))
+const weekTimedEvents = computed(() =>
+  timedVisibleEvents.value.filter((event) => weekDateKeys.value.has(event.date)),
+)
 
 const now = ref(new Date())
 let nowTimer = null
@@ -561,9 +590,7 @@ const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinut
 const nowVisible = computed(
   () => nowMinutes.value >= START_HOUR * 60 && nowMinutes.value <= END_HOUR * 60,
 )
-const nowLabel = computed(() =>
-  new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(now.value),
-)
+const nowLabel = computed(() => TIME_FMT.format(now.value))
 const dayCurrentTimeStyle = computed(() => ({
   top: `${(nowMinutes.value - START_HOUR * 60) * (DAY_HOUR_HEIGHT / 60)}px`,
 }))
@@ -783,11 +810,12 @@ function beginDrag(event, date, hourHeight, view) {
 
 function onDragMove(event) {
   if (!dragDraft.value) return
-  const { hourHeight, rectTop } = dragDraft.value
-  dragDraft.value = {
-    ...dragDraft.value,
-    currentMinutes: minutesFromOffset(event.clientY - rectTop, hourHeight),
-  }
+  const { hourHeight, rectTop, currentMinutes } = dragDraft.value
+  const minutes = minutesFromOffset(event.clientY - rectTop, hourHeight)
+  // Minutes snap to 15-minute steps, so most mousemoves resolve to the same
+  // value — skip them instead of re-rendering the whole grid per pixel.
+  if (minutes === currentMinutes) return
+  dragDraft.value = { ...dragDraft.value, currentMinutes: minutes }
 }
 
 function onDragEnd() {
@@ -1151,7 +1179,7 @@ onUnmounted(() => {
         <div class="week-day-header">
           <div class="week-time-spacer"></div>
           <div v-for="date in weekDays" :key="dateKey(date)" class="week-day-heading">
-            <span>{{ new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date) }}</span>
+            <span>{{ formatWeekdayShort(date) }}</span>
             <strong :class="{ today: isToday(date) }">{{ date.getDate() }}</strong>
           </div>
         </div>
@@ -1201,9 +1229,7 @@ onUnmounted(() => {
               :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
             ></div>
             <button
-              v-for="event in timedVisibleEvents.filter((item) =>
-                weekDays.some((date) => dateKey(date) === item.date),
-              )"
+              v-for="event in weekTimedEvents"
               :key="event.id"
               type="button"
               class="calendar-event week-event"
