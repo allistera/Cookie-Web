@@ -14,7 +14,7 @@ vi.mock('../_lib/db.js', () => ({
   getSql: () => () => Promise.resolve(rows),
 }))
 
-import handler, { fetchEmails } from '../emails.js'
+import handler, { fetchEmails, fetchUnreadCount } from '../emails.js'
 
 function makeRes() {
   return {
@@ -68,5 +68,25 @@ describe('fetchEmails', () => {
     fetchEmails(sql, 'owner@example.com', 50, null, 'inbox')
 
     expect(query).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments')
+  })
+})
+
+describe('fetchUnreadCount', () => {
+  it('keeps message predicates in the JOIN so the user row survives and the partial unread index applies', () => {
+    let query = ''
+    const sql = (strings) => {
+      query = strings.join('?')
+      return []
+    }
+
+    fetchUnreadCount(sql, 'owner@example.com')
+
+    // is_unread must be a join predicate (messages_unread_idx is partial on
+    // it), not part of the aggregate FILTER, which would join every message.
+    expect(query).toContain('ON m.user_id = u.id AND m.is_unread')
+    expect(query).toMatch(/FILTER \(\s*WHERE COALESCE\(ai\.spam_verdict, 'inbox'\) <> 'spam'\s*\)/)
+    // No message predicate may leak into the WHERE — that would drop the
+    // user's own row (and their userId) when no message matches.
+    expect(query).toMatch(/WHERE lower\(u\.email\) =\s*$|WHERE lower\(u\.email\) = \?/)
   })
 })

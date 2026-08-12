@@ -64,19 +64,23 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
 // Also returns the user's id (needed by the client to subscribe to their
 // Realtime inbox-ping channel) so loading the inbox stays a two-round-trip
 // operation instead of three.
-// The spam exclusion belongs in the aggregate's FILTER, not the WHERE: as a
-// WHERE predicate it drops the joined rows AND, when every candidate message
-// is spam, the user's own row with them — leaving the client with a null
-// userId and no Realtime subscription.
+// Message predicates live in the LEFT JOIN's ON (never the WHERE): a WHERE
+// predicate on m would drop the user's own row when no message matches,
+// leaving the client with a null userId and no Realtime subscription.
+// is_unread in particular must sit in the ON so the join touches only unread
+// rows — matching the partial index messages_unread_idx (migration 0001) —
+// instead of materializing the whole non-archived mailbox on every first-page
+// load. Only the spam check stays in the FILTER, since it needs the ai join.
 export function fetchUnreadCount(sql, email) {
   return sql`
     SELECT u.id AS user_id,
            count(m.id) FILTER (
-             WHERE m.is_unread AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+             WHERE COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
            )::int AS unread
     FROM users u
     LEFT JOIN messages m
-      ON m.user_id = u.id AND NOT m.is_archived AND NOT m.is_sent AND NOT m.is_deleted
+      ON m.user_id = u.id AND m.is_unread
+      AND NOT m.is_archived AND NOT m.is_sent AND NOT m.is_deleted
       AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     WHERE lower(u.email) = ${email}
