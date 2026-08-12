@@ -512,6 +512,28 @@ const isToday = (date) => dateKey(date) === dateKey(REFERENCE_DATE)
 const isCurrentMonth = (date) => date.getMonth() === selectedDate.value.getMonth()
 const eventsForDate = (date) => visibleEvents.value.filter((event) => event.date === dateKey(date))
 
+const now = ref(new Date())
+let nowTimer = null
+
+const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
+// Hide the line entirely when the wall clock falls outside the rendered
+// 8 AM–7 PM grid, rather than clamping it to the edges.
+const nowVisible = computed(
+  () => nowMinutes.value >= START_HOUR * 60 && nowMinutes.value <= END_HOUR * 60,
+)
+const nowLabel = computed(() =>
+  new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(now.value),
+)
+const dayCurrentTimeStyle = computed(() => ({
+  top: `${(nowMinutes.value - START_HOUR * 60) * (DAY_HOUR_HEIGHT / 60)}px`,
+}))
+const todayWeekIndex = computed(() => weekDays.value.findIndex((date) => isToday(date)))
+const weekCurrentTimeStyle = computed(() => ({
+  top: `${(nowMinutes.value - START_HOUR * 60) * (WEEK_HOUR_HEIGHT / 60)}px`,
+  left: `calc(${todayWeekIndex.value} * (100% / 7))`,
+  width: 'calc(100% / 7)',
+}))
+
 function toggleCalendar(calendarId) {
   const next = new Set(visibleCalendars.value)
   if (next.has(calendarId)) next.delete(calendarId)
@@ -748,6 +770,9 @@ function onKeydown(event) {
 
 onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
+  nowTimer = setInterval(() => {
+    now.value = new Date()
+  }, 60_000)
   await Promise.all([loadCalendars(), loadEvents()])
   if (store.calendarNewEventDraft) {
     const draft = store.calendarNewEventDraft
@@ -756,6 +781,7 @@ onMounted(async () => {
   }
 })
 onUnmounted(() => {
+  clearInterval(nowTimer)
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
@@ -1069,7 +1095,12 @@ onUnmounted(() => {
               class="calendar-event day-event drag-preview"
               :style="dayDragPreviewStyle"
             ></div>
-            <div class="current-time-line day-current-time" aria-label="Current time 11:30 AM">
+            <div
+              v-if="isToday(selectedDate) && nowVisible"
+              class="current-time-line day-current-time"
+              :style="dayCurrentTimeStyle"
+              :aria-label="`Current time ${nowLabel}`"
+            >
               <span></span>
             </div>
           </div>
@@ -1155,7 +1186,12 @@ onUnmounted(() => {
               class="calendar-event week-event drag-preview"
               :style="weekDragPreviewStyle"
             ></div>
-            <div class="current-time-line week-current-time" aria-label="Current time 11:30 AM">
+            <div
+              v-if="todayWeekIndex !== -1 && nowVisible"
+              class="current-time-line week-current-time"
+              :style="weekCurrentTimeStyle"
+              :aria-label="`Current time ${nowLabel}`"
+            >
               <span></span>
             </div>
           </div>
@@ -2102,7 +2138,6 @@ onUnmounted(() => {
 }
 
 .day-current-time {
-  top: calc(3.5 * 96px);
   left: 0;
   right: 0;
 }
@@ -2221,12 +2256,6 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.week-current-time {
-  top: calc(3.5 * 72px);
-  left: calc(4 * (100% / 7));
-  width: calc(100% / 7);
 }
 
 .month-calendar {

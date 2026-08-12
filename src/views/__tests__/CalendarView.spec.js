@@ -265,6 +265,43 @@ describe('CalendarView', () => {
     expect(wrapper.find('.calendar-insights').exists()).toBe(true)
   })
 
+  it('positions the current-time line from the real clock in Day and Week views', async () => {
+    // Fake only Date so flushPromises (which relies on real setTimeout) still works.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 6, 24, 10, 30))
+    try {
+      const wrapper = await mountCalendar()
+
+      // 10:30 AM is 2.5 hours past the 8 AM grid start, at 96px per hour.
+      const dayLine = wrapper.get('.day-current-time')
+      expect(dayLine.element.style.top).toBe('240px')
+      expect(dayLine.attributes('aria-label')).toBe('Current time 10:30 AM')
+
+      await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+      const weekLine = wrapper.get('.week-current-time')
+      expect(weekLine.element.style.top).toBe('180px')
+      // Today (Friday) is the fifth column of the Monday-first week; jsdom
+      // serializes calc(4 * (100% / 7)) down to a percentage.
+      expect(weekLine.element.style.left).toBe('calc(57.1429%)')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('hides the current-time line when the clock is outside the visible hours', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 6, 24, 6, 0))
+    try {
+      const wrapper = await mountCalendar()
+      expect(wrapper.find('.day-current-time').exists()).toBe(false)
+
+      await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+      expect(wrapper.find('.week-current-time').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('renders a legacy 24-hour event as a banner chip in Day view, not a positioned block', async () => {
     const wrapper = await mountCalendar()
 
