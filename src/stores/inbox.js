@@ -60,6 +60,11 @@ function pushCapped(array, item, maxSize) {
   if (array.length > maxSize) array.splice(0, array.length - maxSize)
 }
 
+// In-flight body fetches by message id. Lives outside the store because
+// promises don't belong in reactive state; entries remove themselves on
+// settle, so the map only ever holds requests that are actually in flight.
+const pendingBodyFetches = new Map()
+
 function captureListPositions(email, lists) {
   return lists.map((list) => ({ list, index: list.indexOf(email) }))
 }
@@ -948,8 +953,21 @@ export const useInboxStore = defineStore('inbox', {
     async fetchMessageBody(id) {
       if (!id) return null
       if (this.messageBodies.has(id)) return this.messageBodies.get(id)
-      // Only flag loading for an actual fetch — cache hits above return early so
-      // reopening a message never spins.
+      // Both openReader and the view's openEmailId watcher request the body in
+      // the same tick, and the cache only fills on resolve — share the
+      // in-flight request instead of fetching the heaviest payload twice.
+      const pending = pendingBodyFetches.get(id)
+      if (pending) return pending
+      const request = this.fetchMessageBodyUncached(id).finally(() => {
+        pendingBodyFetches.delete(id)
+      })
+      pendingBodyFetches.set(id, request)
+      return request
+    },
+
+    async fetchMessageBodyUncached(id) {
+      // Only flag loading for an actual fetch — cache hits return early in
+      // fetchMessageBody so reopening a message never spins.
       this.bodyLoadingId = id
       // Only an HTML body ever shows the spinner (EmailBody.vue) — a text-only
       // message renders instantly from the list's own body_text, so there's

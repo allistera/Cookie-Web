@@ -1588,6 +1588,48 @@ describe('Inbox Store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('fetchMessageBody shares one request between concurrent calls for the same id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'msg-1', body_html: '<p>Hi</p>', body_text: 'Hi' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    // openReader and the view's openEmailId watcher both call this in the same
+    // tick, before the cache has filled — only one request may go out.
+    const [first, second] = await Promise.all([
+      store.fetchMessageBody('msg-1'),
+      store.fetchMessageBody('msg-1'),
+    ])
+
+    expect(first).toEqual({ html: '<p>Hi</p>', text: 'Hi', unsubscribe: null, thread: [], attachments: [] })
+    expect(second).toBe(first)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // A different id after settle still fetches normally.
+    await store.fetchMessageBody('msg-2')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('fetchMessageBody retries after a failed fetch instead of caching the in-flight rejection', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'msg-1', body_html: '<p>Hi</p>', body_text: 'Hi' }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    expect(await store.fetchMessageBody('msg-1')).toBeNull()
+    // The settled in-flight entry must not pin the failure — a later open retries.
+    const body = await store.fetchMessageBody('msg-1')
+    expect(body).toEqual({ html: '<p>Hi</p>', text: 'Hi', unsubscribe: null, thread: [], attachments: [] })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('fetchMessageBody normalizes a null HTML body and exposes it via openEmailHtml', async () => {
     vi.stubGlobal(
       'fetch',
