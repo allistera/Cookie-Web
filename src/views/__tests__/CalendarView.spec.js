@@ -95,8 +95,19 @@ function mockCalendarApi() {
       const method = options.method || 'GET'
       const body = options.body ? JSON.parse(options.body) : {}
 
-      if (url === '/api/calendar-events') {
-        if (method === 'GET') return { ok: true, json: async () => clone({ events }) }
+      if (url === '/api/calendar-events' || (url.startsWith('/api/calendar-events?') && !url.includes('resource='))) {
+        if (method === 'GET') {
+          // Honor the from/to window the way the real API does: non-recurring
+          // rows are filtered by date, recurring masters always come back.
+          const params = new URLSearchParams(url.split('?')[1] ?? '')
+          const from = params.get('from')
+          const to = params.get('to')
+          const windowed =
+            from && to
+              ? events.filter((event) => event.recurrenceRule || (event.date >= from && event.date <= to))
+              : events
+          return { ok: true, json: async () => clone({ events: windowed }) }
+        }
         if (method === 'POST') {
           const event = { id: `generated-${nextId++}`, ...body }
           events = [...events, event]
@@ -263,6 +274,40 @@ describe('CalendarView', () => {
     expect(wrapper.find('.month-calendar').exists()).toBe(true)
     expect(wrapper.findAll('.month-day')).toHaveLength(35)
     expect(wrapper.find('.calendar-insights').exists()).toBe(true)
+  })
+
+  it('fetches a window around the visible date and refetches when navigation leaves it', async () => {
+    const wrapper = await mountCalendar()
+    const fetchMock = globalThis.fetch
+    const eventGets = () =>
+      fetchMock.mock.calls.filter(
+        ([url, options]) =>
+          typeof url === 'string' &&
+          url.startsWith('/api/calendar-events?from=') &&
+          !(options?.method && options.method !== 'GET'),
+      )
+
+    // The initial load is already windowed instead of fetching everything.
+    expect(eventGets()).toHaveLength(1)
+    const initialUrl = eventGets()[0][0]
+    expect(initialUrl).toMatch(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/)
+
+    // A one-week hop stays inside the loaded window — no new request.
+    await wrapper.get('[aria-label="Next period"]').trigger('click')
+    await flushPromises()
+    expect(eventGets()).toHaveLength(1)
+
+    // Jumping months ahead leaves the window and refetches a later one.
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    for (let i = 0; i < 6; i += 1) {
+      await wrapper.get('[aria-label="Next period"]').trigger('click')
+    }
+    await flushPromises()
+    const requests = eventGets()
+    expect(requests.length).toBeGreaterThan(1)
+    const lastTo = new URLSearchParams(requests.at(-1)[0].split('?')[1]).get('to')
+    const initialTo = new URLSearchParams(initialUrl.split('?')[1]).get('to')
+    expect(lastTo > initialTo).toBe(true)
   })
 
   it('positions the current-time line from the real clock in Day and Week views', async () => {

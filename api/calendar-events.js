@@ -111,7 +111,15 @@ async function resolveCalendarId(sql, email, calendarId) {
   }
 }
 
-async function fetchNormalizedEvents(sql, email) {
+// The range filter keeps recurring masters unconditionally: a series row's
+// event_date is its start, not its span, so a years-old weekly series must
+// still reach expandEvents, which clips its occurrences to the range. A
+// missing range binds the full date domain, preserving return-everything
+// behavior for callers that don't window (the pre-range wire contract).
+const RANGE_MIN = '0001-01-01'
+const RANGE_MAX = '9999-12-31'
+
+async function fetchNormalizedEvents(sql, email, range) {
   return sql`
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
@@ -133,6 +141,8 @@ async function fetchNormalizedEvents(sql, email) {
        END
      )
     WHERE lower(u.email) = ${email}
+      AND (ce.recurrence_rule IS NOT NULL
+           OR ce.event_date BETWEEN ${range?.from ?? RANGE_MIN} AND ${range?.to ?? RANGE_MAX})
     ORDER BY ce.event_date, ce.start_time
   `
 }
@@ -140,7 +150,7 @@ async function fetchNormalizedEvents(sql, email) {
 // Same as fetchNormalizedEvents, minus recurrence_rule and all_day — used
 // while migrations 0025/0027 haven't landed yet on a database this deploy is
 // already talking to.
-async function fetchNormalizedEventsWithoutRecurrence(sql, email) {
+async function fetchNormalizedEventsWithoutRecurrence(sql, email, range) {
   return sql`
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
@@ -160,15 +170,16 @@ async function fetchNormalizedEventsWithoutRecurrence(sql, email) {
        END
      )
     WHERE lower(u.email) = ${email}
+      AND ce.event_date BETWEEN ${range?.from ?? RANGE_MIN} AND ${range?.to ?? RANGE_MAX}
     ORDER BY ce.event_date, ce.start_time
   `
 }
 
-export async function fetchEvents(sql, email) {
+export async function fetchEvents(sql, email, range = null) {
   try {
-    return await fetchNormalizedEvents(sql, email)
+    return await fetchNormalizedEvents(sql, email, range)
   } catch (error) {
-    if (error?.code === '42703') return fetchNormalizedEventsWithoutRecurrence(sql, email)
+    if (error?.code === '42703') return fetchNormalizedEventsWithoutRecurrence(sql, email, range)
     if (error?.code !== '42P01') throw error
     return sql`
       SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
@@ -176,6 +187,7 @@ export async function fetchEvents(sql, email) {
       FROM calendar_events ce
       JOIN users u ON u.id = ce.user_id
       WHERE lower(u.email) = ${email}
+        AND ce.event_date BETWEEN ${range?.from ?? RANGE_MIN} AND ${range?.to ?? RANGE_MAX}
       ORDER BY ce.event_date, ce.start_time
     `
   }
@@ -262,9 +274,18 @@ function expandEvent(event, windowStart, windowEnd) {
   return occurrences
 }
 
-export function expandEvents(events, now = new Date()) {
-  const windowStart = new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
-  const windowEnd = new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
+// With a range, recurring series expand only into [from, to] instead of the
+// default now-relative window — the SQL range filter keeps series masters
+// unconditionally, so this clip is what actually bounds their payload.
+// Non-recurring events still pass through untouched; the SQL filter already
+// windowed them.
+export function expandEvents(events, now = new Date(), range = null) {
+  const windowStart = range
+    ? new Date(`${range.from}T00:00:00Z`)
+    : new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
+  const windowEnd = range
+    ? new Date(`${range.to}T23:59:59Z`)
+    : new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
   return events.flatMap((event) => expandEvent(event, windowStart, windowEnd))
 }
 
@@ -286,10 +307,21 @@ async function isEventInSubscribedCalendar(sql, email, eventId) {
   }
 }
 
-async function listEvents(sql, email, res) {
-  const events = await fetchEvents(sql, email)
+async function listEvents(sql, email, range, res) {
+  const events = await fetchEvents(sql, email, range)
   res.statusCode = 200
-  res.end(JSON.stringify({ events: expandEvents(events) }))
+  res.end(JSON.stringify({ events: expandEvents(events, new Date(), range) }))
+}
+
+// from/to are optional but must come as a valid pair: omitting both keeps the
+// original return-everything contract, anything else is a client bug worth a
+// 400 rather than a silently unbounded payload.
+function parseRangeParams(searchParams) {
+  const from = searchParams.get('from')
+  const to = searchParams.get('to')
+  if (from === null && to === null) return { range: null }
+  if (!DATE_RE.test(from ?? '') || !DATE_RE.test(to ?? '') || from > to) return { error: true }
+  return { range: { from, to } }
 }
 
 async function createEvent(sql, email, body, res) {
@@ -410,8 +442,8 @@ async function deleteEvent(sql, email, body, res) {
 // /api/calendar-events — GET lists the user's events, POST creates one,
 // PATCH replaces one (full update, keyed by id), DELETE removes one.
 export default async function handler(req, res) {
-  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
-  if (resource === 'calendars') {
+  const { searchParams } = new URL(req.url, 'http://localhost')
+  if (searchParams.get('resource') === 'calendars') {
     await calendarsHandler(req, res)
     return
   }
@@ -430,7 +462,13 @@ export default async function handler(req, res) {
   try {
     const sql = getSql()
     if (req.method === 'GET') {
-      await listEvents(sql, email, res)
+      const { range, error } = parseRangeParams(searchParams)
+      if (error) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'from and to must be a valid YYYY-MM-DD pair' }))
+        return
+      }
+      await listEvents(sql, email, range, res)
       return
     }
     if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {

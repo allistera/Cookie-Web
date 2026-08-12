@@ -46,7 +46,24 @@ describe('fetchEvents', () => {
     expect(query).toContain('ce.all_day AS "allDay"')
     expect(query).toContain('ce.is_auto_scheduled AS "autoScheduled"')
     expect(query).toContain('ORDER BY ce.event_date, ce.start_time')
-    expect(values).toEqual(['owner@example.com'])
+    // No range binds the full date domain — the return-everything contract.
+    expect(values).toEqual(['owner@example.com', '0001-01-01', '9999-12-31'])
+  })
+
+  it('windows non-recurring rows by event_date but keeps recurring masters', async () => {
+    let query = ''
+    const values = []
+    const sql = (strings, ...vals) => {
+      query = strings.join('?')
+      values.push(...vals)
+      return []
+    }
+
+    await fetchEvents(sql, 'owner@example.com', { from: '2026-08-01', to: '2026-09-30' })
+
+    expect(query).toContain('ce.recurrence_rule IS NOT NULL')
+    expect(query).toContain('OR ce.event_date BETWEEN')
+    expect(values).toEqual(['owner@example.com', '2026-08-01', '2026-09-30'])
   })
 
   it('falls back to legacy event reads before the expand migration', async () => {
@@ -108,6 +125,14 @@ describe('expandEvents', () => {
     ])
     expect(occurrences.every((occurrence) => occurrence.seriesId === 'abc')).toBe(true)
     expect(new Set(occurrences.map((occurrence) => occurrence.id)).size).toBe(occurrences.length)
+  })
+
+  it('clips recurring expansion to an explicit range instead of the now-relative window', () => {
+    const event = { id: 'abc', date: '2026-01-05', start: '09:00', recurrenceRule: 'WEEKLY' }
+
+    const occurrences = expandEvents([event], now, { from: '2026-08-03', to: '2026-08-16' })
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual(['2026-08-03', '2026-08-10'])
   })
 
   it('clamps monthly recurrence to the last day of short months', () => {

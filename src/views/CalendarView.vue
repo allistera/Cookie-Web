@@ -255,12 +255,43 @@ async function confirmDeleteCalendar() {
 
 const events = ref([])
 
+// Events are fetched in a padded window around the visible date rather than
+// the user's whole history — the API windows non-recurring rows by event_date
+// and clips recurring expansion to from/to. loadedEventRange remembers what
+// the last successful fetch covered; navigation refetches only once the view
+// needs dates outside it, so week-to-week browsing stays free.
+const EVENT_RANGE_VIEW_DAYS = 45
+const EVENT_RANGE_PAD_DAYS = 60
+const loadedEventRange = ref(null)
+let eventsRequestSeq = 0
+
+// The visible grid needs at most ±45 days around selectedDate (a month grid
+// spans six weeks); the insights rail additionally always needs the conflict
+// window and the auto-scheduled week anchored on REFERENCE_DATE.
+function requiredEventRange() {
+  const bounds = [
+    addDays(selectedDate.value, -EVENT_RANGE_VIEW_DAYS),
+    addDays(selectedDate.value, EVENT_RANGE_VIEW_DAYS),
+    addDays(REFERENCE_DATE, -7),
+    addDays(REFERENCE_DATE, CONFLICT_WINDOW_DAYS + 1),
+  ].map((date) => date.getTime())
+  return { from: new Date(Math.min(...bounds)), to: new Date(Math.max(...bounds)) }
+}
+
 async function loadEvents() {
+  const required = requiredEventRange()
+  const from = dateKey(addDays(required.from, -EVENT_RANGE_PAD_DAYS))
+  const to = dateKey(addDays(required.to, EVENT_RANGE_PAD_DAYS))
+  const seq = ++eventsRequestSeq
   try {
     const headers = await store.authHeaders()
-    const response = await fetch('/api/calendar-events', { headers })
+    const response = await fetch(`/api/calendar-events?from=${from}&to=${to}`, { headers })
     if (!response.ok) throw new Error(`GET /api/calendar-events responded ${response.status}`)
     const { events: rows } = await response.json()
+    // A rapid navigation may have started a newer load for a different
+    // window; dropping the stale response keeps events/loadedEventRange
+    // describing the same fetch.
+    if (seq !== eventsRequestSeq) return
     events.value = rows.map((event) => ({
       ...event,
       // Older calendar rows can predate the all_day flag. Midnight events
@@ -270,11 +301,20 @@ async function loadEvents() {
         event.allDay === true ||
         (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
     }))
+    loadedEventRange.value = { from, to }
   } catch (error) {
     console.error('Failed to load calendar events:', error)
     store.notify('Failed to load calendar events.', 'error')
   }
 }
+
+watch(selectedDate, () => {
+  if (!loadedEventRange.value) return
+  const required = requiredEventRange()
+  if (dateKey(required.from) < loadedEventRange.value.from || dateKey(required.to) > loadedEventRange.value.to) {
+    loadEvents()
+  }
+})
 
 const suggestedEvent = {
   id: 'suggested',
