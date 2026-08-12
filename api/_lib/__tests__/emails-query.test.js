@@ -40,6 +40,14 @@ describe('fetchEmails', () => {
     expect(capture.query()).toContain('ELSE m.recipients END AS recipients')
   })
 
+  it('does not transfer message bodies in list rows', () => {
+    const capture = captureQuery()
+
+    fetchEmails(capture.sql, 'owner@example.com', 50, null, 'inbox')
+
+    expect(capture.query()).not.toContain('body_text')
+  })
+
   it.each([null, { sentAt: '2026-07-13T12:00:00.000Z', id: '11111111-1111-1111-1111-111111111111' }])(
     'selects only future scheduled messages for the snoozed folder',
     (cursor) => {

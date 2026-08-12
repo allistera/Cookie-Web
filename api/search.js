@@ -16,12 +16,11 @@ const RATE_LIMIT = { limit: 30, windowMs: 60_000 } // per user; vector leg costs
 
 // Fetches the fused result ids in one list-shaped query. Only summary presence
 // is exposed here; the generated text remains on the owned-message endpoint.
-// body_text is truncated to 4 KB for the same reason as fetchEmails: the list
-// render needs a preview, the reader fetches the authoritative body.
+// Bodies are excluded for the same reason as fetchEmails: results render the
+// stored snippet and fetch the authoritative body only when opened.
 export function fetchSearchEmails(sql, email, ids) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
-           LEFT(m.body_text, 4096) AS body_text,
            m.sent_at, m.is_unread, m.is_starred, m.scheduled_for,
            BOOL_OR(NULLIF(BTRIM(ai.summary), '') IS NOT NULL) AS has_ai_summary,
            COALESCE(

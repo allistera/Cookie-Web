@@ -16,5 +16,6 @@ describe('fetchSearchEmails', () => {
     expect(query).toContain('AS has_ai_summary')
     expect(query).toContain('LEFT JOIN message_ai ai ON ai.message_id = m.id')
     expect(query).toContain('GROUP BY m.id')
+    expect(query).not.toContain('body_text')
   })
 })

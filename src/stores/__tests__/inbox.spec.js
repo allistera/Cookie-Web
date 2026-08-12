@@ -31,7 +31,6 @@ describe('Inbox Store', () => {
               from_address: 'updates@cityconstruction.com',
               subject: 'Revised Floor Plan',
               snippet: 'Hi Allister, following up...',
-              body_text: 'Hi Allister, following up on our call.\n\nThe revised plan is attached.',
               sent_at: sentAt.toISOString(),
               is_unread: true,
               is_starred: false,
@@ -57,7 +56,7 @@ describe('Inbox Store', () => {
         to: null,
         subject: 'Revised Floor Plan',
         snippet: 'Hi Allister, following up...',
-        body: 'Hi Allister, following up on our call.\n\nThe revised plan is attached.',
+        body: undefined,
         sentAt: sentAt.toISOString(),
         date: '10:04 am',
         unread: true,
@@ -72,7 +71,30 @@ describe('Inbox Store', () => {
       },
     ])
     expect(store.unreadInboxCount).toBe(1)
+    expect(store.isInboxLoaded).toBe(true)
     expect(store.isRefreshing).toBe(false)
+  })
+
+  it('loads lightweight inbox state without populating the mailbox list', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ unreadCount: 9, userId: 'user-1' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    await store.loadInboxState()
+    await store.loadInboxState()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/emails?resource=state', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.unreadInboxCount).toBe(9)
+    expect(store.userId).toBe('user-1')
+    expect(store.traditionalEmails).toEqual([])
+    expect(store.isInboxStateLoaded).toBe(true)
+    expect(store.isInboxLoaded).toBe(false)
   })
 
   it('uses the server unread count and cursor when provided', async () => {
@@ -1652,6 +1674,26 @@ describe('Inbox Store', () => {
       attachments: [],
     })
     expect(store.openEmailHtml).toBe(null)
+    expect(store.openEmailText).toBe('plain only')
+  })
+
+  it('fetches an earlier thread body only when requested', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ body_text: 'Earlier complete body' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const message = { id: 'msg-1', snippet: 'Earlier preview' }
+
+    await store.fetchThreadMessageBody(message)
+    await store.fetchThreadMessageBody(message)
+
+    expect(message.body_text).toBe('Earlier complete body')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/messages?resource=thread-body&id=msg-1', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
   })
 
   it('openEmailThread exposes the conversation history, excluding the open message itself', async () => {

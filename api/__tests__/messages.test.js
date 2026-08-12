@@ -19,7 +19,7 @@ vi.mock('../_lib/db.js', () => ({
   getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
 }))
 
-import handler, { fetchMessageAttachments } from '../messages.js'
+import handler, { fetchMessageAttachments, fetchThreadMessages } from '../messages.js'
 import { requestPublicHttps } from '../_lib/safe-https.js'
 
 function makeRes() {
@@ -45,6 +45,10 @@ function post(body) {
 
 function get(id) {
   return { method: 'GET', url: `/api/messages?id=${id}`, headers: {} }
+}
+
+function getThreadBody(id) {
+  return { method: 'GET', url: `/api/messages?resource=thread-body&id=${id}`, headers: {} }
 }
 
 describe('POST /api/messages label actions', () => {
@@ -164,10 +168,21 @@ describe('GET /api/messages', () => {
     expect(res.body.body_html).toBe('<p>Hi</p>')
     expect(res.body.thread).toHaveLength(2)
     expect(res.body.thread[0].id).toBe('earlier-id')
+    expect(res.body.thread[0]).not.toHaveProperty('body_text')
     expect(res.body.attachments).toEqual([
       { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true },
     ])
     expect(res.body.headers).toBeUndefined()
+  })
+
+  it('returns one owned thread message body on demand', async () => {
+    sqlQueue = [[{ body_text: 'Earlier complete body' }]]
+    const res = makeRes()
+
+    await handler(getThreadBody(MESSAGE_ID), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ body_text: 'Earlier complete body' })
   })
 
   it('404s when the message does not exist or is not the caller’s', async () => {
@@ -204,5 +219,20 @@ describe('fetchMessageAttachments', () => {
     expect(query).toContain('WHERE message_id =')
     expect(query).toContain('ORDER BY filename')
     expect(values).toEqual([MESSAGE_ID])
+  })
+})
+
+describe('fetchThreadMessages', () => {
+  it('returns thread metadata without full bodies', () => {
+    let query = ''
+    const sql = (strings) => {
+      query = strings.join('?')
+      return []
+    }
+
+    fetchThreadMessages(sql, 'thread-1', 'owner@example.com')
+
+    expect(query).toContain('m.snippet')
+    expect(query).not.toContain('m.body_text')
   })
 })

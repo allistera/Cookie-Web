@@ -222,6 +222,8 @@ export const useInboxStore = defineStore('inbox', {
     traditionalEmails: [],
     unreadInboxCount: 0,
     userId: null, // the authenticated user's uuid, for the Realtime inbox-ping channel
+    isInboxStateLoaded: false,
+    isInboxLoaded: false,
     isRefreshing: false,
     activeSearchQuery: '',
     // Guards every async operation that populates traditionalEmails
@@ -390,6 +392,10 @@ export const useInboxStore = defineStore('inbox', {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.html ?? null
     },
+    openEmailText(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.text ?? this.openEmail?.body ?? this.openEmail?.snippet ?? ''
+    },
     // Unsubscribe capability parsed server-side from the open email's
     // List-Unsubscribe header (null for non-newsletters, or until the body
     // fetch lands). Truthy means the reader shows an Unsubscribe button.
@@ -466,6 +472,22 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
+    async loadInboxState({ force = false } = {}) {
+      if (this.isInboxStateLoaded && !force) return
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/emails?resource=state', { headers })
+        if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
+        const { unreadCount, userId } = await response.json()
+        this.unreadInboxCount = typeof unreadCount === 'number' ? unreadCount : 0
+        if (userId) this.userId = userId
+        this.isInboxStateLoaded = true
+      } catch (error) {
+        console.error('Failed to load inbox state:', error)
+        this.notify('Failed to load inbox state.', 'error')
+      }
+    },
+
     // listSeq-guarded: a search started (and resolved) while this fetch was
     // in flight must not have its stale inbox page overwrite the search
     // results still being displayed. See the listSeq state comment.
@@ -483,6 +505,8 @@ export const useInboxStore = defineStore('inbox', {
             ? unreadCount
             : this.traditionalEmails.filter((e) => e.unread).length
         if (userId) this.userId = userId
+        this.isInboxStateLoaded = true
+        this.isInboxLoaded = true
       } catch (error) {
         if (seq !== this.listSeq) return
         console.error('Failed to load inbox:', error)
@@ -517,7 +541,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     refreshInbox() {
-      return this.loadEmails()
+      return this.isInboxLoaded ? this.loadEmails() : this.loadInboxState({ force: true })
     },
 
     // Loads (or reloads) a server-backed folder list; see FOLDER_STATE.
@@ -1009,6 +1033,25 @@ export const useInboxStore = defineStore('inbox', {
         // Always clear, whether the fetch succeeded or failed, but only if this
         // call is still the one in flight (a newer open may have superseded it).
         if (this.bodyLoadingId === id) this.bodyLoadingId = null
+      }
+    },
+
+    async fetchThreadMessageBody(message) {
+      if (!message || Object.hasOwn(message, 'body_text')) return message?.body_text ?? null
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(
+          `/api/messages?resource=thread-body&id=${encodeURIComponent(message.id)}`,
+          { headers },
+        )
+        if (!response.ok) throw new Error(`GET thread body responded ${response.status}`)
+        const { body_text } = await response.json()
+        message.body_text = body_text ?? ''
+        return message.body_text
+      } catch (error) {
+        console.error('Failed to load thread message body:', error)
+        message.body_text = ''
+        return null
       }
     },
 

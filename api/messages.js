@@ -35,11 +35,20 @@ export function fetchOwnedMessageBody(sql, id, email) {
 // as the inbox list, since older thread messages render as plain text.
 export function fetchThreadMessages(sql, threadId, email) {
   return sql`
-    SELECT m.id, m.from_name, m.from_address, m.snippet, m.body_text, m.sent_at, m.is_sent
+    SELECT m.id, m.from_name, m.from_address, m.snippet, m.sent_at, m.is_sent
     FROM messages m
     JOIN users u ON u.id = m.user_id
     WHERE m.thread_id = ${threadId} AND lower(u.email) = ${email}
     ORDER BY m.sent_at ASC
+  `
+}
+
+export function fetchOwnedMessageText(sql, id, email) {
+  return sql`
+    SELECT m.body_text
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.id = ${id} AND lower(u.email) = ${email}
   `
 }
 
@@ -157,6 +166,31 @@ async function handleGet(req, res, email) {
     await captureApiError(err, { route: 'GET /api/messages' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load message' }))
+  }
+}
+
+async function handleThreadBodyGet(req, res, email) {
+  const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'A valid message id is required' }))
+    return
+  }
+
+  try {
+    const [message] = await fetchOwnedMessageText(getSql(), id, email)
+    if (!message) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Message not found' }))
+      return
+    }
+    res.statusCode = 200
+    res.end(JSON.stringify({ body_text: message.body_text ?? '' }))
+  } catch (err) {
+    console.error('GET /api/messages?resource=thread-body failed:', err)
+    await captureApiError(err, { route: 'GET /api/messages (thread body)' })
+    res.statusCode = 500
+    res.end(JSON.stringify({ error: 'Failed to load message body' }))
   }
 }
 
@@ -389,6 +423,10 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET' && resource === 'attachment') {
     return handleAttachmentGet(req, res, email)
+  }
+
+  if (req.method === 'GET' && resource === 'thread-body') {
+    return handleThreadBodyGet(req, res, email)
   }
 
   if (req.method === 'GET') {

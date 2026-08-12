@@ -259,13 +259,13 @@ watch(searchInputVal, (value) => {
   }, AUTO_SEARCH_DELAY_MS)
 })
 
-// Load the inbox once the user is authenticated (immediately in E2E mode,
-// after the Auth0 redirect completes otherwise).
+// Bootstrap the unread badge and Realtime identity after authentication. The
+// full mailbox page is deferred until the user enters Inbox.
 watch(
   isAuthenticated,
   (authenticated) => {
     if (authenticated) {
-      store.loadEmails()
+      store.loadInboxState()
       // Load the full label palette so the sidebar lists every defined label,
       // not only ones on loaded emails (and without needing settings opened).
       store.loadLabels()

@@ -43,6 +43,20 @@ describe('GET /api/emails handler', () => {
     expect(res.body).toMatchObject({ emails: [], nextCursor: null, unreadCount: 0, userId: null })
   })
 
+  it('returns lightweight inbox state without a message list', async () => {
+    rows.push({ user_id: '11111111-1111-4111-8111-111111111111', unread: 7 })
+    const res = makeRes()
+
+    await handler({ method: 'GET', url: '/api/emails?resource=state', headers: {} }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({
+      unreadCount: 7,
+      userId: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(res.body).not.toHaveProperty('emails')
+  })
+
   it('returns cursor pages without the unread aggregate instead of crashing', async () => {
     const res = makeRes()
     const before = encodeURIComponent(
@@ -68,6 +82,7 @@ describe('fetchEmails', () => {
     fetchEmails(sql, 'owner@example.com', 50, null, 'inbox')
 
     expect(query).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments')
+    expect(query).not.toContain('body_text')
   })
 })
 

@@ -39,7 +39,8 @@ function localApiPlugin(mode) {
   const handleEmails = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
-      const folder = new URL(req.url, 'http://localhost').searchParams.get('folder') || 'inbox'
+      const url = new URL(req.url, 'http://localhost')
+      const folder = url.searchParams.get('folder') || 'inbox'
       const { schedules, archived, summaries } = fixtureMailboxState(req, res)
       const now = Date.now()
       const inbox = fixtureEmails().map((email) => ({
@@ -67,9 +68,19 @@ function localApiPlugin(mode) {
                     (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
                 )
       res.setHeader('Content-Type', 'application/json')
+      if (url.searchParams.get('resource') === 'state') {
+        res.end(
+          JSON.stringify({
+            unreadCount: inbox.filter((email) => email.is_unread).length,
+            userId: '11111111-1111-4111-8111-111111111111',
+          }),
+        )
+        return
+      }
+      const list = emails.map(({ body_text: _bodyText, ...email }) => email)
       res.end(
         JSON.stringify({
-          emails,
+          emails: list,
           nextCursor: null,
           unreadCount: emails.filter((e) => e.is_unread).length,
           userId: '11111111-1111-4111-8111-111111111111',
@@ -226,11 +237,21 @@ function localApiPlugin(mode) {
         )
         return
       }
+      if (req.method === 'GET' && url.searchParams.get('resource') === 'thread-body') {
+        const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
+        const id = url.searchParams.get('id')
+        const primary = fixtureMessageBody(id)
+        const earlier = fixtureMessageBody('fixture-1').thread.find((message) => message.id === id)
+        res.end(JSON.stringify({ body_text: earlier?.body_text ?? primary.body_text ?? '' }))
+        return
+      }
       if (req.method === 'GET') {
         const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
         const id = url.searchParams.get('id')
         const { summaries } = fixtureMailboxState(req, res)
-        res.end(JSON.stringify({ ...fixtureMessageBody(id), summary: summaries.get(id) ?? null }))
+        const body = fixtureMessageBody(id)
+        const thread = body.thread.map(({ body_text: _bodyText, ...message }) => message)
+        res.end(JSON.stringify({ ...body, thread, summary: summaries.get(id) ?? null }))
         return
       }
       if (req.method === 'POST') {

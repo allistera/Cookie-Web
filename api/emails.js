@@ -12,17 +12,15 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // folder selects inbox, sent/outbox, high-confidence AI spam, snoozed, or
 // archived (Done) mail. Recipients let the client render "To: <address>" for
 // outbound rows.
-// body_text is truncated to 4 KB: newsletter bodies run tens of KB per row and
-// dominated page payloads, while the list only needs enough for the reader's
-// instant text render — the authoritative body comes from /api/messages?id=.
+// Message bodies are deliberately excluded: list rows render the stored snippet,
+// while the authoritative body is fetched only when the reader opens.
 export function fetchEmails(sql, email, limit, cursor, folder) {
   return sql`
     SELECT m.id, m.from_name, m.from_address,
            CASE WHEN jsonb_typeof(m.recipients) = 'string'
                 THEN (m.recipients #>> '{}')::jsonb
                 ELSE m.recipients END AS recipients,
-           m.subject,
-           m.snippet, LEFT(m.body_text, 4096) AS body_text,
+           m.subject, m.snippet,
            m.sent_at, m.is_unread, m.is_starred,
            m.is_sent, m.scheduled_for, ai.spam_score,
            BOOL_OR(NULLIF(BTRIM(ai.summary), '') IS NOT NULL) AS has_ai_summary,
@@ -106,6 +104,29 @@ export default async function handler(req, res) {
   }
 
   const url = new URL(req.url, 'http://localhost')
+  const resource = url.searchParams.get('resource')
+
+  // Lightweight app bootstrap for routes that need the unread badge and
+  // Realtime channel identity but do not render the mailbox list.
+  if (resource === 'state') {
+    try {
+      const [userRow] = await fetchUnreadCount(getSql(), email)
+      res.statusCode = 200
+      res.end(
+        JSON.stringify({
+          unreadCount: userRow?.unread ?? 0,
+          userId: userRow?.user_id ?? null,
+        }),
+      )
+    } catch (err) {
+      console.error('GET /api/emails?resource=state failed:', err)
+      await captureApiError(err, { route: 'GET /api/emails (state)' })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to load inbox state' }))
+    }
+    return
+  }
+
   const requestedFolder = url.searchParams.get('folder') || 'inbox'
   const folder = ['inbox', 'sent', 'spam', 'snoozed', 'done'].includes(requestedFolder)
     ? requestedFolder

@@ -36,6 +36,13 @@ watch(
     if (filter === 'spam') store.loadSpamEmails()
     if (filter === 'snoozed') store.loadSnoozedEmails()
     if (filter === 'done') store.loadDonePage(0)
+    if (
+      !['sent', 'spam', 'snoozed', 'done'].includes(filter) &&
+      !store.isInboxLoaded &&
+      store.traditionalEmails.length === 0
+    ) {
+      store.loadEmails()
+    }
   },
   { immediate: true },
 )
@@ -403,10 +410,14 @@ const expandedThreadIds = ref(new Set())
 watch(() => store.openEmailId, () => {
   expandedThreadIds.value = new Set()
 })
-function toggleThreadMessage(id) {
+function toggleThreadMessage(message) {
+  const { id } = message
   const next = new Set(expandedThreadIds.value)
   if (next.has(id)) next.delete(id)
-  else next.add(id)
+  else {
+    next.add(id)
+    store.fetchThreadMessageBody(message)
+  }
   expandedThreadIds.value = next
 }
 
@@ -1042,7 +1053,7 @@ onUnmounted(() => {
             class="ni-thread-message"
             :class="{ expanded: expandedThreadIds.has(message.id) }"
             :aria-expanded="expandedThreadIds.has(message.id)"
-            @click="toggleThreadMessage(message.id)"
+            @click="toggleThreadMessage(message)"
           >
             <div class="ni-thread-message-summary">
               <span class="ni-thread-message-sender">{{ message.from_name || message.from_address }}</span>
@@ -1054,7 +1065,7 @@ onUnmounted(() => {
             <p v-if="!expandedThreadIds.has(message.id)" class="ni-thread-message-snippet">
               {{ message.snippet }}
             </p>
-            <p v-else class="ni-thread-message-body">{{ message.body_text }}</p>
+            <p v-else class="ni-thread-message-body">{{ message.body_text ?? 'Loading…' }}</p>
           </button>
         </div>
 
@@ -1091,7 +1102,7 @@ onUnmounted(() => {
           <EmailBody
             :key="openEmail.id"
             :html="openEmailHtml"
-            :text="openEmail.body || openEmail.snippet || ''"
+            :text="store.openEmailText"
             :sender="openEmail.sender"
             :has-html-body="openEmail.hasHtml"
             :loading="store.isOpenBodyLoading"
