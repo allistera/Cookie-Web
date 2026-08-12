@@ -1,27 +1,19 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
-import { filterContacts } from './lib/contactSuggest'
 import { clearCachedMail } from './lib/serviceWorker'
-import {
-  appendRecipient,
-  completedRecipients,
-  currentRecipientToken,
-  recipientsValid,
-} from './lib/recipients'
-import ChatDrawer from './components/ChatDrawer.vue'
 import LoadingBar from './components/LoadingBar.vue'
-import SettingsModal from './components/SettingsModal.vue'
-import CommandPalette from './components/CommandPalette.vue'
-import ComposerEditor from './components/ComposerEditor.vue'
-import ScheduleMenu from './components/ScheduleMenu.vue'
-import { scheduleChoices } from './utils/schedule'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { useAppBadge } from './composables/useAppBadge'
-import { supabase } from './lib/supabase'
+import { getRealtimeClient } from './lib/supabase'
+
+const ChatDrawer = defineAsyncComponent(() => import('./components/ChatDrawer.vue'))
+const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
+const CommandPalette = defineAsyncComponent(() => import('./components/CommandPalette.vue'))
+const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
 
 const store = useInboxStore()
 const route = useRoute()
@@ -73,93 +65,48 @@ function onUndoKeydown(event) {
   store.undoLatestAction()
 }
 
-// Composer "to" contact auto-suggest: matches contacts by name or address and
-// is keyboard-navigable (up/down to move, Enter to pick, Esc to dismiss).
-const contactSuggestOpen = ref(false)
-const contactHighlight = ref(-1)
-// Suggest against the address currently being typed (after the last comma), and
-// hide contacts already added, so auto-suggest works per recipient.
-const contactSuggestions = computed(() => {
-  if (!contactSuggestOpen.value) return []
-  const already = new Set(completedRecipients(store.composerTo).map((a) => a.toLowerCase()))
-  const pool = store.contacts.filter((c) => !already.has(c.address.toLowerCase()))
-  return filterContacts(pool, currentRecipientToken(store.composerTo))
-})
+const chatDrawerLoaded = ref(store.isChatDrawerActive)
+const settingsLoaded = ref(store.activeModal === 'settings')
+const commandPaletteLoaded = ref(store.isCommandPaletteOpen)
+const composerLoaded = ref(store.isComposerActive)
 
-const composerToValid = computed(() => recipientsValid(store.composerTo))
-const isSendDisabled = computed(
-  () => store.isSendingEmail || !composerToValid.value || !store.composerTextArea.trim(),
+watch(
+  () => store.isChatDrawerActive,
+  (active) => {
+    if (active) chatDrawerLoaded.value = true
+  },
 )
-
-// "Send Later" popover on the composer's Send button, reusing the same
-// ScheduleMenu/presets the inbox uses for snoozing mail.
-const scheduleSendOpen = ref(false)
-// Depends on the popover's open flag so the presets recompute from the
-// current clock each time it opens — with no reactive deps this cached its
-// dates once at mount for the whole session.
-const scheduleSendOptions = computed(() => (scheduleSendOpen.value ? scheduleChoices() : []))
-
-function selectScheduleSend(choice) {
-  scheduleSendOpen.value = false
-  store.sendEmailLater(choice.date.toISOString(), choice.label)
-}
-
-function openContactSuggest() {
-  contactSuggestOpen.value = true
-  contactHighlight.value = -1
-}
-
-function closeContactSuggest() {
-  contactSuggestOpen.value = false
-  contactHighlight.value = -1
-}
-
-function moveContactHighlight(delta) {
-  const count = contactSuggestions.value.length
-  if (!count) return
-  contactHighlight.value = (contactHighlight.value + delta + count) % count
-}
-
-function selectContact(address) {
-  store.composerTo = appendRecipient(store.composerTo, address)
-  closeContactSuggest()
-  composerToRef.value?.focus()
-}
-
-function onContactEnter(event) {
-  const choice = contactSuggestions.value[contactHighlight.value]
-  if (contactSuggestOpen.value && choice) {
-    event.preventDefault()
-    selectContact(choice.address)
-  }
-}
-
-// Escape backs out of the composer one layer at a time: open contact
-// suggestions first, then the AI compose box, then the whole window.
-function onComposerEscape() {
-  if (contactSuggestions.value.length) {
-    closeContactSuggest()
-    return
-  }
-  if (store.isAiDraftActive) {
-    store.isAiDraftActive = false
-    return
-  }
-  store.closeComposer()
-}
-
-// Compose window: the inline subject in the title row gets focus first.
-const composerToRef = ref(null)
-const composerSubjectRef = ref(null)
-const composerBodyRef = ref(null)
+watch(
+  () => store.activeModal,
+  (modal) => {
+    if (modal === 'settings') settingsLoaded.value = true
+  },
+)
 watch(
   () => store.isComposerActive,
   (active) => {
-    if (active) {
-      nextTick(() => composerSubjectRef.value?.focus())
-    }
+    if (active) composerLoaded.value = true
   },
 )
+
+function onCommandPaletteKeydown(event) {
+  const target = event.target instanceof HTMLElement ? event.target : null
+  const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+  if (
+    event.key !== '/' ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    isTyping ||
+    target?.isContentEditable ||
+    store.isCommandPaletteOpen
+  ) {
+    return
+  }
+  event.preventDefault()
+  commandPaletteLoaded.value = true
+  store.isCommandPaletteOpen = true
+}
 
 function openSettings() {
   showLogoutMenu.value = false
@@ -276,7 +223,20 @@ watch(
 
 // Live inbox: pings the store to refetch when the backend broadcasts a
 // content-free "inbox changed" notification (see notify_inbox_changed()).
-useRealtimeInbox(store, supabase, isAuthenticated)
+const realtimeClient = shallowRef(null)
+watch(
+  isAuthenticated,
+  async (authenticated) => {
+    if (!authenticated) {
+      realtimeClient.value = null
+      return
+    }
+    const client = await getRealtimeClient()
+    if (isAuthenticated.value) realtimeClient.value = client
+  },
+  { immediate: true },
+)
+useRealtimeInbox(store, realtimeClient, isAuthenticated)
 
 // "(2) Cookie AI Inbox …" tab-title badge for emails that arrive while the
 // tab is in the background.
@@ -298,19 +258,18 @@ function onDocumentClick(e) {
     showLogoutMenu.value = false
   }
 
-  if (!e.target.closest('.ni-schedule-wrap')) {
-    scheduleSendOpen.value = false
-  }
 }
 
 onMounted(() => {
   document.addEventListener('keydown', onUndoKeydown)
+  document.addEventListener('keydown', onCommandPaletteKeydown)
   document.addEventListener('click', onDocumentClick)
 })
 
 onUnmounted(() => {
   cancelScheduledSearch()
   document.removeEventListener('keydown', onUndoKeydown)
+  document.removeEventListener('keydown', onCommandPaletteKeydown)
   document.removeEventListener('click', onDocumentClick)
 })
 </script>
@@ -551,15 +510,15 @@ onUnmounted(() => {
       </main>
 
       <!-- Assistant chat drawer -->
-      <ChatDrawer />
+      <ChatDrawer v-if="chatDrawerLoaded" />
     </div>
 
     <!-- MODAL OVERLAYS -->
     <!-- Settings Modal -->
-    <SettingsModal />
+    <SettingsModal v-if="settingsLoaded" />
 
     <!-- Command palette (Cmd+K) -->
-    <CommandPalette />
+    <CommandPalette v-if="commandPaletteLoaded" />
   </div>
 
   <!-- Toast notifications -->
@@ -589,151 +548,6 @@ onUnmounted(() => {
     </TransitionGroup>
   </div>
 
-  <!-- Inline Composer Toast -->
-  <div
-    class="composer-toast"
-    :class="{ active: store.isComposerActive, 'ai-active': store.isAiDraftActive }"
-    id="composerToast"
-    @keydown.esc="onComposerEscape"
-  >
-    <div class="composer-draft-row">
-      <div class="composer-draft-title">
-        <input
-          ref="composerSubjectRef"
-          v-model="store.composerSubject"
-          class="composer-subject-inline"
-          placeholder="Hello"
-          @keydown.tab.exact.prevent="composerToRef?.focus()"
-        />
-        <span class="composer-draft-to">to</span>
-        <span class="composer-to-wrap">
-          <input
-            ref="composerToRef"
-            v-model="store.composerTo"
-            class="composer-to-inline"
-            type="email"
-            multiple
-            autocomplete="off"
-            placeholder="name@example.com"
-            @focus="openContactSuggest"
-            @input="openContactSuggest"
-            @blur="closeContactSuggest"
-            @keydown.tab.exact.prevent="composerBodyRef?.focus()"
-            @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
-            @keydown.down.prevent="moveContactHighlight(1)"
-            @keydown.up.prevent="moveContactHighlight(-1)"
-            @keydown.enter="onContactEnter"
-          />
-          <div class="composer-suggestions" v-if="contactSuggestions.length">
-            <div
-              v-for="(contact, i) in contactSuggestions"
-              :key="contact.address"
-              class="suggestion-item"
-              :class="{ highlighted: i === contactHighlight }"
-              @mousedown.prevent="selectContact(contact.address)"
-              @mouseenter="contactHighlight = i"
-            >
-              <span class="material-symbols-outlined text-purple">person</span>
-              <span class="composer-suggest-text">
-                <span v-if="contact.name" class="composer-suggest-name">{{ contact.name }}</span>
-                <span class="composer-suggest-address">{{ contact.address }}</span>
-              </span>
-            </div>
-          </div>
-        </span>
-      </div>
-      <div class="composer-window-actions">
-        <button class="composer-icon-btn" title="Close" tabindex="-1" @click="store.closeComposer">
-          <span class="material-symbols-outlined">close</span>
-        </button>
-      </div>
-    </div>
-    <div class="composer-body">
-      <div class="composer-main">
-        <ComposerEditor
-          ref="composerBodyRef"
-          v-model="store.composerHtml"
-          :snippets="store.snippets"
-          @update:text="store.composerTextArea = $event"
-          @generate="store.openAiDraft()"
-          @focus-prev="composerToRef?.focus()"
-        />
-      </div>
-
-      <!-- Reviewable AI drafting sidebar; generation never sends mail. -->
-      <aside class="composer-ai-sidebar" :class="{ active: store.isAiDraftActive }">
-        <div class="gemini-draft-header">
-          <div class="gemini-badge">
-            <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
-            <span>Cookie AI</span>
-          </div>
-          <button class="composer-icon-btn" title="Close Cookie AI" @click="store.isAiDraftActive = false">
-            <span class="material-symbols-outlined">close</span>
-          </button>
-        </div>
-        <div
-          class="gemini-draft-preview"
-          :class="{
-            'typing-cursor': store.isAiDraftLoading,
-          }"
-        >
-          {{ store.isAiDraftLoading ? 'Drafting…' : store.aiDraftPreview || 'Your generated draft will appear here for review.' }}
-        </div>
-        <div class="gemini-draft-actions">
-          <button
-            class="btn btn-primary composer-send-btn"
-            :class="{ highlighted: isSendDisabled }"
-            :disabled="!store.aiDraftPreview"
-            @click="store.insertAiDraft"
-          >
-            Insert
-          </button>
-        </div>
-      </aside>
-    </div>
-    <div class="composer-footer">
-      <div class="composer-send-actions">
-        <div class="composer-send-split">
-          <button
-            class="btn btn-primary composer-send-btn composer-send-btn-split"
-            :disabled="isSendDisabled"
-            :aria-busy="store.isSendingEmail"
-            @click="store.sendEmail"
-          >
-            {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
-          </button>
-          <div class="ni-schedule-wrap ni-schedule-wrap-upward">
-            <button
-              type="button"
-              class="btn btn-primary composer-schedule-caret"
-              :disabled="isSendDisabled"
-              aria-haspopup="menu"
-              :aria-expanded="scheduleSendOpen"
-              title="Schedule send"
-              @click="scheduleSendOpen = !scheduleSendOpen"
-            >
-              <span class="material-symbols-outlined">expand_less</span>
-            </button>
-            <ScheduleMenu
-              v-if="scheduleSendOpen"
-              :choices="scheduleSendOptions"
-              submit-label="Schedule"
-              @select="selectScheduleSend"
-            />
-          </div>
-        </div>
-      </div>
-      <div class="composer-ai-inline">
-        <span class="material-symbols-outlined">auto_fix_high</span>
-        <input
-          v-model="store.composerAiInstruction"
-          class="composer-ai-inline-input"
-          maxlength="1000"
-          placeholder="Describe your message"
-          @keydown.enter.prevent="store.requestAiDraft"
-        />
-      </div>
-    </div>
-  </div>
+  <ComposerWindow v-if="composerLoaded" />
   </template>
 </template>

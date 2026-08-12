@@ -1,5 +1,3 @@
-import { RealtimeClient } from '@supabase/realtime-js'
-
 // Realtime-only client: no anon-key data access is relied upon (there is no
 // RLS on our tables), it just receives content-free broadcast pings telling
 // the app to refetch through the Auth0-protected API. Null when the env vars
@@ -18,5 +16,15 @@ function realtimeUrl(base) {
   return target.href
 }
 
-export const supabase =
-  url && anonKey ? new RealtimeClient(realtimeUrl(url), { params: { apikey: anonKey } }) : null
+let clientPromise
+
+export function getRealtimeClient() {
+  if (!url || !anonKey) return Promise.resolve(null)
+  if (!clientPromise) {
+    clientPromise = import('@supabase/realtime-js').then(
+      ({ RealtimeClient }) =>
+        new RealtimeClient(realtimeUrl(url), { params: { apikey: anonKey } }),
+    )
+  }
+  return clientPromise
+}

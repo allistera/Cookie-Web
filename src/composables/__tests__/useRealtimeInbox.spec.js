@@ -319,6 +319,24 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshInbox).not.toHaveBeenCalled()
   })
 
+  it('subscribes when a deferred client becomes available and removes its channel on logout', async () => {
+    const client = makeMockClient()
+    const clientRef = ref(null)
+    const isAuthenticated = ref(true)
+    store.userId = 'user-1'
+    mount(clientRef, isAuthenticated)
+
+    expect(client.channel).not.toHaveBeenCalled()
+    clientRef.value = client
+    await nextTick()
+    expect(client.channel).toHaveBeenCalledWith('inbox:user-1')
+
+    isAuthenticated.value = false
+    clientRef.value = null
+    await nextTick()
+    expect(client.removeChannel).toHaveBeenCalledWith(client.channelObj)
+  })
+
   it('does not subscribe when unauthenticated or userId is unknown', () => {
     const client = makeMockClient()
     mount(client, ref(false))

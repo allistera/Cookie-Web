@@ -18,6 +18,17 @@ watch(query, () => {
   selectedIndex.value = 0
 })
 
+watch(
+  () => store.isCommandPaletteOpen,
+  (isOpen) => {
+    if (!isOpen) return
+    query.value = ''
+    selectedIndex.value = 0
+    nextTick(() => inputRef.value?.focus())
+  },
+  { immediate: true },
+)
+
 function open() {
   store.isCommandPaletteOpen = true
   query.value = ''

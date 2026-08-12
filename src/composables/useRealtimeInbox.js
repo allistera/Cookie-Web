@@ -1,4 +1,4 @@
-import { watch, onScopeDispose } from 'vue'
+import { onScopeDispose, unref, watch } from 'vue'
 import {
   browserNotificationPermission,
   browserNotificationsEnabled,
@@ -16,6 +16,7 @@ const DEBOUNCE_MS = 1500
 // changes, and cleans up on scope dispose.
 export function useRealtimeInbox(store, supabase, isAuthenticated) {
   let channel = null
+  let channelClient = null
   let debounceTimer = null
   let refreshPromise = null
   let refreshUserId = null
@@ -26,6 +27,10 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   let disposed = false
   const pendingNotificationEventIds = new Set()
   const notificationRetryTimers = new Set()
+
+  function client() {
+    return unref(supabase)
+  }
 
   // A background *tab* reliably reports document.hidden. An installed
   // standalone PWA (its own window, no tabs) only goes hidden when minimized
@@ -90,7 +95,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   }
 
   function refreshNow() {
-    if (!supabase || !isAuthenticated.value || !store.userId || store.activeSearchQuery) return
+    if (!client() || !isAuthenticated.value || !store.userId || store.activeSearchQuery) return
     if (debounceTimer) {
       clearTimeout(debounceTimer)
       debounceTimer = null
@@ -151,8 +156,9 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
       debounceTimer = null
     }
     if (channel) {
-      supabase.removeChannel(channel)
+      channelClient?.removeChannel(channel)
       channel = null
+      channelClient = null
     }
     wasDisconnected = false
     refreshQueued = false
@@ -163,7 +169,8 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
 
   function subscribe(userId) {
     teardown()
-    channel = supabase
+    channelClient = client()
+    channel = channelClient
       .channel(`inbox:${userId}`)
       .on('broadcast', { event: 'inbox-changed' }, (event) => {
         const payload = event?.payload
@@ -184,9 +191,9 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   }
 
   watch(
-    () => [isAuthenticated.value, store.userId],
-    ([authenticated, userId]) => {
-      if (authenticated && userId && supabase) {
+    () => [isAuthenticated.value, store.userId, client()],
+    ([authenticated, userId, realtime]) => {
+      if (authenticated && userId && realtime) {
         subscribe(userId)
       } else {
         teardown()
