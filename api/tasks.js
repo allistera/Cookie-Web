@@ -6,6 +6,7 @@ import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { handleRefresh } from './_lib/enricher.js'
 import { handleInterests } from './_lib/interests.js'
+import { handleDocuments } from './_lib/documents.js'
 
 const RESULTS = 25
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -239,9 +240,16 @@ async function handlePost(req, res, email) {
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
 
-  // PUT is only meaningful for ?resource=interests; that handler rejects the
-  // methods it does not serve.
-  if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'PUT') {
+  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+
+  // PUT is only meaningful for ?resource=interests, and PATCH/DELETE only for
+  // ?resource=documents; each resource handler rejects the methods it does
+  // not serve, so the gate here only screens out what nothing serves.
+  const methods =
+    resource === 'documents'
+      ? ['GET', 'POST', 'PATCH', 'DELETE']
+      : ['GET', 'POST', 'PUT']
+  if (!methods.includes(req.method)) {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
     return
@@ -256,12 +264,14 @@ export default async function handler(req, res) {
     return
   }
 
-  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
   if (resource === 'refresh') {
     return handleRefresh(req, res, email)
   }
   if (resource === 'interests') {
     return handleInterests(req, res, email)
+  }
+  if (resource === 'documents') {
+    return handleDocuments(req, res, email)
   }
 
   if (req.method === 'POST') {

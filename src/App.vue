@@ -14,6 +14,7 @@ const ChatDrawer = defineAsyncComponent(() => import('./components/ChatDrawer.vu
 const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
 const CommandPalette = defineAsyncComponent(() => import('./components/CommandPalette.vue'))
 const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
+const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
 
 const store = useInboxStore()
 const route = useRoute()
@@ -22,7 +23,24 @@ const router = useRouter()
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 const showMoreNav = ref(false)
-const isCalendarView = computed(() => route.name === 'calendar')
+
+// Which Cookie app the current route belongs to; drives the header switcher,
+// the logo suffix, and which left sidebar (if any) renders.
+const APPS = {
+  email: { label: 'Email', icon: 'mail', to: '/' },
+  calendar: { label: 'Calendar', icon: 'calendar_month', to: '/calendar' },
+  documents: { label: 'Documents', icon: 'description', to: '/documents' },
+}
+const activeApp = computed(() => {
+  if (route.name === 'calendar') return 'calendar'
+  if (route.name === 'documents') return 'documents'
+  return 'email'
+})
+const otherApps = computed(() =>
+  Object.entries(APPS)
+    .filter(([key]) => key !== activeApp.value)
+    .map(([key, app]) => ({ key, ...app })),
+)
 
 // Undo-send toast: hovering pauses the countdown and reveals the Undo button;
 // leaving resumes it. Undo cancels the send and reopens the composer.
@@ -305,13 +323,13 @@ onUnmounted(() => {
       <div class="header-left">
         <div class="app-switcher">
           <router-link
-            :to="isCalendarView ? '/calendar' : '/'"
+            :to="APPS[activeApp].to"
             class="logo-container"
-            :aria-label="`Cookie ${isCalendarView ? 'Calendar' : 'Email'} home`"
+            :aria-label="`Cookie ${APPS[activeApp].label} home`"
           >
             <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
             <span class="logo-text">Cookie</span>
-            <span class="logo-suffix">{{ isCalendarView ? 'Calendar' : 'Email' }}</span>
+            <span class="logo-suffix">{{ APPS[activeApp].label }}</span>
           </router-link>
           <button
             class="app-switcher-trigger"
@@ -323,29 +341,21 @@ onUnmounted(() => {
           </button>
           <div class="app-switcher-menu" role="menu">
             <router-link
-              v-if="isCalendarView"
-              to="/"
+              v-for="app in otherApps"
+              :key="app.key"
+              :to="app.to"
               class="app-switcher-menu-item"
               role="menuitem"
             >
-              <span class="material-symbols-outlined" aria-hidden="true">mail</span>
-              <span>Email</span>
-            </router-link>
-            <router-link
-              v-else
-              to="/calendar"
-              class="app-switcher-menu-item"
-              role="menuitem"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">calendar_month</span>
-              <span>Calendar</span>
+              <span class="material-symbols-outlined" aria-hidden="true">{{ app.icon }}</span>
+              <span>{{ app.label }}</span>
             </router-link>
           </div>
         </div>
       </div>
 
       <div class="header-center">
-        <div v-if="!isCalendarView" class="search-bar-container" id="searchBarContainer">
+        <div v-if="activeApp === 'email'" class="search-bar-container" id="searchBarContainer">
           <span class="material-symbols-outlined search-icon">search</span>
           <input
             type="text"
@@ -404,7 +414,7 @@ onUnmounted(() => {
 
     <div class="app-body">
       <!-- LEFT SIDEBAR -->
-      <aside v-if="!isCalendarView" class="left-sidebar">
+      <aside v-if="activeApp === 'email'" class="left-sidebar">
         <button class="compose-btn" @click="store.openComposer()">
           <span class="material-symbols-outlined">edit_square</span>
           <span>Compose</span>
@@ -503,6 +513,9 @@ onUnmounted(() => {
           </nav>
         </template>
       </aside>
+
+      <!-- Documents: the file tree replaces the mail sidebar -->
+      <DocumentsSidebar v-else-if="activeApp === 'documents'" />
 
       <!-- MAIN CONTENT PANEL -->
       <main class="main-content">

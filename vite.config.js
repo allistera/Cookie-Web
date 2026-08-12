@@ -560,10 +560,147 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/labels.js')
     await handler(req, res)
   }
+  // /api/tasks?resource=documents — mirrors api/_lib/documents.js's wire shape
+  // (folders + documents lists without blocks; single fetch carries blocks) so
+  // the Documents workspace works against per-session fixture state.
+  const handleTaskDocuments = async (req, res, state) => {
+    if (!state.documents) {
+      const { fixtureDocumentFolders, fixtureDocuments } = await import(
+        './api/_fixtures/documents.js'
+      )
+      state.docFolders = fixtureDocumentFolders()
+      state.documents = fixtureDocuments()
+    }
+    const url = new URL(req.url, 'http://localhost')
+    const stripBlocks = ({ blocks: _blocks, ...doc }) => doc
+    if (req.method === 'GET') {
+      const id = url.searchParams.get('id')
+      if (id) {
+        const document = state.documents.find((doc) => doc.id === id)
+        if (!document) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Document not found' }))
+          return
+        }
+        res.end(JSON.stringify({ document }))
+        return
+      }
+      res.end(
+        JSON.stringify({
+          folders: state.docFolders,
+          documents: state.documents.map(stripBlocks),
+        }),
+      )
+      return
+    }
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}')
+    const now = () => new Date().toISOString()
+    if (req.method === 'POST') {
+      if (body.kind === 'folder') {
+        const folder = {
+          id: `stub-folder-${randomUUID()}`,
+          parent_id: body.parentId ?? null,
+          title: body.title,
+          emoji: body.emoji || '📁',
+          created_at: now(),
+        }
+        state.docFolders.push(folder)
+        res.statusCode = 201
+        res.end(JSON.stringify({ folder }))
+        return
+      }
+      const document = {
+        id: `stub-doc-${randomUUID()}`,
+        folder_id: body.folderId ?? null,
+        title: body.title || '',
+        emoji: '🔹',
+        starred: false,
+        blocks: [],
+        created_at: now(),
+        updated_at: now(),
+      }
+      state.documents.unshift(document)
+      res.statusCode = 201
+      res.end(JSON.stringify({ document }))
+      return
+    }
+    if (req.method === 'PATCH') {
+      if (body.kind === 'folder') {
+        const folder = state.docFolders.find((item) => item.id === body.id)
+        if (!folder) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Folder not found' }))
+          return
+        }
+        folder.title = body.title
+        res.end(JSON.stringify({ folder }))
+        return
+      }
+      const document = state.documents.find((item) => item.id === body.id)
+      if (!document) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Document not found' }))
+        return
+      }
+      if (Object.hasOwn(body, 'title')) document.title = body.title
+      if (Object.hasOwn(body, 'emoji')) document.emoji = body.emoji
+      if (Object.hasOwn(body, 'starred')) document.starred = body.starred
+      if (Object.hasOwn(body, 'folderId')) document.folder_id = body.folderId
+      if (Object.hasOwn(body, 'blocks')) document.blocks = body.blocks
+      document.updated_at = now()
+      res.end(JSON.stringify({ document: stripBlocks(document) }))
+      return
+    }
+    if (req.method === 'DELETE') {
+      if (body.kind === 'folder') {
+        // Mirrors the schema: sub-folders cascade, their documents fall back
+        // to the root.
+        const doomed = new Set([body.id])
+        let grew = true
+        while (grew) {
+          grew = false
+          for (const folder of state.docFolders) {
+            if (folder.parent_id && doomed.has(folder.parent_id) && !doomed.has(folder.id)) {
+              doomed.add(folder.id)
+              grew = true
+            }
+          }
+        }
+        if (!state.docFolders.some((folder) => folder.id === body.id)) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Folder not found' }))
+          return
+        }
+        state.docFolders = state.docFolders.filter((folder) => !doomed.has(folder.id))
+        for (const doc of state.documents) {
+          if (doomed.has(doc.folder_id)) doc.folder_id = null
+        }
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+      const before = state.documents.length
+      state.documents = state.documents.filter((doc) => doc.id !== body.id)
+      if (state.documents.length === before) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Document not found' }))
+        return
+      }
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
+  }
   const handleTasks = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
       res.setHeader('Content-Type', 'application/json')
       const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+      if (resource === 'documents') {
+        await handleTaskDocuments(req, res, fixtureMailboxState(req, res))
+        return
+      }
       if (resource === 'interests') {
         const state = fixtureMailboxState(req, res)
         state.interests ??= ['Cloudflare Workers', 'Vue', 'self-hosting']

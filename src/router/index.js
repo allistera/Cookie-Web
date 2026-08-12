@@ -30,6 +30,12 @@ const router = createRouter({
       component: () => import('../views/ScheduledSendsView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/documents/:id?',
+      name: 'documents',
+      component: () => import('../views/DocumentsView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
