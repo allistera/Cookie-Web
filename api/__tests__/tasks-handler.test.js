@@ -56,6 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   delete process.env.TODOIST_API_TOKEN
 })
 
@@ -246,6 +247,7 @@ describe('POST /api/tasks', () => {
   // The whole point of closing remotely first: a task that could not be closed
   // in Todoist must stay visible in Cookie rather than silently vanishing.
   it('keeps the local row when the Todoist close fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     process.env.TODOIST_API_TOKEN = 'tok'
     vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 })
     sqlQueue = [[{ id: TASK_ID, source: 'todoist', external_id: '9001' }]]
@@ -255,6 +257,10 @@ describe('POST /api/tasks', () => {
 
     expect(res.statusCode).toBe(502)
     expect(statements.some((text) => text.includes('DELETE FROM tasks'))).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith(
+      'Todoist close failed:',
+      'Todoist close responded 500',
+    )
   })
 
   it('404s when the task is not the caller’s', async () => {

@@ -11,6 +11,22 @@ import { scheduleChoices } from '../../utils/schedule'
 const routeMock = { query: {} }
 const routerMock = { push: vi.fn() }
 vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => routerMock }))
+vi.mock('../../auth0-client', () => ({ getAuth0: () => null }))
+
+// View tests exercise optimistic store actions, but authentication and the
+// network belong to the store's own unit suite. Give incidental background
+// requests a deterministic success response; tests that care about a request
+// replace this stub with a purpose-built mock.
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
+  )
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -584,6 +600,7 @@ describe('TraditionalInboxView reply send button', () => {
   })
 
   it('re-enables the Send button after a failed send so the user can retry', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(store, 'sendMail').mockRejectedValue(new Error('boom'))
     const sendButton = await openReplyBox()
 
@@ -595,6 +612,7 @@ describe('TraditionalInboxView reply send button', () => {
     expect(sendButton.attributes()).not.toHaveProperty('disabled')
     expect(sendButton.text()).toContain('Send')
     expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+    expect(consoleError).toHaveBeenCalledWith('Failed to send reply:', expect.any(Error))
   })
 })
 
@@ -1120,13 +1138,19 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
   })
 
   it('surfaces an error toast when the unsubscribe request fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const reader = await openReader(UNSUB)
-    fetchMock.mockResolvedValue({ ok: false, status: 502, json: async () => ({}) })
+    fetchMock.mockImplementation(async (_url, options = {}) => ({
+      ok: options.method !== 'POST',
+      status: options.method === 'POST' ? 502 : 200,
+      json: async () => ({}),
+    }))
 
     await reader.find('[title="Unsubscribe"]').trigger('click')
     await vi.waitFor(() => {
       expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
     })
+    expect(consoleError).toHaveBeenCalledWith('Unsubscribe failed:', expect.any(Error))
   })
 })
 

@@ -571,7 +571,12 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadSentEmails()
     fetchMock.mockClear()
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: 'msg-1' }) })
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'msg-1' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ emails: [], nextCursor: null }),
+      })
 
     await store.sendMail({ to: 'someone@example.com', subject: 'S', text: 'T' })
     await vi.waitFor(() =>
@@ -843,6 +848,7 @@ describe('Inbox Store', () => {
     })
 
     it('restores the message in the composer if the send fails', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
       const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
       vi.stubGlobal('fetch', fetchMock)
       const store = useInboxStore()
@@ -856,6 +862,7 @@ describe('Inbox Store', () => {
       expect(store.isComposerActive).toBe(true)
       expect(store.composerTextArea).toBe('Checking in.')
       expect(store.toasts.at(-1)?.message).toBe('Failed to send email. Please try again.')
+      expect(consoleError).toHaveBeenCalledWith('Failed to send email:', expect.any(Error))
     })
 
     it('does not queue a second send while one is already pending', () => {
@@ -923,6 +930,7 @@ describe('Inbox Store', () => {
     })
 
     it('restores the draft into the composer if scheduling fails', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
       const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 429 })
       vi.stubGlobal('fetch', fetchMock)
       const store = useInboxStore()
@@ -934,6 +942,7 @@ describe('Inbox Store', () => {
       expect(store.isComposerActive).toBe(true)
       expect(store.composerTo).toBe('someone@example.com')
       expect(store.toasts.at(-1)?.message).toMatch(/failed/i)
+      expect(consoleError).toHaveBeenCalledWith('Failed to schedule email:', expect.any(Error))
     })
 
     it('loads the pending scheduled-send queue once and caches it', async () => {
@@ -1032,6 +1041,7 @@ describe('Inbox Store', () => {
   })
 
   it('askGemini records an apology message when the API fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
 
     const store = useInboxStore()
@@ -1039,6 +1049,7 @@ describe('Inbox Store', () => {
 
     expect(store.chatHistory[1].text).toContain("couldn't reach the assistant")
     expect(store.isChatLoading).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith('Ask failed:', expect.any(Error))
   })
 
   it('searches emails and replaces the inbox list with results', async () => {
@@ -1077,6 +1088,7 @@ describe('Inbox Store', () => {
   })
 
   it('notifies and keeps the list when search fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
 
     const store = useInboxStore()
@@ -1086,6 +1098,7 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails).toEqual([{ id: 'keep-me' }])
     expect(store.activeSearchQuery).toBe('')
     expect(store.toasts[0]).toMatchObject({ kind: 'error' })
+    expect(consoleError).toHaveBeenCalledWith('Search failed:', expect.any(Error))
   })
 
   it('ignores a stale search response that resolves after a newer one', async () => {
@@ -1274,14 +1287,17 @@ describe('Inbox Store', () => {
   })
 
   it('returns null and notifies when creating a rule fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
 
     const store = useInboxStore()
     await expect(store.createRule({ label_id: 'label-1', conditions: [] })).resolves.toBeNull()
     expect(store.toasts.at(-1)?.message).toBe('Failed to create rule.')
+    expect(consoleError).toHaveBeenCalledWith('Failed to create rule:', expect.any(Error))
   })
 
   it('updates a rule and rolls back on failure', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const rule = { id: 'rule-1', name: 'Bills', enabled: true }
     const store = useInboxStore()
     store.rules = [rule]
@@ -1290,6 +1306,7 @@ describe('Inbox Store', () => {
     await expect(store.updateRule(rule, { enabled: false })).resolves.toBe(false)
     expect(rule.enabled).toBe(true)
     expect(store.toasts.at(-1)?.message).toBe('Failed to update rule.')
+    expect(consoleError).toHaveBeenCalledWith('Failed to update rule:', expect.any(Error))
 
     vi.stubGlobal(
       'fetch',
@@ -1635,6 +1652,7 @@ describe('Inbox Store', () => {
   })
 
   it('fetchMessageBody retries after a failed fetch instead of caching the in-flight rejection', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: false, status: 500 })
@@ -1650,6 +1668,7 @@ describe('Inbox Store', () => {
     const body = await store.fetchMessageBody('msg-1')
     expect(body).toEqual({ html: '<p>Hi</p>', text: 'Hi', unsubscribe: null, thread: [], attachments: [] })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(consoleError).toHaveBeenCalledWith('Failed to load message body:', expect.any(Error))
   })
 
   it('fetchMessageBody normalizes a null HTML body and exposes it via openEmailHtml', async () => {

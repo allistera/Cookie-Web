@@ -81,6 +81,9 @@ const SEED_CALENDARS = [
   { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
 ]
 const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
+const isEventsEndpoint = (url) =>
+  url === '/api/calendar-events' ||
+  (url.startsWith('/api/calendar-events?') && !url.includes('resource='))
 
 // Stands in for the calendar-events and calendar-management APIs with in-memory
 // lists, mirroring the local Vite fixture middleware's behavior closely
@@ -95,7 +98,7 @@ function mockCalendarApi() {
       const method = options.method || 'GET'
       const body = options.body ? JSON.parse(options.body) : {}
 
-      if (url === '/api/calendar-events' || (url.startsWith('/api/calendar-events?') && !url.includes('resource='))) {
+      if (isEventsEndpoint(url)) {
         if (method === 'GET') {
           // Honor the from/to window the way the real API does: non-recurring
           // rows are filtered by date, recurring masters always come back.
@@ -742,7 +745,7 @@ describe('CalendarView', () => {
       'fetch',
       vi.fn(async (url, options = {}) => {
         const method = options.method || 'GET'
-        if (url === '/api/calendar-events' && method === 'GET') {
+        if (isEventsEndpoint(url) && method === 'GET') {
           return {
             ok: true,
             json: async () =>
@@ -764,7 +767,7 @@ describe('CalendarView', () => {
       'fetch',
       vi.fn(async (url, options = {}) => {
         const method = options.method || 'GET'
-        if (url === '/api/calendar-events' && method === 'GET') {
+        if (isEventsEndpoint(url) && method === 'GET') {
           return { ok: true, json: async () => clone({ events }) }
         }
         if (url === CALENDARS_ENDPOINT && method === 'GET') {

@@ -34,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   delete process.env.ENRICHER_RUN_URL
   delete process.env.ENRICHER_TRIGGER_TOKEN
 })
@@ -89,6 +90,7 @@ describe('handleRefresh', () => {
   })
 
   it('returns 502 when the Worker fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 })
     const res = makeRes()
     await handleRefresh({ method: 'POST' }, res, email())
@@ -96,6 +98,10 @@ describe('handleRefresh', () => {
     expect(res.statusCode).toBe(502)
     // The upstream status must not leak to the browser.
     expect(JSON.stringify(res.body)).not.toContain('500')
+    expect(consoleError).toHaveBeenCalledWith(
+      'POST /api/tasks?resource=refresh failed:',
+      expect.any(Error),
+    )
   })
 
   it('rate-limits a caller hammering the button', async () => {

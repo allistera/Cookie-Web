@@ -1,6 +1,6 @@
 import process from 'node:process'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   captureApiError: vi.fn(),
@@ -24,6 +24,10 @@ vi.mock('resend', () => ({
 }))
 
 import handler, { parseScheduledFor } from '../send.js'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 function makeRes() {
   return {
@@ -263,6 +267,7 @@ describe('POST /api/send?resource=flush', () => {
   })
 
   it('marks a row failed once it has exhausted its retry attempts', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const claimedRow = {
       id: 'sched-1',
       user_id: 'user-1',
@@ -286,5 +291,9 @@ describe('POST /api/send?resource=flush', () => {
     await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
 
     expect(res.body).toEqual({ claimed: 1, sent: 0, retried: 0, failed: 1 })
+    expect(consoleError).toHaveBeenCalledWith(
+      'scheduled send sched-1 delivery failed (attempt 5):',
+      'bounced',
+    )
   })
 })
