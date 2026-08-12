@@ -750,6 +750,22 @@ onUnmounted(() => {
         <div
           v-for="email in isGroupOpen(group.label) ? group.emails : []"
           :key="email.id"
+          v-memo="[
+            // Everything this row renders that can change without the email
+            // object being replaced. With hundreds of loaded rows, a change
+            // to one email otherwise re-diffs every row's vdom. `email`
+            // itself covers wholesale replacement on reload; unread/starred
+            // mutate in place; labels is swapped by reference on tag edits.
+            email,
+            email.unread,
+            email.starred,
+            email.labels,
+            email.readAt,
+            isSelected(email),
+            openEmail === email,
+            emailHasAiSummary(email),
+            activeFilter,
+          ]"
           class="ni-row"
           :class="{
             unread: email.unread,
