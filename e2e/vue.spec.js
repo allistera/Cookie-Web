@@ -21,6 +21,7 @@ test('The header app switcher opens the interactive Calendar views and returns t
   const calendarSidebar = page.getByRole('complementary', { name: 'Calendar sidebar' })
   await expect(calendarSidebar).toBeVisible()
   await expect(calendarSidebar.getByRole('navigation', { name: 'Calendars' })).toBeVisible()
+  await expect(calendarSidebar.getByRole('link', { name: 'Manage calendars' })).toBeVisible()
   const workCalendar = calendarSidebar.getByRole('button', { name: 'Work', exact: true })
   await expect(workCalendar).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('#searchBarContainer')).toHaveCount(0)
@@ -66,30 +67,20 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
-test('A subscribed calendar lists separately, pulls in its events, and re-syncs on demand', async ({
-  page,
-}) => {
-  await page.goto('/calendar')
+test('Calendar settings manages subscriptions that appear in the Calendar view', async ({ page }) => {
+  await page.goto('/settings/calendar')
 
-  const calendars = page.getByRole('navigation', { name: 'Calendars', exact: true })
-  await expect(calendars.getByRole('button', { name: 'Work', exact: true })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Subscribed calendars' })).toHaveCount(0)
-
-  await calendars.getByRole('button', { name: 'Add calendar' }).click()
+  await expect(page.getByRole('heading', { name: 'Calendars', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Subscriptions' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add subscription', exact: true }).click()
   await page.getByRole('textbox', { name: 'New calendar name' }).fill('Team Feed')
-  await page.getByRole('button', { name: 'Subscribe via URL instead' }).click()
-  await page.getByRole('textbox', { name: 'Calendar subscription URL' }).fill('https://example.com/team.ics')
-  await page.locator('.calendar-edit-form button[type="submit"]').click()
+  await page
+    .getByRole('textbox', { name: 'Calendar subscription URL' })
+    .fill('https://example.com/team.ics')
+  await page.locator('.calendar-settings-create').getByRole('button', { name: 'Add subscription' }).click()
 
-  const subscribed = page.getByRole('navigation', { name: 'Subscribed calendars' })
-  await expect(subscribed.getByRole('button', { name: 'Team Feed', exact: true })).toBeVisible()
-  await expect(calendars.getByRole('button', { name: 'Team Feed', exact: true })).toHaveCount(0)
-
-  // Subscribing imports the feed's events straight onto the calendar.
-  const syncedEvent = page.locator('.day-event', { hasText: 'Synced from subscription' })
-  await expect(syncedEvent).toBeVisible()
-
-  const syncNow = subscribed.getByRole('button', { name: 'Sync Team Feed' })
+  await expect(page.locator('.calendar-settings-row', { hasText: 'Team Feed' })).toBeVisible()
+  const syncNow = page.getByRole('button', { name: 'Sync Team Feed' })
   await Promise.all([
     page.waitForResponse(
       (response) =>
@@ -98,6 +89,15 @@ test('A subscribed calendar lists separately, pulls in its events, and re-syncs 
     syncNow.click(),
   ])
   await expect(syncNow).toBeEnabled()
+
+  await page.goto('/calendar')
+  const calendars = page.getByRole('navigation', { name: 'Calendars', exact: true })
+  const subscribed = page.getByRole('navigation', { name: 'Subscribed calendars' })
+  await expect(calendars.getByRole('button', { name: 'Work', exact: true })).toBeVisible()
+  await expect(subscribed.getByRole('button', { name: 'Team Feed', exact: true })).toBeVisible()
+  await expect(calendars.getByRole('button', { name: 'Team Feed', exact: true })).toHaveCount(0)
+
+  const syncedEvent = page.locator('.day-event', { hasText: 'Synced from subscription' })
   await expect(syncedEvent).toBeVisible()
 })
 
@@ -387,7 +387,7 @@ test('Profile dropdown contains Settings and Log out, and opens the settings pag
   await expect(page.locator('.settings-page')).toBeVisible()
   await expect(page.locator('.profile-dropdown')).toHaveCount(0)
   await expect(page.locator('.settings-page')).toContainText('Notifications')
-  await expect(page.locator('.settings-nav-label')).toHaveText(['General', 'Email'])
+  await expect(page.locator('.settings-nav-label')).toHaveText(['General', 'Email', 'Calendar'])
 
   // Log out must not throw (regression: window is not accessible in template scope)
   await page.locator('.settings-back-link').click()

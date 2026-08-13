@@ -208,10 +208,6 @@ async function mountCalendar(options) {
   return wrapper
 }
 
-function findCalendarRow(wrapper, name) {
-  return wrapper.findAll('.calendar-list-row').find((row) => row.text().includes(name))
-}
-
 beforeEach(() => {
   setActivePinia(createPinia())
   const store = useInboxStore()
@@ -234,6 +230,8 @@ describe('CalendarView', () => {
       'Holidays',
     ])
     expect(wrapper.findAll('.calendar-sidebar-label').map((label) => label.text())).toEqual(['Calendars'])
+    expect(wrapper.get('.calendar-manage-link').text()).toContain('Manage calendars')
+    expect(wrapper.find('.calendar-add-btn').exists()).toBe(false)
     expect(wrapper.find('.day-event').text()).toContain('Standup')
 
     await calendarButtons[0].trigger('click')
@@ -562,92 +560,23 @@ describe('CalendarView', () => {
     afterDelete.unmount()
   })
 
-  it('creates a new calendar and can assign events to it', async () => {
+  it('opens a subscribed-calendar event read-only, without Save or Delete', async () => {
+    await fetch(CALENDARS_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Team Feed',
+        color: '#3b82f6',
+        subscriptionUrl: 'https://example.com/team.ics',
+      }),
+    })
     const wrapper = await mountCalendar({ attachTo: document.body })
 
-    await wrapper.get('.calendar-add-btn').trigger('click')
-    await wrapper.get('input[aria-label="New calendar name"]').setValue('Trips')
-    await wrapper.get('.calendar-edit-form').trigger('submit')
-    await flushPromises()
-
-    const rows = wrapper.findAll('.nav-text').map((el) => el.text())
-    expect(rows).toContain('Trips')
-    expect(wrapper.find('.calendar-edit-form').exists()).toBe(false)
-
-    await wrapper.get('.calendar-sidebar-create').trigger('click')
-    const calendarSelect = wrapper.get('select[aria-label="Event calendar"]')
-    expect(calendarSelect.findAll('option').map((option) => option.text())).toContain('Trips')
-    await calendarSelect.setValue('generated-calendar-1')
-    await wrapper.get('.new-event-title-input').setValue('Pack for holiday')
-    await wrapper.get('.new-event-create').trigger('click')
-    await flushPromises()
-
-    const createCall = vi
-      .mocked(fetch)
-      .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'POST')
-    expect(JSON.parse(createCall[1].body).calendar).toBe('generated-calendar-1')
-    expect(wrapper.text()).toContain('Pack for holiday')
-    wrapper.unmount()
-  })
-
-  it('subscribes to a calendar via URL and shows its synced events', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-
-    await wrapper.get('.calendar-add-btn').trigger('click')
-    await wrapper.get('input[aria-label="New calendar name"]').setValue('Team Feed')
-    await wrapper.get('.calendar-subscription-toggle').trigger('click')
-    await wrapper.get('input[aria-label="Calendar subscription URL"]').setValue('https://example.com/team.ics')
-    await wrapper.get('.calendar-edit-form').trigger('submit')
-    await flushPromises()
-
-    const createCall = vi
-      .mocked(fetch)
-      .mock.calls.find(([url, options]) => url === CALENDARS_ENDPOINT && options?.method === 'POST')
-    expect(JSON.parse(createCall[1].body).subscriptionUrl).toBe('https://example.com/team.ics')
-    expect(wrapper.findAll('.nav-text').map((el) => el.text())).toContain('Team Feed')
     const sections = wrapper.findAll('.calendar-sidebar-section')
     expect(sections.map((section) => section.get('.calendar-sidebar-label').text())).toEqual([
       'Calendars',
       'Subscribed calendars',
     ])
-    expect(sections[0].findAll('.calendar-list-item .nav-text').map((el) => el.text())).not.toContain('Team Feed')
-    expect(sections[1].findAll('.calendar-list-item .nav-text').map((el) => el.text())).toEqual(['Team Feed'])
-    expect(wrapper.text()).toContain('Imported standup')
-    wrapper.unmount()
-  })
-
-  it('manually re-syncs a subscribed calendar', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-    await wrapper.get('.calendar-add-btn').trigger('click')
-    await wrapper.get('input[aria-label="New calendar name"]').setValue('Team Feed')
-    await wrapper.get('.calendar-subscription-toggle').trigger('click')
-    await wrapper.get('input[aria-label="Calendar subscription URL"]').setValue('https://example.com/team.ics')
-    await wrapper.get('.calendar-edit-form').trigger('submit')
-    await flushPromises()
-    expect(wrapper.text()).toContain('Imported standup')
-
-    await wrapper.get('button[aria-label="Sync Team Feed"]').trigger('click')
-    await flushPromises()
-
-    const syncCall = vi
-      .mocked(fetch)
-      .mock.calls.find(
-        ([url, options]) => url === CALENDARS_ENDPOINT && JSON.parse(options?.body || '{}').action === 'sync',
-      )
-    expect(syncCall).toBeTruthy()
-    expect(wrapper.text()).toContain('Synced meetup')
-    expect(wrapper.text()).not.toContain('Imported standup')
-    wrapper.unmount()
-  })
-
-  it('opens a subscribed-calendar event read-only, without Save or Delete', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-    await wrapper.get('.calendar-add-btn').trigger('click')
-    await wrapper.get('input[aria-label="New calendar name"]').setValue('Team Feed')
-    await wrapper.get('.calendar-subscription-toggle').trigger('click')
-    await wrapper.get('input[aria-label="Calendar subscription URL"]').setValue('https://example.com/team.ics')
-    await wrapper.get('.calendar-edit-form').trigger('submit')
-    await flushPromises()
+    expect(sections[1].text()).toContain('Team Feed')
 
     const synced = wrapper.findAll('.day-event').find((event) => event.text().includes('Imported standup'))
     await synced.trigger('click')
@@ -657,70 +586,6 @@ describe('CalendarView', () => {
     expect(wrapper.find('.new-event-create').exists()).toBe(false)
     expect(wrapper.text()).toContain('Synced from an external calendar')
     wrapper.unmount()
-  })
-
-  it('shows an inline error and keeps the form open when creating a duplicate calendar name', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-
-    await wrapper.get('.calendar-add-btn').trigger('click')
-    await wrapper.get('input[aria-label="New calendar name"]').setValue('Work')
-    await wrapper.get('.calendar-edit-form').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.get('.calendar-edit-error').text()).toContain('already exists')
-    expect(wrapper.find('.calendar-edit-form').exists()).toBe(true)
-  })
-
-  it('renames a calendar', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-
-    const workRow = findCalendarRow(wrapper, 'Work')
-    const editButton = workRow.get('.calendar-list-edit-icon')
-    expect(editButton.element.tagName).toBe('BUTTON')
-    expect(editButton.attributes('aria-label')).toBe('Edit Work')
-    await editButton.trigger('click')
-
-    await wrapper.get('input[aria-label="Rename Work"]').setValue('Day Job')
-    await wrapper.get('.calendar-edit-form').trigger('submit')
-    await flushPromises()
-
-    const rows = wrapper.findAll('.nav-text').map((el) => el.text())
-    expect(rows).toContain('Day Job')
-    expect(rows).not.toContain('Work')
-  })
-
-  it('requires a second click to delete a calendar with no events', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-
-    const birthdaysRow = findCalendarRow(wrapper, 'Birthdays')
-    await birthdaysRow.get('.calendar-list-edit-icon').trigger('click')
-
-    const deleteBtn = wrapper.get('.calendar-delete-btn')
-    await deleteBtn.trigger('click')
-    expect(wrapper.get('.calendar-delete-btn').classes()).toContain('confirming')
-    // Still mid-edit after the first (arming) click — the row hasn't been removed.
-    expect(wrapper.find('input[aria-label="Rename Birthdays"]').exists()).toBe(true)
-
-    await wrapper.get('.calendar-delete-btn').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.findAll('.nav-text').map((el) => el.text())).not.toContain('Birthdays')
-  })
-
-  it('refuses to delete a calendar that still has events', async () => {
-    const wrapper = await mountCalendar({ attachTo: document.body })
-    const store = useInboxStore()
-    vi.spyOn(store, 'notify')
-
-    const workRow = findCalendarRow(wrapper, 'Work')
-    await workRow.get('.calendar-list-edit-icon').trigger('click')
-    await wrapper.get('.calendar-delete-btn').trigger('click')
-    await wrapper.get('.calendar-delete-btn').trigger('click')
-    await flushPromises()
-
-    expect(store.notify).toHaveBeenCalledWith(expect.stringContaining('event'), 'error')
-    // The failed delete leaves the row in edit mode rather than removing it.
-    expect(wrapper.find('input[aria-label="Rename Work"]').exists()).toBe(true)
   })
 
   it('dismisses insight cards through their actions', async () => {

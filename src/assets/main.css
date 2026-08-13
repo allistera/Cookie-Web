@@ -3529,6 +3529,179 @@ button.ni-attachment:hover {
   margin-bottom: 12px;
 }
 
+/* Calendar management */
+.calendar-settings-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.calendar-settings-manager > .settings-section-hint {
+  margin-bottom: -6px;
+}
+
+.calendar-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calendar-settings-group + .calendar-settings-group {
+  padding-top: 28px;
+  border-top: 1px solid var(--border-color);
+}
+
+.calendar-settings-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.calendar-settings-group-header .settings-section-title {
+  margin-bottom: 3px;
+}
+
+.calendar-settings-group-header p,
+.calendar-settings-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.calendar-settings-group-header .btn {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.calendar-settings-group-header .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.calendar-settings-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-color);
+}
+
+.calendar-settings-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) repeat(2, 32px);
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.calendar-settings-list > .calendar-settings-empty {
+  padding: 20px 2px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.calendar-settings-color {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+}
+
+.calendar-settings-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.calendar-settings-copy strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-settings-copy small {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-settings-row > .ni-action-btn {
+  justify-self: end;
+}
+
+.calendar-settings-edit {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 18px minmax(0, 1fr) repeat(3, 32px);
+  align-items: center;
+  gap: 10px;
+}
+
+.calendar-settings-edit .label-input {
+  width: 100%;
+}
+
+.calendar-settings-delete.confirming,
+.calendar-settings-delete:hover {
+  background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent);
+  color: var(--danger, #e5484d);
+}
+
+.calendar-settings-error {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--danger, #e5484d) !important;
+  font-size: 12px;
+  white-space: normal !important;
+}
+
+.calendar-settings-create {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+
+.calendar-settings-create label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.calendar-settings-create .label-input {
+  width: 100%;
+  background: var(--bg-card);
+  font-weight: 400;
+}
+
+.calendar-settings-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.calendar-settings-row .syncing .material-symbols-outlined {
+  animation: calendar-settings-spin 1s linear infinite;
+}
+
+@keyframes calendar-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .settings-account-row {
   display: flex;
   align-items: center;
@@ -3948,6 +4121,15 @@ button.ni-attachment:hover {
 
   .settings-row {
     align-items: flex-start;
+  }
+
+  .calendar-settings-group-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .calendar-settings-row {
+    grid-template-columns: 18px minmax(0, 1fr) repeat(2, 32px);
   }
 }
 

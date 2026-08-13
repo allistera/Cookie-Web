@@ -53,6 +53,11 @@ const FIXTURE_RULES = [
   },
 ]
 
+const FIXTURE_CALENDARS = [
+  { id: 'work', name: 'Work', color: '#4f7c6b' },
+  { id: 'personal', name: 'Personal', color: '#2db985' },
+]
+
 describe('SettingsView', () => {
   let pinia
   let router
@@ -92,6 +97,9 @@ describe('SettingsView', () => {
             }
           }
           if (String(url).includes('resource=interests')) return { interests: [] }
+          if (String(url).includes('resource=calendars')) {
+            return { calendars: FIXTURE_CALENDARS.map((calendar) => ({ ...calendar })) }
+          }
           return { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
         },
       })),
@@ -137,7 +145,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(8)
+    expect(navItems).toHaveLength(9)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -147,12 +155,14 @@ describe('SettingsView', () => {
       'Snippets',
       'Labels',
       'Rules',
+      'Calendars',
     ].entries()) {
       expect(navItems[i]).toContain(name)
     }
     expect(wrapper.findAll('.settings-nav-label').map((label) => label.text())).toEqual([
       'General',
       'Email',
+      'Calendar',
     ])
     expect(wrapper.find('.settings-page').exists()).toBe(true)
     expect(wrapper.find('.modal-overlay').exists()).toBe(false)
@@ -171,6 +181,18 @@ describe('SettingsView', () => {
     expect(
       wrapper.findAll('.settings-nav-item').map((item) => item.find('span:last-child').text()),
     ).toEqual(['Rules'])
+  })
+
+  it('opens calendar management from the Calendar settings group', async () => {
+    const wrapper = await openView()
+
+    await openPane(wrapper, 'calendar')
+    await flushPromises()
+
+    expect(wrapper.get('.settings-page-header').text()).toBe('Calendars')
+    expect(wrapper.get('#your-calendars-heading').text()).toBe('Your calendars')
+    expect(wrapper.text()).toContain('Work')
+    expect(wrapper.text()).toContain('Subscriptions')
   })
 
   it('shows only the browser notifications toggle in the Notifications pane', async () => {

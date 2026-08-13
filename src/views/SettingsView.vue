@@ -13,6 +13,7 @@ import {
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { plainTextToHtml } from '../lib/composeHtml'
 import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
+import CalendarSettings from '../components/CalendarSettings.vue'
 import ComposerEditor from '../components/ComposerEditor.vue'
 
 const store = useInboxStore()
@@ -38,6 +39,10 @@ const sectionGroups = [
       { id: 'labels', label: 'Labels', icon: 'label' },
       { id: 'rules', label: 'Rules', icon: 'rule' },
     ],
+  },
+  {
+    label: 'Calendar',
+    sections: [{ id: 'calendar', label: 'Calendars', icon: 'calendar_month' }],
   },
 ]
 const sections = sectionGroups.flatMap((group) => group.sections)
@@ -776,6 +781,11 @@ function toggleRuleEnabled(rule) {
                 </button>
               </div>
             </form>
+          </section>
+
+          <!-- Calendar -->
+          <section v-if="activeSection === 'calendar'" class="settings-section">
+            <CalendarSettings />
           </section>
 
           <!-- Rules -->
