@@ -3,24 +3,22 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import SettingsModal from '../SettingsModal.vue'
 import ComposerEditor from '../ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { setAuth0Client } from '../../auth0-client'
 
-vi.mock('@auth0/auth0-vue', () => ({
-  useAuth0: () => ({
-    user: ref({
-      name: 'Allister',
-      email: 'allisteraall@gmail.com',
-      picture: 'https://example.com/avatar.png',
-    }),
-    getAccessTokenSilently: vi.fn().mockRejectedValue(new Error('consent_required')),
+// useAuth0() is inject()-based, so providing under its key feeds the modal a
+// signed-in user through the real interface.
+const auth0Fake = () => ({
+  user: ref({
+    name: 'Allister',
+    email: 'allisteraall@gmail.com',
+    picture: 'https://example.com/avatar.png',
   }),
-}))
-
-vi.mock('../../auth0-client', () => ({
-  getAuth0: () => null,
-}))
+  getAccessTokenSilently: vi.fn().mockRejectedValue(new Error('consent_required')),
+})
 
 const FIXTURE_LABELS = [
   { id: 'l1', name: 'Finance', color: '#2f9e44', kind: 'user', description: 'Bills', auto_apply: true, message_count: 2 },
@@ -47,6 +45,8 @@ describe('SettingsModal', () => {
   beforeEach(async () => {
     pinia = createPinia()
     setActivePinia(pinia)
+    // The store's authHeaders sees no Auth0 client, matching stubbed-auth mode.
+    setAuth0Client(null)
     router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/', component: { template: '<div />' } }],
@@ -76,7 +76,12 @@ describe('SettingsModal', () => {
   })
 
   function mountModal() {
-    return mount(SettingsModal, { global: { plugins: [pinia, router] } })
+    return mount(SettingsModal, {
+      global: {
+        plugins: [pinia, router],
+        provide: { [AUTH0_INJECTION_KEY]: auth0Fake() },
+      },
+    })
   }
 
   async function openModal() {

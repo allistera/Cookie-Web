@@ -2,25 +2,21 @@ import { effectScope, nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 
-vi.mock('../../lib/appBadge', () => ({
-  setAppBadge: vi.fn(),
-  clearAppBadge: vi.fn(),
-}))
-
 import { useAppBadge } from '../useAppBadge'
-import { setAppBadge, clearAppBadge } from '../../lib/appBadge'
 import { useInboxStore } from '../../stores/inbox'
 
 describe('useAppBadge', () => {
   let store
   let scope
+  let set
+  let clear
 
   beforeEach(() => {
     setActivePinia(createPinia())
     store = useInboxStore()
     scope = effectScope()
-    vi.mocked(setAppBadge).mockClear()
-    vi.mocked(clearAppBadge).mockClear()
+    set = vi.fn()
+    clear = vi.fn()
   })
 
   afterEach(() => {
@@ -28,14 +24,14 @@ describe('useAppBadge', () => {
   })
 
   function mount() {
-    scope.run(() => useAppBadge(store))
+    scope.run(() => useAppBadge(store, { set, clear }))
   }
 
   it('badges immediately with the current unread count', () => {
     store.unreadInboxCount = 3
     mount()
 
-    expect(setAppBadge).toHaveBeenCalledWith(3)
+    expect(set).toHaveBeenCalledWith(3)
   })
 
   it('updates the badge as the unread count changes', async () => {
@@ -45,7 +41,7 @@ describe('useAppBadge', () => {
     store.unreadInboxCount = 5
     await nextTick()
 
-    expect(setAppBadge).toHaveBeenLastCalledWith(5)
+    expect(set).toHaveBeenLastCalledWith(5)
   })
 
   it('clears the badge on scope dispose', () => {
@@ -54,6 +50,6 @@ describe('useAppBadge', () => {
 
     scope.stop()
 
-    expect(clearAppBadge).toHaveBeenCalled()
+    expect(clear).toHaveBeenCalled()
   })
 })

@@ -1,16 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import DocumentsSidebar from '../DocumentsSidebar.vue'
 import { useDocumentsStore } from '../../stores/documents'
 import { useInboxStore } from '../../stores/inbox'
 
-const push = vi.fn()
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push }),
-  useRoute: () => ({ name: 'documents', params: {} }),
-}))
+let router
+let push
 
 const FOLDERS = [
   { id: 'f-projects', parent_id: null, title: 'Projects', emoji: '📁' },
@@ -22,13 +20,19 @@ const DOCS = [
 ]
 
 function mountSidebar() {
-  return mount(DocumentsSidebar, {
-    global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
-  })
+  return mount(DocumentsSidebar, { global: { plugins: [router] } })
 }
 
-beforeEach(() => {
-  push.mockClear()
+beforeEach(async () => {
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/documents/:id?', name: 'documents', component: { template: '<div />' } },
+    ],
+  })
+  await router.push({ name: 'documents' })
+  await router.isReady()
+  push = vi.spyOn(router, 'push').mockResolvedValue()
   setActivePinia(createPinia())
   const store = useDocumentsStore()
   vi.spyOn(store, 'authHeaders').mockResolvedValue({})

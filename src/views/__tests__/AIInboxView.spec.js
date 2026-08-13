@@ -1,16 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { ref } from 'vue'
+import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 
 import AIInboxView from '../AIInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
-vi.mock('@auth0/auth0-vue', () => ({
-  useAuth0: () => ({ user: { value: { name: 'Allister Antosik' } } }),
-}))
-
 function mountView() {
-  return mount(AIInboxView)
+  // useAuth0() is inject()-based, so providing under its key feeds the view a
+  // signed-in user through the real interface.
+  return mount(AIInboxView, {
+    global: { provide: { [AUTH0_INJECTION_KEY]: { user: ref({ name: 'Allister Antosik' }) } } },
+  })
 }
 
 function rowsOf(wrapper) {

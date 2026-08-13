@@ -1,14 +1,12 @@
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { useInboxStore } from '../inbox'
-
-vi.mock('../../auth0-client', () => ({
-  getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
-}))
+import { setAuth0Client } from '../../auth0-client'
 
 describe('Inbox Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
   })
 
   afterEach(() => {

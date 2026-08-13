@@ -1,16 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import CommandPalette from '../CommandPalette.vue'
 import { useInboxStore } from '../../stores/inbox'
-
-const push = vi.fn()
-vi.mock('vue-router', () => ({ useRouter: () => ({ push }), useRoute: () => ({ name: 'ai-inbox' }) }))
-
-vi.mock('../../auth0-client', () => ({
-  getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
-}))
+import { setAuth0Client } from '../../auth0-client'
 
 function pressSlash(target = document.body) {
   target.dispatchEvent(
@@ -21,12 +16,20 @@ function pressSlash(target = document.body) {
 describe('CommandPalette', () => {
   let store
   let wrapper
+  let push
 
-  beforeEach(() => {
+  beforeEach(async () => {
     setActivePinia(createPinia())
-    push.mockClear()
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', name: 'ai-inbox', component: { template: '<div />' } }],
+    })
+    await router.push({ name: 'ai-inbox' })
+    await router.isReady()
+    push = vi.spyOn(router, 'push').mockResolvedValue()
     store = useInboxStore()
-    wrapper = mount(CommandPalette, { attachTo: document.body })
+    wrapper = mount(CommandPalette, { attachTo: document.body, global: { plugins: [router] } })
   })
 
   afterEach(() => {

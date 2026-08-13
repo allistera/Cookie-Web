@@ -1,27 +1,46 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { scheduleChoices } from '../../utils/schedule'
+import { setAuth0Client } from '../../auth0-client'
 
-// The view reads route.query.filter; mutate routeMock.query per test.
-const routeMock = { query: {} }
-const routerMock = { push: vi.fn() }
-vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => routerMock }))
-vi.mock('../../auth0-client', () => ({ getAuth0: () => null }))
+// The store's authHeaders sees no Auth0 client, matching stubbed-auth mode.
+setAuth0Client(null)
+
+// The view reads route.query.filter; tests that need a filter set it with
+// `await router.replace({ path: '/inbox', query: {...} })` before mounting.
+// `routerPush` spies on the real router's push so navigations don't resolve.
+let router
+let routerPush
+
+function mountView(options = {}) {
+  return mount(TraditionalInboxView, { ...options, global: { plugins: [router] } })
+}
 
 // View tests exercise optimistic store actions, but authentication and the
 // network belong to the store's own unit suite. Give incidental background
 // requests a deterministic success response; tests that care about a request
 // replace this stub with a purpose-built mock.
-beforeEach(() => {
+beforeEach(async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
   )
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
+      { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
+    ],
+  })
+  await router.push('/inbox')
+  await router.isReady()
+  routerPush = vi.spyOn(router, 'push').mockResolvedValue()
 })
 
 afterEach(() => {
@@ -52,8 +71,6 @@ describe('TraditionalInboxView day accordion', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
-    routerMock.push.mockReset()
     store = useInboxStore()
     store.traditionalEmails = [
       makeEmail('today-1', Date.now() - HOUR),
@@ -69,7 +86,7 @@ describe('TraditionalInboxView day accordion', () => {
   }
 
   it('shows only Today expanded by default', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     const headers = wrapper.findAll('.ni-group-header').map((h) => h.text())
     expect(headers).toHaveLength(3)
@@ -90,7 +107,7 @@ describe('TraditionalInboxView day accordion', () => {
     const plainEmail = makeEmail('today-plain', Date.now() - 2 * HOUR)
     plainEmail.labels = [{ name: 'AI Generated', color: '#7c3aed' }]
     store.traditionalEmails.splice(1, 0, plainEmail)
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     const generatedRow = wrapper
       .findAll('.ni-row')
@@ -117,7 +134,7 @@ describe('TraditionalInboxView day accordion', () => {
     eventEmail.subject = 'Confirmation: 2099-08-12 guided tour at 10:00 AM'
     eventEmail.snippet = 'Meet at the Visitor Center.'
     store.traditionalEmails.unshift(eventEmail)
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await wrapper.findAll('.ni-row').find((row) => row.text().includes('guided tour')).trigger('click')
 
@@ -131,7 +148,7 @@ describe('TraditionalInboxView day accordion', () => {
       start: '10:00',
       end: '11:00',
     })
-    expect(routerMock.push).toHaveBeenCalledWith({ name: 'calendar' })
+    expect(routerPush).toHaveBeenCalledWith({ name: 'calendar' })
   })
 
   it('detects calendar details after the full message body loads on demand', async () => {
@@ -141,7 +158,7 @@ describe('TraditionalInboxView day accordion', () => {
     eventEmail.snippet = 'Your booking is confirmed.'
     eventEmail.body = undefined
     store.traditionalEmails.unshift(eventEmail)
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await wrapper
       .findAll('.ni-row')
@@ -163,7 +180,7 @@ describe('TraditionalInboxView day accordion', () => {
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()
     store.traditionalEmails.unshift(due)
 
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     const headers = wrapper.findAll('.ni-group-header').map((header) => header.text())
 
     expect(headers[0]).toContain('Due Today')
@@ -173,13 +190,13 @@ describe('TraditionalInboxView day accordion', () => {
   })
 
   it('does not render Due Today when no scheduled emails are due', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(groupHeader(wrapper, 'Due Today')).toBeUndefined()
   })
 
   it('expands a closed group on header click', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await groupHeader(wrapper, 'Yesterday').trigger('click')
 
@@ -189,7 +206,7 @@ describe('TraditionalInboxView day accordion', () => {
   })
 
   it('collapses Today on header click', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await groupHeader(wrapper, 'Today').trigger('click')
 
@@ -198,7 +215,7 @@ describe('TraditionalInboxView day accordion', () => {
   })
 
   it('shows the unread count in a group header', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').text()).toBe('1')
   })
@@ -208,14 +225,14 @@ describe('TraditionalInboxView day accordion', () => {
       { ...makeEmail('y-unread', Date.now() - DAY), unread: true },
       { ...makeEmail('y-read', Date.now() - DAY), unread: false },
     ]
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').text()).toBe('1')
   })
 
   it('hides the count badge when a group has no unread emails', () => {
     store.traditionalEmails = [{ ...makeEmail('y-read', Date.now() - DAY), unread: false }]
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(groupHeader(wrapper, 'Yesterday').find('.ni-group-count').exists()).toBe(false)
   })
@@ -226,7 +243,6 @@ describe('TraditionalInboxView group Mark Read tooltip', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [
       { ...makeEmail('y-unread-1', Date.now() - DAY), unread: true },
@@ -249,7 +265,7 @@ describe('TraditionalInboxView group Mark Read tooltip', () => {
   }
 
   it('renders a Mark Read tooltip button inside the unread count badge', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     const markRead = header(wrapper, 'Yesterday').find('.ni-group-mark-read')
     expect(markRead.exists()).toBe(true)
@@ -258,7 +274,7 @@ describe('TraditionalInboxView group Mark Read tooltip', () => {
   })
 
   it('clicking Mark Read marks every unread email of that day as read', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
 
@@ -270,7 +286,7 @@ describe('TraditionalInboxView group Mark Read tooltip', () => {
   })
 
   it('clicking Mark Read does not toggle the group accordion', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
     await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
@@ -280,7 +296,7 @@ describe('TraditionalInboxView group Mark Read tooltip', () => {
   it('only touches emails of its own day group', async () => {
     store.traditionalEmails.push({ ...makeEmail('today-unread', Date.now() - HOUR), unread: true })
     store.unreadInboxCount = 3
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
 
@@ -297,7 +313,6 @@ describe('TraditionalInboxView filtered views', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 6, 14, 12))
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     const starred = makeEmail('starred-1', Date.now() - HOUR)
     starred.starred = true
@@ -315,9 +330,9 @@ describe('TraditionalInboxView filtered views', () => {
     vi.unstubAllGlobals()
   })
 
-  it('filter=starred shows only starred emails with a Starred header', () => {
-    routeMock.query = { filter: 'starred' }
-    const wrapper = mount(TraditionalInboxView)
+  it('filter=starred shows only starred emails with a Starred header', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Starred')
     const rows = wrapper.findAll('.ni-row')
@@ -326,7 +341,7 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   it('hides starred emails from the inbox', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     const rows = wrapper.findAll('.ni-row').map((row) => row.text())
     expect(rows).toHaveLength(2)
@@ -334,7 +349,7 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   it('moves an email from the inbox to the Starred folder as soon as it is starred', async () => {
-    let wrapper = mount(TraditionalInboxView)
+    let wrapper = mountView()
 
     await wrapper.find('.ni-row [title="Star"]').trigger('click')
 
@@ -343,8 +358,8 @@ describe('TraditionalInboxView filtered views', () => {
     )
 
     wrapper.unmount()
-    routeMock.query = { filter: 'starred' }
-    wrapper = mount(TraditionalInboxView)
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    wrapper = mountView()
 
     expect(wrapper.findAll('.ni-row').map((row) => row.text())).toContainEqual(
       expect.stringContaining('Subject plain-1'),
@@ -354,7 +369,7 @@ describe('TraditionalInboxView filtered views', () => {
   it('keeps starred matches visible in search results', () => {
     store.activeSearchQuery = 'starred'
 
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(wrapper.findAll('.ni-row').map((row) => row.text())).toContainEqual(
       expect.stringContaining('Subject starred-1'),
@@ -362,7 +377,7 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   it('closes the reader when its email is starred from outside the row', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     store.toggleStar(store.openEmail)
@@ -372,9 +387,9 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 
-  it('filter=label shows only emails carrying that label', () => {
-    routeMock.query = { filter: 'label', label: 'Home' }
-    const wrapper = mount(TraditionalInboxView)
+  it('filter=label shows only emails carrying that label', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Home' } })
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Home')
     const rows = wrapper.findAll('.ni-row')
@@ -382,8 +397,8 @@ describe('TraditionalInboxView filtered views', () => {
     expect(rows[0].text()).toContain('Subject labeled-1')
   })
 
-  it('filter=snoozed groups future emails by snooze target with both groups open', () => {
-    routeMock.query = { filter: 'snoozed' }
+  it('filter=snoozed groups future emails by snooze target with both groups open', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'snoozed' } })
     const choices = scheduleChoices()
     const tomorrow = choices.find(({ id }) => id === 'tomorrow')
     const nextWeek = choices.find(({ id }) => id === 'next-week')
@@ -393,7 +408,7 @@ describe('TraditionalInboxView filtered views', () => {
     nextWeekEmail.scheduledFor = nextWeek.date.toISOString()
     store.snoozedEmails = [nextWeekEmail, tomorrowEmail]
     vi.spyOn(store, 'loadSnoozedEmails').mockResolvedValue()
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Snoozed')
     expect(store.loadSnoozedEmails).toHaveBeenCalledTimes(1)
@@ -410,10 +425,10 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   it('filter=done loads the hidden Done mailbox and opens completed emails', async () => {
-    routeMock.query = { filter: 'done' }
+    await router.replace({ path: '/inbox', query: { filter: 'done' } })
     store.doneEmails = [makeEmail('done-1', Date.now() - HOUR)]
     vi.spyOn(store, 'loadDonePage').mockResolvedValue()
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Done')
     expect(store.loadDonePage).toHaveBeenCalledWith(0)
@@ -431,7 +446,7 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   it('shows opened status in sent rows and the reader', async () => {
-    routeMock.query = { filter: 'sent' }
+    await router.replace({ path: '/inbox', query: { filter: 'sent' } })
     const sent = makeEmail('sent-opened', Date.now() - HOUR)
     sent.isSent = true
     sent.to = 'reader@example.com'
@@ -440,7 +455,7 @@ describe('TraditionalInboxView filtered views', () => {
     store.sentEmails = [sent]
     vi.spyOn(store, 'loadSentEmails').mockResolvedValue()
 
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     const rowStatus = wrapper.get('.ni-row .ni-read-status')
     expect(rowStatus.text()).toContain('Opened')
@@ -450,9 +465,9 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.get('.ni-reader .ni-read-status').text()).toContain('Opened 14 Jul')
   })
 
-  it('an unknown filter falls back to the unstarred inbox', () => {
-    routeMock.query = { filter: 'bogus' }
-    const wrapper = mount(TraditionalInboxView)
+  it('an unknown filter falls back to the unstarred inbox', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'bogus' } })
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-header h1').text()).toBe('Inbox')
     expect(wrapper.findAll('.ni-row')).toHaveLength(2)
@@ -464,7 +479,6 @@ describe('TraditionalInboxView AI summary marker across email lists', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     vi.spyOn(store, 'loadSentEmails').mockResolvedValue()
     vi.spyOn(store, 'loadSpamEmails').mockResolvedValue()
@@ -485,8 +499,8 @@ describe('TraditionalInboxView AI summary marker across email lists', () => {
     ['Snoozed', { filter: 'snoozed' }, 'snoozedEmails'],
     ['Done', { filter: 'done' }, 'doneEmails'],
     ['Search', {}, 'traditionalEmails'],
-  ])('shows the AI icon in the %s list', (_name, query, listName) => {
-    routeMock.query = query
+  ])('shows the AI icon in the %s list', async (_name, query, listName) => {
+    await router.replace({ path: '/inbox', query })
     const email = makeEmail(`summary-${listName}`, Date.now() - HOUR)
     email.hasAiSummary = true
     if (query.filter === 'starred') email.starred = true
@@ -495,7 +509,7 @@ describe('TraditionalInboxView AI summary marker across email lists', () => {
     store[listName] = [email]
     if (_name === 'Search') store.activeSearchQuery = 'summary'
 
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-row .ni-ai-generated-icon').text()).toBe('auto_awesome')
     wrapper.unmount()
@@ -507,7 +521,6 @@ describe('TraditionalInboxView reading panel', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
     vi.stubGlobal(
@@ -521,7 +534,7 @@ describe('TraditionalInboxView reading panel', () => {
   })
 
   it('clicking a row opens the reader through the store', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await wrapper.find('.ni-row').trigger('click')
     expect(store.openEmailId).toBe('today-1')
@@ -529,7 +542,7 @@ describe('TraditionalInboxView reading panel', () => {
   })
 
   it('closes the reader when the open email is archived from outside the view', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await wrapper.find('.ni-row').trigger('click')
     store.archiveEmail(store.openEmail)
@@ -546,7 +559,6 @@ describe('TraditionalInboxView reply send button', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
     vi.stubGlobal(
@@ -562,7 +574,7 @@ describe('TraditionalInboxView reply send button', () => {
   })
 
   async function openReplyBox() {
-    wrapper = mount(TraditionalInboxView)
+    wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
     await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
     // The reply body is the shared rich compose editor (contenteditable), not
@@ -635,7 +647,7 @@ describe('TraditionalInboxView reply send button', () => {
 
   it('offers slash commands, including saved snippets, in the reply editor', async () => {
     store.snippets = [{ id: 's1', name: 'thanks', html: '<p>Thanks!</p>' }]
-    wrapper = mount(TraditionalInboxView, { attachTo: document.body })
+    wrapper = mountView({ attachTo: document.body })
     await wrapper.find('.ni-row').trigger('click')
     await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
 
@@ -663,7 +675,6 @@ describe('TraditionalInboxView multi-select', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [
       makeEmail('today-1', Date.now() - HOUR),
@@ -686,7 +697,7 @@ describe('TraditionalInboxView multi-select', () => {
   }
 
   it('clicking a row checkbox selects it without opening the reader', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await checkbox(wrapper, 0).trigger('click')
 
@@ -697,7 +708,7 @@ describe('TraditionalInboxView multi-select', () => {
   })
 
   it('selecting several shows the count and the three bulk pills', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await checkbox(wrapper, 0).trigger('click')
     await checkbox(wrapper, 1).trigger('click')
@@ -711,7 +722,7 @@ describe('TraditionalInboxView multi-select', () => {
   })
 
   it('the bulk Reschedule pill offers richer presets and a custom picker', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await checkbox(wrapper, 0).trigger('click')
 
     await wrapper
@@ -731,7 +742,7 @@ describe('TraditionalInboxView multi-select', () => {
 
   it('the Done pill archives every selected email and hides the bar', async () => {
     vi.spyOn(useInboxStore(), 'archiveEmail')
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await checkbox(wrapper, 0).trigger('click')
     await checkbox(wrapper, 1).trigger('click')
@@ -747,7 +758,7 @@ describe('TraditionalInboxView multi-select', () => {
   })
 
   it('the Star pill stars every selected email and clears the selection', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await checkbox(wrapper, 0).trigger('click')
     await checkbox(wrapper, 1).trigger('click')
@@ -763,7 +774,7 @@ describe('TraditionalInboxView multi-select', () => {
   })
 
   it('Escape clears the selection first and only then closes the reader', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.findAll('.ni-row')[2].trigger('click')
     await checkbox(wrapper, 0).trigger('click')
     expect(store.openEmailId).toBe('today-3')
@@ -787,7 +798,6 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
     vi.stubGlobal(
@@ -802,7 +812,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   })
 
   it('rows offer a single Done action with a checkbox icon and no Delete or Archive', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     const row = wrapper.find('.ni-row')
 
     const done = row.find('[title="Done"]')
@@ -814,7 +824,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
   it('clicking Done archives the email', async () => {
     vi.spyOn(useInboxStore(), 'archiveEmail')
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     await wrapper.find('.ni-row [title="Done"]').trigger('click')
 
@@ -823,7 +833,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   })
 
   it('welcomes the user to Inbox Zero after the last email is marked Done', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
     await wrapper.find('.ni-row [title="Done"]').trigger('click')
@@ -835,7 +845,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   })
 
   it('the reader topbar offers Star, Done and Reschedule with no Delete or Archive', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const topbar = wrapper.find('.ni-reader-topbar')
@@ -854,7 +864,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
   it('the reader Star action stars the open email', async () => {
     vi.spyOn(store, 'toggleStar')
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     await wrapper.find('.ni-reader-topbar [title="Star"]').trigger('click')
@@ -865,7 +875,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
   it('the reader Reschedule action schedules the email for Tomorrow', async () => {
     vi.spyOn(store, 'authHeaders').mockResolvedValue({})
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
@@ -897,7 +907,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
   it('the reader custom picker schedules the selected local date and time', async () => {
     vi.spyOn(store, 'authHeaders').mockResolvedValue({})
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
@@ -931,7 +941,6 @@ describe('TraditionalInboxView AI summary', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     const email = makeEmail('11111111-1111-1111-1111-111111111111', Date.now() - HOUR)
     email.unread = false
@@ -957,7 +966,7 @@ describe('TraditionalInboxView AI summary', () => {
         }),
       ),
     )
-    wrapper = mount(TraditionalInboxView)
+    wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const button = wrapper.find('.ni-reader-topbar [title="Summarize"]')
@@ -989,7 +998,7 @@ describe('TraditionalInboxView AI summary', () => {
   it('shows a saved summary and offers to regenerate it when the reader opens', async () => {
     const email = store.traditionalEmails[0]
     store.messageSummaries.set(email.id, 'A previously saved summary.')
-    wrapper = mount(TraditionalInboxView)
+    wrapper = mountView()
 
     await wrapper.find('.ni-row').trigger('click')
 
@@ -1006,7 +1015,6 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
     vi.stubGlobal(
@@ -1020,13 +1028,13 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
   })
 
   it('rows offer no Snooze action', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     expect(wrapper.find('.ni-row [title="Snooze"]').exists()).toBe(false)
   })
 
   it('the reader has no Snooze, More or Forward controls', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const reader = wrapper.find('.ni-reader')
@@ -1040,7 +1048,7 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
   })
 
   it('keeps the working reader controls', async () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const reader = wrapper.find('.ni-reader')
@@ -1063,7 +1071,6 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('news-1', Date.now() - HOUR)]
     // Auth0 is absent in tests; getAccessTokenSilently would throw in jsdom.
@@ -1080,7 +1087,7 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
 
   async function openReader(unsubscribe) {
     store.messageBodies.set('news-1', { html: null, text: 'Body', unsubscribe })
-    wrapper = mount(TraditionalInboxView)
+    wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
     return wrapper.find('.ni-reader')
   }
@@ -1106,7 +1113,7 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
         unsubscribe: null,
       }),
     })
-    wrapper = mount(TraditionalInboxView)
+    wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
     await vi.waitFor(() => expect(store.isOpenBodyResolved).toBe(true))
     const emailBody = wrapper.findComponent(EmailBody)
@@ -1206,7 +1213,6 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
 
   beforeEach(async () => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
     vi.spyOn(store, 'archiveEmail')
@@ -1214,7 +1220,7 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
     )
-    wrapper = mount(TraditionalInboxView)
+    wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
   })
 
@@ -1379,7 +1385,6 @@ describe('TraditionalInboxView search results', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    routeMock.query = {}
     store = useInboxStore()
     // Relevance order (from the API) deliberately differs from date order:
     // the most relevant result is the oldest, the least relevant is newest.
@@ -1391,7 +1396,7 @@ describe('TraditionalInboxView search results', () => {
   })
 
   it('preserves the server relevance order instead of bucketing by date', () => {
-    const wrapper = mount(TraditionalInboxView)
+    const wrapper = mountView()
 
     // A single flat group, not the Today/Yesterday/Earlier date buckets.
     const headers = wrapper.findAll('.ni-group-header')

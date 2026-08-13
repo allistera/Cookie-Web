@@ -1,16 +1,41 @@
+import { defineComponent } from 'vue'
+import { mount } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 
 import { useCommands } from '../useCommands'
 import { useInboxStore } from '../../stores/inbox'
+import { setAuth0Client } from '../../auth0-client'
 
-const push = vi.fn()
-const routeMock = { name: 'ai-inbox' }
-vi.mock('vue-router', () => ({ useRouter: () => ({ push }), useRoute: () => routeMock }))
+// useCommands needs a component's injection context for useRoute/useRouter,
+// so run it inside a bare harness mounted with a real memory-history router.
+async function setupCommands(routeName = 'ai-inbox') {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', name: 'ai-inbox', component: { template: '<div />' } },
+      { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
+      { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
+      { path: '/scheduled', name: 'scheduled-sends', component: { template: '<div />' } },
+    ],
+  })
+  await router.push({ name: routeName })
+  await router.isReady()
+  const push = vi.spyOn(router, 'push').mockResolvedValue()
 
-vi.mock('../../auth0-client', () => ({
-  getAuth0: () => ({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') }),
-}))
+  let commands
+  let filterCommands
+  const Harness = defineComponent({
+    setup() {
+      ;({ commands, filterCommands } = useCommands())
+      return () => null
+    },
+  })
+  mount(Harness, { global: { plugins: [router] } })
+
+  return { commands, filterCommands, push }
+}
 
 function makeEmail(overrides = {}) {
   return {
@@ -29,8 +54,7 @@ describe('useCommands', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
-    push.mockClear()
-    routeMock.name = 'ai-inbox'
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
     store = useInboxStore()
   })
 
@@ -38,8 +62,8 @@ describe('useCommands', () => {
     vi.unstubAllGlobals()
   })
 
-  it('hides email commands when no email is open', () => {
-    const { commands } = useCommands()
+  it('hides email commands when no email is open', async () => {
+    const { commands } = await setupCommands()
 
     const ids = commands.value.map((c) => c.id)
     expect(ids).not.toContain('mark-done')
@@ -48,11 +72,12 @@ describe('useCommands', () => {
     expect(ids).toContain('open-settings')
   })
 
-  it('only offers Create Event while on the Calendar route, and it requests one from the store', () => {
-    expect(useCommands().commands.value.map((c) => c.id)).not.toContain('calendar-create-event')
+  it('only offers Create Event while on the Calendar route, and it requests one from the store', async () => {
+    const aiInbox = await setupCommands()
+    expect(aiInbox.commands.value.map((c) => c.id)).not.toContain('calendar-create-event')
 
-    routeMock.name = 'calendar'
-    const createEvent = useCommands().commands.value.find((c) => c.id === 'calendar-create-event')
+    const { commands } = await setupCommands('calendar')
+    const createEvent = commands.value.find((c) => c.id === 'calendar-create-event')
     expect(createEvent).toBeTruthy()
     expect(createEvent.title).toBe('Create Event')
 
@@ -61,9 +86,9 @@ describe('useCommands', () => {
     expect(store.calendarNewEventRequestId).toBe(1)
   })
 
-  it('always offers a Compose command that opens the composer', () => {
+  it('always offers a Compose command that opens the composer', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
-    const { commands } = useCommands()
+    const { commands } = await setupCommands()
 
     const compose = commands.value.find((c) => c.id === 'compose')
     expect(compose).toBeTruthy()
@@ -73,12 +98,12 @@ describe('useCommands', () => {
     expect(store.isComposerActive).toBe(true)
   })
 
-  it('shows email commands when an email is open, with state-aware titles', () => {
+  it('shows email commands when an email is open, with state-aware titles', async () => {
     const email = makeEmail({ starred: true, unread: false })
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    const { commands } = useCommands()
+    const { commands } = await setupCommands()
     const byId = Object.fromEntries(commands.value.map((c) => [c.id, c]))
 
     expect(byId['mark-done'].keyHint).toBe('E')
@@ -89,14 +114,14 @@ describe('useCommands', () => {
     expect(byId['label'].comingSoon).toBe(true)
   })
 
-  it('creates one navigation command per label', () => {
+  it('creates one navigation command per label', async () => {
     // allLabels reads the full label palette (store.labels), not email labels.
     store.labels = [
       { id: 'l1', name: 'Home', color: '#f00', kind: 'user' },
       { id: 'l2', name: 'Work', color: '#0f0', kind: 'user' },
     ]
 
-    const { commands } = useCommands()
+    const { commands, push } = await setupCommands()
     const labelCmds = commands.value.filter((c) => c.id.startsWith('go-label-'))
     expect(labelCmds.map((c) => c.title)).toEqual(['Go to label Home', 'Go to label Work'])
 
@@ -107,8 +132,8 @@ describe('useCommands', () => {
     })
   })
 
-  it('navigation commands push the filter routes', () => {
-    const { commands } = useCommands()
+  it('navigation commands push the filter routes', async () => {
+    const { commands, push } = await setupCommands()
     const byId = Object.fromEntries(commands.value.map((c) => [c.id, c]))
 
     byId['go-starred'].run()
@@ -136,7 +161,7 @@ describe('useCommands', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    const { commands } = useCommands()
+    const { commands } = await setupCommands()
     commands.value.find((c) => c.id === 'mark-done').run()
 
     expect(store.traditionalEmails).toHaveLength(0)
@@ -145,8 +170,8 @@ describe('useCommands', () => {
   })
 
   describe('filterCommands', () => {
-    it('ranks substring matches above subsequence matches and drops non-matches', () => {
-      const { filterCommands } = useCommands()
+    it('ranks substring matches above subsequence matches and drops non-matches', async () => {
+      const { filterCommands } = await setupCommands()
       const list = [
         { title: 'Go to Starred' },
         { title: 'Star' },
@@ -162,8 +187,8 @@ describe('useCommands', () => {
       expect(filterCommands(list, 'mdn').map((c) => c.title)).toEqual(['Mark Done'])
     })
 
-    it('returns the full list for an empty query', () => {
-      const { filterCommands } = useCommands()
+    it('returns the full list for an empty query', async () => {
+      const { filterCommands } = await setupCommands()
       const list = [{ title: 'A' }, { title: 'B' }]
       expect(filterCommands(list, '  ')).toEqual(list)
     })
