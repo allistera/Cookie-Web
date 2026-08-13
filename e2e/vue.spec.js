@@ -67,6 +67,27 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
+test('The header notification count opens the section that raised the first notification', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/documents')
+
+  const notificationButton = page.getByRole('button', {
+    name: /Open \d+ notifications?: \d+ unread emails?/,
+  })
+  await expect(notificationButton).toBeVisible()
+
+  const count = await notificationButton.locator('.header-notification-count').textContent()
+  expect(Number(count)).toBeGreaterThan(0)
+
+  await notificationButton.click()
+  await expect(page).toHaveURL(/\/inbox$/)
+  await expect(page.locator('.nav-item', { hasText: 'Inbox' }).locator('.nav-badge')).toHaveText(
+    count,
+  )
+})
+
 test('Calendar settings manages subscriptions that appear in the Calendar view', async ({ page }) => {
   await page.goto('/settings/calendar')
 

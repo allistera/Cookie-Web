@@ -173,6 +173,51 @@ body {
   font-size: 20px;
 }
 
+.header-notification-btn {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.header-notification-btn:hover,
+.header-notification-btn:focus-visible {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.header-notification-btn > .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.header-notification-count {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background-color: #eb5757;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .app-switcher-menu {
   position: absolute;
   top: 100%;

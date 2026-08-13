@@ -41,6 +41,35 @@ const otherApps = computed(() =>
     .map(([key, app]) => ({ key, ...app })),
 )
 
+// Header notifications stay backed by each app's existing unread state. Email
+// is the first source today; keeping the destinations together makes the
+// button route to the first source without introducing a second state store.
+const notificationSources = computed(() => {
+  const sources = []
+  if (store.unreadInboxCount > 0) {
+    sources.push({
+      key: 'email',
+      count: store.unreadInboxCount,
+      to: '/inbox',
+      label: `${store.unreadInboxCount} unread email${store.unreadInboxCount === 1 ? '' : 's'}`,
+    })
+  }
+  return sources
+})
+const notificationCount = computed(() =>
+  notificationSources.value.reduce((total, source) => total + source.count, 0),
+)
+const notificationCountText = computed(() =>
+  notificationCount.value > 99 ? '99+' : String(notificationCount.value),
+)
+
+function openFirstNotification() {
+  const source = notificationSources.value[0]
+  if (!source) return
+  if (source.key === 'email') leaveSearchResults()
+  router.push(source.to)
+}
+
 // Undo-send toast: hovering pauses the countdown and reveals the Undo button;
 // leaving resumes it. Undo cancels the send and reopens the composer.
 const undoSendHover = ref(false)
@@ -349,6 +378,16 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+        <button
+          v-if="notificationCount"
+          class="header-notification-btn"
+          type="button"
+          :aria-label="`Open ${notificationCount} notification${notificationCount === 1 ? '' : 's'}: ${notificationSources[0].label}`"
+          @click="openFirstNotification"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">notifications</span>
+          <span class="header-notification-count" aria-hidden="true">{{ notificationCountText }}</span>
+        </button>
       </div>
 
       <div class="header-center">
