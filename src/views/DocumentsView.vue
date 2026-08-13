@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useDocumentsStore } from '../stores/documents'
 import DocumentEditor from '../components/DocumentEditor.vue'
+import NewDocumentDialog from '../components/NewDocumentDialog.vue'
 
 const store = useDocumentsStore()
 const route = useRoute()
@@ -50,9 +51,8 @@ function formatUpdated(value) {
   })
 }
 
-async function newDocument() {
-  const doc = await store.createDocument()
-  if (doc) router.push(`/documents/${doc.id}`)
+function newDocument() {
+  store.openNewDocumentDialog()
 }
 
 async function deleteFromDashboard(doc) {
@@ -165,6 +165,7 @@ function onEditorSave(payload) {
         </tbody>
       </table>
     </template>
+    <NewDocumentDialog v-if="store.newDocumentDialogOpen" />
   </div>
 </template>
 

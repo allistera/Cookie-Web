@@ -565,15 +565,31 @@ function localApiPlugin(mode) {
   // the Documents workspace works against per-session fixture state.
   const handleTaskDocuments = async (req, res, state) => {
     if (!state.documents) {
-      const { fixtureDocumentFolders, fixtureDocuments } = await import(
+      const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } = await import(
         './api/_fixtures/documents.js'
       )
       state.docFolders = fixtureDocumentFolders()
       state.documents = fixtureDocuments()
+      state.docTemplates = fixtureDocumentTemplates()
     }
     const url = new URL(req.url, 'http://localhost')
     const stripBlocks = ({ blocks: _blocks, ...doc }) => doc
     if (req.method === 'GET') {
+      const templateId = url.searchParams.get('templateId')
+      if (templateId) {
+        const template = state.docTemplates.find((item) => item.id === templateId)
+        if (!template) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Template not found' }))
+          return
+        }
+        res.end(JSON.stringify({ template }))
+        return
+      }
+      if (url.searchParams.has('templates')) {
+        res.end(JSON.stringify({ templates: state.docTemplates.map(stripBlocks) }))
+        return
+      }
       const id = url.searchParams.get('id')
       if (id) {
         const document = state.documents.find((doc) => doc.id === id)
@@ -611,13 +627,35 @@ function localApiPlugin(mode) {
         res.end(JSON.stringify({ folder }))
         return
       }
+      if (body.kind === 'template') {
+        const template = {
+          id: `stub-template-${randomUUID()}`,
+          title: body.title,
+          emoji: body.emoji || '📄',
+          blocks: structuredClone(body.blocks || []),
+          created_at: now(),
+          updated_at: now(),
+        }
+        state.docTemplates.unshift(template)
+        res.statusCode = 201
+        res.end(JSON.stringify({ template }))
+        return
+      }
+      const template = body.templateId
+        ? state.docTemplates.find((item) => item.id === body.templateId)
+        : null
+      if (body.templateId && !template) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'Template not found' }))
+        return
+      }
       const document = {
         id: `stub-doc-${randomUUID()}`,
         folder_id: body.folderId ?? null,
-        title: body.title || '',
-        emoji: '🔹',
+        title: Object.hasOwn(body, 'title') ? body.title : (template?.title ?? ''),
+        emoji: template?.emoji ?? '🔹',
         starred: false,
-        blocks: [],
+        blocks: structuredClone(template?.blocks ?? []),
         created_at: now(),
         updated_at: now(),
       }
@@ -636,6 +674,19 @@ function localApiPlugin(mode) {
         }
         folder.title = body.title
         res.end(JSON.stringify({ folder }))
+        return
+      }
+      if (body.kind === 'template') {
+        const template = state.docTemplates.find((item) => item.id === body.id)
+        if (!template) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Template not found' }))
+          return
+        }
+        template.title = body.title
+        template.blocks = structuredClone(body.blocks)
+        template.updated_at = now()
+        res.end(JSON.stringify({ template }))
         return
       }
       const document = state.documents.find((item) => item.id === body.id)
@@ -676,6 +727,17 @@ function localApiPlugin(mode) {
         state.docFolders = state.docFolders.filter((folder) => !doomed.has(folder.id))
         for (const doc of state.documents) {
           if (doomed.has(doc.folder_id)) doc.folder_id = null
+        }
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+      if (body.kind === 'template') {
+        const before = state.docTemplates.length
+        state.docTemplates = state.docTemplates.filter((template) => template.id !== body.id)
+        if (state.docTemplates.length === before) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Template not found' }))
+          return
         }
         res.end(JSON.stringify({ ok: true }))
         return

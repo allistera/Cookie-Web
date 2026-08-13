@@ -32,6 +32,7 @@ const handler = createHandler({
 const DOC_ID = '33333333-3333-4333-8333-333333333333'
 const FOLDER_ID = '44444444-4444-4444-8444-444444444444'
 const USER_ID = '55555555-5555-4555-8555-555555555555'
+const TEMPLATE_ID = '66666666-6666-4666-8666-666666666666'
 
 function makeRes() {
   return {
@@ -105,6 +106,28 @@ describe('GET /api/tasks?resource=documents', () => {
 
     expect(res.statusCode).toBe(404)
   })
+
+  it('lists template metadata without loading blocks', async () => {
+    sqlQueue = [[{ id: TEMPLATE_ID, title: 'Meeting notes', emoji: '📄' }]]
+    const res = makeRes()
+
+    await handler(req('GET', undefined, '&templates'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.templates[0].title).toBe('Meeting notes')
+    expect(statements[0]).not.toContain('t.blocks')
+  })
+
+  it('returns one owned template with its blocks', async () => {
+    sqlQueue = [[{ id: TEMPLATE_ID, title: 'Meeting notes', blocks: [{ type: 'header' }] }]]
+    const res = makeRes()
+
+    await handler(req('GET', undefined, `&templateId=${TEMPLATE_ID}`), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.template.blocks).toEqual([{ type: 'header' }])
+    expect(statements[0]).toContain('t.blocks')
+  })
 })
 
 describe('POST /api/tasks?resource=documents', () => {
@@ -166,6 +189,53 @@ describe('POST /api/tasks?resource=documents', () => {
     await handler(req('POST', { kind: 'widget' }), res)
 
     expect(res.statusCode).toBe(400)
+  })
+
+  it('creates a reusable document template', async () => {
+    sqlQueue = [
+      [{ id: USER_ID }],
+      [{ id: TEMPLATE_ID, title: 'Meeting notes', blocks: [{ type: 'header' }] }],
+    ]
+    const res = makeRes()
+
+    await handler(
+      req('POST', {
+        kind: 'template',
+        title: 'Meeting notes',
+        blocks: [{ type: 'header', data: { text: 'Agenda' } }],
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(201)
+    expect(res.body.template.id).toBe(TEMPLATE_ID)
+    expect(statements[1]).toContain('INSERT INTO document_templates')
+  })
+
+  it('creates a document by copying an owned template', async () => {
+    sqlQueue = [
+      [{ id: USER_ID }],
+      [{ id: TEMPLATE_ID, title: 'Meeting notes', emoji: '📄', blocks: [{ type: 'header' }] }],
+      [{ id: DOC_ID, title: 'Meeting notes', emoji: '📄', blocks: [{ type: 'header' }] }],
+    ]
+    const res = makeRes()
+
+    await handler(req('POST', { kind: 'document', templateId: TEMPLATE_ID }), res)
+
+    expect(res.statusCode).toBe(201)
+    expect(res.body.document.title).toBe('Meeting notes')
+    expect(statements[1]).toContain('document_templates')
+    expect(statements[2]).toContain('INSERT INTO documents')
+  })
+
+  it('rejects a template the caller does not own', async () => {
+    sqlQueue = [[{ id: USER_ID }], []]
+    const res = makeRes()
+
+    await handler(req('POST', { kind: 'document', templateId: TEMPLATE_ID }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(statements.some((statement) => statement.includes('INSERT INTO documents'))).toBe(false)
   })
 })
 
@@ -236,6 +306,25 @@ describe('PATCH /api/tasks?resource=documents', () => {
 
     expect(res.statusCode).toBe(404)
   })
+
+  it('updates an owned template title and blocks together', async () => {
+    sqlQueue = [[{ id: TEMPLATE_ID, title: 'Weekly notes', blocks: [{ type: 'list' }] }]]
+    const res = makeRes()
+
+    await handler(
+      req('PATCH', {
+        kind: 'template',
+        id: TEMPLATE_ID,
+        title: 'Weekly notes',
+        blocks: [{ type: 'list', data: { items: [] } }],
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.template.title).toBe('Weekly notes')
+    expect(statements[0]).toContain('UPDATE document_templates')
+  })
 })
 
 describe('DELETE /api/tasks?resource=documents', () => {
@@ -266,6 +355,16 @@ describe('DELETE /api/tasks?resource=documents', () => {
     await handler(req('DELETE', { kind: 'document', id: DOC_ID }), res)
 
     expect(res.statusCode).toBe(404)
+  })
+
+  it('deletes an owned template', async () => {
+    sqlQueue = [[{ id: TEMPLATE_ID }]]
+    const res = makeRes()
+
+    await handler(req('DELETE', { kind: 'template', id: TEMPLATE_ID }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(statements[0]).toContain('DELETE FROM document_templates')
   })
 })
 

@@ -62,6 +62,7 @@ class InsertDateTool {
 // (and its debounce) belongs to the documents store, not this component.
 const props = defineProps({
   doc: { type: Object, required: true },
+  compact: { type: Boolean, default: false },
 })
 const emit = defineEmits(['save'])
 
@@ -96,15 +97,30 @@ const imageUploader = {
 async function emitBlocks() {
   if (!editor) return
   try {
-    const output = await editor.save()
-    // The Date tool is transient — it swaps itself for a paragraph. Should a
-    // save catch it mid-swap, persisting it would re-run its replacement on
-    // every future load, so it never reaches storage.
-    emit('save', { blocks: output.blocks.filter((block) => block.type !== 'date') })
+    emit('save', { blocks: await readBlocks() })
   } catch (error) {
     console.error('Reading editor content failed:', error)
   }
 }
+
+async function readBlocks() {
+  if (!editor) return []
+  await editor.isReady
+  const output = await editor.save()
+  // The Date tool is transient — it swaps itself for a paragraph. Should a
+  // save catch it mid-swap, persisting it would re-run its replacement on
+  // every future load, so it never reaches storage.
+  return output.blocks.filter((block) => block.type !== 'date')
+}
+
+async function snapshot() {
+  return {
+    title: titleEl.value?.textContent ?? '',
+    blocks: await readBlocks(),
+  }
+}
+
+defineExpose({ snapshot })
 
 function mountEditor() {
   // The title is contenteditable, so it is filled imperatively — a template
@@ -168,7 +184,7 @@ function onTitleEnter() {
 </script>
 
 <template>
-  <div class="document-editor">
+  <div class="document-editor" :class="{ compact }">
     <h1
       ref="titleEl"
       class="document-title"
@@ -203,6 +219,20 @@ function onTitleEnter() {
   content: attr(data-placeholder);
   color: var(--text-secondary);
   opacity: 0.5;
+}
+
+.document-editor.compact {
+  max-width: none;
+  padding: 8px 18px 28px;
+}
+
+.document-editor.compact .document-title {
+  font-size: 24px;
+}
+
+.document-editor.compact .document-blocks :deep(.codex-editor__redactor) {
+  min-height: 180px;
+  padding-bottom: 32px !important;
 }
 
 /* Editor.js paints for a light page by default; pull its chrome onto the

@@ -49,3 +49,7 @@ export function fixtureDocuments() {
     updated_at: updatedAt,
   }))
 }
+
+export function fixtureDocumentTemplates() {
+  return []
+}

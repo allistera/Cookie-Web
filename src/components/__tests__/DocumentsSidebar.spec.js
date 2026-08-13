@@ -42,6 +42,9 @@ beforeEach(async () => {
     vi.fn(async (url, options = {}) => {
       const method = options.method || 'GET'
       if (method === 'GET') {
+        if (String(url).includes('templates')) {
+          return { ok: true, json: async () => ({ templates: [] }) }
+        }
         return {
           ok: true,
           json: async () => ({
@@ -108,14 +111,15 @@ describe('DocumentsSidebar', () => {
     expect(wrapper.find('.documents-tree').text()).not.toContain('Kitchen')
   })
 
-  it('creates a document and navigates to it', async () => {
+  it('opens the new document picker', async () => {
     const wrapper = mountSidebar()
     await flushPromises()
 
     await wrapper.find('.compose-btn').trigger('click')
     await flushPromises()
 
-    expect(push).toHaveBeenCalledWith('/documents/d-new')
+    expect(useDocumentsStore().newDocumentDialogOpen).toBe(true)
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('creates a root folder through the inline input', async () => {

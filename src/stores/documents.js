@@ -18,6 +18,9 @@ export const useDocumentsStore = defineStore('documents', {
   state: () => ({
     folders: [],
     documents: [],
+    templates: [],
+    templatesLoaded: false,
+    templatesLoading: false,
     isLoaded: false,
     isLoading: false,
     openDocId: null,
@@ -26,6 +29,8 @@ export const useDocumentsStore = defineStore('documents', {
     isOpenDocLoading: false,
     // null | 'saving' | 'saved' | 'error' — drives the editor's status line.
     saveState: null,
+    newDocumentDialogOpen: false,
+    newDocumentFolderId: null,
   }),
 
   getters: {
@@ -101,10 +106,12 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
-    async createDocument({ folderId = null, title = '' } = {}) {
+    async createDocument({ folderId = null, title, templateId = null } = {}) {
       try {
+        const body = { kind: 'document', folderId, templateId }
+        if (title !== undefined) body.title = title
         const { document } = await this.request('POST', {
-          body: { kind: 'document', folderId, title },
+          body,
         })
         this.documents.unshift(document)
         return document
@@ -113,6 +120,91 @@ export const useDocumentsStore = defineStore('documents', {
         this.notify('Failed to create the document.', 'error')
         return null
       }
+    },
+
+    async loadTemplates({ force = false } = {}) {
+      if ((this.templatesLoaded && !force) || this.templatesLoading) return
+      this.templatesLoading = true
+      try {
+        const { templates } = await this.request('GET', { params: '&templates' })
+        this.templates = templates ?? []
+        this.templatesLoaded = true
+      } catch (error) {
+        console.error('Failed to load document templates:', error)
+        this.notify('Failed to load document templates.', 'error')
+      } finally {
+        this.templatesLoading = false
+      }
+    },
+
+    async loadTemplate(id) {
+      try {
+        const { template } = await this.request('GET', {
+          params: `&templateId=${encodeURIComponent(id)}`,
+        })
+        return template
+      } catch (error) {
+        console.error('Failed to load document template:', error)
+        this.notify('Failed to load the document template.', 'error')
+        return null
+      }
+    },
+
+    async createTemplate({ title, blocks }) {
+      try {
+        const { template } = await this.request('POST', {
+          body: { kind: 'template', title, blocks },
+        })
+        const { blocks: _blocks, ...row } = template
+        this.templates.unshift(row)
+        this.templatesLoaded = true
+        return template
+      } catch (error) {
+        console.error('Failed to create document template:', error)
+        this.notify('Failed to create the document template.', 'error')
+        return null
+      }
+    },
+
+    async updateTemplate(id, { title, blocks }) {
+      try {
+        const { template } = await this.request('PATCH', {
+          body: { kind: 'template', id, title, blocks },
+        })
+        const index = this.templates.findIndex((item) => item.id === id)
+        if (index !== -1) {
+          const { blocks: _blocks, ...row } = template
+          this.templates[index] = row
+        }
+        return template
+      } catch (error) {
+        console.error('Failed to update document template:', error)
+        this.notify('Failed to update the document template.', 'error')
+        return null
+      }
+    },
+
+    async deleteTemplate(id) {
+      try {
+        await this.request('DELETE', { body: { kind: 'template', id } })
+        this.templates = this.templates.filter((template) => template.id !== id)
+        return true
+      } catch (error) {
+        console.error('Failed to delete document template:', error)
+        this.notify('Failed to delete the document template.', 'error')
+        return false
+      }
+    },
+
+    openNewDocumentDialog(folderId = null) {
+      this.newDocumentFolderId = folderId
+      this.newDocumentDialogOpen = true
+      this.loadTemplates()
+    },
+
+    closeNewDocumentDialog() {
+      this.newDocumentDialogOpen = false
+      this.newDocumentFolderId = null
     },
 
     async createFolder({ title, parentId = null }) {

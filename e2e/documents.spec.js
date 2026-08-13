@@ -40,6 +40,7 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
 
   // A new document autosaves its typed title and body.
   await sidebar.getByRole('button', { name: 'New doc', exact: true }).click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
   await expect(page).toHaveURL(/\/documents\/stub-doc-/)
   const title = page.locator('.document-title')
   await title.click()
@@ -99,6 +100,53 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(
     page.locator('.documents-sidebar .doc-item', { hasText: 'Meeting notes' }),
   ).toHaveCount(0)
+})
+
+test('A settings template can create a pre-filled independent document', async ({ page }) => {
+  await page.goto('/settings/document-templates')
+
+  await expect(page.getByRole('heading', { name: 'Templates', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'New template' }).click()
+  await page.locator('.document-title').fill('Weekly meeting')
+  const paragraph = page.locator('.document-template-editor-surface .ce-paragraph').first()
+  await paragraph.fill('Agenda and attendees')
+
+  const templateResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'POST' &&
+      (response.request().postData() || '').includes('"kind":"template"'),
+  )
+  await page.getByRole('button', { name: 'Save template' }).click()
+  await templateResponse
+  await expect(page.locator('.document-template-row', { hasText: 'Weekly meeting' })).toBeVisible()
+
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Weekly meeting/ }).click()
+
+  await expect(page).toHaveURL(/\/documents\/stub-doc-/)
+  await expect(page.locator('.document-title')).toHaveText('Weekly meeting')
+  await expect(page.getByText('Agenda and attendees')).toBeVisible()
+})
+
+test('Template settings and the document picker remain usable on a narrow screen', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/settings/document-templates')
+
+  await expect(page.getByRole('button', { name: 'New template' })).toBeVisible()
+  await page.getByRole('button', { name: 'New template' }).click()
+  await expect(page.getByRole('button', { name: 'Save template' })).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  const dialog = page.getByRole('dialog', { name: 'New document' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /Blank document/ })).toBeVisible()
+  await expect(dialog.getByRole('link', { name: 'Manage templates' })).toBeVisible()
 })
 
 test('Folders can be created inline and documents dragged between them', async ({ page }) => {

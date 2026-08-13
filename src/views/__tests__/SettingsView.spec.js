@@ -100,6 +100,9 @@ describe('SettingsView', () => {
           if (String(url).includes('resource=calendars')) {
             return { calendars: FIXTURE_CALENDARS.map((calendar) => ({ ...calendar })) }
           }
+          if (String(url).includes('resource=documents') && String(url).includes('templates')) {
+            return { templates: [] }
+          }
           return { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
         },
       })),
@@ -145,7 +148,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(9)
+    expect(navItems).toHaveLength(10)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -156,6 +159,7 @@ describe('SettingsView', () => {
       'Labels',
       'Rules',
       'Calendars',
+      'Templates',
     ].entries()) {
       expect(navItems[i]).toContain(name)
     }
@@ -163,6 +167,7 @@ describe('SettingsView', () => {
       'General',
       'Email',
       'Calendar',
+      'Documents',
     ])
     expect(wrapper.find('.settings-page').exists()).toBe(true)
     expect(wrapper.find('.modal-overlay').exists()).toBe(false)
@@ -193,6 +198,17 @@ describe('SettingsView', () => {
     expect(wrapper.get('#your-calendars-heading').text()).toBe('Your calendars')
     expect(wrapper.text()).toContain('Work')
     expect(wrapper.text()).toContain('Subscriptions')
+  })
+
+  it('opens document template management from the Documents settings group', async () => {
+    const wrapper = await openView()
+
+    await openPane(wrapper, 'document-templates')
+    await flushPromises()
+
+    expect(wrapper.get('.settings-page-header').text()).toBe('Templates')
+    expect(wrapper.text()).toContain('Document templates')
+    expect(wrapper.text()).toContain('No templates yet')
   })
 
   it('shows only the browser notifications toggle in the Notifications pane', async () => {

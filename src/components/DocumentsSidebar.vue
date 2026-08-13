@@ -33,9 +33,8 @@ function toggleFolder(id) {
   expandedIds.value = next
 }
 
-async function newDocument(folderId = null) {
-  const doc = await store.createDocument({ folderId })
-  if (doc) router.push(`/documents/${doc.id}`)
+function newDocument(folderId = null) {
+  store.openNewDocumentDialog(folderId)
 }
 
 async function deleteDocument(doc) {

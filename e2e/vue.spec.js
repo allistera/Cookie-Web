@@ -387,7 +387,12 @@ test('Profile dropdown contains Settings and Log out, and opens the settings pag
   await expect(page.locator('.settings-page')).toBeVisible()
   await expect(page.locator('.profile-dropdown')).toHaveCount(0)
   await expect(page.locator('.settings-page')).toContainText('Notifications')
-  await expect(page.locator('.settings-nav-label')).toHaveText(['General', 'Email', 'Calendar'])
+  await expect(page.locator('.settings-nav-label')).toHaveText([
+    'General',
+    'Email',
+    'Calendar',
+    'Documents',
+  ])
 
   // Log out must not throw (regression: window is not accessible in template scope)
   await page.locator('.settings-back-link').click()

@@ -62,6 +62,61 @@ describe('documents store', () => {
     expect(store.documents[0].id).toBe('d-new')
   })
 
+  it('loads templates and creates a document from one', async () => {
+    const fetchMock = stubFetch({
+      GET: () => ok({ templates: [{ id: 't-1', title: 'Meeting notes', emoji: '📄' }] }),
+      POST: (url, body) =>
+        ok({
+          document: {
+            id: 'd-template',
+            folder_id: body.folderId,
+            title: 'Meeting notes',
+            emoji: '📄',
+            starred: false,
+          },
+        }),
+    })
+
+    await store.loadTemplates()
+    const doc = await store.createDocument({ folderId: 'f-1', templateId: 't-1' })
+
+    expect(store.templates[0].title).toBe('Meeting notes')
+    expect(doc.title).toBe('Meeting notes')
+    const createBody = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(createBody).toMatchObject({
+      kind: 'document',
+      folderId: 'f-1',
+      templateId: 't-1',
+    })
+  })
+
+  it('creates, updates, and deletes document templates', async () => {
+    let saved = { id: 't-1', title: 'Meeting notes', emoji: '📄', blocks: [] }
+    stubFetch({
+      POST: (url, body) => {
+        saved = { ...saved, title: body.title, blocks: body.blocks }
+        return ok({ template: saved })
+      },
+      PATCH: (url, body) => {
+        saved = { ...saved, title: body.title, blocks: body.blocks }
+        return ok({ template: saved })
+      },
+      DELETE: () => ok({ ok: true }),
+    })
+
+    await store.createTemplate({ title: 'Meeting notes', blocks: [] })
+    expect(store.templates[0].title).toBe('Meeting notes')
+
+    await store.updateTemplate('t-1', {
+      title: 'Weekly notes',
+      blocks: [{ type: 'header' }],
+    })
+    expect(store.templates[0].title).toBe('Weekly notes')
+
+    await store.deleteTemplate('t-1')
+    expect(store.templates).toHaveLength(0)
+  })
+
   it('rolls an optimistic star back when the PATCH fails', async () => {
     store.documents = structuredClone(DOCS)
     stubFetch({ PATCH: fail })

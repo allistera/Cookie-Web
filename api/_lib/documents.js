@@ -63,6 +63,25 @@ export function fetchDocument(sql, email, id) {
   `
 }
 
+export function fetchTemplates(sql, email) {
+  return sql`
+    SELECT t.id, t.title, t.emoji, t.created_at, t.updated_at
+    FROM document_templates t
+    JOIN users u ON u.id = t.user_id
+    WHERE lower(u.email) = ${email}
+    ORDER BY t.updated_at DESC
+  `
+}
+
+export function fetchTemplate(sql, email, id) {
+  return sql`
+    SELECT t.id, t.title, t.emoji, t.blocks, t.created_at, t.updated_at
+    FROM document_templates t
+    JOIN users u ON u.id = t.user_id
+    WHERE t.id = ${id} AND lower(u.email) = ${email}
+  `
+}
+
 function fetchUserId(sql, email) {
   return sql`SELECT id FROM users WHERE lower(email) = ${email}`
 }
@@ -80,7 +99,33 @@ function fetchOwnedFolder(sql, email, id) {
 }
 
 async function handleGet(req, res, email, sql) {
-  const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+  const searchParams = new URL(req.url, 'http://localhost').searchParams
+  const templateId = searchParams.get('templateId')
+  if (templateId) {
+    if (!isUuid(templateId)) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'A valid template id is required' }))
+      return
+    }
+    const [template] = await fetchTemplate(sql, email, templateId)
+    if (!template) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Template not found' }))
+      return
+    }
+    res.statusCode = 200
+    res.end(JSON.stringify({ template }))
+    return
+  }
+
+  if (searchParams.has('templates')) {
+    const templates = await fetchTemplates(sql, email)
+    res.statusCode = 200
+    res.end(JSON.stringify({ templates }))
+    return
+  }
+
+  const id = searchParams.get('id')
   if (id) {
     if (!isUuid(id)) {
       res.statusCode = 400
@@ -137,6 +182,25 @@ async function handlePost(res, body, email, sql) {
     return
   }
 
+  if (body.kind === 'template') {
+    const title = cleanText(body.title, MAX_TITLE_LENGTH)
+    const blocks = normalizeBlocks(body.blocks ?? [])
+    if (!title || !blocks) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'A template title and valid blocks are required' }))
+      return
+    }
+    const emoji = cleanText(body.emoji, MAX_EMOJI_LENGTH) || '📄'
+    const [template] = await sql`
+      INSERT INTO document_templates (user_id, title, emoji, blocks)
+      VALUES (${user.id}, ${title}, ${emoji}, ${sql.json(blocks)})
+      RETURNING id, title, emoji, blocks, created_at, updated_at
+    `
+    res.statusCode = 201
+    res.end(JSON.stringify({ template }))
+    return
+  }
+
   if (body.kind === 'document') {
     const folderId = body.folderId ?? null
     if (folderId !== null) {
@@ -146,10 +210,26 @@ async function handlePost(res, body, email, sql) {
         return
       }
     }
-    const title = cleanText(body.title, MAX_TITLE_LENGTH) ?? ''
+    let template = null
+    if (body.templateId !== undefined && body.templateId !== null) {
+      if (!isUuid(body.templateId)) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'templateId must be one of your templates' }))
+        return
+      }
+      ;[template] = await fetchTemplate(sql, email, body.templateId)
+      if (!template) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'templateId must be one of your templates' }))
+        return
+      }
+    }
+    const title = cleanText(body.title, MAX_TITLE_LENGTH) ?? template?.title ?? ''
+    const emoji = template?.emoji ?? '🔹'
+    const blocks = template?.blocks ?? []
     const [document] = await sql`
-      INSERT INTO documents (user_id, folder_id, title)
-      VALUES (${user.id}, ${folderId}, ${title})
+      INSERT INTO documents (user_id, folder_id, title, emoji, blocks)
+      VALUES (${user.id}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)})
       RETURNING id, folder_id, title, emoji, starred, blocks, created_at, updated_at
     `
     res.statusCode = 201
@@ -158,7 +238,7 @@ async function handlePost(res, body, email, sql) {
   }
 
   res.statusCode = 400
-  res.end(JSON.stringify({ error: "kind must be 'folder' or 'document'" }))
+  res.end(JSON.stringify({ error: "kind must be 'folder', 'document', or 'template'" }))
 }
 
 async function handlePatch(res, body, email, sql) {
@@ -189,6 +269,31 @@ async function handlePatch(res, body, email, sql) {
     }
     res.statusCode = 200
     res.end(JSON.stringify({ folder }))
+    return
+  }
+
+  if (body.kind === 'template') {
+    const title = cleanText(body.title, MAX_TITLE_LENGTH)
+    const blocks = normalizeBlocks(body.blocks)
+    if (!title || !blocks) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'A template title and valid blocks are required' }))
+      return
+    }
+    const [template] = await sql`
+      UPDATE document_templates t
+      SET title = ${title}, blocks = ${sql.json(blocks)}, updated_at = now()
+      FROM users u
+      WHERE t.id = ${body.id} AND t.user_id = u.id AND lower(u.email) = ${email}
+      RETURNING t.id, t.title, t.emoji, t.blocks, t.created_at, t.updated_at
+    `
+    if (!template) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Template not found' }))
+      return
+    }
+    res.statusCode = 200
+    res.end(JSON.stringify({ template }))
     return
   }
 
@@ -281,7 +386,14 @@ async function handleDelete(res, body, email, sql) {
           WHERE f.id = ${body.id} AND f.user_id = u.id AND lower(u.email) = ${email}
           RETURNING f.id
         `
-      : await sql`
+      : body.kind === 'template'
+        ? await sql`
+          DELETE FROM document_templates t
+          USING users u
+          WHERE t.id = ${body.id} AND t.user_id = u.id AND lower(u.email) = ${email}
+          RETURNING t.id
+        `
+        : await sql`
           DELETE FROM documents d
           USING users u
           WHERE d.id = ${body.id} AND d.user_id = u.id AND lower(u.email) = ${email}
@@ -289,7 +401,8 @@ async function handleDelete(res, body, email, sql) {
         `
   if (!result.length) {
     res.statusCode = 404
-    res.end(JSON.stringify({ error: body.kind === 'folder' ? 'Folder not found' : 'Document not found' }))
+    const subject = body.kind === 'folder' ? 'Folder' : body.kind === 'template' ? 'Template' : 'Document'
+    res.end(JSON.stringify({ error: `${subject} not found` }))
     return
   }
   res.statusCode = 200
@@ -298,7 +411,8 @@ async function handleDelete(res, body, email, sql) {
 
 // GET /api/tasks?resource=documents        — { folders, documents } (no blocks)
 // GET ...&id=<uuid>                        — { document } with blocks
-// POST { kind: 'folder'|'document', ... }  — create
+// GET ...&templates / &templateId=<uuid>   — template list / full template
+// POST { kind: 'folder'|'document'|'template', ... } — create
 // PATCH { id, ... } / { kind:'folder', id, title } — update
 // DELETE { kind, id }                      — delete
 export async function handleDocuments(req, res, email, services = createServices()) {
