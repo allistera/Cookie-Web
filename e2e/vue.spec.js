@@ -567,22 +567,36 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
 })
 
 test('Reader offers to add a detected email event to Calendar with details prefilled', async ({ page }) => {
+  // The fixture's tour date is computed (always in the future — the reader
+  // suppresses past events), so the expectations derive from the same date.
+  const { fixtureTourDate, fixtureTourDateText } = await import('../api/_fixtures/emails.js')
+  const tourDate = fixtureTourDate()
+  const tourDateText = fixtureTourDateText()
+  const pad2 = (n) => String(n).padStart(2, '0')
+  const tourDateValue = `${tourDate.getFullYear()}-${pad2(tourDate.getMonth() + 1)}-${pad2(tourDate.getDate())}`
+  const weekday = tourDate.toLocaleDateString('en-GB', { weekday: 'short' })
+  // Node abbreviates September as "Sept", browsers as "Sep" — compare on the
+  // three-letter prefix both agree on.
+  const monthShort = tourDate.toLocaleDateString('en-GB', { month: 'short' }).slice(0, 3)
+
   await page.goto('/inbox')
 
   await page.locator('.ni-group-header', { hasText: 'Yesterday' }).click()
-  await page.locator('.ni-row', { hasText: 'Confirmation: August 12th guided tour' }).click()
+  await page.locator('.ni-row', { hasText: `Confirmation: ${tourDateText} guided tour` }).click()
 
   const suggestion = page.getByRole('region', { name: 'Calendar suggestion' })
   await expect(suggestion).toContainText('Event detected')
-  await expect(suggestion).toContainText(/Wed,? 12 Aug/)
+  await expect(suggestion).toContainText(
+    new RegExp(`${weekday},? ${tourDate.getDate()} ${monthShort}`),
+  )
   await expect(suggestion).toContainText('10:00')
   await suggestion.getByRole('button', { name: 'Add to calendar' }).click()
 
   await expect(page).toHaveURL(/\/calendar$/)
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('textbox', { name: 'Event title' })).toHaveValue('August 12th guided tour')
-  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-08-12')
+  await expect(dialog.getByRole('textbox', { name: 'Event title' })).toHaveValue(`${tourDateText} guided tour`)
+  await expect(dialog.locator('input[type="date"]')).toHaveValue(tourDateValue)
   await expect(dialog.locator('input[type="time"]').nth(0)).toHaveValue('10:00')
   await expect(dialog.locator('input[type="time"]').nth(1)).toHaveValue('11:00')
   await expect(dialog.getByRole('textbox', { name: 'Event description' })).toHaveValue(/Univ of State Tours/)

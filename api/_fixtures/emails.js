@@ -4,6 +4,31 @@
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+// The campus-tour email must always carry a *future* date: the reader's
+// calendar suggestion drops events before today, so a hardcoded date rots as
+// the calendar advances (it shipped as "August 12th" and broke the day after
+// August 12th). Exported so e2e assertions derive their expectations from the
+// same date.
+export function fixtureTourDate() {
+  const date = new Date(Date.now() + 21 * DAY)
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
+function ordinal(day) {
+  if (day % 100 >= 11 && day % 100 <= 13) return `${day}th`
+  return `${day}${['th', 'st', 'nd', 'rd'][day % 10] ?? 'th'}`
+}
+
+// "August 12th" for the tour date — the phrasing detectCalendarSuggestion parses.
+export function fixtureTourDateText() {
+  const date = fixtureTourDate()
+  const month = date.toLocaleDateString('en-GB', { month: 'long' })
+  return `${month} ${ordinal(date.getDate())}`
+}
+
+const TOUR_DATE_TEXT = fixtureTourDateText()
+
 const rows = [
   {
     from_name: 'City Construction',
@@ -52,11 +77,10 @@ const rows = [
   {
     from_name: 'Univ of State Tours',
     from_address: 'tours@univstate.edu',
-    subject: 'Confirmation: August 12th guided tour',
+    subject: `Confirmation: ${TOUR_DATE_TEXT} guided tour`,
     snippet:
       'Thank you for scheduling a campus visit. Please complete the waiver in the link...',
-    body_text:
-      'Thank you for scheduling a campus visit. Please complete the waiver in the link below before arriving for the August 12th guided tour.\n\nTours depart from the Visitor Center at 10:00 AM sharp. Parking passes will be emailed two days before your visit.',
+    body_text: `Thank you for scheduling a campus visit. Please complete the waiver in the link below before arriving for the ${TOUR_DATE_TEXT} guided tour.\n\nTours depart from the Visitor Center at 10:00 AM sharp. Parking passes will be emailed two days before your visit.`,
     ageMs: 1 * DAY + 4 * HOUR,
     is_unread: false,
     is_starred: false,
