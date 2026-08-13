@@ -23,6 +23,7 @@
     "@editorjs/image": "^2.10.3",
     "@editorjs/list": "^2.0.9",
     "@editorjs/table": "^2.4.5",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@sentry/node": "^10.66.0",
     "@sentry/vue": "^10.66.0",
     "@supabase/realtime-js": "^2.112.3",
@@ -33,6 +34,8 @@
     "node-ical": "^0.27.1",
     "pinia": "^4.0.3",
     "postgres": "^3.4.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "resend": "^6.17.2",
     "vue": "^3.5.40",
     "vue-router": "^5.2.0"
@@ -63,6 +66,13 @@
     "node": "^22.18.0 || >=24.12.0"
   },
   "overrides": {
-    "brace-expansion": "5.0.9"
+    "brace-expansion": "5.0.9",
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.18"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "5.1.16"
+    },
+    "lodash-es": "4.18.1"
   }
 }

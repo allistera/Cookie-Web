@@ -190,6 +190,52 @@ test('Template settings and the document picker remain usable on a narrow screen
   await expect(page.getByLabel('Add document tag')).toBeVisible()
 })
 
+test('An Excalidraw drawing can be inserted from the document slash menu and persists', async ({
+  page,
+}) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await page.keyboard.type('/')
+  const popover = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(popover).toBeVisible()
+
+  const inserted = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"type":"excalidraw"'),
+  )
+  await popover.locator('.ce-popover-item', { hasText: 'Excalidraw' }).click()
+
+  const drawing = page.getByRole('region', { name: 'Excalidraw drawing, empty' })
+  await expect(drawing).toBeVisible()
+  await expect(drawing.locator('.excalidraw-block__canvas')).toBeVisible()
+  await inserted
+
+  const drawingSaved = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"type":"rectangle"'),
+  )
+  await drawing.locator('[data-testid="toolbar-rectangle"] + .ToolIcon__icon').click()
+  const canvas = drawing.locator('canvas').last()
+  const box = await canvas.boundingBox()
+  await page.mouse.move(box.x + 120, box.y + 100)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 260, box.y + 190, { steps: 5 })
+  await page.mouse.up()
+
+  await expect(page.getByRole('region', { name: 'Excalidraw drawing, 1 element' })).toBeVisible()
+  await drawingSaved
+  await page.reload()
+  await expect(page.getByRole('region', { name: 'Excalidraw drawing, 1 element' })).toBeVisible()
+})
+
 test('Folders can be created inline and documents dragged between them', async ({ page }) => {
   await page.goto('/documents')
 

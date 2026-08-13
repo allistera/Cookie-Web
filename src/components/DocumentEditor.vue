@@ -12,6 +12,7 @@ import DragDrop from 'editorjs-drag-drop'
 
 import { useInboxStore } from '../stores/inbox'
 import { formatInsertedDate } from '../lib/documentDates'
+import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import {
   MAX_DOCUMENT_TAGS,
   normalizeDocumentTag,
@@ -136,9 +137,15 @@ function mountEditor() {
   tags.value = [...(props.doc.tags ?? [])]
   tagDraft.value = ''
   editor?.destroy?.()
+  // Pinia wraps document rows in reactive proxies. Editor.js tools may clone
+  // their input internally, and structuredClone cannot copy a Vue Proxy, so
+  // hand the editor a plain JSON snapshot of the persisted block data.
+  const blocks = Array.isArray(props.doc.blocks)
+    ? JSON.parse(JSON.stringify(props.doc.blocks))
+    : []
   editor = new EditorJS({
     holder: holder.value,
-    data: { blocks: Array.isArray(props.doc.blocks) ? props.doc.blocks : [] },
+    data: { blocks },
     placeholder: 'Write something, or press Tab for blocks…',
     tools: {
       header: {
@@ -153,6 +160,7 @@ function mountEditor() {
       code: { class: CodeTool, config: { placeholder: 'Write code here…' } },
       delimiter: Delimiter,
       date: InsertDateTool,
+      excalidraw: { class: ExcalidrawBlockTool, config: { onChange: emitBlocks } },
       image: { class: ImageTool, config: { uploader: imageUploader } },
     },
     onChange: () => {
@@ -433,5 +441,54 @@ function onTitleEnter() {
 .document-blocks :deep(.tc-row),
 .document-blocks :deep(.tc-table) {
   border-color: var(--border-color);
+}
+
+.document-blocks :deep(.excalidraw-block) {
+  width: 100%;
+  margin: 12px 0;
+}
+
+.document-blocks :deep(.excalidraw-block__canvas),
+.document-blocks :deep(.excalidraw-block__loading) {
+  width: 100%;
+  height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.document-blocks :deep(.excalidraw-block__loading) {
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.document-blocks :deep(.excalidraw-block__loading.error) {
+  color: var(--danger, #e5484d);
+}
+
+.document-blocks :deep(.excalidraw-block .excalidraw) {
+  --color-primary: var(--accent);
+  --color-primary-darker: var(--accent-hover);
+  font-family: var(--font-family);
+}
+
+.document-editor.compact .document-blocks :deep(.excalidraw-block__canvas),
+.document-editor.compact .document-blocks :deep(.excalidraw-block__loading) {
+  height: 320px;
+}
+
+@media (max-width: 760px) {
+  .document-blocks :deep(.excalidraw-block) {
+    width: calc(100% + 48px);
+    margin-left: -24px;
+  }
+
+  .document-blocks :deep(.excalidraw-block__canvas),
+  .document-blocks :deep(.excalidraw-block__loading) {
+    height: 360px;
+  }
 }
 </style>
