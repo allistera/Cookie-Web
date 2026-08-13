@@ -46,6 +46,21 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await title.pressSequentially('Meeting notes')
   await page.locator('.codex-editor .ce-paragraph').first().click()
   await page.keyboard.type('Agenda for Thursday.')
+
+  // "/" opens the block menu; the Date entry stamps today's date as text.
+  const { formatInsertedDate } = await import('../src/lib/documentDates.js')
+  await page.keyboard.press('Enter')
+  // The "/" must land focused in the new, still-empty block — typed against
+  // the old block it is literal text and no menu opens. The outer .ce-popover
+  // element is zero-sized; the sized, visible part is its __container.
+  await expect(page.locator('.codex-editor .ce-paragraph')).toHaveCount(2)
+  await page.locator('.codex-editor .ce-paragraph').nth(1).click()
+  await page.keyboard.type('/')
+  const popover = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(popover).toBeVisible()
+  await popover.locator('.ce-popover-item', { hasText: 'Date' }).click()
+  await expect(page.locator('.ce-paragraph', { hasText: formatInsertedDate() })).toBeVisible()
+
   await expect(page.locator('.save-status')).toHaveText('All changes saved')
 
   // The sidebar picked the title up live, and it survives a reload (the
