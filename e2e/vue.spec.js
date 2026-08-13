@@ -363,7 +363,7 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
   expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
 })
 
-test('Profile dropdown contains Settings and Log out, and opens the settings modal', async ({
+test('Profile dropdown contains Settings and Log out, and opens the settings page', async ({
   page,
 }) => {
   const pageErrors = []
@@ -381,14 +381,16 @@ test('Profile dropdown contains Settings and Log out, and opens the settings mod
   await expect(settingsItem).toBeVisible()
   await expect(logoutItem).toBeVisible()
 
-  // Settings item opens the settings modal and closes the dropdown
+  // Settings item opens the full settings page and closes the dropdown.
   await settingsItem.click()
-  await expect(page.locator('.settings-modal-container')).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\/account$/)
+  await expect(page.locator('.settings-page')).toBeVisible()
   await expect(page.locator('.profile-dropdown')).toHaveCount(0)
-  await expect(page.locator('.settings-modal-container')).toContainText('Notifications')
+  await expect(page.locator('.settings-page')).toContainText('Notifications')
+  await expect(page.locator('.settings-nav-label')).toHaveText(['General', 'Email'])
 
   // Log out must not throw (regression: window is not accessible in template scope)
-  await page.locator('.settings-modal-container .btn-secondary').click()
+  await page.locator('.settings-back-link').click()
   await page.locator('.profile-container').click()
   await page.locator('.logout-btn').click()
   expect(pageErrors).toEqual([])
@@ -399,7 +401,7 @@ test('A Settings snippet is available as a slash command in the composer', async
   await page.locator('.profile-container').click()
   await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
 
-  const modal = page.locator('.settings-modal-container')
+  const modal = page.locator('.settings-page')
   await modal.locator('.settings-nav-item', { hasText: 'Snippets' }).click()
   await modal.locator('.snippet-editor-form > .label-input').fill('incident')
   await modal.locator('.snippet-editor .composer-editor').fill(
@@ -407,7 +409,7 @@ test('A Settings snippet is available as a slash command in the composer', async
   )
   await modal.getByRole('button', { name: 'Add snippet' }).click()
   await expect(modal.locator('.snippet-trigger')).toHaveText('/incident')
-  await modal.getByRole('button', { name: 'Close', exact: true }).click()
+  await modal.locator('.settings-back-link').click()
 
   await page.locator('.compose-btn').click()
   const composer = page.locator('#composerToast')
@@ -441,7 +443,7 @@ test('Browser notifications can be enabled from Notifications settings', async (
   await page.locator('.profile-container').click()
   await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
 
-  const modal = page.locator('.settings-modal-container')
+  const modal = page.locator('.settings-page')
   await modal.locator('.settings-nav-item', { hasText: 'Notifications' }).click()
   const browserNotifications = modal.locator('.browser-notifications-switch')
   await expect(browserNotifications).toBeEnabled()
@@ -1076,7 +1078,7 @@ test('Settings Labels pane lists, creates and renames labels', async ({ page }) 
   // Open settings via the profile dropdown
   await page.locator('.profile-container').click()
   await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
-  const modal = page.locator('.settings-modal-container')
+  const modal = page.locator('.settings-page')
   await expect(modal).toBeVisible()
 
   // Switch to the Labels category

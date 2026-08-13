@@ -11,7 +11,6 @@ import { useAppBadge } from './composables/useAppBadge'
 import { getRealtimeClient } from './lib/supabase'
 
 const ChatDrawer = defineAsyncComponent(() => import('./components/ChatDrawer.vue'))
-const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
 const CommandPalette = defineAsyncComponent(() => import('./components/CommandPalette.vue'))
 const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
 const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
@@ -84,7 +83,6 @@ function onUndoKeydown(event) {
 }
 
 const chatDrawerLoaded = ref(store.isChatDrawerActive)
-const settingsLoaded = ref(store.activeModal === 'settings')
 const commandPaletteLoaded = ref(store.isCommandPaletteOpen)
 const composerLoaded = ref(store.isComposerActive)
 
@@ -92,12 +90,6 @@ watch(
   () => store.isChatDrawerActive,
   (active) => {
     if (active) chatDrawerLoaded.value = true
-  },
-)
-watch(
-  () => store.activeModal,
-  (modal) => {
-    if (modal === 'settings') settingsLoaded.value = true
   },
 )
 watch(
@@ -128,7 +120,7 @@ function onCommandPaletteKeydown(event) {
 
 function openSettings() {
   showLogoutMenu.value = false
-  store.activeModal = 'settings'
+  router.push({ name: 'settings', params: { section: 'account' } })
 }
 
 function handleLogout() {
@@ -317,7 +309,8 @@ onUnmounted(() => {
 
   <!-- Authenticated App -->
   <template v-else>
-    <div class="app-container">
+    <router-view v-if="route.meta.layout === 'settings'" />
+    <div v-else class="app-container">
     <!-- TOP HEADER -->
     <header class="app-header">
       <div class="header-left">
@@ -529,10 +522,6 @@ onUnmounted(() => {
       <!-- Assistant chat drawer -->
       <ChatDrawer v-if="chatDrawerLoaded" />
     </div>
-
-    <!-- MODAL OVERLAYS -->
-    <!-- Settings Modal -->
-    <SettingsModal v-if="settingsLoaded" />
 
     <!-- Command palette (Cmd+K) -->
     <CommandPalette v-if="commandPaletteLoaded" />

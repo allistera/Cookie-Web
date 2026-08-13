@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test'
 
 // Opens Settings from the profile dropdown and switches to the Rules pane.
 async function openRulesSettings(page) {
-  await page.locator('.profile-container').click()
-  await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
-  const modal = page.locator('.settings-modal-container')
+  if (!new URL(page.url()).pathname.startsWith('/settings')) {
+    await page.locator('.profile-container').click()
+    await page.locator('.dropdown-menu-btn', { hasText: 'Settings' }).click()
+  }
+  const modal = page.locator('.settings-page')
   await expect(modal).toBeVisible()
   await modal.locator('.settings-nav-item', { hasText: 'Rules' }).click()
   return modal

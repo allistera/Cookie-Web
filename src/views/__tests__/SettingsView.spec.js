@@ -4,12 +4,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
-import SettingsModal from '../SettingsModal.vue'
-import ComposerEditor from '../ComposerEditor.vue'
+import SettingsView from '../SettingsView.vue'
+import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
 
-// useAuth0() is inject()-based, so providing under its key feeds the modal a
+// useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
 const auth0Fake = () => ({
   user: ref({
@@ -21,8 +21,24 @@ const auth0Fake = () => ({
 })
 
 const FIXTURE_LABELS = [
-  { id: 'l1', name: 'Finance', color: '#2f9e44', kind: 'user', description: 'Bills', auto_apply: true, message_count: 2 },
-  { id: 'l2', name: 'Home', color: '#e5484d', kind: 'user', description: null, auto_apply: false, message_count: 5 },
+  {
+    id: 'l1',
+    name: 'Finance',
+    color: '#2f9e44',
+    kind: 'user',
+    description: 'Bills',
+    auto_apply: true,
+    message_count: 2,
+  },
+  {
+    id: 'l2',
+    name: 'Home',
+    color: '#e5484d',
+    kind: 'user',
+    description: null,
+    auto_apply: false,
+    message_count: 5,
+  },
 ]
 
 const FIXTURE_RULES = [
@@ -37,7 +53,7 @@ const FIXTURE_RULES = [
   },
 ]
 
-describe('SettingsModal', () => {
+describe('SettingsView', () => {
   let pinia
   let router
   let store
@@ -49,9 +65,16 @@ describe('SettingsModal', () => {
     setAuth0Client(null)
     router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }],
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        {
+          path: '/settings/:section?',
+          name: 'settings',
+          component: { template: '<div />' },
+        },
+      ],
     })
-    await router.push('/')
+    await router.push('/settings/account')
     await router.isReady()
     store = useInboxStore()
     localStorage.clear()
@@ -61,7 +84,12 @@ describe('SettingsModal', () => {
         ok: true,
         json: async () => {
           if (url === '/api/labels?resource=rules') {
-            return { rules: FIXTURE_RULES.map((rule) => ({ ...rule, conditions: rule.conditions.map((c) => ({ ...c })) })) }
+            return {
+              rules: FIXTURE_RULES.map((rule) => ({
+                ...rule,
+                conditions: rule.conditions.map((c) => ({ ...c })),
+              })),
+            }
           }
           if (String(url).includes('resource=interests')) return { interests: [] }
           return { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
@@ -75,8 +103,8 @@ describe('SettingsModal', () => {
     vi.restoreAllMocks()
   })
 
-  function mountModal() {
-    return mount(SettingsModal, {
+  function mountView() {
+    return mount(SettingsView, {
       global: {
         plugins: [pinia, router],
         provide: { [AUTH0_INJECTION_KEY]: auth0Fake() },
@@ -84,59 +112,71 @@ describe('SettingsModal', () => {
     })
   }
 
-  async function openModal() {
-    store.activeModal = 'settings'
-    const wrapper = mountModal()
+  async function openView() {
+    const wrapper = mountView()
     await vi.waitFor(() => expect(store.labels).toHaveLength(2))
     await vi.waitFor(() => expect(store.rules).toHaveLength(1))
     await wrapper.vm.$nextTick()
     return wrapper
   }
 
+  async function openPane(wrapper, section) {
+    await router.push({ name: 'settings', params: { section } })
+    await wrapper.vm.$nextTick()
+  }
+
   async function openLabelsPane(wrapper) {
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Labels'))
-      .trigger('click')
+    await openPane(wrapper, 'labels')
   }
 
   async function openRulesPane(wrapper) {
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Rules'))
-      .trigger('click')
+    await openPane(wrapper, 'rules')
   }
 
-  it('is hidden until the settings modal is activated', async () => {
-    const wrapper = mountModal()
-    expect(wrapper.find('.modal-overlay').classes()).not.toContain('active')
-
-    store.activeModal = 'settings'
-    await wrapper.vm.$nextTick()
-
-    expect(wrapper.find('.modal-overlay').classes()).toContain('active')
-  })
-
-  it('shows the category sidebar and defaults to the Account pane', async () => {
-    const wrapper = await openModal()
+  it('renders as a full page with grouped navigation and the Account pane', async () => {
+    const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
     expect(navItems).toHaveLength(8)
-    for (const [i, name] of ['Account', 'Appearance', 'Signature', 'Snippets', 'Notifications', 'Personalisation', 'Labels', 'Rules'].entries()) {
+    for (const [i, name] of [
+      'Account',
+      'Appearance',
+      'Notifications',
+      'Personalisation',
+      'Signature',
+      'Snippets',
+      'Labels',
+      'Rules',
+    ].entries()) {
       expect(navItems[i]).toContain(name)
     }
+    expect(wrapper.findAll('.settings-nav-label').map((label) => label.text())).toEqual([
+      'General',
+      'Email',
+    ])
+    expect(wrapper.find('.settings-page').exists()).toBe(true)
+    expect(wrapper.find('.modal-overlay').exists()).toBe(false)
+    expect(wrapper.get('.settings-page-header').text()).toBe('Account')
     expect(wrapper.find('.settings-account-name').text()).toBe('Allister')
     expect(wrapper.find('.settings-account-email').text()).toBe('allisteraall@gmail.com')
     expect(wrapper.find('.label-table').exists()).toBe(false)
   })
 
-  it('shows only the browser notifications toggle in the Notifications pane', async () => {
-    const wrapper = await openModal()
+  it('filters the grouped navigation by setting name', async () => {
+    const wrapper = await openView()
 
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Notifications'))
-      .trigger('click')
+    await wrapper.get('.settings-search input').setValue('rules')
+
+    expect(wrapper.findAll('.settings-nav-label').map((label) => label.text())).toEqual(['Email'])
+    expect(
+      wrapper.findAll('.settings-nav-item').map((item) => item.find('span:last-child').text()),
+    ).toEqual(['Rules'])
+  })
+
+  it('shows only the browser notifications toggle in the Notifications pane', async () => {
+    const wrapper = await openView()
+
+    await openPane(wrapper, 'notifications')
 
     // The stub email-summary / to-do / AI-suggestion toggles have been removed.
     const otherToggles = wrapper.findAll('.settings-switch:not(.browser-notifications-switch)')
@@ -153,12 +193,9 @@ describe('SettingsModal', () => {
   })
 
   it('persists the theme preference from the Appearance pane', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
 
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Appearance'))
-      .trigger('click')
+    await openPane(wrapper, 'appearance')
 
     const select = wrapper.find('.settings-select')
     expect(select.exists()).toBe(true)
@@ -172,12 +209,9 @@ describe('SettingsModal', () => {
 
   it('edits and persists the personal signature from the Signature pane', async () => {
     localStorage.clear()
-    const wrapper = await openModal()
+    const wrapper = await openView()
 
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Signature'))
-      .trigger('click')
+    await openPane(wrapper, 'signature')
 
     const editor = wrapper.findComponent(ComposerEditor)
     expect(editor.exists()).toBe(true)
@@ -188,11 +222,13 @@ describe('SettingsModal', () => {
   })
 
   it('saves a locally stored compose snippet from the Snippets pane', async () => {
-    const wrapper = await openModal()
-    await wrapper.findAll('.settings-nav-item').find((n) => n.text().includes('Snippets')).trigger('click')
+    const wrapper = await openView()
+    await openPane(wrapper, 'snippets')
 
     await wrapper.find('.snippet-editor-form > .label-input').setValue('Hello World')
-    wrapper.findComponent(ComposerEditor).vm.$emit('update:modelValue', '<p>Hello <strong>there</strong></p>')
+    wrapper
+      .findComponent(ComposerEditor)
+      .vm.$emit('update:modelValue', '<p>Hello <strong>there</strong></p>')
     await wrapper.find('.snippet-editor-form').trigger('submit')
 
     expect(store.snippets).toEqual([
@@ -205,21 +241,16 @@ describe('SettingsModal', () => {
     store.userId = '11111111-1111-1111-1111-111111111111'
     const requestPermission = vi.fn().mockResolvedValue('granted')
     vi.stubGlobal('Notification', { permission: 'default', requestPermission })
-    const wrapper = await openModal()
+    const wrapper = await openView()
 
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Notifications'))
-      .trigger('click')
+    await openPane(wrapper, 'notifications')
     await wrapper.find('.browser-notifications-switch').setValue(true)
     await vi.waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1))
 
     expect(wrapper.find('.browser-notifications-switch').element.checked).toBe(true)
     expect(
       JSON.parse(
-        localStorage.getItem(
-          'cookie-browser-notifications:11111111-1111-1111-1111-111111111111',
-        ),
+        localStorage.getItem('cookie-browser-notifications:11111111-1111-1111-1111-111111111111'),
       ),
     ).toEqual({ enabled: true })
     expect(wrapper.find('.browser-notifications-status').text()).toContain('sender and subject')
@@ -232,12 +263,9 @@ describe('SettingsModal', () => {
       return 'denied'
     })
     vi.stubGlobal('Notification', { permission: 'default', requestPermission })
-    const wrapper = await openModal()
+    const wrapper = await openView()
 
-    await wrapper
-      .findAll('.settings-nav-item')
-      .find((n) => n.text().includes('Notifications'))
-      .trigger('click')
+    await openPane(wrapper, 'notifications')
     await wrapper.find('.browser-notifications-switch').setValue(true)
     await vi.waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1))
 
@@ -247,7 +275,7 @@ describe('SettingsModal', () => {
   })
 
   it('lists labels with colors and descriptions in the Labels pane', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openLabelsPane(wrapper)
 
     const rows = wrapper.findAll('.label-table-row')
@@ -260,7 +288,7 @@ describe('SettingsModal', () => {
   })
 
   it('updates whether a label can be auto-tagged', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openLabelsPane(wrapper)
     fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ label: {} }) })
 
@@ -275,7 +303,7 @@ describe('SettingsModal', () => {
   })
 
   it('renames a user label inline', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openLabelsPane(wrapper)
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -287,7 +315,9 @@ describe('SettingsModal', () => {
     expect(input.element.value).toBe('Finance')
     await input.setValue('Money')
     await input.trigger('keydown', { key: 'Enter' })
-    await vi.waitFor(() => expect(store.labels.find((label) => label.id === 'l1')?.name).toBe('Money'))
+    await vi.waitFor(() =>
+      expect(store.labels.find((label) => label.id === 'l1')?.name).toBe('Money'),
+    )
     await wrapper.vm.$nextTick()
 
     expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
@@ -300,14 +330,21 @@ describe('SettingsModal', () => {
   })
 
   it('creates a label from the form and resets it', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openLabelsPane(wrapper)
 
     fetch.mockResolvedValueOnce({
       ok: true,
       status: 201,
       json: async () => ({
-        label: { id: 'l3', name: 'Receipts', color: '#1a73e8', kind: 'user', description: null, message_count: 0 },
+        label: {
+          id: 'l3',
+          name: 'Receipts',
+          color: '#1a73e8',
+          kind: 'user',
+          description: null,
+          message_count: 0,
+        },
       }),
     })
 
@@ -326,7 +363,7 @@ describe('SettingsModal', () => {
   })
 
   it('deletes a label from its row', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openLabelsPane(wrapper)
 
     fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
@@ -341,7 +378,7 @@ describe('SettingsModal', () => {
   })
 
   it('lists rules with their target label and condition summary', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openRulesPane(wrapper)
 
     const rows = wrapper.findAll('.rule-row')
@@ -353,7 +390,7 @@ describe('SettingsModal', () => {
   })
 
   it('switches a rule to mark_done and drops its label_id', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openRulesPane(wrapper)
 
     fetch.mockResolvedValueOnce({
@@ -372,14 +409,23 @@ describe('SettingsModal', () => {
     expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'r1', name: 'Bills', action: 'mark_done', match_type: 'all', conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }] }),
+      body: JSON.stringify({
+        id: 'r1',
+        name: 'Bills',
+        action: 'mark_done',
+        match_type: 'all',
+        conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }],
+      }),
     })
   })
 
   it('toggles whether a rule is enabled', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openRulesPane(wrapper)
-    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ rule: { ...FIXTURE_RULES[0], enabled: false } }) })
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ rule: { ...FIXTURE_RULES[0], enabled: false } }),
+    })
 
     await wrapper.find('.rule-row input[type="checkbox"]').setValue(false)
 
@@ -392,7 +438,7 @@ describe('SettingsModal', () => {
   })
 
   it('creates a rule from the form and resets it', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openRulesPane(wrapper)
 
     fetch.mockResolvedValueOnce({
@@ -433,7 +479,7 @@ describe('SettingsModal', () => {
   })
 
   it('creates a mark_done rule without a label', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openRulesPane(wrapper)
 
     fetch.mockResolvedValueOnce({
@@ -473,7 +519,7 @@ describe('SettingsModal', () => {
   })
 
   it('deletes a rule from its row', async () => {
-    const wrapper = await openModal()
+    const wrapper = await openView()
     await openRulesPane(wrapper)
 
     fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
@@ -487,26 +533,22 @@ describe('SettingsModal', () => {
     })
   })
 
-  it('closes via the footer button', async () => {
-    const wrapper = await openModal()
+  it('links back to the app', async () => {
+    const wrapper = await openView()
 
-    await wrapper.find('.modal-footer .btn-secondary').trigger('click')
-    expect(store.activeModal).toBe(null)
+    expect(wrapper.get('.settings-back-link').attributes('href')).toBe('/')
   })
 
   describe('Personalisation pane', () => {
     async function openPersonalisationPane(wrapper) {
-      await wrapper
-        .findAll('.settings-nav-item')
-        .find((n) => n.text().includes('Personalisation'))
-        .trigger('click')
+      await openPane(wrapper, 'personalisation')
     }
 
     it('lists the stored topics and explains what they affect', async () => {
       store.interests = ['Cloudflare Workers', 'Postgres']
       store.interestsLoaded = true
 
-      const wrapper = await openModal()
+      const wrapper = await openView()
       await openPersonalisationPane(wrapper)
 
       const section = wrapper.get('[data-testid="personalisation-section"]')
@@ -522,7 +564,7 @@ describe('SettingsModal', () => {
       store.interestsLoaded = true
       const saveInterests = vi.spyOn(store, 'saveInterests').mockResolvedValue(['Postgres', 'Vue'])
 
-      const wrapper = await openModal()
+      const wrapper = await openView()
       await openPersonalisationPane(wrapper)
       await wrapper.get('.interest-add input').setValue('Vue')
       await wrapper.get('.interest-add').trigger('submit')
@@ -536,7 +578,7 @@ describe('SettingsModal', () => {
       store.interestsLoaded = true
       const saveInterests = vi.spyOn(store, 'saveInterests')
 
-      const wrapper = await openModal()
+      const wrapper = await openView()
       await openPersonalisationPane(wrapper)
       await wrapper.get('.interest-add input').setValue('vue')
       await wrapper.get('.interest-add').trigger('submit')
@@ -551,7 +593,7 @@ describe('SettingsModal', () => {
       store.interestsLoaded = true
       const saveInterests = vi.spyOn(store, 'saveInterests').mockResolvedValue(['Postgres'])
 
-      const wrapper = await openModal()
+      const wrapper = await openView()
       await openPersonalisationPane(wrapper)
       await wrapper.get('.interest-chip .interest-remove').trigger('click')
       await flushPromises()
@@ -564,7 +606,7 @@ describe('SettingsModal', () => {
       store.interestsLoaded = true
       vi.spyOn(store, 'saveInterests').mockRejectedValue(new Error('boom'))
 
-      const wrapper = await openModal()
+      const wrapper = await openView()
       await openPersonalisationPane(wrapper)
       await wrapper.get('.interest-add input').setValue('Vue')
       await wrapper.get('.interest-add').trigger('submit')
@@ -573,5 +615,4 @@ describe('SettingsModal', () => {
       expect(wrapper.get('.snippet-error').text()).toContain('Could not save')
     })
   })
-
 })

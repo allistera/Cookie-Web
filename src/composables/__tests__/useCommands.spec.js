@@ -18,6 +18,7 @@ async function setupCommands(routeName = 'ai-inbox') {
       { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
       { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
       { path: '/scheduled', name: 'scheduled-sends', component: { template: '<div />' } },
+      { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
     ],
   })
   await router.push({ name: routeName })
@@ -149,7 +150,7 @@ describe('useCommands', () => {
     expect(push).toHaveBeenCalledWith({ path: '/inbox', query: { filter: 'spam' } })
 
     byId['open-settings'].run()
-    expect(store.activeModal).toBe('settings')
+    expect(push).toHaveBeenCalledWith({ name: 'settings', params: { section: 'account' } })
   })
 
   it('mark-done archives the open email', async () => {

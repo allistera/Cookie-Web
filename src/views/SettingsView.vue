@@ -13,40 +13,66 @@ import {
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { plainTextToHtml } from '../lib/composeHtml'
 import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
-import ComposerEditor from './ComposerEditor.vue'
+import ComposerEditor from '../components/ComposerEditor.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
-const isOpen = computed(() => store.activeModal === 'settings')
-
-// --- Category navigation ---
-const sections = [
-  { id: 'account', label: 'Account', icon: 'person' },
-  { id: 'appearance', label: 'Appearance', icon: 'palette' },
-  { id: 'signature', label: 'Signature', icon: 'draw' },
-  { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
-  { id: 'notifications', label: 'Notifications', icon: 'notifications' },
-  { id: 'personalisation', label: 'Personalisation', icon: 'interests' },
-  { id: 'labels', label: 'Labels', icon: 'label' },
-  { id: 'rules', label: 'Rules', icon: 'rule' },
+const sectionGroups = [
+  {
+    label: 'General',
+    sections: [
+      { id: 'account', label: 'Account', icon: 'person' },
+      { id: 'appearance', label: 'Appearance', icon: 'palette' },
+      { id: 'notifications', label: 'Notifications', icon: 'notifications' },
+      { id: 'personalisation', label: 'Personalisation', icon: 'interests' },
+    ],
+  },
+  {
+    label: 'Email',
+    sections: [
+      { id: 'signature', label: 'Signature', icon: 'draw' },
+      { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
+      { id: 'labels', label: 'Labels', icon: 'label' },
+      { id: 'rules', label: 'Rules', icon: 'rule' },
+    ],
+  },
 ]
-const activeSection = ref('account')
+const sections = sectionGroups.flatMap((group) => group.sections)
+const settingsSearch = ref('')
+const activeSection = computed(() => {
+  const requested = String(route.params.section || '')
+  return sections.some((section) => section.id === requested) ? requested : 'account'
+})
+const activeSectionLabel = computed(
+  () => sections.find((section) => section.id === activeSection.value)?.label || 'Account',
+)
+const filteredSectionGroups = computed(() => {
+  const query = settingsSearch.value.trim().toLowerCase()
+  if (!query) return sectionGroups
+  return sectionGroups
+    .map((group) => ({
+      ...group,
+      sections: group.sections.filter((section) => section.label.toLowerCase().includes(query)),
+    }))
+    .filter((group) => group.sections.length)
+})
 
 watch(
-  isOpen,
-  (open) => {
-    if (open) {
-      activeSection.value = 'account'
-      store.loadLabels()
-      store.loadRules()
-      store.loadInterests()
+  () => route.params.section,
+  (section) => {
+    if (!sections.some((candidate) => candidate.id === section)) {
+      router.replace({ name: 'settings', params: { section: 'account' } })
     }
   },
   { immediate: true },
 )
+
+store.loadLabels()
+store.loadRules()
+store.loadInterests()
 
 // --- Personalisation (server-side: the enricher Worker reads these) ---
 const interestDraft = ref('')
@@ -113,12 +139,17 @@ function saveSnippet() {
     snippetError.value = `/${name} is already a built-in command.`
     return
   }
-  if (store.snippets.some((snippet) => snippet.name === name && snippet.id !== editingSnippetId.value)) {
+  if (
+    store.snippets.some((snippet) => snippet.name === name && snippet.id !== editingSnippetId.value)
+  ) {
     snippetError.value = `/${name} already exists.`
     return
   }
   const id = editingSnippetId.value || globalThis.crypto?.randomUUID?.() || `snippet-${Date.now()}`
-  store.setSnippets([...store.snippets.filter((snippet) => snippet.id !== id), { id, name, html: snippetDraft.html }])
+  store.setSnippets([
+    ...store.snippets.filter((snippet) => snippet.id !== id),
+    { id, name, html: snippetDraft.html },
+  ])
   resetSnippetDraft()
 }
 
@@ -159,9 +190,7 @@ function syncBrowserNotificationPreference() {
 }
 
 watch(notificationOwnerId, syncBrowserNotificationPreference, { immediate: true })
-watch(isOpen, (open) => {
-  if (open) syncBrowserNotificationPreference()
-})
+watch(activeSection, syncBrowserNotificationPreference)
 
 const browserNotificationStatus = computed(() => {
   if (!browserNotificationsSupported()) return 'Browser notifications are not supported here.'
@@ -321,7 +350,11 @@ function editRule(rule) {
   ruleDraft.conditions = rule.conditions.map((condition) => ({ ...condition }))
   editingRuleId.value = rule.id
   ruleError.value = ''
-  nextTick(() => document.querySelector('.rule-editor-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+  nextTick(() =>
+    document
+      .querySelector('.rule-editor-form')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
+  )
 }
 
 async function submitRule() {
@@ -381,38 +414,54 @@ function toggleRuleEnabled(rule) {
 </script>
 
 <template>
-  <div class="modal-overlay" :class="{ active: isOpen }">
-    <div class="modal-container settings-modal-container">
-      <div class="modal-header">
-        <div class="modal-title">
-          <span class="material-symbols-outlined text-blue">settings</span>
-          <span>Settings</span>
-        </div>
-        <button class="close-modal-btn" @click="store.activeModal = null">&times;</button>
-      </div>
+  <div class="settings-page">
+    <aside class="settings-sidebar">
+      <router-link class="settings-back-link" to="/">
+        <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+        <span>Back to app</span>
+      </router-link>
 
-      <div class="modal-body settings-body settings-layout">
-        <!-- Category sidebar -->
-        <nav class="settings-nav">
-          <button
-            v-for="section in sections"
+      <label class="settings-search">
+        <span class="material-symbols-outlined" aria-hidden="true">search</span>
+        <input v-model="settingsSearch" type="search" placeholder="Search settings…" />
+      </label>
+
+      <nav class="settings-nav" aria-label="Settings">
+        <div v-for="group in filteredSectionGroups" :key="group.label" class="settings-nav-group">
+          <h2 class="settings-nav-label">{{ group.label }}</h2>
+          <router-link
+            v-for="section in group.sections"
             :key="section.id"
+            :to="{ name: 'settings', params: { section: section.id } }"
             class="settings-nav-item"
             :class="{ active: activeSection === section.id }"
-            @click="activeSection = section.id"
           >
-            <span class="material-symbols-outlined">{{ section.icon }}</span>
+            <span class="material-symbols-outlined" aria-hidden="true">{{ section.icon }}</span>
             <span>{{ section.label }}</span>
-          </button>
-        </nav>
+          </router-link>
+        </div>
+        <p v-if="filteredSectionGroups.length === 0" class="settings-nav-empty">
+          No settings found
+        </p>
+      </nav>
+    </aside>
 
-        <!-- Panes -->
+    <main class="settings-main">
+      <div class="settings-content">
+        <header class="settings-page-header">
+          <h1>{{ activeSectionLabel }}</h1>
+        </header>
+
         <div class="settings-pane">
           <!-- Account -->
           <section v-if="activeSection === 'account'" class="settings-section">
-            <h3 class="settings-section-title">Account</h3>
+            <h3 class="settings-section-title">Profile</h3>
             <div class="settings-account-row">
-              <img :src="user?.picture || '/rose_avatar.webp'" :alt="user?.name" class="settings-avatar" />
+              <img
+                :src="user?.picture || '/rose_avatar.webp'"
+                :alt="user?.name"
+                class="settings-avatar"
+              />
               <div class="settings-account-info">
                 <span class="settings-account-name">{{ user?.name || 'Allister' }}</span>
                 <span class="settings-account-email">{{ user?.email || '' }}</span>
@@ -423,7 +472,7 @@ function toggleRuleEnabled(rule) {
 
           <!-- Appearance -->
           <section v-if="activeSection === 'appearance'" class="settings-section">
-            <h3 class="settings-section-title">Appearance</h3>
+            <h3 class="settings-section-title">Theme</h3>
             <label class="settings-row">
               <div class="settings-row-text">
                 <span>Theme</span>
@@ -439,7 +488,7 @@ function toggleRuleEnabled(rule) {
 
           <!-- Signature -->
           <section v-if="activeSection === 'signature'" class="settings-section">
-            <h3 class="settings-section-title">Signature</h3>
+            <h3 class="settings-section-title">Email signature</h3>
             <p class="settings-signature-hint">
               Added to the bottom of new emails you compose. Type “/” for formatting.
             </p>
@@ -457,17 +506,26 @@ function toggleRuleEnabled(rule) {
           <section v-if="activeSection === 'snippets'" class="settings-section">
             <h3 class="settings-section-title">Compose snippets</h3>
             <p class="settings-section-hint">
-              Reusable templates stored on this device. In a new email, type a trigger such as “/hello-world” and choose it from the menu.
+              Reusable templates stored on this device. In a new email, type a trigger such as
+              “/hello-world” and choose it from the menu.
             </p>
 
             <div v-if="store.snippets.length" class="snippet-list">
               <div v-for="snippet in store.snippets" :key="snippet.id" class="snippet-row">
                 <span class="snippet-trigger">/{{ snippet.name }}</span>
                 <div class="label-row-actions">
-                  <button class="ni-action-btn" :title="`Edit /${snippet.name}`" @click="editSnippet(snippet)">
+                  <button
+                    class="ni-action-btn"
+                    :title="`Edit /${snippet.name}`"
+                    @click="editSnippet(snippet)"
+                  >
                     <span class="material-symbols-outlined">edit</span>
                   </button>
-                  <button class="ni-action-btn label-delete-btn" :title="`Delete /${snippet.name}`" @click="deleteSnippet(snippet.id)">
+                  <button
+                    class="ni-action-btn label-delete-btn"
+                    :title="`Delete /${snippet.name}`"
+                    @click="deleteSnippet(snippet.id)"
+                  >
                     <span class="material-symbols-outlined">delete</span>
                   </button>
                 </div>
@@ -482,13 +540,22 @@ function toggleRuleEnabled(rule) {
                 placeholder="Describe a template for Cookie AI to draft…"
                 @keydown.enter.prevent="generateSnippet"
               />
-              <button class="btn btn-secondary" :disabled="!aiSnippetInstruction.trim() || isGeneratingSnippet" @click="generateSnippet">
+              <button
+                class="btn btn-secondary"
+                :disabled="!aiSnippetInstruction.trim() || isGeneratingSnippet"
+                @click="generateSnippet"
+              >
                 {{ isGeneratingSnippet ? 'Drafting…' : 'Generate with AI' }}
               </button>
             </div>
 
             <form class="snippet-editor-form" @submit.prevent="saveSnippet">
-              <input v-model="snippetDraft.name" class="label-input" maxlength="50" placeholder="Trigger, e.g. hello-world" />
+              <input
+                v-model="snippetDraft.name"
+                class="label-input"
+                maxlength="50"
+                placeholder="Trigger, e.g. hello-world"
+              />
               <div class="settings-signature-editor snippet-editor">
                 <ComposerEditor
                   :model-value="snippetDraft.html"
@@ -499,15 +566,24 @@ function toggleRuleEnabled(rule) {
               </div>
               <p v-if="snippetError" class="snippet-error" role="alert">{{ snippetError }}</p>
               <div class="label-create-actions">
-                <button v-if="editingSnippetId" type="button" class="btn btn-secondary" @click="resetSnippetDraft">Cancel</button>
-                <button type="submit" class="btn btn-primary">{{ editingSnippetId ? 'Save snippet' : 'Add snippet' }}</button>
+                <button
+                  v-if="editingSnippetId"
+                  type="button"
+                  class="btn btn-secondary"
+                  @click="resetSnippetDraft"
+                >
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-primary">
+                  {{ editingSnippetId ? 'Save snippet' : 'Add snippet' }}
+                </button>
               </div>
             </form>
           </section>
 
           <!-- Notifications -->
           <section v-if="activeSection === 'notifications'" class="settings-section">
-            <h3 class="settings-section-title">Notifications</h3>
+            <h3 class="settings-section-title">Browser notifications</h3>
             <label class="settings-row">
               <div class="settings-row-text">
                 <span>Browser notifications</span>
@@ -535,7 +611,7 @@ function toggleRuleEnabled(rule) {
             class="settings-section"
             data-testid="personalisation-section"
           >
-            <h3 class="settings-section-title">Personalisation</h3>
+            <h3 class="settings-section-title">AI Today interests</h3>
             <p class="settings-section-hint">
               Topics AI Today ranks your daily news against — GitHub projects and Product Hunt
               launches are picked to match these. UK headlines are never filtered. Leave the list
@@ -582,9 +658,10 @@ function toggleRuleEnabled(rule) {
           </section>
 
           <section v-if="activeSection === 'labels'" class="settings-section">
-            <h3 class="settings-section-title">Labels</h3>
+            <h3 class="settings-section-title">Email labels</h3>
             <p class="settings-section-hint">
-              Cookie AI uses enabled label descriptions to auto-tag new mail. Deleting a label removes it from every message.
+              Cookie AI uses enabled label descriptions to auto-tag new mail. Deleting a label
+              removes it from every message.
             </p>
 
             <div class="label-table" v-if="store.labels.length">
@@ -703,9 +780,10 @@ function toggleRuleEnabled(rule) {
 
           <!-- Rules -->
           <section v-if="activeSection === 'rules'" class="settings-section">
-            <h3 class="settings-section-title">Rules</h3>
+            <h3 class="settings-section-title">Email rules</h3>
             <p class="settings-section-hint">
-              Automatically apply a tag or mark mail done when new mail matches conditions on subject, body, from, or to. Rules run when mail arrives, before AI auto-tagging.
+              Automatically apply a tag or mark mail done when new mail matches conditions on
+              subject, body, from, or to. Rules run when mail arrives, before AI auto-tagging.
             </p>
 
             <div class="rule-list" v-if="store.rules.length">
@@ -724,14 +802,22 @@ function toggleRuleEnabled(rule) {
                     class="ni-label-pill"
                     :style="{
                       color: store.labels.find((l) => l.id === rule.label_id)?.color,
-                      backgroundColor: (store.labels.find((l) => l.id === rule.label_id)?.color || '#64748b') + '1f',
+                      backgroundColor:
+                        (store.labels.find((l) => l.id === rule.label_id)?.color || '#64748b') +
+                        '1f',
                     }"
                   >
                     {{ labelName(rule.label_id) }}
                   </span>
                   <span class="rule-row-summary">
                     {{ rule.match_type === 'any' ? 'Any of' : 'All of' }}:
-                    {{ rule.conditions.map((c) => `${fieldLabel(c.field)} ${operatorLabel(c.operator)} "${c.value}"`).join(rule.match_type === 'any' ? ' · or ' : ' · and ') }}
+                    {{
+                      rule.conditions
+                        .map(
+                          (c) => `${fieldLabel(c.field)} ${operatorLabel(c.operator)} "${c.value}"`,
+                        )
+                        .join(rule.match_type === 'any' ? ' · or ' : ' · and ')
+                    }}
                   </span>
                 </div>
                 <div class="rule-row-actions">
@@ -743,7 +829,11 @@ function toggleRuleEnabled(rule) {
                     @change="toggleRuleEnabled(rule)"
                   />
                   <div class="label-row-actions">
-                    <button class="ni-action-btn" :title="`Edit ${rule.name || 'rule'}`" @click="editRule(rule)">
+                    <button
+                      class="ni-action-btn"
+                      :title="`Edit ${rule.name || 'rule'}`"
+                      @click="editRule(rule)"
+                    >
                       <span class="material-symbols-outlined">edit</span>
                     </button>
                     <button
@@ -767,14 +857,31 @@ function toggleRuleEnabled(rule) {
                 placeholder="Rule name (optional)"
               />
 
-              <div class="rule-condition-row" v-for="(condition, index) in ruleDraft.conditions" :key="index">
+              <div
+                class="rule-condition-row"
+                v-for="(condition, index) in ruleDraft.conditions"
+                :key="index"
+              >
                 <select class="settings-select" v-model="condition.field">
-                  <option v-for="field in RULE_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+                  <option v-for="field in RULE_FIELDS" :key="field.value" :value="field.value">
+                    {{ field.label }}
+                  </option>
                 </select>
                 <select class="settings-select" v-model="condition.operator">
-                  <option v-for="operator in RULE_OPERATORS" :key="operator.value" :value="operator.value">{{ operator.label }}</option>
+                  <option
+                    v-for="operator in RULE_OPERATORS"
+                    :key="operator.value"
+                    :value="operator.value"
+                  >
+                    {{ operator.label }}
+                  </option>
                 </select>
-                <input v-model="condition.value" class="label-input" maxlength="200" placeholder="Value" />
+                <input
+                  v-model="condition.value"
+                  class="label-input"
+                  maxlength="200"
+                  placeholder="Value"
+                />
                 <button
                   type="button"
                   class="ni-action-btn label-delete-btn"
@@ -785,7 +892,11 @@ function toggleRuleEnabled(rule) {
                   <span class="material-symbols-outlined">close</span>
                 </button>
               </div>
-              <button type="button" class="btn btn-secondary rule-add-condition-btn" @click="addRuleCondition">
+              <button
+                type="button"
+                class="btn btn-secondary rule-add-condition-btn"
+                @click="addRuleCondition"
+              >
                 + Add condition
               </button>
 
@@ -808,14 +919,23 @@ function toggleRuleEnabled(rule) {
                   <span>Apply label</span>
                   <select class="settings-select" v-model="ruleDraft.label_id">
                     <option value="" disabled>Choose a label</option>
-                    <option v-for="label in userLabels" :key="label.id" :value="label.id">{{ label.name }}</option>
+                    <option v-for="label in userLabels" :key="label.id" :value="label.id">
+                      {{ label.name }}
+                    </option>
                   </select>
                 </label>
               </div>
 
               <p v-if="ruleError" class="snippet-error" role="alert">{{ ruleError }}</p>
               <div class="label-create-actions">
-                <button v-if="editingRuleId" type="button" class="btn btn-secondary" @click="resetRuleDraft">Cancel</button>
+                <button
+                  v-if="editingRuleId"
+                  type="button"
+                  class="btn btn-secondary"
+                  @click="resetRuleDraft"
+                >
+                  Cancel
+                </button>
                 <button type="submit" class="btn btn-primary" :disabled="isSavingRule">
                   {{ editingRuleId ? 'Save rule' : 'Add rule' }}
                 </button>
@@ -824,10 +944,6 @@ function toggleRuleEnabled(rule) {
           </section>
         </div>
       </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-secondary" @click="store.activeModal = null">Close</button>
-      </div>
-    </div>
+    </main>
   </div>
 </template>

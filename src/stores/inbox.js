@@ -326,9 +326,6 @@ export const useInboxStore = defineStore('inbox', {
     toasts: [],
     nextToastId: 1,
 
-    // Modals
-    activeModal: null, // 'settings'
-
     // Reading panel: id of the email open in the traditional inbox reader
     openEmailId: null,
 

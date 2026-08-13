@@ -130,9 +130,7 @@ export function useCommands() {
         id: 'open-settings',
         title: 'Open Settings',
         icon: 'settings',
-        run: () => {
-          store.activeModal = 'settings'
-        },
+        run: () => router.push({ name: 'settings', params: { section: 'account' } }),
       },
     ]
     return list.filter((c) => c.visible !== false)

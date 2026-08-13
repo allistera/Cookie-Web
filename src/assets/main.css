@@ -3211,44 +3211,120 @@ button.ni-attachment:hover {
   transform: translateY(0);
 }
 
-/* Settings Modal */
-.settings-modal-container {
-  max-width: 720px;
-  width: 92%;
+/* Full-page settings */
+.settings-page {
+  display: grid;
+  grid-template-columns: clamp(260px, 18vw, 360px) minmax(0, 1fr);
+  height: 100vh;
+  padding: 20px 20px 20px 0;
+  background-color: var(--bg-input);
 }
 
-/* Two-pane settings: category sidebar + content pane. The compound
-   selector outranks .settings-body's flex-direction: column, which appears
-   later in this file. */
-.settings-body.settings-layout {
-  flex-direction: row;
-  gap: 0;
-  padding: 0;
+.settings-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px 18px 24px;
+  overflow-y: auto;
+}
+
+.settings-back-link {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  min-height: 38px;
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.settings-back-link:hover,
+.settings-back-link:focus-visible {
+  color: var(--text-primary);
+}
+
+.settings-back-link .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin-bottom: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background-color: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-search:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+}
+
+.settings-search .material-symbols-outlined {
+  color: var(--text-secondary);
+  font-size: 19px;
+}
+
+.settings-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.settings-search input::placeholder {
+  color: var(--text-secondary);
 }
 
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 170px;
-  padding: 16px 10px;
-  border-right: 1px solid var(--border-color);
-  background-color: var(--bg-sidebar, var(--bg-input));
+  gap: 24px;
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-nav-label {
+  margin: 0 10px 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .settings-nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
+  min-height: 38px;
+  padding: 8px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: none;
   color: var(--text-secondary);
   font: inherit;
   font-size: 14px;
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
 }
 
 .settings-nav-item .material-symbols-outlined {
@@ -3256,20 +3332,55 @@ button.ni-attachment:hover {
 }
 
 .settings-nav-item:hover {
+  background-color: var(--bg-hover);
   color: var(--text-primary);
 }
 
 .settings-nav-item.active {
-  background-color: rgba(26, 115, 232, 0.1);
-  color: var(--text-blue);
-  font-weight: 500;
+  background-color: var(--bg-sidebar-active);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.settings-nav-empty {
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.settings-main {
+  min-width: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background-color: var(--bg-app);
+}
+
+.settings-content {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 72px 48px 96px;
+}
+
+.settings-page-header {
+  margin-bottom: 54px;
+  text-align: center;
+}
+
+.settings-page-header h1 {
+  color: var(--text-primary);
+  font-size: clamp(28px, 3vw, 36px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
 }
 
 .settings-pane {
-  flex: 1;
-  padding: 20px 24px;
-  overflow-y: auto;
-  min-width: 0;
+  padding: 26px 30px 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background-color: var(--bg-card);
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-section-hint {
@@ -3407,16 +3518,15 @@ button.ni-attachment:hover {
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .settings-section-title {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  margin-bottom: 12px;
 }
 
 .settings-account-row {
@@ -3459,7 +3569,8 @@ button.ni-attachment:hover {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 0;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-color);
   cursor: pointer;
 }
 
@@ -3737,6 +3848,107 @@ button.ni-attachment:hover {
   align-items: flex-start;
   gap: 6px;
   padding: 0;
+  border-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  body:has(.settings-page) {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+  }
+
+  .settings-page {
+    display: block;
+    height: auto;
+    min-height: 100vh;
+    padding: 0;
+    background-color: var(--bg-app);
+  }
+
+  .settings-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 10px 14px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-input);
+    overflow: visible;
+  }
+
+  .settings-back-link {
+    min-height: 34px;
+    margin-bottom: 8px;
+  }
+
+  .settings-search {
+    height: 38px;
+    margin-bottom: 10px;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-nav-group {
+    display: contents;
+  }
+
+  .settings-nav-label {
+    display: none;
+  }
+
+  .settings-nav-item {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 7px 10px;
+  }
+
+  .settings-main {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .settings-content {
+    padding: 36px 16px 64px;
+  }
+
+  .settings-page-header {
+    margin-bottom: 30px;
+  }
+
+  .settings-pane {
+    padding: 20px 18px 24px;
+  }
+
+  .label-table {
+    overflow-x: auto;
+  }
+
+  .label-table-head,
+  .label-table-row {
+    min-width: 600px;
+  }
+
+  .snippet-ai-row,
+  .label-create-fields,
+  .rule-condition-row,
+  .rule-create-fields {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-row {
+    align-items: flex-start;
+  }
 }
 
 /* Profile Dropdown styling */
