@@ -147,6 +147,9 @@ describe('DocumentsSidebar', () => {
     const wrapper = mountSidebar()
     await flushPromises()
 
+    expect(wrapper.find('.documents-root-label .new-folder-btn').exists()).toBe(true)
+    expect(wrapper.find('.documents-tree > .new-folder-btn').exists()).toBe(false)
+
     await wrapper.find('.new-folder-btn').trigger('click')
     const input = wrapper.find('.new-folder-row input')
     await input.setValue('Reading list')

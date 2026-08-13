@@ -155,7 +155,15 @@ function onDragEnd() {
       @dragleave="dropFolderId = undefined"
       @drop="onDrop(null)"
     >
-      Documents
+      <span>Documents</span>
+      <button
+        class="new-folder-btn"
+        title="New folder"
+        aria-label="New folder"
+        @click.stop="showNewFolder(null)"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
+      </button>
     </div>
     <nav class="sidebar-nav documents-tree" aria-label="Documents">
       <template v-for="row in treeRows" :key="`${row.kind}-${row.item.id}`">
@@ -267,11 +275,6 @@ function onDragEnd() {
           @blur="submitNewFolder"
         />
       </form>
-
-      <button class="nav-item new-folder-btn" @click="showNewFolder(null)">
-        <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
-        <span class="nav-text">New folder</span>
-      </button>
     </nav>
 
     <template v-if="store.documentTags.length">
@@ -383,6 +386,12 @@ function onDragEnd() {
   border-radius: 6px;
 }
 
+.documents-root-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .new-folder-row {
   display: flex;
   align-items: center;
@@ -402,17 +411,33 @@ function onDragEnd() {
 }
 
 .new-folder-btn {
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -5px -4px -5px 0;
+  flex: 0 0 auto;
   border: none;
-  background: none;
-  text-align: left;
-  font: inherit;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
   cursor: pointer;
-  opacity: 0.75;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
-.new-folder-btn:hover {
-  opacity: 1;
+.new-folder-btn:hover,
+.new-folder-btn:focus-visible {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.new-folder-btn .material-symbols-outlined {
+  font-size: 17px;
 }
 
 .document-tag-symbol {
