@@ -32,17 +32,19 @@ class InsertDateTool {
   render() {
     // Deferred so Editor.js finishes mounting this block before it is
     // replaced; the paragraph lands at the same index with the caret at its
-    // end, ready to keep typing. The index comes from this block's own id —
-    // getCurrentBlockIndex tracks focus, which WebKit moves on the popover
-    // click, and a wrong index here deletes real content.
+    // end, ready to keep typing. The index comes only from this block's own
+    // id — getCurrentBlockIndex tracks focus, which the popover click moves
+    // in some engines, and deleting a guessed index destroys real content.
+    // If the id can't be found, do nothing rather than guess.
     setTimeout(() => {
-      let index = this.api.blocks.getCurrentBlockIndex()
+      let index = -1
       for (let i = 0; i < this.api.blocks.getBlocksCount(); i++) {
         if (this.api.blocks.getBlockByIndex(i)?.id === this.block?.id) {
           index = i
           break
         }
       }
+      if (index === -1) return
       this.api.blocks.insert('paragraph', { text: formatInsertedDate() }, {}, index + 1, false)
       this.api.blocks.delete(index)
       this.api.caret.setToBlock(index, 'end')
@@ -95,7 +97,10 @@ async function emitBlocks() {
   if (!editor) return
   try {
     const output = await editor.save()
-    emit('save', { blocks: output.blocks })
+    // The Date tool is transient — it swaps itself for a paragraph. Should a
+    // save catch it mid-swap, persisting it would re-run its replacement on
+    // every future load, so it never reaches storage.
+    emit('save', { blocks: output.blocks.filter((block) => block.type !== 'date') })
   } catch (error) {
     console.error('Reading editor content failed:', error)
   }

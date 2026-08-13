@@ -58,9 +58,21 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await page.keyboard.type('/')
   const popover = page.locator('.ce-popover--opened .ce-popover__container')
   await expect(popover).toBeVisible()
+  const dateText = formatInsertedDate()
+  const datePatch = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes(dateText),
+  )
   await popover.locator('.ce-popover-item', { hasText: 'Date' }).click()
-  await expect(page.locator('.ce-paragraph', { hasText: formatInsertedDate() })).toBeVisible()
+  await expect(page.locator('.ce-paragraph', { hasText: dateText })).toBeVisible()
+  // The swap must replace only its own placeholder, never neighbouring text.
+  await expect(page.getByText('Agenda for Thursday.')).toBeVisible()
 
+  // The reload below proves persistence, so wait for the PATCH that actually
+  // carries the date — the status line alone can show a pre-date "saved".
+  await datePatch
   await expect(page.locator('.save-status')).toHaveText('All changes saved')
 
   // The sidebar picked the title up live, and it survives a reload (the
