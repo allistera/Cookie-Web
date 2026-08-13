@@ -75,7 +75,7 @@ function parseFromEnv(from) {
 // The "to" field is a comma-separated list of addresses; returns the trimmed,
 // non-empty ones. Exported for testing.
 export function parseRecipients(to) {
-  if (typeof to !== 'string') return []
+  if (!(to?.split instanceof Function)) return []
   const recipients = to.split(',').map((address) => address.trim()).filter(Boolean)
   if (recipients.length > MAX_OUTBOUND_RECIPIENTS) return []
   return recipients
@@ -83,18 +83,21 @@ export function parseRecipients(to) {
 
 export function validateOutboundMessage({ to, subject, text, html }) {
   const recipients = parseRecipients(to)
-  const bodyHtml = typeof html === 'string' && html.trim() ? html : null
+  const htmlText = String(html ?? '')
+  const bodyHtml = htmlText.trim() ? htmlText : null
+  const subjectText = String(subject ?? '')
+  const bodyText = String(text ?? '')
   if (
     recipients.length === 0 ||
     !recipients.every((address) => address.length <= 320 && address.includes('@')) ||
-    typeof subject !== 'string' || !subject.trim() ||
-    typeof text !== 'string' || !text.trim()
+    !subjectText.trim() ||
+    !bodyText.trim()
   ) {
     return { error: 'to, subject and text are required and must be valid' }
   }
 
-  const subjectBytes = Buffer.byteLength(subject)
-  const textBytes = Buffer.byteLength(text)
+  const subjectBytes = Buffer.byteLength(subjectText)
+  const textBytes = Buffer.byteLength(bodyText)
   const htmlBytes = bodyHtml ? Buffer.byteLength(bodyHtml) : 0
   if (
     subjectBytes > MAX_OUTBOUND_SUBJECT_BYTES ||
@@ -111,8 +114,7 @@ export function validateOutboundMessage({ to, subject, text, html }) {
 // (missing, unparsable, in the past, or too soon) is rejected. Exported for
 // testing.
 export function parseScheduledFor(sendAt) {
-  if (typeof sendAt !== 'string') return null
-  const timestamp = Date.parse(sendAt)
+  const timestamp = Date.parse(String(sendAt ?? ''))
   if (Number.isNaN(timestamp) || timestamp < Date.now() + MIN_SCHEDULE_LEAD_MS) return null
   return new Date(timestamp).toISOString()
 }
@@ -263,13 +265,14 @@ async function deliverMail(sql, email, { recipients, subject, text, html, replyT
   const trackedHtml = appendReadReceipt(html, text, receiptUrl)
 
   const resend = new Resend(process.env.RESEND_API_KEY)
-  const { data, error } = await resend.emails.send({
+  const payload = {
     from: process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
     to: recipients,
     subject,
     text,
-    ...(trackedHtml ? { html: trackedHtml } : {}),
-  })
+  }
+  if (trackedHtml) payload.html = trackedHtml
+  const { data, error } = await resend.emails.send(payload)
   if (error) throw new Error(error.message || 'Failed to send email')
 
   let messageUuid = null
@@ -444,7 +447,7 @@ async function handleScheduled(req, res, email) {
       res.end(JSON.stringify({ error: 'Invalid JSON body' }))
       return
     }
-    const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+    const id = UUID_RE.test(body.id) ? String(body.id) : null
     if (!id) {
       res.statusCode = 400
       res.end(JSON.stringify({ error: 'id is required' }))
@@ -469,9 +472,8 @@ async function handleScheduled(req, res, email) {
 // regardless of the two strings' actual lengths, and neither a length nor a
 // byte-value mismatch is distinguishable by comparison time.
 function timingSafeEqualStrings(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false
-  const digestA = crypto.createHash('sha256').update(a).digest()
-  const digestB = crypto.createHash('sha256').update(b).digest()
+  const digestA = crypto.createHash('sha256').update(String(a ?? '')).digest()
+  const digestB = crypto.createHash('sha256').update(String(b ?? '')).digest()
   return crypto.timingSafeEqual(digestA, digestB)
 }
 
@@ -556,10 +558,7 @@ async function handleSend(req, res, email) {
   }
   const { recipients, bodyHtml } = validated
   // Fixture ids from e2e/dev mode aren't UUIDs — ignore them rather than error.
-  const replyTo =
-    typeof replyToMessageId === 'string' && UUID_RE.test(replyToMessageId)
-      ? replyToMessageId
-      : null
+  const replyTo = UUID_RE.test(replyToMessageId) ? String(replyToMessageId) : null
 
   if (sendAt !== undefined) {
     const scheduledFor = parseScheduledFor(sendAt)

@@ -2,7 +2,7 @@
 // the raw stream. Support both.
 export async function readJsonBody(req) {
   if (req.body !== undefined) {
-    return typeof req.body === 'string' ? JSON.parse(req.body) : req.body
+    return req.body instanceof Object ? req.body : JSON.parse(req.body)
   }
   let raw = ''
   for await (const chunk of req) {

@@ -43,7 +43,9 @@ function makeRes() {
 }
 
 function request({ method = 'POST', url = '/api/send', headers = {}, body } = {}) {
-  return { method, url, headers, ...(body !== undefined ? { body } : {}) }
+  const req = { method, url, headers }
+  if (body !== undefined) req.body = body
+  return req
 }
 
 // Each entry is the return value of the Nth sql`...` invocation, in call

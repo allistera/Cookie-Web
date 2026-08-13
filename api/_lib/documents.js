@@ -13,14 +13,16 @@ export const MAX_EMOJI_LENGTH = 16
 // but still bounds a single row (and request) to something sane.
 export const MAX_BLOCKS_BYTES = 6 * 1024 * 1024
 
+// UUID_RE.test coerces its argument; the identity check keeps non-strings
+// that could coerce into a valid-looking id out of the raw SQL bindings.
 function isUuid(value) {
-  return typeof value === 'string' && UUID_RE.test(value)
+  return value === String(value ?? '') && UUID_RE.test(value)
 }
 
 // Titles and emoji come straight from contenteditable inputs; bound them
 // rather than trusting the client. Returns null when not a string at all.
 export function cleanText(value, max) {
-  if (typeof value !== 'string') return null
+  if (!(value?.trim instanceof Function)) return null
   return value.trim().slice(0, max)
 }
 
@@ -28,7 +30,7 @@ export function cleanText(value, max) {
 // null on anything else so the caller can 400 instead of persisting garbage.
 export function normalizeBlocks(input) {
   if (!Array.isArray(input)) return null
-  if (input.some((block) => typeof block !== 'object' || block === null)) return null
+  if (input.some((block) => Object(block) !== block)) return null
   if (JSON.stringify(input).length > MAX_BLOCKS_BYTES) return null
   return input
 }
@@ -213,7 +215,7 @@ async function handlePatch(res, body, email, sql) {
     updates.emoji = emoji
   }
   if (Object.hasOwn(body, 'starred')) {
-    if (typeof body.starred !== 'boolean') {
+    if (body.starred !== true && body.starred !== false) {
       res.statusCode = 400
       res.end(JSON.stringify({ error: 'starred must be a boolean' }))
       return

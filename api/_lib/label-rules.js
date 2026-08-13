@@ -16,9 +16,9 @@ function normalizeConditions(input) {
   if (!Array.isArray(input) || input.length === 0 || input.length > MAX_CONDITIONS) return null
   const conditions = []
   for (const raw of input) {
-    const field = typeof raw?.field === 'string' ? raw.field : ''
-    const operator = typeof raw?.operator === 'string' ? raw.operator : ''
-    const value = typeof raw?.value === 'string' ? raw.value.trim() : ''
+    const field = String(raw?.field ?? '')
+    const operator = String(raw?.operator ?? '')
+    const value = String(raw?.value ?? '').trim()
     if (!FIELDS.includes(field) || !OPERATORS.includes(operator) || !value || value.length > MAX_VALUE) {
       return null
     }
@@ -68,11 +68,11 @@ async function listRules(sql, email, res) {
 }
 
 async function createRule(sql, email, body, res) {
-  const name = typeof body.name === 'string' ? body.name.trim() || null : null
+  const name = String(body.name ?? '').trim() || null
   const action = ACTIONS.includes(body.action) ? body.action : 'apply_label'
-  const labelId = typeof body.label_id === 'string' && UUID_RE.test(body.label_id) ? body.label_id : null
+  const labelId = UUID_RE.test(body.label_id) ? String(body.label_id) : null
   const matchType = MATCH_TYPES.includes(body.match_type) ? body.match_type : 'all'
-  const enabled = typeof body.enabled === 'boolean' ? body.enabled : true
+  const enabled = body.enabled === true || body.enabled === false ? body.enabled : true
   const conditions = normalizeConditions(body.conditions)
 
   if (
@@ -134,7 +134,7 @@ async function createRule(sql, email, body, res) {
 }
 
 async function updateRule(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   const hasName = Object.hasOwn(body, 'name')
   const hasAction = Object.hasOwn(body, 'action')
   const hasLabelId = Object.hasOwn(body, 'label_id')
@@ -142,8 +142,8 @@ async function updateRule(sql, email, body, res) {
   const hasEnabled = Object.hasOwn(body, 'enabled')
   const hasConditions = Object.hasOwn(body, 'conditions')
 
-  const name = typeof body.name === 'string' ? body.name.trim() || null : null
-  const labelId = typeof body.label_id === 'string' && UUID_RE.test(body.label_id) ? body.label_id : null
+  const name = String(body.name ?? '').trim() || null
+  const labelId = UUID_RE.test(body.label_id) ? String(body.label_id) : null
   const conditions = hasConditions ? normalizeConditions(body.conditions) : undefined
 
   if (
@@ -153,7 +153,7 @@ async function updateRule(sql, email, body, res) {
     (hasLabelId && !labelId) ||
     (hasName && name && name.length > MAX_NAME) ||
     (hasMatchType && !MATCH_TYPES.includes(body.match_type)) ||
-    (hasEnabled && typeof body.enabled !== 'boolean') ||
+    (hasEnabled && body.enabled !== true && body.enabled !== false) ||
     (hasConditions && !conditions)
   ) {
     res.statusCode = 400
@@ -238,7 +238,7 @@ async function updateRule(sql, email, body, res) {
 }
 
 async function deleteRule(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))

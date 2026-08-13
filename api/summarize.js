@@ -86,10 +86,10 @@ export function buildThreadTranscript(messages) {
 }
 
 function outputText(body) {
-  if (typeof body?.output_text === 'string') return body.output_text
+  if (body?.output_text) return String(body.output_text)
   for (const item of body?.output || []) {
     for (const content of item?.content || []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text
+      if (content?.type === 'output_text' && content.text) return String(content.text)
     }
   }
   return ''
@@ -138,10 +138,11 @@ export async function generateThreadSummary(messages, apiKey) {
   })
   if (!response.ok) throw new Error(`OpenAI Responses API responded ${response.status}`)
   const parsed = JSON.parse(outputText(await response.json()))
-  if (typeof parsed.summary !== 'string' || !parsed.summary.trim()) {
+  const summary = String(parsed.summary ?? '').trim()
+  if (!summary) {
     throw new Error('OpenAI Responses API returned an invalid summary')
   }
-  return parsed.summary.trim()
+  return summary
 }
 
 // message_ai is also populated by the inbound enrichment worker. Upsert only
@@ -194,7 +195,8 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ error: 'Invalid JSON body' }))
     return
   }
-  if (typeof body.id !== 'string' || !UUID_RE.test(body.id)) {
+  const id = String(body.id ?? '')
+  if (!UUID_RE.test(id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid message id is required' }))
     return
@@ -202,14 +204,14 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql()
-    const messages = await fetchThreadMessages(sql, email, body.id)
+    const messages = await fetchThreadMessages(sql, email, id)
     if (!messages.length) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))
       return
     }
     const summary = await generateThreadSummary(messages, process.env.OPENAI_API_KEY)
-    await saveMessageSummary(sql, body.id, summary)
+    await saveMessageSummary(sql, id, summary)
     res.statusCode = 200
     res.end(JSON.stringify({ summary, messageCount: messages.length, model: SUMMARY_MODEL }))
   } catch (err) {

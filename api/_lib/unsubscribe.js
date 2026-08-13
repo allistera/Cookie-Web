@@ -22,14 +22,9 @@ export function parseListUnsubscribe(headers) {
   const findHeader = (name) => {
     const lower = name.toLowerCase()
     for (const entry of headers) {
-      if (
-        entry &&
-        typeof entry.key === 'string' &&
-        entry.key.toLowerCase() === lower &&
-        typeof entry.value === 'string'
-      ) {
-        return entry.value
-      }
+      if (String(entry?.key ?? '').toLowerCase() !== lower) continue
+      if (entry.value == null) continue
+      return String(entry.value)
     }
     return null
   }

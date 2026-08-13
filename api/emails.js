@@ -164,17 +164,19 @@ export default async function handler(req, res) {
     const hasMore = rows.length > limit
     const emails = hasMore ? rows.slice(0, limit) : rows
     const last = emails[emails.length - 1]
+    const payload = {
+      emails,
+      // toISOString keeps millisecond precision; Date's default toString
+      // truncates to seconds, which can skip same-second rows on page breaks.
+      nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
+      readReceiptsAvailable: folder === 'sent',
+    }
+    if (!cursor) {
+      payload.unreadCount = userRow?.unread ?? 0
+      payload.userId = userRow?.user_id ?? null
+    }
     res.statusCode = 200
-    res.end(
-      JSON.stringify({
-        emails,
-        // toISOString keeps millisecond precision; Date's default toString
-        // truncates to seconds, which can skip same-second rows on page breaks.
-        nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
-        readReceiptsAvailable: folder === 'sent',
-        ...(cursor ? {} : { unreadCount: userRow?.unread ?? 0, userId: userRow?.user_id ?? null }),
-      }),
-    )
+    res.end(JSON.stringify(payload))
   } catch (err) {
     console.error('GET /api/emails failed:', err)
     await captureApiError(err, { route: 'GET /api/emails' })

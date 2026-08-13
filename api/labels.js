@@ -25,10 +25,9 @@ async function listLabels(sql, email, res) {
 }
 
 async function createLabel(sql, email, body, res) {
-  const name = typeof body.name === 'string' ? body.name.trim() : ''
-  const color = typeof body.color === 'string' ? body.color.trim() : ''
-  const description =
-    typeof body.description === 'string' ? body.description.trim() || null : null
+  const name = String(body.name ?? '').trim()
+  const color = String(body.color ?? '').trim()
+  const description = String(body.description ?? '').trim() || null
   if (
     !name || name.length > MAX_NAME ||
     !COLOR_RE.test(color) ||
@@ -59,16 +58,16 @@ async function createLabel(sql, email, body, res) {
 }
 
 async function updateLabel(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   const hasName = Object.hasOwn(body, 'name')
   const hasAutoApply = Object.hasOwn(body, 'auto_apply')
-  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  const name = String(body.name ?? '').trim()
 
   if (
     !id ||
     (!hasName && !hasAutoApply) ||
     (hasName && (!name || name.length > MAX_NAME)) ||
-    (hasAutoApply && typeof body.auto_apply !== 'boolean')
+    (hasAutoApply && body.auto_apply !== true && body.auto_apply !== false)
   ) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id and a valid label update are required' }))
@@ -105,7 +104,7 @@ async function updateLabel(sql, email, body, res) {
 }
 
 async function deleteLabel(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))

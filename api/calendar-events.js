@@ -35,16 +35,16 @@ export function buildRecurrenceRule(repeat, repeatUntil, repeatDays) {
 }
 
 function validEventFields(body) {
-  const title = typeof body.title === 'string' ? body.title.trim() : ''
-  const description = typeof body.description === 'string' ? body.description.trim() || null : null
-  const location = typeof body.location === 'string' ? body.location.trim() || null : null
-  const date = typeof body.date === 'string' ? body.date : ''
-  const start = typeof body.start === 'string' ? body.start : ''
+  const title = String(body.title ?? '').trim()
+  const description = String(body.description ?? '').trim() || null
+  const location = String(body.location ?? '').trim() || null
+  const date = String(body.date ?? '')
+  const start = String(body.start ?? '')
   const duration = Number.isFinite(body.duration) ? Math.trunc(body.duration) : 0
-  const calendar = typeof body.calendar === 'string' ? body.calendar : ''
-  const tone = typeof body.tone === 'string' ? body.tone : null
-  const repeat = typeof body.repeat === 'string' ? body.repeat : 'none'
-  const repeatUntil = typeof body.repeatUntil === 'string' && body.repeatUntil ? body.repeatUntil : null
+  const calendar = String(body.calendar ?? '')
+  const tone = body.tone == null ? null : String(body.tone)
+  const repeat = String(body.repeat ?? 'none')
+  const repeatUntil = String(body.repeatUntil ?? '') || null
   const repeatDaysRaw = Array.isArray(body.repeatDays) ? body.repeatDays : null
 
   if (
@@ -211,7 +211,7 @@ const RECURRENCE_RE = new RegExp(
 )
 
 function parseRecurrenceRule(rule) {
-  const match = typeof rule === 'string' ? rule.match(RECURRENCE_RE) : null
+  const match = String(rule ?? '').match(RECURRENCE_RE)
   if (!match) return null
   return { freq: match[1], byday: match[2] ? match[2].split(',') : null, until: match[3] ?? null }
 }
@@ -364,7 +364,7 @@ async function createEvent(sql, email, body, res) {
 }
 
 async function updateEvent(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   const fields = id ? validEventFields(body) : null
   if (!fields) {
     res.statusCode = 400
@@ -413,7 +413,7 @@ async function updateEvent(sql, email, body, res) {
 }
 
 async function deleteEvent(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))

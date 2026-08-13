@@ -87,7 +87,7 @@ async function handleAttachmentGet(req, res, email) {
   res.setHeader('Cache-Control', 'private, no-store')
 
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
-  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+  if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid attachment id is required' }))
     return
@@ -136,7 +136,7 @@ async function handleAttachmentGet(req, res, email) {
 // malformed id.
 async function handleGet(req, res, email) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
-  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+  if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid message id is required' }))
     return
@@ -171,7 +171,7 @@ async function handleGet(req, res, email) {
 
 async function handleThreadBodyGet(req, res, email) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
-  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+  if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid message id is required' }))
     return
@@ -198,8 +198,9 @@ async function handleThreadBodyGet(req, res, email) {
 // the message and the label are ownership-checked before the join row changes,
 // and the message's full label set is returned so the reader can resync its
 // pills. add_label is idempotent (ON CONFLICT DO NOTHING).
-async function mutateMessageLabel(res, email, messageId, action, labelId) {
-  if (typeof labelId !== 'string' || !UUID_RE.test(labelId)) {
+async function mutateMessageLabel(res, email, messageId, action, rawLabelId) {
+  const labelId = UUID_RE.test(rawLabelId) ? String(rawLabelId) : null
+  if (!labelId) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid label_id is required' }))
     return
@@ -275,8 +276,9 @@ async function handlePost(req, res, email) {
     return
   }
 
-  const { id, action } = body
-  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+  const { action } = body
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
+  if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid id is required' }))
     return
@@ -446,17 +448,19 @@ export default async function handler(req, res) {
     return
   }
 
-  const { id, is_unread, is_starred, is_archived, is_deleted, scheduled_for } = body
+  const { is_unread, is_starred, is_archived, is_deleted } = body
   const flags = [is_unread, is_starred, is_archived, is_deleted]
-  const validId = typeof id === 'string' && UUID_RE.test(id)
-  const flagsValid = flags.every((f) => f === undefined || typeof f === 'boolean')
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
+  const flagsValid = flags.every((f) => f === undefined || f === true || f === false)
   const hasScheduledChange = Object.hasOwn(body, 'scheduled_for')
+  const scheduledFor =
+    hasScheduledChange && body.scheduled_for !== null ? String(body.scheduled_for ?? '') : null
   const scheduledForValid =
     !hasScheduledChange ||
-    scheduled_for === null ||
-    (typeof scheduled_for === 'string' && Number.isFinite(Date.parse(scheduled_for)))
-  const hasChange = flags.some((f) => typeof f === 'boolean') || hasScheduledChange
-  if (!validId || !flagsValid || !scheduledForValid || !hasChange) {
+    scheduledFor === null ||
+    Number.isFinite(Date.parse(scheduledFor))
+  const hasChange = flags.some((f) => f === true || f === false) || hasScheduledChange
+  if (!id || !flagsValid || !scheduledForValid || !hasChange) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id and at least one valid change are required' }))
     return
@@ -471,7 +475,7 @@ export default async function handler(req, res) {
         is_archived = COALESCE(${is_archived ?? null}::boolean, m.is_archived),
         is_deleted  = COALESCE(${is_deleted ?? null}::boolean, m.is_deleted),
         scheduled_for = CASE
-          WHEN ${hasScheduledChange}::boolean THEN ${scheduled_for ?? null}::timestamptz
+          WHEN ${hasScheduledChange}::boolean THEN ${scheduledFor}::timestamptz
           ELSE m.scheduled_for
         END
       FROM users u

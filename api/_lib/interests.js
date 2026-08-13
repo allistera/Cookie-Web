@@ -36,7 +36,7 @@ export function saveInterests(sql, email, interests) {
 // all, which the caller reports as a 400 rather than silently storing nothing.
 export function normalizeInterests(input) {
   if (!Array.isArray(input)) return null
-  if (input.some((entry) => typeof entry !== 'string')) return null
+  if (input.some((entry) => !(entry?.trim instanceof Function))) return null
 
   const seen = new Set()
   const interests = []

@@ -86,13 +86,13 @@ async function listCalendars(sql, email, res) {
 }
 
 function validName(name) {
-  const trimmed = typeof name === 'string' ? name.trim() : ''
+  const trimmed = String(name ?? '').trim()
   return trimmed && trimmed.length <= MAX_NAME ? trimmed : null
 }
 
 async function createCalendar(sql, email, body, res) {
   const name = validName(body.name)
-  const color = typeof body.color === 'string' ? body.color : ''
+  const color = String(body.color ?? '')
   const subscriptionUrl =
     body.subscriptionUrl !== undefined && body.subscriptionUrl !== null && body.subscriptionUrl !== ''
       ? validSubscriptionUrl(body.subscriptionUrl)
@@ -138,7 +138,7 @@ async function createCalendar(sql, email, body, res) {
 // Manual re-sync of an existing subscribed calendar, triggered from the
 // sidebar's "Sync now" action.
 async function syncCalendar(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))
@@ -169,7 +169,7 @@ async function syncCalendar(sql, email, body, res) {
 }
 
 async function renameCalendar(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   const name = id ? validName(body.name) : null
   if (!id || !name) {
     res.statusCode = 400
@@ -211,7 +211,7 @@ async function renameCalendar(sql, email, body, res) {
 // deleting the subscription cascades its events rather than asking the user
 // to clear a calendar they can't otherwise edit.
 async function deleteCalendar(sql, email, body, res) {
-  const id = typeof body.id === 'string' && UUID_RE.test(body.id) ? body.id : null
+  const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))

@@ -99,7 +99,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const question = typeof body.question === 'string' ? body.question.trim() : ''
+  const question = String(body.question ?? '').trim()
   if (!question || question.length > MAX_QUESTION_CHARS) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'question is required (max 500 chars)' }))

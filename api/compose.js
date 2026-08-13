@@ -13,7 +13,7 @@ const RATE_LIMIT = { limit: 10, windowMs: 60_000 }
 const SNIPPET_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 function clean(value, max) {
-  return typeof value === 'string' ? value.trim().slice(0, max) : ''
+  return String(value ?? '').trim().slice(0, max)
 }
 
 async function replyContext(sql, email, id) {
@@ -29,10 +29,10 @@ async function replyContext(sql, email, id) {
 }
 
 function outputText(body) {
-  if (typeof body?.output_text === 'string') return body.output_text
+  if (body?.output_text) return String(body.output_text)
   for (const item of body?.output || []) {
     for (const content of item?.content || []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text
+      if (content?.type === 'output_text' && content.text) return String(content.text)
     }
   }
   return ''
@@ -90,17 +90,18 @@ async function generateDraft(input, apiKey, mode = 'draft') {
   })
   if (!response.ok) throw new Error(`OpenAI Responses API responded ${response.status}`)
   const parsed = JSON.parse(outputText(await response.json()))
-  if (typeof parsed.text !== 'string') {
+  if (parsed.text == null) {
     throw new Error(`OpenAI Responses API returned an invalid ${isSnippet ? 'snippet' : 'draft'}`)
   }
+  const rawText = String(parsed.text)
   if (isSnippet) {
     const name = snippetName(parsed.name)
-    const text = parsed.text.trim().slice(0, 10_000)
+    const text = rawText.trim().slice(0, 10_000)
     if (!name || !text) throw new Error('OpenAI Responses API returned an invalid snippet')
     return { name, text }
   }
-  if (typeof parsed.subject !== 'string') throw new Error('OpenAI Responses API returned an invalid draft')
-  return { subject: parsed.subject.trim(), text: parsed.text.trim() }
+  if (parsed.subject == null) throw new Error('OpenAI Responses API returned an invalid draft')
+  return { subject: String(parsed.subject).trim(), text: rawText.trim() }
 }
 
 // POST /api/compose — returns a reviewable draft. It never sends email and

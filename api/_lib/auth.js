@@ -37,8 +37,8 @@ export async function verifyAccessToken(req) {
     clockTolerance: 5,
   })
 
-  const email = payload[EMAIL_CLAIM] ?? payload.email
-  if (typeof email !== 'string' || !email) {
+  const email = String(payload[EMAIL_CLAIM] ?? payload.email ?? '')
+  if (!email) {
     throw new Error('Access token has no email claim')
   }
   return { ...payload, email: email.toLowerCase() }
