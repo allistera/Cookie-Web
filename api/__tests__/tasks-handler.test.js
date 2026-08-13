@@ -2,30 +2,29 @@ import process from 'node:process'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { createHandler } from '../tasks.js'
 
 // Each tagged-template query resolves to the next queued result, in call
 // order, and every statement's SQL text is recorded so a test can assert on
 // which round trips the handler actually made.
 let sqlQueue = []
 let statements = []
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => {
-    const fn = (strings) => {
-      statements.push(strings.join('?'))
-      return Promise.resolve(sqlQueue.shift() ?? [])
-    }
-    fn.begin = async (callback) => callback(fn)
-    return fn
-  },
-}))
+function getSql() {
+  const fn = (strings) => {
+    statements.push(strings.join('?'))
+    return Promise.resolve(sqlQueue.shift() ?? [])
+  }
+  fn.begin = async (callback) => callback(fn)
+  return fn
+}
 
-import handler from '../tasks.js'
+const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
+
+const handler = createHandler({
+  verifyAccessToken,
+  captureApiError: vi.fn(async () => undefined),
+  getSql,
+})
 
 function makeRes() {
   return {
@@ -197,8 +196,7 @@ describe('POST /api/tasks?resource=refresh', () => {
   })
 
   it('requires authentication like every other route', async () => {
-    const auth = await import('../_lib/auth.js')
-    auth.verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
+    verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
     const res = makeRes()
 
     await handler({ method: 'POST', url: '/api/tasks?resource=refresh', headers: {} }, res)
@@ -294,8 +292,7 @@ describe('POST /api/tasks', () => {
 
 describe('unauthenticated and unsupported methods', () => {
   it('401s without a valid token', async () => {
-    const auth = await import('../_lib/auth.js')
-    auth.verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
+    verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
     const res = makeRes()
 
     await handler(req('GET'), res)

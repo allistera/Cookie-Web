@@ -1,8 +1,6 @@
 import process from 'node:process'
 
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 import { handleRefresh } from './_lib/enricher.js'
 import { handleInterests } from './_lib/interests.js'
@@ -106,7 +104,7 @@ export function digestMessageIds(row) {
   const ids = topics.flatMap((topic) =>
     (Array.isArray(topic?.items) ? topic.items : []).map((item) => item?.message_id),
   )
-  return [...new Set(ids.filter((id) => typeof id === 'string' && UUID_RE.test(id)))]
+  return [...new Set(ids.filter((id) => UUID_RE.test(String(id))))]
 }
 
 // Fold live message state into the stored digest: drop items whose message is
@@ -172,7 +170,7 @@ export async function closeTodoistTask(externalId, token) {
 // POST /api/tasks — { id, action: 'complete' } marks a gathered task done for
 // the authenticated user. Todoist-sourced tasks are closed in Todoist first
 // (when a TODOIST_API_TOKEN is configured); the local row is then removed.
-async function handlePost(req, res, email) {
+async function handlePost(req, res, email, services) {
   let body
   try {
     body = await readJsonBody(req)
@@ -182,8 +180,9 @@ async function handlePost(req, res, email) {
     return
   }
 
-  const { id, action } = body
-  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+  const id = String(body.id ?? '')
+  const { action } = body
+  if (!UUID_RE.test(id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid task id is required' }))
     return
@@ -195,7 +194,7 @@ async function handlePost(req, res, email) {
   }
 
   try {
-    const sql = getSql()
+    const sql = services.getSql()
     const [task] = await fetchOwnedTask(sql, id, email)
     if (!task) {
       res.statusCode = 404
@@ -213,7 +212,7 @@ async function handlePost(req, res, email) {
         await closeTodoistTask(task.external_id, token)
       } catch (err) {
         console.error('Todoist close failed:', err.message)
-        await captureApiError(err, { route: 'POST /api/tasks (todoist close)' })
+        await services.captureApiError(err, { route: 'POST /api/tasks (todoist close)' })
         res.statusCode = 502
         res.end(JSON.stringify({ error: 'Failed to close the task in Todoist' }))
         return
@@ -225,7 +224,7 @@ async function handlePost(req, res, email) {
     res.end(JSON.stringify({ ok: true, closedInTodoist }))
   } catch (err) {
     console.error('POST /api/tasks failed:', err)
-    await captureApiError(err, { route: 'POST /api/tasks' })
+    await services.captureApiError(err, { route: 'POST /api/tasks' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to complete task' }))
   }
@@ -237,68 +236,73 @@ async function handlePost(req, res, email) {
 // news: { created_at, sections } | null } for the AI dashboard. All three are
 // returned together because AI Today always renders all of them.
 // POST completes a task.
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
+export function createHandler(overrides = {}) {
+  const services = createServices(overrides)
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
 
-  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+    const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
 
-  // PUT is only meaningful for ?resource=interests, and PATCH/DELETE only for
-  // ?resource=documents; each resource handler rejects the methods it does
-  // not serve, so the gate here only screens out what nothing serves.
-  const methods =
-    resource === 'documents'
-      ? ['GET', 'POST', 'PATCH', 'DELETE']
-      : ['GET', 'POST', 'PUT']
-  if (!methods.includes(req.method)) {
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-    return
-  }
+    // PUT is only meaningful for ?resource=interests, and PATCH/DELETE only for
+    // ?resource=documents; each resource handler rejects the methods it does
+    // not serve, so the gate here only screens out what nothing serves.
+    const methods =
+      resource === 'documents'
+        ? ['GET', 'POST', 'PATCH', 'DELETE']
+        : ['GET', 'POST', 'PUT']
+    if (!methods.includes(req.method)) {
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
 
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
 
-  if (resource === 'refresh') {
-    return handleRefresh(req, res, email)
-  }
-  if (resource === 'interests') {
-    return handleInterests(req, res, email)
-  }
-  if (resource === 'documents') {
-    return handleDocuments(req, res, email)
-  }
+    if (resource === 'refresh') {
+      return handleRefresh(req, res, email)
+    }
+    if (resource === 'interests') {
+      return handleInterests(req, res, email)
+    }
+    if (resource === 'documents') {
+      return handleDocuments(req, res, email)
+    }
 
-  if (req.method === 'POST') {
-    return handlePost(req, res, email)
-  }
+    if (req.method === 'POST') {
+      return handlePost(req, res, email, services)
+    }
 
-  try {
-    const sql = getSql()
-    const [tasks, [digestRow], [newsRow]] = await Promise.all([
-      fetchTasks(sql, email),
-      fetchLatestSummary(sql, email, 'daily_digest'),
-      fetchLatestSummary(sql, email, 'daily_news'),
-    ])
-    const ids = digestMessageIds(digestRow)
-    const states = ids.length ? await fetchMessageStates(sql, email, ids) : []
-    res.statusCode = 200
-    res.end(
-      JSON.stringify({
-        tasks,
-        digest: buildDigest(digestRow, states),
-        news: buildNews(newsRow),
-      }),
-    )
-  } catch (err) {
-    console.error('GET /api/tasks failed:', err)
-    await captureApiError(err, { route: 'GET /api/tasks' })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Failed to load tasks' }))
+    try {
+      const sql = services.getSql()
+      const [tasks, [digestRow], [newsRow]] = await Promise.all([
+        fetchTasks(sql, email),
+        fetchLatestSummary(sql, email, 'daily_digest'),
+        fetchLatestSummary(sql, email, 'daily_news'),
+      ])
+      const ids = digestMessageIds(digestRow)
+      const states = ids.length ? await fetchMessageStates(sql, email, ids) : []
+      res.statusCode = 200
+      res.end(
+        JSON.stringify({
+          tasks,
+          digest: buildDigest(digestRow, states),
+          news: buildNews(newsRow),
+        }),
+      )
+    } catch (err) {
+      console.error('GET /api/tasks failed:', err)
+      await services.captureApiError(err, { route: 'GET /api/tasks' })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to load tasks' }))
+    }
   }
 }
+
+export default createHandler()
