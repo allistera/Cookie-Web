@@ -1,23 +1,15 @@
 import process from 'node:process'
 
 import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { getSql } from './db.js'
 
-// User lookups key on the token's email claim rather than `sub`, so logins
-// survive Auth0 connection changes (a Google -> database cutover changes the
-// sub but not the address). Auth0 access tokens don't carry email by default;
-// a post-login Action must copy it into this namespaced custom claim:
-//
-//   exports.onExecutePostLogin = async (event, api) => {
-//     api.accessToken.setCustomClaim('https://cookie-web/email', event.user.email)
-//   }
-const EMAIL_CLAIM = 'https://cookie-web/email'
-
-let jwks
+const jwksByIssuer = new Map()
 
 // Validates the request's Bearer token against the Auth0 tenant's JWKS.
-// Returns the token payload with `email` normalized to lowercase; throws on
-// any missing/invalid credential or a token without an email claim.
-export async function verifyAccessToken(req) {
+// Resolves the verified issuer + subject to a provisioned local user. Email
+// claims are deliberately ignored: they are mutable profile data and must not
+// decide which mailbox an access token can read.
+export async function verifyAccessToken(req, overrides = {}) {
   const domain = process.env.VITE_AUTH0_DOMAIN
   const audience = process.env.VITE_AUTH0_AUDIENCE
   if (!domain || !audience) {
@@ -29,17 +21,39 @@ export async function verifyAccessToken(req) {
     throw new Error('Missing bearer token')
   }
 
-  jwks ??= createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`))
-  const { payload } = await jwtVerify(token, jwks, {
-    issuer: `https://${domain}/`,
+  const issuer = `https://${domain}/`
+  let keySet = overrides.jwks
+  if (!keySet) {
+    keySet = jwksByIssuer.get(issuer)
+    if (!keySet) {
+      keySet = createRemoteJWKSet(new URL(`${issuer}.well-known/jwks.json`))
+      jwksByIssuer.set(issuer, keySet)
+    }
+  }
+
+  const verifyJwt = overrides.jwtVerify ?? jwtVerify
+  const { payload } = await verifyJwt(token, keySet, {
+    issuer,
     audience,
     algorithms: ['RS256'],
     clockTolerance: 5,
   })
 
-  const email = String(payload[EMAIL_CLAIM] ?? payload.email ?? '')
-  if (!email) {
-    throw new Error('Access token has no email claim')
+  const subject = String(payload.sub ?? '').trim()
+  if (!subject) {
+    throw new Error('Access token has no subject')
   }
-  return { ...payload, email: email.toLowerCase() }
+
+  const sql = overrides.sql ?? getSql()
+  const [user] = await sql`
+    SELECT id, lower(email) AS email
+    FROM users
+    WHERE auth0_sub = ${subject}
+    LIMIT 1
+  `
+  if (!user?.id || !user?.email) {
+    throw new Error('Access token subject is not provisioned')
+  }
+
+  return { ...payload, sub: subject, userId: user.id, email: user.email }
 }

@@ -84,7 +84,17 @@ export default async function handler(req, res) {
     return
   }
 
-  if (!allowRequest(`ask:${email}`, RATE_LIMIT)) {
+  let allowed
+  try {
+    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+  } catch (err) {
+    console.error('POST /api/ask quota enforcement failed:', err.message)
+    await captureApiError(err, { route: 'POST /api/ask (quota)' })
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Assistant is temporarily unavailable' }))
+    return
+  }
+  if (!allowed) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many questions, slow down' }))
     return

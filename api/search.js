@@ -12,7 +12,7 @@ import { parseSearchQuery } from './_lib/query-parse.js'
 const MAX_QUERY_CHARS = 500
 const CANDIDATES = 40 // per leg, before fusion
 const RESULTS = 20
-const RATE_LIMIT = { limit: 30, windowMs: 60_000 } // per user; vector leg costs money
+const RATE_LIMIT = { limit: 10, windowMs: 60_000 } // shared with all user-triggered AI routes
 
 // Fetches the fused result ids in one list-shaped query. Only summary presence
 // is exposed here; the generated text remains on the owned-message endpoint.
@@ -60,7 +60,17 @@ export default async function handler(req, res) {
     return
   }
 
-  if (!allowRequest(`search:${email}`, RATE_LIMIT)) {
+  let allowed
+  try {
+    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+  } catch (err) {
+    console.error('GET /api/search quota enforcement failed:', err.message)
+    await captureApiError(err, { route: 'GET /api/search (quota)' })
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Search is temporarily unavailable' }))
+    return
+  }
+  if (!allowed) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many searches, slow down' }))
     return

@@ -127,7 +127,17 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ error: 'AI compose is not configured' }))
     return
   }
-  if (!allowRequest(`compose:${email}`, RATE_LIMIT)) {
+  let allowed
+  try {
+    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+  } catch (err) {
+    console.error('POST /api/compose quota enforcement failed:', err.message)
+    await captureApiError(err, { route: 'POST /api/compose (quota)' })
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'AI compose is temporarily unavailable' }))
+    return
+  }
+  if (!allowed) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many compose requests, slow down' }))
     return

@@ -177,6 +177,7 @@ describe('POST /api/tasks?resource=refresh', () => {
   it('dispatches to the enricher trigger instead of task completion', async () => {
     process.env.ENRICHER_RUN_URL = 'https://data-enricher.example.workers.dev/run'
     process.env.ENRICHER_TRIGGER_TOKEN = 'trigger-secret'
+    sqlQueue = [[{ allowed: true }]]
     vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200 })
     const res = makeRes()
 
@@ -187,8 +188,8 @@ describe('POST /api/tasks?resource=refresh', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body).toEqual({ ok: true })
-    // The refresh path touches the Worker, never the database.
-    expect(statements).toHaveLength(0)
+    expect(statements).toHaveLength(1)
+    expect(statements[0]).toContain('INSERT INTO api_rate_limits')
     expect(fetch.mock.calls[0][0].toString()).toContain('phase=today')
 
     delete process.env.ENRICHER_RUN_URL

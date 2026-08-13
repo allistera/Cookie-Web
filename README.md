@@ -106,6 +106,14 @@ The main runtime variables are:
 
 Vercel stores production values. GitHub Actions stores only the secrets required by migrations and embedding backfills.
 
+### Auth0 user provisioning
+
+API authorization binds the token's verified Auth0 issuer and immutable `sub`
+to `users.auth0_sub`; token email claims never select a mailbox. When moving a
+user between Auth0 connections, verify ownership in Auth0 and explicitly update
+that user's `auth0_sub` before switching the login. Reusing the email address is
+not sufficient account linking.
+
 ## Database migrations
 
 Migrations are append-only and live in [`migrations/`](migrations/). Apply all pending files with:

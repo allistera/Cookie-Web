@@ -102,4 +102,74 @@ describe('public HTTPS egress boundary', () => {
       requestPublicHttps('https://calendar.example/feed.ics', { maxResponseBytes: 8 }, { lookup, request }),
     ).rejects.toThrow(/too large/i)
   })
+
+  it('applies the absolute deadline while DNS resolution is still pending', async () => {
+    vi.useFakeTimers()
+    try {
+      const lookup = vi.fn(() => new Promise(() => {}))
+      const request = vi.fn()
+      const result = requestPublicHttps(
+        'https://slow-dns.example/feed.ics',
+        { timeoutMs: 50, maxResponseBytes: 1024 },
+        { lookup, request },
+      )
+      let failure
+      const settled = result.catch((error) => {
+        failure = error
+      })
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      await settled
+      expect(failure).toEqual(expect.objectContaining({ message: expect.stringMatching(/timed out/i) }))
+      expect(request).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('applies the absolute deadline even while response bytes keep arriving', async () => {
+    vi.useFakeTimers()
+    try {
+      const lookup = vi.fn().mockResolvedValue([
+        { address: '93.184.216.34', family: 4 },
+      ])
+      let response
+      const request = vi.fn((_url, _options, callback) => {
+        const req = new EventEmitter()
+        req.end = vi.fn(() => {
+          response = new EventEmitter()
+          response.statusCode = 200
+          response.headers = {}
+          response.destroy = vi.fn((error) => {
+            if (error) response.emit('error', error)
+          })
+          callback(response)
+        })
+        req.destroy = vi.fn((error) => req.emit('error', error))
+        return req
+      })
+      const result = requestPublicHttps(
+        'https://slow-body.example/feed.ics',
+        { timeoutMs: 50, maxResponseBytes: 1024 },
+        { lookup, request },
+      )
+      let failure
+      const settled = result.catch((error) => {
+        failure = error
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      response.emit('data', Buffer.from('still active'))
+      await vi.advanceTimersByTimeAsync(49)
+      response.emit('data', Buffer.from('still active'))
+      await vi.advanceTimersByTimeAsync(1)
+
+      await settled
+      expect(failure).toEqual(expect.objectContaining({ message: expect.stringMatching(/timed out/i) }))
+      expect(response.destroy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/timed out/i) }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

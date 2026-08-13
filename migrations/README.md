@@ -50,6 +50,10 @@ AI failure state is recoverable and never changes the mail-forwarding outcome. O
 deduplicates rapid receipt opens in the API, and adds the server-only durable
 per-user quota row used to bound outbound mail across function instances.
 
+`0039_api_rate_limits.sql` adds server-only, durable per-user counters for AI
+and enricher requests. The AI endpoints share one scope, so switching routes
+or serverless instances cannot multiply the configured allowance.
+
 ## Label rules
 
 `0029_label_rules.sql` adds `label_rules` and `label_rule_conditions` for deterministic, user-defined tagging (subject/body/from/to conditions, matched with `contains`/`equals`/`starts_with`/`ends_with`, combined with `all`/`any`). Cookie-Worker evaluates enabled rules inside the same transaction that stores an inbound message and writes matches to `message_labels` with `source = 'rule'` and the new `rule_id` provenance column. Unlike AI auto-tagging, rule matching is synchronous and has no recovery cron because it never leaves the message's own storage transaction.

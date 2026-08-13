@@ -50,7 +50,17 @@ export async function handleRefresh(req, res, email, services = createServices()
     res.end(JSON.stringify({ error: 'Method not allowed' }))
     return
   }
-  if (!allowRequest(`enricher:${email}`, RATE_LIMIT)) {
+  let allowed
+  try {
+    allowed = await allowRequest(services.getSql(), email, 'enricher', RATE_LIMIT)
+  } catch (err) {
+    console.error('POST /api/tasks?resource=refresh quota enforcement failed:', err.message)
+    await services.captureApiError(err, { route: 'POST /api/tasks?resource=refresh (quota)' })
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Refresh is temporarily unavailable' }))
+    return
+  }
+  if (!allowed) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many refreshes. Try again shortly.' }))
     return

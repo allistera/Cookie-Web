@@ -181,7 +181,17 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ error: 'AI summarization is not configured' }))
     return
   }
-  if (!allowRequest(`summarize:${email}`, RATE_LIMIT)) {
+  let allowed
+  try {
+    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+  } catch (err) {
+    console.error('POST /api/summarize quota enforcement failed:', err.message)
+    await captureApiError(err, { route: 'POST /api/summarize (quota)' })
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'AI summarization is temporarily unavailable' }))
+    return
+  }
+  if (!allowed) {
     res.statusCode = 429
     res.end(JSON.stringify({ error: 'Too many summary requests, slow down' }))
     return

@@ -1,24 +1,38 @@
-// Fixed-window in-memory rate limiter. Per-instance state: Vercel's Fluid
-// Compute reuses function instances across requests, so this is meaningful
-// abuse damping (a tight retry loop or scripted client hits the same warm
-// instance), but it is NOT a strict global quota — a cold start resets it.
-
-const buckets = new Map()
-const MAX_BUCKETS = 1000
-
-export function allowRequest(key, { limit, windowMs }) {
-  const now = Date.now()
-  const bucket = buckets.get(key)
-  if (!bucket || now - bucket.start >= windowMs) {
-    if (buckets.size >= MAX_BUCKETS) {
-      // Drop expired buckets before evicting anything live.
-      for (const [k, b] of buckets) {
-        if (now - b.start >= windowMs) buckets.delete(k)
-      }
-    }
-    buckets.set(key, { start: now, count: 1 })
-    return true
+// Atomically claims a fixed-window quota in Postgres. Keeping the counter in
+// the shared database makes the limit effective across cold starts, regions,
+// and concurrently running serverless instances.
+export async function allowRequest(sql, email, scope, { limit, windowMs }) {
+  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(windowMs) || windowMs < 1) {
+    throw new Error('Invalid rate-limit policy')
   }
-  bucket.count += 1
-  return bucket.count <= limit
+
+  const [result] = await sql`
+    WITH app_user AS (
+      SELECT id
+      FROM users
+      WHERE lower(email) = ${email}
+      LIMIT 1
+    ), claimed AS (
+      INSERT INTO api_rate_limits (user_id, scope, window_start, request_count)
+      SELECT id, ${scope}, now(), 1
+      FROM app_user
+      ON CONFLICT (user_id, scope) DO UPDATE SET
+        window_start = CASE
+          WHEN api_rate_limits.window_start <= now() - (${windowMs} * interval '1 millisecond')
+            THEN EXCLUDED.window_start
+          ELSE api_rate_limits.window_start
+        END,
+        request_count = CASE
+          WHEN api_rate_limits.window_start <= now() - (${windowMs} * interval '1 millisecond')
+            THEN 1
+          ELSE api_rate_limits.request_count + 1
+        END,
+        updated_at = now()
+      WHERE api_rate_limits.window_start <= now() - (${windowMs} * interval '1 millisecond')
+         OR api_rate_limits.request_count < ${limit}
+      RETURNING user_id
+    )
+    SELECT EXISTS (SELECT 1 FROM claimed) AS allowed
+  `
+  return result?.allowed === true
 }

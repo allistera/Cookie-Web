@@ -82,51 +82,73 @@ export async function requestPublicHttps(
   { method = 'GET', headers = {}, body = null, timeoutMs = 10_000, maxResponseBytes = 0 } = {},
   { lookup = dns.lookup, request = https.request } = {},
 ) {
-  const target = await resolvePublicHttpsUrl(rawUrl, lookup)
-
   return new Promise((resolve, reject) => {
     let settled = false
+    let req
+    let response
+    let deadlineTimer
     const finish = (fn, value) => {
       if (settled) return
       settled = true
+      clearTimeout(deadlineTimer)
       fn(value)
     }
-    const pinnedLookup = (_hostname, options, callback) => {
-      if (options?.all) {
-        callback(null, [{ address: target.address, family: target.family }])
-      } else {
-        callback(null, target.address, target.family)
-      }
-    }
-    const req = request(
-      target.url,
-      { method, headers, lookup: pinnedLookup },
-      (response) => {
-        const status = response.statusCode || 0
-        if (maxResponseBytes <= 0) {
-          finish(resolve, { status, headers: response.headers, body: Buffer.alloc(0) })
-          response.destroy()
-          return
-        }
 
-        const chunks = []
-        let bytes = 0
-        response.on('data', (chunk) => {
-          bytes += chunk.length
-          if (bytes > maxResponseBytes) {
-            response.destroy(new Error('The remote response is too large'))
-            return
+    const timeoutError = new Error('The remote request timed out')
+    deadlineTimer = setTimeout(() => {
+      finish(reject, timeoutError)
+      response?.destroy(timeoutError)
+      req?.destroy(timeoutError)
+    }, timeoutMs)
+
+    resolvePublicHttpsUrl(rawUrl, lookup)
+      .then((target) => {
+        if (settled) return
+        const pinnedLookup = (_hostname, options, callback) => {
+          if (options?.all) {
+            callback(null, [{ address: target.address, family: target.family }])
+          } else {
+            callback(null, target.address, target.family)
           }
-          chunks.push(chunk)
-        })
-        response.on('end', () => {
-          finish(resolve, { status, headers: response.headers, body: Buffer.concat(chunks) })
-        })
-        response.on('error', (error) => finish(reject, error))
-      },
-    )
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('The remote request timed out')))
-    req.on('error', (error) => finish(reject, error))
-    req.end(body ?? undefined)
+        }
+        req = request(
+          target.url,
+          { method, headers, lookup: pinnedLookup },
+          (incoming) => {
+            response = incoming
+            if (settled) {
+              response.destroy()
+              return
+            }
+
+            const status = response.statusCode || 0
+            if (maxResponseBytes <= 0) {
+              finish(resolve, { status, headers: response.headers, body: Buffer.alloc(0) })
+              response.destroy()
+              return
+            }
+
+            const chunks = []
+            let bytes = 0
+            response.on('data', (chunk) => {
+              bytes += chunk.length
+              if (bytes > maxResponseBytes) {
+                const error = new Error('The remote response is too large')
+                finish(reject, error)
+                response.destroy(error)
+                return
+              }
+              chunks.push(chunk)
+            })
+            response.on('end', () => {
+              finish(resolve, { status, headers: response.headers, body: Buffer.concat(chunks) })
+            })
+            response.on('error', (error) => finish(reject, error))
+          },
+        )
+        req.on('error', (error) => finish(reject, error))
+        req.end(body ?? undefined)
+      })
+      .catch((error) => finish(reject, error))
   })
 }

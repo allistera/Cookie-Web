@@ -6,7 +6,18 @@ import { handleRefresh as handleRefreshWired, triggerDigestRebuild, EnricherNotC
 
 // Telemetry stays out of these tests' way the same as before, but injected
 // through handleRefresh's services argument instead of a module mock.
-const services = { captureApiError: vi.fn(async () => undefined) }
+let quotaCounts
+const services = {
+  captureApiError: vi.fn(async () => undefined),
+  getSql: () => (_strings, ...values) => {
+    const [emailAddress, scope] = values
+    const limit = values[values.length - 1]
+    const key = `${emailAddress}:${scope}`
+    const count = (quotaCounts.get(key) ?? 0) + 1
+    quotaCounts.set(key, count)
+    return Promise.resolve([{ allowed: count <= limit }])
+  },
+}
 const handleRefresh = (req, res, email) => handleRefreshWired(req, res, email, services)
 
 function makeRes() {
@@ -19,8 +30,6 @@ function makeRes() {
   }
 }
 
-// A distinct caller per test, so the shared in-memory rate-limit buckets from
-// one test cannot spill into the next.
 let caller = 0
 function email() {
   caller += 1
@@ -28,6 +37,7 @@ function email() {
 }
 
 beforeEach(() => {
+  quotaCounts = new Map()
   process.env.ENRICHER_RUN_URL = 'https://data-enricher.example.workers.dev/run'
   process.env.ENRICHER_TRIGGER_TOKEN = 'trigger-secret'
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })))

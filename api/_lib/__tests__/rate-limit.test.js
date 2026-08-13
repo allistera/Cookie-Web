@@ -1,39 +1,50 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { allowRequest } from '../rate-limit.js'
 
+function sqlReturning(row) {
+  return vi.fn((strings, ...values) => {
+    sqlReturning.query = strings.join('?')
+    sqlReturning.values = values
+    return Promise.resolve([row])
+  })
+}
+
 describe('allowRequest', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
+  it('claims a shared database counter with one atomic upsert', async () => {
+    const sql = sqlReturning({ allowed: true })
+
+    await expect(
+      allowRequest(sql, 'owner@example.com', 'ai', { limit: 10, windowMs: 60_000 }),
+    ).resolves.toBe(true)
+
+    expect(sqlReturning.query).toContain('INSERT INTO api_rate_limits')
+    expect(sqlReturning.query).toContain('ON CONFLICT (user_id, scope) DO UPDATE')
+    expect(sqlReturning.query).toContain('api_rate_limits.request_count <')
+    expect(sqlReturning.values).toEqual([
+      'owner@example.com',
+      'ai',
+      60_000,
+      60_000,
+      60_000,
+      10,
+    ])
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
+  it('rejects when the shared counter cannot be claimed', async () => {
+    const sql = sqlReturning({ allowed: false })
+
+    await expect(
+      allowRequest(sql, 'owner@example.com', 'ai', { limit: 10, windowMs: 60_000 }),
+    ).resolves.toBe(false)
   })
 
-  it('allows up to the limit inside a window, then rejects', () => {
-    vi.setSystemTime(1_000_000)
-    const opts = { limit: 3, windowMs: 60_000 }
-    expect(allowRequest('u1-window', opts)).toBe(true)
-    expect(allowRequest('u1-window', opts)).toBe(true)
-    expect(allowRequest('u1-window', opts)).toBe(true)
-    expect(allowRequest('u1-window', opts)).toBe(false)
-  })
+  it('fails closed on invalid policy values without querying the database', async () => {
+    const sql = vi.fn()
 
-  it('resets after the window elapses', () => {
-    vi.setSystemTime(2_000_000)
-    const opts = { limit: 1, windowMs: 60_000 }
-    expect(allowRequest('u1-reset', opts)).toBe(true)
-    expect(allowRequest('u1-reset', opts)).toBe(false)
-    vi.setSystemTime(2_000_000 + 60_000)
-    expect(allowRequest('u1-reset', opts)).toBe(true)
-  })
-
-  it('tracks keys independently', () => {
-    vi.setSystemTime(3_000_000)
-    const opts = { limit: 1, windowMs: 60_000 }
-    expect(allowRequest('u1-keys', opts)).toBe(true)
-    expect(allowRequest('u2-keys', opts)).toBe(true)
-    expect(allowRequest('u1-keys', opts)).toBe(false)
+    await expect(
+      allowRequest(sql, 'owner@example.com', 'ai', { limit: 0, windowMs: 60_000 }),
+    ).rejects.toThrow(/invalid rate-limit policy/i)
+    expect(sql).not.toHaveBeenCalled()
   })
 })
