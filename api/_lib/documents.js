@@ -1,5 +1,4 @@
-import { getSql } from './db.js'
-import { captureApiError } from './sentry.js'
+import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
 
 // The Documents workspace: nested folders plus Editor.js block documents,
@@ -302,8 +301,8 @@ async function handleDelete(res, body, email, sql) {
 // POST { kind: 'folder'|'document', ... }  — create
 // PATCH { id, ... } / { kind:'folder', id, title } — update
 // DELETE { kind, id }                      — delete
-export async function handleDocuments(req, res, email) {
-  const sql = getSql()
+export async function handleDocuments(req, res, email, services = createServices()) {
+  const sql = services.getSql()
   const route = `${req.method} /api/tasks?resource=documents`
   try {
     if (req.method === 'GET') {
@@ -330,7 +329,7 @@ export async function handleDocuments(req, res, email) {
     return await handleDelete(res, body, email, sql)
   } catch (err) {
     console.error(`${route} failed:`, err)
-    await captureApiError(err, { route })
+    await services.captureApiError(err, { route })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Documents request failed' }))
   }

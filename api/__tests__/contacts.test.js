@@ -1,16 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => () => Promise.resolve([{ address: 'a@example.com', name: 'A' }]),
-}))
+import { createHandler, fetchContacts } from '../_lib/contacts.js'
 
-import contactsHandler, { fetchContacts } from '../_lib/contacts.js'
+const contactsHandler = createHandler({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  captureApiError: vi.fn(async () => undefined),
+  getSql: () => () => Promise.resolve([{ address: 'a@example.com', name: 'A' }]),
+})
 
 describe('fetchContacts', () => {
   it('reads the contacts view scoped to the authenticated user, bounded', () => {

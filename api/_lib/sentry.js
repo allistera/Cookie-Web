@@ -7,28 +7,35 @@ const DSN =
   process.env.SENTRY_DSN ||
   'https://e5f70dd45644023807e0b6d18cb6896a@o4510748410576896.ingest.de.sentry.io/4511682260566096'
 
-let initialized = false
-let sentryPromise
-
 function enabled() {
   return Boolean(process.env.VERCEL || process.env.SENTRY_DSN)
 }
 
-// Reports an API error to Sentry and flushes (serverless instances can be
-// suspended right after the response, so an unflushed event is a lost event).
-// Never throws — telemetry must not break the API path.
-export async function captureApiError(err, context = {}) {
-  if (!enabled()) return
-  try {
-    sentryPromise ||= import('@sentry/node')
-    const Sentry = await sentryPromise
-    if (!initialized) {
-      Sentry.init({ dsn: DSN })
-      initialized = true
+// Builds the capture function around a Sentry loader; tests pass a fake
+// loader and get an isolated init/flush lifecycle instead of mocking the
+// @sentry/node module.
+export function createErrorCapture(loadSentry = () => import('@sentry/node')) {
+  let initialized = false
+  let sentryPromise
+
+  // Reports an API error to Sentry and flushes (serverless instances can be
+  // suspended right after the response, so an unflushed event is a lost
+  // event). Never throws — telemetry must not break the API path.
+  return async function captureApiError(err, context = {}) {
+    if (!enabled()) return
+    try {
+      sentryPromise ||= loadSentry()
+      const Sentry = await sentryPromise
+      if (!initialized) {
+        Sentry.init({ dsn: DSN })
+        initialized = true
+      }
+      Sentry.captureException(err, { extra: context })
+      await Sentry.flush(2000)
+    } catch (sentryErr) {
+      console.error('sentry capture failed:', sentryErr?.message)
     }
-    Sentry.captureException(err, { extra: context })
-    await Sentry.flush(2000)
-  } catch (sentryErr) {
-    console.error('sentry capture failed:', sentryErr?.message)
   }
 }
+
+export const captureApiError = createErrorCapture()

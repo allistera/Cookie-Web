@@ -1,6 +1,4 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -56,71 +54,76 @@ function sendJson(res, status, body) {
   res.end(body === null ? '' : JSON.stringify(body))
 }
 
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
-  res.setHeader('Cache-Control', 'no-store')
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST')
-    sendJson(res, 405, { error: 'Method not allowed' })
-    return
-  }
-
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    sendJson(res, 401, { error: 'Unauthorized' })
-    return
-  }
-
-  let body
-  try {
-    body = await readJsonBody(req)
-  } catch {
-    sendJson(res, 400, { error: 'Invalid JSON body' })
-    return
-  }
-  if (!['claim', 'ack'].includes(body.action) || !UUID_RE.test(body.eventId || '')) {
-    sendJson(res, 400, { error: 'A valid action and event id are required' })
-    return
-  }
-  if (body.action === 'ack' && !UUID_RE.test(body.claimToken || '')) {
-    sendJson(res, 400, { error: 'A valid claim token is required' })
-    return
-  }
-
-  try {
-    const sql = getSql()
-    if (body.action === 'ack') {
-      await acknowledgeNotificationEvent(sql, email, body.eventId, body.claimToken)
-      sendJson(res, 204, null)
+export function createHandler(overrides = {}) {
+  const services = createServices(overrides)
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Cache-Control', 'no-store')
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST')
+      sendJson(res, 405, { error: 'Method not allowed' })
       return
     }
 
-    const [claimed] = await claimNotificationEvent(sql, email, body.eventId)
-    if (!claimed) {
-      const [event] = await findNotificationEventLease(sql, email, body.eventId)
-      if (event?.claimed_until && new Date(event.claimed_until) > new Date()) {
-        res.setHeader('Retry-After', '30')
-        sendJson(res, 423, { error: 'Notification event is already claimed' })
-      } else {
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      sendJson(res, 401, { error: 'Unauthorized' })
+      return
+    }
+
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON body' })
+      return
+    }
+    if (!['claim', 'ack'].includes(body.action) || !UUID_RE.test(body.eventId || '')) {
+      sendJson(res, 400, { error: 'A valid action and event id are required' })
+      return
+    }
+    if (body.action === 'ack' && !UUID_RE.test(body.claimToken || '')) {
+      sendJson(res, 400, { error: 'A valid claim token is required' })
+      return
+    }
+
+    try {
+      const sql = services.getSql()
+      if (body.action === 'ack') {
+        await acknowledgeNotificationEvent(sql, email, body.eventId, body.claimToken)
         sendJson(res, 204, null)
+        return
       }
-      return
-    }
 
-    sendJson(res, 200, {
-      eventId: claimed.event_id,
-      claimToken: claimed.claim_token,
-      message: {
-        id: claimed.message_id,
-        sender: claimed.from_name || claimed.from_address,
-        subject: claimed.subject,
-      },
-    })
-  } catch (error) {
-    console.error('POST /api/notification-event failed:', error)
-    await captureApiError(error, { route: 'POST /api/notification-event' })
-    sendJson(res, 500, { error: 'Browser notification event failed' })
+      const [claimed] = await claimNotificationEvent(sql, email, body.eventId)
+      if (!claimed) {
+        const [event] = await findNotificationEventLease(sql, email, body.eventId)
+        if (event?.claimed_until && new Date(event.claimed_until) > new Date()) {
+          res.setHeader('Retry-After', '30')
+          sendJson(res, 423, { error: 'Notification event is already claimed' })
+        } else {
+          sendJson(res, 204, null)
+        }
+        return
+      }
+
+      sendJson(res, 200, {
+        eventId: claimed.event_id,
+        claimToken: claimed.claim_token,
+        message: {
+          id: claimed.message_id,
+          sender: claimed.from_name || claimed.from_address,
+          subject: claimed.subject,
+        },
+      })
+    } catch (error) {
+      console.error('POST /api/notification-event failed:', error)
+      await services.captureApiError(error, { route: 'POST /api/notification-event' })
+      sendJson(res, 500, { error: 'Browser notification event failed' })
+    }
   }
 }
+
+export default createHandler()

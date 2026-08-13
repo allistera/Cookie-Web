@@ -1,8 +1,6 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
-import calendarsHandler from './_lib/calendars.js'
+import { createHandler as createCalendarsHandler } from './_lib/calendars.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -441,56 +439,66 @@ async function deleteEvent(sql, email, body, res) {
 
 // /api/calendar-events — GET lists the user's events, POST creates one,
 // PATCH replaces one (full update, keyed by id), DELETE removes one.
-export default async function handler(req, res) {
-  const { searchParams } = new URL(req.url, 'http://localhost')
-  if (searchParams.get('resource') === 'calendars') {
-    await calendarsHandler(req, res)
-    return
-  }
-
-  res.setHeader('Content-Type', 'application/json')
-
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  try {
-    const sql = getSql()
-    if (req.method === 'GET') {
-      const { range, error } = parseRangeParams(searchParams)
-      if (error) {
-        res.statusCode = 400
-        res.end(JSON.stringify({ error: 'from and to must be a valid YYYY-MM-DD pair' }))
-        return
-      }
-      await listEvents(sql, email, range, res)
+export function createHandler(overrides = {}) {
+  const services = createServices({
+    // The ?resource=calendars sub-handler shares this handler's overrides so
+    // injected fakes flow through the dispatch too.
+    calendarsHandler: createCalendarsHandler(overrides),
+    ...overrides,
+  })
+  return async function handler(req, res) {
+    const { searchParams } = new URL(req.url, 'http://localhost')
+    if (searchParams.get('resource') === 'calendars') {
+      await services.calendarsHandler(req, res)
       return
     }
-    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
-      let body
-      try {
-        body = await readJsonBody(req)
-      } catch {
-        res.statusCode = 400
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }))
-        return
-      }
-      if (req.method === 'POST') await createEvent(sql, email, body, res)
-      else if (req.method === 'PATCH') await updateEvent(sql, email, body, res)
-      else await deleteEvent(sql, email, body, res)
+
+    res.setHeader('Content-Type', 'application/json')
+
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
       return
     }
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-  } catch (err) {
-    console.error(`${req.method} /api/calendar-events failed:`, err)
-    await captureApiError(err, { route: `${req.method} /api/calendar-events` })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Calendar events request failed' }))
+
+    try {
+      const sql = services.getSql()
+      if (req.method === 'GET') {
+        const { range, error } = parseRangeParams(searchParams)
+        if (error) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'from and to must be a valid YYYY-MM-DD pair' }))
+          return
+        }
+        await listEvents(sql, email, range, res)
+        return
+      }
+      if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
+        let body
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+          return
+        }
+        if (req.method === 'POST') await createEvent(sql, email, body, res)
+        else if (req.method === 'PATCH') await updateEvent(sql, email, body, res)
+        else await deleteEvent(sql, email, body, res)
+        return
+      }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+    } catch (err) {
+      console.error(`${req.method} /api/calendar-events failed:`, err)
+      await services.captureApiError(err, { route: `${req.method} /api/calendar-events` })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Calendar events request failed' }))
+    }
   }
 }
+
+export default createHandler()

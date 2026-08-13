@@ -1,8 +1,6 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
-import labelRulesHandler from './_lib/label-rules.js'
+import { createHandler as createLabelRulesHandler } from './_lib/label-rules.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLOR_RE = /^#[0-9a-f]{6}$/i
@@ -130,49 +128,59 @@ async function deleteLabel(sql, email, body, res) {
 // POST creates one, PATCH renames or changes auto-apply, DELETE removes one.
 // ?resource=rules delegates to the tag-rules CRUD handler — kept out of its
 // own api/*.js file to stay within Vercel Hobby's function-count limit.
-export default async function handler(req, res) {
-  if (new URL(req.url, 'http://localhost').searchParams.get('resource') === 'rules') {
-    await labelRulesHandler(req, res)
-    return
-  }
-
-  res.setHeader('Content-Type', 'application/json')
-
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  try {
-    const sql = getSql()
-    if (req.method === 'GET') {
-      await listLabels(sql, email, res)
+export function createHandler(overrides = {}) {
+  const services = createServices({
+    // The ?resource=rules sub-handler shares this handler's overrides so
+    // injected fakes flow through the dispatch too.
+    labelRulesHandler: createLabelRulesHandler(overrides),
+    ...overrides,
+  })
+  return async function handler(req, res) {
+    if (new URL(req.url, 'http://localhost').searchParams.get('resource') === 'rules') {
+      await services.labelRulesHandler(req, res)
       return
     }
-    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
-      let body
-      try {
-        body = await readJsonBody(req)
-      } catch {
-        res.statusCode = 400
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+
+    res.setHeader('Content-Type', 'application/json')
+
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
+
+    try {
+      const sql = services.getSql()
+      if (req.method === 'GET') {
+        await listLabels(sql, email, res)
         return
       }
-      if (req.method === 'POST') await createLabel(sql, email, body, res)
-      else if (req.method === 'PATCH') await updateLabel(sql, email, body, res)
-      else await deleteLabel(sql, email, body, res)
-      return
+      if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
+        let body
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+          return
+        }
+        if (req.method === 'POST') await createLabel(sql, email, body, res)
+        else if (req.method === 'PATCH') await updateLabel(sql, email, body, res)
+        else await deleteLabel(sql, email, body, res)
+        return
+      }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+    } catch (err) {
+      console.error(`${req.method} /api/labels failed:`, err)
+      await services.captureApiError(err, { route: `${req.method} /api/labels` })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Labels request failed' }))
     }
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-  } catch (err) {
-    console.error(`${req.method} /api/labels failed:`, err)
-    await captureApiError(err, { route: `${req.method} /api/labels` })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Labels request failed' }))
   }
 }
+
+export default createHandler()

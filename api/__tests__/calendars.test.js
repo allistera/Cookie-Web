@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { createHandler, fetchCalendars } from '../_lib/calendars.js'
 
 // Each tagged-template query resolves to the next queued result, so a test
 // can script the sequence of reads/writes the handler issues in order.
@@ -21,11 +16,12 @@ function makeSql() {
   run.begin = async (fn) => fn(run)
   return run
 }
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => makeSql(),
-}))
 
-import handler, { fetchCalendars } from '../_lib/calendars.js'
+const handler = createHandler({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  captureApiError: vi.fn(async () => undefined),
+  getSql: () => makeSql(),
+})
 
 function makeRes() {
   return {

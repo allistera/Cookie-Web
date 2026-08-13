@@ -1,20 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { createHandler, fetchEmails, fetchUnreadCount } from '../emails.js'
 
 const rows = []
-vi.mock('../_lib/db.js', () => ({
+
+const handler = createHandler({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  captureApiError: vi.fn(async () => undefined),
   // Both queries resolve through the same stub; the handler only cares that
   // fetchEmails returns an array of rows.
   getSql: () => () => Promise.resolve(rows),
-}))
-
-import handler, { fetchEmails, fetchUnreadCount } from '../emails.js'
+})
 
 function makeRes() {
   return {

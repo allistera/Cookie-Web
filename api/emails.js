@@ -1,6 +1,4 @@
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
@@ -91,96 +89,101 @@ export function fetchUnreadCount(sql, email) {
 // {emails, nextCursor, unreadCount, userId}; nextCursor is null on the last
 // page. unreadCount always covers the inbox (sent mail is never unread).
 // userId lets the client subscribe to its Realtime inbox-ping channel.
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
+export function createHandler(overrides = {}) {
+  const services = createServices(overrides)
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
 
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  const url = new URL(req.url, 'http://localhost')
-  const resource = url.searchParams.get('resource')
-
-  // Lightweight app bootstrap for routes that need the unread badge and
-  // Realtime channel identity but do not render the mailbox list.
-  if (resource === 'state') {
+    let email
     try {
-      const [userRow] = await fetchUnreadCount(getSql(), email)
-      res.statusCode = 200
-      res.end(
-        JSON.stringify({
-          unreadCount: userRow?.unread ?? 0,
-          userId: userRow?.user_id ?? null,
-        }),
-      )
-    } catch (err) {
-      console.error('GET /api/emails?resource=state failed:', err)
-      await captureApiError(err, { route: 'GET /api/emails (state)' })
-      res.statusCode = 500
-      res.end(JSON.stringify({ error: 'Failed to load inbox state' }))
-    }
-    return
-  }
-
-  const requestedFolder = url.searchParams.get('folder') || 'inbox'
-  const folder = ['inbox', 'sent', 'spam', 'snoozed', 'done'].includes(requestedFolder)
-    ? requestedFolder
-    : null
-  if (!folder) {
-    res.statusCode = 400
-    res.end(JSON.stringify({ error: 'Invalid folder' }))
-    return
-  }
-  const limitParam = Number.parseInt(url.searchParams.get('limit') ?? '', 10)
-  const limit = Number.isFinite(limitParam)
-    ? Math.min(Math.max(limitParam, 1), MAX_LIMIT)
-    : DEFAULT_LIMIT
-
-  let cursor = null
-  const before = url.searchParams.get('before')
-  if (before) {
-    const match = CURSOR_RE.exec(before)
-    if (!match || Number.isNaN(Date.parse(match[1]))) {
-      res.statusCode = 400
-      res.end(JSON.stringify({ error: 'Invalid before cursor' }))
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
       return
     }
-    cursor = { sentAt: match[1], id: match[2] }
-  }
 
-  try {
-    const sql = getSql()
-    // The unread count (and userId) only matter on a list's first page; the
-    // client ignores them on cursor pages, so skip the aggregate there.
-    const [rows, [userRow]] = await Promise.all([
-      fetchEmails(sql, email, limit, cursor, folder),
-      cursor ? [] : fetchUnreadCount(sql, email),
-    ])
-    const hasMore = rows.length > limit
-    const emails = hasMore ? rows.slice(0, limit) : rows
-    const last = emails[emails.length - 1]
-    const payload = {
-      emails,
-      // toISOString keeps millisecond precision; Date's default toString
-      // truncates to seconds, which can skip same-second rows on page breaks.
-      nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
-      readReceiptsAvailable: folder === 'sent',
+    const url = new URL(req.url, 'http://localhost')
+    const resource = url.searchParams.get('resource')
+
+    // Lightweight app bootstrap for routes that need the unread badge and
+    // Realtime channel identity but do not render the mailbox list.
+    if (resource === 'state') {
+      try {
+        const [userRow] = await fetchUnreadCount(services.getSql(), email)
+        res.statusCode = 200
+        res.end(
+          JSON.stringify({
+            unreadCount: userRow?.unread ?? 0,
+            userId: userRow?.user_id ?? null,
+          }),
+        )
+      } catch (err) {
+        console.error('GET /api/emails?resource=state failed:', err)
+        await services.captureApiError(err, { route: 'GET /api/emails (state)' })
+        res.statusCode = 500
+        res.end(JSON.stringify({ error: 'Failed to load inbox state' }))
+      }
+      return
     }
-    if (!cursor) {
-      payload.unreadCount = userRow?.unread ?? 0
-      payload.userId = userRow?.user_id ?? null
+
+    const requestedFolder = url.searchParams.get('folder') || 'inbox'
+    const folder = ['inbox', 'sent', 'spam', 'snoozed', 'done'].includes(requestedFolder)
+      ? requestedFolder
+      : null
+    if (!folder) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid folder' }))
+      return
     }
-    res.statusCode = 200
-    res.end(JSON.stringify(payload))
-  } catch (err) {
-    console.error('GET /api/emails failed:', err)
-    await captureApiError(err, { route: 'GET /api/emails' })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Failed to load emails' }))
+    const limitParam = Number.parseInt(url.searchParams.get('limit') ?? '', 10)
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 1), MAX_LIMIT)
+      : DEFAULT_LIMIT
+
+    let cursor = null
+    const before = url.searchParams.get('before')
+    if (before) {
+      const match = CURSOR_RE.exec(before)
+      if (!match || Number.isNaN(Date.parse(match[1]))) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'Invalid before cursor' }))
+        return
+      }
+      cursor = { sentAt: match[1], id: match[2] }
+    }
+
+    try {
+      const sql = services.getSql()
+      // The unread count (and userId) only matter on a list's first page; the
+      // client ignores them on cursor pages, so skip the aggregate there.
+      const [rows, [userRow]] = await Promise.all([
+        fetchEmails(sql, email, limit, cursor, folder),
+        cursor ? [] : fetchUnreadCount(sql, email),
+      ])
+      const hasMore = rows.length > limit
+      const emails = hasMore ? rows.slice(0, limit) : rows
+      const last = emails[emails.length - 1]
+      const payload = {
+        emails,
+        // toISOString keeps millisecond precision; Date's default toString
+        // truncates to seconds, which can skip same-second rows on page breaks.
+        nextCursor: hasMore ? `${last.sent_at.toISOString()}|${last.id}` : null,
+        readReceiptsAvailable: folder === 'sent',
+      }
+      if (!cursor) {
+        payload.unreadCount = userRow?.unread ?? 0
+        payload.userId = userRow?.user_id ?? null
+      }
+      res.statusCode = 200
+      res.end(JSON.stringify(payload))
+    } catch (err) {
+      console.error('GET /api/emails failed:', err)
+      await services.captureApiError(err, { route: 'GET /api/emails' })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to load emails' }))
+    }
   }
 }
+
+export default createHandler()

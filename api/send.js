@@ -4,9 +4,7 @@ import { Buffer } from 'node:buffer'
 
 import { Resend } from 'resend'
 
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 import { embedText, EMBEDDING_MODEL } from './_lib/embeddings.js'
 
@@ -161,6 +159,7 @@ async function storeSentMessage(
   sql,
   email,
   { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken },
+  services,
 ) {
   const [lookup] = await sql`
     SELECT u.id AS user_id,
@@ -241,7 +240,7 @@ async function storeSentMessage(
   if (process.env.OPENAI_API_KEY) {
     try {
       const vector = JSON.stringify(
-        await embedText(`${subject}\n\n${text}`, process.env.OPENAI_API_KEY),
+        await services.embedText(`${subject}\n\n${text}`, process.env.OPENAI_API_KEY),
       )
       await sql`
         UPDATE messages
@@ -259,12 +258,12 @@ async function storeSentMessage(
 // Sends immediately through Resend, from the shared inbound handler (a
 // logged-in user's request) and the flush job (a claimed scheduled row)
 // alike. Throws on failure; callers decide how to react.
-async function deliverMail(sql, email, { recipients, subject, text, html, replyToMessageId }) {
+async function deliverMail(sql, email, { recipients, subject, text, html, replyToMessageId }, services) {
   const readReceiptToken = crypto.randomUUID()
   const receiptUrl = buildReadReceiptUrl(readReceiptToken)
   const trackedHtml = appendReadReceipt(html, text, receiptUrl)
 
-  const resend = new Resend(process.env.RESEND_API_KEY)
+  const resend = services.createResend(process.env.RESEND_API_KEY)
   const payload = {
     from: process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
     to: recipients,
@@ -277,15 +276,20 @@ async function deliverMail(sql, email, { recipients, subject, text, html, replyT
 
   let messageUuid = null
   try {
-    ;({ messageUuid } = await storeSentMessage(sql, email, {
-      recipients,
-      subject,
-      text,
-      html,
-      replyToMessageId,
-      resendId: data.id,
-      readReceiptToken: receiptUrl ? readReceiptToken : null,
-    }))
+    ;({ messageUuid } = await storeSentMessage(
+      sql,
+      email,
+      {
+        recipients,
+        subject,
+        text,
+        html,
+        replyToMessageId,
+        resendId: data.id,
+        readReceiptToken: receiptUrl ? readReceiptToken : null,
+      },
+      services,
+    ))
   } catch (err) {
     // Sending always wins: a storage failure is logged but the mail really
     // did go out, so this must never be treated as a failed send.
@@ -378,7 +382,7 @@ async function markScheduledSendFailed(sql, id, error, attempts = null) {
 
 // Delivers one claimed row. Never leaves a row claimed ('sending' status)
 // without resolving it to 'pending' (retry), 'sent', or 'failed'.
-async function deliverScheduledSend(sql, row) {
+async function deliverScheduledSend(sql, row, services) {
   const [owner] = await sql`SELECT lower(email) AS email FROM users WHERE id = ${row.user_id}`
   if (!owner) {
     await markScheduledSendFailed(sql, row.id, 'Owning user no longer exists')
@@ -399,13 +403,18 @@ async function deliverScheduledSend(sql, row) {
 
   const recipients = parseRecipients(row.toAddresses)
   try {
-    const { messageUuid } = await deliverMail(sql, owner.email, {
-      recipients,
-      subject: row.subject,
-      text: row.text,
-      html: row.html,
-      replyToMessageId: row.replyToMessageId,
-    })
+    const { messageUuid } = await deliverMail(
+      sql,
+      owner.email,
+      {
+        recipients,
+        subject: row.subject,
+        text: row.text,
+        html: row.html,
+        replyToMessageId: row.replyToMessageId,
+      },
+      services,
+    )
     await sql`
       UPDATE scheduled_sends
       SET status = 'sent', sent_at = now(), sent_message_id = ${messageUuid}
@@ -430,8 +439,8 @@ async function deliverScheduledSend(sql, row) {
 
 // GET/DELETE /api/send?resource=scheduled — list or cancel the authenticated
 // user's own pending (or recently failed) scheduled sends.
-async function handleScheduled(req, res, email) {
-  const sql = getSql()
+async function handleScheduled(req, res, email, services) {
+  const sql = services.getSql()
   if (req.method === 'GET') {
     const scheduledSends = await listScheduledSends(sql, email)
     res.statusCode = 200
@@ -482,7 +491,7 @@ function timingSafeEqualStrings(a, b) {
 // app), bearer-authenticated with a secret shared out-of-band. Claims and
 // delivers due scheduled sends in small batches so one slow invocation
 // doesn't run unbounded.
-async function handleFlush(req, res) {
+async function handleFlush(req, res, services) {
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
@@ -501,11 +510,11 @@ async function handleFlush(req, res) {
   }
 
   try {
-    const sql = getSql()
+    const sql = services.getSql()
     const claimed = await claimDueScheduledSends(sql, FLUSH_BATCH_SIZE)
     const results = []
     for (const row of claimed) {
-      results.push(await deliverScheduledSend(sql, row))
+      results.push(await deliverScheduledSend(sql, row, services))
     }
     res.statusCode = 200
     res.end(JSON.stringify({
@@ -516,7 +525,7 @@ async function handleFlush(req, res) {
     }))
   } catch (err) {
     console.error('POST /api/send?resource=flush failed:', err)
-    await captureApiError(err, { route: 'POST /api/send?resource=flush' })
+    await services.captureApiError(err, { route: 'POST /api/send?resource=flush' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Flush failed' }))
   }
@@ -527,7 +536,7 @@ async function handleFlush(req, res) {
 // a scheduled_sends row for the flush job to deliver later. Immediate
 // sending always wins: a storage failure is logged and the response is
 // still a success.
-async function handleSend(req, res, email) {
+async function handleSend(req, res, email, services) {
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
@@ -568,7 +577,7 @@ async function handleSend(req, res, email) {
       return
     }
     try {
-      const sql = getSql()
+      const sql = services.getSql()
       const scheduledSend = await createScheduledSend(sql, email, {
         recipients,
         subject,
@@ -586,7 +595,7 @@ async function handleSend(req, res, email) {
       res.end(JSON.stringify({ scheduledSend }))
     } catch (err) {
       console.error('POST /api/send (schedule) failed:', err)
-      await captureApiError(err, { route: 'POST /api/send (schedule)' })
+      await services.captureApiError(err, { route: 'POST /api/send (schedule)' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to schedule email' }))
     }
@@ -595,7 +604,7 @@ async function handleSend(req, res, email) {
 
   let sql
   try {
-    sql = getSql()
+    sql = services.getSql()
     const quota = await claimOutboundEmailQuota(sql, email)
     if (!quota.authorized) {
       res.statusCode = 403
@@ -609,20 +618,25 @@ async function handleSend(req, res, email) {
     }
   } catch (err) {
     console.error('failed to enforce outbound email quota:', err.message)
-    await captureApiError(err, { route: 'POST /api/send (quota)' })
+    await services.captureApiError(err, { route: 'POST /api/send (quota)' })
     res.statusCode = 503
     res.end(JSON.stringify({ error: 'Email sending is temporarily unavailable' }))
     return
   }
 
   try {
-    const { resendId } = await deliverMail(sql, email, {
-      recipients,
-      subject,
-      text,
-      html: bodyHtml,
-      replyToMessageId: replyTo,
-    })
+    const { resendId } = await deliverMail(
+      sql,
+      email,
+      {
+        recipients,
+        subject,
+        text,
+        html: bodyHtml,
+        replyToMessageId: replyTo,
+      },
+      services,
+    )
     res.statusCode = 200
     res.end(JSON.stringify({ id: resendId }))
   } catch (err) {
@@ -632,36 +646,45 @@ async function handleSend(req, res, email) {
   }
 }
 
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
-  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+export function createHandler(overrides = {}) {
+  const services = createServices({
+    embedText,
+    createResend: (key) => new Resend(key),
+    ...overrides,
+  })
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
+    const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
 
-  // The flush job authenticates with its own bearer secret, not a user
-  // Auth0 token, so it must be dispatched before verifyAccessToken runs.
-  if (resource === 'flush') {
-    await handleFlush(req, res)
-    return
-  }
-
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  try {
-    if (resource === 'scheduled') {
-      await handleScheduled(req, res, email)
+    // The flush job authenticates with its own bearer secret, not a user
+    // Auth0 token, so it must be dispatched before verifyAccessToken runs.
+    if (resource === 'flush') {
+      await handleFlush(req, res, services)
       return
     }
-    await handleSend(req, res, email)
-  } catch (err) {
-    console.error(`${req.method} /api/send failed:`, err)
-    await captureApiError(err, { route: `${req.method} /api/send` })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Failed to send email' }))
+
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
+
+    try {
+      if (resource === 'scheduled') {
+        await handleScheduled(req, res, email, services)
+        return
+      }
+      await handleSend(req, res, email, services)
+    } catch (err) {
+      console.error(`${req.method} /api/send failed:`, err)
+      await services.captureApiError(err, { route: `${req.method} /api/send` })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to send email' }))
+    }
   }
 }
+
+export default createHandler()

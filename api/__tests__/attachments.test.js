@@ -1,30 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+import { createHandler, privateBlobPathname } from '../messages.js'
+
+const issueSignedToken = vi.fn(async () => ({
+  clientSigningToken: 'client-signing-token',
+  delegationToken: 'delegation-token',
+  validUntil: Date.now() + 300_000,
 }))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
+const presignUrl = vi.fn(async () => ({
+  presignedUrl: 'https://store.private.blob.vercel-storage.com/mail-attachments/hash/0?signed=1',
 }))
-vi.mock('@vercel/blob', () => ({
-  issueSignedToken: vi.fn(async () => ({
-    clientSigningToken: 'client-signing-token',
-    delegationToken: 'delegation-token',
-    validUntil: Date.now() + 300_000,
-  })),
-  presignUrl: vi.fn(async () => ({
-    presignedUrl: 'https://store.private.blob.vercel-storage.com/mail-attachments/hash/0?signed=1',
-  })),
-  getDownloadUrl: vi.fn((url) => `${url}&download=1`),
-}))
+const getDownloadUrl = vi.fn((url) => `${url}&download=1`)
 
 let sqlRows = []
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => () => Promise.resolve(sqlRows),
-}))
 
-import { issueSignedToken, presignUrl } from '@vercel/blob'
-import handler, { privateBlobPathname } from '../messages.js'
+const handler = createHandler({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  captureApiError: vi.fn(async () => undefined),
+  getSql: () => () => Promise.resolve(sqlRows),
+  issueSignedToken,
+  presignUrl,
+  getDownloadUrl,
+})
 
 const ATTACHMENT_ID = '22222222-2222-4222-8222-222222222222'
 

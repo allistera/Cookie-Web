@@ -1,28 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { createHandler } from '../notification-event.js'
 
 // Each tagged-template query resolves to the next queued result, in call
 // order, so a test can script the exact sequence of round trips a branch makes.
 let sqlQueue = []
 let statements = []
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => {
-    const fn = (strings) => {
-      statements.push(strings.join('?'))
-      return Promise.resolve(sqlQueue.shift() ?? [])
-    }
-    fn.begin = async (callback) => callback(fn)
-    return fn
-  },
-}))
+function getSql() {
+  const fn = (strings) => {
+    statements.push(strings.join('?'))
+    return Promise.resolve(sqlQueue.shift() ?? [])
+  }
+  fn.begin = async (callback) => callback(fn)
+  return fn
+}
 
-import handler from '../notification-event.js'
+const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
+
+const handler = createHandler({
+  verifyAccessToken,
+  captureApiError: vi.fn(async () => undefined),
+  getSql,
+})
 
 function makeRes() {
   return {
@@ -182,8 +181,7 @@ describe('validation, auth, and method handling', () => {
   })
 
   it('401s without a valid token', async () => {
-    const auth = await import('../_lib/auth.js')
-    auth.verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
+    verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
     const res = makeRes()
 
     await handler(req({ action: 'claim', eventId: EVENT_ID }), res)

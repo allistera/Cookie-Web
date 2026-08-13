@@ -2,28 +2,21 @@ import process from 'node:process'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
+import { createHandler, parseScheduledFor } from '../send.js'
+
+const mocks = {
   captureApiError: vi.fn(),
   getSql: vi.fn(),
   resendSend: vi.fn(),
-}))
+}
 
-vi.mock('../_lib/auth.js', () => ({
+const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/db.js', () => ({ getSql: mocks.getSql }))
-vi.mock('../_lib/sentry.js', () => ({ captureApiError: mocks.captureApiError }))
-vi.mock('../_lib/embeddings.js', () => ({
-  EMBEDDING_MODEL: 'test-model',
+  getSql: mocks.getSql,
+  captureApiError: mocks.captureApiError,
   embedText: vi.fn(),
-}))
-vi.mock('resend', () => ({
-  Resend: class {
-    emails = { send: mocks.resendSend }
-  },
-}))
-
-import handler, { parseScheduledFor } from '../send.js'
+  createResend: () => ({ emails: { send: mocks.resendSend } }),
+})
 
 afterEach(() => {
   vi.restoreAllMocks()

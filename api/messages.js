@@ -3,9 +3,7 @@ import process from 'node:process'
 import { Resend } from 'resend'
 import { getDownloadUrl, issueSignedToken, presignUrl } from '@vercel/blob'
 
-import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
+import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 import { parseListUnsubscribe, isSafeUnsubscribeUrl } from './_lib/unsubscribe.js'
 import { requestPublicHttps } from './_lib/safe-https.js'
@@ -83,7 +81,7 @@ export function privateBlobPathname(blobUrl) {
   return decodeURIComponent(url.pathname.replace(/^\//, ''))
 }
 
-async function handleAttachmentGet(req, res, email) {
+async function handleAttachmentGet(req, res, email, services) {
   res.setHeader('Cache-Control', 'private, no-store')
 
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
@@ -94,7 +92,7 @@ async function handleAttachmentGet(req, res, email) {
   }
 
   try {
-    const rows = await fetchOwnedAttachment(getSql(), id, email)
+    const rows = await fetchOwnedAttachment(services.getSql(), id, email)
     const attachment = rows[0]
     if (!attachment?.blob_url) {
       res.statusCode = 404
@@ -104,12 +102,12 @@ async function handleAttachmentGet(req, res, email) {
 
     const pathname = privateBlobPathname(attachment.blob_url)
     const validUntil = Date.now() + SIGNED_URL_TTL_MS
-    const signedToken = await issueSignedToken({
+    const signedToken = await services.issueSignedToken({
       pathname,
       operations: ['get'],
       validUntil,
     })
-    const { presignedUrl } = await presignUrl(signedToken, {
+    const { presignedUrl } = await services.presignUrl(signedToken, {
       access: 'private',
       operation: 'get',
       pathname,
@@ -119,14 +117,14 @@ async function handleAttachmentGet(req, res, email) {
     res.statusCode = 200
     res.end(
       JSON.stringify({
-        url: getDownloadUrl(presignedUrl),
+        url: services.getDownloadUrl(presignedUrl),
         filename: attachment.filename || 'attachment',
         contentType: attachment.content_type || 'application/octet-stream',
       }),
     )
   } catch (error) {
     console.error('GET /api/messages?resource=attachment failed:', error)
-    await captureApiError(error, { route: 'GET /api/messages (attachment)' })
+    await services.captureApiError(error, { route: 'GET /api/messages (attachment)' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to prepare attachment download' }))
   }
@@ -134,7 +132,7 @@ async function handleAttachmentGet(req, res, email) {
 
 // 404 for a message that is not the caller's (or does not exist), 400 for a
 // malformed id.
-async function handleGet(req, res, email) {
+async function handleGet(req, res, email, services) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
   if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
@@ -143,7 +141,7 @@ async function handleGet(req, res, email) {
   }
 
   try {
-    const sql = getSql()
+    const sql = services.getSql()
     const rows = await fetchOwnedMessageBody(sql, id, email)
     if (rows.length === 0) {
       res.statusCode = 404
@@ -163,13 +161,13 @@ async function handleGet(req, res, email) {
     )
   } catch (err) {
     console.error('GET /api/messages failed:', err)
-    await captureApiError(err, { route: 'GET /api/messages' })
+    await services.captureApiError(err, { route: 'GET /api/messages' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load message' }))
   }
 }
 
-async function handleThreadBodyGet(req, res, email) {
+async function handleThreadBodyGet(req, res, email, services) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
   if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
@@ -178,7 +176,7 @@ async function handleThreadBodyGet(req, res, email) {
   }
 
   try {
-    const [message] = await fetchOwnedMessageText(getSql(), id, email)
+    const [message] = await fetchOwnedMessageText(services.getSql(), id, email)
     if (!message) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))
@@ -188,7 +186,7 @@ async function handleThreadBodyGet(req, res, email) {
     res.end(JSON.stringify({ body_text: message.body_text ?? '' }))
   } catch (err) {
     console.error('GET /api/messages?resource=thread-body failed:', err)
-    await captureApiError(err, { route: 'GET /api/messages (thread body)' })
+    await services.captureApiError(err, { route: 'GET /api/messages (thread body)' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load message body' }))
   }
@@ -198,7 +196,7 @@ async function handleThreadBodyGet(req, res, email) {
 // the message and the label are ownership-checked before the join row changes,
 // and the message's full label set is returned so the reader can resync its
 // pills. add_label is idempotent (ON CONFLICT DO NOTHING).
-async function mutateMessageLabel(res, email, messageId, action, rawLabelId) {
+async function mutateMessageLabel(res, email, messageId, action, rawLabelId, services) {
   const labelId = UUID_RE.test(rawLabelId) ? String(rawLabelId) : null
   if (!labelId) {
     res.statusCode = 400
@@ -207,7 +205,7 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId) {
   }
 
   try {
-    const sql = getSql()
+    const sql = services.getSql()
     const [owns] = await sql`
       SELECT
         EXISTS (
@@ -255,7 +253,7 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId) {
     res.end(JSON.stringify({ labels }))
   } catch (err) {
     console.error('POST /api/messages label change failed:', err)
-    await captureApiError(err, { route: 'POST /api/messages (label)' })
+    await services.captureApiError(err, { route: 'POST /api/messages (label)' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to update labels' }))
   }
@@ -266,7 +264,7 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId) {
 // in preference order: performs a server-side, SSRF-guarded one-click POST;
 // sends a mailto unsubscribe via Resend; or returns a safe target for the
 // client to open manually. No DB writes.
-async function handlePost(req, res, email) {
+async function handlePost(req, res, email, services) {
   let body
   try {
     body = await readJsonBody(req)
@@ -286,7 +284,7 @@ async function handlePost(req, res, email) {
 
   // Tagging: apply or remove one of the user's labels on the message.
   if (action === 'add_label' || action === 'remove_label') {
-    return mutateMessageLabel(res, email, id, action, body.label_id)
+    return mutateMessageLabel(res, email, id, action, body.label_id, services)
   }
 
   if (action !== 'unsubscribe') {
@@ -296,7 +294,7 @@ async function handlePost(req, res, email) {
   }
 
   try {
-    const sql = getSql()
+    const sql = services.getSql()
     const rows = await sql`
       SELECT m.headers
       FROM messages m
@@ -320,7 +318,7 @@ async function handlePost(req, res, email) {
     // 1. RFC 8058 one-click: server-side POST, only to an SSRF-safe https URL.
     if (oneClick && url && isSafeUnsubscribeUrl(url)) {
       try {
-        const resp = await requestPublicHttps(url, {
+        const resp = await services.requestPublicHttps(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: 'List-Unsubscribe=One-Click',
@@ -389,7 +387,7 @@ async function handlePost(req, res, email) {
     res.end(JSON.stringify({ error: 'No safe unsubscribe method is available' }))
   } catch (err) {
     console.error('POST /api/messages failed:', err)
-    await captureApiError(err, { route: 'POST /api/messages' })
+    await services.captureApiError(err, { route: 'POST /api/messages' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to unsubscribe' }))
   }
@@ -399,100 +397,111 @@ async function handlePost(req, res, email) {
 // acts on the unsubscribe or applies/removes a label (action: 'add_label' |
 // 'remove_label' with a label_id); PATCH updates flags (is_unread, is_starred,
 // is_archived, scheduled_for) on a message owned by the authenticated user.
-export default async function handler(req, res) {
-  const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
-  if (resource === 'contacts') {
-    await contactsHandler(req, res)
-    return
-  }
-
-  res.setHeader('Content-Type', 'application/json')
-
-  if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'POST') {
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-    return
-  }
-
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  if (req.method === 'GET' && resource === 'attachment') {
-    return handleAttachmentGet(req, res, email)
-  }
-
-  if (req.method === 'GET' && resource === 'thread-body') {
-    return handleThreadBodyGet(req, res, email)
-  }
-
-  if (req.method === 'GET') {
-    return handleGet(req, res, email)
-  }
-
-  if (req.method === 'POST') {
-    return handlePost(req, res, email)
-  }
-
-  let body
-  try {
-    body = await readJsonBody(req)
-  } catch {
-    res.statusCode = 400
-    res.end(JSON.stringify({ error: 'Invalid JSON body' }))
-    return
-  }
-
-  const { is_unread, is_starred, is_archived, is_deleted } = body
-  const flags = [is_unread, is_starred, is_archived, is_deleted]
-  const id = UUID_RE.test(body.id) ? String(body.id) : null
-  const flagsValid = flags.every((f) => f === undefined || f === true || f === false)
-  const hasScheduledChange = Object.hasOwn(body, 'scheduled_for')
-  const scheduledFor =
-    hasScheduledChange && body.scheduled_for !== null ? String(body.scheduled_for ?? '') : null
-  const scheduledForValid =
-    !hasScheduledChange ||
-    scheduledFor === null ||
-    Number.isFinite(Date.parse(scheduledFor))
-  const hasChange = flags.some((f) => f === true || f === false) || hasScheduledChange
-  if (!id || !flagsValid || !scheduledForValid || !hasChange) {
-    res.statusCode = 400
-    res.end(JSON.stringify({ error: 'id and at least one valid change are required' }))
-    return
-  }
-
-  try {
-    const sql = getSql()
-    const rows = await sql`
-      UPDATE messages m SET
-        is_unread   = COALESCE(${is_unread ?? null}::boolean, m.is_unread),
-        is_starred  = COALESCE(${is_starred ?? null}::boolean, m.is_starred),
-        is_archived = COALESCE(${is_archived ?? null}::boolean, m.is_archived),
-        is_deleted  = COALESCE(${is_deleted ?? null}::boolean, m.is_deleted),
-        scheduled_for = CASE
-          WHEN ${hasScheduledChange}::boolean THEN ${scheduledFor}::timestamptz
-          ELSE m.scheduled_for
-        END
-      FROM users u
-      WHERE m.id = ${id} AND m.user_id = u.id AND lower(u.email) = ${email}
-      RETURNING m.id, m.is_unread, m.is_starred, m.is_archived, m.is_deleted, m.scheduled_for
-    `
-    if (rows.length === 0) {
-      res.statusCode = 404
-      res.end(JSON.stringify({ error: 'Message not found' }))
+export function createHandler(overrides = {}) {
+  const services = createServices({
+    requestPublicHttps,
+    issueSignedToken,
+    presignUrl,
+    getDownloadUrl,
+    ...overrides,
+  })
+  return async function handler(req, res) {
+    const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
+    if (resource === 'contacts') {
+      await contactsHandler(req, res)
       return
     }
-    res.statusCode = 200
-    res.end(JSON.stringify({ message: rows[0] }))
-  } catch (err) {
-    console.error('PATCH /api/messages failed:', err)
-    await captureApiError(err, { route: 'PATCH /api/messages' })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Failed to update message' }))
+
+    res.setHeader('Content-Type', 'application/json')
+
+    if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'POST') {
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
+
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
+
+    if (req.method === 'GET' && resource === 'attachment') {
+      return handleAttachmentGet(req, res, email, services)
+    }
+
+    if (req.method === 'GET' && resource === 'thread-body') {
+      return handleThreadBodyGet(req, res, email, services)
+    }
+
+    if (req.method === 'GET') {
+      return handleGet(req, res, email, services)
+    }
+
+    if (req.method === 'POST') {
+      return handlePost(req, res, email, services)
+    }
+
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+      return
+    }
+
+    const { is_unread, is_starred, is_archived, is_deleted } = body
+    const flags = [is_unread, is_starred, is_archived, is_deleted]
+    const id = UUID_RE.test(body.id) ? String(body.id) : null
+    const flagsValid = flags.every((f) => f === undefined || f === true || f === false)
+    const hasScheduledChange = Object.hasOwn(body, 'scheduled_for')
+    const scheduledFor =
+      hasScheduledChange && body.scheduled_for !== null ? String(body.scheduled_for ?? '') : null
+    const scheduledForValid =
+      !hasScheduledChange ||
+      scheduledFor === null ||
+      Number.isFinite(Date.parse(scheduledFor))
+    const hasChange = flags.some((f) => f === true || f === false) || hasScheduledChange
+    if (!id || !flagsValid || !scheduledForValid || !hasChange) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'id and at least one valid change are required' }))
+      return
+    }
+
+    try {
+      const sql = services.getSql()
+      const rows = await sql`
+        UPDATE messages m SET
+          is_unread   = COALESCE(${is_unread ?? null}::boolean, m.is_unread),
+          is_starred  = COALESCE(${is_starred ?? null}::boolean, m.is_starred),
+          is_archived = COALESCE(${is_archived ?? null}::boolean, m.is_archived),
+          is_deleted  = COALESCE(${is_deleted ?? null}::boolean, m.is_deleted),
+          scheduled_for = CASE
+            WHEN ${hasScheduledChange}::boolean THEN ${scheduledFor}::timestamptz
+            ELSE m.scheduled_for
+          END
+        FROM users u
+        WHERE m.id = ${id} AND m.user_id = u.id AND lower(u.email) = ${email}
+        RETURNING m.id, m.is_unread, m.is_starred, m.is_archived, m.is_deleted, m.scheduled_for
+      `
+      if (rows.length === 0) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Message not found' }))
+        return
+      }
+      res.statusCode = 200
+      res.end(JSON.stringify({ message: rows[0] }))
+    } catch (err) {
+      console.error('PATCH /api/messages failed:', err)
+      await services.captureApiError(err, { route: 'PATCH /api/messages' })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to update message' }))
+    }
   }
 }
+
+export default createHandler()

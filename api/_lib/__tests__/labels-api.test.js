@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getSql, verifyAccessToken } = vi.hoisted(() => ({
-  getSql: vi.fn(),
-  verifyAccessToken: vi.fn(),
-}))
+import { createHandler } from '../../labels.js'
 
-vi.mock('../db.js', () => ({ getSql }))
-vi.mock('../auth.js', () => ({ verifyAccessToken }))
-vi.mock('../sentry.js', () => ({ captureApiError: vi.fn() }))
+const getSql = vi.fn()
+const verifyAccessToken = vi.fn()
 
-import handler from '../../labels.js'
+const handler = createHandler({
+  getSql,
+  verifyAccessToken,
+  captureApiError: vi.fn(),
+})
 
 const LABEL_ID = '11111111-1111-1111-1111-111111111111'
 

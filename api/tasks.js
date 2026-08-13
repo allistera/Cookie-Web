@@ -266,13 +266,13 @@ export function createHandler(overrides = {}) {
     }
 
     if (resource === 'refresh') {
-      return handleRefresh(req, res, email)
+      return handleRefresh(req, res, email, services)
     }
     if (resource === 'interests') {
       return handleInterests(req, res, email)
     }
     if (resource === 'documents') {
-      return handleDocuments(req, res, email)
+      return handleDocuments(req, res, email, services)
     }
 
     if (req.method === 'POST') {

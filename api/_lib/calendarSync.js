@@ -39,8 +39,8 @@ export function validSubscriptionUrl(value) {
   return parsed.toString()
 }
 
-async function fetchIcs(url) {
-  const response = await requestPublicHttps(url, {
+async function fetchIcs(url, request) {
+  const response = await request(url, {
     timeoutMs: FETCH_TIMEOUT_MS,
     maxResponseBytes: MAX_RESPONSE_BYTES,
     headers: { Accept: 'text/calendar, text/plain, */*' },
@@ -172,14 +172,16 @@ async function recordSyncError(sql, calendarId, error) {
 // sync-owned, so there's no local edit state to preserve across a resync,
 // and a full replace is far simpler than tracking per-occurrence identity
 // against an external feed that has none.
-export async function syncCalendarSubscription(sql, calendarId, userId, url) {
+// `request` is an injectable seam over the pinned public-HTTPS boundary so
+// tests can script feed responses without mocking the safe-https module.
+export async function syncCalendarSubscription(sql, calendarId, userId, url, request = requestPublicHttps) {
   const now = new Date()
   const windowStart = new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
   const windowEnd = new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
 
   let rows
   try {
-    const icsText = await fetchIcs(url)
+    const icsText = await fetchIcs(url, request)
     rows = parseEvents(icsText, windowStart, windowEnd)
   } catch (error) {
     return recordSyncError(sql, calendarId, error)

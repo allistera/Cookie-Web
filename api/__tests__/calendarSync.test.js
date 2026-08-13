@@ -3,12 +3,11 @@ import { Buffer } from 'node:buffer'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/safe-https.js', () => ({
-  requestPublicHttps: vi.fn(),
-}))
-
-import { requestPublicHttps } from '../_lib/safe-https.js'
 import { syncCalendarSubscription, validSubscriptionUrl } from '../_lib/calendarSync.js'
+
+// Injected into syncCalendarSubscription in place of the real safe-https
+// boundary, so each test scripts the feed response directly.
+const requestPublicHttps = vi.fn()
 
 const httpsResponse = (body = '', status = 200, headers = {}) => ({
   body: Buffer.from(body),
@@ -79,7 +78,7 @@ describe('syncCalendarSubscription', () => {
     )
     const sql = makeSql([])
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://internal.example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://internal.example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('disallowed address')
@@ -91,7 +90,7 @@ describe('syncCalendarSubscription', () => {
     )
     const sql = makeSql([])
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://metadata.example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://metadata.example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(false)
   })
@@ -104,6 +103,7 @@ describe('syncCalendarSubscription', () => {
       'cal-1',
       'user-1',
       'https://rebind.example.com/feed.ics',
+      requestPublicHttps,
     )
 
     expect(result.ok).toBe(true)
@@ -117,7 +117,7 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse('', 302, { location: '/other' }))
     const sql = makeSql([])
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('redirect')
@@ -128,7 +128,7 @@ describe('syncCalendarSubscription', () => {
     const queue = [[]]
     const sql = makeSql(queue)
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('500')
@@ -146,7 +146,7 @@ describe('syncCalendarSubscription', () => {
     }
     sql.begin = async (fn) => fn(sql)
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(false)
     expect(result.error).toHaveLength(500)
@@ -189,7 +189,7 @@ describe('syncCalendarSubscription', () => {
     }
     sql.begin = async (fn) => fn(sql)
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(true)
     expect(result.count).toBe(3)
@@ -226,7 +226,7 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(true)
     expect(inserted[0]).toEqual([
@@ -258,7 +258,7 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(true)
     expect(inserted[0].map((row) => row.date)).toEqual(['2026-08-10', '2026-08-11', '2026-08-12'])
@@ -282,7 +282,7 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(true)
     expect(inserted[0].map((row) => row.date)).toEqual(['2026-01-01', '2027-01-01', '2028-01-01'])
@@ -307,7 +307,7 @@ describe('syncCalendarSubscription', () => {
       vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
       const { sql, inserted } = captureInsertedRows()
 
-      const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+      const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
       expect(result.ok).toBe(true)
       expect(inserted[0][0].date).toBe('2026-08-01')
@@ -336,6 +336,7 @@ describe('syncCalendarSubscription', () => {
       'cal-1',
       'user-1',
       'https://example.com/feed.ics',
+      requestPublicHttps,
     )
 
     expect(result.ok).toBe(true)
@@ -355,7 +356,7 @@ describe('syncCalendarSubscription', () => {
       throw new Error('cannot call json_to_recordset on a scalar')
     }
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics')
+    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('json_to_recordset')

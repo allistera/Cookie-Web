@@ -1,16 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const sentry = vi.hoisted(() => ({
+import { createErrorCapture } from '../sentry.js'
+
+// A fresh capture per test gives an isolated init/flush lifecycle, the same
+// reset vi.resetModules used to provide against the module singleton.
+const sentry = {
   init: vi.fn(),
   captureException: vi.fn(),
   flush: vi.fn(async () => true),
-}))
-
-vi.mock('@sentry/node', () => sentry)
+}
 
 describe('captureApiError', () => {
   beforeEach(() => {
-    vi.resetModules()
     vi.clearAllMocks()
   })
 
@@ -21,7 +22,7 @@ describe('captureApiError', () => {
   it('stays disabled outside Vercel when no explicit DSN is configured', async () => {
     vi.stubEnv('VERCEL', '')
     vi.stubEnv('SENTRY_DSN', '')
-    const { captureApiError } = await import('../sentry.js')
+    const captureApiError = createErrorCapture(async () => sentry)
 
     await captureApiError(new Error('local failure'))
 
@@ -31,7 +32,7 @@ describe('captureApiError', () => {
 
   it('initializes error reporting once and flushes each captured exception', async () => {
     vi.stubEnv('VERCEL', '1')
-    const { captureApiError } = await import('../sentry.js')
+    const captureApiError = createErrorCapture(async () => sentry)
     const first = new Error('first failure')
     const second = new Error('second failure')
 

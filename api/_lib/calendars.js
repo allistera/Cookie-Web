@@ -1,6 +1,4 @@
-import { getSql } from './db.js'
-import { verifyAccessToken } from './auth.js'
-import { captureApiError } from './sentry.js'
+import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
 import { syncCalendarSubscription, validSubscriptionUrl } from './calendarSync.js'
 
@@ -287,50 +285,55 @@ async function deleteCalendar(sql, email, body, res) {
 // /api/calendar-events?resource=calendars — GET lists the user's calendars
 // (seeding defaults for a brand new user), POST creates one, PATCH renames
 // one, DELETE removes one (rejected while it still has events).
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
+export function createHandler(overrides = {}) {
+  const services = createServices(overrides)
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
 
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  try {
-    const sql = getSql()
-    if (req.method === 'GET') {
-      await listCalendars(sql, email, res)
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
       return
     }
-    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
-      let body
-      try {
-        body = await readJsonBody(req)
-      } catch {
-        res.statusCode = 400
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+
+    try {
+      const sql = services.getSql()
+      if (req.method === 'GET') {
+        await listCalendars(sql, email, res)
         return
       }
-      if (req.method === 'POST' && body.action === 'sync') await syncCalendar(sql, email, body, res)
-      else if (req.method === 'POST') await createCalendar(sql, email, body, res)
-      else if (req.method === 'PATCH') await renameCalendar(sql, email, body, res)
-      else await deleteCalendar(sql, email, body, res)
-      return
+      if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
+        let body
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+          return
+        }
+        if (req.method === 'POST' && body.action === 'sync') await syncCalendar(sql, email, body, res)
+        else if (req.method === 'POST') await createCalendar(sql, email, body, res)
+        else if (req.method === 'PATCH') await renameCalendar(sql, email, body, res)
+        else await deleteCalendar(sql, email, body, res)
+        return
+      }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+    } catch (err) {
+      if (isUndefinedTable(err)) {
+        res.statusCode = 503
+        res.end(JSON.stringify({ error: 'Calendar management is being upgraded. Try again shortly.' }))
+        return
+      }
+      console.error(`${req.method} calendar management failed:`, err)
+      await services.captureApiError(err, { route: `${req.method} calendar management` })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Calendars request failed' }))
     }
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-  } catch (err) {
-    if (isUndefinedTable(err)) {
-      res.statusCode = 503
-      res.end(JSON.stringify({ error: 'Calendar management is being upgraded. Try again shortly.' }))
-      return
-    }
-    console.error(`${req.method} calendar management failed:`, err)
-    await captureApiError(err, { route: `${req.method} calendar management` })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Calendars request failed' }))
   }
 }
+
+export default createHandler()

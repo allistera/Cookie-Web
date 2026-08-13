@@ -2,11 +2,12 @@ import process from 'node:process'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { handleRefresh as handleRefreshWired, triggerDigestRebuild, EnricherNotConfiguredError } from '../enricher.js'
 
-import { handleRefresh, triggerDigestRebuild, EnricherNotConfiguredError } from '../enricher.js'
+// Telemetry stays out of these tests' way the same as before, but injected
+// through handleRefresh's services argument instead of a module mock.
+const services = { captureApiError: vi.fn(async () => undefined) }
+const handleRefresh = (req, res, email) => handleRefreshWired(req, res, email, services)
 
 function makeRes() {
   return {

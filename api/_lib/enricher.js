@@ -1,6 +1,6 @@
 import process from 'node:process'
 
-import { captureApiError } from './sentry.js'
+import { createServices } from './services.js'
 import { allowRequest } from './rate-limit.js'
 
 // A digest rebuild is one model call in the Worker, so it is cheap enough to
@@ -44,7 +44,7 @@ export async function triggerDigestRebuild() {
 // POST /api/tasks?resource=refresh — rebuild AI Today's digest now instead of
 // waiting for the Worker's nightly cron. Returns 200 once the digest has been
 // written, so the caller can re-read /api/tasks and see the new topics.
-export async function handleRefresh(req, res, email) {
+export async function handleRefresh(req, res, email, services = createServices()) {
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
@@ -69,7 +69,7 @@ export async function handleRefresh(req, res, email) {
       return
     }
     console.error('POST /api/tasks?resource=refresh failed:', err)
-    await captureApiError(err, { route: 'POST /api/tasks?resource=refresh' })
+    await services.captureApiError(err, { route: 'POST /api/tasks?resource=refresh' })
     res.statusCode = 502
     res.end(JSON.stringify({ error: 'Failed to refresh' }))
   }

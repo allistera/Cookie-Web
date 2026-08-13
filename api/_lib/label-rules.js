@@ -1,6 +1,4 @@
-import { getSql } from './db.js'
-import { verifyAccessToken } from './auth.js'
-import { captureApiError } from './sentry.js'
+import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -268,44 +266,49 @@ async function deleteRule(sql, email, body, res) {
 // Lives under _lib (not a top-level api/*.js file) to stay within Vercel
 // Hobby's 12-serverless-function-per-deployment limit; api/labels.js
 // dispatches here by resource query param instead of Vercel routing it.
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
+export function createHandler(overrides = {}) {
+  const services = createServices(overrides)
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
 
-  let email
-  try {
-    ;({ email } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  try {
-    const sql = getSql()
-    if (req.method === 'GET') {
-      await listRules(sql, email, res)
+    let email
+    try {
+      ;({ email } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
       return
     }
-    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
-      let body
-      try {
-        body = await readJsonBody(req)
-      } catch {
-        res.statusCode = 400
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+
+    try {
+      const sql = services.getSql()
+      if (req.method === 'GET') {
+        await listRules(sql, email, res)
         return
       }
-      if (req.method === 'POST') await createRule(sql, email, body, res)
-      else if (req.method === 'PATCH') await updateRule(sql, email, body, res)
-      else await deleteRule(sql, email, body, res)
-      return
+      if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
+        let body
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+          return
+        }
+        if (req.method === 'POST') await createRule(sql, email, body, res)
+        else if (req.method === 'PATCH') await updateRule(sql, email, body, res)
+        else await deleteRule(sql, email, body, res)
+        return
+      }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+    } catch (err) {
+      console.error(`${req.method} /api/labels?resource=rules failed:`, err)
+      await services.captureApiError(err, { route: `${req.method} /api/labels?resource=rules` })
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Label rules request failed' }))
     }
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-  } catch (err) {
-    console.error(`${req.method} /api/labels?resource=rules failed:`, err)
-    await captureApiError(err, { route: `${req.method} /api/labels?resource=rules` })
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Label rules request failed' }))
   }
 }
+
+export default createHandler()

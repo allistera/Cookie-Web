@@ -2,25 +2,19 @@ import { Buffer } from 'node:buffer'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
-vi.mock('../_lib/safe-https.js', () => ({
-  requestPublicHttps: vi.fn(),
-}))
+import { createHandler, fetchMessageAttachments, fetchThreadMessages } from '../messages.js'
 
 // Each tagged-template query resolves to the next queued result, so a test can
 // script the ownership check, the write, and the labels read-back in order.
 let sqlQueue = []
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
-}))
+const requestPublicHttps = vi.fn()
 
-import handler, { fetchMessageAttachments, fetchThreadMessages } from '../messages.js'
-import { requestPublicHttps } from '../_lib/safe-https.js'
+const handler = createHandler({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  captureApiError: vi.fn(async () => undefined),
+  getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
+  requestPublicHttps,
+})
 
 function makeRes() {
   return {
@@ -54,7 +48,7 @@ function getThreadBody(id) {
 describe('POST /api/messages label actions', () => {
   beforeEach(() => {
     sqlQueue = []
-    vi.mocked(requestPublicHttps).mockReset()
+    requestPublicHttps.mockReset()
   })
 
   it('applies a label and returns the message label set', async () => {
@@ -120,7 +114,7 @@ describe('POST /api/messages label actions', () => {
 describe('POST /api/messages unsubscribe action', () => {
   beforeEach(() => {
     sqlQueue = []
-    vi.mocked(requestPublicHttps).mockReset()
+    requestPublicHttps.mockReset()
   })
 
   it('sends one-click unsubscribe through the pinned public-HTTPS boundary', async () => {
@@ -130,7 +124,7 @@ describe('POST /api/messages unsubscribe action', () => {
         { key: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
       ],
     }]]
-    vi.mocked(requestPublicHttps).mockResolvedValue({ status: 204, headers: {}, body: Buffer.alloc(0) })
+    requestPublicHttps.mockResolvedValue({ status: 204, headers: {}, body: Buffer.alloc(0) })
     const res = makeRes()
 
     await handler(post({ id: MESSAGE_ID, action: 'unsubscribe' }), res)

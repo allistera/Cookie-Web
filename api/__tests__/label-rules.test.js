@@ -1,25 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { createHandler } from '../_lib/label-rules.js'
 
 // Each tagged-template query resolves to the next queued result, in call
 // order, so a test can script the exact sequence of round trips a handler
 // branch makes (including the inserts inside sql.begin()).
 let sqlQueue = []
-vi.mock('../_lib/db.js', () => ({
+const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
+
+const handler = createHandler({
+  verifyAccessToken,
+  captureApiError: vi.fn(async () => undefined),
   getSql: () => {
     const fn = () => Promise.resolve(sqlQueue.shift() ?? [])
     fn.begin = async (callback) => callback(fn)
     return fn
   },
-}))
-
-import handler from '../_lib/label-rules.js'
+})
 
 function makeRes() {
   return {
@@ -278,8 +275,7 @@ describe('DELETE /api/label-rules', () => {
 
 describe('unauthenticated and unsupported methods', () => {
   it('401s without a valid token', async () => {
-    const auth = await import('../_lib/auth.js')
-    auth.verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
+    verifyAccessToken.mockRejectedValueOnce(new Error('no token'))
 
     const res = makeRes()
     await handler(req('GET'), res)

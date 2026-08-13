@@ -1,36 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
-  captureApiError: vi.fn(async () => undefined),
-}))
+import { createHandler } from '../tasks.js'
+import { cleanText, normalizeBlocks, MAX_BLOCKS_BYTES } from '../_lib/documents.js'
 
 // Each tagged-template query resolves to the next queued result, in call
 // order, and every statement's SQL text is recorded so a test can assert on
-// which round trips the handler actually made. Calling the mock with a plain
+// which round trips the handler actually made. Calling the fake with a plain
 // object (postgres.js's dynamic-set helper, sql(updates)) records the column
 // names instead, and sql.json marks its value the way the driver would.
 let sqlQueue = []
 let statements = []
-vi.mock('../_lib/db.js', () => ({
-  getSql: () => {
-    const fn = (strings) => {
-      if (Array.isArray(strings)) {
-        statements.push(strings.join('?'))
-        return Promise.resolve(sqlQueue.shift() ?? [])
-      }
-      statements.push(`SET(${Object.keys(strings).join(',')})`)
-      return { helper: strings }
+function getSql() {
+  const fn = (strings) => {
+    if (Array.isArray(strings)) {
+      statements.push(strings.join('?'))
+      return Promise.resolve(sqlQueue.shift() ?? [])
     }
-    fn.json = (value) => ({ json: value })
-    return fn
-  },
-}))
+    statements.push(`SET(${Object.keys(strings).join(',')})`)
+    return { helper: strings }
+  }
+  fn.json = (value) => ({ json: value })
+  return fn
+}
 
-import handler from '../tasks.js'
-import { cleanText, normalizeBlocks, MAX_BLOCKS_BYTES } from '../_lib/documents.js'
+const handler = createHandler({
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  captureApiError: vi.fn(async () => undefined),
+  getSql,
+})
 
 const DOC_ID = '33333333-3333-4333-8333-333333333333'
 const FOLDER_ID = '44444444-4444-4444-8444-444444444444'

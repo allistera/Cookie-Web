@@ -1,24 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../_lib/auth.js', () => ({
+import { createHandler } from '../calendar-events.js'
+
+let sqlQueue = []
+
+const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-}))
-vi.mock('../_lib/sentry.js', () => ({
   captureApiError: vi.fn(async () => undefined),
-}))
-vi.mock('../_lib/calendars.js', () => ({
-  default: vi.fn(async (req, res) => {
+  calendarsHandler: vi.fn(async (req, res) => {
     res.statusCode = 200
     res.end('{}')
   }),
-}))
-
-let sqlQueue = []
-vi.mock('../_lib/db.js', () => ({
   getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
-}))
-
-import handler from '../calendar-events.js'
+})
 
 function makeRes() {
   return {
