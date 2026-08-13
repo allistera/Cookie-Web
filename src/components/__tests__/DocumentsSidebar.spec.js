@@ -42,9 +42,7 @@ function mountSidebar() {
 beforeEach(async () => {
   router = createRouter({
     history: createMemoryHistory(),
-    routes: [
-      { path: '/documents/:id?', name: 'documents', component: { template: '<div />' } },
-    ],
+    routes: [{ path: '/documents/:id?', name: 'documents', component: { template: '<div />' } }],
   })
   await router.push({ name: 'documents' })
   await router.isReady()
@@ -141,6 +139,20 @@ describe('DocumentsSidebar', () => {
 
     expect(useDocumentsStore().newDocumentDialogOpen).toBe(true)
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it('shows Time Management above Documents and opens today’s note on click', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    expect(wrapper.text().indexOf('Time Management')).toBeLessThan(
+      wrapper.text().indexOf('Documents'),
+    )
+
+    await wrapper.find('.time-management-nav .nav-item').trigger('click')
+    await flushPromises()
+
+    expect(push).toHaveBeenCalledWith('/documents/d-new')
   })
 
   it('creates a root folder through the inline input', async () => {

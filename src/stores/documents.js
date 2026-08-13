@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
+import { formatDailyNoteTitle } from '../lib/documentDates'
 import { useInboxStore } from './inbox'
 
 // Autosave: edits wait this long after the last keystroke before the PATCH
@@ -237,6 +238,34 @@ export const useDocumentsStore = defineStore('documents', {
         console.error('Failed to rename folder:', error)
         this.notify('Failed to rename the folder.', 'error')
       }
+    },
+
+    // The "Today" sidebar shortcut: finds (or creates) the root "Daily"
+    // folder and today's note inside it, seeding a fresh note with a "Tasks"
+    // heading so it isn't blank the first time it's opened.
+    async openTodayNote() {
+      await this.loadWorkspace()
+      const title = formatDailyNoteTitle()
+      let folder = this.folders.find((f) => f.parent_id === null && f.title === 'Daily')
+      if (!folder) folder = await this.createFolder({ title: 'Daily' })
+      if (!folder) return null
+
+      const existing = this.documents.find((d) => d.folder_id === folder.id && d.title === title)
+      if (existing) return existing
+
+      const document = await this.createDocument({ folderId: folder.id, title })
+      if (!document) return null
+      try {
+        await this.request('PATCH', {
+          body: {
+            id: document.id,
+            blocks: [{ type: 'header', data: { text: 'Tasks', level: 2 } }],
+          },
+        })
+      } catch (error) {
+        console.error('Failed to seed the daily note:', error)
+      }
+      return document
     },
 
     // Metadata updates (star, move, emoji): applied optimistically to the

@@ -37,6 +37,16 @@ function newDocument(folderId = null) {
   store.openNewDocumentDialog(folderId)
 }
 
+const openingToday = ref(false)
+
+async function openToday() {
+  if (openingToday.value) return
+  openingToday.value = true
+  const document = await store.openTodayNote()
+  openingToday.value = false
+  if (document) router.push(`/documents/${document.id}`)
+}
+
 async function deleteDocument(doc) {
   const wasOpen = route.params.id === doc.id
   if (await store.deleteDocument(doc.id)) {
@@ -147,6 +157,14 @@ function onDragEnd() {
         </router-link>
       </nav>
     </template>
+
+    <div class="sb-section-label time-management-label">Time Management</div>
+    <nav class="sidebar-nav time-management-nav" aria-label="Time management">
+      <button type="button" class="nav-item" :disabled="openingToday" @click="openToday">
+        <span class="material-symbols-outlined" aria-hidden="true">today</span>
+        <span class="nav-text">Today</span>
+      </button>
+    </nav>
 
     <div
       class="sb-section-label documents-root-label"
@@ -308,6 +326,20 @@ function onDragEnd() {
 .folder-item {
   cursor: pointer;
   user-select: none;
+}
+
+.time-management-nav .nav-item {
+  width: 100%;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.time-management-nav .nav-item:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 /* Long titles truncate so the hover actions never overflow the sidebar

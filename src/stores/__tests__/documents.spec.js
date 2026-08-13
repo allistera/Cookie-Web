@@ -199,6 +199,63 @@ describe('documents store', () => {
     expect(store.documents.find((doc) => doc.id === 'd-1').folder_id).toBe(null)
   })
 
+  it('opens today’s note, creating the Daily folder and a Tasks heading when neither exists', async () => {
+    vi.setSystemTime(new Date(2026, 7, 13))
+    const fetchMock = stubFetch({
+      GET: () => ok({ folders: [], documents: [] }),
+      POST: (url, body) =>
+        body.kind === 'folder'
+          ? ok({ folder: { id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' } })
+          : ok({
+              document: {
+                id: 'd-today',
+                folder_id: body.folderId,
+                title: body.title,
+                emoji: '🔹',
+                starred: false,
+              },
+            }),
+      PATCH: (url, body) => ok({ document: { id: body.id, updated_at: 't1' } }),
+    })
+
+    const doc = await store.openTodayNote()
+
+    expect(doc.id).toBe('d-today')
+    expect(doc.title).toBe('13-08-26')
+    expect(store.folders).toContainEqual({
+      id: 'f-daily',
+      parent_id: null,
+      title: 'Daily',
+      emoji: '📁',
+    })
+
+    const folderCall = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(folderCall).toMatchObject({ kind: 'folder', title: 'Daily' })
+    const docCall = JSON.parse(fetchMock.mock.calls[2][1].body)
+    expect(docCall).toMatchObject({ kind: 'document', folderId: 'f-daily', title: '13-08-26' })
+    const patchCall = JSON.parse(fetchMock.mock.calls[3][1].body)
+    expect(patchCall).toEqual({
+      id: 'd-today',
+      blocks: [{ type: 'header', data: { text: 'Tasks', level: 2 } }],
+    })
+  })
+
+  it('reopens today’s existing note instead of creating a duplicate', async () => {
+    vi.setSystemTime(new Date(2026, 7, 13))
+    const fetchMock = stubFetch({
+      GET: () =>
+        ok({
+          folders: [{ id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' }],
+          documents: [{ id: 'd-today', folder_id: 'f-daily', title: '13-08-26', starred: false }],
+        }),
+    })
+
+    const doc = await store.openTodayNote()
+
+    expect(doc.id).toBe('d-today')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('clears the open document when it is deleted', async () => {
     store.documents = structuredClone(DOCS)
     store.openDocId = 'd-1'

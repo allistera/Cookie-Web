@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatInsertedDate, ordinalDay } from '../documentDates'
+import { formatDailyNoteTitle, formatInsertedDate, ordinalDay } from '../documentDates'
 
 describe('ordinalDay', () => {
   it('uses st/nd/rd for 1/2/3 and their tens, th elsewhere', () => {
@@ -26,5 +26,12 @@ describe('formatInsertedDate', () => {
     expect(formatInsertedDate(new Date(2026, 8, 4))).toBe('Friday - 4th September')
     expect(formatInsertedDate(new Date(2026, 0, 1))).toBe('Thursday - 1st January')
     expect(formatInsertedDate(new Date(2026, 7, 13))).toBe('Thursday - 13th August')
+  })
+})
+
+describe('formatDailyNoteTitle', () => {
+  it('renders DD-MM-YY, zero-padded', () => {
+    expect(formatDailyNoteTitle(new Date(2026, 7, 13))).toBe('13-08-26')
+    expect(formatDailyNoteTitle(new Date(2026, 0, 1))).toBe('01-01-26')
   })
 })
