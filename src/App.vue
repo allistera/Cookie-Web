@@ -339,17 +339,21 @@ onUnmounted(() => {
           >
             <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span>
           </button>
-          <div class="app-switcher-menu" role="menu">
-            <router-link
-              v-for="app in otherApps"
-              :key="app.key"
-              :to="app.to"
-              class="app-switcher-menu-item"
-              role="menuitem"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">{{ app.icon }}</span>
-              <span>{{ app.label }}</span>
-            </router-link>
+          <!-- Outer div is the hover-bridge positioner; the card inside is the
+               single visual surface all app links share. -->
+          <div class="app-switcher-menu">
+            <div class="app-switcher-menu-card" role="menu">
+              <router-link
+                v-for="app in otherApps"
+                :key="app.key"
+                :to="app.to"
+                class="app-switcher-menu-item"
+                role="menuitem"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">{{ app.icon }}</span>
+                <span>{{ app.label }}</span>
+              </router-link>
+            </div>
           </div>
         </div>
       </div>

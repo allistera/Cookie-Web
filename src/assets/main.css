@@ -200,13 +200,22 @@ body {
   transform: translateY(0);
 }
 
-.app-switcher-menu-item {
-  height: 44px;
-  padding: 0 14px;
+/* One shared card; the links inside are flat rows so multiple apps read as
+   a single menu rather than stacked pills. */
+.app-switcher-menu-card {
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background-color: var(--bg-card);
   box-shadow: var(--shadow-md);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-switcher-menu-item {
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 6px;
   color: var(--text-primary);
   display: flex;
   align-items: center;
