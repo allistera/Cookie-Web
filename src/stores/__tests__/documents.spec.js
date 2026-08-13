@@ -6,8 +6,24 @@ import { useInboxStore } from '../../stores/inbox'
 
 const FOLDERS = [{ id: 'f-1', parent_id: null, title: 'Projects', emoji: '📁' }]
 const DOCS = [
-  { id: 'd-1', folder_id: 'f-1', title: 'Plan', emoji: '🔹', starred: false, updated_at: 't0' },
-  { id: 'd-2', folder_id: null, title: 'Scratch', emoji: '🔹', starred: true, updated_at: 't0' },
+  {
+    id: 'd-1',
+    folder_id: 'f-1',
+    title: 'Plan',
+    emoji: '🔹',
+    starred: false,
+    tags: ['project', 'home'],
+    updated_at: 't0',
+  },
+  {
+    id: 'd-2',
+    folder_id: null,
+    title: 'Scratch',
+    emoji: '🔹',
+    starred: true,
+    tags: ['home'],
+    updated_at: 't0',
+  },
 ]
 
 function stubFetch(routes) {
@@ -48,6 +64,10 @@ describe('documents store', () => {
     expect(store.folders).toHaveLength(1)
     expect(store.documents).toHaveLength(2)
     expect(store.starredDocuments.map((doc) => doc.id)).toEqual(['d-2'])
+    expect(store.documentTags).toEqual([
+      { name: 'home', count: 2 },
+      { name: 'project', count: 1 },
+    ])
   })
 
   it('creates a document and prepends it to the list', async () => {
@@ -126,7 +146,7 @@ describe('documents store', () => {
     expect(store.documents.find((doc) => doc.id === 'd-1').starred).toBe(false)
   })
 
-  it('debounces content saves and PATCHes title and blocks together', async () => {
+  it('debounces content saves and PATCHes title, blocks, and tags together', async () => {
     vi.useFakeTimers()
     store.documents = structuredClone(DOCS)
     const fetchMock = stubFetch({
@@ -135,6 +155,7 @@ describe('documents store', () => {
 
     store.scheduleContentSave('d-1', { title: 'Plan v2' })
     store.scheduleContentSave('d-1', { blocks: [{ type: 'paragraph' }] })
+    store.scheduleContentSave('d-1', { tags: ['project', 'urgent'] })
     expect(store.saveState).toBe('saving')
     expect(fetchMock).not.toHaveBeenCalled()
 
@@ -142,9 +163,15 @@ describe('documents store', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
-    expect(sent).toEqual({ id: 'd-1', title: 'Plan v2', blocks: [{ type: 'paragraph' }] })
+    expect(sent).toEqual({
+      id: 'd-1',
+      title: 'Plan v2',
+      blocks: [{ type: 'paragraph' }],
+      tags: ['project', 'urgent'],
+    })
     expect(store.saveState).toBe('saved')
     expect(store.documents.find((doc) => doc.id === 'd-1').updated_at).toBe('t1')
+    expect(store.documents.find((doc) => doc.id === 'd-1').tags).toEqual(['project', 'urgent'])
   })
 
   it('marks the save state on a failed flush', async () => {

@@ -26,9 +26,16 @@ onBeforeUnmount(() => {
 })
 
 const starredOnly = ref(false)
-const dashboardDocs = computed(() =>
-  starredOnly.value ? store.documents.filter((doc) => doc.starred) : store.documents,
-)
+const activeTag = computed(() => {
+  const value = Array.isArray(route.query.tag) ? route.query.tag[0] : route.query.tag
+  return String(value ?? '')
+})
+const dashboardDocs = computed(() => {
+  let documents = store.documents
+  if (starredOnly.value) documents = documents.filter((doc) => doc.starred)
+  if (activeTag.value) documents = documents.filter((doc) => doc.tags?.includes(activeTag.value))
+  return documents
+})
 
 const folderTitles = computed(() => {
   const titles = new Map(store.folders.map((folder) => [folder.id, folder.title]))
@@ -91,10 +98,19 @@ function onEditorSave(payload) {
     <template v-else>
       <header class="documents-header">
         <div>
-          <h1>Documents</h1>
-          <p class="documents-subtitle">Notes and docs, organised in folders. Autosaved as you type.</p>
+          <h1>{{ activeTag ? `#${activeTag}` : 'Documents' }}</h1>
+          <p class="documents-subtitle">
+            {{
+              activeTag
+                ? `Documents tagged #${activeTag}`
+                : 'Notes and docs, organised in folders. Autosaved as you type.'
+            }}
+          </p>
         </div>
         <div class="documents-header-actions">
+          <router-link v-if="activeTag" to="/documents" class="clear-tag-filter">
+            Clear tag
+          </router-link>
           <button
             class="filter-toggle"
             :class="{ active: starredOnly }"
@@ -116,7 +132,8 @@ function onEditorSave(payload) {
       </div>
 
       <div v-else-if="!dashboardDocs.length" class="documents-empty">
-        <p v-if="starredOnly">No starred documents yet — star one from the list or the sidebar.</p>
+        <p v-if="activeTag">No documents tagged #{{ activeTag }}.</p>
+        <p v-else-if="starredOnly">No starred documents yet — star one from the list or the sidebar.</p>
         <p v-else>No documents yet. Create your first one to get started.</p>
       </div>
 
@@ -241,6 +258,7 @@ function onEditorSave(payload) {
 }
 
 .filter-toggle,
+.clear-tag-filter,
 .new-doc-button {
   display: inline-flex;
   align-items: center;
@@ -254,6 +272,7 @@ function onEditorSave(payload) {
   background: var(--bg-card);
   color: var(--text-primary);
   transition: background var(--transition-fast);
+  text-decoration: none;
 }
 
 .filter-toggle .material-symbols-outlined,
@@ -261,7 +280,8 @@ function onEditorSave(payload) {
   font-size: 16px;
 }
 
-.filter-toggle:hover {
+.filter-toggle:hover,
+.clear-tag-filter:hover {
   background: var(--bg-hover);
 }
 

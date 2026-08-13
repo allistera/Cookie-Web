@@ -1,5 +1,6 @@
 import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
+import { normalizeDocumentTags } from '../../src/lib/documentTags.js'
 
 // The Documents workspace: nested folders plus Editor.js block documents,
 // modeled on Paper. Dispatched as /api/tasks?resource=documents because the
@@ -44,7 +45,7 @@ export function fetchWorkspace(sql, email) {
       ORDER BY f.title ASC, f.created_at ASC
     `,
     sql`
-      SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.created_at, d.updated_at
+      SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
       FROM documents d
       JOIN users u ON u.id = d.user_id
       WHERE lower(u.email) = ${email}
@@ -55,7 +56,7 @@ export function fetchWorkspace(sql, email) {
 
 export function fetchDocument(sql, email, id) {
   return sql`
-    SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.blocks,
+    SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.blocks,
            d.created_at, d.updated_at
     FROM documents d
     JOIN users u ON u.id = d.user_id
@@ -230,7 +231,7 @@ async function handlePost(res, body, email, sql) {
     const [document] = await sql`
       INSERT INTO documents (user_id, folder_id, title, emoji, blocks)
       VALUES (${user.id}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)})
-      RETURNING id, folder_id, title, emoji, starred, blocks, created_at, updated_at
+      RETURNING id, folder_id, title, emoji, starred, tags, blocks, created_at, updated_at
     `
     res.statusCode = 201
     res.end(JSON.stringify({ document }))
@@ -347,6 +348,15 @@ async function handlePatch(res, body, email, sql) {
     // as a jsonb string scalar rather than the array itself.
     updates.blocks = sql.json(blocks)
   }
+  if (Object.hasOwn(body, 'tags')) {
+    const tags = normalizeDocumentTags(body.tags)
+    if (!tags) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'tags must be an array of valid document tags' }))
+      return
+    }
+    updates.tags = sql.array(tags)
+  }
   if (Object.keys(updates).length === 0) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'Nothing to update' }))
@@ -358,7 +368,7 @@ async function handlePatch(res, body, email, sql) {
     SET ${sql(updates)}, updated_at = now()
     FROM users u
     WHERE d.id = ${body.id} AND d.user_id = u.id AND lower(u.email) = ${email}
-    RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.created_at, d.updated_at
+    RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
   `
   if (!document) {
     res.statusCode = 404

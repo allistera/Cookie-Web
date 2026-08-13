@@ -15,8 +15,24 @@ const FOLDERS = [
   { id: 'f-kitchen', parent_id: 'f-projects', title: 'Kitchen', emoji: '📁' },
 ]
 const DOCS = [
-  { id: 'd-plan', folder_id: 'f-kitchen', title: 'Plan', emoji: '💡', starred: true, updated_at: 't0' },
-  { id: 'd-scratch', folder_id: null, title: 'Scratch', emoji: '🔹', starred: false, updated_at: 't0' },
+  {
+    id: 'd-plan',
+    folder_id: 'f-kitchen',
+    title: 'Plan',
+    emoji: '💡',
+    starred: true,
+    tags: ['home', 'project'],
+    updated_at: 't0',
+  },
+  {
+    id: 'd-scratch',
+    folder_id: null,
+    title: 'Scratch',
+    emoji: '🔹',
+    starred: false,
+    tags: ['home'],
+    updated_at: 't0',
+  },
 ]
 
 function mountSidebar() {
@@ -93,6 +109,11 @@ describe('DocumentsSidebar', () => {
     expect(text).toContain('Kitchen')
     expect(text).toContain('Plan')
     expect(text).toContain('Scratch')
+    expect(text).toContain('Tags')
+    expect(wrapper.findAll('.document-tag-item').map((node) => node.text())).toEqual([
+      '#home2',
+      '#project1',
+    ])
 
     // Kitchen is nested one level under Projects; Plan one under Kitchen.
     const kitchen = wrapper.findAll('.folder-item').find((node) => node.text().includes('Kitchen'))

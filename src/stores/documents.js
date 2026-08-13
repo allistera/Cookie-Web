@@ -37,6 +37,15 @@ export const useDocumentsStore = defineStore('documents', {
     starredDocuments(state) {
       return state.documents.filter((doc) => doc.starred)
     },
+    documentTags(state) {
+      const counts = new Map()
+      for (const document of state.documents) {
+        for (const tag of document.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      }
+      return [...counts.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, count]) => ({ name, count }))
+    },
   },
 
   actions: {
@@ -260,18 +269,25 @@ export const useDocumentsStore = defineStore('documents', {
       return this.updateDocumentMeta(id, { folderId })
     },
 
-    // Content autosave (title + blocks) from the editor. Local state updates
+    // Content autosave (title + blocks + tags) from the editor. Local state updates
     // immediately — the sidebar shows the new title as it is typed — while
     // the PATCH waits out the debounce.
-    scheduleContentSave(id, { title, blocks }) {
+    scheduleContentSave(id, { title, blocks, tags }) {
       const row = this.documents.find((doc) => doc.id === id)
       if (row && title !== undefined) row.title = title
+      if (row && tags !== undefined) row.tags = tags
       if (this.openDoc?.id === id) {
         if (title !== undefined) this.openDoc.title = title
         if (blocks !== undefined) this.openDoc.blocks = blocks
+        if (tags !== undefined) this.openDoc.tags = tags
       }
       const prev = pendingSave?.id === id ? pendingSave : null
-      pendingSave = { id, title: title ?? prev?.title, blocks: blocks ?? prev?.blocks }
+      pendingSave = {
+        id,
+        title: title ?? prev?.title,
+        blocks: blocks ?? prev?.blocks,
+        tags: tags ?? prev?.tags,
+      }
       this.saveState = 'saving'
       if (saveTimer) clearTimeout(saveTimer)
       saveTimer = setTimeout(() => this.flushPendingSave(), SAVE_DEBOUNCE_MS)
@@ -283,15 +299,17 @@ export const useDocumentsStore = defineStore('documents', {
         saveTimer = null
       }
       if (!pendingSave) return
-      const { id, title, blocks } = pendingSave
+      const { id, title, blocks, tags } = pendingSave
       pendingSave = null
       const body = { id }
       if (title !== undefined) body.title = title
       if (blocks !== undefined) body.blocks = blocks
+      if (tags !== undefined) body.tags = tags
       try {
         const { document } = await this.request('PATCH', { body })
         const row = this.documents.find((doc) => doc.id === id)
-        if (row) row.updated_at = document.updated_at
+        if (row) Object.assign(row, document)
+        if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
         // Only report "saved" if no newer edit queued while this one flushed.
         if (!pendingSave) this.saveState = 'saved'
       } catch (error) {

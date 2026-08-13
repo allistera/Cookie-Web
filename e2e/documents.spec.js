@@ -48,8 +48,23 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await page.locator('.codex-editor .ce-paragraph').first().click()
   await page.keyboard.type('Agenda for Thursday.')
 
+  // Explicit tags are normalized, autosaved, and immediately join the
+  // sidebar's Tags section.
+  const tagPatch = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"tags":["meeting"]'),
+  )
+  await page.getByLabel('Add document tag').fill('#Meeting')
+  await page.getByRole('button', { name: 'Add tag' }).click()
+  await tagPatch
+  await expect(sidebar.getByRole('link', { name: '#meeting, 1 document' })).toBeVisible()
+
   // "/" opens the block menu; the Date entry stamps today's date as text.
   const { formatInsertedDate } = await import('../src/lib/documentDates.js')
+  await page.locator('.codex-editor .ce-paragraph').first().click()
+  await page.keyboard.press('End')
   await page.keyboard.press('Enter')
   // The "/" must land focused in the new, still-empty block — typed against
   // the old block it is literal text and no menu opens. The outer .ce-popover
@@ -82,6 +97,26 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await page.reload()
   await expect(page.locator('.document-title')).toHaveText('Meeting notes')
   await expect(page.getByText('Agenda for Thursday.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Remove #meeting' })).toBeVisible()
+
+  // Tags navigate to a filtered dashboard and can be cleared without losing
+  // the document's tag.
+  await sidebar.getByRole('link', { name: '#meeting, 1 document' }).click()
+  await expect(page).toHaveURL(/\/documents\?tag=meeting$/)
+  await expect(page.locator('.documents-table-row', { hasText: 'Meeting notes' })).toBeVisible()
+  await expect(page.locator('.documents-table-row', { hasText: 'Scratchpad' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Clear tag' }).click()
+  await sidebar.locator('.documents-tree .doc-item', { hasText: 'Meeting notes' }).click()
+  await expect(page.locator('.document-title')).toHaveText('Meeting notes')
+  const removeTagPatch = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"tags":[]'),
+  )
+  await page.getByRole('button', { name: 'Remove #meeting' }).click()
+  await removeTagPatch
+  await expect(sidebar.getByRole('link', { name: '#meeting, 1 document' })).toHaveCount(0)
 
   // Star it from the tree: it joins the sidebar's Starred section.
   const treeRow = page
@@ -122,6 +157,7 @@ test('A settings template can create a pre-filled independent document', async (
   await expect(page.locator('.document-template-row', { hasText: 'Weekly meeting' })).toBeVisible()
 
   await page.goto('/documents')
+  await expect(page.getByRole('link', { name: '#home, 1 document' })).toBeVisible()
   await page.locator('.new-doc-button').click()
   await page.getByRole('button', { name: /Weekly meeting/ }).click()
 
@@ -147,6 +183,11 @@ test('Template settings and the document picker remain usable on a narrow screen
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('button', { name: /Blank document/ })).toBeVisible()
   await expect(dialog.getByRole('link', { name: 'Manage templates' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Close new document dialog' }).click()
+  await page.goto('/documents/stub-doc-floor-plan')
+  await expect(page.getByRole('button', { name: 'Remove #home' })).toBeVisible()
+  await expect(page.getByLabel('Add document tag')).toBeVisible()
 })
 
 test('Folders can be created inline and documents dragged between them', async ({ page }) => {

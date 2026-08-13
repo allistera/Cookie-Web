@@ -655,6 +655,7 @@ function localApiPlugin(mode) {
         title: Object.hasOwn(body, 'title') ? body.title : (template?.title ?? ''),
         emoji: template?.emoji ?? '🔹',
         starred: false,
+        tags: [],
         blocks: structuredClone(template?.blocks ?? []),
         created_at: now(),
         updated_at: now(),
@@ -700,6 +701,7 @@ function localApiPlugin(mode) {
       if (Object.hasOwn(body, 'starred')) document.starred = body.starred
       if (Object.hasOwn(body, 'folderId')) document.folder_id = body.folderId
       if (Object.hasOwn(body, 'blocks')) document.blocks = body.blocks
+      if (Object.hasOwn(body, 'tags')) document.tags = [...new Set(body.tags)]
       document.updated_at = now()
       res.end(JSON.stringify({ document: stripBlocks(document) }))
       return

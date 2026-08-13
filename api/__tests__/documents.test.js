@@ -20,6 +20,7 @@ function getSql() {
     return { helper: strings }
   }
   fn.json = (value) => ({ json: value })
+  fn.array = (value) => ({ array: value })
   return fn
 }
 
@@ -269,6 +270,26 @@ describe('PATCH /api/tasks?resource=documents', () => {
 
     expect(res.statusCode).toBe(200)
     expect(statements[0]).toBe('SET(folder_id)')
+  })
+
+  it('normalizes and saves document tags', async () => {
+    sqlQueue = [[{ id: DOC_ID, tags: ['project-one', 'home'] }]]
+    const res = makeRes()
+
+    await handler(req('PATCH', { id: DOC_ID, tags: ['#Project-One', 'home', 'HOME'] }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.document.tags).toEqual(['project-one', 'home'])
+    expect(statements[0]).toBe('SET(tags)')
+  })
+
+  it('rejects invalid document tags', async () => {
+    const res = makeRes()
+
+    await handler(req('PATCH', { id: DOC_ID, tags: ['two words'] }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(statements).toHaveLength(0)
   })
 
   it('rejects non-array blocks', async () => {

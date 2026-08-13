@@ -4026,6 +4026,54 @@ button.ni-attachment:hover {
 }
 
 @media (max-width: 760px) {
+  body:has(.documents-view) .app-body {
+    flex-direction: column;
+  }
+
+  body:has(.documents-view) .documents-sidebar {
+    width: 100%;
+    min-height: 38px;
+    padding: 4px 8px;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+  }
+
+  body:has(.documents-view) .documents-sidebar:not(:has(.document-tags-nav)) {
+    display: none;
+  }
+
+  body:has(.documents-view) .documents-sidebar > .compose-btn,
+  body:has(.documents-view) .documents-starred-label,
+  body:has(.documents-view) .documents-starred-nav,
+  body:has(.documents-view) .documents-root-label,
+  body:has(.documents-view) .documents-tree {
+    display: none;
+  }
+
+  body:has(.documents-view) .document-tags-label {
+    flex: 0 0 auto;
+    padding: 0 8px;
+  }
+
+  body:has(.documents-view) .document-tags-nav {
+    flex-direction: row;
+  }
+
+  body:has(.documents-view) .document-tag-item {
+    width: auto;
+    min-width: max-content;
+  }
+
+  body:has(.documents-view) .document-tag-item .nav-badge {
+    position: static;
+    margin-left: 4px;
+  }
+
+  body:has(.documents-view) .main-content {
+    min-height: 0;
+  }
+
   body:has(.settings-page) {
     height: auto;
     min-height: 100vh;

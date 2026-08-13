@@ -14,6 +14,7 @@ const documents = [
     title: 'Floor plan notes',
     emoji: '💡',
     starred: true,
+    tags: ['home', 'project'],
     blocks: [
       { id: 'b-fp-1', type: 'paragraph', data: { text: 'Notes from the revised floor plan review.' } },
       { id: 'b-fp-2', type: 'header', data: { text: 'Open questions', level: 2 } },
@@ -30,6 +31,7 @@ const documents = [
     title: 'Scratchpad',
     emoji: '🔹',
     starred: false,
+    tags: ['notes'],
     blocks: [{ id: 'b-sp-1', type: 'paragraph', data: { text: 'Loose notes live here.' } }],
   },
 ]

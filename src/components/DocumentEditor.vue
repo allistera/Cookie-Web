@@ -12,6 +12,10 @@ import DragDrop from 'editorjs-drag-drop'
 
 import { useInboxStore } from '../stores/inbox'
 import { formatInsertedDate } from '../lib/documentDates'
+import {
+  MAX_DOCUMENT_TAGS,
+  normalizeDocumentTag,
+} from '../lib/documentTags'
 
 // "/" menu entry that stamps today's date ("Monday - 4th September") into the
 // document. It is not a real block type: on selection it swaps itself for a
@@ -69,6 +73,8 @@ const emit = defineEmits(['save'])
 const inbox = useInboxStore()
 const holder = ref(null)
 const titleEl = ref(null)
+const tags = ref([])
+const tagDraft = ref('')
 let editor = null
 
 // Images are inlined as data: URLs in the block data (no upload endpoint),
@@ -127,6 +133,8 @@ function mountEditor() {
   // text binding would re-render on the store's own save echo and throw the
   // caret back to the start mid-typing.
   if (titleEl.value) titleEl.value.textContent = props.doc.title ?? ''
+  tags.value = [...(props.doc.tags ?? [])]
+  tagDraft.value = ''
   editor?.destroy?.()
   editor = new EditorJS({
     holder: holder.value,
@@ -173,6 +181,30 @@ function onTitleInput(event) {
   emit('save', { title: event.target.textContent ?? '' })
 }
 
+function addTag() {
+  const tag = normalizeDocumentTag(tagDraft.value)
+  if (!tag) {
+    inbox.notify('Use letters, numbers, hyphens, or underscores for document tags.', 'error')
+    return
+  }
+  if (tags.value.includes(tag)) {
+    tagDraft.value = ''
+    return
+  }
+  if (tags.value.length >= MAX_DOCUMENT_TAGS) {
+    inbox.notify(`Documents can have up to ${MAX_DOCUMENT_TAGS} tags.`, 'error')
+    return
+  }
+  tagDraft.value = ''
+  tags.value = [...tags.value, tag]
+  emit('save', { tags: tags.value })
+}
+
+function removeTag(tag) {
+  tags.value = tags.value.filter((candidate) => candidate !== tag)
+  emit('save', { tags: tags.value })
+}
+
 // Enter in the title moves into the body, like paper.
 function onTitleEnter() {
   try {
@@ -195,6 +227,32 @@ function onTitleEnter() {
       @input="onTitleInput"
       @keydown.enter.prevent="onTitleEnter"
     ></h1>
+    <div v-if="!compact" class="document-tags" aria-label="Document tags">
+      <button
+        v-for="tag in tags"
+        :key="tag"
+        type="button"
+        class="document-tag"
+        :aria-label="`Remove #${tag}`"
+        @click="removeTag(tag)"
+      >
+        <span>#{{ tag }}</span>
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+      </button>
+      <form class="document-tag-form" @submit.prevent="addTag">
+        <input
+          v-model="tagDraft"
+          type="text"
+          maxlength="41"
+          autocomplete="off"
+          aria-label="Add document tag"
+          placeholder="#tag"
+        />
+        <button type="submit" :disabled="!tagDraft.trim()" aria-label="Add tag">
+          <span class="material-symbols-outlined" aria-hidden="true">add</span>
+        </button>
+      </form>
+    </div>
     <div ref="holder" class="document-blocks"></div>
   </div>
 </template>
@@ -219,6 +277,86 @@ function onTitleEnter() {
   content: attr(data-placeholder);
   color: var(--text-secondary);
   opacity: 0.5;
+}
+
+.document-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  margin-bottom: 8px;
+}
+
+.document-tag,
+.document-tag-form {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.document-tag {
+  gap: 3px;
+  padding: 0 6px 0 8px;
+  cursor: pointer;
+}
+
+.document-tag:hover,
+.document-tag:focus-visible {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.document-tag .material-symbols-outlined {
+  font-size: 13px;
+}
+
+.document-tag-form {
+  overflow: hidden;
+  background: transparent;
+}
+
+.document-tag-form input {
+  width: 74px;
+  height: 100%;
+  padding: 0 0 0 8px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.document-tag-form button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.document-tag-form button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.document-tag-form button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.document-tag-form .material-symbols-outlined {
+  font-size: 16px;
 }
 
 .document-editor.compact {

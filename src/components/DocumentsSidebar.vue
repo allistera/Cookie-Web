@@ -133,8 +133,8 @@ function onDragEnd() {
     </button>
 
     <template v-if="store.starredDocuments.length">
-      <div class="sb-section-label">Starred</div>
-      <nav class="sidebar-nav" aria-label="Starred documents">
+      <div class="sb-section-label documents-starred-label">Starred</div>
+      <nav class="sidebar-nav documents-starred-nav" aria-label="Starred documents">
         <router-link
           v-for="doc in store.starredDocuments"
           :key="`starred-${doc.id}`"
@@ -273,6 +273,24 @@ function onDragEnd() {
         <span class="nav-text">New folder</span>
       </button>
     </nav>
+
+    <template v-if="store.documentTags.length">
+      <div class="sb-section-label document-tags-label">Tags</div>
+      <nav class="sidebar-nav document-tags-nav" aria-label="Document tags">
+        <router-link
+          v-for="tag in store.documentTags"
+          :key="tag.name"
+          :to="{ path: '/documents', query: { tag: tag.name } }"
+          class="nav-item document-tag-item"
+          :class="{ active: !route.params.id && route.query.tag === tag.name }"
+          :aria-label="`#${tag.name}, ${tag.count} document${tag.count === 1 ? '' : 's'}`"
+        >
+          <span class="document-tag-symbol" aria-hidden="true">#</span>
+          <span class="nav-text">{{ tag.name }}</span>
+          <span class="nav-badge">{{ tag.count }}</span>
+        </router-link>
+      </nav>
+    </template>
   </aside>
 </template>
 
@@ -395,5 +413,12 @@ function onDragEnd() {
 
 .new-folder-btn:hover {
   opacity: 1;
+}
+
+.document-tag-symbol {
+  width: 18px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  text-align: center;
 }
 </style>
