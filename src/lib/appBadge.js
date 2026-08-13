@@ -2,11 +2,11 @@
 // home screen) once Cookie is installed as a PWA. A no-op in an ordinary
 // browser tab, where there is no icon to badge.
 function resolveNavigator(nav) {
-  return nav ?? (typeof navigator === 'undefined' ? null : navigator)
+  return nav ?? globalThis.navigator ?? null
 }
 
 export function appBadgeSupported(nav = resolveNavigator()) {
-  return Boolean(nav && typeof nav.setAppBadge === 'function' && typeof nav.clearAppBadge === 'function')
+  return Boolean(nav && 'setAppBadge' in nav && 'clearAppBadge' in nav)
 }
 
 export function setAppBadge(count, nav = resolveNavigator()) {

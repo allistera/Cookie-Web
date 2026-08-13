@@ -137,7 +137,8 @@ function bearerSubject(authorization) {
     const payload = token.split('.')[1]
     const base64 = payload.replaceAll('-', '+').replaceAll('_', '/')
     const decoded = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')))
-    return typeof decoded.sub === 'string' && decoded.sub ? decoded.sub : token
+    const sub = String(decoded.sub ?? '')
+    return sub || token
   } catch {
     return token
   }

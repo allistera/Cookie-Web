@@ -19,7 +19,7 @@ export function sanitizeStoredSnippets(value) {
   const seenNames = new Set()
   const snippets = []
   for (const raw of value) {
-    const id = typeof raw?.id === 'string' ? raw.id : ''
+    const id = String(raw?.id ?? '')
     const name = normalizeSnippetName(raw?.name)
     const html = sanitizeEmailHtml(raw?.html)
     if (!id || !name || !html || RESERVED_NAMES.has(name) || seenNames.has(name)) continue

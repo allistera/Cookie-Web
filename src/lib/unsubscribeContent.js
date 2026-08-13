@@ -9,7 +9,7 @@ const MAX_HREF_LENGTH = 4096
 const MAX_TEXT_LENGTH = 1000
 
 function bounded(value, max = MAX_TEXT_LENGTH) {
-  return typeof value === 'string' ? value.slice(0, max) : ''
+  return String(value ?? '').slice(0, max)
 }
 
 function decodedForMatching(value) {
@@ -21,7 +21,7 @@ function decodedForMatching(value) {
 }
 
 export function bridgeCandidateIsPlausible(candidate) {
-  const href = typeof candidate?.href === 'string' ? candidate.href : ''
+  const href = String(candidate?.href ?? '')
   if (!href || href.length > MAX_HREF_LENGTH) return false
   const values = [
     href,
@@ -58,12 +58,13 @@ function parseMailto(raw) {
 }
 
 function parseTarget(raw) {
-  if (typeof raw !== 'string' || !raw || raw.length > MAX_HREF_LENGTH) return null
-  const mailto = parseMailto(raw)
+  const target = String(raw ?? '')
+  if (!target || target.length > MAX_HREF_LENGTH) return null
+  const mailto = parseMailto(target)
   if (mailto) return mailto
-  if (!isSafeUnsubscribeUrl(raw)) return null
+  if (!isSafeUnsubscribeUrl(target)) return null
   try {
-    const parsed = new URL(raw)
+    const parsed = new URL(target)
     return { href: parsed.href, url: parsed.href, mailto: null }
   } catch {
     return null
@@ -121,9 +122,10 @@ export function selectUnsubscribeTarget(candidates) {
 }
 
 export function selectPlainTextUnsubscribeTarget(text) {
-  if (typeof text !== 'string' || !text) return null
+  const source = String(text ?? '')
+  if (!source) return null
   try {
-    const lines = text.slice(0, 512 * 1024).split(/\r?\n/)
+    const lines = source.slice(0, 512 * 1024).split(/\r?\n/)
     const candidates = []
     const targetRe = /(?:https:\/\/[^\s<>"']+|mailto:[^\s<>"']+)/gi
     for (const line of lines) {

@@ -57,11 +57,12 @@ function installLinkHook() {
 }
 
 // Returns a sanitized HTML string safe to embed in the reader iframe's
-// srcdoc. Empty string for empty / non-string input.
+// srcdoc. Empty string for empty / missing input.
 export function sanitizeEmailHtml(dirty) {
-  if (typeof dirty !== 'string' || dirty === '') return ''
+  const html = String(dirty ?? '')
+  if (html === '') return ''
   installLinkHook()
-  return DOMPurify.sanitize(dirty, CONFIG)
+  return DOMPurify.sanitize(html, CONFIG)
 }
 
 // Whether this (already-sanitized) HTML references a remote image the
@@ -76,10 +77,11 @@ const REMOTE_BACKGROUND_URL_RE = /\burl\(\s*['"]?\s*https?:\/\//i
 const REMOTE_BACKGROUND_ATTR_RE = /\bbackground\s*=\s*["']?\s*https?:\/\//i
 
 export function hasBlockedRemoteImages(safeHtml) {
-  if (typeof safeHtml !== 'string' || safeHtml === '') return false
+  const html = String(safeHtml ?? '')
+  if (html === '') return false
   return (
-    REMOTE_IMG_TAG_RE.test(safeHtml) ||
-    REMOTE_BACKGROUND_URL_RE.test(safeHtml) ||
-    REMOTE_BACKGROUND_ATTR_RE.test(safeHtml)
+    REMOTE_IMG_TAG_RE.test(html) ||
+    REMOTE_BACKGROUND_URL_RE.test(html) ||
+    REMOTE_BACKGROUND_ATTR_RE.test(html)
   )
 }

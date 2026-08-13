@@ -174,8 +174,9 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
       .channel(`inbox:${userId}`)
       .on('broadcast', { event: 'inbox-changed' }, (event) => {
         const payload = event?.payload
-        if (payload?.op === 'INSERT' && typeof payload.event_id === 'string') {
-          pendingNotificationEventIds.add(payload.event_id)
+        const eventId = String(payload?.event_id ?? '')
+        if (payload?.op === 'INSERT' && eventId) {
+          pendingNotificationEventIds.add(eventId)
         }
         scheduleRefresh()
       })

@@ -38,8 +38,8 @@ const SCRIPT_CLOSE = '</scr' + 'ipt>'
 const emailBodyBridgeUrl = '/email-body-bridge.js'
 
 function randomToken() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
@@ -95,7 +95,7 @@ const showSpinner = computed(() => !hasHtml.value && props.hasHtmlBody && props.
 const paragraphs = computed(() => (props.text || '').split('\n\n'))
 
 function currentTheme() {
-  if (typeof document === 'undefined') return 'light'
+  if (globalThis.document === undefined) return 'light'
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'
 }
 
@@ -171,12 +171,13 @@ function onFrameMessage(event) {
     emit('unsubscribe-link', selectUnsubscribeTarget(data.candidates))
     return
   }
-  if (data.type === 'keydown' && typeof data.key === 'string') {
+  const key = String(data.key ?? '')
+  if (data.type === 'keydown' && key) {
     emit(
       'keydown',
       new KeyboardEvent('keydown', {
-        key: data.key,
-        code: typeof data.code === 'string' ? data.code : '',
+        key,
+        code: String(data.code ?? ''),
         repeat: Boolean(data.repeat),
         metaKey: Boolean(data.metaKey),
         ctrlKey: Boolean(data.ctrlKey),

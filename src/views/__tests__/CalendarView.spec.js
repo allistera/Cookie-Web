@@ -285,8 +285,7 @@ describe('CalendarView', () => {
     const eventGets = () =>
       fetchMock.mock.calls.filter(
         ([url, options]) =>
-          typeof url === 'string' &&
-          url.startsWith('/api/calendar-events?from=') &&
+          String(url).startsWith('/api/calendar-events?from=') &&
           !(options?.method && options.method !== 'GET'),
       )
 

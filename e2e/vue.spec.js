@@ -527,7 +527,7 @@ test('Composer "Send Later" queues a scheduled send instead of sending immediate
   await expect(page.locator('.toast', { hasText: 'Email scheduled for Tomorrow.' })).toBeVisible()
   await expect(composer).not.toHaveClass(/active/)
   expect(sendRequestBody).toMatchObject({ to: 'person@example.com', text: 'See you tomorrow.' })
-  expect(typeof sendRequestBody.sendAt).toBe('string')
+  expect(sendRequestBody.sendAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
 })
 
 test('Clicking an inbox email slides in the reading panel', async ({ page }) => {

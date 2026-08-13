@@ -344,11 +344,11 @@ async function submitRule() {
     action: ruleDraft.action,
     match_type: ruleDraft.match_type,
     conditions,
-    // label_id is omitted entirely for mark_done: the API treats the key's
-    // mere presence (even null) as "set this label", so switching a rule to
-    // mark_done must drop the key rather than null it out.
-    ...(ruleDraft.action === 'apply_label' ? { label_id: ruleDraft.label_id } : {}),
   }
+  // label_id is omitted entirely for mark_done: the API treats the key's
+  // mere presence (even null) as "set this label", so switching a rule to
+  // mark_done must drop the key rather than null it out.
+  if (ruleDraft.action === 'apply_label') payload.label_id = ruleDraft.label_id
 
   let ok
   if (editingRuleId.value) {

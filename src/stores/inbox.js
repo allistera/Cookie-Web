@@ -34,7 +34,7 @@ function bodyWithoutSignature(bodyText, signatureHtml) {
 }
 
 function followUpSubject(subject) {
-  const value = typeof subject === 'string' ? subject.trim() : ''
+  const value = String(subject ?? '').trim()
   if (!value) return ''
   return /^re:/i.test(value) ? value : `Re: ${value}`
 }
@@ -479,7 +479,7 @@ export const useInboxStore = defineStore('inbox', {
         const response = await fetch('/api/emails?resource=state', { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
         const { unreadCount, userId } = await response.json()
-        this.unreadInboxCount = typeof unreadCount === 'number' ? unreadCount : 0
+        this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -500,10 +500,9 @@ export const useInboxStore = defineStore('inbox', {
         this.traditionalEmails = emails.map(mapEmailRow)
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
-        this.unreadInboxCount =
-          typeof unreadCount === 'number'
-            ? unreadCount
-            : this.traditionalEmails.filter((e) => e.unread).length
+        this.unreadInboxCount = Number.isFinite(unreadCount)
+          ? unreadCount
+          : this.traditionalEmails.filter((e) => e.unread).length
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
         this.isInboxLoaded = true
@@ -1022,8 +1021,9 @@ export const useInboxStore = defineStore('inbox', {
           }
         }
         cacheSet(this.messageBodies, id, body, MAX_CACHED_MESSAGE_BODIES)
-        if (typeof summary === 'string' && summary.trim()) {
-          cacheSet(this.messageSummaries, id, summary.trim(), MAX_CACHED_SUMMARIES)
+        const summaryText = String(summary ?? '').trim()
+        if (summaryText) {
+          cacheSet(this.messageSummaries, id, summaryText, MAX_CACHED_SUMMARIES)
         }
         return body
       } catch (error) {
@@ -1066,8 +1066,9 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET attachment endpoint responded ${response.status}`)
         }
-        const { url, filename } = await response.json()
-        if (typeof url !== 'string' || !url) throw new Error('Attachment URL is missing')
+        const { url: rawUrl, filename } = await response.json()
+        const url = String(rawUrl ?? '')
+        if (!url) throw new Error('Attachment URL is missing')
 
         const link = document.createElement('a')
         link.href = url
@@ -1099,10 +1100,10 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`POST /api/summarize responded ${response.status}`)
         }
         const { summary } = await response.json()
-        if (typeof summary !== 'string' || !summary.trim()) {
+        const normalized = String(summary ?? '').trim()
+        if (!normalized) {
           throw new Error('POST /api/summarize returned an invalid summary')
         }
-        const normalized = summary.trim()
         cacheSet(this.messageSummaries, id, normalized, MAX_CACHED_SUMMARIES)
         return normalized
       } catch (error) {
@@ -1147,8 +1148,7 @@ export const useInboxStore = defineStore('inbox', {
           this.notify('Finish unsubscribing on the page that just opened.')
         } else if (
           result.status === 'manual' &&
-          typeof result.mailto === 'string' &&
-          result.mailto.startsWith('mailto:')
+          String(result.mailto ?? '').startsWith('mailto:')
         ) {
           window.location.href = result.mailto
         } else {

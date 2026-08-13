@@ -658,7 +658,7 @@ function openNewEvent(prefill) {
     title: prefill?.title || '',
     description: prefill?.description || '',
     location: prefill?.location || '',
-    date: typeof prefillDate === 'string' ? prefillDate : dateKey(prefillDate || selectedDate.value),
+    date: prefillDate instanceof Date ? dateKey(prefillDate) : prefillDate || dateKey(selectedDate.value),
     start: prefill?.start ?? (prefill ? minutesToTimeString(prefill.startMinutes) : '14:00'),
     end: prefill?.end ?? (prefill ? minutesToTimeString(prefill.endMinutes) : '14:30'),
     calendar: defaultCalendarId(),

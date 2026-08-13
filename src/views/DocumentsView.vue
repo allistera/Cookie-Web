@@ -14,7 +14,7 @@ watch(
   () => route.params.id,
   (id) => {
     if (route.name !== 'documents') return
-    store.openDocument(typeof id === 'string' && id ? id : null)
+    store.openDocument(id || null)
   },
   { immediate: true },
 )

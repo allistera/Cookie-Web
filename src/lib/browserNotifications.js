@@ -1,7 +1,7 @@
 const PREFERENCE_KEY_PREFIX = 'cookie-browser-notifications:'
 
 export function browserNotificationsSupported() {
-  return typeof globalThis.Notification !== 'undefined'
+  return globalThis.Notification !== undefined
 }
 
 export function browserNotificationPermission() {

@@ -2,7 +2,7 @@ const CLEAR_MAIL_CACHE_MESSAGE = 'CLEAR_MAIL_CACHE'
 
 export async function registerServiceWorker({
   isProduction = import.meta.env.PROD,
-  serviceWorker = typeof navigator === 'undefined' ? null : navigator.serviceWorker,
+  serviceWorker = globalThis.navigator?.serviceWorker ?? null,
 } = {}) {
   if (!isProduction || !serviceWorker) return null
 
@@ -15,7 +15,7 @@ export async function registerServiceWorker({
 }
 
 export function clearCachedMail(
-  serviceWorker = typeof navigator === 'undefined' ? null : navigator.serviceWorker,
+  serviceWorker = globalThis.navigator?.serviceWorker ?? null,
 ) {
   serviceWorker?.controller?.postMessage({ type: CLEAR_MAIL_CACHE_MESSAGE })
 }
