@@ -3290,35 +3290,36 @@ button.ni-attachment:hover {
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 0;
 }
 
 .settings-nav-group {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
 }
 
 .settings-nav-label {
-  margin: 0 10px 5px;
+  margin: 0;
+  padding: 14px 8px 4px;
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
 }
 
 .settings-nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 38px;
-  padding: 8px 10px;
+  height: 30px;
+  padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: none;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 400;
   text-align: left;
   cursor: pointer;
   text-decoration: none;
@@ -3339,7 +3340,7 @@ button.ni-attachment:hover {
 .settings-nav-item.active {
   background-color: var(--bg-sidebar-active);
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .settings-nav-empty {
@@ -4080,6 +4081,7 @@ button.ni-attachment:hover {
 
   .settings-nav-item {
     flex: 0 0 auto;
+    height: auto;
     min-height: 36px;
     padding: 7px 10px;
   }

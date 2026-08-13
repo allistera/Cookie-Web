@@ -371,6 +371,22 @@ test('Profile dropdown contains Settings and Log out, and opens the settings pag
 
   await page.goto('/')
 
+  const sidebarTextStyle = async (locator) =>
+    locator.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        borderRadius: style.borderRadius,
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        gap: style.gap,
+        height: style.height,
+        padding: style.padding,
+      }
+    })
+  const mailNavStyle = await sidebarTextStyle(page.locator('.sidebar-nav .nav-item').first())
+  const mailLabelStyle = await sidebarTextStyle(page.locator('.sb-section-label').first())
+
   // Settings cog is no longer in the header
   await expect(page.locator('.header-right .icon-btn[title="Settings"]')).toHaveCount(0)
 
@@ -393,6 +409,10 @@ test('Profile dropdown contains Settings and Log out, and opens the settings pag
     'Calendar',
     'Documents',
   ])
+  expect(await sidebarTextStyle(page.locator('.settings-nav-item').first())).toEqual(mailNavStyle)
+  expect(await sidebarTextStyle(page.locator('.settings-nav-label').first())).toEqual(
+    mailLabelStyle,
+  )
 
   // Log out must not throw (regression: window is not accessible in template scope)
   await page.locator('.settings-back-link').click()
