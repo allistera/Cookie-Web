@@ -2,9 +2,11 @@
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore, formatEmailDate } from '../stores/inbox'
+import ComposerEditor from '../components/ComposerEditor.vue'
 import EmailBody from '../components/EmailBody.vue'
 import EmailRow from '../components/EmailRow.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
+import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { scheduleChoices } from '../utils/schedule'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 
@@ -460,9 +462,13 @@ const summarizeLabel = computed(() => {
   return openEmailSummary.value ? 'Regenerate Summary' : 'Summarize'
 })
 const isReplyOpen = ref(false)
-const replyText = ref('')
+// The reply uses the same rich editor as compose: html is what gets sent
+// (sanitized at the send boundary), the plain text mirrors it for validation
+// and the text/plain part.
+const replyHtml = ref('')
+const replyTextPlain = ref('')
 const isSendingReply = ref(false)
-const replyTextareaRef = ref(null)
+const replyEditorRef = ref(null)
 
 function openReader(email) {
   // Opening a message takes over from any text field it was launched from
@@ -498,7 +504,8 @@ watch(
   () => store.openEmailId,
   (id) => {
     isReplyOpen.value = false
-    replyText.value = ''
+    replyHtml.value = ''
+    replyTextPlain.value = ''
     readerTagOpen.value = false
     contentUnsubscribe.value = null
     // Fetch the full body on demand (cached) for any open path, including the
@@ -573,28 +580,47 @@ async function scheduleOpenEmail(choice) {
 
 function replyToOpenEmail() {
   isReplyOpen.value = true
-  nextTick(() => replyTextareaRef.value?.focus())
+  nextTick(() => replyEditorRef.value?.focus())
 }
 
 function discardReply() {
   isReplyOpen.value = false
-  replyText.value = ''
+  replyHtml.value = ''
+  replyTextPlain.value = ''
+}
+
+// The "/generate" command escalates to the composer window prefilled as a
+// reply — the AI draft review sidebar lives there, so the reply gains the
+// full compose flow (draft preview, schedule send, undo) instead of a
+// duplicated one.
+function generateReplyDraft() {
+  const email = openEmail.value
+  if (!email) return
+  store.composerTo = email.address
+  store.composerSubject = `Re: ${email.subject}`
+  store.composerReplyToMessageId = email.id
+  store.composerHtml = replyHtml.value
+  store.composerTextArea = replyTextPlain.value
+  discardReply()
+  store.openComposer()
+  store.openAiDraft()
 }
 
 async function sendReply() {
   if (isSendingReply.value) return
   const email = openEmail.value
-  const text = replyText.value
   isSendingReply.value = true
   try {
     await store.sendMail({
       to: email.address,
       subject: `Re: ${email.subject}`,
-      text,
+      text: replyTextPlain.value,
+      // Sanitize the rich body once, here at the send boundary (same as the
+      // composer's send path).
+      html: sanitizeEmailHtml(replyHtml.value),
       replyToMessageId: email.id,
     })
-    isReplyOpen.value = false
-    replyText.value = ''
+    discardReply()
     store.notify('Reply sent.')
   } catch (error) {
     console.error('Failed to send reply:', error)
@@ -1147,16 +1173,18 @@ onUnmounted(() => {
               <span class="material-symbols-outlined">reply</span>
               <span>Reply to {{ openEmail.sender }}</span>
             </div>
-            <textarea
-              ref="replyTextareaRef"
-              v-model="replyText"
-              class="ni-reply-textarea"
-              placeholder="Write your reply..."
-            ></textarea>
+            <ComposerEditor
+              ref="replyEditorRef"
+              v-model="replyHtml"
+              placeholder="Write your reply, or type “/” for commands…"
+              :snippets="store.snippets"
+              @update:text="replyTextPlain = $event"
+              @generate="generateReplyDraft"
+            />
             <div class="ni-reply-footer">
               <button
                 class="btn btn-primary"
-                :disabled="isSendingReply || !replyText.trim()"
+                :disabled="isSendingReply || !replyTextPlain.trim()"
                 :aria-busy="isSendingReply"
                 @click="sendReply"
               >

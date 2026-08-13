@@ -155,7 +155,9 @@ function selectCommand(command) {
 function emitUpdate() {
   if (!editorRef.value) return
   emit('update:modelValue', editorRef.value.innerHTML)
-  emit('update:text', editorRef.value.innerText)
+  // innerText is layout-aware (keeps line breaks); jsdom doesn't implement
+  // it, so tests fall back to textContent.
+  emit('update:text', editorRef.value.innerText ?? editorRef.value.textContent)
 }
 
 function onInput() {

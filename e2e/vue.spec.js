@@ -915,7 +915,18 @@ test('Reply slides an inline reply box under the email instead of opening the co
 
   // Send is disabled until text is entered
   await expect(replyBox.locator('.btn-primary')).toBeDisabled()
-  await replyBox.locator('.ni-reply-textarea').fill('Thanks, the revised plan looks great.')
+  const replyEditor = replyBox.locator('.composer-editor')
+  await replyEditor.click()
+  await replyEditor.pressSequentially('Thanks, the revised plan looks great.')
+
+  // The reply body is the same rich editor as compose: "/" offers commands.
+  await replyEditor.pressSequentially('/div')
+  const slashMenu = replyBox.locator('.composer-slash-menu')
+  await expect(slashMenu).toBeVisible()
+  await slashMenu.locator('.suggestion-item', { hasText: 'Divider' }).click()
+  await expect(replyEditor.locator('hr')).toBeVisible()
+  await expect(replyEditor).not.toContainText('/div')
+
   await replyBox.locator('.btn-primary').click()
 
   await expect(reader.locator('.ni-reply-box')).toHaveCount(0)

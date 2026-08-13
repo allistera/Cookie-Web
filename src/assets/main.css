@@ -2040,17 +2040,11 @@ button.ni-attachment:hover {
   font-size: 18px;
 }
 
-.ni-reply-textarea {
-  width: 100%;
+/* The reply body reuses .composer-editor (the compose window's rich editor);
+   only its sizing differs in this context. */
+.ni-reply-box .composer-editor {
   min-height: 110px;
-  border: none;
-  outline: none;
-  resize: vertical;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: inherit;
   font-size: 15px;
-  line-height: 1.6;
 }
 
 .ni-reply-footer {

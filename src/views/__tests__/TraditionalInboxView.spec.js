@@ -565,7 +565,11 @@ describe('TraditionalInboxView reply send button', () => {
     wrapper = mount(TraditionalInboxView)
     await wrapper.find('.ni-row').trigger('click')
     await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
-    await wrapper.find('.ni-reply-textarea').setValue('Sounds good!')
+    // The reply body is the shared rich compose editor (contenteditable), not
+    // a textarea — set content and fire input like a user typing.
+    const editor = wrapper.find('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'Sounds good!'
+    await editor.trigger('input')
     return wrapper.find('.ni-reply-footer .btn-primary')
   }
 
@@ -613,6 +617,44 @@ describe('TraditionalInboxView reply send button', () => {
     expect(sendButton.text()).toContain('Send')
     expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
     expect(consoleError).toHaveBeenCalledWith('Failed to send reply:', expect.any(Error))
+  })
+
+  it('sends the reply as sanitized html alongside its plain text', async () => {
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const sendButton = await openReplyBox()
+
+    await sendButton.trigger('click')
+
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Sounds good!',
+        html: expect.stringContaining('Sounds good!'),
+      }),
+    )
+  })
+
+  it('offers slash commands, including saved snippets, in the reply editor', async () => {
+    store.snippets = [{ id: 's1', name: 'thanks', html: '<p>Thanks!</p>' }]
+    wrapper = mount(TraditionalInboxView, { attachTo: document.body })
+    await wrapper.find('.ni-row').trigger('click')
+    await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
+
+    const editor = wrapper.find('.ni-reply-box .composer-editor')
+    editor.element.textContent = '/'
+    editor.element.focus()
+    const range = document.createRange()
+    range.setStart(editor.element.firstChild, 1)
+    range.collapse(true)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    await editor.trigger('input')
+
+    const menu = wrapper.find('.ni-reply-box .composer-slash-menu')
+    expect(menu.exists()).toBe(true)
+    expect(menu.text()).toContain('thanks')
+    expect(menu.text()).toContain('Generate Message')
+    expect(menu.text()).toContain('Bullet list')
   })
 })
 
