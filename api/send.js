@@ -25,6 +25,10 @@ const FLUSH_BATCH_SIZE = 20
 // and is surfaced to the user as failed, rather than silently retried on
 // every flush forever.
 const MAX_SCHEDULED_SEND_ATTEMPTS = 5
+// Resolved scheduled_sends rows and expired read receipts otherwise
+// accumulate forever; the flush job is the only periodic cron trigger this
+// app has, so it doubles as the sweep for both.
+const RESOLVED_STATE_RETENTION_DAYS = 30
 
 function escapeHtml(value) {
   return value
@@ -486,6 +490,21 @@ function timingSafeEqualStrings(a, b) {
   return crypto.timingSafeEqual(digestA, digestB)
 }
 
+// Best-effort; a sweep failure must never block the flush job's actual
+// purpose of sending due mail.
+async function sweepResolvedState(sql) {
+  try {
+    await sql`
+      DELETE FROM scheduled_sends
+      WHERE status IN ('sent', 'failed')
+        AND COALESCE(sent_at, created_at) < now() - make_interval(days => ${RESOLVED_STATE_RETENTION_DAYS})
+    `
+    await sql`DELETE FROM message_read_receipts WHERE expires_at < now()`
+  } catch (err) {
+    console.error('resolved-state sweep failed:', err.message)
+  }
+}
+
 // POST /api/send?resource=flush — called on a schedule by the
 // scheduled-send-flusher Worker cron in Cookie-Worker (never by the browser
 // app), bearer-authenticated with a secret shared out-of-band. Claims and
@@ -516,6 +535,7 @@ async function handleFlush(req, res, services) {
     for (const row of claimed) {
       results.push(await deliverScheduledSend(sql, row, services))
     }
+    await sweepResolvedState(sql)
     res.statusCode = 200
     res.end(JSON.stringify({
       claimed: claimed.length,

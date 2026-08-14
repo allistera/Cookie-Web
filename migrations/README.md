@@ -88,6 +88,35 @@ report a real count instead of hardcoded copy. No feature sets this column to
 exists — this migration is plumbing ahead of that feature, not the feature
 itself.
 
+## Query indexes
+
+`0041_calendar_events_recurring_index.sql` adds a partial index on
+`calendar_events (user_id) WHERE recurrence_rule IS NOT NULL`. Every calendar
+load unconditionally includes recurring masters regardless of the requested
+range (a series row's `event_date` is only its start), and this branch wasn't
+covered by `calendar_events_user_date_idx`.
+
+`0042_recipients_trgm_index.sql` adds a `pg_trgm` GIN index on
+`(recipients::text)` so the `to:` search operator's `ILIKE '%...%'` predicate
+(api/_lib/retrieval.js) can use an index. The full-text `search` tsvector
+(0017) can't substitute here: its parser tokenizes each email address as one
+lexeme, so it can't match a partial address the way `to:` currently does.
+
+`0043_message_labels_rule_index.sql` adds a partial index on
+`message_labels (rule_id) WHERE rule_id IS NOT NULL`. Deleting a label rule
+sets it `NULL` on every referencing row (`ON DELETE SET NULL`), and
+`message_labels` is the largest, continuously-growing table in the schema.
+
+`0044_scheduled_sends_and_receipts_cleanup_indexes.sql` adds a
+`scheduled_sends (user_id, scheduled_for) WHERE status = 'failed'` index
+matching `listScheduledSends`'s `status IN ('pending', 'failed')` read (only
+the `'pending'` half had index support before), and a
+`message_read_receipts (expires_at)` index supporting the new periodic sweep
+of expired receipts and resolved scheduled sends that
+`POST /api/send?resource=flush` now performs after each batch — the flush job
+is the only periodic cron trigger this app has, so both tables' cleanup piggybacks
+on it instead of adding a new endpoint.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
