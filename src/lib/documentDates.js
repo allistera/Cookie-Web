@@ -18,3 +18,12 @@ export function formatDailyNoteTitle(date = new Date()) {
   const year = String(date.getFullYear() % 100).padStart(2, '0')
   return `${day}-${month}-${year}`
 }
+
+// Daily note year/month folder names, e.g. "2026" / "Aug".
+export function formatDailyYearFolder(date = new Date()) {
+  return String(date.getFullYear())
+}
+
+export function formatDailyMonthFolder(date = new Date()) {
+  return date.toLocaleDateString('en-GB', { month: 'short' })
+}

@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
-import { formatDailyNoteTitle } from '../lib/documentDates'
+import {
+  formatDailyMonthFolder,
+  formatDailyNoteTitle,
+  formatDailyYearFolder,
+} from '../lib/documentDates'
 import { useInboxStore } from './inbox'
 
 // Autosave: edits wait this long after the last keystroke before the PATCH
@@ -240,20 +244,33 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
-    // The "Today" sidebar shortcut: finds (or creates) the root "Daily"
-    // folder and today's note inside it, seeding a fresh note with a "Tasks"
-    // heading so it isn't blank the first time it's opened.
+    // Looks up a folder by parent + title among already-loaded folders,
+    // creating it if missing — used to lazily build the Daily/Year/Month tree.
+    async findOrCreateFolder(title, parentId) {
+      const existing = this.folders.find((f) => f.parent_id === parentId && f.title === title)
+      if (existing) return existing
+      return await this.createFolder({ title, parentId })
+    },
+
+    // The "Today" sidebar shortcut: finds (or creates) today's note inside
+    // Daily/<year>/<month> (e.g. Daily/2026/Aug), seeding a fresh note with a
+    // "Tasks" heading so it isn't blank the first time it's opened.
     async openTodayNote() {
       await this.loadWorkspace()
-      const title = formatDailyNoteTitle()
-      let folder = this.folders.find((f) => f.parent_id === null && f.title === 'Daily')
-      if (!folder) folder = await this.createFolder({ title: 'Daily' })
-      if (!folder) return null
+      const now = new Date()
+      const title = formatDailyNoteTitle(now)
 
-      const existing = this.documents.find((d) => d.folder_id === folder.id && d.title === title)
+      const daily = await this.findOrCreateFolder('Daily', null)
+      if (!daily) return null
+      const year = await this.findOrCreateFolder(formatDailyYearFolder(now), daily.id)
+      if (!year) return null
+      const month = await this.findOrCreateFolder(formatDailyMonthFolder(now), year.id)
+      if (!month) return null
+
+      const existing = this.documents.find((d) => d.folder_id === month.id && d.title === title)
       if (existing) return existing
 
-      const document = await this.createDocument({ folderId: folder.id, title })
+      const document = await this.createDocument({ folderId: month.id, title })
       if (!document) return null
       try {
         await this.request('PATCH', {

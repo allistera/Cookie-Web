@@ -199,13 +199,20 @@ describe('documents store', () => {
     expect(store.documents.find((doc) => doc.id === 'd-1').folder_id).toBe(null)
   })
 
-  it('opens today’s note, creating the Daily folder and a Tasks heading when neither exists', async () => {
+  it('opens today’s note, creating Daily/2026/Aug and a Tasks heading when none exist', async () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const fetchMock = stubFetch({
       GET: () => ok({ folders: [], documents: [] }),
       POST: (url, body) =>
         body.kind === 'folder'
-          ? ok({ folder: { id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' } })
+          ? ok({
+              folder: {
+                id: `f-${body.title}`,
+                parent_id: body.parentId,
+                title: body.title,
+                emoji: '📁',
+              },
+            })
           : ok({
               document: {
                 id: 'd-today',
@@ -223,17 +230,33 @@ describe('documents store', () => {
     expect(doc.id).toBe('d-today')
     expect(doc.title).toBe('13-08-26')
     expect(store.folders).toContainEqual({
-      id: 'f-daily',
+      id: 'f-Daily',
       parent_id: null,
       title: 'Daily',
       emoji: '📁',
     })
+    expect(store.folders).toContainEqual({
+      id: 'f-2026',
+      parent_id: 'f-Daily',
+      title: '2026',
+      emoji: '📁',
+    })
+    expect(store.folders).toContainEqual({
+      id: 'f-Aug',
+      parent_id: 'f-2026',
+      title: 'Aug',
+      emoji: '📁',
+    })
 
-    const folderCall = JSON.parse(fetchMock.mock.calls[1][1].body)
-    expect(folderCall).toMatchObject({ kind: 'folder', title: 'Daily' })
-    const docCall = JSON.parse(fetchMock.mock.calls[2][1].body)
-    expect(docCall).toMatchObject({ kind: 'document', folderId: 'f-daily', title: '13-08-26' })
-    const patchCall = JSON.parse(fetchMock.mock.calls[3][1].body)
+    const dailyCall = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(dailyCall).toMatchObject({ kind: 'folder', title: 'Daily', parentId: null })
+    const yearCall = JSON.parse(fetchMock.mock.calls[2][1].body)
+    expect(yearCall).toMatchObject({ kind: 'folder', title: '2026', parentId: 'f-Daily' })
+    const monthCall = JSON.parse(fetchMock.mock.calls[3][1].body)
+    expect(monthCall).toMatchObject({ kind: 'folder', title: 'Aug', parentId: 'f-2026' })
+    const docCall = JSON.parse(fetchMock.mock.calls[4][1].body)
+    expect(docCall).toMatchObject({ kind: 'document', folderId: 'f-Aug', title: '13-08-26' })
+    const patchCall = JSON.parse(fetchMock.mock.calls[5][1].body)
     expect(patchCall).toEqual({
       id: 'd-today',
       blocks: [{ type: 'header', data: { text: 'Tasks', level: 2 } }],
@@ -245,8 +268,12 @@ describe('documents store', () => {
     const fetchMock = stubFetch({
       GET: () =>
         ok({
-          folders: [{ id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' }],
-          documents: [{ id: 'd-today', folder_id: 'f-daily', title: '13-08-26', starred: false }],
+          folders: [
+            { id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' },
+            { id: 'f-year', parent_id: 'f-daily', title: '2026', emoji: '📁' },
+            { id: 'f-month', parent_id: 'f-year', title: 'Aug', emoji: '📁' },
+          ],
+          documents: [{ id: 'd-today', folder_id: 'f-month', title: '13-08-26', starred: false }],
         }),
     })
 

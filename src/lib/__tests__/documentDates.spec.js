@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDailyNoteTitle, formatInsertedDate, ordinalDay } from '../documentDates'
+import {
+  formatDailyMonthFolder,
+  formatDailyNoteTitle,
+  formatDailyYearFolder,
+  formatInsertedDate,
+  ordinalDay,
+} from '../documentDates'
 
 describe('ordinalDay', () => {
   it('uses st/nd/rd for 1/2/3 and their tens, th elsewhere', () => {
@@ -33,5 +39,18 @@ describe('formatDailyNoteTitle', () => {
   it('renders DD-MM-YY, zero-padded', () => {
     expect(formatDailyNoteTitle(new Date(2026, 7, 13))).toBe('13-08-26')
     expect(formatDailyNoteTitle(new Date(2026, 0, 1))).toBe('01-01-26')
+  })
+})
+
+describe('formatDailyYearFolder', () => {
+  it('renders the four-digit year', () => {
+    expect(formatDailyYearFolder(new Date(2026, 7, 13))).toBe('2026')
+  })
+})
+
+describe('formatDailyMonthFolder', () => {
+  it('renders the short month name', () => {
+    expect(formatDailyMonthFolder(new Date(2026, 7, 13))).toBe('Aug')
+    expect(formatDailyMonthFolder(new Date(2026, 0, 1))).toBe('Jan')
   })
 })
