@@ -9,15 +9,15 @@ import { handleRefresh as handleRefreshWired, triggerDigestRebuild, EnricherNotC
 let quotaCounts
 const services = {
   getSql: () => (_strings, ...values) => {
-    const [emailAddress, scope] = values
+    const [userId, scope] = values
     const limit = values[values.length - 1]
-    const key = `${emailAddress}:${scope}`
+    const key = `${userId}:${scope}`
     const count = (quotaCounts.get(key) ?? 0) + 1
     quotaCounts.set(key, count)
     return Promise.resolve([{ allowed: count <= limit }])
   },
 }
-const handleRefresh = (req, res, email) => handleRefreshWired(req, res, email, services)
+const handleRefresh = (req, res, userId) => handleRefreshWired(req, res, userId, services)
 
 function makeRes() {
   return {
@@ -30,9 +30,9 @@ function makeRes() {
 }
 
 let caller = 0
-function email() {
+function userId() {
   caller += 1
-  return `owner${caller}@example.com`
+  return `00000000-0000-0000-0000-00000000000${caller}`
 }
 
 beforeEach(() => {
@@ -74,7 +74,7 @@ describe('triggerDigestRebuild', () => {
 describe('handleRefresh', () => {
   it('returns 200 once the digest has been rebuilt', async () => {
     const res = makeRes()
-    await handleRefresh({ method: 'POST' }, res, email())
+    await handleRefresh({ method: 'POST' }, res, userId())
 
     expect(res.statusCode).toBe(200)
     expect(res.body).toEqual({ ok: true })
@@ -82,7 +82,7 @@ describe('handleRefresh', () => {
 
   it('rejects a non-POST', async () => {
     const res = makeRes()
-    await handleRefresh({ method: 'GET' }, res, email())
+    await handleRefresh({ method: 'GET' }, res, userId())
 
     expect(res.statusCode).toBe(405)
     expect(fetch).not.toHaveBeenCalled()
@@ -93,7 +93,7 @@ describe('handleRefresh', () => {
   it('returns 501 when no enricher is wired up', async () => {
     delete process.env.ENRICHER_RUN_URL
     const res = makeRes()
-    await handleRefresh({ method: 'POST' }, res, email())
+    await handleRefresh({ method: 'POST' }, res, userId())
 
     expect(res.statusCode).toBe(501)
     expect(res.body.error).toMatch(/not configured/)
@@ -103,7 +103,7 @@ describe('handleRefresh', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 })
     const res = makeRes()
-    await handleRefresh({ method: 'POST' }, res, email())
+    await handleRefresh({ method: 'POST' }, res, userId())
 
     expect(res.statusCode).toBe(502)
     // The upstream status must not leak to the browser.
@@ -115,7 +115,7 @@ describe('handleRefresh', () => {
   })
 
   it('rate-limits a caller hammering the button', async () => {
-    const who = email()
+    const who = userId()
     const statuses = []
     for (let i = 0; i < 6; i += 1) {
       const res = makeRes()
@@ -128,11 +128,11 @@ describe('handleRefresh', () => {
   })
 
   it('rate-limits per caller, not globally', async () => {
-    const first = email()
+    const first = userId()
     for (let i = 0; i < 5; i += 1) await handleRefresh({ method: 'POST' }, makeRes(), first)
 
     const res = makeRes()
-    await handleRefresh({ method: 'POST' }, res, email())
+    await handleRefresh({ method: 'POST' }, res, userId())
     expect(res.statusCode).toBe(200)
   })
 })

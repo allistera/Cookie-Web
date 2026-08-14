@@ -249,10 +249,9 @@ export function createHandler(overrides = {}) {
       return
     }
 
-    let email
     let userId
     try {
-      ;({ email, userId } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -260,8 +259,7 @@ export function createHandler(overrides = {}) {
     }
 
     if (resource === 'refresh') {
-      // handleRefresh (api/_lib/enricher.js) is keyed by email, not userId.
-      return handleRefresh(req, res, email, services)
+      return handleRefresh(req, res, userId, services)
     }
     if (resource === 'interests') {
       return handleInterests(req, res, userId)

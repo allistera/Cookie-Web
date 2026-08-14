@@ -44,7 +44,7 @@ export async function triggerDigestRebuild() {
 // POST /api/tasks?resource=refresh — rebuild AI Today's digest now instead of
 // waiting for the Worker's nightly cron. Returns 200 once the digest has been
 // written, so the caller can re-read /api/tasks and see the new topics.
-export async function handleRefresh(req, res, email, services = createServices()) {
+export async function handleRefresh(req, res, userId, services = createServices()) {
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
@@ -52,7 +52,7 @@ export async function handleRefresh(req, res, email, services = createServices()
   }
   let allowed
   try {
-    allowed = await allowRequest(services.getSql(), email, 'enricher', RATE_LIMIT)
+    allowed = await allowRequest(services.getSql(), userId, 'enricher', RATE_LIMIT)
   } catch (err) {
     console.error('POST /api/tasks?resource=refresh quota enforcement failed:', err.message)
     res.statusCode = 503
