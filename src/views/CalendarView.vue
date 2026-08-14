@@ -19,6 +19,7 @@ const showNewEvent = ref(false)
 const eventForm = ref(null)
 const editingEventId = ref(null)
 const eventFormReadOnly = ref(false)
+const eventSaving = ref(false)
 const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
@@ -512,6 +513,7 @@ function closeNewEvent() {
 }
 
 async function saveEvent() {
+  if (eventSaving.value) return
   const title = eventForm.value.title.trim()
   if (!title) return
   const { date, start, end, location, description, repeat, repeatUntil, repeatDays } = eventForm.value
@@ -537,6 +539,7 @@ async function saveEvent() {
     repeatDays: repeat === 'weekly' && repeatDays.length ? repeatDays : null,
   }
 
+  eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (editingEventId.value) {
@@ -562,12 +565,15 @@ async function saveEvent() {
   } catch (error) {
     console.error('Failed to save calendar event:', error)
     store.notify('Failed to save event.', 'error')
+  } finally {
+    eventSaving.value = false
   }
 }
 
 async function deleteEvent() {
-  if (!editingEventId.value) return
+  if (!editingEventId.value || eventSaving.value) return
   const id = editingEventId.value
+  eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     const response = await fetch('/api/calendar-events', {
@@ -581,6 +587,8 @@ async function deleteEvent() {
   } catch (error) {
     console.error('Failed to delete calendar event:', error)
     store.notify('Failed to delete event.', 'error')
+  } finally {
+    eventSaving.value = false
   }
 }
 
@@ -1087,6 +1095,7 @@ onUnmounted(() => {
               v-if="editingEventId"
               type="button"
               class="new-event-delete"
+              :disabled="eventSaving"
               @click="deleteEvent"
             >
               {{ eventForm.repeat !== 'none' ? 'Delete series' : 'Delete' }}
@@ -1096,7 +1105,7 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="new-event-create"
-                :disabled="!eventForm.title.trim()"
+                :disabled="!eventForm.title.trim() || eventSaving"
                 @click="saveEvent"
               >
                 {{ editingEventId ? 'Save Event' : 'Create Event' }}

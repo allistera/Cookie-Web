@@ -429,6 +429,26 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  it('ignores a second Create click fired before the first request resolves', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-title-input').setValue('Lunch with Mia')
+
+    const create = wrapper.get('.new-event-create')
+    // Both dispatches run synchronously before either handler's first await
+    // yields, so the second call must observe the in-flight guard.
+    create.trigger('click')
+    create.trigger('click')
+    await flushPromises()
+
+    const postCalls = fetch.mock.calls.filter(
+      ([url, options]) => url === '/api/calendar-events' && options?.method === 'POST',
+    )
+    expect(postCalls).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('creates an event by dragging on the day timeline, prefilling date, start, and end', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
     const lane = wrapper.get('.day-event-lane')
