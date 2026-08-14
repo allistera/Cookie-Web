@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentCalendarSidebar from '../DocumentCalendarSidebar.vue'
 import { useCalendars } from '../../composables/useCalendars'
 import { useInboxStore } from '../../stores/inbox'
+import { useDocumentsStore } from '../../stores/documents'
 
 const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 const EVENTS = [
@@ -79,5 +80,25 @@ describe('DocumentCalendarSidebar', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/calendar-events?from=2026-08-14&to=2026-08-14', { headers: {} })
     expect(wrapper.get('.mini-month-day.selected').text()).toBe('14')
+  })
+
+  it('re-fetches when a document autosave completes, picking up a synced event', async () => {
+    mockApi()
+    mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
+    await flushPromises()
+    const before = fetch.mock.calls.filter(([url]) => url.includes('/api/calendar-events?from')).length
+
+    useDocumentsStore().saveState = 'saving'
+    await flushPromises()
+    expect(
+      fetch.mock.calls.filter(([url]) => url.includes('/api/calendar-events?from')).length,
+    ).toBe(before)
+
+    useDocumentsStore().saveState = 'saved'
+    await flushPromises()
+
+    expect(
+      fetch.mock.calls.filter(([url]) => url.includes('/api/calendar-events?from')).length,
+    ).toBe(before + 1)
   })
 })

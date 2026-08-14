@@ -21,6 +21,7 @@ function getSql() {
   }
   fn.json = (value) => ({ json: value })
   fn.array = (value) => ({ array: value })
+  fn.begin = async (callback) => callback(fn)
   return fn
 }
 
@@ -242,14 +243,69 @@ describe('POST /api/tasks?resource=documents', () => {
 
 describe('PATCH /api/tasks?resource=documents', () => {
   it('saves blocks through sql.json and bumps updated_at', async () => {
-    sqlQueue = [[{ id: DOC_ID, title: 'Notes' }]]
+    // A blocks update first re-fetches the previous row (to diff against for
+    // daily-note event sync) before the UPDATE itself.
+    sqlQueue = [
+      [{ folder_id: null, title: 'Notes', blocks: [] }],
+      [{ id: DOC_ID, title: 'Notes', folder_id: null }],
+    ]
     const res = makeRes()
 
     await handler(req('PATCH', { id: DOC_ID, blocks: [{ type: 'paragraph', data: {} }] }), res)
 
     expect(res.statusCode).toBe(200)
-    expect(statements[0]).toBe('SET(blocks)')
-    expect(statements[1]).toContain('updated_at = now()')
+    expect(statements[0]).toContain('folder_id')
+    expect(statements[1]).toBe('SET(blocks)')
+    expect(statements[2]).toContain('updated_at = now()')
+  })
+
+  it('syncs a Daily note time-range line into a linked calendar event', async () => {
+    sqlQueue = [
+      [{ folder_id: FOLDER_ID, title: '14-08-26', blocks: [] }], // previous row
+      [{ id: DOC_ID, title: '14-08-26', folder_id: FOLDER_ID }], // UPDATE ... RETURNING
+      [{ title: 'Daily' }], // resolveDailyNoteEventDate's folder-ancestry root
+      [{ id: 'cal-personal' }], // resolveDefaultCalendarId
+      [], // the upsert itself
+    ]
+    const res = makeRes()
+
+    await handler(
+      req('PATCH', {
+        id: DOC_ID,
+        blocks: [{ id: 'block-1', type: 'paragraph', data: { text: '10:00 - 11:00 - Team sync' } }],
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    // [0] previous-row SELECT, [1] SET(blocks) helper, [2] the UPDATE itself,
+    // [3] resolveDailyNoteEventDate's folder-ancestry CTE, [4] the default
+    // calendar lookup, [5] the calendar_events upsert.
+    expect(statements).toHaveLength(6)
+    expect(statements[3]).toContain('ancestry')
+    expect(statements[4]).toContain('FROM calendars')
+    expect(statements[5]).toContain('ON CONFLICT (source_document_id, source_block_id)')
+  })
+
+  it('does not touch calendar_events for a non-Daily document\'s blocks', async () => {
+    sqlQueue = [
+      [{ folder_id: FOLDER_ID, title: 'Notes', blocks: [] }],
+      [{ id: DOC_ID, title: 'Notes', folder_id: FOLDER_ID }],
+    ]
+    const res = makeRes()
+
+    await handler(
+      req('PATCH', {
+        id: DOC_ID,
+        blocks: [{ id: 'block-1', type: 'paragraph', data: { text: '10:00 - 11:00 - Team sync' } }],
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    // No folder-ancestry lookup: 'Notes' doesn't parse as a daily-note title,
+    // so resolveDailyNoteEventDate short-circuits before it needs one.
+    expect(statements).toHaveLength(3)
   })
 
   it('toggles starred', async () => {

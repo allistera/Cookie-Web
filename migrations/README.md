@@ -124,6 +124,14 @@ with no index of their own. The app only soft-deletes messages today, so
 this is insurance against a future hard-delete/purge path triggering an
 unindexed cascade scan, not an active hot path.
 
+`0047_daily_note_calendar_events.sql` adds `calendar_events.source_document_id`
+/ `source_block_id` and a partial unique index on the pair, so a typed
+time-range line in a Daily note maps to exactly one event and repeat saves
+upsert it (`ON CONFLICT (source_document_id, source_block_id)`) instead of
+creating duplicates. `source_document_id` is `ON DELETE SET NULL`, not
+`CASCADE` — deleting the note detaches its events rather than deleting real
+calendar commitments along with it.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

@@ -1,17 +1,23 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
+import { useDocumentsStore } from '../stores/documents'
 import { useCalendars } from '../composables/useCalendars'
 
 // Read-only day view docked next to a daily note (Daily/<year>/<month>/DD-MM-YY):
 // a NotePlan-style mini month calendar plus that day's Cookie events, so the
 // note and the day it belongs to are visible together. Never creates,
-// edits, or navigates to events - open the full Calendar view for that.
+// edits, or navigates to events directly - open the full Calendar view for
+// that. Typed "10:00 - 11:00 - Title" lines in the note itself do create/
+// update/delete a linked event server-side (api/_lib/dailyEventSync.js);
+// this view just needs to refetch after a save picks one up (see the
+// documentsStore.saveState watcher below).
 const props = defineProps({
   date: { type: Date, required: true },
 })
 
 const store = useInboxStore()
+const documentsStore = useDocumentsStore()
 const { calendars, loadCalendars } = useCalendars(
   (init) => store.authHeaders(init),
   (message, kind) => store.notify(message, kind),
@@ -101,6 +107,17 @@ async function loadEvents() {
   }
 }
 watch(selectedKey, loadEvents, { immediate: true })
+
+// A successful autosave may have synced a typed time-line into a linked
+// event server-side (api/_lib/dailyEventSync.js) - refetch to pick it up.
+// saveState also turns 'saved' for edits with no time-line at all, which
+// just means one harmless extra fetch.
+watch(
+  () => documentsStore.saveState,
+  (state) => {
+    if (state === 'saved') loadEvents()
+  },
+)
 
 const allDayEvents = computed(() => events.value.filter((event) => event.allDay))
 const timedEvents = computed(() => events.value.filter((event) => !event.allDay))

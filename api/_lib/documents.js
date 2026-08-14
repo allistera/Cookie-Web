@@ -1,6 +1,7 @@
 import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
 import { normalizeDocumentTags } from '../../src/lib/documentTags.js'
+import { resolveDailyNoteEventDate, syncDailyNoteEvents } from './dailyEventSync.js'
 
 // The Documents workspace: nested folders plus Editor.js block documents,
 // modeled on Paper. Dispatched as /api/tasks?resource=documents because the
@@ -293,6 +294,7 @@ async function handlePatch(res, body, userId, sql) {
   // Document update: only the provided fields change. Every write bumps
   // updated_at, which is what orders the sidebar and dashboard.
   const updates = {}
+  let newBlocks = null
   if (Object.hasOwn(body, 'title')) {
     const title = cleanText(body.title, MAX_TITLE_LENGTH)
     if (title === null) {
@@ -339,6 +341,7 @@ async function handlePatch(res, body, userId, sql) {
     // sql.json, never a pre-stringified string: postgres.js would store that
     // as a jsonb string scalar rather than the array itself.
     updates.blocks = sql.json(blocks)
+    newBlocks = blocks
   }
   if (Object.hasOwn(body, 'tags')) {
     const tags = normalizeDocumentTags(body.tags)
@@ -355,12 +358,28 @@ async function handlePatch(res, body, userId, sql) {
     return
   }
 
-  const [document] = await sql`
-    UPDATE documents d
-    SET ${sql(updates)}, updated_at = now()
-    WHERE d.id = ${body.id} AND d.user_id = ${userId}
-    RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
-  `
+  const [document] = await sql.begin(async (sql) => {
+    // Only needed to diff against the post-update blocks below; skip the
+    // extra round trip when this save doesn't touch blocks at all.
+    const previous = newBlocks
+      ? (await sql`SELECT folder_id, title, blocks FROM documents WHERE id = ${body.id} AND user_id = ${userId}`)[0]
+      : null
+
+    const rows = await sql`
+      UPDATE documents d
+      SET ${sql(updates)}, updated_at = now()
+      WHERE d.id = ${body.id} AND d.user_id = ${userId}
+      RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
+    `
+    const updated = rows[0]
+    if (updated && previous) {
+      const eventDate = await resolveDailyNoteEventDate(sql, userId, updated.folder_id, updated.title)
+      if (eventDate) {
+        await syncDailyNoteEvents(sql, userId, updated.id, eventDate, previous.blocks, newBlocks)
+      }
+    }
+    return rows
+  })
   if (!document) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Document not found' }))
