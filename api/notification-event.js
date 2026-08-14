@@ -120,7 +120,6 @@ export function createHandler(overrides = {}) {
       })
     } catch (error) {
       console.error('POST /api/notification-event failed:', error)
-      await services.captureApiError(error, { route: 'POST /api/notification-event' })
       sendJson(res, 500, { error: 'Browser notification event failed' })
     }
   }

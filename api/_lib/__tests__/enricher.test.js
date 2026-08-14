@@ -8,7 +8,6 @@ import { handleRefresh as handleRefreshWired, triggerDigestRebuild, EnricherNotC
 // through handleRefresh's services argument instead of a module mock.
 let quotaCounts
 const services = {
-  captureApiError: vi.fn(async () => undefined),
   getSql: () => (_strings, ...values) => {
     const [emailAddress, scope] = values
     const limit = values[values.length - 1]

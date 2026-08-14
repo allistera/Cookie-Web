@@ -6,7 +6,6 @@ const rows = []
 
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-  captureApiError: vi.fn(async () => undefined),
   // Both queries resolve through the same stub; the handler only cares that
   // fetchEmails returns an array of rows.
   getSql: () => () => Promise.resolve(rows),

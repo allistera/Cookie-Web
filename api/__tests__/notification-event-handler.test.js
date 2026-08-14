@@ -19,7 +19,6 @@ const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
 
 const handler = createHandler({
   verifyAccessToken,
-  captureApiError: vi.fn(async () => undefined),
   getSql,
 })
 

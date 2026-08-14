@@ -53,7 +53,6 @@ export function createHandler(overrides = {}) {
       res.end(JSON.stringify({ contacts: rows.map((r) => ({ address: r.address, name: r.name })) }))
     } catch (err) {
       console.error('GET contacts failed:', err)
-      await services.captureApiError(err, { route: 'GET contacts' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to load contacts' }))
     }

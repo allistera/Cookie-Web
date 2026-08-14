@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer'
 
 import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_MESSAGES = 100
@@ -61,7 +60,7 @@ export default async function handler(req, res) {
       } catch (err) {
         // Tracking must never affect delivery or leak failures to recipients.
         if (err?.code !== '42P01') {
-          await captureApiError(err, { route: 'GET /api/read-receipts (pixel)' })
+          console.error('GET /api/read-receipts (pixel) failed:', err)
         }
       }
     }
@@ -98,7 +97,7 @@ export default async function handler(req, res) {
     // During a rolling deploy the new table may not exist yet. Sent mail stays
     // usable and simply shows the conservative, unopened state until it does.
     if (err?.code !== '42P01') {
-      await captureApiError(err, { route: 'GET /api/read-receipts (status)' })
+      console.error('GET /api/read-receipts (status) failed:', err)
     }
     res.statusCode = 200
     res.end(JSON.stringify({ receipts: [] }))

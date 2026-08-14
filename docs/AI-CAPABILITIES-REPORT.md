@@ -105,7 +105,7 @@ A generic multi-provider abstraction is intentionally absent. Add one only after
 - Structured outputs are schema-constrained and validated locally.
 - Spam actions are reversible and require high confidence.
 - AI Compose cannot send mail.
-- Logs and Sentry events exclude email bodies, model inputs, model outputs, and credentials.
+- Logs exclude email bodies, model inputs, model outputs, and credentials.
 - Stored provenance supports later correction and prompt/model changes.
 
 ## Reliability and operations

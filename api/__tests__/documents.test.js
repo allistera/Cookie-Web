@@ -26,7 +26,6 @@ function getSql() {
 
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-  captureApiError: vi.fn(async () => undefined),
   getSql,
 })
 

@@ -6,7 +6,6 @@ let sqlQueue = []
 
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-  captureApiError: vi.fn(async () => undefined),
   calendarsHandler: vi.fn(async (req, res) => {
     res.statusCode = 200
     res.end('{}')

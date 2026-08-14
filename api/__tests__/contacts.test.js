@@ -4,7 +4,6 @@ import { createHandler, fetchContacts } from '../_lib/contacts.js'
 
 const contactsHandler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-  captureApiError: vi.fn(async () => undefined),
   getSql: () => () => Promise.resolve([{ address: 'a@example.com', name: 'A' }]),
 })
 

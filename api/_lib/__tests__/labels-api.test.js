@@ -8,7 +8,6 @@ const verifyAccessToken = vi.fn()
 const handler = createHandler({
   getSql,
   verifyAccessToken,
-  captureApiError: vi.fn(),
 })
 
 const LABEL_ID = '11111111-1111-1111-1111-111111111111'

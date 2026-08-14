@@ -2,7 +2,6 @@ import process from 'node:process'
 
 import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { allowRequest } from './_lib/rate-limit.js'
 
@@ -132,7 +131,6 @@ export default async function handler(req, res) {
     allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
   } catch (err) {
     console.error('POST /api/compose quota enforcement failed:', err.message)
-    await captureApiError(err, { route: 'POST /api/compose (quota)' })
     res.statusCode = 503
     res.end(JSON.stringify({ error: 'AI compose is temporarily unavailable' }))
     return
@@ -200,7 +198,6 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ draft, model: COMPOSE_MODEL }))
   } catch (err) {
     console.error('POST /api/compose failed:', err)
-    await captureApiError(err, { route: 'POST /api/compose' })
     res.statusCode = 502
     res.end(JSON.stringify({ error: 'AI compose failed' }))
   }

@@ -329,7 +329,6 @@ export function createHandler(overrides = {}) {
         return
       }
       console.error(`${req.method} calendar management failed:`, err)
-      await services.captureApiError(err, { route: `${req.method} calendar management` })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Calendars request failed' }))
     }

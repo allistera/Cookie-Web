@@ -304,7 +304,6 @@ export function createHandler(overrides = {}) {
       res.end(JSON.stringify({ error: 'Method not allowed' }))
     } catch (err) {
       console.error(`${req.method} /api/labels?resource=rules failed:`, err)
-      await services.captureApiError(err, { route: `${req.method} /api/labels?resource=rules` })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Label rules request failed' }))
     }

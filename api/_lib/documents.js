@@ -453,7 +453,6 @@ export async function handleDocuments(req, res, email, services = createServices
     return await handleDelete(res, body, email, sql)
   } catch (err) {
     console.error(`${route} failed:`, err)
-    await services.captureApiError(err, { route })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Documents request failed' }))
   }

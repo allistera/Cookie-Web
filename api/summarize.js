@@ -2,7 +2,6 @@ import process from 'node:process'
 
 import { getSql } from './_lib/db.js'
 import { verifyAccessToken } from './_lib/auth.js'
-import { captureApiError } from './_lib/sentry.js'
 import { readJsonBody } from './_lib/body.js'
 import { allowRequest } from './_lib/rate-limit.js'
 
@@ -186,7 +185,6 @@ export default async function handler(req, res) {
     allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
   } catch (err) {
     console.error('POST /api/summarize quota enforcement failed:', err.message)
-    await captureApiError(err, { route: 'POST /api/summarize (quota)' })
     res.statusCode = 503
     res.end(JSON.stringify({ error: 'AI summarization is temporarily unavailable' }))
     return
@@ -231,7 +229,6 @@ export default async function handler(req, res) {
       return
     }
     console.error('POST /api/summarize failed:', err)
-    await captureApiError(err, { route: 'POST /api/summarize' })
     res.statusCode = 502
     res.end(JSON.stringify({ error: 'AI summarization failed' }))
   }

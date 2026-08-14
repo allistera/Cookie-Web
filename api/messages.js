@@ -124,7 +124,6 @@ async function handleAttachmentGet(req, res, email, services) {
     )
   } catch (error) {
     console.error('GET /api/messages?resource=attachment failed:', error)
-    await services.captureApiError(error, { route: 'GET /api/messages (attachment)' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to prepare attachment download' }))
   }
@@ -161,7 +160,6 @@ async function handleGet(req, res, email, services) {
     )
   } catch (err) {
     console.error('GET /api/messages failed:', err)
-    await services.captureApiError(err, { route: 'GET /api/messages' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load message' }))
   }
@@ -186,7 +184,6 @@ async function handleThreadBodyGet(req, res, email, services) {
     res.end(JSON.stringify({ body_text: message.body_text ?? '' }))
   } catch (err) {
     console.error('GET /api/messages?resource=thread-body failed:', err)
-    await services.captureApiError(err, { route: 'GET /api/messages (thread body)' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to load message body' }))
   }
@@ -253,7 +250,6 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
     res.end(JSON.stringify({ labels }))
   } catch (err) {
     console.error('POST /api/messages label change failed:', err)
-    await services.captureApiError(err, { route: 'POST /api/messages (label)' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to update labels' }))
   }
@@ -387,7 +383,6 @@ async function handlePost(req, res, email, services) {
     res.end(JSON.stringify({ error: 'No safe unsubscribe method is available' }))
   } catch (err) {
     console.error('POST /api/messages failed:', err)
-    await services.captureApiError(err, { route: 'POST /api/messages' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to unsubscribe' }))
   }
@@ -497,7 +492,6 @@ export function createHandler(overrides = {}) {
       res.end(JSON.stringify({ message: rows[0] }))
     } catch (err) {
       console.error('PATCH /api/messages failed:', err)
-      await services.captureApiError(err, { route: 'PATCH /api/messages' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to update message' }))
     }

@@ -16,7 +16,6 @@ let sqlRows = []
 
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
-  captureApiError: vi.fn(async () => undefined),
   getSql: () => () => Promise.resolve(sqlRows),
   issueSignedToken,
   presignUrl,

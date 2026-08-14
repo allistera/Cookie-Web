@@ -525,7 +525,6 @@ async function handleFlush(req, res, services) {
     }))
   } catch (err) {
     console.error('POST /api/send?resource=flush failed:', err)
-    await services.captureApiError(err, { route: 'POST /api/send?resource=flush' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Flush failed' }))
   }
@@ -595,7 +594,6 @@ async function handleSend(req, res, email, services) {
       res.end(JSON.stringify({ scheduledSend }))
     } catch (err) {
       console.error('POST /api/send (schedule) failed:', err)
-      await services.captureApiError(err, { route: 'POST /api/send (schedule)' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to schedule email' }))
     }
@@ -618,7 +616,6 @@ async function handleSend(req, res, email, services) {
     }
   } catch (err) {
     console.error('failed to enforce outbound email quota:', err.message)
-    await services.captureApiError(err, { route: 'POST /api/send (quota)' })
     res.statusCode = 503
     res.end(JSON.stringify({ error: 'Email sending is temporarily unavailable' }))
     return
@@ -680,7 +677,6 @@ export function createHandler(overrides = {}) {
       await handleSend(req, res, email, services)
     } catch (err) {
       console.error(`${req.method} /api/send failed:`, err)
-      await services.captureApiError(err, { route: `${req.method} /api/send` })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to send email' }))
     }

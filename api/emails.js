@@ -120,7 +120,6 @@ export function createHandler(overrides = {}) {
         )
       } catch (err) {
         console.error('GET /api/emails?resource=state failed:', err)
-        await services.captureApiError(err, { route: 'GET /api/emails (state)' })
         res.statusCode = 500
         res.end(JSON.stringify({ error: 'Failed to load inbox state' }))
       }
@@ -179,7 +178,6 @@ export function createHandler(overrides = {}) {
       res.end(JSON.stringify(payload))
     } catch (err) {
       console.error('GET /api/emails failed:', err)
-      await services.captureApiError(err, { route: 'GET /api/emails' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to load emails' }))
     }

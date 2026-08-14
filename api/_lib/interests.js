@@ -1,5 +1,4 @@
 import { getSql } from './db.js'
-import { captureApiError } from './sentry.js'
 import { readJsonBody } from './body.js'
 
 // Personalisation topics for AI Today's news section. Unlike the signature and
@@ -64,7 +63,6 @@ export async function handleInterests(req, res, email) {
       res.end(JSON.stringify({ interests: row?.interests ?? [] }))
     } catch (err) {
       console.error('GET /api/tasks?resource=interests failed:', err)
-      await captureApiError(err, { route: 'GET /api/tasks?resource=interests' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to load interests' }))
     }
@@ -99,7 +97,6 @@ export async function handleInterests(req, res, email) {
       res.end(JSON.stringify({ interests: row.interests }))
     } catch (err) {
       console.error('PUT /api/tasks?resource=interests failed:', err)
-      await captureApiError(err, { route: 'PUT /api/tasks?resource=interests' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to save interests' }))
     }

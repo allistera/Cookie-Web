@@ -59,7 +59,6 @@ See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.m
 | Realtime | Supabase Realtime broadcast |
 | AI | OpenAI Responses and Embeddings APIs |
 | Outbound email | Resend |
-| Error monitoring | Sentry |
 
 ## Local development
 
@@ -101,8 +100,6 @@ The main runtime variables are:
 | `VITE_AUTH0_AUDIENCE` | Auth0 API audience exposed to the browser. |
 | `VITE_SUPABASE_URL` | Supabase project URL used for Realtime. |
 | `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings. |
-| `SENTRY_DSN` | Server-side error reporting. |
-| `VITE_SENTRY_DSN` | Browser error reporting. |
 
 Vercel stores production values. GitHub Actions stores only the secrets required by migrations and embedding backfills.
 

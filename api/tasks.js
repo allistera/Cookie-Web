@@ -212,7 +212,6 @@ async function handlePost(req, res, email, services) {
         await closeTodoistTask(task.external_id, token)
       } catch (err) {
         console.error('Todoist close failed:', err.message)
-        await services.captureApiError(err, { route: 'POST /api/tasks (todoist close)' })
         res.statusCode = 502
         res.end(JSON.stringify({ error: 'Failed to close the task in Todoist' }))
         return
@@ -224,7 +223,6 @@ async function handlePost(req, res, email, services) {
     res.end(JSON.stringify({ ok: true, closedInTodoist }))
   } catch (err) {
     console.error('POST /api/tasks failed:', err)
-    await services.captureApiError(err, { route: 'POST /api/tasks' })
     res.statusCode = 500
     res.end(JSON.stringify({ error: 'Failed to complete task' }))
   }
@@ -298,7 +296,6 @@ export function createHandler(overrides = {}) {
       )
     } catch (err) {
       console.error('GET /api/tasks failed:', err)
-      await services.captureApiError(err, { route: 'GET /api/tasks' })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to load tasks' }))
     }

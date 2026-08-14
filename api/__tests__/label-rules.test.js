@@ -10,7 +10,6 @@ const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
 
 const handler = createHandler({
   verifyAccessToken,
-  captureApiError: vi.fn(async () => undefined),
   getSql: () => {
     const fn = () => Promise.resolve(sqlQueue.shift() ?? [])
     fn.begin = async (callback) => callback(fn)

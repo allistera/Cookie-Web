@@ -494,7 +494,6 @@ export function createHandler(overrides = {}) {
       res.end(JSON.stringify({ error: 'Method not allowed' }))
     } catch (err) {
       console.error(`${req.method} /api/calendar-events failed:`, err)
-      await services.captureApiError(err, { route: `${req.method} /api/calendar-events` })
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Calendar events request failed' }))
     }

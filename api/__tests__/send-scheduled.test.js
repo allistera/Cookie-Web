@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHandler, parseScheduledFor } from '../send.js'
 
 const mocks = {
-  captureApiError: vi.fn(),
   getSql: vi.fn(),
   resendSend: vi.fn(),
 }
@@ -13,7 +12,6 @@ const mocks = {
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
   getSql: mocks.getSql,
-  captureApiError: mocks.captureApiError,
   embedText: vi.fn(),
   createResend: () => ({ emails: { send: mocks.resendSend } }),
 })
