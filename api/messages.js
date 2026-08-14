@@ -203,7 +203,11 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
 
   try {
     const sql = services.getSql()
-    const [owns] = await sql`
+    // The ownership check exists to report which of message/label is missing
+    // (or absent) as a clean 404; the mutation re-scopes the same ownership
+    // joins in its own WHERE so it's a safe no-op regardless of that check's
+    // outcome, letting the two run concurrently instead of sequentially.
+    const ownershipCheck = sql`
       SELECT
         EXISTS (
           SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
@@ -214,6 +218,29 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
           WHERE l.id = ${labelId} AND lower(u.email) = ${email} AND l.kind = 'user'
         ) AS label
     `
+    const mutation =
+      action === 'add_label'
+        ? sql`
+            INSERT INTO message_labels (message_id, label_id)
+            SELECT ${messageId}, ${labelId}
+            WHERE EXISTS (
+              SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
+              WHERE m.id = ${messageId} AND lower(u.email) = ${email}
+            ) AND EXISTS (
+              SELECT 1 FROM labels l JOIN users u ON u.id = l.user_id
+              WHERE l.id = ${labelId} AND lower(u.email) = ${email} AND l.kind = 'user'
+            )
+            ON CONFLICT DO NOTHING
+          `
+        : sql`
+            DELETE FROM message_labels
+            WHERE message_id = ${messageId} AND label_id = ${labelId}
+              AND EXISTS (
+                SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
+                WHERE m.id = ${messageId} AND lower(u.email) = ${email}
+              )
+          `
+    const [[owns]] = await Promise.all([ownershipCheck, mutation])
     if (!owns?.message) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))
@@ -223,19 +250,6 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Label not found' }))
       return
-    }
-
-    if (action === 'add_label') {
-      await sql`
-        INSERT INTO message_labels (message_id, label_id)
-        VALUES (${messageId}, ${labelId})
-        ON CONFLICT DO NOTHING
-      `
-    } else {
-      await sql`
-        DELETE FROM message_labels
-        WHERE message_id = ${messageId} AND label_id = ${labelId}
-      `
     }
 
     // Return the same {name, color, kind} shape the list endpoint uses.

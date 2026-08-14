@@ -369,13 +369,19 @@ async function updateEvent(sql, email, body, res) {
     res.end(JSON.stringify({ error: 'id and valid event fields are required' }))
     return
   }
-  const calendar = await resolveCalendarId(sql, email, fields.calendar)
+  // Independent lookups — the target calendar (from fields.calendar) and the
+  // event's current calendar (from id) — so they run concurrently instead of
+  // as two sequential round trips.
+  const [calendar, eventInSubscribedCalendar] = await Promise.all([
+    resolveCalendarId(sql, email, fields.calendar),
+    isEventInSubscribedCalendar(sql, email, id),
+  ])
   if (!calendar) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Calendar not found' }))
     return
   }
-  if (calendar.subscriptionUrl || (await isEventInSubscribedCalendar(sql, email, id))) {
+  if (calendar.subscriptionUrl || eventInSubscribedCalendar) {
     res.statusCode = 403
     res.end(JSON.stringify({ error: READ_ONLY_ERROR }))
     return
