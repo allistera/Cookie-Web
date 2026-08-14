@@ -59,125 +59,127 @@ async function chatCompletion(question, rows, apiKey) {
 
 // POST /api/ask {question} — RAG over the user's mail: hybrid-retrieve the
 // most relevant messages, answer from them, and return the sources used.
-export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json')
+export function createAskHandler(services = { getSql, verifyAccessToken, allowRequest }) {
+  return async function handler(req, res) {
+    res.setHeader('Content-Type', 'application/json')
 
-  if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
-    return
-  }
-
-  let userId
-  try {
-    ;({ userId } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    res.statusCode = 503
-    res.end(JSON.stringify({ error: 'Assistant is not configured' }))
-    return
-  }
-
-  let allowed
-  try {
-    allowed = await allowRequest(getSql(), userId, 'ai', RATE_LIMIT)
-  } catch (err) {
-    console.error('POST /api/ask quota enforcement failed:', err.message)
-    res.statusCode = 503
-    res.end(JSON.stringify({ error: 'Assistant is temporarily unavailable' }))
-    return
-  }
-  if (!allowed) {
-    res.statusCode = 429
-    res.end(JSON.stringify({ error: 'Too many questions, slow down' }))
-    return
-  }
-
-  let body
-  try {
-    body = await readJsonBody(req)
-  } catch {
-    res.statusCode = 400
-    res.end(JSON.stringify({ error: 'Invalid JSON body' }))
-    return
-  }
-
-  const question = String(body.question ?? '').trim()
-  if (!question || question.length > MAX_QUESTION_CHARS) {
-    res.statusCode = 400
-    res.end(JSON.stringify({ error: 'question is required (max 500 chars)' }))
-    return
-  }
-
-  try {
-    const sql = getSql()
-
-    // A natural-language question is matched as plain free text: no prefix
-    // (the last word is complete) and no structured operators.
-    const spec = { text: question, prefixQuery: null, filters: {} }
-
-    const semanticIds = async () => {
-      try {
-        const vector = JSON.stringify(
-          await embedTextCached(question, process.env.OPENAI_API_KEY),
-        )
-        return await vectorLeg(sql, userId, vector, spec.filters, CANDIDATES)
-      } catch (err) {
-        console.error('POST /api/ask vector leg failed:', err.message)
-        return []
-      }
-    }
-
-    const [keywordRows, vectorRows] = await Promise.all([
-      keywordLeg(sql, userId, spec, CANDIDATES),
-      semanticIds(),
-    ])
-    const ids = fuseRankings([
-      keywordRows.map((r) => r.id),
-      vectorRows.map((r) => r.id),
-    ]).slice(0, CONTEXT_MESSAGES)
-
-    if (ids.length === 0) {
-      res.statusCode = 200
-      res.end(
-        JSON.stringify({
-          answer: "I couldn't find any emails related to that. Try rephrasing your question.",
-          sources: [],
-        }),
-      )
+    if (req.method !== 'POST') {
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
       return
     }
 
-    const rows = await sql`
+    let userId
+    try {
+      ;({ userId } = await services.verifyAccessToken(req))
+    } catch {
+      res.statusCode = 401
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
+
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+      return
+    }
+
+    const question = String(body.question ?? '').trim()
+    if (!question || question.length > MAX_QUESTION_CHARS) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'question is required (max 500 chars)' }))
+      return
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'Assistant is not configured' }))
+      return
+    }
+
+    let allowed
+    try {
+      allowed = await services.allowRequest(services.getSql(), userId, 'ai', RATE_LIMIT)
+    } catch (err) {
+      console.error('POST /api/ask quota enforcement failed:', err.message)
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'Assistant is temporarily unavailable' }))
+      return
+    }
+    if (!allowed) {
+      res.statusCode = 429
+      res.end(JSON.stringify({ error: 'Too many questions, slow down' }))
+      return
+    }
+
+    try {
+      const sql = services.getSql()
+
+      // A natural-language question is matched as plain free text: no prefix
+      // (the last word is complete) and no structured operators.
+      const spec = { text: question, prefixQuery: null, filters: {} }
+
+      const semanticIds = async () => {
+        try {
+          const vector = JSON.stringify(await embedTextCached(question, process.env.OPENAI_API_KEY))
+          return await vectorLeg(sql, userId, vector, spec.filters, CANDIDATES)
+        } catch (err) {
+          console.error('POST /api/ask vector leg failed:', err.message)
+          return []
+        }
+      }
+
+      const [keywordRows, vectorRows] = await Promise.all([
+        keywordLeg(sql, userId, spec, CANDIDATES),
+        semanticIds(),
+      ])
+      const ids = fuseRankings([keywordRows.map((r) => r.id), vectorRows.map((r) => r.id)]).slice(
+        0,
+        CONTEXT_MESSAGES,
+      )
+
+      if (ids.length === 0) {
+        res.statusCode = 200
+        res.end(
+          JSON.stringify({
+            answer: "I couldn't find any emails related to that. Try rephrasing your question.",
+            sources: [],
+          }),
+        )
+        return
+      }
+
+      const rows = await sql`
       SELECT m.id, m.from_name, m.from_address, m.subject,
              LEFT(m.body_text, ${CONTEXT_BODY_CHARS}) AS body_text, m.sent_at
       FROM messages m
       WHERE m.user_id = ${userId} AND m.id = ANY(${ids}::uuid[])
     `
-    const byId = new Map(rows.map((row) => [row.id, row]))
-    const ordered = ids.map((id) => byId.get(id)).filter(Boolean)
+      const byId = new Map(rows.map((row) => [row.id, row]))
+      const ordered = ids.map((id) => byId.get(id)).filter(Boolean)
 
-    const answer = await chatCompletion(question, ordered, process.env.OPENAI_API_KEY)
+      const answer = await chatCompletion(question, ordered, process.env.OPENAI_API_KEY)
 
-    res.statusCode = 200
-    res.end(
-      JSON.stringify({
-        answer,
-        sources: ordered.map((m) => ({
-          id: m.id,
-          subject: m.subject,
-          from_name: m.from_name || m.from_address,
-        })),
-      }),
-    )
-  } catch (err) {
-    console.error('POST /api/ask failed:', err)
-    res.statusCode = 500
-    res.end(JSON.stringify({ error: 'Ask failed' }))
+      res.statusCode = 200
+      res.end(
+        JSON.stringify({
+          answer,
+          sources: ordered.map((m) => ({
+            id: m.id,
+            subject: m.subject,
+            from_name: m.from_name || m.from_address,
+          })),
+        }),
+      )
+    } catch (err) {
+      console.error('POST /api/ask failed:', err)
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Ask failed' }))
+    }
   }
 }
+
+export default createAskHandler()
