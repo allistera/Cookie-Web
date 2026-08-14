@@ -14,6 +14,7 @@ import { useInboxStore } from './inbox'
 const SAVE_DEBOUNCE_MS = 800
 let saveTimer = null
 let pendingSave = null
+let saveInFlight = null
 
 // The Documents workspace (paper-style notes): nested folders plus Editor.js
 // block documents, backed by /api/tasks?resource=documents. The sidebar tree
@@ -344,23 +345,47 @@ export const useDocumentsStore = defineStore('documents', {
         clearTimeout(saveTimer)
         saveTimer = null
       }
-      if (!pendingSave) return
-      const { id, title, blocks, tags } = pendingSave
-      pendingSave = null
-      const body = { id }
-      if (title !== undefined) body.title = title
-      if (blocks !== undefined) body.blocks = blocks
-      if (tags !== undefined) body.tags = tags
-      try {
-        const { document } = await this.request('PATCH', { body })
-        const row = this.documents.find((doc) => doc.id === id)
-        if (row) Object.assign(row, document)
-        if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
-        // Only report "saved" if no newer edit queued while this one flushed.
-        if (!pendingSave) this.saveState = 'saved'
-      } catch (error) {
-        console.error('Failed to save document:', error)
-        this.saveState = 'error'
+
+      // Serialize PATCHes. A slow earlier request must finish before a newer
+      // edit is sent, otherwise the server can commit them out of order.
+      while (saveInFlight || pendingSave) {
+        if (saveInFlight) {
+          await saveInFlight
+          continue
+        }
+
+        const { id, title, blocks, tags } = pendingSave
+        pendingSave = null
+        const body = { id }
+        if (title !== undefined) body.title = title
+        if (blocks !== undefined) body.blocks = blocks
+        if (tags !== undefined) body.tags = tags
+
+        const operation = (async () => {
+          try {
+            const { document } = await this.request('PATCH', { body })
+            const newerSave = pendingSave?.id === id ? pendingSave : null
+            const update = { ...document }
+            // Do not let the response for an older save overwrite optimistic
+            // local values that are already queued in a newer save.
+            if (newerSave?.title !== undefined) delete update.title
+            if (newerSave?.blocks !== undefined) delete update.blocks
+            if (newerSave?.tags !== undefined) delete update.tags
+            const row = this.documents.find((doc) => doc.id === id)
+            if (row) Object.assign(row, update)
+            if (this.openDoc?.id === id) Object.assign(this.openDoc, update)
+            if (!pendingSave) this.saveState = 'saved'
+          } catch (error) {
+            console.error('Failed to save document:', error)
+            this.saveState = 'error'
+          }
+        })()
+        saveInFlight = operation
+        try {
+          await operation
+        } finally {
+          if (saveInFlight === operation) saveInFlight = null
+        }
       }
     },
 

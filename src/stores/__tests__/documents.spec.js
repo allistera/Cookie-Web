@@ -185,6 +185,39 @@ describe('documents store', () => {
     expect(store.saveState).toBe('error')
   })
 
+  it('serializes overlapping saves and keeps the newer local content', async () => {
+    store.documents = structuredClone(DOCS)
+    store.openDoc = { ...structuredClone(DOCS[0]), blocks: [] }
+    let resolveFirst
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    const fetchMock = stubFetch({
+      PATCH: (url, body) =>
+        body.title === 'First'
+          ? firstResponse
+          : ok({ document: { id: body.id, title: body.title, updated_at: 't2' } }),
+    })
+
+    store.scheduleContentSave('d-1', { title: 'First' })
+    const firstFlush = store.flushPendingSave()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    store.scheduleContentSave('d-1', { title: 'Second' })
+    const secondFlush = store.flushPendingSave()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.openDoc.title).toBe('Second')
+
+    resolveFirst(ok({ document: { id: 'd-1', title: 'First', updated_at: 't1' } }))
+    await Promise.all([firstFlush, secondFlush])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).title).toBe('Second')
+    expect(store.documents[0].title).toBe('Second')
+    expect(store.openDoc.title).toBe('Second')
+    expect(store.saveState).toBe('saved')
+  })
+
   it('drops a deleted folder’s documents back to the root locally', async () => {
     store.folders = [
       ...structuredClone(FOLDERS),
