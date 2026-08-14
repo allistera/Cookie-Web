@@ -68,6 +68,10 @@ export class ExcalidrawBlockTool {
           autoFocus: false,
           detectScroll: true,
           handleKeyboardGlobally: false,
+          // Hides the "Text to diagram" / mermaid conversion entry points,
+          // which otherwise pull cytoscape and katex (~1MB+) into a hand
+          // drawing tool that never uses them.
+          aiEnabled: false,
           UIOptions: {
             canvasActions: {
               loadScene: false,
