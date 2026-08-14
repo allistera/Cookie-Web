@@ -1,8 +1,18 @@
 import { test, expect } from '@playwright/test'
 
+// The calendar fixture (api/_fixtures/calendarEvents.js) and CalendarView.vue's
+// "today" both used to be pinned to this date; CalendarView now reads the real
+// clock, so freeze it here instead of drifting the fixture and every date
+// assertion below along with the real calendar. Must run before the first
+// navigation so it's in effect from the page's very first script.
+async function freezeCalendarClock(page) {
+  await page.clock.setFixedTime(new Date(2026, 6, 24, 10, 30))
+}
+
 test('The header app switcher opens the interactive Calendar views and returns to Email', async ({
   page,
 }) => {
+  await freezeCalendarClock(page)
   await page.goto('/')
 
   const trigger = page.getByRole('button', { name: 'Switch Cookie app' })
@@ -89,6 +99,7 @@ test('The header notification count opens the section that raised the first noti
 })
 
 test('Calendar settings manages subscriptions that appear in the Calendar view', async ({ page }) => {
+  await freezeCalendarClock(page)
   await page.goto('/settings/calendar')
 
   await expect(page.getByRole('heading', { name: 'Calendars', exact: true })).toBeVisible()
@@ -123,6 +134,7 @@ test('Calendar settings manages subscriptions that appear in the Calendar view',
 })
 
 test('All-day events stay below the date header and outside the hourly lane', async ({ page }) => {
+  await freezeCalendarClock(page)
   await page.goto('/calendar')
 
   const dateHeader = page.locator('.day-calendar > h2')
@@ -143,6 +155,7 @@ test('All-day events stay below the date header and outside the hourly lane', as
 })
 
 test('Clicking an event opens it prefilled for editing, with a Delete button', async ({ page }) => {
+  await freezeCalendarClock(page)
   await page.goto('/calendar')
   await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')
 
@@ -173,6 +186,7 @@ test('Clicking an event opens it prefilled for editing, with a Delete button', a
 test('Dragging on the day timeline opens New event with the date, start, and end pre-filled', async ({
   page,
 }) => {
+  await freezeCalendarClock(page)
   await page.goto('/calendar')
   await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')
 
@@ -1167,6 +1181,7 @@ test("Command palette opens with '/', filters and navigates to Starred", async (
 })
 
 test("The '/' command palette offers Create Event only on the Calendar route", async ({ page }) => {
+  await freezeCalendarClock(page)
   await page.goto('/inbox')
   await page.keyboard.press('/')
   await expect(page.locator('.cp-panel')).toBeVisible()
