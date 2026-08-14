@@ -47,7 +47,11 @@ function request({ method = 'POST', url = '/api/send', headers = {}, body } = {}
 function sequentialSql(responses) {
   const fn = vi.fn()
   let call = 0
-  fn.mockImplementation(async () => responses[call++] ?? [])
+  fn.mockImplementation(async () => {
+    const response = responses[call++] ?? []
+    if (response instanceof Error) throw response
+    return response
+  })
   fn.begin = async (callback) => callback(fn)
   return fn
 }
@@ -231,8 +235,12 @@ describe('POST /api/send?resource=flush', () => {
     await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
 
     expect(res.statusCode).toBe(200)
-    expect(res.body).toEqual({ claimed: 1, sent: 1, retried: 0, failed: 0 })
+    expect(res.body).toEqual({ claimed: 1, sent: 1, retried: 0, failed: 0, unconfirmed: 0 })
     expect(mocks.resendSend).toHaveBeenCalledTimes(1)
+    expect(mocks.resendSend).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ['recipient@example.com'] }),
+      { idempotencyKey: 'scheduled-send/sched-1' },
+    )
   })
 
   it('leaves a rate-limited row pending for the next flush instead of spending a retry', async () => {
@@ -257,7 +265,7 @@ describe('POST /api/send?resource=flush', () => {
 
     await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
 
-    expect(res.body).toEqual({ claimed: 1, sent: 0, retried: 1, failed: 0 })
+    expect(res.body).toEqual({ claimed: 1, sent: 0, retried: 1, failed: 0, unconfirmed: 0 })
     expect(mocks.resendSend).not.toHaveBeenCalled()
   })
 
@@ -285,10 +293,60 @@ describe('POST /api/send?resource=flush', () => {
 
     await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
 
-    expect(res.body).toEqual({ claimed: 1, sent: 0, retried: 0, failed: 1 })
+    expect(res.body).toEqual({ claimed: 1, sent: 0, retried: 0, failed: 1, unconfirmed: 0 })
     expect(consoleError).toHaveBeenCalledWith(
       'scheduled send sched-1 delivery failed (attempt 5):',
       'bounced',
     )
+  })
+
+  it('keeps a delivered row leased when marking it sent fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const claimedRow = {
+      id: 'sched-1',
+      user_id: 'user-1',
+      toAddresses: 'recipient@example.com',
+      subject: 'Hello',
+      text: 'Plain text',
+      html: null,
+      replyToMessageId: null,
+      attempts: 0,
+    }
+    const sql = sequentialSql([
+      [claimedRow],
+      [{ email: 'owner@example.com' }],
+      [{ authorized: true, quota_claimed: true }],
+      [{ user_id: 'user-1', thread_id: null }],
+      [],
+      [],
+      new Error('database unavailable'),
+    ])
+    mocks.getSql.mockReturnValue(sql)
+    mocks.resendSend.mockResolvedValue({ data: { id: 'resend-9' }, error: null })
+    const res = makeRes()
+
+    await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
+
+    expect(res.body).toEqual({ claimed: 1, sent: 0, retried: 0, failed: 0, unconfirmed: 1 })
+    expect(mocks.resendSend).toHaveBeenCalledTimes(1)
+    expect(consoleError).toHaveBeenCalledWith(
+      'scheduled send sched-1 delivered but could not be marked sent:',
+      'database unavailable',
+    )
+    const queries = sql.mock.calls.map(([parts]) => parts.join(' '))
+    expect(queries.some((query) => query.includes("SET status = 'pending'"))).toBe(false)
+  })
+
+  it('claims expired sending leases as well as newly due rows', async () => {
+    const sql = sequentialSql([[]])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
+
+    const claimQuery = sql.mock.calls[0][0].join(' ')
+    expect(claimQuery).toContain("status = 'sending'")
+    expect(claimQuery).toContain('claimed_at < now()')
+    expect(res.body).toEqual({ claimed: 0, sent: 0, retried: 0, failed: 0, unconfirmed: 0 })
   })
 })

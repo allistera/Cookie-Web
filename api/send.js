@@ -21,6 +21,8 @@ const OUTBOUND_SENDS_PER_MINUTE = 10
 const MIN_SCHEDULE_LEAD_MS = 60_000
 export const MAX_PENDING_SCHEDULED_SENDS = 50
 const FLUSH_BATCH_SIZE = 20
+const FLUSH_CONCURRENCY = 4
+const SCHEDULED_SEND_LEASE_MINUTES = 15
 // After this many failed delivery attempts a scheduled send stops retrying
 // and is surfaced to the user as failed, rather than silently retried on
 // every flush forever.
@@ -159,11 +161,15 @@ async function storeSentMessage(
   { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken },
   services,
 ) {
+  const messageId = resendId ? `<${resendId}@resend.cookie-web>` : null
   const [lookup] = await sql`
     SELECT CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
              (SELECT m.thread_id FROM messages m
               WHERE m.id = ${replyToMessageId ?? null}::uuid AND m.user_id = ${userId})
-           END AS thread_id
+           END AS thread_id,
+           (SELECT m.id FROM messages m
+            WHERE m.user_id = ${userId} AND m.message_id = ${messageId}
+            LIMIT 1) AS existing_message_id
     FROM users u
     WHERE u.id = ${userId}
     LIMIT 1
@@ -175,7 +181,7 @@ async function storeSentMessage(
   const { name: fromName, address: fromAddress } = parseFromEnv(
     process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
   )
-  const messageUuid = crypto.randomUUID()
+  const messageUuid = lookup.existing_message_id ?? crypto.randomUUID()
   const threadUuid = lookup.thread_id ?? crypto.randomUUID()
   const sentAt = new Date().toISOString()
   const recipientsJson = JSON.stringify({
@@ -183,38 +189,38 @@ async function storeSentMessage(
     cc: [],
     bcc: [],
   })
-  const messageId = resendId ? `<${resendId}@resend.cookie-web>` : null
-
-  const statements = []
-  if (!lookup.thread_id) {
-    statements.push((sql) => sql`
-      INSERT INTO threads (id, user_id, subject, last_message_at)
-      VALUES (${threadUuid}, ${userId}, ${subject}, ${sentAt})
-    `)
-  }
-  statements.push((sql) => sql`
-    INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
-                          recipients, subject, snippet, body_text, body_html, sent_at,
-                          message_id, is_unread, is_sent)
-    VALUES (${messageUuid}, ${threadUuid}, ${userId}, ${fromName},
-            ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
-            ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true)
-    ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
-  `)
-  if (lookup.thread_id) {
-    statements.push((sql) => sql`
-      UPDATE threads
-      SET message_count = message_count + 1,
-          last_message_at = GREATEST(last_message_at, ${sentAt}::timestamptz)
-      WHERE id = ${threadUuid}
-        AND EXISTS (SELECT 1 FROM messages WHERE id = ${messageUuid})
-    `)
-  }
-  await sql.begin(async (sql) => {
-    for (const statement of statements) {
-      await statement(sql)
+  if (!lookup.existing_message_id) {
+    const statements = []
+    if (!lookup.thread_id) {
+      statements.push((sql) => sql`
+        INSERT INTO threads (id, user_id, subject, last_message_at)
+        VALUES (${threadUuid}, ${userId}, ${subject}, ${sentAt})
+      `)
     }
-  })
+    statements.push((sql) => sql`
+      INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
+                            recipients, subject, snippet, body_text, body_html, sent_at,
+                            message_id, is_unread, is_sent)
+      VALUES (${messageUuid}, ${threadUuid}, ${userId}, ${fromName},
+              ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
+              ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true)
+      ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
+    `)
+    if (lookup.thread_id) {
+      statements.push((sql) => sql`
+        UPDATE threads
+        SET message_count = message_count + 1,
+            last_message_at = GREATEST(last_message_at, ${sentAt}::timestamptz)
+        WHERE id = ${threadUuid}
+          AND EXISTS (SELECT 1 FROM messages WHERE id = ${messageUuid})
+      `)
+    }
+    await sql.begin(async (sql) => {
+      for (const statement of statements) {
+        await statement(sql)
+      }
+    })
+  }
 
   // Best effort and outside the sent-copy transaction: during a rolling
   // migration, a missing receipt table must not roll back the sent message.
@@ -255,9 +261,14 @@ async function storeSentMessage(
 // Sends immediately through Resend, from the shared inbound handler (a
 // logged-in user's request) and the flush job (a claimed scheduled row)
 // alike. Throws on failure; callers decide how to react.
-async function deliverMail(sql, userId, { recipients, subject, text, html, replyToMessageId }, services) {
-  const readReceiptToken = crypto.randomUUID()
-  const receiptUrl = buildReadReceiptUrl(readReceiptToken)
+async function deliverMail(
+  sql,
+  userId,
+  { recipients, subject, text, html, replyToMessageId, idempotencyKey, readReceiptToken },
+  services,
+) {
+  const receiptToken = readReceiptToken ?? crypto.randomUUID()
+  const receiptUrl = buildReadReceiptUrl(receiptToken)
   const trackedHtml = appendReadReceipt(html, text, receiptUrl)
 
   const resend = services.createResend(process.env.RESEND_API_KEY)
@@ -268,7 +279,9 @@ async function deliverMail(sql, userId, { recipients, subject, text, html, reply
     text,
   }
   if (trackedHtml) payload.html = trackedHtml
-  const { data, error } = await resend.emails.send(payload)
+  const { data, error } = idempotencyKey
+    ? await resend.emails.send(payload, { idempotencyKey })
+    : await resend.emails.send(payload)
   if (error) throw new Error(error.message || 'Failed to send email')
 
   let messageUuid = null
@@ -283,7 +296,7 @@ async function deliverMail(sql, userId, { recipients, subject, text, html, reply
         html,
         replyToMessageId,
         resendId: data.id,
-        readReceiptToken: receiptUrl ? readReceiptToken : null,
+        readReceiptToken: receiptUrl ? receiptToken : null,
       },
       services,
     ))
@@ -349,10 +362,12 @@ async function cancelScheduledSend(sql, userId, id) {
 async function claimDueScheduledSends(sql, limit) {
   return sql`
     UPDATE scheduled_sends s
-    SET status = 'sending'
+    SET status = 'sending', claimed_at = now()
     FROM (
       SELECT id FROM scheduled_sends
-      WHERE status = 'pending' AND scheduled_for <= now()
+      WHERE (status = 'pending' AND scheduled_for <= now())
+         OR (status = 'sending'
+             AND claimed_at < now() - make_interval(mins => ${SCHEDULED_SEND_LEASE_MINUTES}))
       ORDER BY scheduled_for
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
@@ -368,7 +383,7 @@ async function markScheduledSendFailed(sql, id, error, attempts = null) {
   await sql`
     UPDATE scheduled_sends
     SET status = 'failed', last_error = ${error},
-        attempts = COALESCE(${attempts}, attempts)
+        attempts = COALESCE(${attempts}, attempts), claimed_at = NULL
     WHERE id = ${id}
   `
 }
@@ -390,13 +405,14 @@ async function deliverScheduledSend(sql, row, services) {
   if (!quota.quota_claimed) {
     // Rate-limited, not the message's fault — leave it pending for the next
     // flush instead of spending a retry attempt.
-    await sql`UPDATE scheduled_sends SET status = 'pending' WHERE id = ${row.id}`
+    await sql`UPDATE scheduled_sends SET status = 'pending', claimed_at = NULL WHERE id = ${row.id}`
     return 'retried'
   }
 
   const recipients = parseRecipients(row.toAddresses)
+  let delivered
   try {
-    const { messageUuid } = await deliverMail(
+    delivered = await deliverMail(
       sql,
       row.user_id,
       {
@@ -405,15 +421,13 @@ async function deliverScheduledSend(sql, row, services) {
         text: row.text,
         html: row.html,
         replyToMessageId: row.replyToMessageId,
+        idempotencyKey: `scheduled-send/${row.id}`,
+        // The receipt URL is part of the provider payload, so it must remain
+        // stable when an expired lease retries with the same idempotency key.
+        readReceiptToken: row.id,
       },
       services,
     )
-    await sql`
-      UPDATE scheduled_sends
-      SET status = 'sent', sent_at = now(), sent_message_id = ${messageUuid}
-      WHERE id = ${row.id}
-    `
-    return 'sent'
   } catch (err) {
     const attempts = row.attempts + 1
     console.error(`scheduled send ${row.id} delivery failed (attempt ${attempts}):`, err.message)
@@ -423,11 +437,41 @@ async function deliverScheduledSend(sql, row, services) {
     }
     await sql`
       UPDATE scheduled_sends
-      SET status = 'pending', attempts = ${attempts}, last_error = ${err.message}
+      SET status = 'pending', attempts = ${attempts}, last_error = ${err.message}, claimed_at = NULL
       WHERE id = ${row.id}
     `
     return 'retried'
   }
+
+  try {
+    await sql`
+      UPDATE scheduled_sends
+      SET status = 'sent', sent_at = now(), sent_message_id = ${delivered.messageUuid},
+          claimed_at = NULL, last_error = NULL
+      WHERE id = ${row.id}
+    `
+    return 'sent'
+  } catch (err) {
+    // Delivery is irreversible and succeeded. Leave the row leased as
+    // `sending`: a later flush can safely reclaim it because the provider call
+    // uses the stable scheduled-send idempotency key.
+    console.error(`scheduled send ${row.id} delivered but could not be marked sent:`, err.message)
+    return 'unconfirmed'
+  }
+}
+
+async function mapWithConcurrency(items, concurrency, operation) {
+  const results = Array.from({ length: items.length })
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await operation(items[index])
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 // GET/DELETE /api/send?resource=scheduled — list or cancel the authenticated
@@ -520,10 +564,11 @@ async function handleFlush(req, res, services) {
   try {
     const sql = services.getSql()
     const claimed = await claimDueScheduledSends(sql, FLUSH_BATCH_SIZE)
-    const results = []
-    for (const row of claimed) {
-      results.push(await deliverScheduledSend(sql, row, services))
-    }
+    const results = await mapWithConcurrency(
+      claimed,
+      FLUSH_CONCURRENCY,
+      (row) => deliverScheduledSend(sql, row, services),
+    )
     await sweepResolvedState(sql)
     res.statusCode = 200
     res.end(JSON.stringify({
@@ -531,6 +576,7 @@ async function handleFlush(req, res, services) {
       sent: results.filter((result) => result === 'sent').length,
       retried: results.filter((result) => result === 'retried').length,
       failed: results.filter((result) => result === 'failed').length,
+      unconfirmed: results.filter((result) => result === 'unconfirmed').length,
     }))
   } catch (err) {
     console.error('POST /api/send?resource=flush failed:', err)
