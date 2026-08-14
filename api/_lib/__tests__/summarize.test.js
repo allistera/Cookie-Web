@@ -46,13 +46,13 @@ describe('thread summarization', () => {
 
     fetchThreadMessages(
       sql,
-      'owner@example.com',
+      '22222222-2222-2222-2222-222222222222',
       '11111111-1111-1111-1111-111111111111',
     )
 
     expect(query).toContain('tm.thread_id = selected.thread_id')
     expect(query).toContain('tm.user_id = selected.user_id')
-    expect(query).toContain('lower(u.email) =')
+    expect(query).toContain('selected.user_id =')
     expect(query).toContain("left(coalesce(tm.body_text, ''),")
     expect(query).toContain('ORDER BY tm.sent_at DESC, tm.id DESC')
     expect(query).toContain('LIMIT')

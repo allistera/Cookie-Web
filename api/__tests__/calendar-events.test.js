@@ -22,6 +22,8 @@ describe('buildRecurrenceRule', () => {
   })
 })
 
+const USER_ID = '99999999-9999-9999-9999-999999999999'
+
 describe('fetchEvents', () => {
   it('normalizes legacy calendar slugs to owned calendar ids', async () => {
     let query = ''
@@ -32,13 +34,12 @@ describe('fetchEvents', () => {
       return []
     }
 
-    await fetchEvents(sql, 'owner@example.com')
+    await fetchEvents(sql, USER_ID)
 
     expect(query).toContain('FROM calendar_events ce')
-    expect(query).toContain('JOIN users u ON u.id = ce.user_id')
     expect(query).toContain('LEFT JOIN calendars c')
     expect(query).toContain('COALESCE(c.id::text, ce.calendar::text) AS calendar')
-    expect(query).toContain('WHERE lower(u.email) =')
+    expect(query).toContain('WHERE ce.user_id =')
     expect(query).toContain('ce.event_date AS date')
     expect(query).toContain('ce.start_time AS start')
     expect(query).toContain('ce.duration_minutes AS duration')
@@ -47,7 +48,7 @@ describe('fetchEvents', () => {
     expect(query).toContain('ce.is_auto_scheduled AS "autoScheduled"')
     expect(query).toContain('ORDER BY ce.event_date, ce.start_time')
     // No range binds the full date domain — the return-everything contract.
-    expect(values).toEqual(['owner@example.com', '0001-01-01', '9999-12-31'])
+    expect(values).toEqual([USER_ID, '0001-01-01', '9999-12-31'])
   })
 
   it('windows non-recurring rows by event_date but keeps recurring masters', async () => {
@@ -59,11 +60,11 @@ describe('fetchEvents', () => {
       return []
     }
 
-    await fetchEvents(sql, 'owner@example.com', { from: '2026-08-01', to: '2026-09-30' })
+    await fetchEvents(sql, USER_ID, { from: '2026-08-01', to: '2026-09-30' })
 
     expect(query).toContain('ce.recurrence_rule IS NOT NULL')
     expect(query).toContain('OR ce.event_date BETWEEN')
-    expect(values).toEqual(['owner@example.com', '2026-08-01', '2026-09-30'])
+    expect(values).toEqual([USER_ID, '2026-08-01', '2026-09-30'])
   })
 
   it('falls back to legacy event reads before the expand migration', async () => {
@@ -76,7 +77,7 @@ describe('fetchEvents', () => {
       return []
     }
 
-    await fetchEvents(sql, 'owner@example.com')
+    await fetchEvents(sql, USER_ID)
 
     expect(queries).toHaveLength(2)
     expect(queries[1]).not.toContain('JOIN calendars')
@@ -93,7 +94,7 @@ describe('fetchEvents', () => {
       return []
     }
 
-    await fetchEvents(sql, 'owner@example.com')
+    await fetchEvents(sql, USER_ID)
 
     expect(queries).toHaveLength(2)
     expect(queries[1]).toContain('LEFT JOIN calendars')

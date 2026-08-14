@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createHandler, fetchEmails, fetchUnreadCount } from '../emails.js'
 
+const USER_ID = '11111111-1111-4111-8111-111111111111'
 const rows = []
 
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   // Both queries resolve through the same stub; the handler only cares that
   // fetchEmails returns an array of rows.
   getSql: () => () => Promise.resolve(rows),
@@ -35,11 +36,11 @@ describe('GET /api/emails handler', () => {
     await handler({ method: 'GET', url: '/api/emails?limit=50', headers: {} }, res)
 
     expect(res.statusCode).toBe(200)
-    expect(res.body).toMatchObject({ emails: [], nextCursor: null, unreadCount: 0, userId: null })
+    expect(res.body).toMatchObject({ emails: [], nextCursor: null, unreadCount: 0, userId: USER_ID })
   })
 
   it('returns lightweight inbox state without a message list', async () => {
-    rows.push({ user_id: '11111111-1111-4111-8111-111111111111', unread: 7 })
+    rows.push({ unread: 7 })
     const res = makeRes()
 
     await handler({ method: 'GET', url: '/api/emails?resource=state', headers: {} }, res)
@@ -47,7 +48,7 @@ describe('GET /api/emails handler', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body).toEqual({
       unreadCount: 7,
-      userId: '11111111-1111-4111-8111-111111111111',
+      userId: USER_ID,
     })
     expect(res.body).not.toHaveProperty('emails')
   })
@@ -74,29 +75,27 @@ describe('fetchEmails', () => {
       return []
     }
 
-    fetchEmails(sql, 'owner@example.com', 50, null, 'inbox')
+    fetchEmails(sql, USER_ID, 50, null, 'inbox')
 
     expect(query).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments')
+    expect(query).toContain('WHERE m.user_id = ?')
     expect(query).not.toContain('body_text')
   })
 })
 
 describe('fetchUnreadCount', () => {
-  it('keeps message predicates in the JOIN so the user row survives and the partial unread index applies', () => {
+  it('keeps is_unread in the WHERE so the partial unread index applies', () => {
     let query = ''
     const sql = (strings) => {
       query = strings.join('?')
       return []
     }
 
-    fetchUnreadCount(sql, 'owner@example.com')
+    fetchUnreadCount(sql, USER_ID)
 
-    // is_unread must be a join predicate (messages_unread_idx is partial on
-    // it), not part of the aggregate FILTER, which would join every message.
-    expect(query).toContain('ON m.user_id = u.id AND m.is_unread')
+    // messages_unread_idx is a partial index ON messages (user_id) WHERE
+    // is_unread — this predicate shape matches it directly.
+    expect(query).toContain('WHERE m.user_id = ? AND m.is_unread')
     expect(query).toMatch(/FILTER \(\s*WHERE COALESCE\(ai\.spam_verdict, 'inbox'\) <> 'spam'\s*\)/)
-    // No message predicate may leak into the WHERE — that would drop the
-    // user's own row (and their userId) when no message matches.
-    expect(query).toMatch(/WHERE lower\(u\.email\) =\s*$|WHERE lower\(u\.email\) = \?/)
   })
 })

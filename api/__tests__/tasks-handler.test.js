@@ -18,7 +18,8 @@ function getSql() {
   return fn
 }
 
-const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
+const USER_ID = '99999999-9999-9999-9999-999999999999'
+const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID }))
 
 const handler = createHandler({
   verifyAccessToken,
@@ -67,7 +68,7 @@ describe('GET /api/tasks', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body.tasks).toHaveLength(1)
-    expect(statements[0]).toContain('lower(u.email) = ?')
+    expect(statements[0]).toContain('t.user_id = ?')
   })
 
   it('returns a null digest and news when the enricher has not written them', async () => {

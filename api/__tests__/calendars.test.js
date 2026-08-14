@@ -17,8 +17,10 @@ function makeSql() {
   return run
 }
 
+const USER_ID = '99999999-9999-9999-9999-999999999999'
+
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: () => makeSql(),
 })
 
@@ -61,13 +63,12 @@ describe('fetchCalendars', () => {
       return []
     }
 
-    fetchCalendars(sql, 'owner@example.com')
+    fetchCalendars(sql, USER_ID)
 
     expect(query).toContain('FROM calendars c')
-    expect(query).toContain('JOIN users u ON u.id = c.user_id')
-    expect(query).toContain('WHERE lower(u.email) =')
+    expect(query).toContain('WHERE c.user_id =')
     expect(query).toContain('ORDER BY c.created_at, c.id')
-    expect(values).toEqual(['owner@example.com'])
+    expect(values).toEqual([USER_ID])
   })
 })
 

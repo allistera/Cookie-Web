@@ -7,14 +7,13 @@ const COLOR_RE = /^#[0-9a-f]{6}$/i
 const MAX_NAME = 50
 const MAX_DESCRIPTION = 200
 
-async function listLabels(sql, email, res) {
+async function listLabels(sql, userId, res) {
   const labels = await sql`
     SELECT l.id, l.name, l.color, l.kind, l.description, l.auto_apply,
            count(ml.message_id)::int AS message_count
     FROM labels l
-    JOIN users u ON u.id = l.user_id
     LEFT JOIN message_labels ml ON ml.label_id = l.id
-    WHERE lower(u.email) = ${email}
+    WHERE l.user_id = ${userId}
     GROUP BY l.id
     ORDER BY l.name
   `
@@ -22,7 +21,7 @@ async function listLabels(sql, email, res) {
   res.end(JSON.stringify({ labels }))
 }
 
-async function createLabel(sql, email, body, res) {
+async function createLabel(sql, userId, body, res) {
   const name = String(body.name ?? '').trim()
   const color = String(body.color ?? '').trim()
   const description = String(body.description ?? '').trim() || null
@@ -38,15 +37,11 @@ async function createLabel(sql, email, body, res) {
 
   const [label] = await sql`
     INSERT INTO labels (user_id, name, color, description)
-    SELECT u.id, ${name}, ${color}, ${description}
-    FROM users u
-    WHERE lower(u.email) = ${email}
+    VALUES (${userId}, ${name}, ${color}, ${description})
     ON CONFLICT (user_id, name) DO NOTHING
     RETURNING id, name, color, kind, description, auto_apply, 0 AS message_count
   `
   if (!label) {
-    // Either the name already exists or (rare) no users row: the unique
-    // conflict is the overwhelmingly common case.
     res.statusCode = 409
     res.end(JSON.stringify({ error: 'A label with that name already exists' }))
     return
@@ -55,7 +50,7 @@ async function createLabel(sql, email, body, res) {
   res.end(JSON.stringify({ label }))
 }
 
-async function updateLabel(sql, email, body, res) {
+async function updateLabel(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   const hasName = Object.hasOwn(body, 'name')
   const hasAutoApply = Object.hasOwn(body, 'auto_apply')
@@ -78,8 +73,7 @@ async function updateLabel(sql, email, body, res) {
       UPDATE labels l
       SET name = COALESCE(${hasName ? name : null}, l.name),
           auto_apply = COALESCE(${hasAutoApply ? body.auto_apply : null}::boolean, l.auto_apply)
-      FROM users u
-      WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+      WHERE l.id = ${id} AND l.user_id = ${userId}
         AND l.kind = 'user'
       RETURNING l.id, l.name, l.color, l.kind, l.description, l.auto_apply
     `
@@ -101,7 +95,7 @@ async function updateLabel(sql, email, body, res) {
   res.end(JSON.stringify({ label }))
 }
 
-async function deleteLabel(sql, email, body, res) {
+async function deleteLabel(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
@@ -110,8 +104,7 @@ async function deleteLabel(sql, email, body, res) {
   }
   const rows = await sql`
     DELETE FROM labels l
-    USING users u
-    WHERE l.id = ${id} AND l.user_id = u.id AND lower(u.email) = ${email}
+    WHERE l.id = ${id} AND l.user_id = ${userId}
       AND l.kind = 'user'
     RETURNING l.id
   `
@@ -143,9 +136,9 @@ export function createHandler(overrides = {}) {
 
     res.setHeader('Content-Type', 'application/json')
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -155,7 +148,7 @@ export function createHandler(overrides = {}) {
     try {
       const sql = services.getSql()
       if (req.method === 'GET') {
-        await listLabels(sql, email, res)
+        await listLabels(sql, userId, res)
         return
       }
       if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
@@ -167,9 +160,9 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST') await createLabel(sql, email, body, res)
-        else if (req.method === 'PATCH') await updateLabel(sql, email, body, res)
-        else await deleteLabel(sql, email, body, res)
+        if (req.method === 'POST') await createLabel(sql, userId, body, res)
+        else if (req.method === 'PATCH') await updateLabel(sql, userId, body, res)
+        else await deleteLabel(sql, userId, body, res)
         return
       }
       res.statusCode = 405

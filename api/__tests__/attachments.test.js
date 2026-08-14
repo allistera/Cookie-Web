@@ -13,9 +13,10 @@ const presignUrl = vi.fn(async () => ({
 const getDownloadUrl = vi.fn((url) => `${url}&download=1`)
 
 let sqlRows = []
+const USER_ID = '99999999-9999-4999-8999-999999999999'
 
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: () => () => Promise.resolve(sqlRows),
   issueSignedToken,
   presignUrl,

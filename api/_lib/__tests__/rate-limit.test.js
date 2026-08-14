@@ -15,14 +15,14 @@ describe('allowRequest', () => {
     const sql = sqlReturning({ allowed: true })
 
     await expect(
-      allowRequest(sql, 'owner@example.com', 'ai', { limit: 10, windowMs: 60_000 }),
+      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', { limit: 10, windowMs: 60_000 }),
     ).resolves.toBe(true)
 
     expect(sqlReturning.query).toContain('INSERT INTO api_rate_limits')
     expect(sqlReturning.query).toContain('ON CONFLICT (user_id, scope) DO UPDATE')
     expect(sqlReturning.query).toContain('api_rate_limits.request_count <')
     expect(sqlReturning.values).toEqual([
-      'owner@example.com',
+      '11111111-1111-4111-8111-111111111111',
       'ai',
       60_000,
       60_000,
@@ -35,7 +35,7 @@ describe('allowRequest', () => {
     const sql = sqlReturning({ allowed: false })
 
     await expect(
-      allowRequest(sql, 'owner@example.com', 'ai', { limit: 10, windowMs: 60_000 }),
+      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', { limit: 10, windowMs: 60_000 }),
     ).resolves.toBe(false)
   })
 
@@ -43,7 +43,7 @@ describe('allowRequest', () => {
     const sql = vi.fn()
 
     await expect(
-      allowRequest(sql, 'owner@example.com', 'ai', { limit: 0, windowMs: 60_000 }),
+      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', { limit: 0, windowMs: 60_000 }),
     ).rejects.toThrow(/invalid rate-limit policy/i)
     expect(sql).not.toHaveBeenCalled()
   })

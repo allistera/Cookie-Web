@@ -24,12 +24,11 @@ export function recordReadReceipt(sql, token) {
   `
 }
 
-export function fetchOwnedReadReceipts(sql, email, messageIds) {
+export function fetchOwnedReadReceipts(sql, userId, messageIds) {
   return sql`
     SELECT r.message_id, r.first_opened_at, r.last_opened_at, r.open_count
     FROM message_read_receipts r
-    JOIN users u ON u.id = r.user_id
-    WHERE lower(u.email) = ${email}
+    WHERE r.user_id = ${userId}
       AND r.message_id = ANY(${messageIds}::uuid[])
   `
 }
@@ -69,9 +68,9 @@ export default async function handler(req, res) {
   }
 
   res.setHeader('Content-Type', 'application/json')
-  let email
+  let userId
   try {
-    ;({ email } = await verifyAccessToken(req))
+    ;({ userId } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -90,7 +89,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const receipts = await fetchOwnedReadReceipts(getSql(), email, rawIds)
+    const receipts = await fetchOwnedReadReceipts(getSql(), userId, rawIds)
     res.statusCode = 200
     res.end(JSON.stringify({ receipts }))
   } catch (err) {

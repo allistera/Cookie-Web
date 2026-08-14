@@ -35,71 +35,65 @@ export function normalizeBlocks(input) {
   return input
 }
 
-export function fetchWorkspace(sql, email) {
+export function fetchWorkspace(sql, userId) {
   return Promise.all([
     sql`
       SELECT f.id, f.parent_id, f.title, f.emoji, f.created_at
       FROM document_folders f
-      JOIN users u ON u.id = f.user_id
-      WHERE lower(u.email) = ${email}
+      WHERE f.user_id = ${userId}
       ORDER BY f.title ASC, f.created_at ASC
     `,
     sql`
       SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
       FROM documents d
-      JOIN users u ON u.id = d.user_id
-      WHERE lower(u.email) = ${email}
+      WHERE d.user_id = ${userId}
       ORDER BY d.updated_at DESC
     `,
   ])
 }
 
-export function fetchDocument(sql, email, id) {
+export function fetchDocument(sql, userId, id) {
   return sql`
     SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.blocks,
            d.created_at, d.updated_at
     FROM documents d
-    JOIN users u ON u.id = d.user_id
-    WHERE d.id = ${id} AND lower(u.email) = ${email}
+    WHERE d.id = ${id} AND d.user_id = ${userId}
   `
 }
 
-export function fetchTemplates(sql, email) {
+export function fetchTemplates(sql, userId) {
   return sql`
     SELECT t.id, t.title, t.emoji, t.created_at, t.updated_at
     FROM document_templates t
-    JOIN users u ON u.id = t.user_id
-    WHERE lower(u.email) = ${email}
+    WHERE t.user_id = ${userId}
     ORDER BY t.updated_at DESC
   `
 }
 
-export function fetchTemplate(sql, email, id) {
+export function fetchTemplate(sql, userId, id) {
   return sql`
     SELECT t.id, t.title, t.emoji, t.blocks, t.created_at, t.updated_at
     FROM document_templates t
-    JOIN users u ON u.id = t.user_id
-    WHERE t.id = ${id} AND lower(u.email) = ${email}
+    WHERE t.id = ${id} AND t.user_id = ${userId}
   `
 }
 
-function fetchUserId(sql, email) {
-  return sql`SELECT id FROM users WHERE lower(email) = ${email}`
+function userExists(sql, userId) {
+  return sql`SELECT 1 FROM users WHERE id = ${userId}`
 }
 
 // The caller's own folder, used to validate parent/target folder references
 // before writing them — a folder id belonging to another user must behave
 // exactly like one that does not exist.
-function fetchOwnedFolder(sql, email, id) {
+function fetchOwnedFolder(sql, userId, id) {
   return sql`
     SELECT f.id
     FROM document_folders f
-    JOIN users u ON u.id = f.user_id
-    WHERE f.id = ${id} AND lower(u.email) = ${email}
+    WHERE f.id = ${id} AND f.user_id = ${userId}
   `
 }
 
-async function handleGet(req, res, email, sql) {
+async function handleGet(req, res, userId, sql) {
   const searchParams = new URL(req.url, 'http://localhost').searchParams
   const templateId = searchParams.get('templateId')
   if (templateId) {
@@ -108,7 +102,7 @@ async function handleGet(req, res, email, sql) {
       res.end(JSON.stringify({ error: 'A valid template id is required' }))
       return
     }
-    const [template] = await fetchTemplate(sql, email, templateId)
+    const [template] = await fetchTemplate(sql, userId, templateId)
     if (!template) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Template not found' }))
@@ -120,7 +114,7 @@ async function handleGet(req, res, email, sql) {
   }
 
   if (searchParams.has('templates')) {
-    const templates = await fetchTemplates(sql, email)
+    const templates = await fetchTemplates(sql, userId)
     res.statusCode = 200
     res.end(JSON.stringify({ templates }))
     return
@@ -133,7 +127,7 @@ async function handleGet(req, res, email, sql) {
       res.end(JSON.stringify({ error: 'A valid document id is required' }))
       return
     }
-    const [document] = await fetchDocument(sql, email, id)
+    const [document] = await fetchDocument(sql, userId, id)
     if (!document) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Document not found' }))
@@ -144,13 +138,13 @@ async function handleGet(req, res, email, sql) {
     return
   }
 
-  const [folders, documents] = await fetchWorkspace(sql, email)
+  const [folders, documents] = await fetchWorkspace(sql, userId)
   res.statusCode = 200
   res.end(JSON.stringify({ folders, documents }))
 }
 
-async function handlePost(res, body, email, sql) {
-  const [user] = await fetchUserId(sql, email)
+async function handlePost(res, body, userId, sql) {
+  const [user] = await userExists(sql, userId)
   if (!user) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'User not found' }))
@@ -166,7 +160,7 @@ async function handlePost(res, body, email, sql) {
     }
     const parentId = body.parentId ?? null
     if (parentId !== null) {
-      if (!isUuid(parentId) || !(await fetchOwnedFolder(sql, email, parentId)).length) {
+      if (!isUuid(parentId) || !(await fetchOwnedFolder(sql, userId, parentId)).length) {
         res.statusCode = 400
         res.end(JSON.stringify({ error: 'parentId must be one of your folders' }))
         return
@@ -175,7 +169,7 @@ async function handlePost(res, body, email, sql) {
     const emoji = cleanText(body.emoji, MAX_EMOJI_LENGTH) || '📁'
     const [folder] = await sql`
       INSERT INTO document_folders (user_id, parent_id, title, emoji)
-      VALUES (${user.id}, ${parentId}, ${title}, ${emoji})
+      VALUES (${userId}, ${parentId}, ${title}, ${emoji})
       RETURNING id, parent_id, title, emoji, created_at
     `
     res.statusCode = 201
@@ -194,7 +188,7 @@ async function handlePost(res, body, email, sql) {
     const emoji = cleanText(body.emoji, MAX_EMOJI_LENGTH) || '📄'
     const [template] = await sql`
       INSERT INTO document_templates (user_id, title, emoji, blocks)
-      VALUES (${user.id}, ${title}, ${emoji}, ${sql.json(blocks)})
+      VALUES (${userId}, ${title}, ${emoji}, ${sql.json(blocks)})
       RETURNING id, title, emoji, blocks, created_at, updated_at
     `
     res.statusCode = 201
@@ -205,7 +199,7 @@ async function handlePost(res, body, email, sql) {
   if (body.kind === 'document') {
     const folderId = body.folderId ?? null
     if (folderId !== null) {
-      if (!isUuid(folderId) || !(await fetchOwnedFolder(sql, email, folderId)).length) {
+      if (!isUuid(folderId) || !(await fetchOwnedFolder(sql, userId, folderId)).length) {
         res.statusCode = 400
         res.end(JSON.stringify({ error: 'folderId must be one of your folders' }))
         return
@@ -218,7 +212,7 @@ async function handlePost(res, body, email, sql) {
         res.end(JSON.stringify({ error: 'templateId must be one of your templates' }))
         return
       }
-      ;[template] = await fetchTemplate(sql, email, body.templateId)
+      ;[template] = await fetchTemplate(sql, userId, body.templateId)
       if (!template) {
         res.statusCode = 400
         res.end(JSON.stringify({ error: 'templateId must be one of your templates' }))
@@ -230,7 +224,7 @@ async function handlePost(res, body, email, sql) {
     const blocks = template?.blocks ?? []
     const [document] = await sql`
       INSERT INTO documents (user_id, folder_id, title, emoji, blocks)
-      VALUES (${user.id}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)})
+      VALUES (${userId}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)})
       RETURNING id, folder_id, title, emoji, starred, tags, blocks, created_at, updated_at
     `
     res.statusCode = 201
@@ -242,7 +236,7 @@ async function handlePost(res, body, email, sql) {
   res.end(JSON.stringify({ error: "kind must be 'folder', 'document', or 'template'" }))
 }
 
-async function handlePatch(res, body, email, sql) {
+async function handlePatch(res, body, userId, sql) {
   if (!isUuid(body.id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid id is required' }))
@@ -259,8 +253,7 @@ async function handlePatch(res, body, email, sql) {
     const [folder] = await sql`
       UPDATE document_folders f
       SET title = ${title}
-      FROM users u
-      WHERE f.id = ${body.id} AND f.user_id = u.id AND lower(u.email) = ${email}
+      WHERE f.id = ${body.id} AND f.user_id = ${userId}
       RETURNING f.id, f.parent_id, f.title, f.emoji, f.created_at
     `
     if (!folder) {
@@ -284,8 +277,7 @@ async function handlePatch(res, body, email, sql) {
     const [template] = await sql`
       UPDATE document_templates t
       SET title = ${title}, blocks = ${sql.json(blocks)}, updated_at = now()
-      FROM users u
-      WHERE t.id = ${body.id} AND t.user_id = u.id AND lower(u.email) = ${email}
+      WHERE t.id = ${body.id} AND t.user_id = ${userId}
       RETURNING t.id, t.title, t.emoji, t.blocks, t.created_at, t.updated_at
     `
     if (!template) {
@@ -329,7 +321,7 @@ async function handlePatch(res, body, email, sql) {
   }
   if (Object.hasOwn(body, 'folderId')) {
     if (body.folderId !== null) {
-      if (!isUuid(body.folderId) || !(await fetchOwnedFolder(sql, email, body.folderId)).length) {
+      if (!isUuid(body.folderId) || !(await fetchOwnedFolder(sql, userId, body.folderId)).length) {
         res.statusCode = 400
         res.end(JSON.stringify({ error: 'folderId must be one of your folders' }))
         return
@@ -366,8 +358,7 @@ async function handlePatch(res, body, email, sql) {
   const [document] = await sql`
     UPDATE documents d
     SET ${sql(updates)}, updated_at = now()
-    FROM users u
-    WHERE d.id = ${body.id} AND d.user_id = u.id AND lower(u.email) = ${email}
+    WHERE d.id = ${body.id} AND d.user_id = ${userId}
     RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
   `
   if (!document) {
@@ -379,7 +370,7 @@ async function handlePatch(res, body, email, sql) {
   res.end(JSON.stringify({ document }))
 }
 
-async function handleDelete(res, body, email, sql) {
+async function handleDelete(res, body, userId, sql) {
   if (!isUuid(body.id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid id is required' }))
@@ -392,21 +383,18 @@ async function handleDelete(res, body, email, sql) {
     body.kind === 'folder'
       ? await sql`
           DELETE FROM document_folders f
-          USING users u
-          WHERE f.id = ${body.id} AND f.user_id = u.id AND lower(u.email) = ${email}
+          WHERE f.id = ${body.id} AND f.user_id = ${userId}
           RETURNING f.id
         `
       : body.kind === 'template'
         ? await sql`
           DELETE FROM document_templates t
-          USING users u
-          WHERE t.id = ${body.id} AND t.user_id = u.id AND lower(u.email) = ${email}
+          WHERE t.id = ${body.id} AND t.user_id = ${userId}
           RETURNING t.id
         `
         : await sql`
           DELETE FROM documents d
-          USING users u
-          WHERE d.id = ${body.id} AND d.user_id = u.id AND lower(u.email) = ${email}
+          WHERE d.id = ${body.id} AND d.user_id = ${userId}
           RETURNING d.id
         `
   if (!result.length) {
@@ -425,12 +413,12 @@ async function handleDelete(res, body, email, sql) {
 // POST { kind: 'folder'|'document'|'template', ... } — create
 // PATCH { id, ... } / { kind:'folder', id, title } — update
 // DELETE { kind, id }                      — delete
-export async function handleDocuments(req, res, email, services = createServices()) {
+export async function handleDocuments(req, res, userId, services = createServices()) {
   const sql = services.getSql()
   const route = `${req.method} /api/tasks?resource=documents`
   try {
     if (req.method === 'GET') {
-      return await handleGet(req, res, email, sql)
+      return await handleGet(req, res, userId, sql)
     }
 
     if (req.method !== 'POST' && req.method !== 'PATCH' && req.method !== 'DELETE') {
@@ -448,9 +436,9 @@ export async function handleDocuments(req, res, email, services = createServices
       return
     }
 
-    if (req.method === 'POST') return await handlePost(res, body, email, sql)
-    if (req.method === 'PATCH') return await handlePatch(res, body, email, sql)
-    return await handleDelete(res, body, email, sql)
+    if (req.method === 'POST') return await handlePost(res, body, userId, sql)
+    if (req.method === 'PATCH') return await handlePatch(res, body, userId, sql)
+    return await handleDelete(res, body, userId, sql)
   } catch (err) {
     console.error(`${route} failed:`, err)
     res.statusCode = 500

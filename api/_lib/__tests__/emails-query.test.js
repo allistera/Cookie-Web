@@ -21,7 +21,7 @@ describe('fetchEmails', () => {
   ])('groups joined AI fields for the %s query', (_name, cursor) => {
     const capture = captureQuery()
 
-    fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'inbox')
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'inbox')
 
     expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
     expect(capture.query()).toContain('ai.summary')
@@ -33,7 +33,7 @@ describe('fetchEmails', () => {
   it('normalizes double-encoded recipients to a jsonb object, like the contacts view does', () => {
     const capture = captureQuery()
 
-    fetchEmails(capture.sql, 'owner@example.com', 50, null, 'inbox')
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, null, 'inbox')
 
     expect(capture.query()).toContain("jsonb_typeof(m.recipients) = 'string'")
     expect(capture.query()).toContain("(m.recipients #>> '{}')::jsonb")
@@ -43,7 +43,7 @@ describe('fetchEmails', () => {
   it('does not transfer message bodies in list rows', () => {
     const capture = captureQuery()
 
-    fetchEmails(capture.sql, 'owner@example.com', 50, null, 'inbox')
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, null, 'inbox')
 
     expect(capture.query()).not.toContain('body_text')
   })
@@ -53,7 +53,7 @@ describe('fetchEmails', () => {
     (cursor) => {
       const capture = captureQuery()
 
-      fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'snoozed')
+      fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'snoozed')
 
       expect(capture.query()).toContain("? = 'snoozed'")
       expect(capture.query()).toContain('m.scheduled_for > now()')
@@ -70,7 +70,7 @@ describe('fetchEmails', () => {
   ])('selects archived messages for the Done %s query', (_name, cursor) => {
     const capture = captureQuery()
 
-    fetchEmails(capture.sql, 'owner@example.com', 50, cursor, 'done')
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'done')
 
     expect(capture.query()).toContain("? = 'done' AND m.is_archived")
     expect(capture.query()).toContain('OR (NOT m.is_archived AND (')
@@ -79,24 +79,22 @@ describe('fetchEmails', () => {
 })
 
 describe('fetchUnreadCount', () => {
-  // As a WHERE predicate the spam test drops the joined message rows *and*,
-  // when every candidate message is spam, the user's own row along with them —
-  // leaving the handler to report userId: null, so the client never subscribes
-  // to its Realtime inbox channel. It has to live in the aggregate's FILTER.
-  // is_unread, by contrast, belongs in the JOIN's ON: there the join touches
-  // only unread rows (matching the partial index messages_unread_idx) while
-  // the user row still survives via the LEFT JOIN.
+  // A bare aggregate (no GROUP BY) always returns exactly one row even when
+  // zero messages match, so unlike the old users-anchored LEFT JOIN version,
+  // this can scope directly off messages by the already-known userId and
+  // still guarantee a row. is_unread stays in the WHERE, matching the
+  // partial index messages_unread_idx; spam exclusion stays in the FILTER
+  // since it depends on the joined message_ai row.
   it('excludes spam inside the aggregate filter, not the WHERE clause', () => {
     const capture = captureQuery()
 
-    fetchUnreadCount(capture.sql, 'owner@example.com')
+    fetchUnreadCount(capture.sql, '99999999-9999-4999-8999-999999999999')
 
     expect(capture.query()).toMatch(
       /count\(m\.id\) FILTER \(\s*WHERE COALESCE\(ai\.spam_verdict, 'inbox'\) <> 'spam'\s*\)/,
     )
-    expect(capture.query()).toContain('ON m.user_id = u.id AND m.is_unread')
-    const whereOnwards = capture.query().slice(capture.query().indexOf('WHERE lower(u.email)'))
+    expect(capture.query()).toContain('WHERE m.user_id = ? AND m.is_unread')
+    const whereOnwards = capture.query().slice(capture.query().indexOf('WHERE m.user_id'))
     expect(whereOnwards).not.toContain('spam')
-    expect(whereOnwards).toContain('GROUP BY u.id')
   })
 })

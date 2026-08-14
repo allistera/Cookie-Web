@@ -6,7 +6,8 @@ import { createHandler } from '../_lib/label-rules.js'
 // order, so a test can script the exact sequence of round trips a handler
 // branch makes (including the inserts inside sql.begin()).
 let sqlQueue = []
-const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
+const USER_ID = '99999999-9999-4999-8999-999999999999'
+const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID }))
 
 const handler = createHandler({
   verifyAccessToken,

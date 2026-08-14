@@ -76,14 +76,13 @@ function validEventFields(body) {
 // calendar id (or a nonexistent one). Migration 0024 installs the composite FK
 // that makes this ownership check authoritative in the database and closes
 // resolve-then-write races.
-async function resolveCalendarId(sql, email, calendarId) {
+async function resolveCalendarId(sql, userId, calendarId) {
   const legacyName = LEGACY_CALENDAR_NAMES.get(calendarId) ?? null
   try {
     const [row] = await sql`
       SELECT c.id, c.subscription_url AS "subscriptionUrl"
       FROM calendars c
-      JOIN users u ON u.id = c.user_id
-      WHERE lower(u.email) = ${email}
+      WHERE c.user_id = ${userId}
         AND (c.id::text = ${calendarId} OR c.name = ${legacyName})
       LIMIT 1
     `
@@ -95,8 +94,7 @@ async function resolveCalendarId(sql, email, calendarId) {
       const [row] = await sql`
         SELECT c.id
         FROM calendars c
-        JOIN users u ON u.id = c.user_id
-        WHERE lower(u.email) = ${email}
+        WHERE c.user_id = ${userId}
           AND (c.id::text = ${calendarId} OR c.name = ${legacyName})
         LIMIT 1
       `
@@ -117,7 +115,7 @@ async function resolveCalendarId(sql, email, calendarId) {
 const RANGE_MIN = '0001-01-01'
 const RANGE_MAX = '9999-12-31'
 
-async function fetchNormalizedEvents(sql, email, range) {
+async function fetchNormalizedEvents(sql, userId, range) {
   return sql`
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
@@ -125,7 +123,6 @@ async function fetchNormalizedEvents(sql, email, range) {
            ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay",
            ce.is_auto_scheduled AS "autoScheduled"
     FROM calendar_events ce
-    JOIN users u ON u.id = ce.user_id
     LEFT JOIN calendars c
       ON c.user_id = ce.user_id
      AND (
@@ -138,7 +135,7 @@ async function fetchNormalizedEvents(sql, email, range) {
          WHEN 'holidays' THEN 'Holidays'
        END
      )
-    WHERE lower(u.email) = ${email}
+    WHERE ce.user_id = ${userId}
       AND (ce.recurrence_rule IS NOT NULL
            OR ce.event_date BETWEEN ${range?.from ?? RANGE_MIN} AND ${range?.to ?? RANGE_MAX})
     ORDER BY ce.event_date, ce.start_time
@@ -148,13 +145,12 @@ async function fetchNormalizedEvents(sql, email, range) {
 // Same as fetchNormalizedEvents, minus recurrence_rule and all_day — used
 // while migrations 0025/0027 haven't landed yet on a database this deploy is
 // already talking to.
-async function fetchNormalizedEventsWithoutRecurrence(sql, email, range) {
+async function fetchNormalizedEventsWithoutRecurrence(sql, userId, range) {
   return sql`
     SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
            ce.start_time AS start, ce.duration_minutes AS duration,
            COALESCE(c.id::text, ce.calendar::text) AS calendar, ce.tone
     FROM calendar_events ce
-    JOIN users u ON u.id = ce.user_id
     LEFT JOIN calendars c
       ON c.user_id = ce.user_id
      AND (
@@ -167,24 +163,23 @@ async function fetchNormalizedEventsWithoutRecurrence(sql, email, range) {
          WHEN 'holidays' THEN 'Holidays'
        END
      )
-    WHERE lower(u.email) = ${email}
+    WHERE ce.user_id = ${userId}
       AND ce.event_date BETWEEN ${range?.from ?? RANGE_MIN} AND ${range?.to ?? RANGE_MAX}
     ORDER BY ce.event_date, ce.start_time
   `
 }
 
-export async function fetchEvents(sql, email, range = null) {
+export async function fetchEvents(sql, userId, range = null) {
   try {
-    return await fetchNormalizedEvents(sql, email, range)
+    return await fetchNormalizedEvents(sql, userId, range)
   } catch (error) {
-    if (error?.code === '42703') return fetchNormalizedEventsWithoutRecurrence(sql, email, range)
+    if (error?.code === '42703') return fetchNormalizedEventsWithoutRecurrence(sql, userId, range)
     if (error?.code !== '42P01') throw error
     return sql`
       SELECT ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
              ce.start_time AS start, ce.duration_minutes AS duration, ce.calendar, ce.tone
       FROM calendar_events ce
-      JOIN users u ON u.id = ce.user_id
-      WHERE lower(u.email) = ${email}
+      WHERE ce.user_id = ${userId}
         AND ce.event_date BETWEEN ${range?.from ?? RANGE_MIN} AND ${range?.to ?? RANGE_MAX}
       ORDER BY ce.event_date, ce.start_time
     `
@@ -289,14 +284,13 @@ export function expandEvents(events, now = new Date(), range = null) {
 
 const READ_ONLY_ERROR = 'This calendar is read-only — its events sync automatically.'
 
-async function isEventInSubscribedCalendar(sql, email, eventId) {
+async function isEventInSubscribedCalendar(sql, userId, eventId) {
   try {
     const [row] = await sql`
       SELECT c.subscription_url IS NOT NULL AS "isSubscribed"
       FROM calendar_events ce
-      JOIN users u ON u.id = ce.user_id
       LEFT JOIN calendars c ON c.id = ce.calendar
-      WHERE ce.id = ${eventId} AND lower(u.email) = ${email}
+      WHERE ce.id = ${eventId} AND ce.user_id = ${userId}
     `
     return row?.isSubscribed ?? false
   } catch (error) {
@@ -305,8 +299,8 @@ async function isEventInSubscribedCalendar(sql, email, eventId) {
   }
 }
 
-async function listEvents(sql, email, range, res) {
-  const events = await fetchEvents(sql, email, range)
+async function listEvents(sql, userId, range, res) {
+  const events = await fetchEvents(sql, userId, range)
   res.statusCode = 200
   res.end(JSON.stringify({ events: expandEvents(events, new Date(), range) }))
 }
@@ -322,14 +316,14 @@ function parseRangeParams(searchParams) {
   return { range: { from, to } }
 }
 
-async function createEvent(sql, email, body, res) {
+async function createEvent(sql, userId, body, res) {
   const fields = validEventFields(body)
   if (!fields) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'Invalid event fields' }))
     return
   }
-  const calendar = await resolveCalendarId(sql, email, fields.calendar)
+  const calendar = await resolveCalendarId(sql, userId, fields.calendar)
   if (!calendar) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Calendar not found' }))
@@ -341,13 +335,15 @@ async function createEvent(sql, email, body, res) {
     return
   }
 
+  // WHERE EXISTS keeps the graceful 404 (rather than an FK-violation error)
+  // for the theoretical race where the user row is deleted between
+  // verifyAccessToken and this insert, without re-deriving userId via email.
   const [event] = await sql`
     INSERT INTO calendar_events
       (user_id, title, description, location, event_date, start_time, duration_minutes, calendar, tone, recurrence_rule, all_day)
-    SELECT u.id, ${fields.title}, ${fields.description}, ${fields.location}, ${fields.date},
+    SELECT ${userId}, ${fields.title}, ${fields.description}, ${fields.location}, ${fields.date},
            ${fields.start}, ${fields.duration}, ${calendar.id}, ${fields.tone}, ${fields.recurrenceRule}, false
-    FROM users u
-    WHERE lower(u.email) = ${email}
+    WHERE EXISTS (SELECT 1 FROM users WHERE id = ${userId})
     RETURNING id, title, description, location, event_date AS date, start_time AS start,
               duration_minutes AS duration, calendar, tone, recurrence_rule AS "recurrenceRule", all_day AS "allDay",
               is_auto_scheduled AS "autoScheduled"
@@ -361,7 +357,7 @@ async function createEvent(sql, email, body, res) {
   res.end(JSON.stringify({ event }))
 }
 
-async function updateEvent(sql, email, body, res) {
+async function updateEvent(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   const fields = id ? validEventFields(body) : null
   if (!fields) {
@@ -373,8 +369,8 @@ async function updateEvent(sql, email, body, res) {
   // event's current calendar (from id) — so they run concurrently instead of
   // as two sequential round trips.
   const [calendar, eventInSubscribedCalendar] = await Promise.all([
-    resolveCalendarId(sql, email, fields.calendar),
-    isEventInSubscribedCalendar(sql, email, id),
+    resolveCalendarId(sql, userId, fields.calendar),
+    isEventInSubscribedCalendar(sql, userId, id),
   ])
   if (!calendar) {
     res.statusCode = 404
@@ -400,8 +396,7 @@ async function updateEvent(sql, email, body, res) {
         recurrence_rule = ${fields.recurrenceRule},
         all_day = false,
         updated_at = now()
-    FROM users u
-    WHERE ce.id = ${id} AND ce.user_id = u.id AND lower(u.email) = ${email}
+    WHERE ce.id = ${id} AND ce.user_id = ${userId}
     RETURNING ce.id, ce.title, ce.description, ce.location, ce.event_date AS date,
               ce.start_time AS start, ce.duration_minutes AS duration, ce.calendar, ce.tone,
               ce.recurrence_rule AS "recurrenceRule", ce.all_day AS "allDay",
@@ -416,22 +411,21 @@ async function updateEvent(sql, email, body, res) {
   res.end(JSON.stringify({ event }))
 }
 
-async function deleteEvent(sql, email, body, res) {
+async function deleteEvent(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'id is required' }))
     return
   }
-  if (await isEventInSubscribedCalendar(sql, email, id)) {
+  if (await isEventInSubscribedCalendar(sql, userId, id)) {
     res.statusCode = 403
     res.end(JSON.stringify({ error: READ_ONLY_ERROR }))
     return
   }
   const rows = await sql`
     DELETE FROM calendar_events ce
-    USING users u
-    WHERE ce.id = ${id} AND ce.user_id = u.id AND lower(u.email) = ${email}
+    WHERE ce.id = ${id} AND ce.user_id = ${userId}
     RETURNING ce.id
   `
   if (rows.length === 0) {
@@ -461,9 +455,9 @@ export function createHandler(overrides = {}) {
 
     res.setHeader('Content-Type', 'application/json')
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -479,7 +473,7 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'from and to must be a valid YYYY-MM-DD pair' }))
           return
         }
-        await listEvents(sql, email, range, res)
+        await listEvents(sql, userId, range, res)
         return
       }
       if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
@@ -491,9 +485,9 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST') await createEvent(sql, email, body, res)
-        else if (req.method === 'PATCH') await updateEvent(sql, email, body, res)
-        else await deleteEvent(sql, email, body, res)
+        if (req.method === 'POST') await createEvent(sql, userId, body, res)
+        else if (req.method === 'PATCH') await updateEvent(sql, userId, body, res)
+        else await deleteEvent(sql, userId, body, res)
         return
       }
       res.statusCode = 405

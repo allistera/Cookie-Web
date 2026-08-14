@@ -11,6 +11,7 @@ const handler = createHandler({
 })
 
 const LABEL_ID = '11111111-1111-1111-1111-111111111111'
+const USER_ID = '99999999-9999-4999-8999-999999999999'
 
 function response() {
   return {
@@ -26,7 +27,7 @@ function response() {
 describe('PATCH /api/labels', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    verifyAccessToken.mockResolvedValue({ email: 'owner@example.com' })
+    verifyAccessToken.mockResolvedValue({ email: 'owner@example.com', userId: USER_ID })
   })
 
   it('trims and persists a renamed user label', async () => {

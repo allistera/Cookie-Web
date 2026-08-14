@@ -61,15 +61,16 @@ describe('outbound email abuse bounds', () => {
       values.push(...parameters)
       return [{ authorized: true, quota_claimed: true }]
     }
+    const userId = '11111111-1111-4111-8111-111111111111'
 
-    await expect(claimOutboundEmailQuota(sql, 'owner@example.com')).resolves.toEqual({
+    await expect(claimOutboundEmailQuota(sql, userId)).resolves.toEqual({
       authorized: true,
       quota_claimed: true,
     })
     expect(query).toContain('INSERT INTO outbound_email_quotas')
     expect(query).toContain('ON CONFLICT (user_id) DO UPDATE')
     expect(query).toContain('outbound_email_quotas.send_count <')
-    expect(values).toEqual(['owner@example.com', 10])
+    expect(values).toEqual([userId, 10, userId])
   })
 })
 

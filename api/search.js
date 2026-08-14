@@ -17,7 +17,7 @@ const RATE_LIMIT = { limit: 10, windowMs: 60_000 } // shared with all user-trigg
 // is exposed here; the generated text remains on the owned-message endpoint.
 // Bodies are excluded for the same reason as fetchEmails: results render the
 // stored snippet and fetch the authoritative body only when opened.
-export function fetchSearchEmails(sql, email, ids) {
+export function fetchSearchEmails(sql, userId, ids) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
            m.sent_at, m.is_unread, m.is_starred, m.scheduled_for,
@@ -29,11 +29,10 @@ export function fetchSearchEmails(sql, email, ids) {
              '[]'
            ) AS labels
     FROM messages m
-    JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])
+    WHERE m.user_id = ${userId} AND m.id = ANY(${ids}::uuid[])
     GROUP BY m.id
   `
 }
@@ -59,9 +58,9 @@ export default async function handler(req, res) {
     return
   }
 
-  let email
+  let userId
   try {
-    ;({ email } = await verifyAccessToken(req))
+    ;({ userId } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -81,7 +80,7 @@ export default async function handler(req, res) {
   if (semantic) {
     let allowed
     try {
-      allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+      allowed = await allowRequest(getSql(), userId, 'ai', RATE_LIMIT)
     } catch (err) {
       console.error('GET /api/search quota enforcement failed:', err.message)
       res.statusCode = 503
@@ -115,7 +114,7 @@ export default async function handler(req, res) {
       if (!semantic || !spec.text || !process.env.OPENAI_API_KEY) return []
       try {
         const vector = JSON.stringify(await embedTextCached(spec.text, process.env.OPENAI_API_KEY))
-        return await vectorLeg(sql, email, vector, spec.filters, CANDIDATES)
+        return await vectorLeg(sql, userId, vector, spec.filters, CANDIDATES)
       } catch (err) {
         console.error('GET /api/search vector leg failed:', err.message)
         return []
@@ -126,8 +125,8 @@ export default async function handler(req, res) {
     // is only the keyword leg's tie-breaker, so results are not date-sorted. A
     // filters-only query has no relevance signal, so it falls back to the
     // recency leg ordered newest-first.
-    const keywordIds = spec.text ? keywordLeg(sql, email, spec, CANDIDATES) : Promise.resolve([])
-    const recencyIds = spec.text ? Promise.resolve([]) : recencyLeg(sql, email, spec, CANDIDATES)
+    const keywordIds = spec.text ? keywordLeg(sql, userId, spec, CANDIDATES) : Promise.resolve([])
+    const recencyIds = spec.text ? Promise.resolve([]) : recencyLeg(sql, userId, spec, CANDIDATES)
 
     const [keywordRows, recencyRows, vectorRows] = await Promise.all([
       keywordIds,
@@ -147,7 +146,7 @@ export default async function handler(req, res) {
       return
     }
 
-    const rows = await fetchSearchEmails(sql, email, ids)
+    const rows = await fetchSearchEmails(sql, userId, ids)
     const byId = new Map(rows.map((row) => [row.id, row]))
     const emails = ids.map((id) => byId.get(id)).filter(Boolean)
 

@@ -15,13 +15,12 @@ function clean(value, max) {
   return String(value ?? '').trim().slice(0, max)
 }
 
-async function replyContext(sql, email, id) {
+async function replyContext(sql, userId, id) {
   if (!id || !UUID_RE.test(id)) return null
   const [message] = await sql`
     SELECT m.from_name, m.from_address, m.subject, m.body_text, m.sent_at
     FROM messages m
-    JOIN users u ON u.id = m.user_id
-    WHERE m.id = ${id} AND lower(u.email) = ${email}
+    WHERE m.id = ${id} AND m.user_id = ${userId}
     LIMIT 1
   `
   return message ?? null
@@ -113,9 +112,9 @@ export default async function handler(req, res) {
     return
   }
 
-  let email
+  let userId
   try {
-    ;({ email } = await verifyAccessToken(req))
+    ;({ userId } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -128,7 +127,7 @@ export default async function handler(req, res) {
   }
   let allowed
   try {
-    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+    allowed = await allowRequest(getSql(), userId, 'ai', RATE_LIMIT)
   } catch (err) {
     console.error('POST /api/compose quota enforcement failed:', err.message)
     res.statusCode = 503
@@ -175,7 +174,7 @@ export default async function handler(req, res) {
       res.end(JSON.stringify({ snippet, model: COMPOSE_MODEL }))
       return
     }
-    const context = await replyContext(getSql(), email, replyToMessageId)
+    const context = await replyContext(getSql(), userId, replyToMessageId)
     const draft = await generateDraft(
       {
         instruction,

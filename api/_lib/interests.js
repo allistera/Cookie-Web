@@ -8,15 +8,15 @@ import { readJsonBody } from './body.js'
 export const MAX_INTERESTS = 20
 export const MAX_INTEREST_LENGTH = 60
 
-export function fetchInterests(sql, email) {
+export function fetchInterests(sql, userId) {
   return sql`
     SELECT coalesce(u.prefs -> 'interests', '[]'::jsonb) AS interests
     FROM users u
-    WHERE lower(u.email) = ${email}
+    WHERE u.id = ${userId}
   `
 }
 
-export function saveInterests(sql, email, interests) {
+export function saveInterests(sql, userId, interests) {
   // sql.json (not a manually JSON.stringify'd string cast with ::jsonb) is
   // required here: postgres.js sends a pre-stringified string parameter as
   // jsonb text that Postgres parses back into a jsonb *string scalar*, not an
@@ -25,7 +25,7 @@ export function saveInterests(sql, email, interests) {
   return sql`
     UPDATE users
     SET prefs = coalesce(prefs, '{}'::jsonb) || ${sql.json({ interests })}
-    WHERE lower(email) = ${email}
+    WHERE id = ${userId}
     RETURNING coalesce(prefs -> 'interests', '[]'::jsonb) AS interests
   `
 }
@@ -53,12 +53,12 @@ export function normalizeInterests(input) {
 
 // GET/PUT /api/tasks?resource=interests — the topics the news section is
 // ranked against. An empty list is valid and means "don't personalise".
-export async function handleInterests(req, res, email) {
+export async function handleInterests(req, res, userId) {
   const sql = getSql()
 
   if (req.method === 'GET') {
     try {
-      const [row] = await fetchInterests(sql, email)
+      const [row] = await fetchInterests(sql, userId)
       res.statusCode = 200
       res.end(JSON.stringify({ interests: row?.interests ?? [] }))
     } catch (err) {
@@ -87,7 +87,7 @@ export async function handleInterests(req, res, email) {
     }
 
     try {
-      const [row] = await saveInterests(sql, email, interests)
+      const [row] = await saveInterests(sql, userId, interests)
       if (!row) {
         res.statusCode = 404
         res.end(JSON.stringify({ error: 'User not found' }))

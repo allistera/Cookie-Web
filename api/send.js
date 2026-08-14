@@ -121,17 +121,11 @@ export function parseScheduledFor(sendAt) {
   return new Date(timestamp).toISOString()
 }
 
-export async function claimOutboundEmailQuota(sql, email) {
+export async function claimOutboundEmailQuota(sql, userId) {
   const [result] = await sql`
-    WITH app_user AS (
-      SELECT id
-      FROM users
-      WHERE lower(email) = ${email}
-      LIMIT 1
-    ), claimed AS (
+    WITH claimed AS (
       INSERT INTO outbound_email_quotas (user_id, window_start, send_count)
-      SELECT id, date_trunc('minute', now()), 1
-      FROM app_user
+      VALUES (${userId}, date_trunc('minute', now()), 1)
       ON CONFLICT (user_id) DO UPDATE SET
         window_start = CASE
           WHEN outbound_email_quotas.window_start < date_trunc('minute', now())
@@ -148,7 +142,7 @@ export async function claimOutboundEmailQuota(sql, email) {
       RETURNING user_id
     )
     SELECT
-      EXISTS (SELECT 1 FROM app_user) AS authorized,
+      EXISTS (SELECT 1 FROM users WHERE id = ${userId}) AS authorized,
       EXISTS (SELECT 1 FROM claimed) AS quota_claimed
   `
   return result || { authorized: false, quota_claimed: false }
@@ -161,18 +155,17 @@ export async function claimOutboundEmailQuota(sql, email) {
 // link back to it.
 async function storeSentMessage(
   sql,
-  email,
+  userId,
   { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken },
   services,
 ) {
   const [lookup] = await sql`
-    SELECT u.id AS user_id,
-           CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
+    SELECT CASE WHEN ${replyToMessageId ?? null}::uuid IS NOT NULL THEN
              (SELECT m.thread_id FROM messages m
-              WHERE m.id = ${replyToMessageId ?? null}::uuid AND m.user_id = u.id)
+              WHERE m.id = ${replyToMessageId ?? null}::uuid AND m.user_id = ${userId})
            END AS thread_id
     FROM users u
-    WHERE lower(u.email) = ${email}
+    WHERE u.id = ${userId}
     LIMIT 1
   `
   if (!lookup) {
@@ -196,14 +189,14 @@ async function storeSentMessage(
   if (!lookup.thread_id) {
     statements.push((sql) => sql`
       INSERT INTO threads (id, user_id, subject, last_message_at)
-      VALUES (${threadUuid}, ${lookup.user_id}, ${subject}, ${sentAt})
+      VALUES (${threadUuid}, ${userId}, ${subject}, ${sentAt})
     `)
   }
   statements.push((sql) => sql`
     INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
                           recipients, subject, snippet, body_text, body_html, sent_at,
                           message_id, is_unread, is_sent)
-    VALUES (${messageUuid}, ${threadUuid}, ${lookup.user_id}, ${fromName},
+    VALUES (${messageUuid}, ${threadUuid}, ${userId}, ${fromName},
             ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
             ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true)
     ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
@@ -231,7 +224,7 @@ async function storeSentMessage(
         INSERT INTO message_read_receipts (message_id, user_id, token)
         SELECT m.id, m.user_id, ${readReceiptToken}::uuid
         FROM messages m
-        WHERE m.id = ${messageUuid} AND m.user_id = ${lookup.user_id}
+        WHERE m.id = ${messageUuid} AND m.user_id = ${userId}
         ON CONFLICT (message_id) DO NOTHING
       `
     } catch (err) {
@@ -262,7 +255,7 @@ async function storeSentMessage(
 // Sends immediately through Resend, from the shared inbound handler (a
 // logged-in user's request) and the flush job (a claimed scheduled row)
 // alike. Throws on failure; callers decide how to react.
-async function deliverMail(sql, email, { recipients, subject, text, html, replyToMessageId }, services) {
+async function deliverMail(sql, userId, { recipients, subject, text, html, replyToMessageId }, services) {
   const readReceiptToken = crypto.randomUUID()
   const receiptUrl = buildReadReceiptUrl(readReceiptToken)
   const trackedHtml = appendReadReceipt(html, text, receiptUrl)
@@ -282,7 +275,7 @@ async function deliverMail(sql, email, { recipients, subject, text, html, replyT
   try {
     ;({ messageUuid } = await storeSentMessage(
       sql,
-      email,
+      userId,
       {
         recipients,
         subject,
@@ -304,35 +297,32 @@ async function deliverMail(sql, email, { recipients, subject, text, html, replyT
 
 // Inserts a pending scheduled_sends row, capped at MAX_PENDING_SCHEDULED_SENDS
 // per user so a runaway client can't queue unbounded future sends. Returns
-// null if the cap is hit or the authenticated email has no users row.
+// null if the cap is hit.
 async function createScheduledSend(
   sql,
-  email,
+  userId,
   { recipients, subject, text, html, replyToMessageId, scheduledFor },
 ) {
   const [row] = await sql`
     INSERT INTO scheduled_sends
       (user_id, to_addresses, subject, body_text, body_html, reply_to_message_id, scheduled_for)
-    SELECT u.id, ${recipients.join(', ')}, ${subject}, ${text}, ${html ?? null},
+    SELECT ${userId}, ${recipients.join(', ')}, ${subject}, ${text}, ${html ?? null},
            ${replyToMessageId}::uuid, ${scheduledFor}::timestamptz
-    FROM users u
-    WHERE lower(u.email) = ${email}
-      AND (
-        SELECT count(*) FROM scheduled_sends s
-        WHERE s.user_id = u.id AND s.status = 'pending'
-      ) < ${MAX_PENDING_SCHEDULED_SENDS}
+    WHERE (
+      SELECT count(*) FROM scheduled_sends s
+      WHERE s.user_id = ${userId} AND s.status = 'pending'
+    ) < ${MAX_PENDING_SCHEDULED_SENDS}
     RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor"
   `
   return row ?? null
 }
 
-async function listScheduledSends(sql, email) {
+async function listScheduledSends(sql, userId) {
   return sql`
     SELECT s.id, s.to_addresses AS "toAddresses", s.subject, s.scheduled_for AS "scheduledFor",
            s.status, s.last_error AS "lastError"
     FROM scheduled_sends s
-    JOIN users u ON u.id = s.user_id
-    WHERE lower(u.email) = ${email} AND s.status IN ('pending', 'failed')
+    WHERE s.user_id = ${userId} AND s.status IN ('pending', 'failed')
     ORDER BY s.scheduled_for ASC
   `
 }
@@ -341,11 +331,10 @@ async function listScheduledSends(sql, email) {
 // flush job (status 'sending') or already resolved ('sent'/'failed') is
 // left alone. Returns the full content so the client can reopen it in the
 // composer, mirroring undoPendingSend's immediate-send equivalent.
-async function cancelScheduledSend(sql, email, id) {
+async function cancelScheduledSend(sql, userId, id) {
   const [row] = await sql`
     DELETE FROM scheduled_sends s
-    USING users u
-    WHERE s.id = ${id} AND s.user_id = u.id AND lower(u.email) = ${email} AND s.status = 'pending'
+    WHERE s.id = ${id} AND s.user_id = ${userId} AND s.status = 'pending'
     RETURNING s.id, s.to_addresses AS "toAddresses", s.subject,
               s.body_text AS "text", s.body_html AS "html",
               s.reply_to_message_id AS "replyToMessageId"
@@ -387,13 +376,13 @@ async function markScheduledSendFailed(sql, id, error, attempts = null) {
 // Delivers one claimed row. Never leaves a row claimed ('sending' status)
 // without resolving it to 'pending' (retry), 'sent', or 'failed'.
 async function deliverScheduledSend(sql, row, services) {
-  const [owner] = await sql`SELECT lower(email) AS email FROM users WHERE id = ${row.user_id}`
+  const [owner] = await sql`SELECT 1 AS "exists" FROM users WHERE id = ${row.user_id}`
   if (!owner) {
     await markScheduledSendFailed(sql, row.id, 'Owning user no longer exists')
     return 'failed'
   }
 
-  const quota = await claimOutboundEmailQuota(sql, owner.email)
+  const quota = await claimOutboundEmailQuota(sql, row.user_id)
   if (!quota.authorized) {
     await markScheduledSendFailed(sql, row.id, 'Mailbox access is not provisioned')
     return 'failed'
@@ -409,7 +398,7 @@ async function deliverScheduledSend(sql, row, services) {
   try {
     const { messageUuid } = await deliverMail(
       sql,
-      owner.email,
+      row.user_id,
       {
         recipients,
         subject: row.subject,
@@ -443,10 +432,10 @@ async function deliverScheduledSend(sql, row, services) {
 
 // GET/DELETE /api/send?resource=scheduled — list or cancel the authenticated
 // user's own pending (or recently failed) scheduled sends.
-async function handleScheduled(req, res, email, services) {
+async function handleScheduled(req, res, userId, services) {
   const sql = services.getSql()
   if (req.method === 'GET') {
-    const scheduledSends = await listScheduledSends(sql, email)
+    const scheduledSends = await listScheduledSends(sql, userId)
     res.statusCode = 200
     res.end(JSON.stringify({ scheduledSends }))
     return
@@ -466,7 +455,7 @@ async function handleScheduled(req, res, email, services) {
       res.end(JSON.stringify({ error: 'id is required' }))
       return
     }
-    const scheduledSend = await cancelScheduledSend(sql, email, id)
+    const scheduledSend = await cancelScheduledSend(sql, userId, id)
     if (!scheduledSend) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Scheduled send not found or already sent' }))
@@ -555,7 +544,7 @@ async function handleFlush(req, res, services) {
 // a scheduled_sends row for the flush job to deliver later. Immediate
 // sending always wins: a storage failure is logged and the response is
 // still a success.
-async function handleSend(req, res, email, services) {
+async function handleSend(req, res, userId, services) {
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
@@ -597,7 +586,7 @@ async function handleSend(req, res, email, services) {
     }
     try {
       const sql = services.getSql()
-      const scheduledSend = await createScheduledSend(sql, email, {
+      const scheduledSend = await createScheduledSend(sql, userId, {
         recipients,
         subject,
         text,
@@ -623,7 +612,7 @@ async function handleSend(req, res, email, services) {
   let sql
   try {
     sql = services.getSql()
-    const quota = await claimOutboundEmailQuota(sql, email)
+    const quota = await claimOutboundEmailQuota(sql, userId)
     if (!quota.authorized) {
       res.statusCode = 403
       res.end(JSON.stringify({ error: 'Mailbox access is not provisioned' }))
@@ -644,7 +633,7 @@ async function handleSend(req, res, email, services) {
   try {
     const { resendId } = await deliverMail(
       sql,
-      email,
+      userId,
       {
         recipients,
         subject,
@@ -680,9 +669,9 @@ export function createHandler(overrides = {}) {
       return
     }
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -691,10 +680,10 @@ export function createHandler(overrides = {}) {
 
     try {
       if (resource === 'scheduled') {
-        await handleScheduled(req, res, email, services)
+        await handleScheduled(req, res, userId, services)
         return
       }
-      await handleSend(req, res, email, services)
+      await handleSend(req, res, userId, services)
     } catch (err) {
       console.error(`${req.method} /api/send failed:`, err)
       res.statusCode = 500

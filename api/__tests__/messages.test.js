@@ -8,9 +8,10 @@ import { createHandler, fetchMessageAttachments, fetchThreadMessages } from '../
 // script the ownership check, the write, and the labels read-back in order.
 let sqlQueue = []
 const requestPublicHttps = vi.fn()
+const USER_ID = '99999999-9999-4999-8999-999999999999'
 
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: () => () => Promise.resolve(sqlQueue.shift() ?? []),
   requestPublicHttps,
 })
@@ -223,7 +224,7 @@ describe('fetchThreadMessages', () => {
       return []
     }
 
-    fetchThreadMessages(sql, 'thread-1', 'owner@example.com')
+    fetchThreadMessages(sql, 'thread-1', USER_ID)
 
     expect(query).toContain('m.snippet')
     expect(query).not.toContain('m.body_text')

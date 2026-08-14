@@ -101,14 +101,13 @@ function filterClause(sql, filters = {}) {
 }
 
 // Keyword leg: full-text match ranked by relevance. Requires spec.text.
-export function keywordLeg(sql, email, spec, limit) {
+export function keywordLeg(sql, userId, spec, limit) {
   const { text, prefixQuery, filters } = spec
   return sql`
     SELECT m.id
     FROM messages m
-    JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
-    WHERE lower(u.email) = ${email}
+    WHERE m.user_id = ${userId}
       ${filterClause(sql, filters)}
       AND ${textMatch(sql, text, prefixQuery)}
     ORDER BY ${rankExpr(sql, text, prefixQuery)} DESC, m.sent_at DESC
@@ -120,15 +119,14 @@ export function keywordLeg(sql, email, spec, limit) {
 // queries (e.g. `from:alice has:attachment`) that carry no relevance signal;
 // for free-text search, recency is just the keyword leg's tie-breaker so it
 // never competes with relevance.
-export function recencyLeg(sql, email, spec, limit) {
+export function recencyLeg(sql, userId, spec, limit) {
   const { text, prefixQuery, filters } = spec
   const match = text ? sql`AND ${textMatch(sql, text, prefixQuery)}` : sql``
   return sql`
     SELECT m.id
     FROM messages m
-    JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
-    WHERE lower(u.email) = ${email}
+    WHERE m.user_id = ${userId}
       ${filterClause(sql, filters)}
       ${match}
     ORDER BY m.sent_at DESC
@@ -140,13 +138,12 @@ export function recencyLeg(sql, email, spec, limit) {
 // (already embedded) so callers can cache or skip embedding, plus the same
 // structured filters so semantic results honour sender:/tag:/to:/date/in:
 // operators too.
-export function vectorLeg(sql, email, vector, filters, limit) {
+export function vectorLeg(sql, userId, vector, filters, limit) {
   return sql`
     SELECT m.id
     FROM messages m
-    JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
-    WHERE lower(u.email) = ${email}
+    WHERE m.user_id = ${userId}
       ${filterClause(sql, filters)}
       AND m.embedding IS NOT NULL
     ORDER BY m.embedding <=> ${vector}::extensions.vector

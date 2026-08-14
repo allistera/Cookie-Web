@@ -50,22 +50,24 @@ describe('normalizeInterests', () => {
   })
 })
 
+const USER_ID = '99999999-9999-9999-9999-999999999999'
+
 describe('fetchInterests', () => {
   it('reads the interests key out of prefs, defaulting to empty', () => {
     const sql = recordingSql()
-    fetchInterests(sql, 'owner@example.com')
+    fetchInterests(sql, USER_ID)
 
     expect(sql.calls[0].text).toContain("prefs -> 'interests'")
     expect(sql.calls[0].text).toContain("'[]'::jsonb")
-    expect(sql.calls[0].text).toContain('lower(u.email) =')
-    expect(sql.calls[0].values).toEqual(['owner@example.com'])
+    expect(sql.calls[0].text).toContain('u.id =')
+    expect(sql.calls[0].values).toEqual([USER_ID])
   })
 })
 
 describe('saveInterests', () => {
   it('merges into prefs rather than replacing the whole object', () => {
     const sql = recordingSql([{ interests: ['Vue'] }])
-    saveInterests(sql, 'owner@example.com', ['Vue'])
+    saveInterests(sql, USER_ID, ['Vue'])
 
     // The || merge preserves any other settings-modal preferences stored there.
     expect(sql.calls[0].text).toContain('prefs = coalesce(prefs')
@@ -73,6 +75,6 @@ describe('saveInterests', () => {
     // Must go through sql.json (a real jsonb parameter), not a manually
     // JSON.stringify'd string cast with ::jsonb - see saveInterests' comment.
     expect(sql.calls[0].values[0]).toEqual({ __pgJson: { interests: ['Vue'] } })
-    expect(sql.calls[0].values).toContain('owner@example.com')
+    expect(sql.calls[0].values).toContain(USER_ID)
   })
 })

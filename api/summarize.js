@@ -24,7 +24,7 @@ export class SummaryInputTooLargeError extends Error {
 // Resolve the selected message and its complete thread in one ownership-scoped
 // query. The client sends only the message id; sender-controlled email bodies
 // are loaded on the server and never trusted as client-supplied context.
-export function fetchThreadMessages(sql, email, id) {
+export function fetchThreadMessages(sql, userId, id) {
   return sql`
     SELECT bounded.id, bounded.from_name, bounded.from_address, bounded.recipients,
            bounded.subject, bounded.body_text, bounded.sent_at, bounded.is_sent
@@ -33,10 +33,9 @@ export function fetchThreadMessages(sql, email, id) {
              left(coalesce(tm.body_text, ''), ${MAX_SUMMARY_BODY_CHARS + 1}) AS body_text,
              tm.sent_at, tm.is_sent
       FROM messages selected
-      JOIN users u ON u.id = selected.user_id
       JOIN messages tm
         ON tm.thread_id = selected.thread_id AND tm.user_id = selected.user_id
-      WHERE selected.id = ${id} AND lower(u.email) = ${email}
+      WHERE selected.id = ${id} AND selected.user_id = ${userId}
       ORDER BY tm.sent_at DESC, tm.id DESC
       LIMIT ${MAX_SUMMARY_MESSAGES + 1}
     ) bounded
@@ -167,9 +166,9 @@ export default async function handler(req, res) {
     return
   }
 
-  let email
+  let userId
   try {
-    ;({ email } = await verifyAccessToken(req))
+    ;({ userId } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -182,7 +181,7 @@ export default async function handler(req, res) {
   }
   let allowed
   try {
-    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+    allowed = await allowRequest(getSql(), userId, 'ai', RATE_LIMIT)
   } catch (err) {
     console.error('POST /api/summarize quota enforcement failed:', err.message)
     res.statusCode = 503
@@ -212,7 +211,7 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql()
-    const messages = await fetchThreadMessages(sql, email, id)
+    const messages = await fetchThreadMessages(sql, userId, id)
     if (!messages.length) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))

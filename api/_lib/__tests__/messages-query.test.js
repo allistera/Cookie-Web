@@ -15,12 +15,15 @@ describe('fetchOwnedMessageBody', () => {
     fetchOwnedMessageBody(
       sql,
       '11111111-1111-1111-1111-111111111111',
-      'owner@example.com',
+      '99999999-9999-4999-8999-999999999999',
     )
 
     expect(query).toContain('ai.summary')
     expect(query).toContain('LEFT JOIN message_ai ai ON ai.message_id = m.id')
-    expect(query).toContain('m.id = ? AND lower(u.email) = ?')
-    expect(values).toEqual(['11111111-1111-1111-1111-111111111111', 'owner@example.com'])
+    expect(query).toContain('m.id = ? AND m.user_id = ?')
+    expect(values).toEqual([
+      '11111111-1111-1111-1111-111111111111',
+      '99999999-9999-4999-8999-999999999999',
+    ])
   })
 })

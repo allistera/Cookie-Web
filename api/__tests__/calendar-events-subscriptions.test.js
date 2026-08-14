@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHandler } from '../calendar-events.js'
 
 let sqlQueue = []
+const USER_ID = '99999999-9999-9999-9999-999999999999'
 
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   calendarsHandler: vi.fn(async (req, res) => {
     res.statusCode = 200
     res.end('{}')

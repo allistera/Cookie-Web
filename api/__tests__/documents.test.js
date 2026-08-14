@@ -24,14 +24,15 @@ function getSql() {
   return fn
 }
 
+const USER_ID = '55555555-5555-4555-8555-555555555555'
+
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql,
 })
 
 const DOC_ID = '33333333-3333-4333-8333-333333333333'
 const FOLDER_ID = '44444444-4444-4444-8444-444444444444'
-const USER_ID = '55555555-5555-4555-8555-555555555555'
 const TEMPLATE_ID = '66666666-6666-4666-8666-666666666666'
 
 function makeRes() {
@@ -74,8 +75,8 @@ describe('GET /api/tasks?resource=documents', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body.folders).toHaveLength(1)
     expect(res.body.documents).toHaveLength(1)
-    expect(statements[0]).toContain('lower(u.email) = ?')
-    expect(statements[1]).toContain('lower(u.email) = ?')
+    expect(statements[0]).toContain('f.user_id = ?')
+    expect(statements[1]).toContain('d.user_id = ?')
   })
 
   it('returns a single document with blocks when an id is given', async () => {

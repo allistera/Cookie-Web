@@ -15,15 +15,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // daily view, so a Todoist item due next week would just be backlog noise
 // here (and, with no due date at all, has no "today" claim to make). Email
 // action items carry no such expectation and are unfiltered by due_date.
-export function fetchTasks(sql, email) {
+export function fetchTasks(sql, userId) {
   return sql`
     SELECT t.id, t.source, t.content, t.description, t.due_date,
            t.priority, t.url, t.message_id, t.gathered_at,
            m.from_address AS reply_to, m.subject AS message_subject
     FROM tasks t
-    JOIN users u ON u.id = t.user_id
     LEFT JOIN messages m ON m.id = t.message_id AND m.user_id = t.user_id
-    WHERE lower(u.email) = ${email}
+    WHERE t.user_id = ${userId}
       AND (t.source <> 'todoist' OR t.due_date <= CURRENT_DATE)
     ORDER BY t.due_date ASC NULLS LAST, t.priority DESC NULLS LAST, t.created_at DESC
     LIMIT ${RESULTS}
@@ -33,12 +32,11 @@ export function fetchTasks(sql, email) {
 // The newest whole-mailbox summary of a given kind, written by the
 // data-enricher Worker: 'daily_digest' for the mail topics, 'daily_news' for
 // the news round-up. These are the rows carrying no message_id.
-export function fetchLatestSummary(sql, email, kind) {
+export function fetchLatestSummary(sql, userId, kind) {
   return sql`
     SELECT s.summary, s.raw, s.created_at
     FROM summaries s
-    JOIN users u ON u.id = s.user_id
-    WHERE lower(u.email) = ${email}
+    WHERE s.user_id = ${userId}
       AND s.kind = ${kind}
       AND s.message_id IS NULL
     ORDER BY s.created_at DESC
@@ -85,12 +83,11 @@ export function buildNews(row) {
 // read, archived or deleted. Archived mail stays included - archiving is how
 // a topic gets dealt with, not a reason to hide it until tomorrow's digest;
 // only deletion actually removes the message the topic is about.
-export function fetchMessageStates(sql, email, ids) {
+export function fetchMessageStates(sql, userId, ids) {
   return sql`
     SELECT m.id, m.is_unread
     FROM messages m
-    JOIN users u ON u.id = m.user_id
-    WHERE lower(u.email) = ${email}
+    WHERE m.user_id = ${userId}
       AND m.id = ANY(${ids}::uuid[])
       AND NOT m.is_deleted
   `
@@ -131,23 +128,21 @@ export function buildDigest(row, states) {
 }
 
 // One gathered task owned by the caller, returning what completion needs.
-export function fetchOwnedTask(sql, id, email) {
+export function fetchOwnedTask(sql, id, userId) {
   return sql`
     SELECT t.id, t.source, t.external_id
     FROM tasks t
-    JOIN users u ON u.id = t.user_id
-    WHERE t.id = ${id} AND lower(u.email) = ${email}
+    WHERE t.id = ${id} AND t.user_id = ${userId}
   `
 }
 
 // Completing a task removes it from the gathered set; there is no done column.
 // A closed Todoist task is no longer "due today", so the daily enricher will
 // not re-add it.
-export function deleteOwnedTask(sql, id, email) {
+export function deleteOwnedTask(sql, id, userId) {
   return sql`
     DELETE FROM tasks t
-    USING users u
-    WHERE t.id = ${id} AND t.user_id = u.id AND lower(u.email) = ${email}
+    WHERE t.id = ${id} AND t.user_id = ${userId}
   `
 }
 
@@ -170,7 +165,7 @@ export async function closeTodoistTask(externalId, token) {
 // POST /api/tasks — { id, action: 'complete' } marks a gathered task done for
 // the authenticated user. Todoist-sourced tasks are closed in Todoist first
 // (when a TODOIST_API_TOKEN is configured); the local row is then removed.
-async function handlePost(req, res, email, services) {
+async function handlePost(req, res, userId, services) {
   let body
   try {
     body = await readJsonBody(req)
@@ -195,7 +190,7 @@ async function handlePost(req, res, email, services) {
 
   try {
     const sql = services.getSql()
-    const [task] = await fetchOwnedTask(sql, id, email)
+    const [task] = await fetchOwnedTask(sql, id, userId)
     if (!task) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Task not found' }))
@@ -218,7 +213,7 @@ async function handlePost(req, res, email, services) {
       }
     }
 
-    await deleteOwnedTask(sql, id, email)
+    await deleteOwnedTask(sql, id, userId)
     res.statusCode = 200
     res.end(JSON.stringify({ ok: true, closedInTodoist }))
   } catch (err) {
@@ -255,8 +250,9 @@ export function createHandler(overrides = {}) {
     }
 
     let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ email, userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -264,28 +260,29 @@ export function createHandler(overrides = {}) {
     }
 
     if (resource === 'refresh') {
+      // handleRefresh (api/_lib/enricher.js) is keyed by email, not userId.
       return handleRefresh(req, res, email, services)
     }
     if (resource === 'interests') {
-      return handleInterests(req, res, email)
+      return handleInterests(req, res, userId)
     }
     if (resource === 'documents') {
-      return handleDocuments(req, res, email, services)
+      return handleDocuments(req, res, userId, services)
     }
 
     if (req.method === 'POST') {
-      return handlePost(req, res, email, services)
+      return handlePost(req, res, userId, services)
     }
 
     try {
       const sql = services.getSql()
       const [tasks, [digestRow], [newsRow]] = await Promise.all([
-        fetchTasks(sql, email),
-        fetchLatestSummary(sql, email, 'daily_digest'),
-        fetchLatestSummary(sql, email, 'daily_news'),
+        fetchTasks(sql, userId),
+        fetchLatestSummary(sql, userId, 'daily_digest'),
+        fetchLatestSummary(sql, userId, 'daily_news'),
       ])
       const ids = digestMessageIds(digestRow)
-      const states = ids.length ? await fetchMessageStates(sql, email, ids) : []
+      const states = ids.length ? await fetchMessageStates(sql, userId, ids) : []
       res.statusCode = 200
       res.end(
         JSON.stringify({

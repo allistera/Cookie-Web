@@ -33,13 +33,13 @@ describe('read receipt queries', () => {
   it('returns statuses only for messages owned by the authenticated user', () => {
     const capture = captureSql()
     const ids = ['11111111-1111-4111-8111-111111111111']
+    const userId = '22222222-2222-4222-8222-222222222222'
 
-    fetchOwnedReadReceipts(capture.sql, 'owner@example.com', ids)
+    fetchOwnedReadReceipts(capture.sql, userId, ids)
 
-    expect(capture.query()).toContain('JOIN users u ON u.id = r.user_id')
-    expect(capture.query()).toContain('WHERE lower(u.email) =')
+    expect(capture.query()).toContain('WHERE r.user_id =')
     expect(capture.query()).toContain('r.message_id = ANY')
-    expect(capture.values()).toEqual(['owner@example.com', ids])
+    expect(capture.values()).toEqual([userId, ids])
   })
 })
 

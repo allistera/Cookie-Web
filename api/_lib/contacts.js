@@ -9,12 +9,11 @@ const MAX_CONTACTS = 2000
 // The authenticated user's contacts — addresses that appear in their mailbox
 // (received senders or sent recipients) — from the contacts view, ordered for
 // display.
-export function fetchContacts(sql, email) {
+export function fetchContacts(sql, userId) {
   return sql`
     SELECT c.address, c.name
     FROM contacts c
-    JOIN users u ON u.id = c.user_id
-    WHERE lower(u.email) = ${email}
+    WHERE c.user_id = ${userId}
     ORDER BY c.name NULLS LAST, c.address
     LIMIT ${MAX_CONTACTS}
   `
@@ -32,9 +31,9 @@ export function createHandler(overrides = {}) {
       return
     }
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -43,7 +42,7 @@ export function createHandler(overrides = {}) {
 
     try {
       const sql = services.getSql()
-      const rows = await fetchContacts(sql, email)
+      const rows = await fetchContacts(sql, userId)
       res.statusCode = 200
       // The contacts view aggregates the whole mailbox per read (jsonb-unnesting
       // every sent message), and autocomplete tolerates staleness — let the

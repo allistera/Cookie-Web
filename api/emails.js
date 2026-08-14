@@ -12,7 +12,7 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // outbound rows.
 // Message bodies are deliberately excluded: list rows render the stored snippet,
 // while the authoritative body is fetched only when the reader opens.
-export function fetchEmails(sql, email, limit, cursor, folder) {
+export function fetchEmails(sql, userId, limit, cursor, folder) {
   return sql`
     SELECT m.id, m.from_name, m.from_address,
            CASE WHEN jsonb_typeof(m.recipients) = 'string'
@@ -31,11 +31,10 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
              '[]'
            ) AS labels
     FROM messages m
-    JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE lower(u.email) = ${email}
+    WHERE m.user_id = ${userId}
       AND NOT m.is_deleted
       AND (
         (${folder} = 'done' AND m.is_archived)
@@ -57,30 +56,21 @@ export function fetchEmails(sql, email, limit, cursor, folder) {
   `
 }
 
-// Also returns the user's id (needed by the client to subscribe to their
-// Realtime inbox-ping channel) so loading the inbox stays a two-round-trip
-// operation instead of three.
-// Message predicates live in the LEFT JOIN's ON (never the WHERE): a WHERE
-// predicate on m would drop the user's own row when no message matches,
-// leaving the client with a null userId and no Realtime subscription.
-// is_unread in particular must sit in the ON so the join touches only unread
-// rows — matching the partial index messages_unread_idx (migration 0001) —
-// instead of materializing the whole non-archived mailbox on every first-page
-// load. Only the spam check stays in the FILTER, since it needs the ai join.
-export function fetchUnreadCount(sql, email) {
+// A bare aggregate (no GROUP BY) always returns exactly one row, even when
+// zero messages match, so this no longer needs to anchor on users the way it
+// did when it was also the source of the caller's userId (the caller already
+// has it from verifyAccessToken). is_unread stays in the WHERE, matching the
+// partial index messages_unread_idx (migration 0001).
+export function fetchUnreadCount(sql, userId) {
   return sql`
-    SELECT u.id AS user_id,
-           count(m.id) FILTER (
+    SELECT count(m.id) FILTER (
              WHERE COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
            )::int AS unread
-    FROM users u
-    LEFT JOIN messages m
-      ON m.user_id = u.id AND m.is_unread
+    FROM messages m
+    LEFT JOIN message_ai ai ON ai.message_id = m.id
+    WHERE m.user_id = ${userId} AND m.is_unread
       AND NOT m.is_archived AND NOT m.is_sent AND NOT m.is_deleted
       AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())
-    LEFT JOIN message_ai ai ON ai.message_id = m.id
-    WHERE lower(u.email) = ${email}
-    GROUP BY u.id
   `
 }
 
@@ -94,9 +84,9 @@ export function createHandler(overrides = {}) {
   return async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json')
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -110,12 +100,12 @@ export function createHandler(overrides = {}) {
     // Realtime channel identity but do not render the mailbox list.
     if (resource === 'state') {
       try {
-        const [userRow] = await fetchUnreadCount(services.getSql(), email)
+        const [userRow] = await fetchUnreadCount(services.getSql(), userId)
         res.statusCode = 200
         res.end(
           JSON.stringify({
             unreadCount: userRow?.unread ?? 0,
-            userId: userRow?.user_id ?? null,
+            userId,
           }),
         )
       } catch (err) {
@@ -154,11 +144,11 @@ export function createHandler(overrides = {}) {
 
     try {
       const sql = services.getSql()
-      // The unread count (and userId) only matter on a list's first page; the
-      // client ignores them on cursor pages, so skip the aggregate there.
+      // The unread count only matters on a list's first page; the client
+      // ignores it on cursor pages, so skip the aggregate there.
       const [rows, [userRow]] = await Promise.all([
-        fetchEmails(sql, email, limit, cursor, folder),
-        cursor ? [] : fetchUnreadCount(sql, email),
+        fetchEmails(sql, userId, limit, cursor, folder),
+        cursor ? [] : fetchUnreadCount(sql, userId),
       ])
       const hasMore = rows.length > limit
       const emails = hasMore ? rows.slice(0, limit) : rows
@@ -172,7 +162,7 @@ export function createHandler(overrides = {}) {
       }
       if (!cursor) {
         payload.unreadCount = userRow?.unread ?? 0
-        payload.userId = userRow?.user_id ?? null
+        payload.userId = userId
       }
       res.statusCode = 200
       res.end(JSON.stringify(payload))

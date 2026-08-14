@@ -17,13 +17,12 @@ const SIGNED_URL_TTL_MS = 5 * 60 * 1000
 // deliberately excluded from the /api/emails list payload as it can be large
 // and untrusted). The saved AI summary is returned alongside the body so the
 // reader can restore it without inflating every inbox-list response.
-export function fetchOwnedMessageBody(sql, id, email) {
+export function fetchOwnedMessageBody(sql, id, userId) {
   return sql`
     SELECT m.id, m.thread_id, m.body_html, m.body_text, m.headers, ai.summary
     FROM messages m
-    JOIN users u ON u.id = m.user_id
     LEFT JOIN message_ai ai ON ai.message_id = m.id
-    WHERE m.id = ${id} AND lower(u.email) = ${email}
+    WHERE m.id = ${id} AND m.user_id = ${userId}
   `
 }
 
@@ -31,22 +30,20 @@ export function fetchOwnedMessageBody(sql, id, email) {
 // first, for the reader's collapsed conversation history. Only the summary
 // fields are selected — body_html/blob URLs are deliberately left out, same
 // as the inbox list, since older thread messages render as plain text.
-export function fetchThreadMessages(sql, threadId, email) {
+export function fetchThreadMessages(sql, threadId, userId) {
   return sql`
     SELECT m.id, m.from_name, m.from_address, m.snippet, m.sent_at, m.is_sent
     FROM messages m
-    JOIN users u ON u.id = m.user_id
-    WHERE m.thread_id = ${threadId} AND lower(u.email) = ${email}
+    WHERE m.thread_id = ${threadId} AND m.user_id = ${userId}
     ORDER BY m.sent_at ASC
   `
 }
 
-export function fetchOwnedMessageText(sql, id, email) {
+export function fetchOwnedMessageText(sql, id, userId) {
   return sql`
     SELECT m.body_text
     FROM messages m
-    JOIN users u ON u.id = m.user_id
-    WHERE m.id = ${id} AND lower(u.email) = ${email}
+    WHERE m.id = ${id} AND m.user_id = ${userId}
   `
 }
 
@@ -63,13 +60,12 @@ export function fetchMessageAttachments(sql, messageId) {
   `
 }
 
-export function fetchOwnedAttachment(sql, id, email) {
+export function fetchOwnedAttachment(sql, id, userId) {
   return sql`
     SELECT a.filename, a.content_type, a.blob_url
     FROM attachments a
     JOIN messages m ON m.id = a.message_id
-    JOIN users u ON u.id = m.user_id
-    WHERE a.id = ${id} AND lower(u.email) = ${email}
+    WHERE a.id = ${id} AND m.user_id = ${userId}
   `
 }
 
@@ -81,7 +77,7 @@ export function privateBlobPathname(blobUrl) {
   return decodeURIComponent(url.pathname.replace(/^\//, ''))
 }
 
-async function handleAttachmentGet(req, res, email, services) {
+async function handleAttachmentGet(req, res, userId, services) {
   res.setHeader('Cache-Control', 'private, no-store')
 
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
@@ -92,7 +88,7 @@ async function handleAttachmentGet(req, res, email, services) {
   }
 
   try {
-    const rows = await fetchOwnedAttachment(services.getSql(), id, email)
+    const rows = await fetchOwnedAttachment(services.getSql(), id, userId)
     const attachment = rows[0]
     if (!attachment?.blob_url) {
       res.statusCode = 404
@@ -131,7 +127,7 @@ async function handleAttachmentGet(req, res, email, services) {
 
 // 404 for a message that is not the caller's (or does not exist), 400 for a
 // malformed id.
-async function handleGet(req, res, email, services) {
+async function handleGet(req, res, userId, services) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
   if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
@@ -141,7 +137,7 @@ async function handleGet(req, res, email, services) {
 
   try {
     const sql = services.getSql()
-    const rows = await fetchOwnedMessageBody(sql, id, email)
+    const rows = await fetchOwnedMessageBody(sql, id, userId)
     if (rows.length === 0) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))
@@ -151,7 +147,7 @@ async function handleGet(req, res, email, services) {
     // the parsed, safe unsubscribe summary.
     const { headers, thread_id, ...rest } = rows[0]
     const [thread, attachments] = await Promise.all([
-      thread_id ? fetchThreadMessages(sql, thread_id, email) : [],
+      thread_id ? fetchThreadMessages(sql, thread_id, userId) : [],
       fetchMessageAttachments(sql, id),
     ])
     res.statusCode = 200
@@ -165,7 +161,7 @@ async function handleGet(req, res, email, services) {
   }
 }
 
-async function handleThreadBodyGet(req, res, email, services) {
+async function handleThreadBodyGet(req, res, userId, services) {
   const id = new URL(req.url, 'http://localhost').searchParams.get('id')
   if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
@@ -174,7 +170,7 @@ async function handleThreadBodyGet(req, res, email, services) {
   }
 
   try {
-    const [message] = await fetchOwnedMessageText(services.getSql(), id, email)
+    const [message] = await fetchOwnedMessageText(services.getSql(), id, userId)
     if (!message) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Message not found' }))
@@ -193,7 +189,7 @@ async function handleThreadBodyGet(req, res, email, services) {
 // the message and the label are ownership-checked before the join row changes,
 // and the message's full label set is returned so the reader can resync its
 // pills. add_label is idempotent (ON CONFLICT DO NOTHING).
-async function mutateMessageLabel(res, email, messageId, action, rawLabelId, services) {
+async function mutateMessageLabel(res, userId, messageId, action, rawLabelId, services) {
   const labelId = UUID_RE.test(rawLabelId) ? String(rawLabelId) : null
   if (!labelId) {
     res.statusCode = 400
@@ -205,17 +201,15 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
     const sql = services.getSql()
     // The ownership check exists to report which of message/label is missing
     // (or absent) as a clean 404; the mutation re-scopes the same ownership
-    // joins in its own WHERE so it's a safe no-op regardless of that check's
-    // outcome, letting the two run concurrently instead of sequentially.
+    // predicates in its own WHERE so it's a safe no-op regardless of that
+    // check's outcome, letting the two run concurrently instead of sequentially.
     const ownershipCheck = sql`
       SELECT
         EXISTS (
-          SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
-          WHERE m.id = ${messageId} AND lower(u.email) = ${email}
+          SELECT 1 FROM messages m WHERE m.id = ${messageId} AND m.user_id = ${userId}
         ) AS message,
         EXISTS (
-          SELECT 1 FROM labels l JOIN users u ON u.id = l.user_id
-          WHERE l.id = ${labelId} AND lower(u.email) = ${email} AND l.kind = 'user'
+          SELECT 1 FROM labels l WHERE l.id = ${labelId} AND l.user_id = ${userId} AND l.kind = 'user'
         ) AS label
     `
     const mutation =
@@ -224,11 +218,9 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
             INSERT INTO message_labels (message_id, label_id)
             SELECT ${messageId}, ${labelId}
             WHERE EXISTS (
-              SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
-              WHERE m.id = ${messageId} AND lower(u.email) = ${email}
+              SELECT 1 FROM messages m WHERE m.id = ${messageId} AND m.user_id = ${userId}
             ) AND EXISTS (
-              SELECT 1 FROM labels l JOIN users u ON u.id = l.user_id
-              WHERE l.id = ${labelId} AND lower(u.email) = ${email} AND l.kind = 'user'
+              SELECT 1 FROM labels l WHERE l.id = ${labelId} AND l.user_id = ${userId} AND l.kind = 'user'
             )
             ON CONFLICT DO NOTHING
           `
@@ -236,8 +228,7 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
             DELETE FROM message_labels
             WHERE message_id = ${messageId} AND label_id = ${labelId}
               AND EXISTS (
-                SELECT 1 FROM messages m JOIN users u ON u.id = m.user_id
-                WHERE m.id = ${messageId} AND lower(u.email) = ${email}
+                SELECT 1 FROM messages m WHERE m.id = ${messageId} AND m.user_id = ${userId}
               )
           `
     const [[owns]] = await Promise.all([ownershipCheck, mutation])
@@ -274,7 +265,7 @@ async function mutateMessageLabel(res, email, messageId, action, rawLabelId, ser
 // in preference order: performs a server-side, SSRF-guarded one-click POST;
 // sends a mailto unsubscribe via Resend; or returns a safe target for the
 // client to open manually. No DB writes.
-async function handlePost(req, res, email, services) {
+async function handlePost(req, res, userId, services) {
   let body
   try {
     body = await readJsonBody(req)
@@ -294,7 +285,7 @@ async function handlePost(req, res, email, services) {
 
   // Tagging: apply or remove one of the user's labels on the message.
   if (action === 'add_label' || action === 'remove_label') {
-    return mutateMessageLabel(res, email, id, action, body.label_id, services)
+    return mutateMessageLabel(res, userId, id, action, body.label_id, services)
   }
 
   if (action !== 'unsubscribe') {
@@ -308,8 +299,7 @@ async function handlePost(req, res, email, services) {
     const rows = await sql`
       SELECT m.headers
       FROM messages m
-      JOIN users u ON u.id = m.user_id
-      WHERE m.id = ${id} AND lower(u.email) = ${email}
+      WHERE m.id = ${id} AND m.user_id = ${userId}
     `
     if (rows.length === 0) {
       res.statusCode = 404
@@ -429,9 +419,9 @@ export function createHandler(overrides = {}) {
       return
     }
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -439,19 +429,19 @@ export function createHandler(overrides = {}) {
     }
 
     if (req.method === 'GET' && resource === 'attachment') {
-      return handleAttachmentGet(req, res, email, services)
+      return handleAttachmentGet(req, res, userId, services)
     }
 
     if (req.method === 'GET' && resource === 'thread-body') {
-      return handleThreadBodyGet(req, res, email, services)
+      return handleThreadBodyGet(req, res, userId, services)
     }
 
     if (req.method === 'GET') {
-      return handleGet(req, res, email, services)
+      return handleGet(req, res, userId, services)
     }
 
     if (req.method === 'POST') {
-      return handlePost(req, res, email, services)
+      return handlePost(req, res, userId, services)
     }
 
     let body
@@ -493,8 +483,7 @@ export function createHandler(overrides = {}) {
             WHEN ${hasScheduledChange}::boolean THEN ${scheduledFor}::timestamptz
             ELSE m.scheduled_for
           END
-        FROM users u
-        WHERE m.id = ${id} AND m.user_id = u.id AND lower(u.email) = ${email}
+        WHERE m.id = ${id} AND m.user_id = ${userId}
         RETURNING m.id, m.is_unread, m.is_starred, m.is_archived, m.is_deleted, m.scheduled_for
       `
       if (rows.length === 0) {

@@ -25,14 +25,13 @@ function normalizeConditions(input) {
   return conditions
 }
 
-async function listRules(sql, email, res) {
+async function listRules(sql, userId, res) {
   const rows = await sql`
     SELECT r.id, r.name, r.label_id, r.action, r.match_type, r.enabled, r.created_at,
            c.id AS condition_id, c.field, c.operator, c.value, c.position
     FROM label_rules r
-    JOIN users u ON u.id = r.user_id
     LEFT JOIN label_rule_conditions c ON c.rule_id = r.id
-    WHERE lower(u.email) = ${email}
+    WHERE r.user_id = ${userId}
     ORDER BY r.created_at, c.position
   `
   const rules = []
@@ -65,7 +64,7 @@ async function listRules(sql, email, res) {
   res.end(JSON.stringify({ rules }))
 }
 
-async function createRule(sql, email, body, res) {
+async function createRule(sql, userId, body, res) {
   const name = String(body.name ?? '').trim() || null
   const action = ACTIONS.includes(body.action) ? body.action : 'apply_label'
   const labelId = UUID_RE.test(body.label_id) ? String(body.label_id) : null
@@ -88,10 +87,10 @@ async function createRule(sql, email, body, res) {
   if (action === 'apply_label') {
     ;[rule] = await sql`
       INSERT INTO label_rules (user_id, label_id, name, action, match_type, enabled)
-      SELECT u.id, ${labelId}, ${name}, ${action}, ${matchType}, ${enabled}
-      FROM users u
-      JOIN labels l ON l.id = ${labelId} AND l.user_id = u.id AND l.kind = 'user'
-      WHERE lower(u.email) = ${email}
+      SELECT ${userId}, ${labelId}, ${name}, ${action}, ${matchType}, ${enabled}
+      WHERE EXISTS (
+        SELECT 1 FROM labels l WHERE l.id = ${labelId} AND l.user_id = ${userId} AND l.kind = 'user'
+      )
       RETURNING id, name, label_id, action, match_type, enabled
     `
     if (!rule) {
@@ -102,16 +101,9 @@ async function createRule(sql, email, body, res) {
   } else {
     ;[rule] = await sql`
       INSERT INTO label_rules (user_id, label_id, name, action, match_type, enabled)
-      SELECT u.id, NULL, ${name}, ${action}, ${matchType}, ${enabled}
-      FROM users u
-      WHERE lower(u.email) = ${email}
+      VALUES (${userId}, NULL, ${name}, ${action}, ${matchType}, ${enabled})
       RETURNING id, name, label_id, action, match_type, enabled
     `
-    if (!rule) {
-      res.statusCode = 404
-      res.end(JSON.stringify({ error: 'User not found' }))
-      return
-    }
   }
 
   const positionedConditions = conditions.map((condition, position) => ({ ...condition, position }))
@@ -126,7 +118,7 @@ async function createRule(sql, email, body, res) {
   res.end(JSON.stringify({ rule: { ...rule, conditions: positionedConditions } }))
 }
 
-async function updateRule(sql, email, body, res) {
+async function updateRule(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   const hasName = Object.hasOwn(body, 'name')
   const hasAction = Object.hasOwn(body, 'action')
@@ -157,8 +149,7 @@ async function updateRule(sql, email, body, res) {
   const [existing] = await sql`
     SELECT r.name, r.label_id, r.action, r.match_type, r.enabled
     FROM label_rules r
-    JOIN users u ON u.id = r.user_id
-    WHERE r.id = ${id} AND lower(u.email) = ${email}
+    WHERE r.id = ${id} AND r.user_id = ${userId}
   `
   if (!existing) {
     res.statusCode = 404
@@ -183,8 +174,7 @@ async function updateRule(sql, email, body, res) {
   if (hasLabelId && resultAction === 'apply_label') {
     const [label] = await sql`
       SELECT 1 FROM labels l
-      JOIN users u ON u.id = l.user_id
-      WHERE l.id = ${labelId} AND lower(u.email) = ${email} AND l.kind = 'user'
+      WHERE l.id = ${labelId} AND l.user_id = ${userId} AND l.kind = 'user'
     `
     if (!label) {
       res.statusCode = 404
@@ -201,8 +191,7 @@ async function updateRule(sql, email, body, res) {
         match_type = ${hasMatchType ? body.match_type : existing.match_type},
         enabled = ${hasEnabled ? body.enabled : existing.enabled},
         updated_at = now()
-    FROM users u
-    WHERE r.id = ${id} AND r.user_id = u.id AND lower(u.email) = ${email}
+    WHERE r.id = ${id} AND r.user_id = ${userId}
     RETURNING r.id, r.name, r.label_id, r.action, r.match_type, r.enabled
   `
 
@@ -232,7 +221,7 @@ async function updateRule(sql, email, body, res) {
   res.end(JSON.stringify({ rule: { ...rule, conditions: rows } }))
 }
 
-async function deleteRule(sql, email, body, res) {
+async function deleteRule(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
@@ -241,8 +230,7 @@ async function deleteRule(sql, email, body, res) {
   }
   const rows = await sql`
     DELETE FROM label_rules r
-    USING users u
-    WHERE r.id = ${id} AND r.user_id = u.id AND lower(u.email) = ${email}
+    WHERE r.id = ${id} AND r.user_id = ${userId}
     RETURNING r.id
   `
   if (rows.length === 0) {
@@ -268,9 +256,9 @@ export function createHandler(overrides = {}) {
   return async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json')
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -280,7 +268,7 @@ export function createHandler(overrides = {}) {
     try {
       const sql = services.getSql()
       if (req.method === 'GET') {
-        await listRules(sql, email, res)
+        await listRules(sql, userId, res)
         return
       }
       if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
@@ -292,9 +280,9 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST') await createRule(sql, email, body, res)
-        else if (req.method === 'PATCH') await updateRule(sql, email, body, res)
-        else await deleteRule(sql, email, body, res)
+        if (req.method === 'POST') await createRule(sql, userId, body, res)
+        else if (req.method === 'PATCH') await updateRule(sql, userId, body, res)
+        else await deleteRule(sql, userId, body, res)
         return
       }
       res.statusCode = 405

@@ -16,14 +16,13 @@ const DEFAULT_CALENDARS = [
 
 const isUndefinedTable = (error) => error?.code === '42P01'
 
-export async function fetchCalendars(sql, email) {
+export async function fetchCalendars(sql, userId) {
   try {
     return await sql`
       SELECT c.id, c.name, c.color, c.subscription_url AS "subscriptionUrl",
              c.subscription_synced_at AS "subscriptionSyncedAt", c.subscription_error AS "subscriptionError"
       FROM calendars c
-      JOIN users u ON u.id = c.user_id
-      WHERE lower(u.email) = ${email}
+      WHERE c.user_id = ${userId}
       ORDER BY c.created_at, c.id
     `
   } catch (error) {
@@ -33,8 +32,7 @@ export async function fetchCalendars(sql, email) {
     return sql`
       SELECT c.id, c.name, c.color
       FROM calendars c
-      JOIN users u ON u.id = c.user_id
-      WHERE lower(u.email) = ${email}
+      WHERE c.user_id = ${userId}
       ORDER BY c.created_at, c.id
     `
   }
@@ -44,34 +42,34 @@ export async function fetchCalendars(sql, email) {
 // defaults the client used to hardcode so the sidebar isn't empty on first
 // load. A no-op for anyone who already has calendars, including users
 // backfilled by migration 0023.
-async function ensureDefaultCalendars(sql, email) {
-  const existing = await fetchCalendars(sql, email)
+async function ensureDefaultCalendars(sql, userId) {
+  const existing = await fetchCalendars(sql, userId)
   if (existing.length > 0) return existing
 
   // Seed in one statement, then read the canonical rows. This avoids leaving
   // a permanently partial set after a mid-loop failure and makes concurrent
-  // first loads return the same complete result.
+  // first loads return the same complete result. WHERE EXISTS keeps the same
+  // no-op-if-the-user-vanished behavior the users-join used to give for free.
   await sql`
     INSERT INTO calendars (user_id, name, color)
-    SELECT u.id, defaults.name, defaults.color
-    FROM users u
-    CROSS JOIN (VALUES
+    SELECT ${userId}, defaults.name, defaults.color
+    FROM (VALUES
       ('Work', '#4f7c6b'),
       ('Personal', '#2db985'),
       ('Focus time', '#795da8'),
       ('Birthdays', '#d8953b'),
       ('Holidays', '#d15c4e')
     ) AS defaults(name, color)
-    WHERE lower(u.email) = ${email}
+    WHERE EXISTS (SELECT 1 FROM users WHERE id = ${userId})
     ON CONFLICT (user_id, name) DO NOTHING
   `
-  return fetchCalendars(sql, email)
+  return fetchCalendars(sql, userId)
 }
 
-async function listCalendars(sql, email, res) {
+async function listCalendars(sql, userId, res) {
   let calendars
   try {
-    calendars = await ensureDefaultCalendars(sql, email)
+    calendars = await ensureDefaultCalendars(sql, userId)
   } catch (error) {
     // Vercel and the migration workflow deploy independently. Keep the new
     // client usable if it arrives first; mutations become available as soon
@@ -88,7 +86,7 @@ function validName(name) {
   return trimmed && trimmed.length <= MAX_NAME ? trimmed : null
 }
 
-async function createCalendar(sql, email, body, res) {
+async function createCalendar(sql, userId, body, res) {
   const name = validName(body.name)
   const color = String(body.color ?? '')
   const subscriptionUrl =
@@ -107,9 +105,8 @@ async function createCalendar(sql, email, body, res) {
 
   const [row] = await sql`
     INSERT INTO calendars (user_id, name, color, subscription_url)
-    SELECT u.id, ${name}, ${color}, ${subscriptionUrl}
-    FROM users u
-    WHERE lower(u.email) = ${email}
+    SELECT ${userId}, ${name}, ${color}, ${subscriptionUrl}
+    WHERE EXISTS (SELECT 1 FROM users WHERE id = ${userId})
     ON CONFLICT (user_id, name) DO NOTHING
     RETURNING id, name, color, user_id AS "userId"
   `
@@ -135,7 +132,7 @@ async function createCalendar(sql, email, body, res) {
 
 // Manual re-sync of an existing subscribed calendar, triggered from the
 // sidebar's "Sync now" action.
-async function syncCalendar(sql, email, body, res) {
+async function syncCalendar(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
@@ -146,8 +143,7 @@ async function syncCalendar(sql, email, body, res) {
   const [row] = await sql`
     SELECT c.id, c.user_id AS "userId", c.subscription_url AS "subscriptionUrl"
     FROM calendars c
-    JOIN users u ON u.id = c.user_id
-    WHERE c.id = ${id} AND lower(u.email) = ${email}
+    WHERE c.id = ${id} AND c.user_id = ${userId}
   `
   if (!row?.subscriptionUrl) {
     res.statusCode = 404
@@ -166,7 +162,7 @@ async function syncCalendar(sql, email, body, res) {
   )
 }
 
-async function renameCalendar(sql, email, body, res) {
+async function renameCalendar(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   const name = id ? validName(body.name) : null
   if (!id || !name) {
@@ -180,8 +176,7 @@ async function renameCalendar(sql, email, body, res) {
     ;[calendar] = await sql`
       UPDATE calendars c
       SET name = ${name}
-      FROM users u
-      WHERE c.id = ${id} AND c.user_id = u.id AND lower(u.email) = ${email}
+      WHERE c.id = ${id} AND c.user_id = ${userId}
       RETURNING c.id, c.name, c.color
     `
   } catch (error) {
@@ -208,7 +203,7 @@ async function renameCalendar(sql, email, body, res) {
 // exempt: their events are entirely sync-owned (never hand-edited), so
 // deleting the subscription cascades its events rather than asking the user
 // to clear a calendar they can't otherwise edit.
-async function deleteCalendar(sql, email, body, res) {
+async function deleteCalendar(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   if (!id) {
     res.statusCode = 400
@@ -219,18 +214,18 @@ async function deleteCalendar(sql, email, body, res) {
   let owned
   try {
     ;[owned] = await sql`
-      SELECT c.user_id AS "userId", c.subscription_url IS NOT NULL AS "isSubscribed"
-      FROM calendars c JOIN users u ON u.id = c.user_id
-      WHERE c.id = ${id} AND lower(u.email) = ${email}
+      SELECT c.subscription_url IS NOT NULL AS "isSubscribed"
+      FROM calendars c
+      WHERE c.id = ${id} AND c.user_id = ${userId}
     `
   } catch (error) {
     if (error?.code !== '42703') throw error
     // Rollout window before migration 0026 lands: no calendar can be a
     // subscription yet, so behave exactly like the pre-subscription check.
     ;[owned] = await sql`
-      SELECT c.user_id AS "userId", false AS "isSubscribed"
-      FROM calendars c JOIN users u ON u.id = c.user_id
-      WHERE c.id = ${id} AND lower(u.email) = ${email}
+      SELECT false AS "isSubscribed"
+      FROM calendars c
+      WHERE c.id = ${id} AND c.user_id = ${userId}
     `
   }
   if (!owned) {
@@ -244,7 +239,7 @@ async function deleteCalendar(sql, email, body, res) {
   // (user_id, calendar) applies — calendar alone has no usable index.
   if (owned.isSubscribed) {
     await sql.begin(async (tx) => {
-      await tx`DELETE FROM calendar_events WHERE user_id = ${owned.userId} AND calendar = ${id}`
+      await tx`DELETE FROM calendar_events WHERE user_id = ${userId} AND calendar = ${id}`
       await tx`DELETE FROM calendars WHERE id = ${id}`
     })
     res.statusCode = 200
@@ -254,7 +249,7 @@ async function deleteCalendar(sql, email, body, res) {
 
   const [{ count }] = await sql`
     SELECT count(*)::int AS count
-    FROM calendar_events WHERE user_id = ${owned.userId} AND calendar = ${id}
+    FROM calendar_events WHERE user_id = ${userId} AND calendar = ${id}
   `
   if (count > 0) {
     res.statusCode = 409
@@ -290,9 +285,9 @@ export function createHandler(overrides = {}) {
   return async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json')
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
+      ;({ userId } = await services.verifyAccessToken(req))
     } catch {
       res.statusCode = 401
       res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -302,7 +297,7 @@ export function createHandler(overrides = {}) {
     try {
       const sql = services.getSql()
       if (req.method === 'GET') {
-        await listCalendars(sql, email, res)
+        await listCalendars(sql, userId, res)
         return
       }
       if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
@@ -314,10 +309,10 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST' && body.action === 'sync') await syncCalendar(sql, email, body, res)
-        else if (req.method === 'POST') await createCalendar(sql, email, body, res)
-        else if (req.method === 'PATCH') await renameCalendar(sql, email, body, res)
-        else await deleteCalendar(sql, email, body, res)
+        if (req.method === 'POST' && body.action === 'sync') await syncCalendar(sql, userId, body, res)
+        else if (req.method === 'POST') await createCalendar(sql, userId, body, res)
+        else if (req.method === 'PATCH') await renameCalendar(sql, userId, body, res)
+        else await deleteCalendar(sql, userId, body, res)
         return
       }
       res.statusCode = 405

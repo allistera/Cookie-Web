@@ -68,9 +68,9 @@ export default async function handler(req, res) {
     return
   }
 
-  let email
+  let userId
   try {
-    ;({ email } = await verifyAccessToken(req))
+    ;({ userId } = await verifyAccessToken(req))
   } catch {
     res.statusCode = 401
     res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -85,7 +85,7 @@ export default async function handler(req, res) {
 
   let allowed
   try {
-    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+    allowed = await allowRequest(getSql(), userId, 'ai', RATE_LIMIT)
   } catch (err) {
     console.error('POST /api/ask quota enforcement failed:', err.message)
     res.statusCode = 503
@@ -126,7 +126,7 @@ export default async function handler(req, res) {
         const vector = JSON.stringify(
           await embedTextCached(question, process.env.OPENAI_API_KEY),
         )
-        return await vectorLeg(sql, email, vector, spec.filters, CANDIDATES)
+        return await vectorLeg(sql, userId, vector, spec.filters, CANDIDATES)
       } catch (err) {
         console.error('POST /api/ask vector leg failed:', err.message)
         return []
@@ -134,7 +134,7 @@ export default async function handler(req, res) {
     }
 
     const [keywordRows, vectorRows] = await Promise.all([
-      keywordLeg(sql, email, spec, CANDIDATES),
+      keywordLeg(sql, userId, spec, CANDIDATES),
       semanticIds(),
     ])
     const ids = fuseRankings([
@@ -157,8 +157,7 @@ export default async function handler(req, res) {
       SELECT m.id, m.from_name, m.from_address, m.subject,
              LEFT(m.body_text, ${CONTEXT_BODY_CHARS}) AS body_text, m.sent_at
       FROM messages m
-      JOIN users u ON u.id = m.user_id
-      WHERE lower(u.email) = ${email} AND m.id = ANY(${ids}::uuid[])
+      WHERE m.user_id = ${userId} AND m.id = ANY(${ids}::uuid[])
     `
     const byId = new Map(rows.map((row) => [row.id, row]))
     const ordered = ids.map((id) => byId.get(id)).filter(Boolean)

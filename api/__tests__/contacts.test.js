@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createHandler, fetchContacts } from '../_lib/contacts.js'
 
+const USER_ID = '99999999-9999-9999-9999-999999999999'
+
 const contactsHandler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: () => () => Promise.resolve([{ address: 'a@example.com', name: 'A' }]),
 })
 
@@ -17,16 +19,15 @@ describe('fetchContacts', () => {
       return []
     }
 
-    fetchContacts(sql, 'owner@example.com')
+    fetchContacts(sql, USER_ID)
 
     expect(query).toContain('FROM contacts c')
-    expect(query).toContain('JOIN users u ON u.id = c.user_id')
-    expect(query).toContain('WHERE lower(u.email) =')
+    expect(query).toContain('WHERE c.user_id =')
     expect(query).toContain('c.address')
     expect(query).toContain('c.name')
     expect(query).toContain('ORDER BY')
     expect(query).toContain('LIMIT')
-    expect(values).toEqual(['owner@example.com', 2000])
+    expect(values).toEqual([USER_ID, 2000])
   })
 })
 

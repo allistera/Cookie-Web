@@ -14,6 +14,7 @@ import {
 const ID_A = '11111111-1111-4111-8111-111111111111'
 const ID_B = '22222222-2222-4222-8222-222222222222'
 const ID_C = '33333333-3333-4333-8333-333333333333'
+const USER_ID = '99999999-9999-9999-9999-999999999999'
 
 function digestRow(topics, summary = 'Mostly kitchen news.') {
   return { summary, raw: { topics }, created_at: '2026-08-03T05:00:00.000Z' }
@@ -27,12 +28,11 @@ describe('fetchTasks', () => {
       return []
     }
 
-    fetchTasks(sql, 'owner@example.com')
+    fetchTasks(sql, USER_ID)
 
     expect(query).toContain('FROM tasks t')
-    expect(query).toContain('JOIN users u ON u.id = t.user_id')
     expect(query).toContain('LEFT JOIN messages m ON m.id = t.message_id AND m.user_id = t.user_id')
-    expect(query).toContain('WHERE lower(u.email) =')
+    expect(query).toContain('WHERE t.user_id =')
     expect(query).toContain('t.content')
     expect(query).toContain('m.from_address AS reply_to')
     expect(query).toContain('m.subject AS message_subject')
@@ -47,7 +47,7 @@ describe('fetchTasks', () => {
       return []
     }
 
-    fetchTasks(sql, 'owner@example.com')
+    fetchTasks(sql, USER_ID)
 
     expect(query).toContain("t.source <> 'todoist' OR t.due_date <= CURRENT_DATE")
   })
@@ -63,15 +63,15 @@ describe('fetchLatestSummary', () => {
       return []
     }
 
-    fetchLatestSummary(sql, 'owner@example.com', 'daily_digest')
+    fetchLatestSummary(sql, USER_ID, 'daily_digest')
 
     expect(query).toContain('FROM summaries s')
-    expect(query).toContain('JOIN users u ON u.id = s.user_id')
+    expect(query).toContain('WHERE s.user_id =')
     // These are the rows with no message; per-message summaries are not.
     expect(query).toContain('s.message_id IS NULL')
     expect(query).toContain('ORDER BY s.created_at DESC')
     expect(query).toContain('LIMIT 1')
-    expect(values).toEqual(['owner@example.com', 'daily_digest'])
+    expect(values).toEqual([USER_ID, 'daily_digest'])
   })
 })
 
@@ -85,14 +85,14 @@ describe('fetchMessageStates', () => {
       return []
     }
 
-    fetchMessageStates(sql, 'owner@example.com', [ID_A])
+    fetchMessageStates(sql, USER_ID, [ID_A])
 
     expect(query).toContain('m.is_unread')
-    expect(query).toContain('WHERE lower(u.email) =')
+    expect(query).toContain('WHERE m.user_id =')
     expect(query).toContain('::uuid[]')
     expect(query).toContain('NOT m.is_deleted')
     expect(query).not.toContain('is_archived')
-    expect(values).toEqual(['owner@example.com', [ID_A]])
+    expect(values).toEqual([USER_ID, [ID_A]])
   })
 })
 
@@ -175,13 +175,13 @@ describe('fetchOwnedTask', () => {
       return []
     }
 
-    fetchOwnedTask(sql, 'task-uuid', 'owner@example.com')
+    fetchOwnedTask(sql, 'task-uuid', USER_ID)
 
     expect(query).toContain('FROM tasks t')
     expect(query).toContain('t.external_id')
     expect(query).toContain('WHERE t.id =')
-    expect(query).toContain('lower(u.email) =')
-    expect(values).toEqual(['task-uuid', 'owner@example.com'])
+    expect(query).toContain('t.user_id =')
+    expect(values).toEqual(['task-uuid', USER_ID])
   })
 })
 
@@ -195,13 +195,11 @@ describe('deleteOwnedTask', () => {
       return []
     }
 
-    deleteOwnedTask(sql, 'task-uuid', 'owner@example.com')
+    deleteOwnedTask(sql, 'task-uuid', USER_ID)
 
     expect(query).toContain('DELETE FROM tasks t')
-    expect(query).toContain('USING users u')
-    expect(query).toContain('t.user_id = u.id')
-    expect(query).toContain('lower(u.email) =')
-    expect(values).toEqual(['task-uuid', 'owner@example.com'])
+    expect(query).toContain('t.user_id =')
+    expect(values).toEqual(['task-uuid', USER_ID])
   })
 })
 

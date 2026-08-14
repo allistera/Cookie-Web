@@ -9,8 +9,10 @@ const mocks = {
   resendSend: vi.fn(),
 }
 
+const USER_ID = '11111111-1111-1111-1111-111111111111'
+
 const handler = createHandler({
-  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com' })),
+  verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: mocks.getSql,
   embedText: vi.fn(),
   createResend: () => ({ emails: { send: mocks.resendSend } }),
