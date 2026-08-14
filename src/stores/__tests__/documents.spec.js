@@ -70,6 +70,27 @@ describe('documents store', () => {
     ])
   })
 
+  it('resolves openDocDailyDate only for a title-and-folder daily note', () => {
+    store.folders = [
+      { id: 'daily', parent_id: null, title: 'Daily' },
+      { id: 'year', parent_id: 'daily', title: '2026' },
+      { id: 'month', parent_id: 'year', title: 'Aug' },
+      { id: 'projects', parent_id: null, title: 'Projects' },
+    ]
+
+    store.openDoc = null
+    expect(store.openDocDailyDate).toBeNull()
+
+    store.openDoc = { folder_id: 'month', title: 'Not a date' }
+    expect(store.openDocDailyDate).toBeNull()
+
+    store.openDoc = { folder_id: 'projects', title: '13-08-26' }
+    expect(store.openDocDailyDate).toBeNull()
+
+    store.openDoc = { folder_id: 'month', title: '13-08-26' }
+    expect(store.openDocDailyDate).toEqual(new Date(2026, 7, 13))
+  })
+
   it('creates a document and prepends it to the list', async () => {
     stubFetch({
       POST: (url, body) =>

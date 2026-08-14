@@ -5,6 +5,7 @@ import {
   formatDailyMonthFolder,
   formatDailyNoteTitle,
   formatDailyYearFolder,
+  parseDailyNoteDate,
 } from '../lib/documentDates'
 import { useInboxStore } from './inbox'
 
@@ -51,6 +52,20 @@ export const useDocumentsStore = defineStore('documents', {
       return [...counts.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([name, count]) => ({ name, count }))
+    },
+    // The date a daily note (Daily/<year>/<month>/DD-MM-YY, seeded by
+    // openTodayNote) represents, or null for any other open document - both
+    // the title shape and living under the root "Daily" folder must hold, so
+    // a regular note someone happens to title like a date doesn't match.
+    openDocDailyDate(state) {
+      const doc = state.openDoc
+      if (!doc) return null
+      const date = parseDailyNoteDate(doc.title)
+      if (!date) return null
+      const byId = new Map(state.folders.map((folder) => [folder.id, folder]))
+      let folder = byId.get(doc.folder_id)
+      while (folder?.parent_id) folder = byId.get(folder.parent_id)
+      return folder?.title === 'Daily' ? date : null
     },
   },
 

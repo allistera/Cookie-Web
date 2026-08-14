@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 
 import { useDocumentsStore } from '../stores/documents'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
+import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
 
 // The dashboard only needs document metadata. Keep Editor.js and its tools out
 // of that route payload until a specific document is actually opened.
@@ -99,12 +100,15 @@ function onEditorSave(payload) {
       <div v-if="store.isOpenDocLoading" class="documents-loading">
         <div class="spinner"></div>
       </div>
-      <DocumentEditor
-        v-else-if="store.openDoc"
-        ref="editorComponent"
-        :doc="store.openDoc"
-        @save="onEditorSave"
-      />
+      <div v-else-if="store.openDoc" class="editor-with-sidebar">
+        <DocumentEditor
+          ref="editorComponent"
+          class="editor-column"
+          :doc="store.openDoc"
+          @save="onEditorSave"
+        />
+        <DocumentCalendarSidebar v-if="store.openDocDailyDate" :date="store.openDocDailyDate" />
+      </div>
       <div v-else class="documents-empty">
         <p>This document is gone or never existed.</p>
         <router-link to="/documents">Back to all documents</router-link>
@@ -208,6 +212,16 @@ function onEditorSave(payload) {
   height: 100%;
   overflow-y: auto;
   background: var(--bg-card);
+}
+
+.editor-with-sidebar {
+  display: flex;
+  align-items: stretch;
+}
+
+.editor-column {
+  flex: 1;
+  min-width: 0;
 }
 
 .editor-statusbar {

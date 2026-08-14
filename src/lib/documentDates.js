@@ -27,3 +27,17 @@ export function formatDailyYearFolder(date = new Date()) {
 export function formatDailyMonthFolder(date = new Date()) {
   return date.toLocaleDateString('en-GB', { month: 'short' })
 }
+
+const DAILY_NOTE_TITLE_RE = /^(\d{2})-(\d{2})-(\d{2})$/
+
+// Inverse of formatDailyNoteTitle: "13-08-26" -> Date(2026, 7, 13). Returns
+// null for anything that isn't that exact shape, including a title that
+// looks close but names a calendar date that doesn't exist (e.g. "31-02-26").
+export function parseDailyNoteDate(title) {
+  const match = DAILY_NOTE_TITLE_RE.exec(title ?? '')
+  if (!match) return null
+  const [, day, month, year] = match
+  const date = new Date(2000 + Number(year), Number(month) - 1, Number(day))
+  if (date.getDate() !== Number(day) || date.getMonth() !== Number(month) - 1) return null
+  return date
+}
