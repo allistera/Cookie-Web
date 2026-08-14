@@ -1877,7 +1877,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // Real RAG: /api/ask retrieves the most relevant stored emails via
     // hybrid search and answers with the sources it used.
-    async askGemini(query) {
+    async askAssistant(query) {
       this.isChatDrawerActive = true
       pushCapped(this.chatHistory, { text: query, sender: 'user' }, MAX_CHAT_HISTORY)
       this.isChatLoading = true

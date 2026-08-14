@@ -21,7 +21,7 @@ function messageLines(text) {
 function handleSend() {
   const text = inputVal.value.trim()
   if (text) {
-    store.askGemini(text)
+    store.askAssistant(text)
     inputVal.value = ''
   }
 }

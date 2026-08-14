@@ -1005,7 +1005,7 @@ describe('Inbox Store', () => {
     expect(store.openEmail).toEqual(store.sentEmails[0])
   })
 
-  it('askGemini posts to /api/ask and records the answer with sources', async () => {
+  it('askAssistant posts to /api/ask and records the answer with sources', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -1018,7 +1018,7 @@ describe('Inbox Store', () => {
     )
 
     const store = useInboxStore()
-    await store.askGemini('What happened with the renovation?')
+    await store.askAssistant('What happened with the renovation?')
 
     expect(fetch).toHaveBeenCalledWith('/api/ask', {
       method: 'POST',
@@ -1038,12 +1038,12 @@ describe('Inbox Store', () => {
     expect(store.isChatLoading).toBe(false)
   })
 
-  it('askGemini records an apology message when the API fails', async () => {
+  it('askAssistant records an apology message when the API fails', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
 
     const store = useInboxStore()
-    await store.askGemini('Anything?')
+    await store.askAssistant('Anything?')
 
     expect(store.chatHistory[1].text).toContain("couldn't reach the assistant")
     expect(store.isChatLoading).toBe(false)

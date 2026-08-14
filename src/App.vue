@@ -179,7 +179,7 @@ function askFromSearch() {
   cancelScheduledSearch()
   store.cancelPendingSearch()
   isSearchSuggestionsActive.value = false
-  store.askGemini(query)
+  store.askAssistant(query)
 }
 
 async function runMailboxSearch(query, { semantic = true, force = false } = {}) {
