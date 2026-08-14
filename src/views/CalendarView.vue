@@ -4,7 +4,8 @@ import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
 
-const REFERENCE_DATE = new Date(2026, 6, 24)
+const today = new Date()
+const REFERENCE_DATE = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 const DAY_HOUR_HEIGHT = 96
 const WEEK_HOUR_HEIGHT = 72
 const START_HOUR = 8
@@ -21,7 +22,6 @@ const eventFormReadOnly = ref(false)
 const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
-const suggestionVisible = ref(true)
 
 const calendars = ref([])
 const visibleCalendars = ref(new Set())
@@ -133,16 +133,6 @@ watch(selectedDate, () => {
     loadEvents()
   }
 })
-
-const suggestedEvent = {
-  id: 'suggested',
-  title: 'Suggested',
-  date: '2026-07-21',
-  start: '14:00',
-  duration: 45,
-  tone: 'suggested',
-  calendar: 'work',
-}
 
 const visibleEvents = computed(() =>
   events.value.filter((event) => visibleCalendars.value.has(event.calendar)),
@@ -789,24 +779,6 @@ onUnmounted(() => {
           </div>
         </article>
 
-        <article v-if="suggestionVisible" class="calendar-insight-card">
-          <span class="insight-icon suggestion-icon material-symbols-outlined" aria-hidden="true">
-            auto_awesome
-          </span>
-          <div class="insight-copy">
-            <h2>Suggested slot</h2>
-            <p>A 45-min opening for "Roadmap sync — Priya" — Tue, 2:00–2:45 PM.</p>
-            <div class="insight-actions">
-              <button type="button" class="primary-small-button" @click="suggestionVisible = false">
-                Accept
-              </button>
-              <button type="button" class="secondary-small-button" @click="suggestionVisible = false">
-                Skip
-              </button>
-            </div>
-          </div>
-        </article>
-
         <article v-if="autoScheduledCount > 0" class="calendar-insight-card auto-scheduled-card">
           <span class="insight-icon auto-icon material-symbols-outlined" aria-hidden="true">bolt</span>
           <div class="insight-copy">
@@ -940,13 +912,6 @@ onUnmounted(() => {
               <strong>{{ event.title }}</strong>
               <span v-if="event.duration >= 60">{{ eventTime(event) }} · {{ event.duration }} min</span>
             </button>
-            <article
-              v-if="suggestionVisible"
-              class="calendar-event week-event tone-suggested"
-              :style="weekEventStyle(suggestedEvent)"
-            >
-              <strong>Suggested</strong>
-            </article>
             <div
               v-if="weekDragPreviewStyle"
               class="calendar-event week-event drag-preview"
@@ -1327,7 +1292,6 @@ onUnmounted(() => {
 .calendar-navigation,
 .calendar-header-actions,
 .calendar-view-tabs,
-.insight-actions,
 .new-event-button,
 .new-event-dialog-header,
 .new-event-dialog-actions {
@@ -1514,11 +1478,6 @@ onUnmounted(() => {
   color: var(--calendar-coral);
 }
 
-.suggestion-icon {
-  background: var(--calendar-mint);
-  color: var(--calendar-mint-strong);
-}
-
 .auto-icon {
   background: var(--calendar-soft);
   color: var(--calendar-event-ink);
@@ -1543,8 +1502,7 @@ onUnmounted(() => {
   line-height: 1.48;
 }
 
-.primary-small-button,
-.secondary-small-button {
+.primary-small-button {
   min-height: 34px;
   margin-top: 16px;
   padding: 0 16px;
@@ -1553,28 +1511,13 @@ onUnmounted(() => {
   font-family: var(--font-stack);
   font-size: 13px;
   font-weight: 600;
-}
-
-.primary-small-button {
   border: 1px solid var(--calendar-emphasis);
   background: var(--calendar-emphasis);
   color: var(--calendar-on-emphasis);
 }
 
-.secondary-small-button {
-  border: 1px solid var(--calendar-line);
-  background: transparent;
-  color: var(--calendar-muted);
-}
-
-.insight-actions {
-  gap: 14px;
-}
-
 .primary-small-button:hover,
-.primary-small-button:focus-visible,
-.secondary-small-button:hover,
-.secondary-small-button:focus-visible {
+.primary-small-button:focus-visible {
   filter: brightness(1.12);
   outline: 2px solid color-mix(in srgb, var(--calendar-mint-strong) 32%, transparent);
   outline-offset: 2px;

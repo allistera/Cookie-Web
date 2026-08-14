@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarView from '../CalendarView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
@@ -209,11 +209,20 @@ async function mountCalendar(options) {
 }
 
 beforeEach(() => {
+  // CalendarView reads new Date() once at setup to compute "today" (REFERENCE_DATE).
+  // Freeze it to match every fixture date below instead of drifting with the
+  // real clock; individual tests can override the time-of-day further.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 6, 24, 10, 30))
   setActivePinia(createPinia())
   const store = useInboxStore()
   vi.spyOn(store, 'authHeaders').mockResolvedValue({})
   vi.spyOn(store, 'notify').mockImplementation(() => {})
   mockCalendarApi()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('CalendarView', () => {
@@ -588,14 +597,11 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
-  it('dismisses insight cards through their actions', async () => {
+  it('dismisses the conflict insight card through its action', async () => {
     const wrapper = await mountCalendar()
 
     await wrapper.get('.primary-small-button').trigger('click')
     expect(wrapper.text()).not.toContain('Scheduling conflict')
-
-    await wrapper.get('.secondary-small-button').trigger('click')
-    expect(wrapper.text()).not.toContain('Suggested slot')
     expect(wrapper.text()).toContain('Auto-scheduled')
   })
 
