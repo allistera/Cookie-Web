@@ -1,8 +1,13 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
+import { useCalendars } from '../composables/useCalendars'
 
 const store = useInboxStore()
+const { calendars, writableCalendars, subscribedCalendars, loadCalendars } = useCalendars(
+  (init) => store.authHeaders(init),
+  (message, kind) => store.notify(message, kind),
+)
 
 const today = new Date()
 const REFERENCE_DATE = new Date(today.getFullYear(), today.getMonth(), today.getDate())
@@ -24,14 +29,8 @@ const eventTitleInput = ref(null)
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
 
-const calendars = ref([])
 const visibleCalendars = ref(new Set())
-const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 
-// Manually-created calendars accept events; subscribed ones are entirely
-// sync-managed, so they're excluded from anywhere an event gets filed.
-const writableCalendars = computed(() => calendars.value.filter((calendar) => !calendar.subscriptionUrl))
-const subscribedCalendars = computed(() => calendars.value.filter((calendar) => calendar.subscriptionUrl))
 const calendarSections = computed(() => [
   { id: 'calendars', label: 'Calendars', calendars: writableCalendars.value },
   ...(subscribedCalendars.value.length
@@ -51,18 +50,9 @@ function eventColorVars(event) {
   return color ? { '--event-color': color } : {}
 }
 
-async function loadCalendars() {
-  try {
-    const headers = await store.authHeaders()
-    const response = await fetch(CALENDARS_ENDPOINT, { headers })
-    if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
-    const { calendars: rows } = await response.json()
-    calendars.value = rows
-    visibleCalendars.value = new Set(rows.map((calendar) => calendar.id))
-  } catch (error) {
-    console.error('Failed to load calendars:', error)
-    store.notify('Failed to load calendars.', 'error')
-  }
+async function loadVisibleCalendars() {
+  await loadCalendars()
+  visibleCalendars.value = new Set(calendars.value.map((calendar) => calendar.id))
 }
 
 function defaultCalendarId() {
@@ -657,7 +647,7 @@ onMounted(async () => {
   nowTimer = setInterval(() => {
     now.value = new Date()
   }, 60_000)
-  await Promise.all([loadCalendars(), loadEvents()])
+  await Promise.all([loadVisibleCalendars(), loadEvents()])
   if (store.calendarNewEventDraft) {
     const draft = store.calendarNewEventDraft
     store.calendarNewEventDraft = null

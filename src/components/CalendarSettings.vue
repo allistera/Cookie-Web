@@ -1,10 +1,19 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useInboxStore } from '../stores/inbox'
+import { CALENDARS_ENDPOINT, useCalendars } from '../composables/useCalendars'
 
 const store = useInboxStore()
+const {
+  calendars,
+  writableCalendars,
+  subscribedCalendars,
+  loadCalendars: fetchCalendars,
+} = useCalendars(
+  (init) => store.authHeaders(init),
+  (message, kind) => store.notify(message, kind),
+)
 
-const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 const NEW_CALENDAR_PALETTE = [
   '#3b82f6',
   '#e5484d',
@@ -16,7 +25,6 @@ const NEW_CALENDAR_PALETTE = [
   '#ec4899',
 ]
 
-const calendars = ref([])
 const isLoading = ref(true)
 const createMode = ref(null)
 const newCalendarName = ref('')
@@ -30,12 +38,6 @@ const operationError = ref('')
 const errorCalendarId = ref(null)
 const syncingCalendarId = ref(null)
 
-const writableCalendars = computed(() =>
-  calendars.value.filter((calendar) => !calendar.subscriptionUrl),
-)
-const subscribedCalendars = computed(() =>
-  calendars.value.filter((calendar) => calendar.subscriptionUrl),
-)
 const calendarGroups = computed(() => [
   {
     id: 'your-calendars-heading',
@@ -59,18 +61,8 @@ const calendarGroups = computed(() => [
 
 async function loadCalendars() {
   isLoading.value = true
-  try {
-    const headers = await store.authHeaders()
-    const response = await fetch(CALENDARS_ENDPOINT, { headers })
-    if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
-    const body = await response.json()
-    calendars.value = body.calendars ?? []
-  } catch (error) {
-    console.error('Failed to load calendars:', error)
-    store.notify('Failed to load calendars.', 'error')
-  } finally {
-    isLoading.value = false
-  }
+  await fetchCalendars()
+  isLoading.value = false
 }
 
 function clearError() {
