@@ -207,13 +207,13 @@ watch(
   (value) => {
     const el = editorRef.value
     if (el && document.activeElement !== el && value !== el.innerHTML) {
-      el.innerHTML = value || ''
+      el.innerHTML = sanitizeEmailHtml(value)
     }
   },
 )
 
 onMounted(() => {
-  if (editorRef.value) editorRef.value.innerHTML = props.modelValue || ''
+  if (editorRef.value) editorRef.value.innerHTML = sanitizeEmailHtml(props.modelValue)
 })
 
 defineExpose({ focus: () => editorRef.value?.focus() })
