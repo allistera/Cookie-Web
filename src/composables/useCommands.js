@@ -83,6 +83,18 @@ export function useCommands() {
         run: () => router.push('/inbox'),
       },
       {
+        id: 'go-calendar',
+        title: 'Go to Calendar',
+        icon: 'calendar_month',
+        run: () => router.push({ name: 'calendar' }),
+      },
+      {
+        id: 'go-documents',
+        title: 'Go to Documents',
+        icon: 'description',
+        run: () => router.push({ name: 'documents' }),
+      },
+      {
         id: 'go-starred',
         title: 'Go to Starred',
         icon: 'star',

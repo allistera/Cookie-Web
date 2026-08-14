@@ -17,6 +17,7 @@ async function setupCommands(routeName = 'ai-inbox') {
       { path: '/', name: 'ai-inbox', component: { template: '<div />' } },
       { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
       { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
+      { path: '/documents/:id?', name: 'documents', component: { template: '<div />' } },
       { path: '/scheduled', name: 'scheduled-sends', component: { template: '<div />' } },
       { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
     ],
@@ -148,6 +149,12 @@ describe('useCommands', () => {
 
     byId['go-spam'].run()
     expect(push).toHaveBeenCalledWith({ path: '/inbox', query: { filter: 'spam' } })
+
+    byId['go-calendar'].run()
+    expect(push).toHaveBeenCalledWith({ name: 'calendar' })
+
+    byId['go-documents'].run()
+    expect(push).toHaveBeenCalledWith({ name: 'documents' })
 
     byId['open-settings'].run()
     expect(push).toHaveBeenCalledWith({ name: 'settings', params: { section: 'account' } })
