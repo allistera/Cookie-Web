@@ -114,21 +114,16 @@ async function createRule(sql, email, body, res) {
     }
   }
 
-  await sql.begin(async (tx) => {
-    let position = 0
-    for (const condition of conditions) {
-      await tx`
-        INSERT INTO label_rule_conditions (rule_id, field, operator, value, position)
-        VALUES (${rule.id}, ${condition.field}, ${condition.operator}, ${condition.value}, ${position})
-      `
-      position += 1
-    }
-  })
+  const positionedConditions = conditions.map((condition, position) => ({ ...condition, position }))
+  await sql`
+    INSERT INTO label_rule_conditions (rule_id, field, operator, value, position)
+    SELECT ${rule.id}, row.field, row.operator, row.value, row.position
+    FROM json_to_recordset(${positionedConditions}::json)
+      AS row(field text, operator text, value text, position int)
+  `
 
   res.statusCode = 201
-  res.end(JSON.stringify({
-    rule: { ...rule, conditions: conditions.map((c, i) => ({ ...c, position: i })) },
-  }))
+  res.end(JSON.stringify({ rule: { ...rule, conditions: positionedConditions } }))
 }
 
 async function updateRule(sql, email, body, res) {
@@ -211,26 +206,28 @@ async function updateRule(sql, email, body, res) {
     RETURNING r.id, r.name, r.label_id, r.action, r.match_type, r.enabled
   `
 
-  if (hasConditions) {
+  const positionedConditions = hasConditions
+    ? conditions.map((condition, position) => ({ ...condition, position }))
+    : null
+
+  if (positionedConditions) {
     await sql.begin(async (tx) => {
       await tx`DELETE FROM label_rule_conditions WHERE rule_id = ${id}`
-      let position = 0
-      for (const condition of conditions) {
-        await tx`
-          INSERT INTO label_rule_conditions (rule_id, field, operator, value, position)
-          VALUES (${id}, ${condition.field}, ${condition.operator}, ${condition.value}, ${position})
-        `
-        position += 1
-      }
+      await tx`
+        INSERT INTO label_rule_conditions (rule_id, field, operator, value, position)
+        SELECT ${id}, row.field, row.operator, row.value, row.position
+        FROM json_to_recordset(${positionedConditions}::json)
+          AS row(field text, operator text, value text, position int)
+      `
     })
   }
 
-  const rows = hasConditions
-    ? conditions.map((condition, i) => ({ ...condition, position: i }))
-    : await sql`
+  const rows =
+    positionedConditions ??
+    (await sql`
       SELECT field, operator, value, position FROM label_rule_conditions
       WHERE rule_id = ${id} ORDER BY position
-    `
+    `)
   res.statusCode = 200
   res.end(JSON.stringify({ rule: { ...rule, conditions: rows } }))
 }
