@@ -27,6 +27,7 @@ describe('AI quota validation order', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.OPENAI_API_KEY = 'test-key'
+    services.getSql.mockReturnValue(() => Promise.resolve([]))
   })
 
   afterEach(() => {
@@ -61,6 +62,17 @@ describe('AI quota validation order', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body).toEqual({ emails: [] })
     expect(services.getSql).not.toHaveBeenCalled()
+    expect(services.allowRequest).not.toHaveBeenCalled()
+  })
+
+  it('does not claim Search quota for a filters-only query', async () => {
+    const res = response()
+
+    await searchHandler({ method: 'GET', headers: {}, url: '/api/search?q=tag:Personal' }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ emails: [] })
+    expect(services.getSql).toHaveBeenCalledTimes(1)
     expect(services.allowRequest).not.toHaveBeenCalled()
   })
 })

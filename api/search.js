@@ -90,7 +90,7 @@ export function createSearchHandler(services = { getSql, verifyAccessToken, allo
     // Only hybrid search spends AI quota. Keyword-only type-ahead remains a
     // normal authenticated database query and cannot exhaust the shared AI
     // allowance merely because a user paused while typing.
-    if (semantic) {
+    if (semantic && spec.text && process.env.OPENAI_API_KEY) {
       let allowed
       try {
         allowed = await services.allowRequest(services.getSql(), userId, 'ai', RATE_LIMIT)
