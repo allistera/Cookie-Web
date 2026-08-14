@@ -236,20 +236,20 @@ async function storeSentMessage(
   }
 
   // Best-effort embedding so sent mail is semantically searchable; NULL rows
-  // are healed by the Backfill Embeddings workflow.
+  // are healed by the Backfill Embeddings workflow. Not awaited: the send
+  // response shouldn't wait on an OpenAI round trip for a value that's
+  // already designed to be safely missing and healed later.
   if (process.env.OPENAI_API_KEY) {
-    try {
-      const vector = JSON.stringify(
-        await services.embedText(`${subject}\n\n${text}`, process.env.OPENAI_API_KEY),
+    services
+      .embedText(`${subject}\n\n${text}`, process.env.OPENAI_API_KEY)
+      .then(
+        (vector) => sql`
+          UPDATE messages
+          SET embedding = ${JSON.stringify(vector)}::extensions.vector, embedding_model = ${EMBEDDING_MODEL}
+          WHERE id = ${messageUuid} AND embedding IS NULL
+        `,
       )
-      await sql`
-        UPDATE messages
-        SET embedding = ${vector}::extensions.vector, embedding_model = ${EMBEDDING_MODEL}
-        WHERE id = ${messageUuid} AND embedding IS NULL
-      `
-    } catch (err) {
-      console.error('sent-message embedding failed:', err.message)
-    }
+      .catch((err) => console.error('sent-message embedding failed:', err.message))
   }
 
   return { messageUuid }
