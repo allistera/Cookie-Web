@@ -12,6 +12,7 @@ import DragDrop from 'editorjs-drag-drop'
 
 import { useInboxStore } from '../stores/inbox'
 import { formatInsertedDate } from '../lib/documentDates'
+import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import {
   MAX_DOCUMENT_TAGS,
@@ -77,6 +78,13 @@ const titleEl = ref(null)
 const tags = ref([])
 const tagDraft = ref('')
 let editor = null
+let lastSerializedBlocks = null
+
+// Editor.js emits a change for each block mutation. Serializing every block on
+// every keystroke makes editing cost grow with the whole document, even though
+// the store already waits before sending the result to the API. Coalesce those
+// mutations here so both serialization and persistence are bounded.
+const BLOCK_SERIALIZE_DEBOUNCE_MS = 300
 
 // Images are inlined as data: URLs in the block data (no upload endpoint),
 // so a size cap keeps a single picture from bloating the document row.
@@ -101,33 +109,51 @@ const imageUploader = {
   },
 }
 
-async function emitBlocks() {
-  if (!editor) return
-  try {
-    emit('save', { blocks: await readBlocks() })
-  } catch (error) {
-    console.error('Reading editor content failed:', error)
-  }
-}
-
-async function readBlocks() {
-  if (!editor) return []
-  await editor.isReady
-  const output = await editor.save()
+async function readBlocks(target = editor) {
+  if (!target) return []
+  await target.isReady
+  const output = await target.save()
   // The Date tool is transient — it swaps itself for a paragraph. Should a
   // save catch it mid-swap, persisting it would re-run its replacement on
   // every future load, so it never reaches storage.
   return output.blocks.filter((block) => block.type !== 'date')
 }
 
-async function snapshot() {
-  return {
-    title: titleEl.value?.textContent ?? '',
-    blocks: await readBlocks(),
+async function serializeAndEmitBlocks() {
+  if (!editor) return
+  const activeEditor = editor
+  const documentId = props.doc.id
+  try {
+    const blocks = await readBlocks(activeEditor)
+    lastSerializedBlocks = blocks
+    emit('save', { id: documentId, blocks })
+  } catch (error) {
+    console.error('Reading editor content failed:', error)
   }
 }
 
-defineExpose({ snapshot })
+const blockSaveScheduler = createDocumentSaveScheduler(
+  serializeAndEmitBlocks,
+  BLOCK_SERIALIZE_DEBOUNCE_MS,
+)
+
+function scheduleBlocksSave() {
+  blockSaveScheduler.schedule()
+}
+
+function flushPendingBlocks() {
+  return blockSaveScheduler.flush()
+}
+
+async function snapshot() {
+  await flushPendingBlocks()
+  return {
+    title: titleEl.value?.textContent ?? '',
+    blocks: lastSerializedBlocks ?? (await readBlocks()),
+  }
+}
+
+defineExpose({ flushPendingBlocks, snapshot })
 
 function mountEditor() {
   // The title is contenteditable, so it is filled imperatively — a template
@@ -143,6 +169,7 @@ function mountEditor() {
   const blocks = Array.isArray(props.doc.blocks)
     ? JSON.parse(JSON.stringify(props.doc.blocks))
     : []
+  lastSerializedBlocks = blocks
   editor = new EditorJS({
     holder: holder.value,
     data: { blocks },
@@ -160,11 +187,11 @@ function mountEditor() {
       code: { class: CodeTool, config: { placeholder: 'Write code here…' } },
       delimiter: Delimiter,
       date: InsertDateTool,
-      excalidraw: { class: ExcalidrawBlockTool, config: { onChange: emitBlocks } },
+      excalidraw: { class: ExcalidrawBlockTool, config: { onChange: scheduleBlocksSave } },
       image: { class: ImageTool, config: { uploader: imageUploader } },
     },
     onChange: () => {
-      emitBlocks()
+      scheduleBlocksSave()
     },
     onReady: () => {
       new DragDrop(editor)
@@ -174,7 +201,12 @@ function mountEditor() {
 
 onMounted(mountEditor)
 onBeforeUnmount(() => {
-  editor?.destroy?.()
+  const activeEditor = editor
+  const pendingFlush = flushPendingBlocks()
+  Promise.resolve(pendingFlush).finally(() => {
+    blockSaveScheduler.cancel()
+    activeEditor?.destroy?.()
+  })
   editor = null
 })
 
@@ -186,7 +218,7 @@ watch(
 )
 
 function onTitleInput(event) {
-  emit('save', { title: event.target.textContent ?? '' })
+  emit('save', { id: props.doc.id, title: event.target.textContent ?? '' })
 }
 
 function addTag() {
@@ -205,12 +237,12 @@ function addTag() {
   }
   tagDraft.value = ''
   tags.value = [...tags.value, tag]
-  emit('save', { tags: tags.value })
+  emit('save', { id: props.doc.id, tags: tags.value })
 }
 
 function removeTag(tag) {
   tags.value = tags.value.filter((candidate) => candidate !== tag)
-  emit('save', { tags: tags.value })
+  emit('save', { id: props.doc.id, tags: tags.value })
 }
 
 // Enter in the title moves into the body, like paper.

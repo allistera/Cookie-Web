@@ -1,14 +1,26 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import { useDocumentsStore } from '../stores/documents'
-import DocumentEditor from '../components/DocumentEditor.vue'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
+
+// The dashboard only needs document metadata. Keep Editor.js and its tools out
+// of that route payload until a specific document is actually opened.
+const DocumentEditor = defineAsyncComponent(() => import('../components/DocumentEditor.vue'))
 
 const store = useDocumentsStore()
 const route = useRoute()
 const router = useRouter()
+const editorComponent = ref(null)
+
+async function flushEditor() {
+  await editorComponent.value?.flushPendingBlocks?.()
+  await store.flushPendingSave()
+}
+
+onBeforeRouteLeave(flushEditor)
+onBeforeRouteUpdate(flushEditor)
 
 // /documents shows the dashboard; /documents/:id opens that document.
 watch(
@@ -22,7 +34,7 @@ watch(
 
 // Leaving the app entirely must not drop an edit still on the debounce timer.
 onBeforeUnmount(() => {
-  store.flushPendingSave()
+  void flushEditor()
 })
 
 const starredOnly = ref(false)
@@ -67,7 +79,7 @@ async function deleteFromDashboard(doc) {
 }
 
 function onEditorSave(payload) {
-  if (store.openDoc) store.scheduleContentSave(store.openDoc.id, payload)
+  if (payload.id) store.scheduleContentSave(payload.id, payload)
 }
 </script>
 
@@ -87,7 +99,12 @@ function onEditorSave(payload) {
       <div v-if="store.isOpenDocLoading" class="documents-loading">
         <div class="spinner"></div>
       </div>
-      <DocumentEditor v-else-if="store.openDoc" :doc="store.openDoc" @save="onEditorSave" />
+      <DocumentEditor
+        v-else-if="store.openDoc"
+        ref="editorComponent"
+        :doc="store.openDoc"
+        @save="onEditorSave"
+      />
       <div v-else class="documents-empty">
         <p>This document is gone or never existed.</p>
         <router-link to="/documents">Back to all documents</router-link>
