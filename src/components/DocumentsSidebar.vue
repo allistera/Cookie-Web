@@ -332,7 +332,7 @@ function onDragEnd() {
   width: 100%;
   border: none;
   background: none;
-  font: inherit;
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
