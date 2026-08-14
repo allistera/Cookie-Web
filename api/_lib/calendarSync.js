@@ -62,6 +62,37 @@ const toTimeKeyUTC = (date) => `${pad2(date.getUTCHours())}:${pad2(date.getUTCMi
 // intended calendar date must use local getters too — UTC getters would
 // shift the date by a day in any timezone that isn't UTC+0.
 const toDateKeyLocal = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+const toTimeKeyLocal = (date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+
+function timedOccurrenceKeys(date, timeZone) {
+  if (!timeZone) {
+    return { date: toDateKeyLocal(date), time: toTimeKeyLocal(date) }
+  }
+  if (timeZone === 'Etc/UTC' || timeZone === 'UTC') {
+    return { date: toDateKeyUTC(date), time: toTimeKeyUTC(date) }
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date)
+    const value = (type) => parts.find((part) => part.type === type)?.value
+    return {
+      date: `${value('year')}-${value('month')}-${value('day')}`,
+      time: `${value('hour')}:${value('minute')}`,
+    }
+  } catch {
+    // node-ical has already resolved the instant. If a feed supplies a TZID
+    // that this runtime does not know, UTC is the only deterministic fallback.
+    return { date: toDateKeyUTC(date), time: toTimeKeyUTC(date) }
+  }
+}
 
 function addDaysLocal(date, days) {
   const next = new Date(date)
@@ -84,12 +115,15 @@ function timedOccurrences(event, windowStart, windowEnd) {
 
   const durationMs = Math.max(new Date(event.end).getTime() - new Date(event.start).getTime(), 60_000)
   const durationMinutes = Math.round(durationMs / 60_000)
-  return starts.map((start) => ({
-    date: toDateKeyUTC(new Date(start)),
-    time: toTimeKeyUTC(new Date(start)),
-    durationMinutes,
-    allDay: false,
-  }))
+  return starts.map((start) => {
+    const keys = timedOccurrenceKeys(new Date(start), event.start.tz)
+    return {
+      date: keys.date,
+      time: keys.time,
+      durationMinutes,
+      allDay: false,
+    }
+  })
 }
 
 // An all-day occurrence is expanded into one row per calendar day it spans,

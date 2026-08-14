@@ -210,6 +210,42 @@ describe('syncCalendarSubscription', () => {
     return { sql, inserted }
   }
 
+  it('keeps TZID event wall times across daylight-saving offsets', async () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:winter@example.com',
+      'DTSTART;TZID=Europe/London:20260115T090000',
+      'DTEND;TZID=Europe/London:20260115T100000',
+      'SUMMARY:Winter meeting',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:summer@example.com',
+      'DTSTART;TZID=Europe/London:20260715T090000',
+      'DTEND;TZID=Europe/London:20260715T100000',
+      'SUMMARY:Summer meeting',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
+    const { sql, inserted } = captureInsertedRows()
+
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
+
+    expect(result.ok).toBe(true)
+    expect(inserted[0].map(({ date, start }) => ({ date, start }))).toEqual([
+      { date: '2026-01-15', start: '09:00' },
+      { date: '2026-07-15', start: '09:00' },
+    ])
+  })
+
   it('renders a single-day all-day event as one all_day row, not a ~24h timed block', async () => {
     const ics = [
       'BEGIN:VCALENDAR',
