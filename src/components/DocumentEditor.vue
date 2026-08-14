@@ -443,6 +443,14 @@ function onTitleEnter() {
   color: var(--schedule-line);
 }
 
+/* A checklist item's checkbox rounds into a circle once its line syncs to a
+   calendar event, so it reads as "this is an event", not a plain to-do
+   (which stays the tool's default square). Unordered/ordered list items
+   have no checkbox at all, so this never applies to them. */
+.document-blocks :deep(.is-schedule-checkbox) {
+  border-radius: 50% !important;
+}
+
 .document-blocks :deep(.ce-popover),
 .document-blocks :deep(.ce-inline-toolbar),
 .document-blocks :deep(.ce-conversion-toolbar) {

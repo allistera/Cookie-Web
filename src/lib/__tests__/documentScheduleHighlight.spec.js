@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { highlightScheduleLines, SCHEDULE_LINE_CLASS } from '../documentScheduleHighlight'
+import { highlightScheduleLines, SCHEDULE_CHECKBOX_CLASS, SCHEDULE_LINE_CLASS } from '../documentScheduleHighlight'
+
+function checklistItem(text) {
+  return `
+    <li class="cdx-list__item">
+      <div class="cdx-list__checkbox"><span class="cdx-list__checkbox-check"></span></div>
+      <div class="cdx-list__item-content">${text}</div>
+    </li>
+  `
+}
 
 function mount(html) {
   const root = document.createElement('div')
@@ -30,9 +39,9 @@ describe('highlightScheduleLines', () => {
     const root = mount(`
       <div class="ce-block"><div class="ce-block__content">
         <ol class="cdx-list cdx-list-checklist">
-          <li class="cdx-list__item"><div class="cdx-list__item-content">09:00 - Standup</div></li>
-          <li class="cdx-list__item"><div class="cdx-list__item-content">Plain task</div></li>
-          <li class="cdx-list__item"><div class="cdx-list__item-content">10:00 - 10:30 - Design review</div></li>
+          ${checklistItem('09:00 - Standup')}
+          ${checklistItem('Plain task')}
+          ${checklistItem('10:00 - 10:30 - Design review')}
         </ol>
       </div></div>
     `)
@@ -42,6 +51,34 @@ describe('highlightScheduleLines', () => {
     expect(items[0].classList.contains(SCHEDULE_LINE_CLASS)).toBe(true)
     expect(items[1].classList.contains(SCHEDULE_LINE_CLASS)).toBe(false)
     expect(items[2].classList.contains(SCHEDULE_LINE_CLASS)).toBe(true)
+  })
+
+  it('rounds a matching checklist item\'s checkbox into a circle, and leaves a plain one square', () => {
+    const root = mount(`
+      <div class="ce-block"><div class="ce-block__content">
+        <ol class="cdx-list cdx-list-checklist">
+          ${checklistItem('09:00 - Standup')}
+          ${checklistItem('Plain task')}
+        </ol>
+      </div></div>
+    `)
+    highlightScheduleLines(root)
+
+    const checkboxes = root.querySelectorAll('.cdx-list__checkbox-check')
+    expect(checkboxes[0].classList.contains(SCHEDULE_CHECKBOX_CLASS)).toBe(true)
+    expect(checkboxes[1].classList.contains(SCHEDULE_CHECKBOX_CLASS)).toBe(false)
+  })
+
+  it('does not touch a checkbox in an unrelated unordered/ordered list (they have none)', () => {
+    const root = mount(`
+      <div class="ce-block"><div class="ce-block__content">
+        <ul class="cdx-list cdx-list-unordered">
+          <li class="cdx-list__item"><div class="cdx-list__item-content">09:00 - Standup</div></li>
+        </ul>
+      </div></div>
+    `)
+    expect(() => highlightScheduleLines(root)).not.toThrow()
+    expect(root.querySelectorAll(`.${SCHEDULE_CHECKBOX_CLASS}`)).toHaveLength(0)
   })
 
   it('recurses into nested sub-items', () => {
