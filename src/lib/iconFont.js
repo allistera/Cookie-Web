@@ -96,5 +96,10 @@ export function loadMaterialSymbols(doc = document) {
     },
     { once: true },
   )
-  doc.head.append(stylesheet)
+  // The Google stylesheet also declares size, colour, and line-height on the
+  // icon class. Keep it before application CSS so component-level rules retain
+  // the same cascade precedence they had when the font lived in index.html.
+  const applicationStyles = doc.head.querySelector('style, link[rel="stylesheet"]')
+  if (applicationStyles) doc.head.insertBefore(stylesheet, applicationStyles)
+  else doc.head.append(stylesheet)
 }

@@ -75,6 +75,19 @@
    Hide ligature text until the font is ready so deferring it cannot flash raw
    names such as "calendar_month" in controls. */
 .material-symbols-outlined {
+  display: inline-block;
+  width: 1em;
+  overflow: hidden;
+  direction: ltr;
+  font-family: 'Material Symbols Outlined';
+  font-size: 24px;
+  font-style: normal;
+  font-weight: normal;
+  letter-spacing: normal;
+  line-height: 1;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
   visibility: hidden;
 }
 

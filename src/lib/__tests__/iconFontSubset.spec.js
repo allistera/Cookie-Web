@@ -54,15 +54,19 @@ describe('Material Symbols subset', () => {
   })
 
   it('loads the stylesheet at most once', () => {
+    const applicationStyles = document.createElement('style')
+    document.head.append(applicationStyles)
     loadMaterialSymbols(document)
     loadMaterialSymbols(document)
 
     const links = document.head.querySelectorAll('link[data-material-symbols]')
     expect(links).toHaveLength(1)
     expect(links[0].href).toContain(`icon_names=${MATERIAL_SYMBOL_NAMES.join(',')}`)
+    expect(links[0].nextElementSibling).toBe(applicationStyles)
     links[0].dispatchEvent(new Event('load'))
     expect(document.documentElement.dataset.materialSymbols).toBe('loaded')
     links[0].remove()
+    applicationStyles.remove()
     delete document.documentElement.dataset.materialSymbols
   })
 })

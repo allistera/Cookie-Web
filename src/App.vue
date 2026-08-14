@@ -185,7 +185,6 @@ function askFromSearch() {
 async function runMailboxSearch(query, { semantic = true, force = false } = {}) {
   if (!query || (!force && query === store.activeSearchQuery)) return
 
-  const searchRequest = store.searchEmails(query, { semantic })
   if (route.name !== 'traditional-inbox') {
     isNavigatingToSearchResults = true
     try {
@@ -194,7 +193,10 @@ async function runMailboxSearch(query, { semantic = true, force = false } = {}) 
       isNavigatingToSearchResults = false
     }
   }
-  return searchRequest
+  // The inbox view starts its initial list request when it mounts. Search
+  // afterwards so its list sequence is authoritative and a slower bootstrap
+  // response cannot replace the results that were just rendered.
+  return store.searchEmails(query, { semantic })
 }
 
 // Enter searches immediately; typing searches after a short pause. The

@@ -78,7 +78,6 @@ const titleEl = ref(null)
 const tags = ref([])
 const tagDraft = ref('')
 let editor = null
-let lastSerializedBlocks = null
 
 // Editor.js emits a change for each block mutation. Serializing every block on
 // every keystroke makes editing cost grow with the whole document, even though
@@ -125,7 +124,6 @@ async function serializeAndEmitBlocks() {
   const documentId = props.doc.id
   try {
     const blocks = await readBlocks(activeEditor)
-    lastSerializedBlocks = blocks
     emit('save', { id: documentId, blocks })
   } catch (error) {
     console.error('Reading editor content failed:', error)
@@ -149,7 +147,10 @@ async function snapshot() {
   await flushPendingBlocks()
   return {
     title: titleEl.value?.textContent ?? '',
-    blocks: lastSerializedBlocks ?? (await readBlocks()),
+    // A caller can click Save in the same task that Editor.js observes a DOM
+    // mutation. Read the editor directly here so an explicit snapshot never
+    // returns the cached pre-edit blocks before onChange has scheduled work.
+    blocks: await readBlocks(),
   }
 }
 
@@ -169,7 +170,6 @@ function mountEditor() {
   const blocks = Array.isArray(props.doc.blocks)
     ? JSON.parse(JSON.stringify(props.doc.blocks))
     : []
-  lastSerializedBlocks = blocks
   editor = new EditorJS({
     holder: holder.value,
     data: { blocks },
