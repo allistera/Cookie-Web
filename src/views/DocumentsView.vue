@@ -105,6 +105,7 @@ function onEditorSave(payload) {
           ref="editorComponent"
           class="editor-column"
           :doc="store.openDoc"
+          :is-daily-note="Boolean(store.openDocDailyDate)"
           @save="onEditorSave"
         />
         <DocumentCalendarSidebar v-if="store.openDocDailyDate" :date="store.openDocDailyDate" />

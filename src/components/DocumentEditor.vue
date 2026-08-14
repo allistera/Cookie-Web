@@ -14,6 +14,7 @@ import { useInboxStore } from '../stores/inbox'
 import { formatInsertedDate } from '../lib/documentDates'
 import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
+import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import {
   MAX_DOCUMENT_TAGS,
   normalizeDocumentTag,
@@ -69,6 +70,11 @@ class InsertDateTool {
 const props = defineProps({
   doc: { type: Object, required: true },
   compact: { type: Boolean, default: false },
+  // Only Daily notes (Daily/<year>/<month>/DD-MM-YY) actually sync a typed
+  // time line into a real calendar event (api/_lib/dailyEventSync.js) - the
+  // highlight only appears there too, so it never implies a regular
+  // document's line is doing something it isn't.
+  isDailyNote: { type: Boolean, default: false },
 })
 const emit = defineEmits(['save'])
 
@@ -192,9 +198,11 @@ function mountEditor() {
     },
     onChange: () => {
       scheduleBlocksSave()
+      if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
     onReady: () => {
       new DragDrop(editor)
+      if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
   })
 }
@@ -426,6 +434,13 @@ function onTitleEnter() {
 
 .document-blocks :deep(.ce-paragraph[data-placeholder]:empty::before) {
   color: var(--text-secondary);
+}
+
+/* A line synced into a real calendar event (see documentScheduleHighlight.js
+   and api/_lib/dailyEventSync.js) - only ever applied on Daily notes. */
+.document-blocks :deep(.is-schedule-line) {
+  font-family: var(--font-mono);
+  color: var(--schedule-line);
 }
 
 .document-blocks :deep(.ce-popover),

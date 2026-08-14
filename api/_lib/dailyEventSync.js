@@ -1,34 +1,20 @@
 import { parseDailyNoteDate } from '../../src/lib/documentDates.js'
+import { matchTimeLine } from '../../src/lib/dailyEventLines.js'
 
 // A line typed into a Daily note (a plain paragraph, or an item in a
 // bulleted/numbered/checklist list, at any nesting depth) auto-creates/
 // updates/deletes a linked calendar_events row, keyed by where it lives in
 // the document (source_document_id/source_block_id, migration 0047; see
 // extractTimeLines for how that key is built for a list item, which has no
-// id of its own the way a block does). Two shapes match, checked in this
-// order so "10:00 - 11:00 - Title" isn't swallowed by the single-time
-// pattern (its greedy title group would otherwise eat "11:00 - Title" whole):
-//   "10:00 - 11:00 - Title"  -> explicit start and end
-//   "10:00 - Title"          -> start only, defaults to a 30-minute event
-// Title groups are (.*?), not (.+?): an empty/whitespace-only title must
-// still match here (and then get rejected by the `!title` check below) so
-// it can't fall through and be misparsed by the other pattern instead - e.g.
-// "10:00 - 11:00 - " must be rejected outright, not reinterpreted by
-// SINGLE_RE as a single-time event titled "11:00 -".
-const RANGE_RE = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*-\s*(.*?)\s*$/
-const SINGLE_RE = /^(\d{1,2}):(\d{2})\s*-\s*(.*?)\s*$/
-const DEFAULT_DURATION_MINUTES = 30
-const MAX_TITLE = 200
+// id of its own the way a block does). The actual line-matching rules live
+// in the shared src/lib/dailyEventLines.js (also used client-side to
+// highlight matching lines as they're typed).
 
 const pad2 = (n) => String(n).padStart(2, '0')
 
-function validTime(hour, minute) {
-  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
-}
-
-// Editor.js paragraph text is HTML (inline bold/italic/link markup from the
-// toolbar) — strip tags before matching or extracting a title so formatting
-// can't break the pattern or leak markup into the event title.
+// Editor.js paragraph/list-item text is HTML (inline bold/italic/link markup
+// from the toolbar) — strip tags before matching or extracting a title so
+// formatting can't break the pattern or leak markup into the event title.
 function plainText(html) {
   return String(html ?? '')
     .replace(/<[^>]+>/g, '')
@@ -42,33 +28,7 @@ function plainText(html) {
 // @param {string} text
 // @returns {{start: string, durationMinutes: number, title: string} | null}
 export function parseTimeLine(text) {
-  const line = plainText(text)
-
-  const range = RANGE_RE.exec(line)
-  if (range) {
-    const [, sh, sm, eh, em, rawTitle] = range
-    const startHour = Number(sh)
-    const startMinute = Number(sm)
-    const endHour = Number(eh)
-    const endMinute = Number(em)
-    const title = rawTitle.trim().slice(0, MAX_TITLE)
-    if (!validTime(startHour, startMinute) || !validTime(endHour, endMinute) || !title) return null
-    const durationMinutes = endHour * 60 + endMinute - (startHour * 60 + startMinute)
-    if (durationMinutes <= 0) return null
-    return { start: `${pad2(startHour)}:${pad2(startMinute)}`, durationMinutes, title }
-  }
-
-  const single = SINGLE_RE.exec(line)
-  if (single) {
-    const [, sh, sm, rawTitle] = single
-    const startHour = Number(sh)
-    const startMinute = Number(sm)
-    const title = rawTitle.trim().slice(0, MAX_TITLE)
-    if (!validTime(startHour, startMinute) || !title) return null
-    return { start: `${pad2(startHour)}:${pad2(startMinute)}`, durationMinutes: DEFAULT_DURATION_MINUTES, title }
-  }
-
-  return null
+  return matchTimeLine(plainText(text))
 }
 
 // @editorjs/list (bullet/numbered/checklist - one tool, one block type,
