@@ -1,5 +1,5 @@
 const SHELL_CACHE = 'cookie-shell-v1'
-const MAIL_CACHE = 'cookie-recent-mail-v1'
+const MAIL_CACHE = 'cookie-recent-mail-v2'
 // Vite development serves a large module graph one file at a time; production
 // bundles need only a small bounded cache across deployments.
 const MAX_SHELL_ENTRIES = self.location.hostname === 'localhost' ? 500 : 60
@@ -57,7 +57,12 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
 
-  if (url.pathname === '/api/messages' && url.searchParams.has('id')) {
+  const mailResource = url.searchParams.get('resource')
+  if (
+    url.pathname === '/api/messages' &&
+    url.searchParams.has('id') &&
+    (mailResource === null || mailResource === 'thread-body')
+  ) {
     event.respondWith(recentMailResponse(event))
     return
   }
@@ -126,7 +131,8 @@ async function privateMailCacheKey(request) {
   const identity = bearerSubject(request.headers.get('Authorization'))
   const scope = await digest(identity)
   const messageId = encodeURIComponent(url.searchParams.get('id'))
-  return new Request(`${url.origin}/__cookie_mail_cache__/${scope}/${messageId}`)
+  const resource = encodeURIComponent(url.searchParams.get('resource') ?? 'message')
+  return new Request(`${url.origin}/__cookie_mail_cache__/${scope}/${resource}/${messageId}`)
 }
 
 function bearerSubject(authorization) {
