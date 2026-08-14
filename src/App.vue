@@ -180,10 +180,10 @@ function askFromSearch() {
   store.askGemini(query)
 }
 
-async function runMailboxSearch(query) {
-  if (!query || query === store.activeSearchQuery) return
+async function runMailboxSearch(query, { semantic = true, force = false } = {}) {
+  if (!query || (!force && query === store.activeSearchQuery)) return
 
-  const searchRequest = store.searchEmails(query)
+  const searchRequest = store.searchEmails(query, { semantic })
   if (route.name !== 'traditional-inbox') {
     isNavigatingToSearchResults = true
     try {
@@ -200,7 +200,7 @@ async function runMailboxSearch(query) {
 function handleSearchEnter() {
   cancelScheduledSearch()
   isSearchSuggestionsActive.value = false
-  return runMailboxSearch(searchInputVal.value.trim())
+  return runMailboxSearch(searchInputVal.value.trim(), { semantic: true, force: true })
 }
 
 function leaveSearchResults() {
@@ -241,7 +241,9 @@ watch(searchInputVal, (value) => {
   }
 
   autoSearchTimer = window.setTimeout(() => {
-    runMailboxSearch(query)
+    // Type-ahead stays on the local keyword index. Semantic retrieval adds an
+    // embedding round trip and is reserved for an explicit Enter submission.
+    runMailboxSearch(query, { semantic: false })
   }, AUTO_SEARCH_DELAY_MS)
 })
 

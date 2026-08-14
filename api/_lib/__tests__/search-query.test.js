@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fetchSearchEmails } from '../../search.js'
+import { fetchSearchEmails, parseSearchRequest } from '../../search.js'
 
 describe('fetchSearchEmails', () => {
   it('returns AI summary presence for search-result lists without returning the summary text', () => {
@@ -17,5 +17,18 @@ describe('fetchSearchEmails', () => {
     expect(query).toContain('LEFT JOIN message_ai ai ON ai.message_id = m.id')
     expect(query).toContain('GROUP BY m.id')
     expect(query).not.toContain('body_text')
+  })
+})
+
+describe('parseSearchRequest', () => {
+  it('uses hybrid retrieval by default and keyword-only mode for type-ahead', () => {
+    expect(parseSearchRequest('/api/search?q=%20zoom%20invoice%20')).toEqual({
+      query: 'zoom invoice',
+      semantic: true,
+    })
+    expect(parseSearchRequest('/api/search?q=zoom&mode=keyword')).toEqual({
+      query: 'zoom',
+      semantic: false,
+    })
   })
 })

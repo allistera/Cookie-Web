@@ -13,6 +13,7 @@ import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
 // lives at module scope so it stays out of reactive state.
 const UNDO_SEND_SECONDS = 5
 let sendCountdownTimer = null
+let searchAbortController = null
 
 // A body fetch that resolves faster than this would otherwise flash straight
 // from click to rendered content with no visible feedback at all — hold the
@@ -903,17 +904,25 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    // Hybrid (keyword + semantic) search via /api/search; the results replace
-    // the inbox list until clearSearch() restores it. listSeq guards against
-    // out-of-order responses: only the latest issued search/load may apply.
-    async searchEmails(query) {
+    // Search results replace the inbox list until clearSearch() restores it.
+    // Abort superseded requests to stop their database/embedding work where
+    // the runtime supports request cancellation; listSeq remains the response
+    // ordering backstop.
+    async searchEmails(query, { semantic = true } = {}) {
       const q = query.trim()
       if (!q) return
+      searchAbortController?.abort()
+      const controller = new AbortController()
+      searchAbortController = controller
       const seq = ++this.listSeq
       this.isRefreshing = true
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers })
+        const mode = semantic ? '' : '&mode=keyword'
+        const response = await fetch(`/api/search?q=${encodeURIComponent(q)}${mode}`, {
+          headers,
+          signal: controller.signal,
+        })
         if (!response.ok) {
           throw new Error(`GET /api/search responded ${response.status}`)
         }
@@ -923,9 +932,11 @@ export const useInboxStore = defineStore('inbox', {
         this.traditionalEmails = emails.map(mapEmailRow)
       } catch (error) {
         if (seq !== this.listSeq) return
+        if (error?.name === 'AbortError') return
         console.error('Search failed:', error)
         this.notify('Search failed. Please try again.', 'error')
       } finally {
+        if (searchAbortController === controller) searchAbortController = null
         if (seq === this.listSeq) {
           this.isRefreshing = false
         }
@@ -935,6 +946,8 @@ export const useInboxStore = defineStore('inbox', {
     // Invalidates an in-flight search without changing the currently displayed
     // results. Used when the same header input is submitted to mailbox Q&A.
     cancelPendingSearch() {
+      searchAbortController?.abort()
+      searchAbortController = null
       this.listSeq++
       this.isRefreshing = false
     },
@@ -943,6 +956,8 @@ export const useInboxStore = defineStore('inbox', {
     // invalidates any search or load still in flight.
     clearSearch() {
       const hadActiveSearch = Boolean(this.activeSearchQuery)
+      searchAbortController?.abort()
+      searchAbortController = null
       this.listSeq++
       this.activeSearchQuery = ''
       this.isRefreshing = false

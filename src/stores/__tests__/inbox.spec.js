@@ -1078,6 +1078,7 @@ describe('Inbox Store', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/search?q=zoom%20invoice', {
       headers: { Authorization: 'Bearer test-access-token' },
+      signal: expect.any(AbortSignal),
     })
     expect(store.activeSearchQuery).toBe('zoom invoice')
     expect(store.traditionalEmails).toHaveLength(1)
@@ -1128,7 +1129,10 @@ describe('Inbox Store', () => {
 
     const store = useInboxStore()
     const first = store.searchEmails('old query')
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    const firstSignal = fetch.mock.calls[0][1].signal
     await store.searchEmails('new query')
+    expect(firstSignal.aborted).toBe(true)
     expect(store.traditionalEmails[0].subject).toBe('Newer result')
 
     // The stale response arrives late — it must not clobber the newer results.
@@ -1137,6 +1141,21 @@ describe('Inbox Store', () => {
 
     expect(store.traditionalEmails[0].subject).toBe('Newer result')
     expect(store.activeSearchQuery).toBe('new query')
+  })
+
+  it('uses keyword-only mode when semantic search is disabled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ emails: [] }) }),
+    )
+
+    const store = useInboxStore()
+    await store.searchEmails('quick result', { semantic: false })
+
+    expect(fetch).toHaveBeenCalledWith('/api/search?q=quick%20result&mode=keyword', {
+      headers: { Authorization: 'Bearer test-access-token' },
+      signal: expect.any(AbortSignal),
+    })
   })
 
   it('clearSearch reloads the full inbox only when a search is active', async () => {

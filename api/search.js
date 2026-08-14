@@ -39,8 +39,17 @@ export function fetchSearchEmails(sql, email, ids) {
   `
 }
 
+export function parseSearchRequest(reqUrl) {
+  const url = new URL(reqUrl, 'http://localhost')
+  return {
+    query: (url.searchParams.get('q') || '').trim(),
+    semantic: url.searchParams.get('mode') !== 'keyword',
+  }
+}
+
 // GET /api/search?q=… — hybrid (keyword + semantic) search over the
 // authenticated user's messages, fused with reciprocal rank fusion.
+// mode=keyword is the lower-latency type-ahead path and skips embeddings.
 // Response shape matches GET /api/emails.
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json')
@@ -60,27 +69,32 @@ export default async function handler(req, res) {
     return
   }
 
-  let allowed
-  try {
-    allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
-  } catch (err) {
-    console.error('GET /api/search quota enforcement failed:', err.message)
-    await captureApiError(err, { route: 'GET /api/search (quota)' })
-    res.statusCode = 503
-    res.end(JSON.stringify({ error: 'Search is temporarily unavailable' }))
-    return
-  }
-  if (!allowed) {
-    res.statusCode = 429
-    res.end(JSON.stringify({ error: 'Too many searches, slow down' }))
-    return
-  }
-
-  const q = (new URL(req.url, 'http://localhost').searchParams.get('q') || '').trim()
+  const { query: q, semantic } = parseSearchRequest(req.url)
   if (!q || q.length > MAX_QUERY_CHARS) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'q is required (max 500 chars)' }))
     return
+  }
+
+  // Only hybrid search spends AI quota. Keyword-only type-ahead remains a
+  // normal authenticated database query and cannot exhaust the shared AI
+  // allowance merely because a user paused while typing.
+  if (semantic) {
+    let allowed
+    try {
+      allowed = await allowRequest(getSql(), email, 'ai', RATE_LIMIT)
+    } catch (err) {
+      console.error('GET /api/search quota enforcement failed:', err.message)
+      await captureApiError(err, { route: 'GET /api/search (quota)' })
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'Search is temporarily unavailable' }))
+      return
+    }
+    if (!allowed) {
+      res.statusCode = 429
+      res.end(JSON.stringify({ error: 'Too many searches, slow down' }))
+      return
+    }
   }
 
   // Split the raw query into free text, a prefix tsquery, and structured
@@ -100,7 +114,7 @@ export default async function handler(req, res) {
     // Semantic leg is best-effort: no key, no free text, or an OpenAI failure
     // degrades to keyword/recency search rather than failing the request.
     const semanticIds = async () => {
-      if (!spec.text || !process.env.OPENAI_API_KEY) return []
+      if (!semantic || !spec.text || !process.env.OPENAI_API_KEY) return []
       try {
         const vector = JSON.stringify(await embedTextCached(spec.text, process.env.OPENAI_API_KEY))
         return await vectorLeg(sql, email, vector, spec.filters, CANDIDATES)
