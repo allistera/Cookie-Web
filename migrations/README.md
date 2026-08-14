@@ -117,6 +117,13 @@ of expired receipts and resolved scheduled sends that
 is the only periodic cron trigger this app has, so both tables' cleanup piggybacks
 on it instead of adding a new endpoint.
 
+`0045_message_fk_indexes.sql` adds indexes on `tasks.message_id`,
+`summaries.message_id`, `scheduled_sends.reply_to_message_id`, and
+`scheduled_sends.sent_message_id` — FK columns referencing `messages(id)`
+with no index of their own. The app only soft-deletes messages today, so
+this is insurance against a future hard-delete/purge path triggering an
+unindexed cascade scan, not an active hot path.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
