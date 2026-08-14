@@ -26,9 +26,11 @@ function handleSend() {
   }
 }
 
-// Auto scroll when chat updates
+// Auto scroll when chat updates. Messages are only ever pushed whole (never
+// mutated after), so the array's length is all that needs watching - no need
+// to deep-diff every message object on every change.
 watch(
-  () => store.chatHistory,
+  () => store.chatHistory.length,
   () => {
     nextTick(() => {
       if (drawerContentRef.value) {
@@ -36,7 +38,6 @@ watch(
       }
     })
   },
-  { deep: true },
 )
 </script>
 
