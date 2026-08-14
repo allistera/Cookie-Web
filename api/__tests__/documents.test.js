@@ -287,6 +287,41 @@ describe('PATCH /api/tasks?resource=documents', () => {
     expect(statements[5]).toContain('ON CONFLICT (source_document_id, source_block_id)')
   })
 
+  it('syncs a time-range line inside a bulleted/checklist list item', async () => {
+    sqlQueue = [
+      [{ folder_id: FOLDER_ID, title: '14-08-26', blocks: [] }],
+      [{ id: DOC_ID, title: '14-08-26', folder_id: FOLDER_ID }],
+      [{ title: 'Daily' }],
+      [{ id: 'cal-personal' }],
+      [],
+    ]
+    const res = makeRes()
+
+    await handler(
+      req('PATCH', {
+        id: DOC_ID,
+        blocks: [
+          {
+            id: 'list-1',
+            type: 'list',
+            data: {
+              style: 'checklist',
+              items: [
+                { content: '09:00 - Standup', meta: { checked: false } },
+                { content: 'Plain task, no time', meta: { checked: false } },
+              ],
+            },
+          },
+        ],
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(statements).toHaveLength(6)
+    expect(statements[5]).toContain('ON CONFLICT (source_document_id, source_block_id)')
+  })
+
   it('does not touch calendar_events for a non-Daily document\'s blocks', async () => {
     sqlQueue = [
       [{ folder_id: FOLDER_ID, title: 'Notes', blocks: [] }],

@@ -1,9 +1,12 @@
 import { parseDailyNoteDate } from '../../src/lib/documentDates.js'
 
-// A line typed into a Daily note auto-creates/updates/deletes a linked
-// calendar_events row, keyed by the Editor.js block that holds it (source_
-// document_id/source_block_id, migration 0047). Two shapes match, checked in
-// this order so "10:00 - 11:00 - Title" isn't swallowed by the single-time
+// A line typed into a Daily note (a plain paragraph, or an item in a
+// bulleted/numbered/checklist list, at any nesting depth) auto-creates/
+// updates/deletes a linked calendar_events row, keyed by where it lives in
+// the document (source_document_id/source_block_id, migration 0047; see
+// extractTimeLines for how that key is built for a list item, which has no
+// id of its own the way a block does). Two shapes match, checked in this
+// order so "10:00 - 11:00 - Title" isn't swallowed by the single-time
 // pattern (its greedy title group would otherwise eat "11:00 - Title" whole):
 //   "10:00 - 11:00 - Title"  -> explicit start and end
 //   "10:00 - Title"          -> start only, defaults to a 30-minute event
@@ -68,6 +71,27 @@ export function parseTimeLine(text) {
   return null
 }
 
+// @editorjs/list (bullet/numbered/checklist - one tool, one block type,
+// covering all three styles) gives the *block* an id but never its
+// individual items: data.items is a plain (recursively nestable) array with
+// no per-item identity of its own. A positional path (block id + each
+// nesting level's index) is the closest thing to a stable key available -
+// stable across an edit in place or an append at the end, but not across
+// reordering or inserting/deleting a bullet above an existing one, which
+// reads as that item's old key disappearing and a new one appearing at the
+// shifted position (delete the old event, create a new one - never silently
+// wrong, just loses the old row's identity across the edit).
+function collectListItemLines(items, keyPrefix, lines) {
+  items.forEach((item, index) => {
+    const key = `${keyPrefix}:${index}`
+    const line = parseTimeLine(item?.content)
+    if (line) lines.set(key, line)
+    if (Array.isArray(item?.items) && item.items.length > 0) {
+      collectListItemLines(item.items, key, lines)
+    }
+  })
+}
+
 // @param {any[]} blocks
 // @returns {Map<string, {start: string, durationMinutes: number, title: string}>}
 export function extractTimeLines(blocks) {
@@ -76,9 +100,13 @@ export function extractTimeLines(blocks) {
     const id = block?.id
     // Identity check (not just a truthy value) keeps a non-string id that
     // coerces into a plausible key, e.g. a number, out of the Map.
-    if (block?.type !== 'paragraph' || !id || id !== String(id)) continue
-    const line = parseTimeLine(block.data?.text)
-    if (line) lines.set(id, line)
+    if (!id || id !== String(id)) continue
+    if (block.type === 'paragraph') {
+      const line = parseTimeLine(block.data?.text)
+      if (line) lines.set(id, line)
+    } else if (block.type === 'list' && Array.isArray(block.data?.items)) {
+      collectListItemLines(block.data.items, id, lines)
+    }
   }
   return lines
 }

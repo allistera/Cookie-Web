@@ -106,6 +106,62 @@ describe('extractTimeLines', () => {
     expect(extractTimeLines(undefined).size).toBe(0)
     expect(extractTimeLines([]).size).toBe(0)
   })
+
+  it('extracts matching lines from a flat bulleted/checklist list, keyed by position', () => {
+    const lines = extractTimeLines([
+      {
+        id: 'list-1',
+        type: 'list',
+        data: {
+          style: 'checklist',
+          items: [
+            { content: '09:00 - Standup', meta: { checked: false } },
+            { content: 'Just a plain task, no time', meta: { checked: false } },
+            { content: '10:00 - 10:30 - Design review', meta: { checked: true } },
+          ],
+        },
+      },
+    ])
+    expect([...lines.keys()]).toEqual(['list-1:0', 'list-1:2'])
+    expect(lines.get('list-1:0')).toEqual({ start: '09:00', durationMinutes: 30, title: 'Standup' })
+    expect(lines.get('list-1:2')).toEqual({ start: '10:00', durationMinutes: 30, title: 'Design review' })
+  })
+
+  it('recurses into nested sub-items with a path-shaped key', () => {
+    const lines = extractTimeLines([
+      {
+        id: 'list-1',
+        type: 'list',
+        data: {
+          style: 'unordered',
+          items: [
+            {
+              content: 'Morning',
+              items: [
+                { content: '09:00 - Standup', items: [] },
+                { content: '09:30 - 10:00 - Review PRs', items: [] },
+              ],
+            },
+          ],
+        },
+      },
+    ])
+    expect([...lines.keys()]).toEqual(['list-1:0:0', 'list-1:0:1'])
+    expect(lines.get('list-1:0:0').title).toBe('Standup')
+    expect(lines.get('list-1:0:1').title).toBe('Review PRs')
+  })
+
+  it('combines paragraph and list blocks in one document without key collisions', () => {
+    const lines = extractTimeLines([
+      { id: 'p1', type: 'paragraph', data: { text: '08:00 - Gym' } },
+      { id: 'list-1', type: 'list', data: { style: 'unordered', items: [{ content: '09:00 - Standup' }] } },
+    ])
+    expect([...lines.keys()].sort()).toEqual(['list-1:0', 'p1'])
+  })
+
+  it('ignores a list block with no items array', () => {
+    expect(extractTimeLines([{ id: 'list-1', type: 'list', data: {} }]).size).toBe(0)
+  })
 })
 
 describe('dateKey', () => {
