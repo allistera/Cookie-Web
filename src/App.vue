@@ -3,6 +3,8 @@ import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { clearCachedMail } from './lib/serviceWorker'
+import { loadMaterialSymbols } from './lib/iconFont'
+import { scheduleIdleTask } from './lib/scheduleIdleTask'
 import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
@@ -253,6 +255,7 @@ watch(
   isAuthenticated,
   (authenticated) => {
     if (authenticated) {
+      scheduleIdleTask(() => loadMaterialSymbols())
       store.loadInboxState()
       // Load the full label palette so the sidebar lists every defined label,
       // not only ones on loaded emails (and without needing settings opened).

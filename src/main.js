@@ -1,6 +1,6 @@
 import './assets/main.css'
 
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 
 import App from './App.vue'
@@ -8,6 +8,7 @@ import router from './router'
 import { getAuth0 } from './auth0-client'
 import { registerServiceWorker } from './lib/serviceWorker'
 import { initTheme } from './lib/theme'
+import { scheduleIdleTask } from './lib/scheduleIdleTask'
 
 // Apply the saved theme (and start tracking the OS for 'system') before mount
 // so the first paint already carries the right data-theme — no flash.
@@ -21,9 +22,8 @@ const isE2E = import.meta.env.VITE_E2E === 'true'
 
 app.use(createPinia())
 app.use(router)
-if (!isE2E) {
-  app.use(getAuth0())
-}
+const auth0 = isE2E ? null : getAuth0()
+if (auth0) app.use(auth0)
 
 app.mount('#app')
 
@@ -31,9 +31,24 @@ app.mount('#app')
 // production registers the offline shell and recent-mail cache after mount.
 if (!isE2E) registerServiceWorker()
 
-// Sentry initializes after mount via a dynamic import so its SDK stays off the
-// first-paint critical path. Only error reporting is configured: no tracing,
-// Session Replay, or Sentry Logs.
-if (!isE2E) {
-  import('./lib/errorMonitoring').then(({ initErrorMonitoring }) => initErrorMonitoring(app))
+// Sentry is useful once the authenticated application is running, but its SDK
+// is unnecessary on the logged-out page. Load it during idle time after the
+// first authenticated render so it consumes neither first-paint bandwidth nor
+// an early main-thread task.
+if (auth0) {
+  const startErrorMonitoring = () => {
+    scheduleIdleTask(() => {
+      import('./lib/errorMonitoring').then(({ initErrorMonitoring }) => initErrorMonitoring(app))
+    })
+  }
+
+  if (auth0.isAuthenticated.value) {
+    startErrorMonitoring()
+  } else {
+    const stop = watch(auth0.isAuthenticated, (authenticated) => {
+      if (!authenticated) return
+      stop()
+      startErrorMonitoring()
+    })
+  }
 }

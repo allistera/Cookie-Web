@@ -71,6 +71,17 @@
   padding: 0;
 }
 
+/* The icon subset is requested after the authenticated shell's first paint.
+   Hide ligature text until the font is ready so deferring it cannot flash raw
+   names such as "calendar_month" in controls. */
+.material-symbols-outlined {
+  visibility: hidden;
+}
+
+:root[data-material-symbols='loaded'] .material-symbols-outlined {
+  visibility: visible;
+}
+
 body {
   font-family: var(--font-stack);
   background-color: var(--bg-app);

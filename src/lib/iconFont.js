@@ -1,0 +1,100 @@
+// Keep the Google-hosted Material Symbols subset off the logged-out critical
+// path. The authenticated shell requests it once, immediately before icons are
+// needed; iconFontSubset.spec.js keeps this list aligned with source usage.
+export const MATERIAL_SYMBOL_NAMES = [
+  'add',
+  'arrow_back',
+  'attach_file',
+  'auto_awesome',
+  'auto_fix_high',
+  'bolt',
+  'bookmark',
+  'calendar_month',
+  'chat_bubble',
+  'check',
+  'check_box',
+  'check_box_outline_blank',
+  'circle',
+  'close',
+  'cookie',
+  'create_new_folder',
+  'delete',
+  'description',
+  'done_all',
+  'draw',
+  'drive_file_move',
+  'edit',
+  'edit_square',
+  'event_available',
+  'expand_less',
+  'expand_more',
+  'format_bold',
+  'format_list_bulleted',
+  'format_list_numbered',
+  'format_quote',
+  'horizontal_rule',
+  'inbox',
+  'interests',
+  'keyboard_arrow_down',
+  'keyboard_arrow_right',
+  'keyboard_arrow_up',
+  'label',
+  'link',
+  'logout',
+  'mail',
+  'mark_email_read',
+  'mark_email_unread',
+  'note_add',
+  'notifications',
+  'open_in_new',
+  'palette',
+  'person',
+  'reply',
+  'report',
+  'rule',
+  'schedule',
+  'search',
+  'sell',
+  'send',
+  'settings',
+  'star',
+  'star_border',
+  'sync',
+  'task_alt',
+  'title',
+  'today',
+  'unfold_more',
+  'unsubscribe',
+  'upcoming',
+  'visibility_off',
+  'warning_amber',
+]
+
+const MATERIAL_SYMBOLS_URL =
+  'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:' +
+  'opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=' +
+  `${MATERIAL_SYMBOL_NAMES.join(',')}&display=block`
+
+export function loadMaterialSymbols(doc = document) {
+  if (doc.head.querySelector('link[data-material-symbols]')) return
+  doc.documentElement.dataset.materialSymbols = 'loading'
+  const stylesheet = doc.createElement('link')
+  stylesheet.rel = 'stylesheet'
+  stylesheet.href = MATERIAL_SYMBOLS_URL
+  stylesheet.dataset.materialSymbols = ''
+  stylesheet.addEventListener(
+    'load',
+    () => {
+      doc.documentElement.dataset.materialSymbols = 'loaded'
+    },
+    { once: true },
+  )
+  stylesheet.addEventListener(
+    'error',
+    () => {
+      doc.documentElement.dataset.materialSymbols = 'error'
+    },
+    { once: true },
+  )
+  doc.head.append(stylesheet)
+}
