@@ -66,6 +66,26 @@ function pushCapped(array, item, maxSize) {
 // settle, so the map only ever holds requests that are actually in flight.
 const pendingBodyFetches = new Map()
 
+// Serializes toggleStar/setUnread's PATCH requests per message id so two
+// rapid toggles reach the server in click order instead of racing - without
+// this, a network reordering could leave the server holding the *first*
+// click's value even though the UI (and the user's actual intent) reflects
+// the second. Each map holds the tail of that message's update chain.
+const pendingStarUpdates = new Map()
+const pendingUnreadUpdates = new Map()
+
+// @param {Map<string, Promise<unknown>>} pending
+// @param {string} id
+// @param {() => Promise<unknown>} run
+function serializePerMessage(pending, id, run) {
+  const chained = (pending.get(id) ?? Promise.resolve()).catch(() => {}).then(run)
+  pending.set(id, chained)
+  chained.finally(() => {
+    if (pending.get(id) === chained) pending.delete(id)
+  })
+  return chained
+}
+
 function captureListPositions(email, lists) {
   return lists.map((list) => ({ list, index: list.indexOf(email) }))
 }
@@ -1175,14 +1195,19 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Optimistically flips starred state and persists it; reverts on failure.
+    // PATCHes are serialized per message (see pendingStarUpdates) so two rapid
+    // toggles can't reach the server out of click order.
     toggleStar(email) {
       const nextStarred = !email.starred
       email.starred = nextStarred
-      this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
-        console.error('Failed to update starred state:', error)
-        email.starred = !nextStarred
-        this.notify('Failed to update starred state.', 'error')
-      })
+      serializePerMessage(pendingStarUpdates, email.id, () =>
+        this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
+          console.error('Failed to update starred state:', error)
+          // Only revert if a later toggle hasn't already moved past this one.
+          if (email.starred === nextStarred) email.starred = !nextStarred
+          this.notify('Failed to update starred state.', 'error')
+        }),
+      )
     },
 
     // Moves an inbox message out of sight until its scheduled time. Future
@@ -1335,7 +1360,9 @@ export const useInboxStore = defineStore('inbox', {
 
     // Optimistically flips read state and persists it; reverts on failure.
     // The count adjusts incrementally: with pagination (and during search)
-    // the loaded list is a subset, so recounting it would be wrong.
+    // the loaded list is a subset, so recounting it would be wrong. PATCHes
+    // are serialized per message (see pendingUnreadUpdates) so two rapid
+    // toggles can't reach the server out of click order.
     setUnread(email, unread) {
       if (email.unread === unread) return
       const countsTowardInbox = this.traditionalEmails.includes(email)
@@ -1343,14 +1370,19 @@ export const useInboxStore = defineStore('inbox', {
       if (countsTowardInbox) {
         this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
       }
-      this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
-        console.error('Failed to update read state:', error)
-        email.unread = !unread
-        if (countsTowardInbox) {
-          this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? -1 : 1))
-        }
-        this.notify('Failed to update read state.', 'error')
-      })
+      serializePerMessage(pendingUnreadUpdates, email.id, () =>
+        this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
+          console.error('Failed to update read state:', error)
+          // Only revert if a later toggle hasn't already moved past this one.
+          if (email.unread === unread) {
+            email.unread = !unread
+            if (countsTowardInbox) {
+              this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? -1 : 1))
+            }
+          }
+          this.notify('Failed to update read state.', 'error')
+        }),
+      )
     },
 
     notify(message, kind = 'info', action = null) {

@@ -1602,6 +1602,39 @@ describe('Inbox Store', () => {
     expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
   })
 
+  it('serializes rapid toggleStar calls so PATCHes reach the server in click order', async () => {
+    let resolveFirst
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => first)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ message: {} }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', starred: false }
+    store.traditionalEmails = [email]
+
+    store.toggleStar(email)
+    expect(email.starred).toBe(true)
+    store.toggleStar(email)
+    expect(email.starred).toBe(false)
+
+    // The second PATCH must not be sent until the first one settles - two
+    // in-flight requests could reach the server in either order.
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    resolveFirst({ ok: true, json: async () => ({ message: {} }) })
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+
+    expect(fetch.mock.calls[0][1].body).toBe(JSON.stringify({ id: 'abc-123', is_starred: true }))
+    expect(fetch.mock.calls[1][1].body).toBe(JSON.stringify({ id: 'abc-123', is_starred: false }))
+  })
+
   it('notifies when the inbox fails to load', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
     vi.spyOn(console, 'error').mockImplementation(() => {})
