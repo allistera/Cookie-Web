@@ -575,6 +575,30 @@ function localApiPlugin(mode) {
     const url = new URL(req.url, 'http://localhost')
     const stripBlocks = ({ blocks: _blocks, ...doc }) => doc
     if (req.method === 'GET') {
+      const rawQuery = url.searchParams.get('q')
+      if (rawQuery && rawQuery.trim()) {
+        // A simplified stand-in for the real hybrid (keyword+semantic) search
+        // in api/_lib/documents.js — full-text substring matching over
+        // title+blocks rather than tsvector/pgvector, same fidelity level as
+        // handleSearch's email fixture below. Good enough for local dev/e2e,
+        // not a ranking model.
+        const { parseDocumentSearchQuery } = await import('./api/_lib/query-parse.js')
+        const { text, filters } = parseDocumentSearchQuery(rawQuery.trim())
+        const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
+        const documents = state.documents
+          .filter((doc) => {
+            const haystack = `${doc.title} ${JSON.stringify(doc.blocks)}`.toLowerCase()
+            if (!terms.every((term) => haystack.includes(term))) return false
+            if (filters.tag && !doc.tags?.some((tag) => tag.toLowerCase() === filters.tag.toLowerCase())) {
+              return false
+            }
+            if (filters.starred && !doc.starred) return false
+            return true
+          })
+          .map(stripBlocks)
+        res.end(JSON.stringify({ documents }))
+        return
+      }
       const templateId = url.searchParams.get('templateId')
       if (templateId) {
         const template = state.docTemplates.find((item) => item.id === templateId)

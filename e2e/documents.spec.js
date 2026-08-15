@@ -261,3 +261,51 @@ test('Folders can be created inline and documents dragged between them', async (
   await expect(sidebar.locator('.folder-item', { hasText: 'Reading list' })).toHaveCount(0)
   await expect(sidebar.locator('.doc-item', { hasText: 'Scratchpad' })).toBeVisible()
 })
+
+test('The header search finds documents by content and filters, without disturbing the sidebar tree', async ({
+  page,
+}) => {
+  await page.goto('/documents')
+
+  const searchInput = page.locator('#docSearchBarContainer .search-input')
+  await expect(searchInput).toBeVisible()
+
+  const dashboard = page.locator('.documents-table')
+  await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
+  await expect(dashboard.getByText('Scratchpad')).toBeVisible()
+
+  // Type-ahead matches a word from the body, not just the title.
+  await searchInput.fill('bay window')
+  await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
+  await expect(dashboard.getByText('Scratchpad')).toHaveCount(0)
+  // The sidebar's folder tree is unaffected by an active search.
+  const sidebar = page.locator('.documents-sidebar')
+  await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
+  await expect(sidebar.getByText('Scratchpad')).toBeVisible()
+
+  // Clearing restores the full dashboard.
+  await page.locator('#docSearchBarContainer .search-clear-icon').click()
+  await expect(searchInput).toHaveValue('')
+  await expect(dashboard.getByText('Scratchpad')).toBeVisible()
+
+  // tag: and is:starred filters.
+  await searchInput.fill('tag:notes')
+  await searchInput.press('Enter')
+  await expect(dashboard.getByText('Scratchpad')).toBeVisible()
+  await expect(dashboard.getByText('Floor plan notes')).toHaveCount(0)
+
+  await searchInput.fill('is:starred')
+  await searchInput.press('Enter')
+  await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
+  await expect(dashboard.getByText('Scratchpad')).toHaveCount(0)
+
+  // A query matching nothing shows the empty state, not a stale list.
+  await searchInput.fill('xyznotfound')
+  await expect(page.getByText('No documents')).toBeVisible()
+
+  // Navigating to a document leaves search mode.
+  await searchInput.fill('floor')
+  await dashboard.getByText('Floor plan notes').click()
+  await expect(page).toHaveURL(/\/documents\/stub-doc-floor-plan$/)
+  await expect(searchInput).toHaveValue('')
+})

@@ -17,6 +17,10 @@ let saveTimer = null
 let pendingSave = null
 let saveInFlight = null
 
+// Search: mirrors inbox.js's searchAbortController, kept at module scope for
+// the same reason (an AbortController isn't reactive state).
+let documentSearchAbortController = null
+
 // The Documents workspace (paper-style notes): nested folders plus Editor.js
 // block documents, backed by /api/tasks?resource=documents. The sidebar tree
 // and dashboard read the blockless list rows; opening a document fetches its
@@ -38,6 +42,15 @@ export const useDocumentsStore = defineStore('documents', {
     saveState: null,
     newDocumentDialogOpen: false,
     newDocumentFolderId: null,
+    // Search: unlike email's searchEmails (which overwrites the flat inbox
+    // list), search results live in their own array — DocumentsSidebar
+    // builds its persistent folder tree from `documents` continuously while
+    // the Documents app is open, and overwriting it during a search would
+    // collapse that tree to just the matched rows.
+    activeSearchQuery: '',
+    searchResults: [],
+    // Out-of-order guard for searchDocuments, mirroring inbox.js's listSeq.
+    searchSeq: 0,
   }),
 
   getters: {
@@ -419,6 +432,51 @@ export const useDocumentsStore = defineStore('documents', {
         this.notify('Failed to delete the document.', 'error')
         return false
       }
+    },
+
+    // Search results populate a separate array from the sidebar's `documents`
+    // — see the activeSearchQuery/searchResults state comment. Mirrors
+    // inbox.js's searchEmails: AbortController cancellation plus searchSeq as
+    // an ordering backstop for the runtime that doesn't honor cancellation.
+    async searchDocuments(query, { semantic = true } = {}) {
+      const q = query.trim()
+      if (!q) return
+      documentSearchAbortController?.abort()
+      const controller = new AbortController()
+      documentSearchAbortController = controller
+      const seq = ++this.searchSeq
+      try {
+        const headers = await this.authHeaders()
+        const mode = semantic ? '' : '&mode=keyword'
+        const response = await fetch(
+          `/api/tasks?resource=documents&q=${encodeURIComponent(q)}${mode}`,
+          { headers, signal: controller.signal },
+        )
+        if (!response.ok) {
+          throw new Error(`GET documents search responded ${response.status}`)
+        }
+        const { documents } = await response.json()
+        if (seq !== this.searchSeq) return
+        this.activeSearchQuery = q
+        this.searchResults = documents
+      } catch (error) {
+        if (seq !== this.searchSeq) return
+        if (error?.name === 'AbortError') return
+        console.error('Document search failed:', error)
+        this.notify('Search failed. Please try again.', 'error')
+      } finally {
+        if (documentSearchAbortController === controller) documentSearchAbortController = null
+      }
+    },
+
+    // Leaves search mode. Cheaper than email's clearSearch: `documents` was
+    // never touched by the search, so there's nothing to reload.
+    clearSearch() {
+      documentSearchAbortController?.abort()
+      documentSearchAbortController = null
+      this.searchSeq++
+      this.activeSearchQuery = ''
+      this.searchResults = []
     },
 
     // Matches the schema's behavior so the tree is correct without a refetch:

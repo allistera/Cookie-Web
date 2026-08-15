@@ -1,11 +1,20 @@
+import process from 'node:process'
+
 import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
 import { normalizeDocumentTags } from '../../src/lib/documentTags.js'
 import { resolveDailyNoteEventDate, syncDailyNoteEvents } from './dailyEventSync.js'
+import { flattenBlocksToText } from './documentText.js'
+import { keywordLeg, recencyLeg, vectorLeg } from './documentRetrieval.js'
+import { parseDocumentSearchQuery } from './query-parse.js'
+import { fuseRankings } from './rank-fusion.js'
+import { EMBEDDING_MODEL } from './embeddings.js'
 
 // The Documents workspace: nested folders plus Editor.js block documents,
 // modeled on Paper. Dispatched as /api/tasks?resource=documents because the
 // Vercel Hobby function cap keeps new endpoints on the resource= pattern.
+// Search (GET ?q=…) is dispatched the same way for the same reason, rather
+// than getting its own /api/search-documents.js file.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const MAX_TITLE_LENGTH = 300
@@ -13,6 +22,21 @@ export const MAX_EMOJI_LENGTH = 16
 // Blocks are stored verbatim, including base64 images, so the cap is generous
 // but still bounds a single row (and request) to something sane.
 export const MAX_BLOCKS_BYTES = 6 * 1024 * 1024
+
+const MAX_SEARCH_QUERY_CHARS = 500
+const SEARCH_CANDIDATES = 40 // per leg, before fusion
+const SEARCH_RESULTS = 20
+// Shared with every other user-triggered AI route (search.js, ask.js, ...).
+const SEARCH_RATE_LIMIT = { limit: 10, windowMs: 60_000 }
+// A dedicated, more generous bucket for the save-time embedding call: it's an
+// autosave side effect, not a user-initiated AI action, so a heavy editing
+// session must not starve concurrent mail search/ask/compose requests from
+// the same user by draining their shared 'ai' quota.
+const EMBED_RATE_LIMIT = { limit: 30, windowMs: 60_000 }
+// flushPendingSave() serializes autosave PATCHes, so a hung OpenAI call would
+// stall every edit queued behind it — bound how long a save-time embed call
+// can take before giving up and saving without one.
+const EMBED_TIMEOUT_MS = 5000
 
 // UUID_RE.test coerces its argument; the identity check keeps non-strings
 // that could coerce into a valid-looking id out of the raw SQL bindings.
@@ -79,6 +103,42 @@ export function fetchTemplate(sql, userId, id) {
   `
 }
 
+// Fetches the fused search result ids in one list-shaped query, matching
+// fetchWorkspace's row shape — blocks are never loaded for a result list, the
+// same rule every other document list endpoint follows.
+function fetchSearchDocuments(sql, userId, ids) {
+  return sql`
+    SELECT d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
+    FROM documents d
+    WHERE d.user_id = ${userId} AND d.id = ANY(${ids}::uuid[])
+  `
+}
+
+// Best-effort content_text + embedding for a document's current title/blocks,
+// computed from the same flattened text so the tsvector (content_text) and
+// the semantic vector never disagree about what a document "says". Never
+// throws: a missing API key, exhausted quota, a timeout, or an OpenAI failure
+// just means embedding/embedding_model are omitted from this save — content
+// search still works off content_text, and the weekly backfill
+// (scripts/backfill-document-embeddings.js) catches any stragglers. Must
+// never delay or fail the caller's PATCH/POST over an embedding problem.
+async function computeSearchFields(sql, userId, { title, blocks }, services) {
+  const contentText = flattenBlocksToText(title, blocks)
+  const fields = { content_text: contentText, embedding: null, embedding_model: null }
+  if (!contentText.trim() || !process.env.OPENAI_API_KEY) return fields
+  try {
+    const allowed = await services.allowRequest(sql, userId, 'doc-embed', EMBED_RATE_LIMIT)
+    if (!allowed) return fields
+    fields.embedding = await services.embedText(contentText, process.env.OPENAI_API_KEY, {
+      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+    })
+    fields.embedding_model = EMBEDDING_MODEL
+  } catch (err) {
+    console.error('Document embedding failed:', err.message)
+  }
+  return fields
+}
+
 function userExists(sql, userId) {
   return sql`SELECT 1 FROM users WHERE id = ${userId}`
 }
@@ -94,8 +154,11 @@ function fetchOwnedFolder(sql, userId, id) {
   `
 }
 
-async function handleGet(req, res, userId, sql) {
+async function handleGet(req, res, userId, sql, services) {
   const searchParams = new URL(req.url, 'http://localhost').searchParams
+  const q = (searchParams.get('q') || '').trim()
+  if (q) return handleDocumentSearch(req, res, userId, sql, services, q)
+
   const templateId = searchParams.get('templateId')
   if (templateId) {
     if (!isUuid(templateId)) {
@@ -144,7 +207,104 @@ async function handleGet(req, res, userId, sql) {
   res.end(JSON.stringify({ folders, documents }))
 }
 
-async function handlePost(res, body, userId, sql) {
+// GET /api/tasks?resource=documents&q=…[&mode=keyword] — hybrid (keyword +
+// semantic) search over the caller's documents, fused with reciprocal rank
+// fusion. mode=keyword is the lower-latency type-ahead path and skips
+// embeddings. Response shape matches the workspace list (no blocks).
+// Structurally mirrors createSearchHandler in api/search.js.
+async function handleDocumentSearch(req, res, userId, sql, services, rawQuery) {
+  if (rawQuery.length > MAX_SEARCH_QUERY_CHARS) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'q is required (max 500 chars)' }))
+    return
+  }
+  const semantic = new URL(req.url, 'http://localhost').searchParams.get('mode') !== 'keyword'
+
+  // Split the raw query into free text, a prefix tsquery, and structured
+  // operators (tag:/is:starred). A query containing only empty recognized
+  // operators has no work to do and must not spend AI quota.
+  const spec = parseDocumentSearchQuery(rawQuery)
+  const hasFilters = Object.keys(spec.filters).length > 0
+  if (!spec.text && !hasFilters) {
+    res.statusCode = 200
+    res.end(JSON.stringify({ documents: [] }))
+    return
+  }
+
+  // Only hybrid search spends AI quota. Keyword-only type-ahead remains a
+  // normal authenticated database query and cannot exhaust the shared AI
+  // allowance merely because a user paused while typing.
+  if (semantic && spec.text && process.env.OPENAI_API_KEY) {
+    let allowed
+    try {
+      allowed = await services.allowRequest(sql, userId, 'ai', SEARCH_RATE_LIMIT)
+    } catch (err) {
+      console.error('GET /api/tasks?resource=documents (search) quota enforcement failed:', err.message)
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'Search is temporarily unavailable' }))
+      return
+    }
+    if (!allowed) {
+      res.statusCode = 429
+      res.end(JSON.stringify({ error: 'Too many searches, slow down' }))
+      return
+    }
+  }
+
+  try {
+    // Semantic leg is best-effort: no key, no free text, or an OpenAI failure
+    // degrades to keyword/recency search rather than failing the request.
+    const semanticIds = async () => {
+      if (!semantic || !spec.text || !process.env.OPENAI_API_KEY) return []
+      try {
+        const vector = JSON.stringify(
+          await services.embedTextCached(spec.text, process.env.OPENAI_API_KEY),
+        )
+        return await vectorLeg(sql, userId, vector, spec.filters, SEARCH_CANDIDATES)
+      } catch (err) {
+        console.error('GET /api/tasks?resource=documents (search) vector leg failed:', err.message)
+        return []
+      }
+    }
+
+    // Free-text queries rank purely by relevance (keyword + semantic);
+    // recency is only the keyword leg's tie-breaker. A filters-only query has
+    // no relevance signal, so it falls back to the recency leg newest-first.
+    const keywordIds = spec.text ? keywordLeg(sql, userId, spec, SEARCH_CANDIDATES) : Promise.resolve([])
+    const recencyIds = spec.text ? Promise.resolve([]) : recencyLeg(sql, userId, spec, SEARCH_CANDIDATES)
+
+    const [keywordRows, recencyRows, vectorRows] = await Promise.all([
+      keywordIds,
+      recencyIds,
+      semanticIds(),
+    ])
+
+    const ids = fuseRankings([
+      keywordRows.map((r) => r.id),
+      recencyRows.map((r) => r.id),
+      vectorRows.map((r) => r.id),
+    ]).slice(0, SEARCH_RESULTS)
+
+    if (ids.length === 0) {
+      res.statusCode = 200
+      res.end(JSON.stringify({ documents: [] }))
+      return
+    }
+
+    const rows = await fetchSearchDocuments(sql, userId, ids)
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    const documents = ids.map((id) => byId.get(id)).filter(Boolean)
+
+    res.statusCode = 200
+    res.end(JSON.stringify({ documents }))
+  } catch (err) {
+    console.error('GET /api/tasks?resource=documents (search) failed:', err)
+    res.statusCode = 500
+    res.end(JSON.stringify({ error: 'Search failed' }))
+  }
+}
+
+async function handlePost(res, body, userId, sql, services) {
   const [user] = await userExists(sql, userId)
   if (!user) {
     res.statusCode = 404
@@ -223,11 +383,26 @@ async function handlePost(res, body, userId, sql) {
     const title = cleanText(body.title, MAX_TITLE_LENGTH) ?? template?.title ?? ''
     const emoji = template?.emoji ?? '🔹'
     const blocks = template?.blocks ?? []
-    const [document] = await sql`
-      INSERT INTO documents (user_id, folder_id, title, emoji, blocks)
-      VALUES (${userId}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)})
-      RETURNING id, folder_id, title, emoji, starred, tags, blocks, created_at, updated_at
-    `
+    // Awaited before the INSERT so a slow/failed OpenAI call never holds a DB
+    // round trip open — see computeSearchFields. Branches into two full
+    // statements (rather than a conditionally-nested embedding fragment)
+    // since the vector column needs an explicit ::extensions.vector cast that
+    // only applies when there is a vector to write.
+    const searchFields = await computeSearchFields(sql, userId, { title, blocks }, services)
+    const [document] = searchFields.embedding
+      ? await sql`
+          INSERT INTO documents (user_id, folder_id, title, emoji, blocks, content_text, embedding, embedding_model)
+          VALUES (
+            ${userId}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)}, ${searchFields.content_text},
+            ${JSON.stringify(searchFields.embedding)}::extensions.vector, ${searchFields.embedding_model}
+          )
+          RETURNING id, folder_id, title, emoji, starred, tags, blocks, created_at, updated_at
+        `
+      : await sql`
+          INSERT INTO documents (user_id, folder_id, title, emoji, blocks, content_text)
+          VALUES (${userId}, ${folderId}, ${title}, ${emoji}, ${sql.json(blocks)}, ${searchFields.content_text})
+          RETURNING id, folder_id, title, emoji, starred, tags, blocks, created_at, updated_at
+        `
     res.statusCode = 201
     res.end(JSON.stringify({ document }))
     return
@@ -237,7 +412,7 @@ async function handlePost(res, body, userId, sql) {
   res.end(JSON.stringify({ error: "kind must be 'folder', 'document', or 'template'" }))
 }
 
-async function handlePatch(res, body, userId, sql) {
+async function handlePatch(res, body, userId, sql, services) {
   if (!isUuid(body.id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid id is required' }))
@@ -358,6 +533,49 @@ async function handlePatch(res, body, userId, sql) {
     return
   }
 
+  // content_text/embedding are derived from the document's *effective*
+  // post-save title+blocks, so a save that only touches one of them still
+  // needs the other's current value — fetched here (outside the transaction
+  // below, which exists only for the unrelated daily-note-event diff) so a
+  // slow/failed OpenAI call in computeSearchFields never holds a DB
+  // transaction open. Kept independent of the transaction's own `previous`
+  // read: that one is used to diff blocks for daily-note-event sync and has
+  // its own correctness needs (must run at UPDATE time, inside the
+  // transaction); content_text/embedding are eventual-consistency-tolerant
+  // and don't need that rigor.
+  let embeddingVector = null
+  const touchesTitle = Object.hasOwn(body, 'title')
+  const touchesBlocks = Object.hasOwn(body, 'blocks')
+  if (touchesTitle || touchesBlocks) {
+    // newBlocks defaults to null (not undefined) when blocks aren't touched,
+    // so effective-value resolution is driven by touchesTitle/touchesBlocks
+    // rather than a value comparison that null would also satisfy.
+    let effectiveTitle = touchesTitle ? updates.title : undefined
+    let effectiveBlocks = touchesBlocks ? newBlocks : undefined
+    if (!touchesTitle || !touchesBlocks) {
+      const [current] =
+        await sql`SELECT title, blocks FROM documents WHERE id = ${body.id} AND user_id = ${userId}`
+      if (!current) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Document not found' }))
+        return
+      }
+      if (!touchesTitle) effectiveTitle = current.title
+      if (!touchesBlocks) effectiveBlocks = current.blocks
+    }
+    const searchFields = await computeSearchFields(
+      sql,
+      userId,
+      { title: effectiveTitle, blocks: effectiveBlocks },
+      services,
+    )
+    updates.content_text = searchFields.content_text
+    if (searchFields.embedding) {
+      updates.embedding_model = searchFields.embedding_model
+      embeddingVector = searchFields.embedding
+    }
+  }
+
   const [document] = await sql.begin(async (sql) => {
     // Only needed to diff against the post-update blocks below; skip the
     // extra round trip when this save doesn't touch blocks at all.
@@ -365,12 +583,24 @@ async function handlePatch(res, body, userId, sql) {
       ? (await sql`SELECT folder_id, title, blocks FROM documents WHERE id = ${body.id} AND user_id = ${userId}`)[0]
       : null
 
-    const rows = await sql`
-      UPDATE documents d
-      SET ${sql(updates)}, updated_at = now()
-      WHERE d.id = ${body.id} AND d.user_id = ${userId}
-      RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
-    `
+    // Branches into two full statements (rather than a conditionally-nested
+    // embedding fragment) since the vector column needs an explicit
+    // ::extensions.vector cast that only applies when there is a new vector
+    // to write — a rate-limited or skipped embed must leave the existing
+    // column untouched, not null it out.
+    const rows = embeddingVector
+      ? await sql`
+          UPDATE documents d
+          SET ${sql(updates)}, updated_at = now(), embedding = ${JSON.stringify(embeddingVector)}::extensions.vector
+          WHERE d.id = ${body.id} AND d.user_id = ${userId}
+          RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
+        `
+      : await sql`
+          UPDATE documents d
+          SET ${sql(updates)}, updated_at = now()
+          WHERE d.id = ${body.id} AND d.user_id = ${userId}
+          RETURNING d.id, d.folder_id, d.title, d.emoji, d.starred, d.tags, d.created_at, d.updated_at
+        `
     const updated = rows[0]
     if (updated && previous) {
       const eventDate = await resolveDailyNoteEventDate(sql, userId, updated.folder_id, updated.title)
@@ -437,7 +667,7 @@ export async function handleDocuments(req, res, userId, services = createService
   const route = `${req.method} /api/tasks?resource=documents`
   try {
     if (req.method === 'GET') {
-      return await handleGet(req, res, userId, sql)
+      return await handleGet(req, res, userId, sql, services)
     }
 
     if (req.method !== 'POST' && req.method !== 'PATCH' && req.method !== 'DELETE') {
@@ -455,8 +685,8 @@ export async function handleDocuments(req, res, userId, services = createService
       return
     }
 
-    if (req.method === 'POST') return await handlePost(res, body, userId, sql)
-    if (req.method === 'PATCH') return await handlePatch(res, body, userId, sql)
+    if (req.method === 'POST') return await handlePost(res, body, userId, sql, services)
+    if (req.method === 'PATCH') return await handlePatch(res, body, userId, sql, services)
     return await handleDelete(res, body, userId, sql)
   } catch (err) {
     console.error(`${route} failed:`, err)

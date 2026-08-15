@@ -337,6 +337,68 @@ describe('documents store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('searches documents into a separate array, leaving `documents` untouched', async () => {
+    store.documents = structuredClone(DOCS)
+    const results = [{ id: 'd-2', folder_id: null, title: 'Scratch', starred: true, tags: ['home'] }]
+    const fetchMock = stubFetch({ GET: () => ok({ documents: results }) })
+
+    await store.searchDocuments('scratch')
+
+    expect(store.activeSearchQuery).toBe('scratch')
+    expect(store.searchResults).toEqual(results)
+    expect(store.documents).toHaveLength(2)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?resource=documents&q=scratch')
+  })
+
+  it('appends mode=keyword for a non-semantic search', async () => {
+    const fetchMock = stubFetch({ GET: () => ok({ documents: [] }) })
+
+    await store.searchDocuments('scratch', { semantic: false })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?resource=documents&q=scratch&mode=keyword')
+  })
+
+  it('ignores a stale search response superseded by a newer search', async () => {
+    let resolveFirst
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    stubFetch({
+      GET: (url) =>
+        url.includes('first') ? firstResponse : ok({ documents: [{ id: 'd-2' }] }),
+    })
+
+    const firstSearch = store.searchDocuments('first')
+    await store.searchDocuments('second')
+    resolveFirst(ok({ documents: [{ id: 'd-stale' }] }))
+    await firstSearch
+
+    expect(store.activeSearchQuery).toBe('second')
+    expect(store.searchResults).toEqual([{ id: 'd-2' }])
+  })
+
+  it('clearSearch resets search state without touching documents', async () => {
+    store.documents = structuredClone(DOCS)
+    stubFetch({ GET: () => ok({ documents: [{ id: 'd-2' }] }) })
+    await store.searchDocuments('scratch')
+
+    store.clearSearch()
+
+    expect(store.activeSearchQuery).toBe('')
+    expect(store.searchResults).toEqual([])
+    expect(store.documents).toHaveLength(2)
+  })
+
+  it('surfaces a toast and leaves prior results in place when the search request fails', async () => {
+    stubFetch({ GET: fail })
+
+    await store.searchDocuments('scratch')
+
+    expect(store.activeSearchQuery).toBe('')
+    expect(store.searchResults).toEqual([])
+    expect(useInboxStore().notify).toHaveBeenCalledWith('Search failed. Please try again.', 'error')
+  })
+
   it('clears the open document when it is deleted', async () => {
     store.documents = structuredClone(DOCS)
     store.openDocId = 'd-1'

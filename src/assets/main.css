@@ -431,6 +431,10 @@ body {
   color: var(--text-purple);
 }
 
+.text-blue {
+  color: var(--text-blue);
+}
+
 .icon-btn {
   background: none;
   border: none;

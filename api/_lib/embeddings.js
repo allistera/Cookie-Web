@@ -7,9 +7,11 @@ export const EMBEDDING_DIMENSIONS = 1536
 // ~6k tokens, comfortably under the model's 8191-token input limit.
 const MAX_INPUT_CHARS = 24000
 
-// Embeds one string; returns a 1536-number array.
-export async function embedText(text, apiKey) {
-  const [vector] = await embedBatch([text], apiKey)
+// Embeds one string; returns a 1536-number array. options.signal aborts the
+// request (e.g. AbortSignal.timeout(ms)) — used by document autosave so a
+// hung OpenAI call can't stall the serialized save queue indefinitely.
+export async function embedText(text, apiKey, options) {
+  const [vector] = await embedBatch([text], apiKey, options)
   return vector
 }
 
@@ -35,7 +37,7 @@ export async function embedTextCached(text, apiKey) {
 }
 
 // Embeds several strings in one API call; returns arrays in input order.
-export async function embedBatch(texts, apiKey) {
+export async function embedBatch(texts, apiKey, { signal } = {}) {
   if (!apiKey) {
     throw new Error('OpenAI API key is not configured')
   }
@@ -56,6 +58,7 @@ export async function embedBatch(texts, apiKey) {
       dimensions: EMBEDDING_DIMENSIONS,
       input,
     }),
+    signal,
   })
   if (!response.ok) {
     throw new Error(`OpenAI embeddings API responded ${response.status}`)

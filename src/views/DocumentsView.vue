@@ -43,8 +43,12 @@ const activeTag = computed(() => {
   const value = Array.isArray(route.query.tag) ? route.query.tag[0] : route.query.tag
   return String(value ?? '')
 })
+// A search in the header replaces the dashboard list with its results (the
+// sidebar's folder tree is unaffected — see stores/documents.js's
+// searchResults comment); star/tag filters still apply on top of whichever
+// list is showing.
 const dashboardDocs = computed(() => {
-  let documents = store.documents
+  let documents = store.activeSearchQuery ? store.searchResults : store.documents
   if (starredOnly.value) documents = documents.filter((doc) => doc.starred)
   if (activeTag.value) documents = documents.filter((doc) => doc.tags?.includes(activeTag.value))
   return documents
@@ -154,7 +158,8 @@ function onEditorSave(payload) {
       </div>
 
       <div v-else-if="!dashboardDocs.length" class="documents-empty">
-        <p v-if="activeTag">No documents tagged #{{ activeTag }}.</p>
+        <p v-if="store.activeSearchQuery">No documents match “{{ store.activeSearchQuery }}”.</p>
+        <p v-else-if="activeTag">No documents tagged #{{ activeTag }}.</p>
         <p v-else-if="starredOnly">No starred documents yet — star one from the list or the sidebar.</p>
         <p v-else>No documents yet. Create your first one to get started.</p>
       </div>

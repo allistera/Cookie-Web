@@ -27,9 +27,22 @@ function getSql() {
 
 const USER_ID = '55555555-5555-4555-8555-555555555555'
 
+// Real embedding/rate-limit services are wired into createServices() by
+// default (documents.js's save-time embedding needs them). Faked here so
+// title/blocks-touching tests never make a real OpenAI call or an
+// unaccounted-for rate-limit query — allowRequest denies, so computeSearchFields
+// stops right after computing content_text, exactly like a rate-limited save
+// in production.
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql,
+  allowRequest: vi.fn(async () => false),
+  embedText: vi.fn(async () => {
+    throw new Error('embedText should not be called when allowRequest denies')
+  }),
+  embedTextCached: vi.fn(async () => {
+    throw new Error('embedTextCached should not be called in these tests')
+  }),
 })
 
 const DOC_ID = '33333333-3333-4333-8333-333333333333'
@@ -132,6 +145,42 @@ describe('GET /api/tasks?resource=documents', () => {
   })
 })
 
+// keywordLeg/recencyLeg/vectorLeg (documentRetrieval.js) compose nested sql
+// fragments (textMatch/rankExpr/filterClause), the same pattern api/search.js
+// uses via retrieval.js — this file's getSql() fake executes every
+// array-tagged call as a real, queue-consuming query and has no concept of a
+// fragment nested inside another template, so it can't fake those legs'
+// output. Covered instead at the SQL-building level in
+// documentRetrieval.test.js (mirroring retrieval-query.test.js), which is
+// also why search.js itself has no handler-level test. Only the guard
+// clauses that return before any leg runs are covered here.
+describe('GET /api/tasks?resource=documents&q=… (search)', () => {
+  it('429s when the shared ai quota is exhausted', async () => {
+    const searchHandler = createHandler({
+      verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
+      getSql,
+      allowRequest: vi.fn(async () => false),
+      embedText: vi.fn(),
+      embedTextCached: vi.fn(),
+    })
+    const res = makeRes()
+
+    await searchHandler(req('GET', undefined, '&q=roadmap'), res)
+
+    expect(res.statusCode).toBe(429)
+    expect(statements).toHaveLength(0)
+  })
+
+  it('rejects an oversized query', async () => {
+    const res = makeRes()
+
+    await handler(req('GET', undefined, `&q=${'x'.repeat(501)}`), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(statements).toHaveLength(0)
+  })
+})
+
 describe('POST /api/tasks?resource=documents', () => {
   it('creates a document in a folder the caller owns', async () => {
     sqlQueue = [
@@ -146,6 +195,49 @@ describe('POST /api/tasks?resource=documents', () => {
     expect(res.statusCode).toBe(201)
     expect(res.body.document.id).toBe(DOC_ID)
     expect(statements[2]).toContain('INSERT INTO documents')
+  })
+
+  it('embeds a non-blank new document and writes content_text + embedding', async () => {
+    sqlQueue = [
+      [{ id: USER_ID }],
+      [{ id: DOC_ID, folder_id: null, title: 'Roadmap', blocks: [] }],
+    ]
+    const embedHandler = createHandler({
+      verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
+      getSql,
+      allowRequest: vi.fn(async () => true),
+      embedText: vi.fn(async () => [0.1, 0.2]),
+      embedTextCached: vi.fn(),
+    })
+    const res = makeRes()
+
+    await embedHandler(req('POST', { kind: 'document', title: 'Roadmap' }), res)
+
+    expect(res.statusCode).toBe(201)
+    expect(statements[1]).toContain('embedding')
+    expect(statements[1]).toContain('::extensions.vector')
+    expect(statements[1]).toContain('content_text')
+  })
+
+  it('skips embedding for a blank new document without calling allowRequest', async () => {
+    sqlQueue = [[{ id: USER_ID }], [{ id: DOC_ID, folder_id: null, title: '', blocks: [] }]]
+    const denyIfCalled = vi.fn(async () => {
+      throw new Error('allowRequest should not be called for a blank document')
+    })
+    const embedHandler = createHandler({
+      verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
+      getSql,
+      allowRequest: denyIfCalled,
+      embedText: vi.fn(),
+      embedTextCached: vi.fn(),
+    })
+    const res = makeRes()
+
+    await embedHandler(req('POST', { kind: 'document', folderId: null }), res)
+
+    expect(res.statusCode).toBe(201)
+    expect(denyIfCalled).not.toHaveBeenCalled()
+    expect(statements[1]).not.toContain('embedding')
   })
 
   it('rejects a folderId the caller does not own', async () => {
@@ -243,9 +335,12 @@ describe('POST /api/tasks?resource=documents', () => {
 
 describe('PATCH /api/tasks?resource=documents', () => {
   it('saves blocks through sql.json and bumps updated_at', async () => {
-    // A blocks update first re-fetches the previous row (to diff against for
-    // daily-note event sync) before the UPDATE itself.
+    // A blocks-only update first re-fetches the current title (content_text
+    // needs the full title+blocks text even though only blocks changed here),
+    // then the previous row again (to diff against for daily-note event
+    // sync) before the UPDATE itself.
     sqlQueue = [
+      [{ title: 'Notes', blocks: [] }],
       [{ folder_id: null, title: 'Notes', blocks: [] }],
       [{ id: DOC_ID, title: 'Notes', folder_id: null }],
     ]
@@ -254,13 +349,14 @@ describe('PATCH /api/tasks?resource=documents', () => {
     await handler(req('PATCH', { id: DOC_ID, blocks: [{ type: 'paragraph', data: {} }] }), res)
 
     expect(res.statusCode).toBe(200)
-    expect(statements[0]).toContain('folder_id')
-    expect(statements[1]).toBe('SET(blocks)')
-    expect(statements[2]).toContain('updated_at = now()')
+    expect(statements[1]).toContain('folder_id')
+    expect(statements[2]).toBe('SET(blocks,content_text)')
+    expect(statements[3]).toContain('updated_at = now()')
   })
 
   it('syncs a Daily note time-range line into a linked calendar event', async () => {
     sqlQueue = [
+      [{ title: '14-08-26', blocks: [] }], // effective-title pre-fetch
       [{ folder_id: FOLDER_ID, title: '14-08-26', blocks: [] }], // previous row
       [{ id: DOC_ID, title: '14-08-26', folder_id: FOLDER_ID }], // UPDATE ... RETURNING
       [{ title: 'Daily' }], // resolveDailyNoteEventDate's folder-ancestry root
@@ -278,17 +374,19 @@ describe('PATCH /api/tasks?resource=documents', () => {
     )
 
     expect(res.statusCode).toBe(200)
-    // [0] previous-row SELECT, [1] SET(blocks) helper, [2] the UPDATE itself,
-    // [3] resolveDailyNoteEventDate's folder-ancestry CTE, [4] the default
-    // calendar lookup, [5] the calendar_events upsert.
-    expect(statements).toHaveLength(6)
-    expect(statements[3]).toContain('ancestry')
-    expect(statements[4]).toContain('FROM calendars')
-    expect(statements[5]).toContain('ON CONFLICT (source_document_id, source_block_id)')
+    // [0] effective-title pre-fetch, [1] previous-row SELECT, [2] SET(...)
+    // helper, [3] the UPDATE itself, [4] resolveDailyNoteEventDate's
+    // folder-ancestry CTE, [5] the default calendar lookup, [6] the
+    // calendar_events upsert.
+    expect(statements).toHaveLength(7)
+    expect(statements[4]).toContain('ancestry')
+    expect(statements[5]).toContain('FROM calendars')
+    expect(statements[6]).toContain('ON CONFLICT (source_document_id, source_block_id)')
   })
 
   it('syncs a time-range line inside a bulleted/checklist list item', async () => {
     sqlQueue = [
+      [{ title: '14-08-26', blocks: [] }],
       [{ folder_id: FOLDER_ID, title: '14-08-26', blocks: [] }],
       [{ id: DOC_ID, title: '14-08-26', folder_id: FOLDER_ID }],
       [{ title: 'Daily' }],
@@ -318,12 +416,13 @@ describe('PATCH /api/tasks?resource=documents', () => {
     )
 
     expect(res.statusCode).toBe(200)
-    expect(statements).toHaveLength(6)
-    expect(statements[5]).toContain('ON CONFLICT (source_document_id, source_block_id)')
+    expect(statements).toHaveLength(7)
+    expect(statements[6]).toContain('ON CONFLICT (source_document_id, source_block_id)')
   })
 
   it('does not touch calendar_events for a non-Daily document\'s blocks', async () => {
     sqlQueue = [
+      [{ title: 'Notes', blocks: [] }],
       [{ folder_id: FOLDER_ID, title: 'Notes', blocks: [] }],
       [{ id: DOC_ID, title: 'Notes', folder_id: FOLDER_ID }],
     ]
@@ -340,7 +439,58 @@ describe('PATCH /api/tasks?resource=documents', () => {
     expect(res.statusCode).toBe(200)
     // No folder-ancestry lookup: 'Notes' doesn't parse as a daily-note title,
     // so resolveDailyNoteEventDate short-circuits before it needs one.
-    expect(statements).toHaveLength(3)
+    expect(statements).toHaveLength(4)
+  })
+
+  it('re-embeds and writes the new vector when the save is allowed', async () => {
+    sqlQueue = [
+      [{ title: 'Notes', blocks: [] }], // effective-title pre-fetch
+      [{ folder_id: null, title: 'Notes', blocks: [] }], // previous row (daily-note diff)
+      [{ id: DOC_ID, title: 'Notes', folder_id: null }], // UPDATE ... RETURNING
+    ]
+    const embedHandler = createHandler({
+      verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
+      getSql,
+      allowRequest: vi.fn(async () => true),
+      embedText: vi.fn(async () => [0.1, 0.2]),
+      embedTextCached: vi.fn(),
+    })
+    const res = makeRes()
+
+    await embedHandler(
+      req('PATCH', { id: DOC_ID, blocks: [{ type: 'paragraph', data: { text: 'Ship it' } }] }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(statements[3]).toContain('embedding')
+    expect(statements[3]).toContain('::extensions.vector')
+  })
+
+  it('fetches the current blocks to embed a title-only rename', async () => {
+    sqlQueue = [
+      [{ title: 'Old title', blocks: [{ type: 'paragraph', data: { text: 'Body text' } }] }],
+      [{ id: DOC_ID, title: 'New title' }],
+    ]
+    const res = makeRes()
+
+    await handler(req('PATCH', { id: DOC_ID, title: 'New title' }), res)
+
+    expect(res.statusCode).toBe(200)
+    // No transaction-scoped `previous` row: only a title rename, no blocks
+    // touched, so the daily-note-event diff has nothing to do.
+    expect(statements[0]).toContain('SELECT title, blocks')
+    expect(statements[1]).toBe('SET(title,content_text)')
+  })
+
+  it('404s a title/blocks-touching patch for a document the caller does not own', async () => {
+    sqlQueue = [[]] // effective-title pre-fetch finds nothing
+    const res = makeRes()
+
+    await handler(req('PATCH', { id: DOC_ID, title: 'New title' }), res)
+
+    expect(res.statusCode).toBe(404)
+    expect(statements).toHaveLength(1)
   })
 
   it('toggles starred', async () => {
