@@ -74,6 +74,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
 describe('GET /api/tasks?resource=documents', () => {
@@ -156,6 +157,10 @@ describe('GET /api/tasks?resource=documents', () => {
 // clauses that return before any leg runs are covered here.
 describe('GET /api/tasks?resource=documents&q=… (search)', () => {
   it('429s when the shared ai quota is exhausted', async () => {
+    // The semantic-search rate-limit check only runs when an API key is
+    // configured (see handleDocumentSearch) — stubbed here rather than
+    // relying on the environment actually having one set.
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test')
     const searchHandler = createHandler({
       verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
       getSql,
@@ -198,6 +203,9 @@ describe('POST /api/tasks?resource=documents', () => {
   })
 
   it('embeds a non-blank new document and writes content_text + embedding', async () => {
+    // computeSearchFields only embeds when an API key is configured —
+    // stubbed here rather than relying on the environment having one set.
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test')
     sqlQueue = [
       [{ id: USER_ID }],
       [{ id: DOC_ID, folder_id: null, title: 'Roadmap', blocks: [] }],
@@ -220,6 +228,8 @@ describe('POST /api/tasks?resource=documents', () => {
   })
 
   it('skips embedding for a blank new document without calling allowRequest', async () => {
+    // Blank content should short-circuit before the API-key check even runs.
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test')
     sqlQueue = [[{ id: USER_ID }], [{ id: DOC_ID, folder_id: null, title: '', blocks: [] }]]
     const denyIfCalled = vi.fn(async () => {
       throw new Error('allowRequest should not be called for a blank document')
@@ -443,6 +453,7 @@ describe('PATCH /api/tasks?resource=documents', () => {
   })
 
   it('re-embeds and writes the new vector when the save is allowed', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test')
     sqlQueue = [
       [{ title: 'Notes', blocks: [] }], // effective-title pre-fetch
       [{ folder_id: null, title: 'Notes', blocks: [] }], // previous row (daily-note diff)
