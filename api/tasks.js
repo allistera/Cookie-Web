@@ -5,6 +5,7 @@ import { readJsonBody } from './_lib/body.js'
 import { handleRefresh } from './_lib/enricher.js'
 import { handleInterests } from './_lib/interests.js'
 import { handleDocuments } from './_lib/documents.js'
+import { handleDailyNoteSeed } from './_lib/dailyNoteSeed.js'
 
 const RESULTS = 25
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -266,6 +267,9 @@ export function createHandler(overrides = {}) {
     }
     if (resource === 'documents') {
       return handleDocuments(req, res, userId, services)
+    }
+    if (resource === 'daily-note-seed') {
+      return handleDailyNoteSeed(req, res, userId)
     }
 
     if (req.method === 'POST') {

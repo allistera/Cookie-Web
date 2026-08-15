@@ -16,6 +16,7 @@ import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
 import CalendarSettings from '../components/CalendarSettings.vue'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
+import DailyNoteSettings from '../components/DailyNoteSettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -47,7 +48,10 @@ const sectionGroups = [
   },
   {
     label: 'Documents',
-    sections: [{ id: 'document-templates', label: 'Templates', icon: 'description' }],
+    sections: [
+      { id: 'document-templates', label: 'Templates', icon: 'description' },
+      { id: 'daily-notes', label: 'Time Management', icon: 'today' },
+    ],
   },
 ]
 const sections = sectionGroups.flatMap((group) => group.sections)
@@ -796,6 +800,11 @@ function toggleRuleEnabled(rule) {
           <!-- Document templates -->
           <section v-if="activeSection === 'document-templates'" class="settings-section">
             <DocumentTemplateSettings />
+          </section>
+
+          <!-- Daily notes -->
+          <section v-if="activeSection === 'daily-notes'" class="settings-section">
+            <DailyNoteSettings />
           </section>
 
           <!-- Rules -->

@@ -309,3 +309,38 @@ test('The header search finds documents by content and filters, without disturbi
   await expect(page).toHaveURL(/\/documents\/stub-doc-floor-plan$/)
   await expect(searchInput).toHaveValue('')
 })
+
+test('The default content for new daily notes can be customized in Settings > Documents > Time Management', async ({
+  page,
+}) => {
+  await page.goto('/settings/daily-notes')
+
+  await expect(page.getByRole('heading', { name: 'Time Management', exact: true })).toBeVisible()
+  // The built-in default is a "Tasks" heading — replace it with custom content.
+  const heading = page.locator('.daily-note-editor-surface .ce-header').first()
+  await expect(heading).toHaveText('Tasks')
+  await heading.fill('Standup notes')
+
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=daily-note-seed') && response.request().method() === 'PUT',
+  )
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveResponse
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toBeVisible()
+
+  // The Documents sidebar's "Today" shortcut seeds a fresh note with it.
+  await page.goto('/documents')
+  await page.locator('.time-management-nav').getByRole('button', { name: 'Today' }).click()
+  await expect(page).toHaveURL(/\/documents\/stub-doc-/)
+  await expect(page.getByText('Standup notes')).toBeVisible()
+
+  // Resetting restores the built-in default for future notes.
+  await page.goto('/settings/daily-notes')
+  await expect(page.locator('.daily-note-editor-surface .ce-header').first()).toHaveText(
+    'Standup notes',
+  )
+  await page.getByRole('button', { name: 'Reset to default' }).click()
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
+  await expect(page.locator('.daily-note-editor-surface .ce-header').first()).toHaveText('Tasks')
+})

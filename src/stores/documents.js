@@ -21,6 +21,12 @@ let saveInFlight = null
 // the same reason (an AbortController isn't reactive state).
 let documentSearchAbortController = null
 
+// The built-in seed for a brand-new daily note, used whenever the user
+// hasn't customized one (Settings > Documents > Time Management). Exported
+// so the settings pane can show/reset to the same content the store falls
+// back to in openTodayNote().
+export const DEFAULT_DAILY_NOTE_SEED_BLOCKS = [{ type: 'header', data: { text: 'Tasks', level: 2 } }]
+
 // The Documents workspace (paper-style notes): nested folders plus Editor.js
 // block documents, backed by /api/tasks?resource=documents. The sidebar tree
 // and dashboard read the blockless list rows; opening a document fetches its
@@ -51,6 +57,11 @@ export const useDocumentsStore = defineStore('documents', {
     searchResults: [],
     // Out-of-order guard for searchDocuments, mirroring inbox.js's listSeq.
     searchSeq: 0,
+    // The user's customized daily-note seed, [] when not customized (use
+    // DEFAULT_DAILY_NOTE_SEED_BLOCKS instead — see openTodayNote).
+    dailyNoteSeed: [],
+    dailyNoteSeedLoaded: false,
+    dailyNoteSeedLoading: false,
   }),
 
   getters: {
@@ -239,6 +250,50 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
+    // The user's customized default content for new daily notes (Settings >
+    // Documents > Time Management). [] means "not customized" — callers fall
+    // back to DEFAULT_DAILY_NOTE_SEED_BLOCKS themselves.
+    async loadDailyNoteSeed({ force = false } = {}) {
+      if ((this.dailyNoteSeedLoaded && !force) || this.dailyNoteSeedLoading) return
+      this.dailyNoteSeedLoading = true
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch('/api/tasks?resource=daily-note-seed', { headers })
+        if (!response.ok) {
+          throw new Error(`GET daily-note-seed responded ${response.status}`)
+        }
+        const { blocks } = await response.json()
+        this.dailyNoteSeed = blocks
+        this.dailyNoteSeedLoaded = true
+      } catch (error) {
+        console.error('Failed to load the daily note default:', error)
+      } finally {
+        this.dailyNoteSeedLoading = false
+      }
+    },
+
+    async saveDailyNoteSeed(blocks) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch('/api/tasks?resource=daily-note-seed', {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ blocks }),
+        })
+        if (!response.ok) {
+          throw new Error(`PUT daily-note-seed responded ${response.status}`)
+        }
+        const { blocks: saved } = await response.json()
+        this.dailyNoteSeed = saved
+        this.dailyNoteSeedLoaded = true
+        return true
+      } catch (error) {
+        console.error('Failed to save the daily note default:', error)
+        this.notify('Failed to save the daily note default.', 'error')
+        return false
+      }
+    },
+
     openNewDocumentDialog(folderId = null) {
       this.newDocumentFolderId = folderId
       this.newDocumentDialogOpen = true
@@ -282,10 +337,13 @@ export const useDocumentsStore = defineStore('documents', {
     },
 
     // The "Today" sidebar shortcut: finds (or creates) today's note inside
-    // Daily/<year>/<month> (e.g. Daily/2026/Aug), seeding a fresh note with a
-    // "Tasks" heading so it isn't blank the first time it's opened.
+    // Daily/<year>/<month> (e.g. Daily/2026/Aug), seeding a fresh note with
+    // the user's customized daily-note default (or DEFAULT_DAILY_NOTE_SEED_BLOCKS
+    // if they haven't customized one) so it isn't blank the first time it's
+    // opened.
     async openTodayNote() {
       await this.loadWorkspace()
+      await this.loadDailyNoteSeed()
       const now = new Date()
       const title = formatDailyNoteTitle(now)
 
@@ -301,12 +359,10 @@ export const useDocumentsStore = defineStore('documents', {
 
       const document = await this.createDocument({ folderId: month.id, title })
       if (!document) return null
+      const seedBlocks = this.dailyNoteSeed.length ? this.dailyNoteSeed : DEFAULT_DAILY_NOTE_SEED_BLOCKS
       try {
         await this.request('PATCH', {
-          body: {
-            id: document.id,
-            blocks: [{ type: 'header', data: { text: 'Tasks', level: 2 } }],
-          },
+          body: { id: document.id, blocks: seedBlocks },
         })
       } catch (error) {
         console.error('Failed to seed the daily note:', error)

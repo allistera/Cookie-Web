@@ -83,6 +83,17 @@ describe('SettingsView', () => {
     await router.isReady()
     store = useInboxStore()
     localStorage.clear()
+    // The daily-notes pane mounts a real DocumentEditor (Editor.js), which
+    // probes matchMedia during its async init — jsdom doesn't implement it.
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    )
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (url) => ({
@@ -103,6 +114,7 @@ describe('SettingsView', () => {
           if (String(url).includes('resource=documents') && String(url).includes('templates')) {
             return { templates: [] }
           }
+          if (String(url).includes('resource=daily-note-seed')) return { blocks: [] }
           return { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
         },
       })),
@@ -148,7 +160,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(10)
+    expect(navItems).toHaveLength(11)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -160,6 +172,7 @@ describe('SettingsView', () => {
       'Rules',
       'Calendars',
       'Templates',
+      'Time Management',
     ].entries()) {
       expect(navItems[i]).toContain(name)
     }
@@ -209,6 +222,17 @@ describe('SettingsView', () => {
     expect(wrapper.get('.settings-page-header').text()).toBe('Templates')
     expect(wrapper.text()).toContain('Document templates')
     expect(wrapper.text()).toContain('No templates yet')
+  })
+
+  it('opens the daily-notes editor from the Documents settings group', async () => {
+    const wrapper = await openView()
+
+    await openPane(wrapper, 'daily-notes')
+    await flushPromises()
+
+    expect(wrapper.get('.settings-page-header').text()).toBe('Time Management')
+    expect(wrapper.text()).toContain('Time Management')
+    expect(wrapper.text()).toContain('Today')
   })
 
   it('shows only the browser notifications toggle in the Notifications pane', async () => {

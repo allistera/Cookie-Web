@@ -801,6 +801,18 @@ function localApiPlugin(mode) {
         res.end(JSON.stringify({ interests: state.interests }))
         return
       }
+      if (resource === 'daily-note-seed') {
+        const state = fixtureMailboxState(req, res)
+        state.dailyNoteSeed ??= []
+        if (req.method === 'PUT') {
+          const chunks = []
+          for await (const chunk of req) chunks.push(chunk)
+          const body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
+          state.dailyNoteSeed = Array.isArray(body.blocks) ? body.blocks : []
+        }
+        res.end(JSON.stringify({ blocks: state.dailyNoteSeed }))
+        return
+      }
       if (resource === 'refresh') {
         // No enricher Worker locally: pretend the digest rebuild succeeded so
         // the refresh control still exercises its real path.

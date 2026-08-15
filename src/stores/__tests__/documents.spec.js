@@ -256,7 +256,10 @@ describe('documents store', () => {
   it('opens today’s note, creating Daily/2026/Aug and a Tasks heading when none exist', async () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const fetchMock = stubFetch({
-      GET: () => ok({ folders: [], documents: [] }),
+      GET: (url) =>
+        url.includes('resource=daily-note-seed')
+          ? ok({ blocks: [] })
+          : ok({ folders: [], documents: [] }),
       POST: (url, body) =>
         body.kind === 'folder'
           ? ok({
@@ -302,39 +305,104 @@ describe('documents store', () => {
       emoji: '📁',
     })
 
-    const dailyCall = JSON.parse(fetchMock.mock.calls[1][1].body)
+    // [0] loadWorkspace GET, [1] loadDailyNoteSeed GET, [2-4] Daily/2026/Aug
+    // folder POSTs, [5] the document POST, [6] the seeding PATCH.
+    const dailyCall = JSON.parse(fetchMock.mock.calls[2][1].body)
     expect(dailyCall).toMatchObject({ kind: 'folder', title: 'Daily', parentId: null })
-    const yearCall = JSON.parse(fetchMock.mock.calls[2][1].body)
+    const yearCall = JSON.parse(fetchMock.mock.calls[3][1].body)
     expect(yearCall).toMatchObject({ kind: 'folder', title: '2026', parentId: 'f-Daily' })
-    const monthCall = JSON.parse(fetchMock.mock.calls[3][1].body)
+    const monthCall = JSON.parse(fetchMock.mock.calls[4][1].body)
     expect(monthCall).toMatchObject({ kind: 'folder', title: 'Aug', parentId: 'f-2026' })
-    const docCall = JSON.parse(fetchMock.mock.calls[4][1].body)
+    const docCall = JSON.parse(fetchMock.mock.calls[5][1].body)
     expect(docCall).toMatchObject({ kind: 'document', folderId: 'f-Aug', title: '13-08-26' })
-    const patchCall = JSON.parse(fetchMock.mock.calls[5][1].body)
+    const patchCall = JSON.parse(fetchMock.mock.calls[6][1].body)
     expect(patchCall).toEqual({
       id: 'd-today',
       blocks: [{ type: 'header', data: { text: 'Tasks', level: 2 } }],
     })
   })
 
+  it('seeds a new daily note with the customized default instead of the built-in Tasks heading', async () => {
+    vi.setSystemTime(new Date(2026, 7, 13))
+    const customSeed = [{ type: 'paragraph', data: { text: 'Standup notes' } }]
+    const fetchMock = stubFetch({
+      GET: (url) =>
+        url.includes('resource=daily-note-seed')
+          ? ok({ blocks: customSeed })
+          : ok({
+              folders: [
+                { id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' },
+                { id: 'f-year', parent_id: 'f-daily', title: '2026', emoji: '📁' },
+                { id: 'f-month', parent_id: 'f-year', title: 'Aug', emoji: '📁' },
+              ],
+              documents: [],
+            }),
+      POST: (url, body) => ok({ document: { id: 'd-today', folder_id: body.folderId, title: body.title } }),
+      PATCH: (url, body) => ok({ document: { id: body.id, updated_at: 't1' } }),
+    })
+
+    await store.openTodayNote()
+
+    const patchCall = JSON.parse(fetchMock.mock.calls.at(-1)[1].body)
+    expect(patchCall).toEqual({ id: 'd-today', blocks: customSeed })
+  })
+
   it('reopens today’s existing note instead of creating a duplicate', async () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const fetchMock = stubFetch({
-      GET: () =>
-        ok({
-          folders: [
-            { id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' },
-            { id: 'f-year', parent_id: 'f-daily', title: '2026', emoji: '📁' },
-            { id: 'f-month', parent_id: 'f-year', title: 'Aug', emoji: '📁' },
-          ],
-          documents: [{ id: 'd-today', folder_id: 'f-month', title: '13-08-26', starred: false }],
-        }),
+      GET: (url) =>
+        url.includes('resource=daily-note-seed')
+          ? ok({ blocks: [] })
+          : ok({
+              folders: [
+                { id: 'f-daily', parent_id: null, title: 'Daily', emoji: '📁' },
+                { id: 'f-year', parent_id: 'f-daily', title: '2026', emoji: '📁' },
+                { id: 'f-month', parent_id: 'f-year', title: 'Aug', emoji: '📁' },
+              ],
+              documents: [{ id: 'd-today', folder_id: 'f-month', title: '13-08-26', starred: false }],
+            }),
     })
 
     const doc = await store.openTodayNote()
 
     expect(doc.id).toBe('d-today')
+    // loadWorkspace + loadDailyNoteSeed only — no folder/document creation
+    // or seeding PATCH since today's note already exists.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('loadDailyNoteSeed fetches once and is memoized', async () => {
+    const fetchMock = stubFetch({ GET: () => ok({ blocks: [{ type: 'paragraph', data: {} }] }) })
+
+    await store.loadDailyNoteSeed()
+    await store.loadDailyNoteSeed()
+
+    expect(store.dailyNoteSeed).toEqual([{ type: 'paragraph', data: {} }])
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('saveDailyNoteSeed persists blocks and updates local state', async () => {
+    const blocks = [{ type: 'paragraph', data: { text: 'Weekly review' } }]
+    const fetchMock = stubFetch({ PUT: (url, body) => ok({ blocks: body.blocks }) })
+
+    const result = await store.saveDailyNoteSeed(blocks)
+
+    expect(result).toBe(true)
+    expect(store.dailyNoteSeed).toEqual(blocks)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?resource=daily-note-seed')
+    expect(fetchMock.mock.calls[0][1].method).toBe('PUT')
+  })
+
+  it('saveDailyNoteSeed reports failure via a toast and returns false', async () => {
+    stubFetch({ PUT: fail })
+
+    const result = await store.saveDailyNoteSeed([])
+
+    expect(result).toBe(false)
+    expect(useInboxStore().notify).toHaveBeenCalledWith(
+      'Failed to save the daily note default.',
+      'error',
+    )
   })
 
   it('searches documents into a separate array, leaving `documents` untouched', async () => {

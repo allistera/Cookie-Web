@@ -59,6 +59,9 @@ beforeEach(async () => {
         if (String(url).includes('templates')) {
           return { ok: true, json: async () => ({ templates: [] }) }
         }
+        if (String(url).includes('daily-note-seed')) {
+          return { ok: true, json: async () => ({ blocks: [] }) }
+        }
         return {
           ok: true,
           json: async () => ({
