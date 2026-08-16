@@ -22,9 +22,19 @@ export function getAuth0() {
   client ??= createAuth0({
     domain: import.meta.env.VITE_AUTH0_DOMAIN,
     clientId: import.meta.env.VITE_AUTH0_CLIENT_ID,
+    // Rotating refresh tokens (persisted to localStorage) let session renewal
+    // happen with a direct token request instead of the hidden-iframe silent
+    // auth (prompt=none) Auth0 uses by default. That iframe depends on
+    // third-party cookies to the Auth0 domain, which Safari/Chrome
+    // increasingly block — the fallback is a full top-level /authorize
+    // redirect on every page load. Requires the Auth0 API to have "Allow
+    // Offline Access" on and the application's Refresh Token grant enabled.
+    useRefreshTokens: true,
+    cacheLocation: 'localstorage',
     authorizationParams: {
       redirect_uri: window.location.origin,
       audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+      scope: 'openid profile email offline_access',
     },
   })
   return client
