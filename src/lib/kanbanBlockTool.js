@@ -56,6 +56,9 @@ export class KanbanBlockTool {
     this.dragTaskId = null
     this.dropIndicator = document.createElement('div')
     this.dropIndicator.className = 'kanban-drop-indicator'
+    // Bound once (not inline in dragstart) so add/removeEventListener target
+    // the same function reference - see dragstart/dragend below.
+    this.preventStrayDrop = (event) => event.preventDefault()
   }
 
   render() {
@@ -230,6 +233,15 @@ export class KanbanBlockTool {
       event.dataTransfer.effectAllowed = 'move'
       event.dataTransfer.setData('text/plain', task.id)
       this.dragTaskId = task.id
+      // Only .kanban-lane__tasks (renderLane, below) calls preventDefault()
+      // on dragover/drop to do the actual move. Drop the card anywhere else
+      // - a lane's title field, another block's text, ... - and without this
+      // the browser's native "insert dropped text" action fires instead,
+      // silently splicing the dragged task's raw id into whatever
+      // contenteditable the drop landed on. Listening document-wide for the
+      // drag's duration blocks that regardless of where the drop lands.
+      document.addEventListener('dragover', this.preventStrayDrop)
+      document.addEventListener('drop', this.preventStrayDrop)
       // Deferred a frame so the browser captures the drag image before the
       // fade-out class below applies - applying it synchronously would drag
       // an already-faded card.
@@ -239,6 +251,8 @@ export class KanbanBlockTool {
       taskEl.classList.remove('kanban-task--dragging')
       this.dragTaskId = null
       this.dropIndicator.remove()
+      document.removeEventListener('dragover', this.preventStrayDrop)
+      document.removeEventListener('drop', this.preventStrayDrop)
     })
 
     const header = document.createElement('div')
@@ -307,6 +321,11 @@ export class KanbanBlockTool {
   }
 
   destroy() {
+    // In case the block is torn down mid-drag (e.g. its parent block deleted
+    // while a card is being dragged) - dragend would otherwise never fire to
+    // remove these.
+    document.removeEventListener('dragover', this.preventStrayDrop)
+    document.removeEventListener('drop', this.preventStrayDrop)
     this.wrapper = null
     this.board = null
   }

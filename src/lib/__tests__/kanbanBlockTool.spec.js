@@ -203,6 +203,42 @@ describe('KanbanBlockTool', () => {
     expect(tool.save().lanes[1].tasks).toHaveLength(0)
   })
 
+  // Regression test: dropping a dragged card anywhere other than
+  // .kanban-lane__tasks (e.g. a lane's own title field, or another block
+  // entirely) used to leave the browser's native "insert dropped text"
+  // action unprevented - it would splice the dragged task's raw id straight
+  // into whatever contenteditable the drop landed on.
+  it('prevents the browser default drop action anywhere outside the tasks list while dragging', () => {
+    const tool = new KanbanBlockTool({ data: {} })
+    const el = tool.render()
+    el.querySelector('.kanban-lane__add-task').click()
+    document.body.append(el)
+
+    const card = el.querySelector('.kanban-task')
+    const otherLaneTitle = el.querySelectorAll('.kanban-lane__title')[1]
+    const dataTransfer = fakeDataTransfer()
+    fireDrag(card, 'dragstart', { dataTransfer })
+
+    const dragoverEvent = fireDrag(otherLaneTitle, 'dragover', { dataTransfer })
+    expect(dragoverEvent.defaultPrevented).toBe(true)
+    const dropEvent = fireDrag(otherLaneTitle, 'drop', { dataTransfer })
+    expect(dropEvent.defaultPrevented).toBe(true)
+    // Nothing moved - the drop landed outside any lane's own drop handler.
+    // (jsdom doesn't implement the native "insert dropped text" action this
+    // guards against - see the file-level comment above - so the only thing
+    // verifiable here is that both events got their default prevented.)
+    expect(tool.save().lanes[0].tasks).toHaveLength(1)
+    expect(otherLaneTitle.textContent).toBe('In Progress')
+
+    fireDrag(card, 'dragend')
+    document.body.replaceChildren()
+
+    // The document-wide guard is removed once the drag ends, so it doesn't
+    // leak into unrelated drags elsewhere on the page.
+    const afterDragEvent = fireDrag(document.body, 'dragover', { dataTransfer: fakeDataTransfer() })
+    expect(afterDragEvent.defaultPrevented).toBe(false)
+  })
+
   it('loads previously-saved board data unchanged', () => {
     const saved = {
       lanes: [
