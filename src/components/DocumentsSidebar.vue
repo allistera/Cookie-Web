@@ -1,25 +1,22 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useDocumentsStore } from '../stores/documents'
 import { flattenDocumentsTree } from '../lib/documentsTree'
+import { getStoredExpandedFolderIds, saveExpandedFolderIds } from '../lib/documentsSidebarFolders'
 
 const store = useDocumentsStore()
 const route = useRoute()
 const router = useRouter()
 
-// Which folders are open. Roots start expanded on first load so the tree is
-// visible without a click-per-folder tour.
-const expandedIds = ref(new Set())
-let expandedSeeded = false
+// Which folders are open, persisted to localStorage so a reload restores it.
+// Folders start closed for anyone with nothing stored yet.
+const expandedIds = ref(new Set(getStoredExpandedFolderIds()))
+watch(expandedIds, (ids) => saveExpandedFolderIds(ids))
 
 onMounted(async () => {
   await store.loadWorkspace()
-  if (!expandedSeeded) {
-    expandedSeeded = true
-    expandedIds.value = new Set(store.folders.map((folder) => folder.id))
-  }
 })
 
 const treeRows = computed(() =>

@@ -100,15 +100,17 @@ beforeEach(async () => {
 })
 
 describe('DocumentsSidebar', () => {
-  it('renders the folder tree expanded with nested docs, starred first', async () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('renders root folders closed by default, with starred docs and tags visible', async () => {
     const wrapper = mountSidebar()
     await flushPromises()
 
     const text = wrapper.text()
     expect(text).toContain('Starred')
     expect(text).toContain('Projects')
-    expect(text).toContain('Kitchen')
-    expect(text).toContain('Plan')
     expect(text).toContain('Scratch')
     expect(text).toContain('Tags')
     expect(wrapper.findAll('.document-tag-item').map((node) => node.text())).toEqual([
@@ -116,12 +118,14 @@ describe('DocumentsSidebar', () => {
       '#project1',
     ])
 
-    // Kitchen is nested one level under Projects; Plan one under Kitchen.
-    const kitchen = wrapper.findAll('.folder-item').find((node) => node.text().includes('Kitchen'))
-    expect(kitchen.attributes('style')).toContain('padding-left: 24px')
+    // Kitchen and Plan are nested under the (closed) Projects root folder.
+    // Plan still appears once, in the separate Starred section above.
+    const treeText = wrapper.find('.documents-tree').text()
+    expect(treeText).not.toContain('Kitchen')
+    expect(treeText).not.toContain('Plan')
   })
 
-  it('collapsing a folder hides its contents', async () => {
+  it('expanding a folder reveals nested docs, collapsing hides them again', async () => {
     const wrapper = mountSidebar()
     await flushPromises()
 
@@ -130,7 +134,36 @@ describe('DocumentsSidebar', () => {
       .find((node) => node.text().includes('Projects'))
     await projects.trigger('click')
 
+    expect(wrapper.find('.documents-tree').text()).toContain('Kitchen')
+
+    // Kitchen is nested one level under Projects.
+    const kitchen = wrapper.findAll('.folder-item').find((node) => node.text().includes('Kitchen'))
+    expect(kitchen.attributes('style')).toContain('padding-left: 24px')
+
+    await kitchen.trigger('click')
+    expect(wrapper.find('.documents-tree').text()).toContain('Plan')
+
+    await projects.trigger('click')
     expect(wrapper.find('.documents-tree').text()).not.toContain('Kitchen')
+  })
+
+  it('persists expanded folders to localStorage and restores them on remount', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const projects = wrapper
+      .findAll('.folder-item')
+      .find((node) => node.text().includes('Projects'))
+    await projects.trigger('click')
+
+    expect(JSON.parse(localStorage.getItem('cookie-documents-expanded-folders'))).toEqual([
+      'f-projects',
+    ])
+
+    const remounted = mountSidebar()
+    await flushPromises()
+
+    expect(remounted.find('.documents-tree').text()).toContain('Kitchen')
   })
 
   it('opens the new document picker', async () => {
