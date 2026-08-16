@@ -46,6 +46,16 @@ export class KanbanBlockTool {
     this.wrapper = null
     this.board = null
     this.focusRequest = null
+    // Native HTML5 drag-and-drop state, mirroring DocumentsSidebar.vue's
+    // folder drag (dragDocId): dataTransfer's own payload isn't reliably
+    // readable during dragover in every browser, only on drop, so the id of
+    // the task being dragged is tracked here instead. dropIndicator is a
+    // single reused node repositioned as the pointer moves, rather than
+    // re-rendering the board on every dragover (which would tear down the
+    // element the browser is mid-drag with).
+    this.dragTaskId = null
+    this.dropIndicator = document.createElement('div')
+    this.dropIndicator.className = 'kanban-drop-indicator'
   }
 
   render() {
@@ -107,6 +117,39 @@ export class KanbanBlockTool {
     this.renderBoard()
   }
 
+  // Moves a task (by id, from whichever lane currently holds it - possibly
+  // targetLane itself, for same-lane reordering) to targetLane, inserted
+  // before beforeTaskId, or at the end when beforeTaskId is null/not found.
+  moveTask(taskId, targetLane, beforeTaskId) {
+    let task = null
+    for (const lane of this.data.lanes) {
+      const index = lane.tasks.findIndex((candidate) => candidate.id === taskId)
+      if (index === -1) continue
+      ;[task] = lane.tasks.splice(index, 1)
+      break
+    }
+    if (!task) return
+    const insertAt = targetLane.tasks.findIndex((candidate) => candidate.id === beforeTaskId)
+    if (insertAt === -1) targetLane.tasks.push(task)
+    else targetLane.tasks.splice(insertAt, 0, task)
+    this.renderBoard()
+  }
+
+  // The classic "drag to reorder" lookup: the task card whose midpoint the
+  // pointer has just passed, i.e. the one the dragged card should land
+  // before. Excludes the card being dragged so it doesn't collide with
+  // itself; null return means "drop at the end".
+  taskAfterPoint(tasksEl, pointerY) {
+    const candidates = tasksEl.querySelectorAll(':scope > .kanban-task:not(.kanban-task--dragging)')
+    let closest = { offset: Number.NEGATIVE_INFINITY, element: null }
+    for (const el of candidates) {
+      const box = el.getBoundingClientRect()
+      const offset = pointerY - box.top - box.height / 2
+      if (offset < 0 && offset > closest.offset) closest = { offset, element: el }
+    }
+    return closest.element
+  }
+
   renderBoard() {
     this.board.replaceChildren(...this.data.lanes.map((lane) => this.renderLane(lane)))
     this.wrapper.setAttribute('aria-label', kanbanBoardLabel(this.data))
@@ -147,6 +190,24 @@ export class KanbanBlockTool {
     tasksEl.className = 'kanban-lane__tasks'
     tasksEl.setAttribute('role', 'list')
     tasksEl.append(...lane.tasks.map((task) => this.renderTask(lane, task)))
+    tasksEl.addEventListener('dragover', (event) => {
+      if (!this.dragTaskId) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      const afterEl = this.taskAfterPoint(tasksEl, event.clientY)
+      tasksEl.insertBefore(this.dropIndicator, afterEl)
+    })
+    tasksEl.addEventListener('dragleave', (event) => {
+      if (!tasksEl.contains(event.relatedTarget)) this.dropIndicator.remove()
+    })
+    tasksEl.addEventListener('drop', (event) => {
+      if (!this.dragTaskId) return
+      event.preventDefault()
+      const beforeEl = this.dropIndicator.nextElementSibling
+      const beforeTaskId = beforeEl?.classList.contains('kanban-task') ? beforeEl.dataset.taskId : null
+      this.moveTask(this.dragTaskId, lane, beforeTaskId)
+      this.dropIndicator.remove()
+    })
     laneEl.append(tasksEl)
 
     const addTask = document.createElement('button')
@@ -164,6 +225,21 @@ export class KanbanBlockTool {
     taskEl.className = 'kanban-task'
     taskEl.dataset.taskId = task.id
     taskEl.setAttribute('role', 'listitem')
+    taskEl.draggable = true
+    taskEl.addEventListener('dragstart', (event) => {
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', task.id)
+      this.dragTaskId = task.id
+      // Deferred a frame so the browser captures the drag image before the
+      // fade-out class below applies - applying it synchronously would drag
+      // an already-faded card.
+      requestAnimationFrame(() => taskEl.classList.add('kanban-task--dragging'))
+    })
+    taskEl.addEventListener('dragend', () => {
+      taskEl.classList.remove('kanban-task--dragging')
+      this.dragTaskId = null
+      this.dropIndicator.remove()
+    })
 
     const header = document.createElement('div')
     header.className = 'kanban-task__header'
@@ -204,6 +280,11 @@ export class KanbanBlockTool {
     // Browsers make contenteditable elements keyboard-focusable implicitly,
     // but jsdom (and some assistive tech) only honors an explicit tabIndex.
     field.tabIndex = 0
+    // Without this, starting a drag gesture on selected text inside a task
+    // title/description competes with the card's own draggable="true" (see
+    // renderTask) - the browser would drag the text selection instead of
+    // the card.
+    field.draggable = false
     field.spellcheck = !singleLine
     field.dataset.placeholder = placeholder
     field.textContent = text

@@ -593,6 +593,10 @@ function onTitleEnter() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* A non-zero floor even with zero tasks, so an empty lane still has a
+     droppable area rather than collapsing to a sliver between the lane
+     title and the "+ Add task" button. */
+  min-height: 20px;
 }
 
 .document-blocks :deep(.kanban-task) {
@@ -603,6 +607,18 @@ function onTitleEnter() {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   background: var(--bg-input);
+  cursor: grab;
+}
+
+.document-blocks :deep(.kanban-task--dragging) {
+  opacity: 0.4;
+}
+
+.document-blocks :deep(.kanban-drop-indicator) {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex: 0 0 auto;
 }
 
 .document-blocks :deep(.kanban-task__header) {
@@ -619,6 +635,9 @@ function onTitleEnter() {
   color: var(--text-primary);
   outline: none;
   overflow-wrap: break-word;
+  /* Overrides the card's own grab cursor - editing text here shouldn't
+     look like it's about to start a drag. */
+  cursor: text;
 }
 
 .document-blocks :deep(.kanban-task__description) {
@@ -627,6 +646,7 @@ function onTitleEnter() {
   outline: none;
   overflow-wrap: break-word;
   white-space: pre-wrap;
+  cursor: text;
 }
 
 .document-blocks :deep(.kanban-lane__title[data-placeholder]:empty::before),

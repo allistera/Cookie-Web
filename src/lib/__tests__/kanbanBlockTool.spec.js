@@ -7,6 +7,32 @@ function setText(field, text) {
   field.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+// jsdom implements neither DataTransfer nor DragEvent (a known gap - drag-
+// and-drop is unimplemented there), and getBoundingClientRect always
+// returns an all-zero rect with no real layout engine behind it, so pixel-
+// accurate "drop between these two cards" positioning can only be verified
+// by the Playwright e2e test, which runs in a real browser. What's tested
+// here is the wiring: dragstart/dragover/drop firing on plain Events with a
+// hand-rolled dataTransfer stand-in reaches moveTask with the right ids.
+function fakeDataTransfer() {
+  const store = new Map()
+  return {
+    effectAllowed: null,
+    dropEffect: null,
+    setData: (type, value) => store.set(type, value),
+    getData: (type) => store.get(type) ?? '',
+  }
+}
+
+function fireDrag(target, type, { dataTransfer, clientY = 0, relatedTarget = null } = {}) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  event.dataTransfer = dataTransfer
+  event.clientY = clientY
+  event.relatedTarget = relatedTarget
+  target.dispatchEvent(event)
+  return event
+}
+
 describe('KanbanBlockTool', () => {
   it('renders the default Todo/In Progress/Done lanes for a new block', () => {
     const tool = new KanbanBlockTool({ data: {} })
@@ -95,6 +121,86 @@ describe('KanbanBlockTool', () => {
     expect(bubbled).toBe(false)
     expect(document.activeElement).toBe(description)
     document.body.replaceChildren()
+  })
+
+  it('moveTask moves a task into another lane, appended by default', () => {
+    const tool = new KanbanBlockTool({ data: {} })
+    tool.render()
+    const [todo, inProgress] = tool.data.lanes
+    todo.tasks.push({ id: 'task-1', title: 'A', description: '' }, { id: 'task-2', title: 'B', description: '' })
+
+    tool.moveTask('task-1', inProgress, null)
+
+    expect(todo.tasks.map((t) => t.id)).toEqual(['task-2'])
+    expect(inProgress.tasks.map((t) => t.id)).toEqual(['task-1'])
+  })
+
+  it('moveTask inserts before a given task, including reordering within the same lane', () => {
+    const tool = new KanbanBlockTool({ data: {} })
+    tool.render()
+    const [todo] = tool.data.lanes
+    todo.tasks.push(
+      { id: 'task-1', title: 'A', description: '' },
+      { id: 'task-2', title: 'B', description: '' },
+      { id: 'task-3', title: 'C', description: '' },
+    )
+
+    tool.moveTask('task-3', todo, 'task-1')
+
+    expect(todo.tasks.map((t) => t.id)).toEqual(['task-3', 'task-1', 'task-2'])
+  })
+
+  it('moveTask is a no-op for an unknown task id', () => {
+    const tool = new KanbanBlockTool({ data: {} })
+    tool.render()
+    const [todo] = tool.data.lanes
+    todo.tasks.push({ id: 'task-1', title: 'A', description: '' })
+
+    tool.moveTask('does-not-exist', todo, null)
+
+    expect(todo.tasks.map((t) => t.id)).toEqual(['task-1'])
+  })
+
+  it('drags a task card from one lane and drops it in another', () => {
+    const tool = new KanbanBlockTool({ data: {} })
+    const el = tool.render()
+    el.querySelector('.kanban-lane__add-task').click()
+    setText(el.querySelector('.kanban-task__title'), 'Ship it')
+    const lanes = el.querySelectorAll('.kanban-lane')
+    const card = lanes[0].querySelector('.kanban-task')
+    const targetTasksEl = lanes[1].querySelector('.kanban-lane__tasks')
+
+    const dataTransfer = fakeDataTransfer()
+    fireDrag(card, 'dragstart', { dataTransfer })
+    expect(tool.dragTaskId).toBe(card.dataset.taskId)
+    expect(dataTransfer.getData('text/plain')).toBe(card.dataset.taskId)
+
+    // The target lane starts with zero tasks, so taskAfterPoint has no
+    // candidates and resolves to "insert at the end" regardless of clientY -
+    // see the comment on fireDrag/fakeDataTransfer above for why
+    // pixel-accurate mid-list positioning isn't exercised here.
+    fireDrag(targetTasksEl, 'dragover', { dataTransfer, clientY: -1 })
+    fireDrag(targetTasksEl, 'drop', { dataTransfer })
+    fireDrag(card, 'dragend')
+
+    expect(tool.save().lanes[0].tasks).toHaveLength(0)
+    expect(tool.save().lanes[1].tasks.map((t) => t.title)).toEqual(['Ship it'])
+    expect(tool.dragTaskId).toBeNull()
+  })
+
+  it('ignores dragover/drop on a lane when no task is being dragged', () => {
+    const tool = new KanbanBlockTool({ data: {} })
+    const el = tool.render()
+    el.querySelector('.kanban-lane__add-task').click()
+    const lanes = el.querySelectorAll('.kanban-lane')
+    const targetTasksEl = lanes[1].querySelector('.kanban-lane__tasks')
+
+    const event = fireDrag(targetTasksEl, 'dragover', { dataTransfer: fakeDataTransfer() })
+    expect(event.defaultPrevented).toBe(false)
+    fireDrag(targetTasksEl, 'drop', { dataTransfer: fakeDataTransfer() })
+
+    expect(tool.save().lanes[0].tasks).toHaveLength(1)
+    expect(tool.save().lanes[1].tasks).toHaveLength(0)
   })
 
   it('loads previously-saved board data unchanged', () => {

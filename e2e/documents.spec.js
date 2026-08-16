@@ -325,6 +325,63 @@ test('A Kanban board can be inserted from the slash menu, edited, and persists',
   await expect(reloadedBoard).toHaveAccessibleName('Kanban board, 3 lanes, 0 tasks')
 })
 
+test('A Kanban task card can be dragged into another swimlane and persists', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await page.keyboard.type('/')
+  const popover = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(popover).toBeVisible()
+  await popover.locator('.ce-popover-item', { hasText: 'Kanban' }).click()
+
+  const board = page.getByRole('region', { name: /^Kanban board/ })
+  const lanes = board.locator('.kanban-lane')
+  await expect(lanes).toHaveCount(3)
+
+  // One task each in Todo and In Progress, so the drag also proves the
+  // destination lane's own existing task isn't disturbed by the drop.
+  await lanes.nth(0).locator('.kanban-lane__add-task').click()
+  await page.keyboard.type('Write the proposal')
+  await lanes.nth(1).locator('.kanban-lane__add-task').click()
+  await page.keyboard.type('Review budget')
+  await expect(board).toHaveAccessibleName('Kanban board, 3 lanes, 2 tasks')
+
+  const moved = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"lanes"'),
+  )
+  const card = lanes.nth(0).locator('.kanban-task', { hasText: 'Write the proposal' })
+  await card.dragTo(lanes.nth(1).locator('.kanban-lane__tasks'))
+  await moved
+
+  // Where exactly it lands among the destination lane's existing cards is
+  // covered precisely at the data level (kanbanBlockTool.spec.js's moveTask
+  // tests) - what matters here, in a real browser, is that both cards ended
+  // up in the right lane, order aside.
+  await expect(lanes.nth(0).locator('.kanban-task')).toHaveCount(0)
+  const movedInto = lanes.nth(1).locator('.kanban-task__title')
+  await expect(movedInto).toHaveCount(2)
+  expect((await movedInto.allTextContents()).sort()).toEqual(
+    ['Review budget', 'Write the proposal'].sort(),
+  )
+
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+
+  const reloadedLanes = page.getByRole('region', { name: /^Kanban board/ }).locator('.kanban-lane')
+  await expect(reloadedLanes.nth(0).locator('.kanban-task')).toHaveCount(0)
+  const reloadedTitles = reloadedLanes.nth(1).locator('.kanban-task__title')
+  await expect(reloadedTitles).toHaveCount(2)
+  expect((await reloadedTitles.allTextContents()).sort()).toEqual(
+    ['Review budget', 'Write the proposal'].sort(),
+  )
+})
+
 test('Folders can be created inline and documents dragged between them', async ({ page }) => {
   await page.goto('/documents')
 
