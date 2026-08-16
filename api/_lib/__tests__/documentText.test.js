@@ -50,6 +50,26 @@ describe('flattenBlocksToText', () => {
     expect(flattenBlocksToText('', blocks)).toBe('const x = 1\nA diagram')
   })
 
+  it('flattens kanban lane and task text', () => {
+    const blocks = [
+      {
+        type: 'kanban',
+        data: {
+          lanes: [
+            {
+              title: 'Todo',
+              tasks: [{ title: 'Write docs', description: 'Cover the new block type' }],
+            },
+            { title: 'Done', tasks: [] },
+          ],
+        },
+      },
+    ]
+    expect(flattenBlocksToText('Board', blocks)).toBe(
+      'Board\nTodo\nWrite docs\nCover the new block type\nDone',
+    )
+  })
+
   it('skips blocks with no representable text', () => {
     const blocks = [{ type: 'delimiter' }, { type: 'date', data: { date: '2026-01-01' } }]
     expect(flattenBlocksToText('Just a title', blocks)).toBe('Just a title')

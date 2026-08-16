@@ -59,6 +59,17 @@ export function flattenBlocksToText(title, blocks) {
       case 'image':
         pushIf(lines, plainText(block.data?.caption))
         break
+      case 'kanban':
+        // Kanban fields are plain text (no inline toolbar), unlike
+        // header/paragraph/list/table's HTML - see kanbanBlockTool.js.
+        for (const lane of block.data?.lanes ?? []) {
+          pushIf(lines, lane?.title)
+          for (const task of lane?.tasks ?? []) {
+            pushIf(lines, task?.title)
+            pushIf(lines, task?.description)
+          }
+        }
+        break
       default:
         break
     }

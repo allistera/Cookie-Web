@@ -14,6 +14,7 @@ import { useInboxStore } from '../stores/inbox'
 import { formatInsertedDate } from '../lib/documentDates'
 import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
+import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import {
   MAX_DOCUMENT_TAGS,
@@ -195,6 +196,7 @@ function mountEditor() {
       date: InsertDateTool,
       excalidraw: { class: ExcalidrawBlockTool, config: { onChange: scheduleBlocksSave } },
       image: { class: ImageTool, config: { uploader: imageUploader } },
+      kanban: KanbanBlockTool,
     },
     onChange: () => {
       scheduleBlocksSave()
@@ -545,5 +547,141 @@ function onTitleEnter() {
   .document-blocks :deep(.excalidraw-block__loading) {
     height: 360px;
   }
+}
+
+.document-blocks :deep(.kanban-block) {
+  display: block;
+  margin: 12px 0;
+}
+
+.document-blocks :deep(.kanban-board) {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.document-blocks :deep(.kanban-lane) {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 240px;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.document-blocks :deep(.kanban-lane__header) {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.document-blocks :deep(.kanban-lane__title) {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  overflow-wrap: break-word;
+}
+
+.document-blocks :deep(.kanban-lane__tasks) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.document-blocks :deep(.kanban-task) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+
+.document-blocks :deep(.kanban-task__header) {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.document-blocks :deep(.kanban-task__title) {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  overflow-wrap: break-word;
+}
+
+.document-blocks :deep(.kanban-task__description) {
+  font-size: 12px;
+  color: var(--text-secondary);
+  outline: none;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.document-blocks :deep(.kanban-lane__title[data-placeholder]:empty::before),
+.document-blocks :deep(.kanban-task__title[data-placeholder]:empty::before),
+.document-blocks :deep(.kanban-task__description[data-placeholder]:empty::before) {
+  content: attr(data-placeholder);
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.document-blocks :deep(.kanban-lane__delete),
+.document-blocks :deep(.kanban-task__delete) {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.document-blocks :deep(.kanban-lane__delete:hover),
+.document-blocks :deep(.kanban-task__delete:hover) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.document-blocks :deep(.kanban-lane__add-task),
+.document-blocks :deep(.kanban-board__add-lane) {
+  align-self: flex-start;
+  padding: 4px 8px;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.document-blocks :deep(.kanban-lane__add-task) {
+  align-self: stretch;
+  text-align: left;
+}
+
+.document-blocks :deep(.kanban-board__add-lane) {
+  margin-top: 8px;
+}
+
+.document-blocks :deep(.kanban-lane__add-task:hover),
+.document-blocks :deep(.kanban-board__add-lane:hover) {
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 </style>

@@ -236,6 +236,95 @@ test('An Excalidraw drawing can be inserted from the document slash menu and per
   await expect(page.getByRole('region', { name: 'Excalidraw drawing, 1 element' })).toBeVisible()
 })
 
+test('A Kanban board can be inserted from the slash menu, edited, and persists', async ({
+  page,
+}) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await page.keyboard.type('/')
+  const popover = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(popover).toBeVisible()
+
+  const inserted = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"type":"kanban"'),
+  )
+  await popover.locator('.ce-popover-item', { hasText: 'Kanban' }).click()
+  await inserted
+
+  // The board's accessible name reports live lane/task counts (see
+  // kanbanBoardLabel), so it's matched loosely here and asserted separately
+  // rather than baked into the locator, which would go stale on every edit.
+  const board = page.getByRole('region', { name: /^Kanban board/ })
+  await expect(board).toBeVisible()
+  await expect(board).toHaveAccessibleName('Kanban board, 3 lanes, 0 tasks')
+  const lanes = board.locator('.kanban-lane')
+  await expect(lanes).toHaveCount(3)
+  await expect(lanes.nth(0).locator('.kanban-lane__title')).toHaveText('Todo')
+  await expect(lanes.nth(1).locator('.kanban-lane__title')).toHaveText('In Progress')
+  await expect(lanes.nth(2).locator('.kanban-lane__title')).toHaveText('Done')
+
+  // A task in the first lane gets a title and description.
+  await lanes.nth(0).locator('.kanban-lane__add-task').click()
+  const task = lanes.nth(0).locator('.kanban-task').first()
+  await expect(task.locator('.kanban-task__title')).toBeFocused()
+  await page.keyboard.type('Write the proposal')
+  await task.locator('.kanban-task__description').click()
+  await page.keyboard.type('Cover scope, budget, and timeline.')
+
+  // A fourth, user-added lane.
+  const savedLane = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('Blocked'),
+  )
+  await board.locator('.kanban-board__add-lane').click()
+  await expect(lanes).toHaveCount(4)
+  await expect(lanes.nth(3).locator('.kanban-lane__title')).toBeFocused()
+  await page.keyboard.type('Blocked')
+  await lanes.nth(3).locator('.kanban-lane__title').blur()
+  await savedLane
+  await expect(board).toHaveAccessibleName('Kanban board, 4 lanes, 1 task')
+
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+
+  const reloadedBoard = page.getByRole('region', { name: /^Kanban board/ })
+  await expect(reloadedBoard).toHaveAccessibleName('Kanban board, 4 lanes, 1 task')
+  const reloadedLanes = reloadedBoard.locator('.kanban-lane')
+  await expect(reloadedLanes.nth(3).locator('.kanban-lane__title')).toHaveText('Blocked')
+  const reloadedTask = reloadedLanes.nth(0).locator('.kanban-task').first()
+  await expect(reloadedTask.locator('.kanban-task__title')).toHaveText('Write the proposal')
+  await expect(reloadedTask.locator('.kanban-task__description')).toHaveText(
+    'Cover scope, budget, and timeline.',
+  )
+
+  // Deleting the task and the extra lane persists too.
+  await reloadedTask.hover()
+  const taskDeleted = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"lanes"') &&
+      !(response.request().postData() || '').includes('Write the proposal'),
+  )
+  await reloadedTask.locator('.kanban-task__delete').click()
+  await taskDeleted
+  await expect(reloadedLanes.nth(0).locator('.kanban-task')).toHaveCount(0)
+
+  await reloadedLanes.nth(3).hover()
+  await reloadedLanes.nth(3).locator('.kanban-lane__delete').click()
+  await expect(reloadedLanes).toHaveCount(3)
+  await expect(reloadedBoard).toHaveAccessibleName('Kanban board, 3 lanes, 0 tasks')
+})
+
 test('Folders can be created inline and documents dragged between them', async ({ page }) => {
   await page.goto('/documents')
 
