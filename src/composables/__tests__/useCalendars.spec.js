@@ -1,18 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CALENDARS_ENDPOINT, useCalendars } from '../useCalendars'
-
 describe('useCalendars', () => {
   let authHeaders
   let notify
+  let CALENDARS_ENDPOINT
+  let useCalendars
 
-  beforeEach(() => {
+  // The composable's state (calendars, loaded, inFlight) is module-level
+  // (shared across every caller by design); reset the module itself between
+  // tests so they don't leak into each other.
+  beforeEach(async () => {
+    vi.resetModules()
+    ;({ CALENDARS_ENDPOINT, useCalendars } = await import('../useCalendars'))
     authHeaders = vi.fn().mockResolvedValue({})
     notify = vi.fn()
-    // The composable's state is module-level (shared across every caller by
-    // design); reset it so tests in this file don't leak into each other.
-    const { calendars } = useCalendars(authHeaders, notify)
-    calendars.value = []
   })
 
   it('loads calendars and splits them into writable vs subscribed', async () => {
@@ -65,5 +66,50 @@ describe('useCalendars', () => {
     // an already-mounted CalendarView), with no separate fetch needed.
     expect(second.calendars.value).toEqual([{ id: 'work', name: 'Work' }])
     expect(second.writableCalendars.value).toEqual([{ id: 'work', name: 'Work' }])
+  })
+
+  it('does not refetch a second caller already loaded on mount, unless forced', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ calendars: [{ id: 'work', name: 'Work' }] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    // Mirrors CalendarView + DocumentCalendarSidebar both calling
+    // loadCalendars() on mount within moments of each other.
+    const sidebar = useCalendars(authHeaders, notify)
+    const view = useCalendars(authHeaders, notify)
+    await sidebar.loadCalendars()
+    await view.loadCalendars()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // CalendarSettings always wants fresh data (e.g. after a subscription
+    // synced elsewhere), so it opts back in with force.
+    await view.loadCalendars({ force: true })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('coalesces concurrent calls into a single in-flight request', async () => {
+    let resolveFetch
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { loadCalendars } = useCalendars(authHeaders, notify)
+    const first = loadCalendars()
+    const second = loadCalendars()
+
+    // authHeaders() and fetch() are both awaited before the mock is called,
+    // so give those microtasks a chance to run before resolving it.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    resolveFetch({ ok: true, json: async () => ({ calendars: [] }) })
+    await Promise.all([first, second])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

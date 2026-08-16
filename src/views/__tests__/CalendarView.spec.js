@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarView from '../CalendarView.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { resetCalendarsStateForTests } from '../../composables/useCalendars'
 
 const SEED_EVENTS = [
   {
@@ -219,6 +220,11 @@ beforeEach(() => {
   vi.spyOn(store, 'authHeaders').mockResolvedValue({})
   vi.spyOn(store, 'notify').mockImplementation(() => {})
   mockCalendarApi()
+  // useCalendars' "already loaded" state is a module-level singleton (by
+  // design, see its own comments); without this, a later test's mount would
+  // reuse an earlier test's cached calendars instead of hitting the fake
+  // backend mockCalendarApi() just reset above.
+  resetCalendarsStateForTests()
 })
 
 afterEach(() => {

@@ -61,7 +61,10 @@ const calendarGroups = computed(() => [
 
 async function loadCalendars() {
   isLoading.value = true
-  await fetchCalendars()
+  // Force: this is the calendar management surface, so it should always show
+  // the current server state (e.g. a subscription synced elsewhere) rather
+  // than whatever another view happened to load earlier in the session.
+  await fetchCalendars({ force: true })
   isLoading.value = false
 }
 
