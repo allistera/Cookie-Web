@@ -17,19 +17,27 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   // The mail search bar belongs to the Email app only.
   await expect(page.locator('#searchBarContainer')).toHaveCount(0)
 
-  // The left sidebar shows the fixture folder tree with its nested doc.
+  // The left sidebar shows the fixture folder tree; folders start closed.
   const sidebar = page.locator('.documents-sidebar')
   await expect(sidebar.getByText('Projects')).toBeVisible()
-  await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
-  await expect(sidebar.locator('.doc-item', { hasText: 'Floor plan notes' })).toHaveCount(2) // starred + tree
+  await expect(sidebar.getByText('Kitchen Renovation')).toBeHidden()
   await expect(sidebar.locator('.doc-item', { hasText: 'Scratchpad' })).toBeVisible()
 
-  // Collapsing a folder hides its subtree.
+  // Expanding a folder reveals its subtree; collapsing hides it again.
   const projects = sidebar.locator('.folder-item', { hasText: 'Projects' }).first()
+  await projects.click()
+  await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
   await projects.click()
   await expect(sidebar.getByText('Kitchen Renovation')).toBeHidden()
   await projects.click()
   await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
+
+  // Floor plan notes is starred (visible above regardless of tree state) and
+  // nested another level down, inside Kitchen Renovation.
+  await expect(sidebar.locator('.doc-item', { hasText: 'Floor plan notes' })).toHaveCount(1)
+  const kitchen = sidebar.locator('.folder-item', { hasText: 'Kitchen Renovation' }).first()
+  await kitchen.click()
+  await expect(sidebar.locator('.doc-item', { hasText: 'Floor plan notes' })).toHaveCount(2) // starred + tree
 
   // The dashboard lists documents; opening one loads its blocks.
   await expect(page.getByRole('heading', { name: 'Documents' })).toBeVisible()
@@ -420,12 +428,17 @@ test('The header search finds documents by content and filters, without disturbi
   await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
   await expect(dashboard.getByText('Scratchpad')).toBeVisible()
 
+  // Folders start closed; expand Projects so the "search doesn't disturb the
+  // tree" assertion below actually exercises open state, not just default.
+  const sidebar = page.locator('.documents-sidebar')
+  await sidebar.locator('.folder-item', { hasText: 'Projects' }).first().click()
+  await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
+
   // Type-ahead matches a word from the body, not just the title.
   await searchInput.fill('bay window')
   await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
   await expect(dashboard.getByText('Scratchpad')).toHaveCount(0)
   // The sidebar's folder tree is unaffected by an active search.
-  const sidebar = page.locator('.documents-sidebar')
   await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
   await expect(sidebar.getByText('Scratchpad')).toBeVisible()
 
