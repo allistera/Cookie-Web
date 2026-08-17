@@ -19,30 +19,37 @@ function rowsOf(wrapper) {
   return wrapper.get('[data-testid="task-rows"]').findAll('.todo-row')
 }
 
-// A fresh copy per test: marking a topic read mutates its items in place.
+// A fresh copy per test: marking a priority group read mutates its items in place.
 const DIGEST = () => ({
-  overview: 'Mostly kitchen news.',
+  overview: 'One reply needs you and one message is worth reviewing.',
   created_at: '2026-08-03T05:00:00.000Z',
   topics: [
     {
-      emoji: '🍳',
-      title: 'Kitchen Renovation',
+      emoji: '↩️',
+      title: 'Reply Needed',
       items: [
         {
           message_id: 'msg-1',
-          headline: 'Floor plan',
-          note: 'Revised design for the bay window.',
+          headline: 'Contractor needs the floor-plan choice',
+          note: 'They need a decision today. Suggested: confirm the bay-window option.',
           unread: true,
         },
         { message_id: 'msg-2', headline: 'Claim', note: 'Processed.', unread: false },
       ],
     },
     {
-      emoji: '⚽',
-      title: 'Soccer',
+      emoji: '👀',
+      title: 'Review',
       items: [{ message_id: 'msg-3', headline: 'Practice moved', note: 'West Side Park.', unread: false }],
     },
   ],
+  noise: {
+    count: 3,
+    categories: [
+      { category: 'marketing', count: 2 },
+      { category: 'automated', count: 1 },
+    ],
+  },
 })
 
 describe('AIInboxView (AI Today)', () => {
@@ -66,7 +73,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(greeting).toContain('Hi Allister')
     expect(greeting).not.toContain('Antosik')
     expect(greeting).toContain('1 to-dos')
-    expect(greeting).toContain('2 topics')
+    expect(greeting).toContain('2 priority groups')
   })
 
   it('shows an empty state and a zero count when nothing was gathered', () => {
@@ -76,31 +83,48 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
-  it('renders the digest topics with a source count and unread dots', () => {
+  it('renders the priority tiers with a source count and unread dots', () => {
     store.digest = DIGEST()
     const wrapper = mountView()
 
     const titles = wrapper.findAll('.topic-title').map((t) => t.text())
-    expect(titles).toEqual(['🍳 Kitchen Renovation', '⚽ Soccer'])
-    expect(wrapper.get('.ai-greeting').text()).toContain('2 topics')
+    expect(titles).toEqual(['↩️ Reply Needed', '👀 Review'])
+    expect(wrapper.get('.ai-greeting').text()).toContain('2 priority groups')
 
-    const kitchen = wrapper.findAll('.topic-section')[0]
-    expect(kitchen.text()).toContain('Floor plan – Revised design for the bay window.')
-    expect(kitchen.get('.topic-meta').text()).toContain('2 sources')
+    const replyNeeded = wrapper.findAll('.topic-section')[0]
+    expect(replyNeeded.text()).toContain(
+      'Contractor needs the floor-plan choice – They need a decision today. Suggested: confirm the bay-window option.',
+    )
+    expect(replyNeeded.get('.topic-meta').text()).toContain('2 sources')
     // Only the still-unread message keeps a dot.
-    expect(kitchen.findAll('.unread-dot')).toHaveLength(1)
+    expect(replyNeeded.findAll('.unread-dot')).toHaveLength(1)
 
     // A topic with nothing left unread offers no "mark all read".
-    const soccer = wrapper.findAll('.topic-section')[1]
-    expect(soccer.get('.topic-meta').text()).toContain('1 source')
-    expect(soccer.find('.topic-action-btn').exists()).toBe(false)
+    const review = wrapper.findAll('.topic-section')[1]
+    expect(review.get('.topic-meta').text()).toContain('1 source')
+    expect(review.find('.topic-action-btn').exists()).toBe(false)
+  })
+
+  it('explains the triage and summarizes Noise without listing those messages', () => {
+    store.digest = DIGEST()
+    const wrapper = mountView()
+
+    expect(wrapper.get('.triage-overview').text()).toBe(
+      'One reply needs you and one message is worth reviewing.',
+    )
+    const noise = wrapper.get('[data-testid="triage-noise"]').text()
+    expect(noise).toContain('3 emails classified as Noise')
+    expect(noise).toContain('2 marketing · 1 automated')
+    expect(noise).toContain('nothing was archived or deleted')
   })
 
   it('shows an empty state when no digest has been written', () => {
     const wrapper = mountView()
     expect(wrapper.find('[data-testid="topic-sections"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="topics-empty"]').text()).toContain('No topics yet')
-    expect(wrapper.get('.ai-greeting').text()).toContain('0 topics')
+    expect(wrapper.get('[data-testid="topics-empty"]').text()).toContain(
+      'No Reply Needed or Review mail in the last 24 hours',
+    )
+    expect(wrapper.get('.ai-greeting').text()).toContain('0 priority groups')
   })
 
   it('renders the news round-up with links, notes and meta', () => {
@@ -196,11 +220,11 @@ describe('AIInboxView (AI Today)', () => {
     await flushPromises()
 
     expect(markTopicItemRead).toHaveBeenCalledWith(store.digest.topics[0].items[0])
-    expect(notify).toHaveBeenCalledWith('Marked "Floor plan" done.')
+    expect(notify).toHaveBeenCalledWith('Marked "Contractor needs the floor-plan choice" done.')
     // The topic still has one item left, so it stays on screen.
     const kitchenAfter = wrapper.findAll('.topic-section')[0]
     expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(1)
-    expect(wrapper.get('.ai-greeting').text()).toContain('2 topics')
+    expect(wrapper.get('.ai-greeting').text()).toContain('2 priority groups')
   })
 
   it('drops a topic entirely once its last item is marked done', async () => {
@@ -208,13 +232,13 @@ describe('AIInboxView (AI Today)', () => {
     vi.spyOn(store, 'markTopicItemRead').mockResolvedValue(undefined)
 
     const wrapper = mountView()
-    // Soccer is the second topic and has a single, already-read item.
-    const soccer = wrapper.findAll('.topic-section')[1]
-    await soccer.get('.todo-check-btn').trigger('click')
+    // Review is the second group and has a single, already-read item.
+    const review = wrapper.findAll('.topic-section')[1]
+    await review.get('.todo-check-btn').trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['🍳 Kitchen Renovation'])
-    expect(wrapper.get('.ai-greeting').text()).toContain('1 topics')
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['↩️ Reply Needed'])
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 priority group')
   })
 
   it('rolls a topic item back into view when marking it done fails', async () => {

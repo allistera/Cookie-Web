@@ -3,7 +3,7 @@ import process from 'node:process'
 import { createServices } from './services.js'
 import { allowRequest } from './rate-limit.js'
 
-// A digest rebuild is one model call in the Worker, so it is cheap enough to
+// A triage rebuild is one model call in the Worker, so it is cheap enough to
 // offer on demand but not free: cap it well below what a held-down button
 // could manage.
 export const RATE_LIMIT = { limit: 4, windowMs: 60_000 }
@@ -19,8 +19,8 @@ export class EnricherNotConfiguredError extends Error {
   }
 }
 
-// Ask the data-enricher Worker to rebuild both AI Today cards — the mail
-// digest and the news round-up — and nothing else. The URL and token come from
+// Ask the data-enricher Worker to rebuild both AI Today cards — mail triage
+// and the news round-up — and nothing else. The URL and token come from
 // the environment, never from the request, so this is not an SSRF surface and
 // needs no safe-https treatment; the token stays server-side so the browser
 // never holds a Worker credential.
@@ -41,9 +41,9 @@ export async function triggerDigestRebuild() {
   }
 }
 
-// POST /api/tasks?resource=refresh — rebuild AI Today's digest now instead of
-// waiting for the Worker's nightly cron. Returns 200 once the digest has been
-// written, so the caller can re-read /api/tasks and see the new topics.
+// POST /api/tasks?resource=refresh — rebuild AI Today's triage now instead of
+// waiting for the Worker's nightly cron. Returns 200 once it has been written,
+// so the caller can re-read /api/tasks and see the new priority groups.
 export async function handleRefresh(req, res, userId, services = createServices()) {
   if (req.method !== 'POST') {
     res.statusCode = 405

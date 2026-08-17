@@ -329,8 +329,8 @@ export const useInboxStore = defineStore('inbox', {
     tasks: [],
     tasksLoaded: false,
 
-    // AI Today's "Topics to catch up on": the newest digest the enricher
-    // wrote, { overview, created_at, topics } or null. Arrives with tasks.
+    // AI Today's three-tier email triage: Reply Needed and Review groups plus
+    // summarized Noise, or null. The legacy API field name remains `digest`.
     digest: null,
 
     // AI Today's news round-up, { created_at, sections } or null. Also
@@ -1554,7 +1554,7 @@ export const useInboxStore = defineStore('inbox', {
       return this.interests
     },
 
-    // Asks the enricher to rebuild AI Today's digest now, then re-reads it.
+    // Asks the enricher to rebuild AI Today's triage now, then re-reads it.
     // Resolves to false when the deployment has no enricher wired up (501), so
     // the caller can fall back to a plain re-read instead of showing an error.
     // Throws on a real failure.
@@ -1580,8 +1580,7 @@ export const useInboxStore = defineStore('inbox', {
       item.unread = false
       const email = this.traditionalEmails.find((e) => e.id === item.message_id)
       if (email) email.unread = false
-      // A digest only ever cites unread inbox mail, so this is one fewer
-      // unread in the inbox badge.
+      // If the triage item is unread, this is one fewer in the inbox badge.
       this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
     },
 

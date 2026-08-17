@@ -16,8 +16,8 @@ const ID_B = '22222222-2222-4222-8222-222222222222'
 const ID_C = '33333333-3333-4333-8333-333333333333'
 const USER_ID = '99999999-9999-9999-9999-999999999999'
 
-function digestRow(topics, summary = 'Mostly kitchen news.') {
-  return { summary, raw: { topics }, created_at: '2026-08-03T05:00:00.000Z' }
+function digestRow(topics, summary = 'One reply needs you and one message is worth reviewing.', noise) {
+  return { summary, raw: { topics, noise }, created_at: '2026-08-03T05:00:00.000Z' }
 }
 
 describe('fetchTasks', () => {
@@ -125,8 +125,8 @@ describe('buildDigest', () => {
   it('folds live read-state into the stored digest', () => {
     const row = digestRow([
       {
-        emoji: '🍳',
-        title: 'Kitchen',
+        emoji: '↩️',
+        title: 'Reply Needed',
         items: [
           { message_id: ID_A, headline: 'Floor plan', note: 'Revised design.' },
           { message_id: ID_B, headline: 'Claim', note: 'Processed.' },
@@ -138,7 +138,7 @@ describe('buildDigest', () => {
       { id: ID_B, is_unread: false },
     ])
 
-    expect(digest.overview).toBe('Mostly kitchen news.')
+    expect(digest.overview).toBe('One reply needs you and one message is worth reviewing.')
     expect(digest.created_at).toBe('2026-08-03T05:00:00.000Z')
     expect(digest.topics[0].items).toEqual([
       { message_id: ID_A, headline: 'Floor plan', note: 'Revised design.', unread: true },
@@ -162,6 +162,27 @@ describe('buildDigest', () => {
 
   it('is null when no digest has been written yet', () => {
     expect(buildDigest(undefined, [])).toBeNull()
+  })
+
+  it('returns sanitized Noise counts without exposing individual messages', () => {
+    const row = digestRow([], undefined, {
+      count: 99,
+      categories: [
+        { category: ' marketing ', count: 2 },
+        { category: 'automated', count: 1 },
+        { category: '', count: 4 },
+        { category: 'bad count', count: -1 },
+        { category: 'fractional', count: 1.5 },
+      ],
+    })
+
+    expect(buildDigest(row, []).noise).toEqual({
+      count: 3,
+      categories: [
+        { category: 'marketing', count: 2 },
+        { category: 'automated', count: 1 },
+      ],
+    })
   })
 })
 

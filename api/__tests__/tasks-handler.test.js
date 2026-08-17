@@ -88,18 +88,19 @@ describe('GET /api/tasks', () => {
       [], // fetchTasks
       [
         {
-          summary: 'Mostly kitchen news.',
+          summary: 'One reply needs you.',
           created_at: '2026-08-03T05:00:00.000Z',
           raw: {
             topics: [
               {
-                emoji: '🍳',
-                title: 'Kitchen',
+                emoji: '↩️',
+                title: 'Reply Needed',
                 items: [
                   { message_id: MESSAGE_ID, headline: 'Floor plan', note: 'Revised design.' },
                 ],
               },
             ],
+            noise: { categories: [{ category: 'marketing', count: 2 }] },
           },
         },
       ],
@@ -119,6 +120,10 @@ describe('GET /api/tasks', () => {
       headline: 'Floor plan',
       note: 'Revised design.',
       unread: true,
+    })
+    expect(res.body.digest.noise).toEqual({
+      count: 2,
+      categories: [{ category: 'marketing', count: 2 }],
     })
   })
 
