@@ -53,13 +53,19 @@ async function createLabel(sql, userId, body, res) {
 async function updateLabel(sql, userId, body, res) {
   const id = UUID_RE.test(body.id) ? String(body.id) : null
   const hasName = Object.hasOwn(body, 'name')
+  const hasColor = Object.hasOwn(body, 'color')
+  const hasDescription = Object.hasOwn(body, 'description')
   const hasAutoApply = Object.hasOwn(body, 'auto_apply')
   const name = String(body.name ?? '').trim()
+  const color = String(body.color ?? '').trim()
+  const description = String(body.description ?? '').trim() || null
 
   if (
     !id ||
-    (!hasName && !hasAutoApply) ||
+    (!hasName && !hasColor && !hasDescription && !hasAutoApply) ||
     (hasName && (!name || name.length > MAX_NAME)) ||
+    (hasColor && !COLOR_RE.test(color)) ||
+    (hasDescription && description && description.length > MAX_DESCRIPTION) ||
     (hasAutoApply && body.auto_apply !== true && body.auto_apply !== false)
   ) {
     res.statusCode = 400
@@ -72,6 +78,8 @@ async function updateLabel(sql, userId, body, res) {
     ;[label] = await sql`
       UPDATE labels l
       SET name = COALESCE(${hasName ? name : null}, l.name),
+          color = CASE WHEN ${hasColor} THEN ${color} ELSE l.color END,
+          description = CASE WHEN ${hasDescription} THEN ${description} ELSE l.description END,
           auto_apply = COALESCE(${hasAutoApply ? body.auto_apply : null}::boolean, l.auto_apply)
       WHERE l.id = ${id} AND l.user_id = ${userId}
         AND l.kind = 'user'
@@ -118,7 +126,7 @@ async function deleteLabel(sql, userId, body, res) {
 }
 
 // /api/labels — GET lists the user's labels (with message counts),
-// POST creates one, PATCH renames or changes auto-apply, DELETE removes one.
+// POST creates one, PATCH edits user-owned fields, DELETE removes one.
 // ?resource=rules delegates to the tag-rules CRUD handler — kept out of its
 // own api/*.js file to stay within Vercel Hobby's function-count limit.
 export function createHandler(overrides = {}) {
