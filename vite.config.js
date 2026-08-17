@@ -866,40 +866,47 @@ function localApiPlugin(mode) {
             },
           ],
           digest: {
-            overview: 'Kitchen renovation is moving; the rest is routine.',
+            overview: 'Two messages need action and one is worth reviewing.',
             created_at: gatheredAt,
             topics: [
               {
-                emoji: '🍳',
-                title: 'Kitchen Renovation',
+                emoji: '↩️',
+                title: 'Reply Needed',
                 items: [
                   {
                     message_id: 'fixture-1',
-                    headline: 'Revised Floor Plan',
-                    note: 'City Construction reworked the bay window for more natural light.',
+                    headline: 'Contractor needs the floor-plan choice',
+                    note: 'The bay-window option needs a decision. Suggested: confirm the revised plan.',
                     unread: true,
                   },
                   {
+                    message_id: 'fixture-3',
+                    headline: 'Marketplace buyer is waiting',
+                    note: 'The coat bundle sold. Suggested: contact the buyer within three days.',
+                    unread: true,
+                  },
+                ],
+              },
+              {
+                emoji: '👀',
+                title: 'Review',
+                items: [
+                  {
                     message_id: 'fixture-2',
-                    headline: 'Insurance Claim Processed',
-                    note: 'The carrier processed the claim; expect a reply within a week.',
+                    headline: 'Insurance claim was processed',
+                    note: 'The carrier expects to send the outcome within a week.',
                     unread: false,
                   },
                 ],
               },
-              {
-                emoji: '📣',
-                title: 'More Updates',
-                items: [
-                  {
-                    message_id: 'fixture-3',
-                    headline: 'Resale Marketplace Sale',
-                    note: 'The coat bundle sold for £15; contact the buyer within three days.',
-                    unread: true,
-                  },
-                ],
-              },
             ],
+            noise: {
+              count: 4,
+              categories: [
+                { category: 'marketing', count: 3 },
+                { category: 'automated', count: 1 },
+              ],
+            },
           },
           news: {
             created_at: gatheredAt,

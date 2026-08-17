@@ -1,17 +1,27 @@
-# Cookie Web
+# Cookie-Web
 
 Cookie is a private, AI-assisted email application. The Vue frontend and authenticated Vercel functions provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail.
 
-The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online).
+The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
+
+## Repository map
+
+| Repository | Responsibility |
+| --- | --- |
+| Cookie-Web | Vue browser client, Auth0-protected Vercel API, and shared database migrations |
+| [Cookie-Worker](https://github.com/allistera/Cookie-Worker) | Cloudflare Workers for inbound mail, scheduled enrichment, and scheduled-send flushing |
+| [Cookie-iOS](https://github.com/allistera/Cookie-iOS) | Native SwiftUI client of the Cookie-Web API |
+| [Cookie-Docs](https://github.com/allistera/Cookie-Docs) | Blume/MDX documentation site for the whole system |
 
 ## Architecture
 
 ```text
 Cloudflare Email Routing
   -> Cookie-Worker
-       -> forward original mail
-       -> store through Hyperdrive
-       -> OpenAI enrichment and embeddings
+       -> parse MIME and upload attachments to Vercel Blob
+       -> store through Hyperdrive in Supabase Postgres
+       -> forward the original email
+       -> run best-effort OpenAI classification and embeddings
 
 Vue 3 browser application
   -> Auth0-protected Vercel functions
@@ -30,12 +40,12 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
 - AI Today: gathered to-dos (Todoist tasks due today plus action items extracted
-  from important mail), a nightly digest grouping unread mail into topics to
-  catch up on, and a personalised news round-up (new GitHub repos and Product
-  Hunt launches ranked against your interests, plus BBC UK headlines, which are
-  never filtered). All are produced by the `data-enricher` Worker in
-  Cookie-Worker and read through `/api/tasks`. Refresh rebuilds the digest and
-  news on demand when `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` are set.
+  from important mail), Reply Needed/Review/Noise triage over the last 24 hours
+  of Inbox mail, and a personalised news round-up. Reply Needed and Review are
+  visible priority groups; Noise is summarized by category without archiving or
+  deleting anything. The `data-enricher` Worker produces these records and
+  Cookie-Web reads them through `/api/tasks`. Refresh rebuilds triage and news on
+  demand when `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` are set.
 - Settings → Personalisation edits the topics the news round-up is ranked
   against. Stored server-side in `users.prefs` rather than the browser, since
   the Worker reads them overnight.
@@ -46,7 +56,7 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Supabase Realtime pings for inbox refreshes.
 - Opt-in browser notifications for new mail while Cookie is open in a background tab.
 
-See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.md) for the AI design, safety boundaries, and alternatives considered.
+See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.md) for the detailed AI design and [Cookie Documentation](https://allistera.github.io/Cookie-Docs/) for the deployed system guide.
 
 ## Technology
 
@@ -92,7 +102,7 @@ The main runtime variables are:
 | `TODOIST_API_TOKEN` | Optional. Lets AI Today close a Todoist task when it is marked done. Without it, "done" only clears the task from Cookie. |
 | `EMAIL_FROM` | Optional sender identity for outbound mail. |
 | `SCHEDULED_SEND_FLUSH_TOKEN` | Bearer secret authorizing `POST /api/send?resource=flush`. Shared with the `scheduled-send-flusher` Cloudflare Worker in Cookie-Worker, which is the only caller. |
-| `ENRICHER_RUN_URL` | Optional. The `data-enricher` Worker's `POST /run` URL. Lets AI Today's refresh rebuild the digest on demand; without it refresh only re-reads the stored one. |
+| `ENRICHER_RUN_URL` | Optional. The `data-enricher` Worker's `POST /run` URL. Lets AI Today's refresh rebuild triage and news on demand; without it refresh only re-reads the stored results. |
 | `ENRICHER_TRIGGER_TOKEN` | Optional. Bearer secret sent to `ENRICHER_RUN_URL`; must match that Worker's `HTTP_TRIGGER_TOKEN`. |
 | `PUBLIC_APP_URL` | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted. |
 | `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |

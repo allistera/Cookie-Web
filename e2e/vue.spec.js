@@ -240,7 +240,7 @@ test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog'
   )
 })
 
-test('The root path shows the AI Today digest of gathered to-dos and topics', async ({ page }) => {
+test('The root path shows AI Today to-dos, email triage, and news', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
   // Two Todoist tasks and one email follow-up, all really gathered.
@@ -276,15 +276,21 @@ test('The root path shows the AI Today digest of gathered to-dos and topics', as
   )
   await expect(composer.locator('.composer-editor')).toContainText('A reviewable AI-generated draft.')
 
-  // Topics come from the stored digest, with a dot only on unread mail. Both
-  // cards use .topic-section, so scope to the digest card's testid.
-  const topics = page.getByTestId('topic-sections')
-  await expect(topics.locator('.topic-title')).toHaveCount(2)
-  const kitchen = topics.locator('.topic-section').first()
-  await expect(kitchen.locator('.topic-title')).toContainText('🍳 Kitchen Renovation')
-  await expect(kitchen).toContainText('Revised Floor Plan – City Construction reworked')
-  await expect(kitchen.locator('.topic-meta')).toContainText('2 sources')
-  await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
+  // Reply Needed and Review become rows; Noise is summarized without listing
+  // individual emails. Scope to the triage card because news shares styles.
+  const triage = page.getByTestId('topic-sections')
+  await expect(triage.locator('.topic-title')).toHaveCount(2)
+  const replyNeeded = triage.locator('.topic-section').first()
+  await expect(replyNeeded.locator('.topic-title')).toContainText('↩️ Reply Needed')
+  await expect(replyNeeded).toContainText(
+    'Contractor needs the floor-plan choice – The bay-window option needs a decision.',
+  )
+  await expect(replyNeeded.locator('.topic-meta')).toContainText('2 sources')
+  await expect(replyNeeded.locator('.unread-dot')).toHaveCount(2)
+  const noise = page.getByTestId('triage-noise')
+  await expect(noise).toContainText('4 emails classified as Noise')
+  await expect(noise).toContainText('3 marketing · 1 automated')
+  await expect(noise).toContainText('nothing was archived or deleted')
 
   // The news round-up sits in its own card beneath the mail topics.
   const news = page.getByTestId('news-sections')
@@ -340,12 +346,12 @@ test('The AI Today refresh control rebuilds the digest, then re-reads it', async
 
   await page.locator('.ai-update-status').click()
 
-  // Rebuild first, then re-read, so fresh topics land in the same click.
+  // Rebuild first, then re-read, so fresh triage lands in the same click.
   await expect.poll(() => calls).toEqual(['rebuild', 'read'])
   await expect(page.getByTestId('topic-sections').locator('.topic-title')).toHaveCount(2)
 })
 
-test('Marking a digest topic read clears its unread dots', async ({ page }) => {
+test('Marking a triage group read clears its unread dots', async ({ page }) => {
   const reads = []
   await page.route('**/api/messages', async (route) => {
     if (route.request().method() === 'PATCH') {
@@ -357,17 +363,19 @@ test('Marking a digest topic read clears its unread dots', async ({ page }) => {
   })
 
   await page.goto('/')
-  const kitchen = page.getByTestId('topic-sections').locator('.topic-section').first()
-  await expect(kitchen.locator('.unread-dot')).toHaveCount(1)
+  const replyNeeded = page.getByTestId('topic-sections').locator('.topic-section').first()
+  await expect(replyNeeded.locator('.unread-dot')).toHaveCount(2)
 
-  await kitchen.locator('.topic-action-btn', { hasText: 'Mark all emails as read' }).click()
+  await replyNeeded.locator('.topic-action-btn', { hasText: 'Mark all emails as read' }).click()
 
-  await expect(kitchen.locator('.unread-dot')).toHaveCount(0)
-  await expect(page.locator('.toast', { hasText: 'Marked 1 email read.' })).toBeVisible()
-  // Only the still-unread message is written back.
-  expect(reads).toEqual([{ id: 'fixture-1', is_unread: false }])
+  await expect(replyNeeded.locator('.unread-dot')).toHaveCount(0)
+  await expect(page.locator('.toast', { hasText: 'Marked 2 emails read.' })).toBeVisible()
+  expect(reads).toEqual([
+    { id: 'fixture-1', is_unread: false },
+    { id: 'fixture-3', is_unread: false },
+  ])
   // With nothing left unread the action retires itself.
-  await expect(kitchen.locator('.topic-action-btn')).toHaveCount(0)
+  await expect(replyNeeded.locator('.topic-action-btn')).toHaveCount(0)
 })
 
 test('Marking a Todoist task done removes it from AI Today and confirms with a toast', async ({

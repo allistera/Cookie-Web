@@ -8,14 +8,15 @@ const { user } = useAuth()
 
 // "AI Today" shows what the data-enricher Worker gathered overnight: tasks
 // (Todoist tasks due today plus action items extracted from important mail)
-// and a digest clustering the unread inbox into topics. Completing a task
-// hides it immediately, then persists via the store (which closes it in
+// and a three-tier triage of the last 24 hours of inbox mail. Reply Needed and
+// Review are shown as priority groups; Noise is summarized rather than listed.
+// Completing a task hides it immediately, then persists via the store (which closes it in
 // Todoist); a failure rolls the row back.
-// Dismissing a topic-item's done checkbox hides it immediately (mirroring
-// completeTask below), so topics are re-derived to drop dismissed items and
-// any topic left with none.
+// Dismissing a priority item's done checkbox hides it immediately (mirroring
+// completeTask below), so groups are re-derived to drop dismissed items and
+// any group left with none.
 const completingItemIds = ref(new Set())
-const topics = computed(() =>
+const priorityGroups = computed(() =>
   (store.digest?.topics ?? [])
     .map((topic) => ({
       ...topic,
@@ -23,7 +24,16 @@ const topics = computed(() =>
     }))
     .filter((topic) => topic.items.length > 0),
 )
-const topicCount = computed(() => topics.value.length)
+const priorityGroupCount = computed(() => priorityGroups.value.length)
+const priorityGroupLabel = computed(() =>
+  priorityGroupCount.value === 1 ? 'priority group' : 'priority groups',
+)
+const noiseCount = computed(() => store.digest?.noise?.count ?? 0)
+const noiseSummary = computed(() =>
+  (store.digest?.noise?.categories ?? [])
+    .map((item) => `${item.count} ${item.category}`)
+    .join(' · '),
+)
 const newsSections = computed(() => store.news?.sections ?? [])
 
 const completingTaskIds = ref(new Set())
@@ -129,7 +139,7 @@ const statusTime = computed(() => {
 
 const isRefreshing = ref(false)
 
-// Rebuild the digest first so refreshing surfaces mail that arrived since the
+// Rebuild triage first so refreshing surfaces mail that arrived since the
 // overnight run, then re-read. A deployment without the enricher wired up
 // still gets the plain re-read rather than an error.
 async function refresh() {
@@ -163,8 +173,8 @@ onMounted(async () => {
         Hi{{ firstName ? ` ${firstName}` : '' }} 👋 You have
         <span class="counter-text">{{ activeCount }} to-dos</span>
         and
-        <span class="counter-text">{{ topicCount }} topics</span>
-        to catch up on.
+        <span class="counter-text">{{ priorityGroupCount }} {{ priorityGroupLabel }}</span>
+        to work through.
       </h1>
       <div class="ai-update-status" role="button" tabindex="0" @click="refresh" @keydown.enter="refresh">
         <span class="status-time">{{ statusTime }}</span>
@@ -229,14 +239,18 @@ onMounted(async () => {
         </p>
       </section>
 
-      <!-- TOPICS TO CATCH UP ON -->
+      <!-- EMAIL TRIAGE -->
       <section class="ai-card topics-card">
         <div class="card-header">
-          <h2>Topics to catch up on</h2>
+          <h2>Email triage</h2>
         </div>
 
-        <div v-if="topics.length" class="topics-container" data-testid="topic-sections">
-          <div v-for="topic in topics" :key="topic.title" class="topic-section">
+        <p v-if="store.digest?.overview" class="triage-overview">
+          {{ store.digest.overview }}
+        </p>
+
+        <div v-if="priorityGroups.length" class="topics-container" data-testid="topic-sections">
+          <div v-for="topic in priorityGroups" :key="topic.title" class="topic-section">
             <div class="topic-title-row">
               <h3 class="topic-title">{{ topic.emoji }} {{ topic.title }}</h3>
             </div>
@@ -275,8 +289,17 @@ onMounted(async () => {
           </div>
         </div>
 
-        <p v-else class="topic-empty" data-testid="topics-empty">
-          No topics yet. The overnight run groups unread mail into topics to catch up on.
+        <div v-if="noiseCount" class="triage-noise" data-testid="triage-noise">
+          <span class="material-symbols-outlined" aria-hidden="true">filter_alt</span>
+          <div>
+            <strong>{{ noiseCount }} {{ noiseCount === 1 ? 'email' : 'emails' }} classified as Noise</strong>
+            <span v-if="noiseSummary">{{ noiseSummary }}</span>
+            <span>Hidden from AI Inbox; nothing was archived or deleted.</span>
+          </div>
+        </div>
+
+        <p v-if="!priorityGroups.length" class="topic-empty" data-testid="topics-empty">
+          No Reply Needed or Review mail in the last 24 hours.
         </p>
       </section>
 
@@ -376,6 +399,45 @@ onMounted(async () => {
 .news-meta {
   margin-left: 6px;
   color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.triage-overview {
+  margin: 0;
+  padding: 14px 16px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.triage-noise {
+  display: flex;
+  gap: 10px;
+  margin: 12px 16px 16px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+
+.triage-noise > .material-symbols-outlined {
+  flex: 0 0 auto;
+  font-size: 18px;
+}
+
+.triage-noise div,
+.triage-noise span {
+  display: block;
+}
+
+.triage-noise strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.triage-noise div span {
   font-size: 12px;
 }
 

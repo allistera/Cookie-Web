@@ -28,6 +28,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'event_available',
   'expand_less',
   'expand_more',
+  'filter_alt',
   'format_bold',
   'format_list_bulleted',
   'format_list_numbered',

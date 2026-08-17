@@ -31,8 +31,9 @@ export function fetchTasks(sql, userId) {
 }
 
 // The newest whole-mailbox summary of a given kind, written by the
-// data-enricher Worker: 'daily_digest' for the mail topics, 'daily_news' for
-// the news round-up. These are the rows carrying no message_id.
+// data-enricher Worker: the legacy 'daily_digest' kind now carries three-tier
+// inbox triage, while 'daily_news' carries the news round-up. These are the
+// rows carrying no message_id.
 export function fetchLatestSummary(sql, userId, kind) {
   return sql`
     SELECT s.summary, s.raw, s.created_at
@@ -79,7 +80,7 @@ export function buildNews(row) {
   return { created_at: row.created_at, sections }
 }
 
-// Live state for the messages a digest cites. The digest is a snapshot from
+// Live state for the messages inbox triage cites. Triage is a snapshot from
 // the overnight run, so by the time it is read some of its mail may have been
 // read, archived or deleted. Archived mail stays included - archiving is how
 // a topic gets dealt with, not a reason to hide it until tomorrow's digest;
@@ -94,7 +95,7 @@ export function fetchMessageStates(sql, userId, ids) {
   `
 }
 
-// Message ids the stored digest cites, in citation order. Written by a model,
+// Message ids the stored triage cites, in citation order. Written by a model,
 // so anything that is not a plain uuid is discarded rather than reaching a
 // ::uuid[] cast.
 export function digestMessageIds(row) {
@@ -105,9 +106,10 @@ export function digestMessageIds(row) {
   return [...new Set(ids.filter((id) => UUID_RE.test(String(id))))]
 }
 
-// Fold live message state into the stored digest: drop items whose message is
-// deleted from the mailbox, drop topics that empties, and mark what is still
-// unread so the card never shows a dot for mail already read or archived.
+// Fold live message state into stored triage: drop items whose message is
+// deleted from the mailbox, drop priority groups that empty, and mark what is
+// still unread. Noise is already category-only, but is sanitized again before
+// it reaches the browser because summaries.raw ultimately contains model data.
 export function buildDigest(row, states) {
   if (!row) return null
   const unreadById = new Map(states.map((state) => [state.id, state.is_unread]))
@@ -125,7 +127,18 @@ export function buildDigest(row, states) {
       topics.push({ emoji: String(topic.emoji ?? ''), title: String(topic.title ?? ''), items })
     }
   }
-  return { overview: row.summary ?? '', created_at: row.created_at, topics }
+  const categories = (Array.isArray(row.raw?.noise?.categories) ? row.raw.noise.categories : [])
+    .map((item) => ({ category: item?.category?.trim?.() ?? '', count: item?.count }))
+    .filter((item) => item.category && Number.isInteger(item.count) && item.count > 0)
+  return {
+    overview: row.summary ?? '',
+    created_at: row.created_at,
+    topics,
+    noise: {
+      count: categories.reduce((total, item) => total + item.count, 0),
+      categories,
+    },
+  }
 }
 
 // One gathered task owned by the caller, returning what completion needs.
@@ -226,7 +239,7 @@ async function handlePost(req, res, userId, services) {
 
 // GET /api/tasks — { tasks: [{ id, source, content, description, due_date,
 // priority, url, message_id, gathered_at, reply_to, message_subject }],
-// digest: { overview, created_at, topics } | null,
+// digest: { overview, created_at, topics, noise } | null,
 // news: { created_at, sections } | null } for the AI dashboard. All three are
 // returned together because AI Today always renders all of them.
 // POST completes a task.
