@@ -59,6 +59,41 @@ describe('PATCH /api/labels', () => {
     expect(sql).not.toHaveBeenCalled()
   })
 
+  it('updates colour and description, including clearing the description', async () => {
+    const sql = vi.fn().mockResolvedValue([
+      { id: LABEL_ID, name: 'Work', color: '#2F6BE0', kind: 'user', description: null, auto_apply: false },
+    ])
+    getSql.mockReturnValue(sql)
+    const res = response()
+
+    await handler(
+      {
+        method: 'PATCH',
+        body: { id: LABEL_ID, color: '#2F6BE0', description: '', auto_apply: false },
+      },
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).label).toMatchObject({ color: '#2F6BE0', description: null })
+    expect(sql.mock.calls[0].slice(1)).toEqual(expect.arrayContaining([true, '#2F6BE0', null]))
+  })
+
+  it.each([
+    { color: 'blue' },
+    { color: '#12345' },
+    { description: 'x'.repeat(201) },
+  ])('rejects invalid editable fields before querying the database: %o', async (changes) => {
+    const sql = vi.fn()
+    getSql.mockReturnValue(sql)
+    const res = response()
+
+    await handler({ method: 'PATCH', body: { id: LABEL_ID, ...changes } }, res)
+
+    expect(res.statusCode).toBe(400)
+    expect(sql).not.toHaveBeenCalled()
+  })
+
   it('returns a conflict when the renamed label already exists', async () => {
     const duplicateError = Object.assign(new Error('duplicate'), { code: '23505' })
     getSql.mockReturnValue(vi.fn().mockRejectedValue(duplicateError))
