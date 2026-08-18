@@ -1611,6 +1611,35 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
+    // Reschedules a gathered task to another day (POST /api/tasks). Todoist
+    // tasks are rescheduled in Todoist server-side first. Throws on a non-2xx
+    // so the caller can roll back its optimistic UI; on success the task's
+    // due_date is updated in place - whether it should still be visible today
+    // is the caller's call, since a reschedule to later today keeps it there.
+    async rescheduleTask(id, dueDate) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ id, action: 'reschedule', due_date: dueDate }),
+      })
+      if (!response.ok) {
+        throw new Error(`POST /api/tasks responded ${response.status}`)
+      }
+      const task = this.tasks.find((t) => t.id === id)
+      if (task) task.due_date = dueDate
+      return response.json()
+    },
+
+    // Reschedules a triage item's underlying message so it drops off today's
+    // digest and reappears in a later one. Goes through the same lightweight,
+    // id-based updateMessage markTopicItemRead uses - digest items carry only
+    // a message_id, not a full email object like scheduleEmail expects.
+    // Throws on failure so the caller can roll back its optimistic UI.
+    async rescheduleDigestItem(item, scheduledFor) {
+      await this.updateMessage(item.message_id, { scheduled_for: scheduledFor })
+    },
+
     closeComposer() {
       this.isComposerActive = false
       this.composerTo = ''

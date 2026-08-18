@@ -256,6 +256,52 @@ describe('AIInboxView (AI Today)', () => {
     expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(2)
   })
 
+  it('reschedules a triage item to another day, hiding it and notifying', async () => {
+    store.digest = DIGEST()
+    const rescheduleDigestItem = vi.spyOn(store, 'rescheduleDigestItem').mockResolvedValue(undefined)
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    const kitchen = wrapper.findAll('.topic-section')[0]
+    await kitchen.findAll('.topic-catchup-row')[0].get('[title="Reschedule"]').trigger('click')
+
+    const tomorrow = wrapper
+      .findAll('.ni-schedule-menu [role="menuitem"]')
+      .find((item) => item.text().includes('Tomorrow'))
+    await tomorrow.trigger('click')
+    await flushPromises()
+
+    expect(rescheduleDigestItem).toHaveBeenCalledTimes(1)
+    const [item, scheduledFor] = rescheduleDigestItem.mock.calls[0]
+    expect(item.message_id).toBe('msg-1')
+    expect(Number.isFinite(Date.parse(scheduledFor))).toBe(true)
+    expect(notify).toHaveBeenCalledWith(
+      'Moved "Contractor needs the floor-plan choice" to tomorrow.',
+    )
+    const kitchenAfter = wrapper.findAll('.topic-section')[0]
+    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(1)
+  })
+
+  it('rolls a triage item back into view when rescheduling fails', async () => {
+    store.digest = DIGEST()
+    vi.spyOn(store, 'rescheduleDigestItem').mockRejectedValue(new Error('boom'))
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    const kitchen = wrapper.findAll('.topic-section')[0]
+    await kitchen.findAll('.topic-catchup-row')[0].get('[title="Reschedule"]').trigger('click')
+
+    const tomorrow = wrapper
+      .findAll('.ni-schedule-menu [role="menuitem"]')
+      .find((item) => item.text().includes('Tomorrow'))
+    await tomorrow.trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith('Failed to reschedule email.', 'error')
+    const kitchenAfter = wrapper.findAll('.topic-section')[0]
+    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(2)
+  })
+
   it('renders gathered tasks in API order with source-appropriate actions', () => {
     store.tasks = [
       {
@@ -303,7 +349,12 @@ describe('AIInboxView (AI Today)', () => {
     const openLink = rows[0].get('a.action-pill-btn')
     expect(openLink.attributes('href')).toBe('https://app.todoist.com/app/task/task-1')
     expect(openLink.attributes('target')).toBe('_blank')
-    expect(rows[2].find('.action-pill-btn').exists()).toBe(false)
+    // A task with neither a url nor a message_id gets no Open/Draft action,
+    // but every row still offers Reschedule.
+    expect(rows[2].find('a.action-pill-btn').exists()).toBe(false)
+    expect(rows[2].findAll('.action-pill-btn').map((el) => el.text())).toEqual([
+      expect.stringContaining('Reschedule'),
+    ])
 
     // An email-sourced task offers a follow-up draft instead.
     expect(rows[1].get('.action-pill-btn').text()).toContain('Draft')
@@ -382,6 +433,80 @@ describe('AIInboxView (AI Today)', () => {
     expect(rowsOf(wrapper)).toHaveLength(1)
     expect(wrapper.get('.ai-greeting').text()).toContain('1 to-dos')
     expect(notify).toHaveBeenCalledWith('Failed to mark task done.', 'error')
+  })
+
+  it('reschedules a to-do to a future day, hiding it and notifying', async () => {
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url: null },
+    ]
+    const rescheduleTask = vi.spyOn(store, 'rescheduleTask').mockResolvedValue({ ok: true })
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    const toggle = rowsOf(wrapper)[0]
+      .findAll('.action-pill-btn')
+      .find((btn) => btn.text().includes('Reschedule'))
+    await toggle.trigger('click')
+
+    const tomorrow = wrapper
+      .findAll('.ni-schedule-menu [role="menuitem"]')
+      .find((item) => item.text().includes('Tomorrow'))
+    await tomorrow.trigger('click')
+    await flushPromises()
+
+    expect(rescheduleTask).toHaveBeenCalledTimes(1)
+    const [id, dueDate] = rescheduleTask.mock.calls[0]
+    expect(id).toBe('task-1')
+    expect(dueDate).not.toBe(new Date().toISOString().slice(0, 10))
+    expect(notify).toHaveBeenCalledWith('Moved "Renew car insurance" to tomorrow.')
+    expect(rowsOf(wrapper)).toHaveLength(0)
+    expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
+  })
+
+  it('keeps a to-do visible when rescheduled to later today', async () => {
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url: null },
+    ]
+    const rescheduleTask = vi.spyOn(store, 'rescheduleTask').mockResolvedValue({ ok: true })
+
+    const wrapper = mountView()
+    const toggle = rowsOf(wrapper)[0]
+      .findAll('.action-pill-btn')
+      .find((btn) => btn.text().includes('Reschedule'))
+    await toggle.trigger('click')
+
+    const laterToday = wrapper
+      .findAll('.ni-schedule-menu [role="menuitem"]')
+      .find((item) => item.text().includes('Later today'))
+    await laterToday.trigger('click')
+    await flushPromises()
+
+    const [, dueDate] = rescheduleTask.mock.calls[0]
+    expect(dueDate).toBe(new Date().toISOString().slice(0, 10))
+    expect(rowsOf(wrapper)).toHaveLength(1)
+  })
+
+  it('rolls a to-do back into view when rescheduling fails', async () => {
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url: null },
+    ]
+    vi.spyOn(store, 'rescheduleTask').mockRejectedValue(new Error('boom'))
+    const notify = vi.spyOn(store, 'notify')
+
+    const wrapper = mountView()
+    const toggle = rowsOf(wrapper)[0]
+      .findAll('.action-pill-btn')
+      .find((btn) => btn.text().includes('Reschedule'))
+    await toggle.trigger('click')
+
+    const tomorrow = wrapper
+      .findAll('.ni-schedule-menu [role="menuitem"]')
+      .find((item) => item.text().includes('Tomorrow'))
+    await tomorrow.trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith('Failed to reschedule task.', 'error')
+    expect(rowsOf(wrapper)).toHaveLength(1)
   })
 
   it('reports how stale the gathered set is and re-reads past the cache', async () => {

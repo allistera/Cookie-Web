@@ -4,7 +4,9 @@ import {
   fetchTasks,
   fetchOwnedTask,
   deleteOwnedTask,
+  updateTaskDueDate,
   closeTodoistTask,
+  rescheduleTodoistTask,
   fetchLatestSummary,
   fetchMessageStates,
   digestMessageIds,
@@ -40,7 +42,7 @@ describe('fetchTasks', () => {
     expect(query).toContain('t.gathered_at')
   })
 
-  it('scopes Todoist tasks to due today or overdue, leaving email tasks unfiltered', () => {
+  it('scopes every task to due today or overdue, regardless of source', () => {
     let query = ''
     const sql = (strings) => {
       query = strings.join('?')
@@ -49,7 +51,7 @@ describe('fetchTasks', () => {
 
     fetchTasks(sql, USER_ID)
 
-    expect(query).toContain("t.source <> 'todoist' OR t.due_date <= CURRENT_DATE")
+    expect(query).toContain('t.due_date IS NULL OR t.due_date <= CURRENT_DATE')
   })
 })
 
@@ -88,6 +90,7 @@ describe('fetchMessageStates', () => {
     fetchMessageStates(sql, USER_ID, [ID_A])
 
     expect(query).toContain('m.is_unread')
+    expect(query).toContain('m.scheduled_for')
     expect(query).toContain('WHERE m.user_id =')
     expect(query).toContain('::uuid[]')
     expect(query).toContain('NOT m.is_deleted')
@@ -160,6 +163,36 @@ describe('buildDigest', () => {
     expect(digest.topics[0].items.map((i) => i.message_id)).toEqual([ID_A])
   })
 
+  // A message rescheduled to a future day should stop showing up in the AI
+  // Inbox until it comes due, same as fetchMessageStates keeps deleted mail out.
+  it('drops items whose message was rescheduled to the future', () => {
+    const row = digestRow([
+      {
+        emoji: '↩️',
+        title: 'Reply Needed',
+        items: [{ message_id: ID_A }, { message_id: ID_B }],
+      },
+    ])
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    const past = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const digest = buildDigest(row, [
+      { id: ID_A, is_unread: true, scheduled_for: future },
+      { id: ID_B, is_unread: true, scheduled_for: past },
+    ])
+
+    expect(digest.topics).toHaveLength(1)
+    expect(digest.topics[0].items.map((i) => i.message_id)).toEqual([ID_B])
+  })
+
+  it('keeps items whose message has no scheduled_for', () => {
+    const row = digestRow([
+      { emoji: '↩️', title: 'Reply Needed', items: [{ message_id: ID_A }] },
+    ])
+    const digest = buildDigest(row, [{ id: ID_A, is_unread: true, scheduled_for: null }])
+
+    expect(digest.topics[0].items.map((i) => i.message_id)).toEqual([ID_A])
+  })
+
   it('is null when no digest has been written yet', () => {
     expect(buildDigest(undefined, [])).toBeNull()
   })
@@ -224,6 +257,26 @@ describe('deleteOwnedTask', () => {
   })
 })
 
+describe('updateTaskDueDate', () => {
+  it('moves only the owner\'s task to the new due date', () => {
+    let query = ''
+    const values = []
+    const sql = (strings, ...vals) => {
+      query = strings.join('?')
+      values.push(...vals)
+      return []
+    }
+
+    updateTaskDueDate(sql, 'task-uuid', USER_ID, '2026-08-25')
+
+    expect(query).toContain('UPDATE tasks t SET due_date =')
+    expect(query).toContain('WHERE t.id =')
+    expect(query).toContain('t.user_id =')
+    expect(query).toContain('RETURNING t.id, t.due_date')
+    expect(values).toEqual(['2026-08-25', 'task-uuid', USER_ID])
+  })
+})
+
 describe('closeTodoistTask', () => {
   afterEach(() => vi.unstubAllGlobals())
 
@@ -243,5 +296,29 @@ describe('closeTodoistTask', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }))
 
     await expect(closeTodoistTask('1', 'tok')).rejects.toThrow('403')
+  })
+})
+
+describe('rescheduleTodoistTask', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('POSTs the new due date to the unified API task endpoint with a bearer token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await rescheduleTodoistTask('9876543210', 'tok_abc', '2026-08-25')
+
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://api.todoist.com/api/v1/tasks/9876543210')
+    expect(options.method).toBe('POST')
+    expect(options.headers.Authorization).toBe('Bearer tok_abc')
+    expect(options.headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(options.body)).toEqual({ due_date: '2026-08-25' })
+  })
+
+  it('throws when Todoist responds with a non-2xx status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }))
+
+    await expect(rescheduleTodoistTask('1', 'tok', '2026-08-25')).rejects.toThrow('403')
   })
 })
