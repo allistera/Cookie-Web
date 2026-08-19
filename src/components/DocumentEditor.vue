@@ -380,12 +380,17 @@ function onTitleEnter() {
 
 <style scoped>
 .document-editor {
-  max-width: 720px;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 40px 24px 120px;
 }
 
 .document-title {
+  max-width: 720px;
+  margin-right: auto;
+  margin-left: auto;
   font-size: 32px;
   font-weight: 700;
   line-height: 1.2;
@@ -401,6 +406,9 @@ function onTitleEnter() {
 }
 
 .document-tags {
+  max-width: 720px;
+  margin-right: auto;
+  margin-left: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -486,6 +494,7 @@ function onTitleEnter() {
 }
 
 .document-editor.compact .document-title {
+  max-width: none;
   font-size: 24px;
 }
 
@@ -498,6 +507,15 @@ function onTitleEnter() {
    app's theme tokens so it follows dark mode too. */
 .document-blocks :deep(.ce-block__content),
 .document-blocks :deep(.ce-toolbar__content) {
+  max-width: 720px;
+}
+
+.document-blocks :deep(.ce-block--stretched .ce-block__content) {
+  max-width: none;
+}
+
+.document-editor.compact .document-blocks :deep(.ce-block__content),
+.document-editor.compact .document-blocks :deep(.ce-toolbar__content) {
   max-width: 100%;
 }
 

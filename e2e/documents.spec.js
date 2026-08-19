@@ -145,6 +145,41 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   ).toHaveCount(0)
 })
 
+test('Stretch expands a table across the document whitespace', async ({ page }) => {
+  await page.goto('/documents/stub-doc-scratchpad')
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await paragraph.press('End')
+  await paragraph.press('Enter')
+
+  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
+  await newParagraph.click()
+  await newParagraph.pressSequentially('/')
+  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(insertMenu).toBeVisible()
+  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+
+  const table = page.locator('.tc-table').first()
+  const tableBlock = table.locator(
+    'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " ce-block ")][1]',
+  )
+  const normalWidth = await paragraph.evaluate(
+    (element) => element.closest('.ce-block__content').getBoundingClientRect().width,
+  )
+
+  await table.locator('.tc-cell').first().click()
+  await page.locator('.ce-toolbar__settings-btn').click()
+  const settingsMenu = page.locator('.ce-popover--opened .ce-popover__container')
+  await settingsMenu.locator('.ce-popover-item', { hasText: 'Stretch' }).click()
+
+  await expect(tableBlock).toHaveClass(/ce-block--stretched/)
+  const stretchedWidth = await tableBlock
+    .locator('.ce-block__content')
+    .evaluate((element) => element.getBoundingClientRect().width)
+  expect(stretchedWidth).toBeGreaterThan(normalWidth + 100)
+})
+
 test('A settings template can create a pre-filled independent document', async ({ page }) => {
   await page.goto('/settings/document-templates')
 
