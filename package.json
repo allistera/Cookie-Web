@@ -24,6 +24,14 @@
     "@editorjs/table": "^2.4.5",
     "@excalidraw/excalidraw": "^0.18.1",
     "@supabase/realtime-js": "^2.112.3",
+    "@univerjs/preset-sheets-conditional-formatting": "^0.25.1",
+    "@univerjs/preset-sheets-core": "^0.25.1",
+    "@univerjs/preset-sheets-data-validation": "^0.25.1",
+    "@univerjs/preset-sheets-filter": "^0.25.1",
+    "@univerjs/preset-sheets-find-replace": "^0.25.1",
+    "@univerjs/preset-sheets-hyper-link": "^0.25.1",
+    "@univerjs/preset-sheets-sort": "^0.25.1",
+    "@univerjs/presets": "^0.25.1",
     "@vercel/blob": "^2.6.1",
     "dompurify": "^3.4.13",
     "editorjs-drag-drop": "^1.1.16",
@@ -68,6 +76,9 @@
       "nanoid": "3.3.18"
     },
     "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "5.1.16"
+    },
+    "@univerjs/core": {
       "nanoid": "5.1.16"
     },
     "lodash-es": "4.18.1"
