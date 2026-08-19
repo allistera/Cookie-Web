@@ -235,7 +235,27 @@ function placeCaretAtEnd(cell) {
   selection.addRange(range)
 }
 
-export function enhanceTableFormulas(tableElement, { readOnly = false } = {}) {
+function columnName(index) {
+  let name = ''
+  for (let column = index + 1; column > 0; column = Math.floor((column - 1) / 26)) {
+    name = String.fromCharCode(((column - 1) % 26) + 65) + name
+  }
+  return name
+}
+
+export function tableCellReference(tableElement, cell) {
+  const rows = [...tableElement.querySelectorAll(ROW_SELECTOR)]
+  const row = rows.findIndex((candidate) => candidate.contains(cell))
+  if (row === -1) return ''
+
+  const column = [...rows[row].querySelectorAll(CELL_SELECTOR)].indexOf(cell)
+  return column === -1 ? '' : `${columnName(column)}${row + 1}`
+}
+
+export function enhanceTableFormulas(
+  tableElement,
+  { readOnly = false, onActiveCellChange = () => {} } = {},
+) {
   for (const cell of tableElement.querySelectorAll(CELL_SELECTOR)) {
     const formula = cell.textContent.trim()
     if (formula.startsWith('=')) cell.dataset.formula = formula
@@ -244,11 +264,14 @@ export function enhanceTableFormulas(tableElement, { readOnly = false } = {}) {
 
   if (readOnly) return () => {}
 
+  let activeCell = null
   let editingCell = null
   const onFocusIn = (event) => {
     const cell = event.target.closest?.(CELL_SELECTOR)
     if (!cell || !tableElement.contains(cell)) return
+    activeCell = cell
     editingCell = cell
+    onActiveCellChange(tableCellReference(tableElement, cell))
     if (!cell.dataset.formula) return
     cell.textContent = cell.dataset.formula
     cell.classList.add('tc-cell--formula-editing')
@@ -279,7 +302,15 @@ export function enhanceTableFormulas(tableElement, { readOnly = false } = {}) {
         mutation.type === 'childList' &&
         (mutation.target === tableElement || mutation.target.classList?.contains('tc-row')),
     )
-    if (structureChanged) updateFormulaCells(tableElement, editingCell)
+    if (structureChanged) {
+      updateFormulaCells(tableElement, editingCell)
+      if (activeCell && tableElement.contains(activeCell)) {
+        onActiveCellChange(tableCellReference(tableElement, activeCell))
+      } else if (activeCell) {
+        activeCell = null
+        onActiveCellChange('')
+      }
+    }
   })
   observer.observe(tableElement, { childList: true, subtree: true })
 
@@ -306,16 +337,32 @@ export class FormulaTableTool extends Table {
     this.stopFormulaEnhancement?.()
     const container = super.render()
     this.formulaTableElement = container.querySelector('.tc-table')
-    this.stopFormulaEnhancement = enhanceTableFormulas(this.formulaTableElement, {
-      readOnly: this.readOnly,
-    })
 
     if (!this.readOnly) {
+      const footer = document.createElement('div')
+      footer.className = 'formula-table-footer'
+
       const help = document.createElement('div')
       help.className = 'formula-table-help'
       help.textContent = 'Maths: =A1+B1 · =A1-B1 · =A1*B1 · =A1/B1'
-      container.appendChild(help)
+
+      this.activeCellElement = document.createElement('output')
+      this.activeCellElement.className = 'formula-table-cell-reference'
+      this.activeCellElement.setAttribute('aria-label', 'Current table cell')
+      this.activeCellElement.hidden = true
+
+      footer.append(help, this.activeCellElement)
+      container.appendChild(footer)
     }
+
+    this.stopFormulaEnhancement = enhanceTableFormulas(this.formulaTableElement, {
+      readOnly: this.readOnly,
+      onActiveCellChange: (reference) => {
+        if (!this.activeCellElement) return
+        this.activeCellElement.value = reference
+        this.activeCellElement.hidden = !reference
+      },
+    })
 
     return container
   }

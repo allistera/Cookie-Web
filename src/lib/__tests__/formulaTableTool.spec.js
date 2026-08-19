@@ -4,6 +4,7 @@ import {
   enhanceTableFormulas,
   evaluateTableFormula,
   serializeFormulaTable,
+  tableCellReference,
 } from '../formulaTableTool'
 
 function createTable(rows) {
@@ -68,6 +69,25 @@ describe('table maths formulas', () => {
 
     cells[2].dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
     expect(cells[2].textContent).toBe('25')
+    stop()
+  })
+
+  it('reports the focused cell using spreadsheet coordinates', () => {
+    const table = createTable([
+      ['Name', 'Amount'],
+      ['Tea', '4'],
+    ])
+    const activeCells = []
+    const stop = enhanceTableFormulas(table, {
+      onActiveCellChange: (reference) => activeCells.push(reference),
+    })
+    const cells = table.querySelectorAll('.tc-cell')
+
+    cells[0].dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    cells[2].dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+
+    expect(activeCells).toEqual(['A1', 'A2'])
+    expect(tableCellReference(table, cells[3])).toBe('B2')
     stop()
   })
 

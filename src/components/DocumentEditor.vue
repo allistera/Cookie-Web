@@ -601,12 +601,35 @@ function onTitleEnter() {
   color: var(--text-primary);
 }
 
-.document-blocks :deep(.formula-table-help) {
+.document-blocks :deep(.formula-table-footer) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 7px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.document-blocks :deep(.formula-table-help) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.document-blocks :deep(.formula-table-cell-reference) {
+  flex: none;
+  min-width: 24px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  line-height: inherit;
+  text-align: center;
 }
 
 .document-blocks :deep(.excalidraw-block) {
