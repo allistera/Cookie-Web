@@ -6,6 +6,7 @@ import { handleRefresh } from './_lib/enricher.js'
 import { handleInterests } from './_lib/interests.js'
 import { handleDocuments } from './_lib/documents.js'
 import { handleDailyNoteSeed } from './_lib/dailyNoteSeed.js'
+import { handleImageUpload } from './_lib/imageUpload.js'
 
 const RESULTS = 25
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -327,13 +328,14 @@ export function createHandler(overrides = {}) {
 
     const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
 
-    // PUT is only meaningful for ?resource=interests, and PATCH/DELETE only for
-    // ?resource=documents; each resource handler rejects the methods it does
-    // not serve, so the gate here only screens out what nothing serves.
+    // PUT is only meaningful for ?resource=interests, PATCH/DELETE only for
+    // ?resource=documents, and image uploads only accept POST.
     const methods =
       resource === 'documents'
         ? ['GET', 'POST', 'PATCH', 'DELETE']
-        : ['GET', 'POST', 'PUT']
+        : resource === 'image-upload'
+          ? ['POST']
+          : ['GET', 'POST', 'PUT']
     if (!methods.includes(req.method)) {
       res.statusCode = 405
       res.end(JSON.stringify({ error: 'Method not allowed' }))
@@ -360,6 +362,9 @@ export function createHandler(overrides = {}) {
     }
     if (resource === 'daily-note-seed') {
       return handleDailyNoteSeed(req, res, userId)
+    }
+    if (resource === 'image-upload') {
+      return handleImageUpload(req, res, services)
     }
 
     if (req.method === 'POST') {

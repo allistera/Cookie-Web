@@ -815,6 +815,15 @@ function localApiPlugin(mode) {
         res.end(JSON.stringify({ blocks: state.dailyNoteSeed }))
         return
       }
+      if (resource === 'image-upload') {
+        const { handleImageUpload } = await import('./api/_lib/imageUpload.js')
+        await handleImageUpload(req, res, {
+          putBlob: async (_fileName, fileData, options) => ({
+            url: `data:${options.contentType};base64,${fileData.toString('base64')}`,
+          }),
+        })
+        return
+      }
       if (resource === 'refresh') {
         // No enricher Worker locally: pretend the digest rebuild succeeded so
         // the refresh control still exercises its real path.
@@ -1154,10 +1163,6 @@ function localApiPlugin(mode) {
     server.middlewares.use('/api/compose', handleCompose)
     server.middlewares.use('/api/summarize', handleSummarize)
     server.middlewares.use('/api/labels', handleLabels)
-    server.middlewares.use('/api/upload-image', async (req, res) => {
-      const { default: handler } = await import('./api/upload-image.js')
-      await handler(req, res)
-    })
   }
   return {
     name: 'local-api',
