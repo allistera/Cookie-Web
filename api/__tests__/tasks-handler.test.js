@@ -127,6 +127,37 @@ describe('GET /api/tasks', () => {
     })
   })
 
+  it('drops a digest item whose message was just rescheduled to a later day', async () => {
+    sqlQueue = [
+      [], // fetchTasks
+      [
+        {
+          summary: 'One reply needs you.',
+          created_at: '2026-08-03T05:00:00.000Z',
+          raw: {
+            topics: [
+              {
+                emoji: '↩️',
+                title: 'Reply Needed',
+                items: [
+                  { message_id: MESSAGE_ID, headline: 'Floor plan', note: 'Revised design.' },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      [], // fetchLatestSummary('daily_news')
+      [{ id: MESSAGE_ID, is_unread: true, scheduled_for: '2099-01-01T00:00:00.000Z' }],
+    ]
+    const res = makeRes()
+
+    await handler(req('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.digest.topics).toHaveLength(0)
+  })
+
   it('returns the news round-up, dropping items without a usable link', async () => {
     sqlQueue = [
       [], // fetchTasks
@@ -293,6 +324,83 @@ describe('POST /api/tasks', () => {
 
     expect(res.statusCode).toBe(400)
     expect(statements).toHaveLength(0)
+  })
+
+  it('reschedules an email-sourced task locally without calling Todoist', async () => {
+    sqlQueue = [
+      [{ id: TASK_ID, source: 'email', external_id: null }], // fetchOwnedTask
+      [{ id: TASK_ID, due_date: '2026-08-25' }], // updateTaskDueDate
+    ]
+    const res = makeRes()
+
+    await handler(req('POST', { id: TASK_ID, action: 'reschedule', due_date: '2026-08-25' }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ ok: true, task: { id: TASK_ID, due_date: '2026-08-25' } })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(statements[1]).toContain('UPDATE tasks t SET due_date =')
+  })
+
+  it('reschedules a Todoist-sourced task remotely before updating the local row', async () => {
+    process.env.TODOIST_API_TOKEN = 'tok'
+    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200 })
+    sqlQueue = [
+      [{ id: TASK_ID, source: 'todoist', external_id: '9001' }],
+      [{ id: TASK_ID, due_date: '2026-08-25' }],
+    ]
+    const res = makeRes()
+
+    await handler(req('POST', { id: TASK_ID, action: 'reschedule', due_date: '2026-08-25' }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ ok: true, task: { id: TASK_ID, due_date: '2026-08-25' } })
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.todoist.com/api/v1/tasks/9001',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ due_date: '2026-08-25' }),
+      }),
+    )
+    expect(statements[1]).toContain('UPDATE tasks t SET due_date =')
+  })
+
+  // Same fail-closed ordering as completion: a task that could not be moved in
+  // Todoist must stay on its original day rather than drift out of sync.
+  it('keeps the original due date when the Todoist reschedule fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    process.env.TODOIST_API_TOKEN = 'tok'
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 })
+    sqlQueue = [[{ id: TASK_ID, source: 'todoist', external_id: '9001' }]]
+    const res = makeRes()
+
+    await handler(req('POST', { id: TASK_ID, action: 'reschedule', due_date: '2026-08-25' }), res)
+
+    expect(res.statusCode).toBe(502)
+    expect(statements.some((text) => text.includes('UPDATE tasks'))).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith(
+      'Todoist reschedule failed:',
+      'Todoist reschedule responded 500',
+    )
+  })
+
+  it('404s when the task is not the caller’s', async () => {
+    sqlQueue = [[]]
+    const res = makeRes()
+
+    await handler(req('POST', { id: TASK_ID, action: 'reschedule', due_date: '2026-08-25' }), res)
+
+    expect(res.statusCode).toBe(404)
+    expect(statements.some((text) => text.includes('UPDATE tasks'))).toBe(false)
+  })
+
+  it('rejects a malformed due_date before touching the database', async () => {
+    const res = makeRes()
+
+    await handler(req('POST', { id: TASK_ID, action: 'reschedule', due_date: 'next tuesday' }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(statements).toHaveLength(0)
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
 

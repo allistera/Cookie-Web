@@ -686,6 +686,35 @@ describe('Inbox Store', () => {
     expect(store.tasks.map((t) => t.id)).toEqual(['t1'])
   })
 
+  it('rescheduleTask posts the new due date and updates the task in place', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.tasks = [{ id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' }]
+
+    await store.rescheduleTask('t1', '2026-08-25')
+
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/tasks')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({
+      id: 't1',
+      action: 'reschedule',
+      due_date: '2026-08-25',
+    })
+    expect(store.tasks[0].due_date).toBe('2026-08-25')
+  })
+
+  it('rescheduleTask throws and leaves the due date untouched when the request fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 502 })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.tasks = [{ id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' }]
+
+    await expect(store.rescheduleTask('t1', '2026-08-25')).rejects.toThrow('502')
+    expect(store.tasks[0].due_date).toBe('2026-08-18')
+  })
+
   it('allLabels lists every user label from the palette, not just ones on loaded emails', () => {
     const store = useInboxStore()
     store.traditionalEmails = [] // nothing loaded in the inbox list
@@ -2242,6 +2271,29 @@ describe('Inbox Store', () => {
 
       expect(item.unread).toBe(true)
       expect(store.unreadInboxCount).toBe(5)
+    })
+  })
+
+  describe('rescheduleDigestItem', () => {
+    it('delegates to updateMessage with the new scheduled_for', async () => {
+      const store = useInboxStore()
+      const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+
+      const item = { message_id: 'msg-1' }
+      await store.rescheduleDigestItem(item, '2026-08-25T08:00:00.000Z')
+
+      expect(updateMessage).toHaveBeenCalledWith('msg-1', {
+        scheduled_for: '2026-08-25T08:00:00.000Z',
+      })
+    })
+
+    it('rejects when the update fails', async () => {
+      const store = useInboxStore()
+      vi.spyOn(store, 'updateMessage').mockRejectedValue(new Error('boom'))
+
+      await expect(
+        store.rescheduleDigestItem({ message_id: 'msg-1' }, '2026-08-25T08:00:00.000Z'),
+      ).rejects.toThrow('boom')
     })
   })
 

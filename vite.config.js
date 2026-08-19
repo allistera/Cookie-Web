@@ -56,17 +56,17 @@ function localApiPlugin(mode) {
             }))
           : folder === 'done'
             ? inbox.filter((email) => archived.has(email.id))
-          : folder === 'spam'
-            ? []
-          : folder === 'snoozed'
-              ? inbox.filter(
-                  (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
-                )
-              : inbox.filter(
-                  (email) =>
-                    !archived.has(email.id) &&
-                    (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
-                )
+            : folder === 'spam'
+              ? []
+              : folder === 'snoozed'
+                ? inbox.filter(
+                    (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
+                  )
+                : inbox.filter(
+                    (email) =>
+                      !archived.has(email.id) &&
+                      (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
+                  )
       res.setHeader('Content-Type', 'application/json')
       if (url.searchParams.get('resource') === 'state') {
         res.end(
@@ -565,9 +565,8 @@ function localApiPlugin(mode) {
   // the Documents workspace works against per-session fixture state.
   const handleTaskDocuments = async (req, res, state) => {
     if (!state.documents) {
-      const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } = await import(
-        './api/_fixtures/documents.js'
-      )
+      const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } =
+        await import('./api/_fixtures/documents.js')
       state.docFolders = fixtureDocumentFolders()
       state.documents = fixtureDocuments()
       state.docTemplates = fixtureDocumentTemplates()
@@ -589,7 +588,10 @@ function localApiPlugin(mode) {
           .filter((doc) => {
             const haystack = `${doc.title} ${JSON.stringify(doc.blocks)}`.toLowerCase()
             if (!terms.every((term) => haystack.includes(term))) return false
-            if (filters.tag && !doc.tags?.some((tag) => tag.toLowerCase() === filters.tag.toLowerCase())) {
+            if (
+              filters.tag &&
+              !doc.tags?.some((tag) => tag.toLowerCase() === filters.tag.toLowerCase())
+            ) {
               return false
             }
             if (filters.starred && !doc.starred) return false
@@ -1068,7 +1070,11 @@ function localApiPlugin(mode) {
         }
         await stubSubscriptionSync(state, calendar)
         res.end(
-          JSON.stringify({ ok: true, subscriptionSyncedAt: calendar.subscriptionSyncedAt, subscriptionError: null }),
+          JSON.stringify({
+            ok: true,
+            subscriptionSyncedAt: calendar.subscriptionSyncedAt,
+            subscriptionError: null,
+          }),
         )
         return
       }
@@ -1095,7 +1101,9 @@ function localApiPlugin(mode) {
           res.end(JSON.stringify({ error: 'Calendar not found' }))
           return
         }
-        if (state.calendars.some((calendar) => calendar.id !== body.id && calendar.name === body.name)) {
+        if (
+          state.calendars.some((calendar) => calendar.id !== body.id && calendar.name === body.name)
+        ) {
           res.statusCode = 409
           res.end(JSON.stringify({ error: 'A calendar with that name already exists' }))
           return
@@ -1146,6 +1154,10 @@ function localApiPlugin(mode) {
     server.middlewares.use('/api/compose', handleCompose)
     server.middlewares.use('/api/summarize', handleSummarize)
     server.middlewares.use('/api/labels', handleLabels)
+    server.middlewares.use('/api/upload-image', async (req, res) => {
+      const { default: handler } = await import('./api/upload-image.js')
+      await handler(req, res)
+    })
   }
   return {
     name: 'local-api',
@@ -1187,14 +1199,9 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ''))
 
   return {
-    plugins: [
-      vue(),
-      vueDevTools(),
-      localApiPlugin(mode),
-      entryChunkBudgetPlugin(),
-    ],
+    plugins: [vue(), vueDevTools(), localApiPlugin(mode), entryChunkBudgetPlugin()],
     server: {
-      port: 5180
+      port: 5180,
     },
     resolve: {
       alias: {

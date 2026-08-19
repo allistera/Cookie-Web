@@ -16,10 +16,7 @@ import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
-import {
-  MAX_DOCUMENT_TAGS,
-  normalizeDocumentTag,
-} from '../lib/documentTags'
+import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 
 // "/" menu entry that stamps today's date ("Monday - 4th September") into the
 // document. It is not a real block type: on selection it swaps itself for a
@@ -92,23 +89,99 @@ let editor = null
 // mutations here so both serialization and persistence are bounded.
 const BLOCK_SERIALIZE_DEBOUNCE_MS = 300
 
-// Images are inlined as data: URLs in the block data (no upload endpoint),
-// so a size cap keeps a single picture from bloating the document row.
+// Images are uploaded to Vercel Blob storage to avoid base64 bloat in documents.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_IMAGE_DIMENSION = 2048
+const IMAGE_QUALITY = 0.85
+
+async function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+
+    img.onload = () => {
+      let { width, height } = img
+
+      // Scale down if image is too large
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        const ratio = Math.min(MAX_IMAGE_DIMENSION / width, MAX_IMAGE_DIMENSION / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+
+      canvas.width = width
+      canvas.height = height
+
+      ctx.drawImage(img, 0, 0, width, height)
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(new File([blob], file.name, { type: file.type }))
+          } else {
+            reject(new Error('Image compression failed'))
+          }
+        },
+        file.type,
+        IMAGE_QUALITY,
+      )
+    }
+
+    img.onerror = () => reject(new Error('Failed to load image'))
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+async function uploadFileToBlob(file) {
+  // Compress image before upload
+  const compressedFile = await compressImage(file)
+
+  const formData = new FormData()
+  formData.append('image', compressedFile)
+
+  const response = await fetch('/api/upload-image', {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Upload failed')
+  }
+
+  const data = await response.json()
+  return data.url
+}
 
 const imageUploader = {
-  uploadByFile(file) {
-    return new Promise((resolve, reject) => {
+  async uploadByFile(file) {
+    try {
       if (file.size > MAX_IMAGE_BYTES) {
         inbox.notify('Image is too large — pick a file under 5MB.', 'error')
-        reject(new Error('File too large'))
-        return
+        throw new Error('File too large')
       }
-      const reader = new FileReader()
-      reader.onload = (event) => resolve({ success: 1, file: { url: event.target.result } })
-      reader.onerror = (err) => reject(err)
-      reader.readAsDataURL(file)
-    })
+
+      const url = await uploadFileToBlob(file)
+      return { success: 1, file: { url } }
+    } catch (error) {
+      console.error('Image upload failed, falling back to base64:', error)
+      // Fallback to base64 if blob upload fails
+      try {
+        const base64Url = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = (event) => resolve(event.target.result)
+          reader.onerror = (err) => reject(err)
+          reader.readAsDataURL(file)
+        })
+        inbox.notify('Using base64 encoding for this image.', 'info')
+        return { success: 1, file: { url: base64Url } }
+      } catch (fallbackError) {
+        console.error('Base64 fallback also failed:', fallbackError)
+        inbox.notify('Failed to process image. Please try again.', 'error')
+        throw fallbackError
+      }
+    }
   },
   uploadByUrl(url) {
     return Promise.resolve({ success: 1, file: { url } })
@@ -174,9 +247,7 @@ function mountEditor() {
   // Pinia wraps document rows in reactive proxies. Editor.js tools may clone
   // their input internally, and structuredClone cannot copy a Vue Proxy, so
   // hand the editor a plain JSON snapshot of the persisted block data.
-  const blocks = Array.isArray(props.doc.blocks)
-    ? JSON.parse(JSON.stringify(props.doc.blocks))
-    : []
+  const blocks = Array.isArray(props.doc.blocks) ? JSON.parse(JSON.stringify(props.doc.blocks)) : []
   editor = new EditorJS({
     holder: holder.value,
     data: { blocks },

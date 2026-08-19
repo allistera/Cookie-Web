@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
+import ScheduleMenu from '../components/ScheduleMenu.vue'
+import { scheduleChoices } from '../utils/schedule'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -44,6 +46,15 @@ const activeCount = computed(() => tasks.value.length)
 
 const firstName = computed(() => String(user.value?.name || '').trim().split(/\s+/)[0])
 
+// Presets for both reschedule menus below (Later today/Tomorrow/This
+// weekend/Next week) - recomputed each time a menu opens so the dates are
+// current for the clock, not cached once at mount.
+const reschedulingTaskId = ref(null)
+const reschedulingItemId = ref(null)
+const scheduleOptions = computed(() =>
+  reschedulingTaskId.value !== null || reschedulingItemId.value !== null ? scheduleChoices() : [],
+)
+
 async function completeTask(task) {
   completingTaskIds.value = new Set(completingTaskIds.value).add(task.id)
   try {
@@ -54,6 +65,28 @@ async function completeTask(task) {
     next.delete(task.id)
     completingTaskIds.value = next
     store.notify('Failed to mark task done.', 'error')
+  }
+}
+
+// Reschedules a to-do to another day. A task moved to a future day is hidden
+// from today's list immediately (mirroring completeTask's optimistic removal
+// via completingTaskIds); one moved to later today stays visible.
+async function rescheduleTask(task, choice) {
+  reschedulingTaskId.value = null
+  const dueDate = choice.date.toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
+  const hidesToday = dueDate > today
+  if (hidesToday) completingTaskIds.value = new Set(completingTaskIds.value).add(task.id)
+  try {
+    await store.rescheduleTask(task.id, dueDate)
+    store.notify(`Moved "${task.content}" to ${choice.label.toLowerCase()}.`)
+  } catch {
+    if (hidesToday) {
+      const next = new Set(completingTaskIds.value)
+      next.delete(task.id)
+      completingTaskIds.value = next
+    }
+    store.notify('Failed to reschedule task.', 'error')
   }
 }
 
@@ -90,6 +123,22 @@ async function completeTopicItem(item) {
     next.delete(item.message_id)
     completingItemIds.value = next
     store.notify('Failed to mark email done.', 'error')
+  }
+}
+
+// Reschedules a triage item's message to reappear in a later digest, hiding
+// it from view immediately the same way completeTopicItem does.
+async function rescheduleDigestItem(item, choice) {
+  reschedulingItemId.value = null
+  completingItemIds.value = new Set(completingItemIds.value).add(item.message_id)
+  try {
+    await store.rescheduleDigestItem(item, choice.date.toISOString())
+    store.notify(`Moved "${item.headline}" to ${choice.label.toLowerCase()}.`)
+  } catch {
+    const next = new Set(completingItemIds.value)
+    next.delete(item.message_id)
+    completingItemIds.value = next
+    store.notify('Failed to reschedule email.', 'error')
   }
 }
 
@@ -229,6 +278,23 @@ onMounted(async () => {
                 <span class="material-symbols-outlined">edit</span>
                 <span>{{ store.followUpDraftTaskId === task.id ? 'Drafting…' : 'Draft' }}</span>
               </button>
+              <div class="ni-schedule-wrap">
+                <button
+                  class="action-pill-btn"
+                  aria-haspopup="menu"
+                  :aria-expanded="reschedulingTaskId === task.id"
+                  @click="reschedulingTaskId = reschedulingTaskId === task.id ? null : task.id"
+                >
+                  <span class="material-symbols-outlined">schedule</span>
+                  <span>Reschedule</span>
+                </button>
+                <ScheduleMenu
+                  v-if="reschedulingTaskId === task.id"
+                  :choices="scheduleOptions"
+                  submit-label="Reschedule"
+                  @select="(choice) => rescheduleTask(task, choice)"
+                />
+              </div>
             </div>
           </div>
         </TransitionGroup>
@@ -270,6 +336,25 @@ onMounted(async () => {
                   <span class="email-link">Email</span>
                   <span v-if="item.unread" class="unread-dot"></span>
                 </p>
+                <div class="ni-schedule-wrap">
+                  <button
+                    class="todo-check-btn"
+                    title="Reschedule"
+                    aria-haspopup="menu"
+                    :aria-expanded="reschedulingItemId === item.message_id"
+                    @click="
+                      reschedulingItemId = reschedulingItemId === item.message_id ? null : item.message_id
+                    "
+                  >
+                    <span class="material-symbols-outlined">schedule</span>
+                  </button>
+                  <ScheduleMenu
+                    v-if="reschedulingItemId === item.message_id"
+                    :choices="scheduleOptions"
+                    submit-label="Reschedule"
+                    @select="(choice) => rescheduleDigestItem(item, choice)"
+                  />
+                </div>
               </div>
             </TransitionGroup>
             <div class="topic-footer">
