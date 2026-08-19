@@ -165,9 +165,22 @@ const imageUploader = {
       const url = await uploadFileToBlob(file)
       return { success: 1, file: { url } }
     } catch (error) {
-      console.error('Image upload failed:', error)
-      inbox.notify('Failed to upload image. Please try again.', 'error')
-      throw error
+      console.error('Image upload failed, falling back to base64:', error)
+      // Fallback to base64 if blob upload fails
+      try {
+        const base64Url = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = (event) => resolve(event.target.result)
+          reader.onerror = (err) => reject(err)
+          reader.readAsDataURL(file)
+        })
+        inbox.notify('Using base64 encoding for this image.', 'info')
+        return { success: 1, file: { url: base64Url } }
+      } catch (fallbackError) {
+        console.error('Base64 fallback also failed:', fallbackError)
+        inbox.notify('Failed to process image. Please try again.', 'error')
+        throw fallbackError
+      }
     }
   },
   uploadByUrl(url) {
