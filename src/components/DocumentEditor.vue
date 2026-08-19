@@ -601,6 +601,36 @@ function onTitleEnter() {
   color: var(--text-primary);
 }
 
+.document-blocks :deep(.tc-cell--active) {
+  position: relative;
+  z-index: 1;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.document-blocks :deep(.tc-cell--fill-preview) {
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.document-blocks :deep(.formula-table-fill-handle) {
+  position: absolute;
+  z-index: 4;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  cursor: crosshair;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+}
+
+.document-blocks :deep(.formula-table-fill-handle--dragging) {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
 .document-blocks :deep(.formula-table-footer) {
   display: flex;
   align-items: baseline;
