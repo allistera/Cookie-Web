@@ -234,6 +234,94 @@ test('Table formulas calculate basic maths and persist the formula', async ({ pa
   await expect(reloadedCells.nth(2)).toHaveText('=A1+B1')
 })
 
+test('Table formulas calculate and persist currency values', async ({ page }) => {
+  await page.goto('/documents/stub-doc-scratchpad')
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await paragraph.press('End')
+  await paragraph.press('Enter')
+  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
+  await newParagraph.click()
+  await newParagraph.pressSequentially('/')
+
+  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(insertMenu).toBeVisible()
+  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+
+  const cells = page.locator('.tc-table').first().locator('.tc-cell')
+  await cells.nth(0).fill('£10.50')
+  await cells.nth(1).fill('£4.25')
+  await cells.nth(2).fill('=A1+B1')
+  await cells.nth(3).fill('=A1/2')
+  await page.locator('.document-title').click()
+
+  await expect(cells.nth(2)).toHaveText('£14.75')
+  await expect(cells.nth(3)).toHaveText('£5.25')
+
+  const formulaPatch = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('=A1+B1'),
+  )
+  await cells.nth(0).fill('£20.00')
+  await page.locator('.document-title').click()
+  await expect(cells.nth(2)).toHaveText('£24.25')
+  await expect(cells.nth(3)).toHaveText('£10.00')
+  await formulaPatch
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+
+  await page.reload()
+  const reloadedCells = page.locator('.tc-table').first().locator('.tc-cell')
+  await expect(reloadedCells.nth(2)).toHaveText('£24.25')
+  await reloadedCells.nth(2).click()
+  await expect(reloadedCells.nth(2)).toHaveText('=A1+B1')
+})
+
+test('The table fill handle copies values and adjusts formula references', async ({ page }) => {
+  await page.goto('/documents/stub-doc-scratchpad')
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await paragraph.press('End')
+  await paragraph.press('Enter')
+  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
+  await newParagraph.click()
+  await newParagraph.pressSequentially('/')
+
+  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(insertMenu).toBeVisible()
+  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+  await page.locator('.tc-add-column').first().click()
+
+  const cells = page.locator('.tc-table').first().locator('.tc-cell')
+  await expect(cells).toHaveCount(6)
+  await cells.nth(0).fill('£10.50')
+  await cells.nth(1).fill('£4.25')
+  await cells.nth(2).fill('=A1+B1')
+  await cells.nth(3).fill('£20.00')
+  await cells.nth(4).fill('£5.00')
+  await page.locator('.document-title').click()
+  await expect(cells.nth(2)).toHaveText('£14.75')
+
+  await cells.nth(2).click()
+  const fillHandle = page.getByRole('button', { name: 'Drag to fill cells' })
+  await expect(fillHandle).toBeVisible()
+  await fillHandle.dragTo(cells.nth(5))
+
+  await expect(cells.nth(5)).toHaveText('=A2+B2')
+  await page.locator('.document-title').click()
+  await expect(cells.nth(5)).toHaveText('£25.00')
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+
+  await page.reload()
+  const reloadedCells = page.locator('.tc-table').first().locator('.tc-cell')
+  await expect(reloadedCells.nth(5)).toHaveText('£25.00')
+  await reloadedCells.nth(5).click()
+  await expect(reloadedCells.nth(5)).toHaveText('=A2+B2')
+})
+
 test('A settings template can create a pre-filled independent document', async ({ page }) => {
   await page.goto('/settings/document-templates')
 

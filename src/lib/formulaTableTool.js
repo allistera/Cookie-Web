@@ -2,6 +2,11 @@ import Table from '@editorjs/table'
 
 const CELL_SELECTOR = '.tc-cell'
 const ROW_SELECTOR = '.tc-row'
+const CURRENCY_SYMBOL_PATTERN = /\p{Sc}/gu
+const CURRENCY_NUMBER_FORMATTER = new Intl.NumberFormat('en-GB', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
 
 class FormulaError extends Error {
   constructor(code) {
@@ -10,13 +15,22 @@ class FormulaError extends Error {
   }
 }
 
-function asNumber(value) {
+function asNumber(value, currencies = null) {
   if (Number.isFinite(value)) return value
 
   const text = String(value ?? '').trim()
   if (!text) return 0
 
-  const number = Number(text.replaceAll(',', ''))
+  const currencySymbols = text.match(CURRENCY_SYMBOL_PATTERN) ?? []
+  if (currencySymbols.length > 1) throw new FormulaError('#VALUE!')
+  if (currencySymbols.length) {
+    currencies?.add(currencySymbols[0])
+    if (currencies?.size > 1) throw new FormulaError('#CURRENCY!')
+  }
+
+  const number = Number(
+    text.replaceAll(',', '').replace(CURRENCY_SYMBOL_PATTERN, '').replaceAll(' ', ''),
+  )
   if (!Number.isFinite(number)) throw new FormulaError('#VALUE!')
   return number
 }
@@ -29,6 +43,12 @@ function tokenize(expression) {
     const whitespace = remaining.match(/^\s+/)
     if (whitespace) {
       remaining = remaining.slice(whitespace[0].length)
+      continue
+    }
+
+    if (remaining.startsWith('#REF!')) {
+      tokens.push({ type: 'error', value: '#REF!' })
+      remaining = remaining.slice(5)
       continue
     }
 
@@ -59,7 +79,7 @@ function tokenize(expression) {
   return tokens
 }
 
-function calculateFormulaValue(formula, resolveReference) {
+function calculateFormulaValue(formula, resolveReference, currencies = null) {
   if (!formula.trim().startsWith('=')) throw new FormulaError('#ERROR!')
 
   const tokens = tokenize(formula.trim().slice(1))
@@ -82,8 +102,10 @@ function calculateFormulaValue(formula, resolveReference) {
 
     if (token.type === 'reference') {
       position += 1
-      return asNumber(resolveReference(token.value))
+      return asNumber(resolveReference(token.value), currencies)
     }
+
+    if (token.type === 'error') throw new FormulaError(token.value)
 
     if (token.type === '(') {
       position += 1
@@ -133,7 +155,12 @@ function calculateFormulaValue(formula, resolveReference) {
   return value
 }
 
-function formatFormulaValue(value) {
+function formatFormulaValue(value, currencySymbol = '') {
+  if (currencySymbol) {
+    const normalizedValue = Object.is(value, -0) ? 0 : value
+    const sign = normalizedValue < 0 ? '-' : ''
+    return `${sign}${currencySymbol}${CURRENCY_NUMBER_FORMATTER.format(Math.abs(normalizedValue))}`
+  }
   if (Object.is(value, -0)) return '0'
   if (Number.isInteger(value)) return String(value)
   return String(Number(value.toPrecision(12)))
@@ -141,7 +168,9 @@ function formatFormulaValue(value) {
 
 export function evaluateTableFormula(formula, resolveReference) {
   try {
-    return formatFormulaValue(calculateFormulaValue(formula, resolveReference))
+    const currencies = new Set()
+    const value = calculateFormulaValue(formula, resolveReference, currencies)
+    return formatFormulaValue(value, currencies.values().next().value)
   } catch (error) {
     return error instanceof FormulaError ? error.code : '#ERROR!'
   }
@@ -168,19 +197,33 @@ function referenceCoordinates(reference) {
   return { row: Number(match[2]) - 1, column: column - 1 }
 }
 
-function calculateCell(cell, matrix, visiting) {
+export function adjustTableFormulaReferences(formula, rowOffset, columnOffset) {
+  return formula.replace(/\b([A-Za-z]+)(\d+)\b/g, (reference) => {
+    const { row, column } = referenceCoordinates(reference.toUpperCase())
+    const nextRow = row + rowOffset
+    const nextColumn = column + columnOffset
+    if (nextRow < 0 || nextColumn < 0) return '#REF!'
+    return `${columnName(nextColumn)}${nextRow + 1}`
+  })
+}
+
+function calculateCell(cell, matrix, visiting, currencies) {
   const formula = formulaForCell(cell)
-  if (!formula) return asNumber(cell.textContent)
+  if (!formula) return asNumber(cell.textContent, currencies)
   if (visiting.has(cell)) throw new FormulaError('#CYCLE!')
 
   visiting.add(cell)
   try {
-    return calculateFormulaValue(formula, (reference) => {
-      const { row, column } = referenceCoordinates(reference)
-      const referencedCell = matrix[row]?.[column]
-      if (!referencedCell) throw new FormulaError('#REF!')
-      return calculateCell(referencedCell, matrix, visiting)
-    })
+    return calculateFormulaValue(
+      formula,
+      (reference) => {
+        const { row, column } = referenceCoordinates(reference)
+        const referencedCell = matrix[row]?.[column]
+        if (!referencedCell) throw new FormulaError('#REF!')
+        return calculateCell(referencedCell, matrix, visiting, currencies)
+      },
+      currencies,
+    )
   } finally {
     visiting.delete(cell)
   }
@@ -200,7 +243,9 @@ function updateFormulaCells(tableElement, editingCell = null) {
 
       let result
       try {
-        result = formatFormulaValue(calculateCell(cell, matrix, new Set()))
+        const currencies = new Set()
+        const value = calculateCell(cell, matrix, new Set(), currencies)
+        result = formatFormulaValue(value, currencies.values().next().value)
       } catch (error) {
         result = error instanceof FormulaError ? error.code : '#ERROR!'
       }
@@ -209,6 +254,60 @@ function updateFormulaCells(tableElement, editingCell = null) {
       cell.setAttribute('aria-label', `${formula}, result ${result}`)
     }
   }
+}
+
+function tableCellCoordinates(matrix, cell) {
+  const row = matrix.findIndex((cells) => cells.includes(cell))
+  if (row === -1) return null
+  return { row, column: matrix[row].indexOf(cell) }
+}
+
+function cellsInTableRange(matrix, sourceCell, targetCell) {
+  const source = tableCellCoordinates(matrix, sourceCell)
+  const target = tableCellCoordinates(matrix, targetCell)
+  if (!source || !target) return []
+
+  const cells = []
+  const firstRow = Math.min(source.row, target.row)
+  const lastRow = Math.max(source.row, target.row)
+  const firstColumn = Math.min(source.column, target.column)
+  const lastColumn = Math.max(source.column, target.column)
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let column = firstColumn; column <= lastColumn; column += 1) {
+      const cell = matrix[row]?.[column]
+      if (cell) cells.push(cell)
+    }
+  }
+  return cells
+}
+
+export function fillTableCells(tableElement, sourceCell, targetCell, editingCell = null) {
+  const matrix = cellMatrix(tableElement)
+  const source = tableCellCoordinates(matrix, sourceCell)
+  if (!source || !tableCellCoordinates(matrix, targetCell)) return []
+
+  const sourceFormula = formulaForCell(sourceCell)
+  const sourceContent = sourceCell.innerHTML
+  const destinationCells = cellsInTableRange(matrix, sourceCell, targetCell).filter(
+    (cell) => cell !== sourceCell,
+  )
+
+  for (const cell of destinationCells) {
+    const destination = tableCellCoordinates(matrix, cell)
+    if (sourceFormula) {
+      cell.textContent = adjustTableFormulaReferences(
+        sourceFormula,
+        destination.row - source.row,
+        destination.column - source.column,
+      )
+    } else {
+      cell.innerHTML = sourceContent
+    }
+    syncEditedFormula(cell)
+  }
+
+  updateFormulaCells(tableElement, editingCell)
+  return destinationCells
 }
 
 function syncEditedFormula(cell) {
@@ -264,20 +363,120 @@ export function enhanceTableFormulas(
 
   if (readOnly) return () => {}
 
+  const fillHandleContainer = tableElement.closest('.tc-wrap')
+  const fillHandle = fillHandleContainer ? document.createElement('button') : null
+  if (fillHandle) {
+    fillHandle.type = 'button'
+    fillHandle.className = 'formula-table-fill-handle'
+    fillHandle.setAttribute('aria-label', 'Drag to fill cells')
+    fillHandle.contentEditable = 'false'
+    fillHandle.hidden = true
+    fillHandleContainer.appendChild(fillHandle)
+  }
+
   let activeCell = null
   let editingCell = null
+  let fillSource = null
+  let fillTarget = null
+  let previewCells = []
+  let isFilling = false
+
+  const positionFillHandle = () => {
+    if (!fillHandle || !fillHandleContainer) return
+    if (!activeCell || !tableElement.contains(activeCell)) {
+      fillHandle.hidden = true
+      return
+    }
+
+    const containerBounds = fillHandleContainer.getBoundingClientRect()
+    const cellBounds = activeCell.getBoundingClientRect()
+    fillHandle.style.left = `${cellBounds.right - containerBounds.left}px`
+    fillHandle.style.top = `${cellBounds.bottom - containerBounds.top}px`
+    fillHandle.hidden = false
+  }
+  const setActiveCell = (cell) => {
+    activeCell?.classList.remove('tc-cell--active')
+    activeCell = cell
+    activeCell?.classList.add('tc-cell--active')
+    onActiveCellChange(cell ? tableCellReference(tableElement, cell) : '')
+    positionFillHandle()
+  }
+  const clearFillPreview = () => {
+    for (const cell of previewCells) cell.classList.remove('tc-cell--fill-preview')
+    previewCells = []
+  }
+  const showFillPreview = (targetCell) => {
+    clearFillPreview()
+    previewCells = cellsInTableRange(cellMatrix(tableElement), fillSource, targetCell).filter(
+      (cell) => cell !== fillSource,
+    )
+    for (const cell of previewCells) cell.classList.add('tc-cell--fill-preview')
+  }
+  const stopFillDrag = () => {
+    clearFillPreview()
+    fillHandle?.classList.remove('formula-table-fill-handle--dragging')
+    window.removeEventListener('pointermove', onFillPointerMove)
+    window.removeEventListener('pointerup', onFillPointerUp)
+    window.removeEventListener('pointercancel', onFillPointerCancel)
+  }
+  const onFillPointerMove = (event) => {
+    event.preventDefault()
+    const cell =
+      event.target.closest?.(CELL_SELECTOR) ??
+      document.elementFromPoint(event.clientX, event.clientY)?.closest?.(CELL_SELECTOR)
+    if (!cell || !tableElement.contains(cell)) return
+    fillTarget = cell
+    showFillPreview(cell)
+  }
+  const onFillPointerUp = (event) => {
+    event.preventDefault()
+    const sourceCell = fillSource
+    const targetCell = fillTarget
+    fillSource = null
+    fillTarget = null
+    stopFillDrag()
+    if (!sourceCell || !targetCell || sourceCell === targetCell) return
+
+    isFilling = true
+    const filledCells = fillTableCells(
+      tableElement,
+      sourceCell,
+      targetCell,
+      editingCell === sourceCell ? sourceCell : null,
+    )
+    for (const cell of filledCells) cell.dispatchEvent(new Event('input', { bubbles: true }))
+    isFilling = false
+    targetCell.focus({ preventScroll: true })
+  }
+  const onFillPointerCancel = () => {
+    fillSource = null
+    fillTarget = null
+    stopFillDrag()
+  }
+  const onFillPointerDown = (event) => {
+    if (!activeCell || !fillHandle) return
+    event.preventDefault()
+    event.stopPropagation()
+    fillSource = activeCell
+    fillTarget = activeCell
+    fillHandle.classList.add('formula-table-fill-handle--dragging')
+    window.addEventListener('pointermove', onFillPointerMove)
+    window.addEventListener('pointerup', onFillPointerUp)
+    window.addEventListener('pointercancel', onFillPointerCancel)
+  }
+
   const onFocusIn = (event) => {
     const cell = event.target.closest?.(CELL_SELECTOR)
     if (!cell || !tableElement.contains(cell)) return
-    activeCell = cell
+    setActiveCell(cell)
     editingCell = cell
-    onActiveCellChange(tableCellReference(tableElement, cell))
     if (!cell.dataset.formula) return
     cell.textContent = cell.dataset.formula
     cell.classList.add('tc-cell--formula-editing')
     placeCaretAtEnd(cell)
   }
   const onInput = (event) => {
+    if (isFilling) return
     const cell = event.target.closest?.(CELL_SELECTOR)
     if (!cell || !tableElement.contains(cell)) return
     syncEditedFormula(cell)
@@ -292,9 +491,12 @@ export function enhanceTableFormulas(
     updateFormulaCells(tableElement)
   }
 
+  fillHandle?.addEventListener('pointerdown', onFillPointerDown)
   tableElement.addEventListener('focusin', onFocusIn)
   tableElement.addEventListener('input', onInput)
   tableElement.addEventListener('focusout', onFocusOut)
+  window.addEventListener('resize', positionFillHandle)
+  window.addEventListener('scroll', positionFillHandle, true)
 
   const observer = new MutationObserver((mutations) => {
     const structureChanged = mutations.some(
@@ -306,9 +508,9 @@ export function enhanceTableFormulas(
       updateFormulaCells(tableElement, editingCell)
       if (activeCell && tableElement.contains(activeCell)) {
         onActiveCellChange(tableCellReference(tableElement, activeCell))
+        positionFillHandle()
       } else if (activeCell) {
-        activeCell = null
-        onActiveCellChange('')
+        setActiveCell(null)
       }
     }
   })
@@ -316,9 +518,15 @@ export function enhanceTableFormulas(
 
   return () => {
     observer.disconnect()
+    stopFillDrag()
+    activeCell?.classList.remove('tc-cell--active')
+    fillHandle?.removeEventListener('pointerdown', onFillPointerDown)
+    fillHandle?.remove()
     tableElement.removeEventListener('focusin', onFocusIn)
     tableElement.removeEventListener('input', onInput)
     tableElement.removeEventListener('focusout', onFocusOut)
+    window.removeEventListener('resize', positionFillHandle)
+    window.removeEventListener('scroll', positionFillHandle, true)
   }
 }
 
