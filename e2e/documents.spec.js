@@ -145,42 +145,30 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   ).toHaveCount(0)
 })
 
-test('Stretch expands a table across the document whitespace', async ({ page }) => {
-  await page.goto('/documents/stub-doc-scratchpad')
+// The table block embeds a full Univer sheet, which renders its grid on
+// <canvas> — there is no per-cell DOM node to click or type into. It's driven
+// and asserted through Univer's own facade API instead, exposed on the block
+// element only in e2e mode (see univerSheetTool.js).
+async function waitForSheet(page) {
+  await page.waitForFunction(() => document.querySelector('.univer-sheet-block')?.__univerAPI)
+}
 
-  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
-  await paragraph.click()
-  await paragraph.press('End')
-  await paragraph.press('Enter')
-
-  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
-  await newParagraph.click()
-  await newParagraph.pressSequentially('/')
-  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
-  await expect(insertMenu).toBeVisible()
-  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
-
-  const table = page.locator('.tc-table').first()
-  const tableBlock = table.locator(
-    'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " ce-block ")][1]',
+function readSheetCell(page, ref) {
+  return page.evaluate(
+    (cellRef) =>
+      document
+        .querySelector('.univer-sheet-block')
+        .__univerAPI.getActiveWorkbook()
+        .getActiveSheet()
+        .getRange(cellRef)
+        .getDisplayValue(),
+    ref,
   )
-  const normalWidth = await paragraph.evaluate(
-    (element) => element.closest('.ce-block__content').getBoundingClientRect().width,
-  )
+}
 
-  await table.locator('.tc-cell').first().click()
-  await page.locator('.ce-toolbar__settings-btn').click()
-  const settingsMenu = page.locator('.ce-popover--opened .ce-popover__container')
-  await settingsMenu.locator('.ce-popover-item', { hasText: 'Stretch' }).click()
-
-  await expect(tableBlock).toHaveClass(/ce-block--stretched/)
-  const stretchedWidth = await tableBlock
-    .locator('.ce-block__content')
-    .evaluate((element) => element.getBoundingClientRect().width)
-  expect(stretchedWidth).toBeGreaterThan(normalWidth + 100)
-})
-
-test('Table formulas calculate basic maths and persist the formula', async ({ page }) => {
+test('A table block computes formulas, recalculates on change, and persists across reload', async ({
+  page,
+}) => {
   await page.goto('/documents/stub-doc-scratchpad')
 
   const paragraph = page.locator('.codex-editor .ce-paragraph').first()
@@ -194,132 +182,59 @@ test('Table formulas calculate basic maths and persist the formula', async ({ pa
   const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
   await expect(insertMenu).toBeVisible()
   await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+  await waitForSheet(page)
 
-  const cells = page.locator('.tc-table').first().locator('.tc-cell')
-  await cells.nth(0).fill('10')
-  const currentCell = page.getByLabel('Current table cell')
-  await expect(currentCell).toHaveText('A1')
-  await cells.nth(1).fill('5')
-  await cells.nth(2).fill('=A1+B1')
-  await cells.nth(3).fill('=A1/B1')
-  await page.locator('.document-title').click()
+  await page.evaluate(() => {
+    const sheet = document.querySelector('.univer-sheet-block').__univerAPI.getActiveWorkbook().getActiveSheet()
+    sheet.getRange('A1:B2').setValues([
+      ['10', '5'],
+      ['=A1+B1', '=A1/B1'],
+    ])
+  })
 
-  await expect(cells.nth(2)).toHaveText('15')
-  await expect(cells.nth(3)).toHaveText('2')
-  await expect(page.getByText('Maths: =A1+B1 · =A1-B1 · =A1*B1 · =A1/B1')).toBeVisible()
+  await expect.poll(() => readSheetCell(page, 'A2')).toBe('15')
+  await expect.poll(() => readSheetCell(page, 'B2')).toBe('2')
 
-  await cells.nth(2).click()
-  await expect(currentCell).toHaveText('A2')
-  await expect(cells.nth(2)).toHaveText('=A1+B1')
-  await page.locator('.document-title').click()
-  await expect(cells.nth(2)).toHaveText('15')
-
-  const formulaPatch = page.waitForResponse(
-    (response) =>
-      response.url().includes('resource=documents') &&
-      response.request().method() === 'PATCH' &&
-      (response.request().postData() || '').includes('=A1+B1'),
-  )
-  await cells.nth(0).fill('20')
-  await page.locator('.document-title').click()
-  await expect(cells.nth(2)).toHaveText('25')
-  await expect(cells.nth(3)).toHaveText('4')
+  // Changing an input cell recalculates the cells that reference it. The
+  // formula string itself ("=A1+B1") is present in every save from here on,
+  // so matching on it alone can resolve on an earlier, still-stale save —
+  // wait for the specific PATCH whose saved A1 value is the new one (20).
+  const formulaPatch = page.waitForResponse((response) => {
+    if (!response.url().includes('resource=documents') || response.request().method() !== 'PATCH') return false
+    try {
+      const tableBlock = response.request().postDataJSON()?.blocks?.find((block) => block.type === 'table')
+      const sheets = tableBlock?.data?.workbook?.sheets
+      const sheetId = tableBlock?.data?.workbook?.sheetOrder?.[0]
+      return sheets?.[sheetId]?.cellData?.[0]?.[0]?.v === 20
+    } catch {
+      return false
+    }
+  })
+  await page.evaluate(() => {
+    document
+      .querySelector('.univer-sheet-block')
+      .__univerAPI.getActiveWorkbook()
+      .getActiveSheet()
+      .getRange('A1')
+      .setValues([['20']])
+  })
+  await expect.poll(() => readSheetCell(page, 'A2')).toBe('25')
   await formulaPatch
   await expect(page.locator('.save-status')).toHaveText('All changes saved')
 
+  // The formula itself, not just its last computed value, survives a reload.
   await page.reload()
-  const reloadedCells = page.locator('.tc-table').first().locator('.tc-cell')
-  await expect(reloadedCells.nth(2)).toHaveText('25')
-  await reloadedCells.nth(2).click()
-  await expect(reloadedCells.nth(2)).toHaveText('=A1+B1')
-})
-
-test('Table formulas calculate and persist currency values', async ({ page }) => {
-  await page.goto('/documents/stub-doc-scratchpad')
-
-  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
-  await paragraph.click()
-  await paragraph.press('End')
-  await paragraph.press('Enter')
-  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
-  await newParagraph.click()
-  await newParagraph.pressSequentially('/')
-
-  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
-  await expect(insertMenu).toBeVisible()
-  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
-
-  const cells = page.locator('.tc-table').first().locator('.tc-cell')
-  await cells.nth(0).fill('£10.50')
-  await cells.nth(1).fill('£4.25')
-  await cells.nth(2).fill('=A1+B1')
-  await cells.nth(3).fill('=A1/2')
-  await page.locator('.document-title').click()
-
-  await expect(cells.nth(2)).toHaveText('£14.75')
-  await expect(cells.nth(3)).toHaveText('£5.25')
-
-  const formulaPatch = page.waitForResponse(
-    (response) =>
-      response.url().includes('resource=documents') &&
-      response.request().method() === 'PATCH' &&
-      (response.request().postData() || '').includes('=A1+B1'),
+  await waitForSheet(page)
+  await expect.poll(() => readSheetCell(page, 'A2')).toBe('25')
+  const formula = await page.evaluate(() =>
+    document
+      .querySelector('.univer-sheet-block')
+      .__univerAPI.getActiveWorkbook()
+      .getActiveSheet()
+      .getRange('A2')
+      .getFormula(),
   )
-  await cells.nth(0).fill('£20.00')
-  await page.locator('.document-title').click()
-  await expect(cells.nth(2)).toHaveText('£24.25')
-  await expect(cells.nth(3)).toHaveText('£10.00')
-  await formulaPatch
-  await expect(page.locator('.save-status')).toHaveText('All changes saved')
-
-  await page.reload()
-  const reloadedCells = page.locator('.tc-table').first().locator('.tc-cell')
-  await expect(reloadedCells.nth(2)).toHaveText('£24.25')
-  await reloadedCells.nth(2).click()
-  await expect(reloadedCells.nth(2)).toHaveText('=A1+B1')
-})
-
-test('The table fill handle copies values and adjusts formula references', async ({ page }) => {
-  await page.goto('/documents/stub-doc-scratchpad')
-
-  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
-  await paragraph.click()
-  await paragraph.press('End')
-  await paragraph.press('Enter')
-  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
-  await newParagraph.click()
-  await newParagraph.pressSequentially('/')
-
-  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
-  await expect(insertMenu).toBeVisible()
-  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
-  await page.locator('.tc-add-column').first().click()
-
-  const cells = page.locator('.tc-table').first().locator('.tc-cell')
-  await expect(cells).toHaveCount(6)
-  await cells.nth(0).fill('£10.50')
-  await cells.nth(1).fill('£4.25')
-  await cells.nth(2).fill('=A1+B1')
-  await cells.nth(3).fill('£20.00')
-  await cells.nth(4).fill('£5.00')
-  await page.locator('.document-title').click()
-  await expect(cells.nth(2)).toHaveText('£14.75')
-
-  await cells.nth(2).click()
-  const fillHandle = page.getByRole('button', { name: 'Drag to fill cells' })
-  await expect(fillHandle).toBeVisible()
-  await fillHandle.dragTo(cells.nth(5))
-
-  await expect(cells.nth(5)).toHaveText('=A2+B2')
-  await page.locator('.document-title').click()
-  await expect(cells.nth(5)).toHaveText('£25.00')
-  await expect(page.locator('.save-status')).toHaveText('All changes saved')
-
-  await page.reload()
-  const reloadedCells = page.locator('.tc-table').first().locator('.tc-cell')
-  await expect(reloadedCells.nth(5)).toHaveText('£25.00')
-  await reloadedCells.nth(5).click()
-  await expect(reloadedCells.nth(5)).toHaveText('=A2+B2')
+  expect(formula).toBe('=A1+B1')
 })
 
 test('A settings template can create a pre-filled independent document', async ({ page }) => {

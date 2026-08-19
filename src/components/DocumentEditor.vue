@@ -16,7 +16,7 @@ import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
-import { FormulaTableTool } from '../lib/formulaTableTool'
+import { UniverSheetTool } from '../lib/univerSheetTool'
 
 // "/" menu entry that stamps today's date ("Monday - 4th September") into the
 // document. It is not a real block type: on selection it swaps itself for a
@@ -263,7 +263,7 @@ function mountEditor() {
       // List v2 covers unordered/ordered/checklist styles in one tool — a
       // separate Checklist tool would double-list "Checklist" in the "/" menu.
       list: { class: List, inlineToolbar: true, config: { defaultStyle: 'unordered' } },
-      table: { class: FormulaTableTool, inlineToolbar: true },
+      table: { class: UniverSheetTool, config: { onChange: scheduleBlocksSave } },
       code: { class: CodeTool, config: { placeholder: 'Write code here…' } },
       delimiter: Delimiter,
       date: InsertDateTool,
@@ -585,81 +585,48 @@ function onTitleEnter() {
   font-family: var(--font-mono);
 }
 
-.document-blocks :deep(.tc-cell),
-.document-blocks :deep(.tc-row),
-.document-blocks :deep(.tc-table) {
-  border-color: var(--border-color);
+.document-blocks :deep(.univer-sheet-block) {
+  width: 100%;
+  margin: 12px 0;
 }
 
-.document-blocks :deep(.tc-cell--formula) {
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
+.document-blocks :deep(.univer-sheet-block__canvas),
+.document-blocks :deep(.univer-sheet-block__loading) {
+  width: 100%;
+  height: 340px;
+  min-height: 180px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
 }
 
-.document-blocks :deep(.tc-cell--formula-editing) {
-  color: var(--text-primary);
+.document-blocks :deep(.univer-sheet-block__canvas) {
+  resize: vertical;
 }
 
-.document-blocks :deep(.tc-cell--active) {
-  position: relative;
-  z-index: 1;
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.document-blocks :deep(.tc-cell--fill-preview) {
-  background: var(--bg-hover);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.document-blocks :deep(.formula-table-fill-handle) {
-  position: absolute;
-  z-index: 4;
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 2px solid var(--bg-card);
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-  cursor: crosshair;
-  touch-action: none;
-  transform: translate(-50%, -50%);
-}
-
-.document-blocks :deep(.formula-table-fill-handle--dragging) {
-  transform: translate(-50%, -50%) scale(1.15);
-}
-
-.document-blocks :deep(.formula-table-footer) {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 7px;
+.document-blocks :deep(.univer-sheet-block__loading) {
+  display: grid;
+  place-items: center;
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 13px;
 }
 
-.document-blocks :deep(.formula-table-help) {
-  min-width: 0;
-  overflow-wrap: anywhere;
+.document-blocks :deep(.univer-sheet-block__loading.error) {
+  color: var(--danger, #e5484d);
 }
 
-.document-blocks :deep(.formula-table-cell-reference) {
-  flex: none;
-  min-width: 24px;
-  padding: 1px 5px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: var(--bg-hover);
-  color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-  line-height: inherit;
-  text-align: center;
+.document-editor.compact .document-blocks :deep(.univer-sheet-block__canvas),
+.document-editor.compact .document-blocks :deep(.univer-sheet-block__loading) {
+  height: 260px;
+}
+
+@media (max-width: 760px) {
+  .document-blocks :deep(.univer-sheet-block) {
+    width: calc(100% + 48px);
+    margin-left: -24px;
+  }
 }
 
 .document-blocks :deep(.excalidraw-block) {

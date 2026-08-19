@@ -42,6 +42,28 @@ describe('flattenBlocksToText', () => {
     expect(flattenBlocksToText('', blocks)).toBe('Name\nRole\nAda\nEngineer')
   })
 
+  it('flattens a Univer workbook snapshot in reading order', () => {
+    const blocks = [
+      {
+        type: 'table',
+        data: {
+          workbook: {
+            sheetOrder: ['sheet1'],
+            sheets: {
+              sheet1: {
+                cellData: {
+                  0: { 0: { v: 'Name' }, 1: { v: 'Role' } },
+                  1: { 0: { v: 'Ada' }, 1: { v: 'Engineer' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    ]
+    expect(flattenBlocksToText('', blocks)).toBe('Name\nRole\nAda\nEngineer')
+  })
+
   it('includes code block contents and image captions', () => {
     const blocks = [
       { type: 'code', data: { code: 'const x = 1' } },

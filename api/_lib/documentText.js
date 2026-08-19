@@ -5,6 +5,8 @@
 // documents.js. Keeping the block-walking logic here, once, means neither the
 // SQL generated column nor the embedding call has to re-implement it.
 
+import { flattenWorkbookCellText } from '../../src/lib/univerTableData.js'
+
 // Editor.js paragraph/header/list-item text is HTML (inline bold/italic/link
 // markup from the toolbar) — strip tags so formatting can't leak into search
 // text. Local copy of dailyEventSync.js's identical helper: entangling two
@@ -48,9 +50,17 @@ export function flattenBlocksToText(title, blocks) {
       case 'list':
         listItemLines(block.data?.items, lines)
         break
+      // Current table blocks store a full Univer workbook snapshot; older
+      // ones (not yet migrated — see scripts/migrate-table-blocks-to-univer.js)
+      // still carry the pre-Univer content grid. Both are read here so
+      // search stays correct regardless of migration status.
       case 'table':
-        for (const row of block.data?.content ?? []) {
-          for (const cell of row ?? []) pushIf(lines, plainText(cell))
+        if (block.data?.workbook) {
+          for (const text of flattenWorkbookCellText(block.data.workbook)) pushIf(lines, text)
+        } else {
+          for (const row of block.data?.content ?? []) {
+            for (const cell of row ?? []) pushIf(lines, plainText(cell))
+          }
         }
         break
       case 'code':
