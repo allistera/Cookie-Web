@@ -197,6 +197,8 @@ test('Table formulas calculate basic maths and persist the formula', async ({ pa
 
   const cells = page.locator('.tc-table').first().locator('.tc-cell')
   await cells.nth(0).fill('10')
+  const currentCell = page.getByLabel('Current table cell')
+  await expect(currentCell).toHaveText('A1')
   await cells.nth(1).fill('5')
   await cells.nth(2).fill('=A1+B1')
   await cells.nth(3).fill('=A1/B1')
@@ -207,6 +209,7 @@ test('Table formulas calculate basic maths and persist the formula', async ({ pa
   await expect(page.getByText('Maths: =A1+B1 · =A1-B1 · =A1*B1 · =A1/B1')).toBeVisible()
 
   await cells.nth(2).click()
+  await expect(currentCell).toHaveText('A2')
   await expect(cells.nth(2)).toHaveText('=A1+B1')
   await page.locator('.document-title').click()
   await expect(cells.nth(2)).toHaveText('15')
