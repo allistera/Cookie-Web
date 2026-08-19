@@ -180,6 +180,57 @@ test('Stretch expands a table across the document whitespace', async ({ page }) 
   expect(stretchedWidth).toBeGreaterThan(normalWidth + 100)
 })
 
+test('Table formulas calculate basic maths and persist the formula', async ({ page }) => {
+  await page.goto('/documents/stub-doc-scratchpad')
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+  await paragraph.click()
+  await paragraph.press('End')
+  await paragraph.press('Enter')
+  const newParagraph = page.locator('.codex-editor .ce-paragraph').last()
+  await newParagraph.click()
+  await newParagraph.pressSequentially('/')
+
+  const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(insertMenu).toBeVisible()
+  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+
+  const cells = page.locator('.tc-table').first().locator('.tc-cell')
+  await cells.nth(0).fill('10')
+  await cells.nth(1).fill('5')
+  await cells.nth(2).fill('=A1+B1')
+  await cells.nth(3).fill('=A1/B1')
+  await page.locator('.document-title').click()
+
+  await expect(cells.nth(2)).toHaveText('15')
+  await expect(cells.nth(3)).toHaveText('2')
+  await expect(page.getByText('Maths: =A1+B1 · =A1-B1 · =A1*B1 · =A1/B1')).toBeVisible()
+
+  await cells.nth(2).click()
+  await expect(cells.nth(2)).toHaveText('=A1+B1')
+  await page.locator('.document-title').click()
+  await expect(cells.nth(2)).toHaveText('15')
+
+  const formulaPatch = page.waitForResponse(
+    (response) =>
+      response.url().includes('resource=documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('=A1+B1'),
+  )
+  await cells.nth(0).fill('20')
+  await page.locator('.document-title').click()
+  await expect(cells.nth(2)).toHaveText('25')
+  await expect(cells.nth(3)).toHaveText('4')
+  await formulaPatch
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+
+  await page.reload()
+  const reloadedCells = page.locator('.tc-table').first().locator('.tc-cell')
+  await expect(reloadedCells.nth(2)).toHaveText('25')
+  await reloadedCells.nth(2).click()
+  await expect(reloadedCells.nth(2)).toHaveText('=A1+B1')
+})
+
 test('A settings template can create a pre-filled independent document', async ({ page }) => {
   await page.goto('/settings/document-templates')
 

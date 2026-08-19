@@ -4,7 +4,6 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EditorJS from '@editorjs/editorjs'
 import Header from '@editorjs/header'
 import List from '@editorjs/list'
-import Table from '@editorjs/table'
 import CodeTool from '@editorjs/code'
 import Delimiter from '@editorjs/delimiter'
 import ImageTool from '@editorjs/image'
@@ -17,6 +16,7 @@ import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
+import { FormulaTableTool } from '../lib/formulaTableTool'
 
 // "/" menu entry that stamps today's date ("Monday - 4th September") into the
 // document. It is not a real block type: on selection it swaps itself for a
@@ -263,7 +263,7 @@ function mountEditor() {
       // List v2 covers unordered/ordered/checklist styles in one tool — a
       // separate Checklist tool would double-list "Checklist" in the "/" menu.
       list: { class: List, inlineToolbar: true, config: { defaultStyle: 'unordered' } },
-      table: { class: Table, inlineToolbar: true },
+      table: { class: FormulaTableTool, inlineToolbar: true },
       code: { class: CodeTool, config: { placeholder: 'Write code here…' } },
       delimiter: Delimiter,
       date: InsertDateTool,
@@ -589,6 +589,24 @@ function onTitleEnter() {
 .document-blocks :deep(.tc-row),
 .document-blocks :deep(.tc-table) {
   border-color: var(--border-color);
+}
+
+.document-blocks :deep(.tc-cell--formula) {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.document-blocks :deep(.tc-cell--formula-editing) {
+  color: var(--text-primary);
+}
+
+.document-blocks :deep(.formula-table-help) {
+  margin-top: 7px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .document-blocks :deep(.excalidraw-block) {
