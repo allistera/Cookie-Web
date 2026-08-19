@@ -184,6 +184,12 @@ test('A table block computes formulas, recalculates on change, and persists acro
   await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
   await waitForSheet(page)
 
+  // A brand-new table freezes its header row by default.
+  const frozenRows = await page.evaluate(() =>
+    document.querySelector('.univer-sheet-block').__univerAPI.getActiveWorkbook().getActiveSheet().getFrozenRows(),
+  )
+  expect(frozenRows).toBe(1)
+
   await page.evaluate(() => {
     const sheet = document.querySelector('.univer-sheet-block').__univerAPI.getActiveWorkbook().getActiveSheet()
     sheet.getRange('A1:B2').setValues([
