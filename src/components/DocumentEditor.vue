@@ -139,9 +139,11 @@ async function uploadFileToBlob(file) {
 
   const formData = new FormData()
   formData.append('image', compressedFile)
+  const headers = await inbox.authHeaders()
 
-  const response = await fetch('/api/upload-image', {
+  const response = await fetch('/api/tasks?resource=image-upload', {
     method: 'POST',
+    headers,
     body: formData,
   })
 

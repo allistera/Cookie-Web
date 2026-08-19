@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { Buffer } from 'node:buffer'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,10 +21,12 @@ function getSql() {
 
 const USER_ID = '99999999-9999-9999-9999-999999999999'
 const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID }))
+const putBlob = vi.fn(async () => ({ url: 'https://blob.example/document-image.png' }))
 
 const handler = createHandler({
   verifyAccessToken,
   getSql,
+  putBlob,
 })
 
 function makeRes() {
@@ -47,9 +50,26 @@ function req(method, body) {
   return { method, url: '/api/tasks', headers: {}, body }
 }
 
+function imageUploadReq({ content = 'image-bytes', type = 'image/png' } = {}) {
+  const boundary = 'cookie-test-boundary'
+  const body = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="document-image.png"\r\nContent-Type: ${type}\r\n\r\n${content}\r\n--${boundary}--\r\n`,
+    'binary',
+  )
+  return {
+    method: 'POST',
+    url: '/api/tasks?resource=image-upload',
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    async *[Symbol.asyncIterator]() {
+      yield body
+    },
+  }
+}
+
 beforeEach(() => {
   sqlQueue = []
   statements = []
+  putBlob.mockClear()
   vi.stubGlobal('fetch', vi.fn())
 })
 
@@ -240,6 +260,44 @@ describe('POST /api/tasks?resource=refresh', () => {
 
     expect(res.statusCode).toBe(401)
     expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/tasks?resource=image-upload', () => {
+  it('stores a document image through the existing tasks function', async () => {
+    const res = makeRes()
+
+    await handler(imageUploadReq(), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ url: 'https://blob.example/document-image.png' })
+    expect(putBlob).toHaveBeenCalledWith('document-image.png', expect.any(Buffer), {
+      access: 'public',
+      contentType: 'image/png',
+    })
+    expect(putBlob.mock.calls[0][1].toString()).toBe('image-bytes')
+  })
+
+  it('rejects unsupported image types without calling Blob storage', async () => {
+    const res = makeRes()
+
+    await handler(imageUploadReq({ type: 'image/svg+xml' }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error).toContain('Invalid file type')
+    expect(putBlob).not.toHaveBeenCalled()
+  })
+
+  it('only accepts POST requests', async () => {
+    const res = makeRes()
+
+    await handler(
+      { method: 'GET', url: '/api/tasks?resource=image-upload', headers: {} },
+      res,
+    )
+
+    expect(res.statusCode).toBe(405)
+    expect(putBlob).not.toHaveBeenCalled()
   })
 })
 
