@@ -1,4 +1,4 @@
-// Shared by the server (api/_lib/dailyEventSync.js, which syncs a match into
+// Shared by the server (Cookie-Worker's cookie-web-tasks/src/dailyEventSync.js, which syncs a match into
 // a real calendar event) and the client (documentScheduleHighlight.js, which
 // just highlights matching text as the user types) so "does this line
 // describe a scheduled time" has exactly one definition. Operates on already

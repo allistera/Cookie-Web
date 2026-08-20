@@ -44,8 +44,10 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   of Inbox mail, and a personalised news round-up. Reply Needed and Review are
   visible priority groups; Noise is summarized by category without archiving or
   deleting anything. The `data-enricher` Worker produces these records and
-  Cookie-Web reads them through `/api/tasks`. Refresh rebuilds triage and news on
-  demand when `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` are set.
+  Cookie-Web's browser SPA reads them directly from the `cookie-web-tasks`
+  Cloudflare Worker (Cookie-Worker repo), not this app's own API. Refresh
+  rebuilds triage and news on demand; the trigger URL/token for that now live
+  in `cookie-web-tasks`'s own Cloudflare config, not Cookie-Web's.
 - Settings → Personalisation edits the topics the news round-up is ranked
   against. Stored server-side in `users.prefs` rather than the browser, since
   the Worker reads them overnight.
@@ -99,17 +101,16 @@ The main runtime variables are:
 | `OPENAI_API_KEY` | Embeddings, mailbox Q&A, and AI Compose. |
 | `OPENAI_COMPOSE_MODEL` | Optional AI Compose model override. |
 | `RESEND_API_KEY` | Outbound email delivery. |
-| `TODOIST_API_TOKEN` | Optional. Lets AI Today close a Todoist task when it is marked done. Without it, "done" only clears the task from Cookie. |
 | `EMAIL_FROM` | Optional sender identity for outbound mail. |
 | `SCHEDULED_SEND_FLUSH_TOKEN` | Bearer secret authorizing `POST /api/send?resource=flush`. Shared with the `scheduled-send-flusher` Cloudflare Worker in Cookie-Worker, which is the only caller. |
-| `ENRICHER_RUN_URL` | Optional. The `data-enricher` Worker's `POST /run` URL. Lets AI Today's refresh rebuild triage and news on demand; without it refresh only re-reads the stored results. |
-| `ENRICHER_TRIGGER_TOKEN` | Optional. Bearer secret sent to `ENRICHER_RUN_URL`; must match that Worker's `HTTP_TRIGGER_TOKEN`. |
 | `PUBLIC_APP_URL` | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted. |
 | `VITE_AUTH0_DOMAIN` | Auth0 tenant domain exposed to the browser. |
 | `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID exposed to the browser. |
 | `VITE_AUTH0_AUDIENCE` | Auth0 API audience exposed to the browser. |
 | `VITE_SUPABASE_URL` | Supabase project URL used for Realtime. |
 | `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings. |
+
+`TODOIST_API_TOKEN`, `ENRICHER_RUN_URL`, and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those three now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
 Vercel stores production values. GitHub Actions stores only the secrets required by migrations and embedding backfills.
 
