@@ -4574,3 +4574,19 @@ button.ni-attachment:hover {
   color: rgba(255, 255, 255, 0.4);
   font-size: 14px;
 }
+
+/* Univer table block — ribbon "⋮" overflow panel (ALL-28)
+
+   The sheet's toolbar collapses whatever doesn't fit into a "⋮" dropdown.
+   Univer sizes that panel with max-width: var(--radix-popper-available-width),
+   which Radix measures against the *viewport*, so inside a 720px document
+   column the panel opened nearly full-window and covered the documents
+   sidebar. Its rows already wrap (flex-wrap), they just never had to.
+
+   This has to live here rather than in DocumentEditor.vue's scoped styles:
+   the dropdown is portaled to <body>, outside .document-blocks. The two-class
+   selector also outranks Univer's own single-class utility, which is injected
+   later than main.css because its stylesheet is imported lazily. */
+[data-slot='popover-content'] > .univer-max-w-\[--radix-popper-available-width\] {
+  max-width: min(560px, var(--radix-popper-available-width));
+}

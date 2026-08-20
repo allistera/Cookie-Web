@@ -165,10 +165,16 @@ export class UniverSheetTool {
           ),
         },
         presets: [
-          // ribbonType: 'simple' keeps the toolbar to one compact row (the
-          // rest — number format, filter, sort, functions by category — live
-          // under its "⋮" overflow) rather than 'classic''s full multi-row
-          // ribbon, which reads as too much chrome inside a document column.
+          // ribbonType: 'collapsed' keeps the toolbar to one compact row —
+          // like 'simple', and unlike 'classic''s full multi-row ribbon,
+          // which reads as too much chrome inside a document column — but
+          // prefixes it with a tab pill (Start/Insert/Formulas/Data) and
+          // shows only the active tab's items. 'simple' instead flattens
+          // *every* tab into that single row, and the document column is
+          // only 720px wide, so all but a dozen items collapsed into the "⋮"
+          // overflow — a panel Univer sizes against the viewport, not the
+          // block, so it spilled across the sidebar (ALL-28). main.css caps
+          // that panel's width for whatever still collapses here.
           // footer (sheet tabs/stats bar/zoom) stays off: one sheet per
           // table block has no use for a sheet switcher, and the formula bar
           // above already covers the active-cell reference.
@@ -176,7 +182,7 @@ export class UniverSheetTool {
             container: canvas,
             header: true,
             toolbar: true,
-            ribbonType: 'simple',
+            ribbonType: 'collapsed',
             footer: false,
             formulaBar: true,
             contextMenu: true,
