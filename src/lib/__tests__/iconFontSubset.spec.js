@@ -53,6 +53,13 @@ describe('Material Symbols subset', () => {
     expect(missing).toEqual([])
   })
 
+  // Google's css2 endpoint 400s on an unsorted icon_names list, and a 400 costs
+  // every icon in the app, not just the new one. An out-of-order insert shipped
+  // once already, so the order is asserted rather than left to review.
+  it('keeps icon_names sorted, as the Google Fonts API requires', () => {
+    expect(MATERIAL_SYMBOL_NAMES).toEqual([...MATERIAL_SYMBOL_NAMES].sort())
+  })
+
   it('loads the stylesheet at most once', () => {
     const applicationStyles = document.createElement('style')
     document.head.append(applicationStyles)
