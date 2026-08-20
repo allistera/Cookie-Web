@@ -511,6 +511,558 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/_lib/calendars.js')
     await handler(req, res)
   }
+  // --- Cloudflare Worker fixtures (e2e only) -------------------------------
+  //
+  // The frontend calls cookie-web-tasks/labels/messages at absolute
+  // cross-origin URLs (src/lib/apiWorkers.js), so no same-origin middleware can
+  // intercept them and e2e mode has no bearer token to offer — every such
+  // request used to reach the real Worker and 401. e2e/workerFixtures.js routes
+  // those three origins back here instead, preserving method, path, query and
+  // body, so the handlers below can answer from the same per-session
+  // fixture state /api/emails and /api/search already share (schedules,
+  // archived, summaries, messageLabels). Keeping one state bucket is the point:
+  // a label added through the messages Worker has to show up in the next
+  // /api/emails list, and a schedule set here has to hide the mail there.
+  //
+  // Paths mirror each Worker's own router (Cookie-Worker/workers/*/src/worker.js)
+  // rather than the old `?resource=` shapes those routers replaced.
+  const readBody = async (req) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    return JSON.parse(raw || '{}')
+  }
+  const json = (res, payload, status = 200) => {
+    res.statusCode = status
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(payload))
+  }
+
+  const ensureStubLabels = async (state) => {
+    if (!state.labels) {
+      const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+      const byName = new Map()
+      for (const email of fixtureEmails()) {
+        for (const label of email.labels || []) byName.set(label.name, label)
+      }
+      state.labels = [...byName.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((label, i) => ({
+          id: `stub-label-${i + 1}`,
+          name: label.name,
+          color: label.color,
+          kind: 'user',
+          description: null,
+          auto_apply: true,
+          message_count: 0,
+        }))
+    }
+    return state.labels
+  }
+
+  // GET/POST/PATCH/DELETE /documents — mirrors the wire shape of
+  // cookie-web-tasks's documents.js (folders + documents lists without blocks;
+  // a single fetch by id carries blocks).
+  const handleWorkerDocuments = async (req, res, state, url) => {
+    if (!state.documents) {
+      const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } = await import(
+        './api/_fixtures/documents.js'
+      )
+      state.docFolders = fixtureDocumentFolders()
+      state.documents = fixtureDocuments()
+      state.docTemplates = fixtureDocumentTemplates()
+    }
+    const stripBlocks = ({ blocks: _blocks, ...doc }) => doc
+    if (req.method === 'GET') {
+      const rawQuery = url.searchParams.get('q')
+      if (rawQuery && rawQuery.trim()) {
+        // A simplified stand-in for the Worker's hybrid (keyword+semantic)
+        // search — full-text substring matching over title+blocks rather than
+        // tsvector/pgvector, the same fidelity level as handleSearch's email
+        // fixture. Good enough for e2e, not a ranking model.
+        const { parseDocumentSearchQuery } = await import('./api/_lib/query-parse.js')
+        const { text, filters } = parseDocumentSearchQuery(rawQuery.trim())
+        const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
+        const documents = state.documents
+          .filter((doc) => {
+            const haystack = `${doc.title} ${JSON.stringify(doc.blocks)}`.toLowerCase()
+            if (!terms.every((term) => haystack.includes(term))) return false
+            if (
+              filters.tag &&
+              !doc.tags?.some((tag) => tag.toLowerCase() === filters.tag.toLowerCase())
+            ) {
+              return false
+            }
+            if (filters.starred && !doc.starred) return false
+            return true
+          })
+          .map(stripBlocks)
+        json(res, { documents })
+        return
+      }
+      const templateId = url.searchParams.get('templateId')
+      if (templateId) {
+        const template = state.docTemplates.find((item) => item.id === templateId)
+        if (!template) return json(res, { error: 'Template not found' }, 404)
+        return json(res, { template })
+      }
+      if (url.searchParams.has('templates')) {
+        return json(res, { templates: state.docTemplates.map(stripBlocks) })
+      }
+      const id = url.searchParams.get('id')
+      if (id) {
+        const document = state.documents.find((doc) => doc.id === id)
+        if (!document) return json(res, { error: 'Document not found' }, 404)
+        return json(res, { document })
+      }
+      return json(res, {
+        folders: state.docFolders,
+        documents: state.documents.map(stripBlocks),
+      })
+    }
+    const body = await readBody(req)
+    const now = () => new Date().toISOString()
+    if (req.method === 'POST') {
+      if (body.kind === 'folder') {
+        const folder = {
+          id: `stub-folder-${randomUUID()}`,
+          parent_id: body.parentId ?? null,
+          title: body.title,
+          emoji: body.emoji || '📁',
+          created_at: now(),
+        }
+        state.docFolders.push(folder)
+        return json(res, { folder }, 201)
+      }
+      if (body.kind === 'template') {
+        const template = {
+          id: `stub-template-${randomUUID()}`,
+          title: body.title,
+          emoji: body.emoji || '📄',
+          blocks: structuredClone(body.blocks || []),
+          created_at: now(),
+          updated_at: now(),
+        }
+        state.docTemplates.unshift(template)
+        return json(res, { template }, 201)
+      }
+      const template = body.templateId
+        ? state.docTemplates.find((item) => item.id === body.templateId)
+        : null
+      if (body.templateId && !template) return json(res, { error: 'Template not found' }, 400)
+      const document = {
+        id: `stub-doc-${randomUUID()}`,
+        folder_id: body.folderId ?? null,
+        title: Object.hasOwn(body, 'title') ? body.title : (template?.title ?? ''),
+        emoji: template?.emoji ?? '🔹',
+        starred: false,
+        tags: [],
+        blocks: structuredClone(template?.blocks ?? []),
+        created_at: now(),
+        updated_at: now(),
+      }
+      state.documents.unshift(document)
+      return json(res, { document }, 201)
+    }
+    if (req.method === 'PATCH') {
+      if (body.kind === 'folder') {
+        const folder = state.docFolders.find((item) => item.id === body.id)
+        if (!folder) return json(res, { error: 'Folder not found' }, 404)
+        folder.title = body.title
+        return json(res, { folder })
+      }
+      if (body.kind === 'template') {
+        const template = state.docTemplates.find((item) => item.id === body.id)
+        if (!template) return json(res, { error: 'Template not found' }, 404)
+        template.title = body.title
+        template.blocks = structuredClone(body.blocks)
+        template.updated_at = now()
+        return json(res, { template })
+      }
+      const document = state.documents.find((item) => item.id === body.id)
+      if (!document) return json(res, { error: 'Document not found' }, 404)
+      if (Object.hasOwn(body, 'title')) document.title = body.title
+      if (Object.hasOwn(body, 'emoji')) document.emoji = body.emoji
+      if (Object.hasOwn(body, 'starred')) document.starred = body.starred
+      if (Object.hasOwn(body, 'folderId')) document.folder_id = body.folderId
+      if (Object.hasOwn(body, 'blocks')) document.blocks = body.blocks
+      if (Object.hasOwn(body, 'tags')) document.tags = [...new Set(body.tags)]
+      document.updated_at = now()
+      return json(res, { document: stripBlocks(document) })
+    }
+    if (req.method === 'DELETE') {
+      if (body.kind === 'folder') {
+        // Mirrors the schema: sub-folders cascade, their documents fall back
+        // to the root.
+        const doomed = new Set([body.id])
+        let grew = true
+        while (grew) {
+          grew = false
+          for (const folder of state.docFolders) {
+            if (folder.parent_id && doomed.has(folder.parent_id) && !doomed.has(folder.id)) {
+              doomed.add(folder.id)
+              grew = true
+            }
+          }
+        }
+        if (!state.docFolders.some((folder) => folder.id === body.id)) {
+          return json(res, { error: 'Folder not found' }, 404)
+        }
+        state.docFolders = state.docFolders.filter((folder) => !doomed.has(folder.id))
+        for (const doc of state.documents) {
+          if (doomed.has(doc.folder_id)) doc.folder_id = null
+        }
+        return json(res, { ok: true })
+      }
+      if (body.kind === 'template') {
+        const before = state.docTemplates.length
+        state.docTemplates = state.docTemplates.filter((template) => template.id !== body.id)
+        if (state.docTemplates.length === before) {
+          return json(res, { error: 'Template not found' }, 404)
+        }
+        return json(res, { ok: true })
+      }
+      const before = state.documents.length
+      state.documents = state.documents.filter((doc) => doc.id !== body.id)
+      if (state.documents.length === before) return json(res, { error: 'Document not found' }, 404)
+      return json(res, { ok: true })
+    }
+    return json(res, { error: 'Method not allowed' }, 405)
+  }
+
+  // Held three hours back so AI Today's staleness line is deterministic.
+  const fixtureTasksPayload = () => {
+    const gatheredAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+    return {
+      tasks: [
+        {
+          id: 'stub-task-1',
+          source: 'todoist',
+          content: 'Renew car insurance',
+          description: 'Policy lapses on Friday — compare two quotes first.',
+          due_date: null,
+          priority: 4,
+          url: 'https://app.todoist.com/app/task/stub-task-1',
+          message_id: null,
+          gathered_at: gatheredAt,
+        },
+        {
+          id: 'stub-task-2',
+          source: 'todoist',
+          content: 'Book dentist appointment',
+          description: 'Six-month check-up for the whole family.',
+          due_date: null,
+          priority: 2,
+          url: 'https://app.todoist.com/app/task/stub-task-2',
+          message_id: null,
+          gathered_at: gatheredAt,
+        },
+        {
+          id: 'stub-email-task-1',
+          source: 'email',
+          content: 'Confirm the revised floor plan',
+          description: 'Follow up with City Construction before the framing crew is booked.',
+          due_date: null,
+          priority: 3,
+          url: null,
+          message_id: 'fixture-1',
+          reply_to: 'updates@cityconstruction.com',
+          message_subject: 'Revised Floor Plan - Natural Light adjustments',
+          gathered_at: gatheredAt,
+        },
+      ],
+      digest: {
+        overview: 'Two messages need action and one is worth reviewing.',
+        created_at: gatheredAt,
+        topics: [
+          {
+            emoji: '↩️',
+            title: 'Reply Needed',
+            items: [
+              {
+                message_id: 'fixture-1',
+                headline: 'Contractor needs the floor-plan choice',
+                note: 'The bay-window option needs a decision. Suggested: confirm the revised plan.',
+                unread: true,
+              },
+              {
+                message_id: 'fixture-3',
+                headline: 'Marketplace buyer is waiting',
+                note: 'The coat bundle sold. Suggested: contact the buyer within three days.',
+                unread: true,
+              },
+            ],
+          },
+          {
+            emoji: '👀',
+            title: 'Review',
+            items: [
+              {
+                message_id: 'fixture-2',
+                headline: 'Insurance claim was processed',
+                note: 'The carrier expects to send the outcome within a week.',
+                unread: false,
+              },
+            ],
+          },
+        ],
+        noise: {
+          count: 4,
+          categories: [
+            { category: 'marketing', count: 3 },
+            { category: 'automated', count: 1 },
+          ],
+        },
+      },
+      news: {
+        created_at: gatheredAt,
+        sections: [
+          {
+            emoji: '💻',
+            title: 'GitHub',
+            items: [
+              {
+                title: 'acme/rocket',
+                url: 'https://github.com/acme/rocket',
+                description: 'A tiny edge runtime.',
+                note: 'Matches your interest in Cloudflare Workers.',
+                meta: 'Rust · ★ 1200',
+              },
+            ],
+          },
+          {
+            emoji: '🚀',
+            title: 'Product Hunt',
+            items: [
+              {
+                title: 'Hearth',
+                url: 'https://www.producthunt.com/posts/hearth',
+                description: 'Self-hosted dashboards without the yak-shaving.',
+                note: 'You follow self-hosting.',
+                meta: '▲ 340',
+              },
+            ],
+          },
+          {
+            emoji: '📰',
+            title: 'UK headlines',
+            items: [
+              {
+                title: 'Rail strike talks resume',
+                url: 'https://www.bbc.co.uk/news/uk-00000001',
+                description: 'Unions and operators return to the table.',
+                note: '',
+                meta: '08:12',
+              },
+            ],
+          },
+        ],
+      },
+    }
+  }
+
+  // cookie-web-tasks: /documents and /tasks[/refresh|interests|daily-note-seed|image-upload]
+  const handleWorkerTasksApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const segments = url.pathname.split('/').filter(Boolean)
+    const state = fixtureMailboxState(req, res)
+    if (segments[0] === 'documents') {
+      await handleWorkerDocuments(req, res, state, url)
+      return
+    }
+    if (segments[0] !== 'tasks') return json(res, { error: 'Not Found' }, 404)
+    const sub = segments[1]
+    if (sub === 'refresh') {
+      // No enricher Worker locally: pretend the digest rebuild succeeded so
+      // the refresh control still exercises its real path.
+      return json(res, { ok: true })
+    }
+    if (sub === 'image-upload') {
+      // Inlined as a data: URL — the real Worker writes to blob storage.
+      return json(res, { url: 'data:image/png;base64,iVBORw0KGgo=' })
+    }
+    if (sub === 'interests') {
+      state.interests ??= ['Cloudflare Workers', 'Vue', 'self-hosting']
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        state.interests = Array.isArray(body.interests) ? body.interests : []
+      }
+      return json(res, { interests: state.interests })
+    }
+    if (sub === 'daily-note-seed') {
+      state.dailyNoteSeed ??= []
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        state.dailyNoteSeed = Array.isArray(body.blocks) ? body.blocks : []
+      }
+      return json(res, { blocks: state.dailyNoteSeed })
+    }
+    if (sub) return json(res, { error: 'Not Found' }, 404)
+    if (req.method === 'POST') {
+      // Completing a task: pretend the Todoist close + row delete succeeded.
+      return json(res, { ok: true, closedInTodoist: true })
+    }
+    return json(res, fixtureTasksPayload())
+  }
+
+  // cookie-web-labels: /labels and /labels/rules
+  const handleWorkerLabelsApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const segments = url.pathname.split('/').filter(Boolean)
+    if (segments[0] !== 'labels') return json(res, { error: 'Not Found' }, 404)
+    const state = fixtureMailboxState(req, res)
+    if (segments[1] === 'rules') {
+      if (req.method === 'GET') return json(res, { rules: state.rules })
+      const body = await readBody(req)
+      if (req.method === 'POST') {
+        const rule = {
+          id: `stub-rule-${randomUUID()}`,
+          name: body.name ?? null,
+          label_id: body.action === 'mark_done' ? null : (body.label_id ?? null),
+          action: body.action || 'apply_label',
+          match_type: body.match_type || 'all',
+          enabled: true,
+          conditions: body.conditions.map((condition, i) => ({ ...condition, position: i })),
+        }
+        state.rules.push(rule)
+        return json(res, { rule }, 201)
+      }
+      const index = state.rules.findIndex((rule) => rule.id === body.id)
+      if (index === -1) return json(res, { error: 'Rule not found' }, 404)
+      if (req.method === 'DELETE') {
+        state.rules.splice(index, 1)
+        return json(res, { ok: true })
+      }
+      if (req.method === 'PATCH') {
+        // body.id repeats the rule's own id, so spreading it changes nothing.
+        const rule = { ...state.rules[index], ...body }
+        // Matches the real handler: mark_done drops any label the rule carried,
+        // and conditions are renumbered whenever they are replaced.
+        if (rule.action === 'mark_done') rule.label_id = null
+        rule.conditions = rule.conditions.map((condition, i) => ({ ...condition, position: i }))
+        state.rules[index] = rule
+        return json(res, { rule })
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
+    if (segments.length > 1) return json(res, { error: 'Not Found' }, 404)
+    const labels = await ensureStubLabels(state)
+    if (req.method === 'POST') {
+      const body = await readBody(req)
+      const label = {
+        id: `stub-label-${Date.now()}`,
+        name: body.name,
+        color: body.color,
+        kind: 'user',
+        description: body.description || null,
+        auto_apply: true,
+        message_count: 0,
+      }
+      labels.push(label)
+      return json(res, { label }, 201)
+    }
+    if (req.method === 'DELETE') {
+      const body = await readBody(req)
+      state.labels = labels.filter((l) => l.id !== body.id)
+      return json(res, { ok: true })
+    }
+    if (req.method === 'PATCH') {
+      const body = await readBody(req)
+      const label = labels.find((item) => item.id === body.id)
+      if (label && Object.hasOwn(body, 'name')) label.name = body.name
+      if (label && Object.hasOwn(body, 'auto_apply')) label.auto_apply = body.auto_apply
+      return json(res, { label })
+    }
+    return json(res, { labels })
+  }
+
+  // cookie-web-messages: /messages[/attachment|thread-body|contacts]
+  const handleWorkerMessagesApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const segments = url.pathname.split('/').filter(Boolean)
+    if (segments[0] !== 'messages') return json(res, { error: 'Not Found' }, 404)
+    const sub = segments[1]
+    if (sub === 'contacts') {
+      const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+      const contacts = new Map()
+      for (const email of fixtureEmails()) {
+        if (email.from_address) {
+          contacts.set(email.from_address, {
+            address: email.from_address,
+            name: email.from_name || null,
+          })
+        }
+      }
+      return json(res, { contacts: [...contacts.values()] })
+    }
+    if (sub === 'attachment') {
+      const id = url.searchParams.get('id')
+      if (id !== 'fixture-1-attachment-1') {
+        return json(res, { error: 'Attachment is not available' }, 404)
+      }
+      return json(res, {
+        url: 'data:application/pdf;base64,JVBERi0xLjQKJSBDb29raWUgZml4dHVyZQo=',
+        filename: 'Revised-Floor-Plan.pdf',
+        contentType: 'application/pdf',
+      })
+    }
+    if (sub === 'thread-body') {
+      const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
+      const id = url.searchParams.get('id')
+      const primary = fixtureMessageBody(id)
+      const earlier = fixtureMessageBody('fixture-1').thread.find((message) => message.id === id)
+      return json(res, { body_text: earlier?.body_text ?? primary.body_text ?? '' })
+    }
+    if (sub) return json(res, { error: 'Not Found' }, 404)
+    if (req.method === 'GET') {
+      const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
+      const id = url.searchParams.get('id')
+      const { summaries } = fixtureMailboxState(req, res)
+      const body = fixtureMessageBody(id)
+      const thread = body.thread.map(({ body_text: _bodyText, ...message }) => message)
+      return json(res, { ...body, thread, summary: summaries.get(id) ?? null })
+    }
+    if (req.method === 'POST') {
+      const body = await readBody(req)
+      if (body.action === 'unsubscribe') {
+        return json(res, { status: 'unsubscribed', method: 'one-click' })
+      }
+      if (body.action === 'add_label' || body.action === 'remove_label') {
+        const state = fixtureMailboxState(req, res)
+        const labels = await ensureStubLabels(state)
+        const label = labels.find((l) => l.id === body.label_id)
+        let current = state.messageLabels.get(body.id)
+        if (!current) {
+          const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+          current = [...(fixtureEmails().find((e) => e.id === body.id)?.labels || [])]
+        }
+        if (label && body.action === 'add_label' && !current.some((l) => l.name === label.name)) {
+          current = [...current, { name: label.name, color: label.color, kind: label.kind }]
+        } else if (label && body.action === 'remove_label') {
+          current = current.filter((l) => l.name !== label.name)
+        }
+        current.sort((a, b) => a.name.localeCompare(b.name))
+        state.messageLabels.set(body.id, current)
+        return json(res, { labels: current })
+      }
+      return json(res, { ok: true })
+    }
+    if (req.method === 'PATCH') {
+      const body = await readBody(req)
+      if (Object.hasOwn(body, 'scheduled_for')) {
+        const { schedules } = fixtureMailboxState(req, res)
+        if (body.scheduled_for === null) schedules.delete(body.id)
+        else schedules.set(body.id, body.scheduled_for)
+      }
+      if (Object.hasOwn(body, 'is_archived')) {
+        const { archived } = fixtureMailboxState(req, res)
+        if (body.is_archived) archived.add(body.id)
+        else archived.delete(body.id)
+      }
+      return json(res, { message: body })
+    }
+    return json(res, { ok: true })
+  }
+
   const mount = (server) => {
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/calendar-events', handleCalendarEvents)
@@ -520,6 +1072,10 @@ function localApiPlugin(mode) {
     server.middlewares.use('/api/ask', handleAsk)
     server.middlewares.use('/api/compose', handleCompose)
     server.middlewares.use('/api/summarize', handleSummarize)
+    // Worker origins, reached via e2e/workerFixtures.js's request routing.
+    server.middlewares.use('/__e2e__/tasks-api', handleWorkerTasksApi)
+    server.middlewares.use('/__e2e__/labels-api', handleWorkerLabelsApi)
+    server.middlewares.use('/__e2e__/messages-api', handleWorkerMessagesApi)
   }
   return {
     name: 'local-api',

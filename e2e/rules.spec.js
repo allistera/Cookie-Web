@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './workerFixtures.js'
 
 // Opens Settings from the profile dropdown and switches to the Rules pane.
 async function openRulesSettings(page) {
@@ -76,7 +76,7 @@ test('A tag rule can be switched to Mark done, disabled, and deleted', async ({ 
   const [saved] = await Promise.all([
     page.waitForResponse(
       (response) =>
-        response.url().includes('resource=rules') && response.request().method() === 'PATCH',
+        response.url().includes('/labels/rules') && response.request().method() === 'PATCH',
     ),
     enabled.uncheck(),
   ])

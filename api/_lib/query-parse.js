@@ -66,3 +66,32 @@ export function parseSearchQuery(raw) {
 
   return { text, prefixQuery: buildPrefixQuery(text), filters }
 }
+
+// Documents accept only the two operators that map to real document columns
+// (tag:, is:starred); everything else stays free text, including a bare "is:"
+// with an unrecognized value. Mirrors Cookie-Worker's cookie-web-tasks
+// queryParse.js — kept in sync by hand, and used here only by vite.config.js's
+// e2e document-search fixture.
+const DOCUMENT_OPERATOR_RE = /(tag|is):("[^"]*"|\S+)/gi
+
+export function parseDocumentSearchQuery(raw) {
+  const filters = {}
+  const text = raw
+    .replace(DOCUMENT_OPERATOR_RE, (match, key, rawValue) => {
+      const value = rawValue.startsWith('"') ? rawValue.slice(1, -1).trim() : rawValue.trim()
+      switch (key.toLowerCase()) {
+        case 'tag':
+          if (value) filters.tag = value
+          break
+        case 'is':
+          if (/^starred$/i.test(value)) filters.starred = true
+          else return match // unknown is: value — leave it as free text
+          break
+      }
+      return ' '
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return { text, prefixQuery: buildPrefixQuery(text), filters }
+}

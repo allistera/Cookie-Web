@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './workerFixtures.js'
 
 test('the service worker keeps the shell and recently read mail available offline', async ({
   browserName,

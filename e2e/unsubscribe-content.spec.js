@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './workerFixtures.js'
 
 import { MESSAGES_API_URL } from '../src/lib/apiWorkers.js'
 

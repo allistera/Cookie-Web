@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from './workerFixtures.js'
 
 import { MESSAGES_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
 
@@ -319,11 +319,16 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
   await expect(news.locator('.news-note').first()).toContainText('Cloudflare Workers')
 })
 
+// These Worker-origin stubs observe one request and let the rest through.
+// The pass-through must be route.fallback(), not route.continue(): continue()
+// puts the request on the network, where the real Worker 401s an
+// unauthenticated e2e run. fallback() hands it to the next matching handler —
+// workerFixtures.js's context route, which serves it from the local fixtures.
 test('Settings Personalisation pane adds and removes news topics', async ({ page }) => {
   const saved = []
   await page.route(`${TASKS_API_URL}/tasks/interests`, async (route) => {
     if (route.request().method() === 'PUT') saved.push(route.request().postDataJSON())
-    await route.continue()
+    await route.fallback()
   })
 
   await page.goto('/')
@@ -354,7 +359,7 @@ test('The AI Today refresh control rebuilds the digest, then re-reads it', async
       return
     }
     if (route.request().method() === 'GET') calls.push('read')
-    await route.continue()
+    await route.fallback()
   })
 
   await page.goto('/')
@@ -376,7 +381,7 @@ test('Marking a triage group read clears its unread dots', async ({ page }) => {
       await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
       return
     }
-    await route.continue()
+    await route.fallback()
   })
 
   await page.goto('/')
@@ -405,7 +410,7 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
       await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
       return
     }
-    await route.continue()
+    await route.fallback()
   })
 
   await page.goto('/')

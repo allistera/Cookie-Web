@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './workerFixtures.js'
 
 test('The app switcher opens Documents: tree, editor with autosave, and starring all work', async ({
   page,
@@ -60,7 +60,7 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   // sidebar's Tags section.
   const tagPatch = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"tags":["meeting"]'),
   )
@@ -85,7 +85,7 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   const dateText = formatInsertedDate()
   const datePatch = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes(dateText),
   )
@@ -118,7 +118,7 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(page.locator('.document-title')).toHaveText('Meeting notes')
   const removeTagPatch = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"tags":[]'),
   )
@@ -206,7 +206,7 @@ test('A table block computes formulas, recalculates on change, and persists acro
   // so matching on it alone can resolve on an earlier, still-stale save —
   // wait for the specific PATCH whose saved A1 value is the new one (20).
   const formulaPatch = page.waitForResponse((response) => {
-    if (!response.url().includes('resource=documents') || response.request().method() !== 'PATCH') return false
+    if (!response.url().includes('/documents') || response.request().method() !== 'PATCH') return false
     try {
       const tableBlock = response.request().postDataJSON()?.blocks?.find((block) => block.type === 'table')
       const sheets = tableBlock?.data?.workbook?.sheets
@@ -254,7 +254,7 @@ test('A settings template can create a pre-filled independent document', async (
 
   const templateResponse = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'POST' &&
       (response.request().postData() || '').includes('"kind":"template"'),
   )
@@ -311,7 +311,7 @@ test('An Excalidraw drawing can be inserted from the document slash menu and per
 
   const inserted = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"type":"excalidraw"'),
   )
@@ -324,7 +324,7 @@ test('An Excalidraw drawing can be inserted from the document slash menu and per
 
   const drawingSaved = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"type":"rectangle"'),
   )
@@ -357,7 +357,7 @@ test('A Kanban board can be inserted from the slash menu, edited, and persists',
 
   const inserted = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"type":"kanban"'),
   )
@@ -387,7 +387,7 @@ test('A Kanban board can be inserted from the slash menu, edited, and persists',
   // A fourth, user-added lane.
   const savedLane = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('Blocked'),
   )
@@ -416,7 +416,7 @@ test('A Kanban board can be inserted from the slash menu, edited, and persists',
   await reloadedTask.hover()
   const taskDeleted = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"lanes"') &&
       !(response.request().postData() || '').includes('Write the proposal'),
@@ -457,7 +457,7 @@ test('A Kanban task card can be dragged into another swimlane and persists', asy
 
   const moved = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=documents') &&
+      response.url().includes('/documents') &&
       response.request().method() === 'PATCH' &&
       (response.request().postData() || '').includes('"lanes"'),
   )
@@ -580,7 +580,7 @@ test('The default content for new daily notes can be customized in Settings > Do
 
   const saveResponse = page.waitForResponse(
     (response) =>
-      response.url().includes('resource=daily-note-seed') && response.request().method() === 'PUT',
+      response.url().includes('/tasks/daily-note-seed') && response.request().method() === 'PUT',
   )
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await saveResponse
