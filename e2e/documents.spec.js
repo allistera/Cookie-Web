@@ -455,12 +455,24 @@ test('A Kanban task card can be dragged into another swimlane and persists', asy
   await page.keyboard.type('Review budget')
   await expect(board).toHaveAccessibleName('Kanban board, 3 lanes, 2 tasks')
 
-  const moved = page.waitForResponse(
-    (response) =>
-      response.url().includes('/documents') &&
-      response.request().method() === 'PATCH' &&
-      (response.request().postData() || '').includes('"lanes"'),
-  )
+  // Matching any PATCH carrying "lanes" is not enough — adding the two tasks
+  // above sends those too, so this could resolve on a save that predates the
+  // drag. The reload below would then race the drag's own still-debounced
+  // save and lose it (store.saveState only leaves 'saved' once a request is
+  // actually in flight, so "All changes saved" cannot rule that out either).
+  // Wait for the save that carries the moved board itself.
+  const moved = page.waitForResponse((response) => {
+    if (!response.url().includes('/documents')) return false
+    if (response.request().method() !== 'PATCH') return false
+    let lanes
+    try {
+      const blocks = JSON.parse(response.request().postData() || '{}').blocks
+      lanes = blocks?.find((block) => block.type === 'kanban')?.data?.lanes
+    } catch {
+      return false
+    }
+    return lanes?.[0]?.tasks?.length === 0 && lanes?.[1]?.tasks?.length === 2
+  })
   const card = lanes.nth(0).locator('.kanban-task', { hasText: 'Write the proposal' })
   await card.dragTo(lanes.nth(1).locator('.kanban-lane__tasks'))
   await moved
