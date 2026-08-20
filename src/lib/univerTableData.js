@@ -59,7 +59,7 @@ export function contentGridToWorkbookData(content) {
   return {
     sheetOrder: [DEFAULT_SHEET_ID],
     name: '',
-    locale: 'enUS',
+    locale: 'enGB',
     styles: {},
     sheets: {
       [DEFAULT_SHEET_ID]: {
