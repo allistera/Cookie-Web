@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
+import { TASKS_API_URL } from '../lib/apiWorkers'
 import {
   formatDailyMonthFolder,
   formatDailyNoteTitle,
@@ -115,7 +116,7 @@ export const useDocumentsStore = defineStore('documents', {
       )
       const options = { method, headers }
       if (body !== undefined) options.body = JSON.stringify(body)
-      const response = await fetch(`/api/tasks?resource=documents${params}`, options)
+      const response = await fetch(`${TASKS_API_URL}/documents${params}`, options)
       if (!response.ok) {
         throw new Error(`${method} /api/tasks?resource=documents responded ${response.status}`)
       }
@@ -148,7 +149,7 @@ export const useDocumentsStore = defineStore('documents', {
       if (!id) return
       this.isOpenDocLoading = true
       try {
-        const { document } = await this.request('GET', { params: `&id=${encodeURIComponent(id)}` })
+        const { document } = await this.request('GET', { params: `?id=${encodeURIComponent(id)}` })
         // Ignore a fetch that resolves after the user has moved on.
         if (this.openDocId === id) this.openDoc = document
       } catch (error) {
@@ -180,7 +181,7 @@ export const useDocumentsStore = defineStore('documents', {
       if ((this.templatesLoaded && !force) || this.templatesLoading) return
       this.templatesLoading = true
       try {
-        const { templates } = await this.request('GET', { params: '&templates' })
+        const { templates } = await this.request('GET', { params: '?templates' })
         this.templates = templates ?? []
         this.templatesLoaded = true
       } catch (error) {
@@ -194,7 +195,7 @@ export const useDocumentsStore = defineStore('documents', {
     async loadTemplate(id) {
       try {
         const { template } = await this.request('GET', {
-          params: `&templateId=${encodeURIComponent(id)}`,
+          params: `?templateId=${encodeURIComponent(id)}`,
         })
         return template
       } catch (error) {
@@ -258,7 +259,7 @@ export const useDocumentsStore = defineStore('documents', {
       this.dailyNoteSeedLoading = true
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/tasks?resource=daily-note-seed', { headers })
+        const response = await fetch(`${TASKS_API_URL}/tasks/daily-note-seed`, { headers })
         if (!response.ok) {
           throw new Error(`GET daily-note-seed responded ${response.status}`)
         }
@@ -275,7 +276,7 @@ export const useDocumentsStore = defineStore('documents', {
     async saveDailyNoteSeed(blocks) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/tasks?resource=daily-note-seed', {
+        const response = await fetch(`${TASKS_API_URL}/tasks/daily-note-seed`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ blocks }),
@@ -505,7 +506,7 @@ export const useDocumentsStore = defineStore('documents', {
         const headers = await this.authHeaders()
         const mode = semantic ? '' : '&mode=keyword'
         const response = await fetch(
-          `/api/tasks?resource=documents&q=${encodeURIComponent(q)}${mode}`,
+          `${TASKS_API_URL}/documents?q=${encodeURIComponent(q)}${mode}`,
           { headers, signal: controller.signal },
         )
         if (!response.ok) {

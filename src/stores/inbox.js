@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
+import { LABELS_API_URL, MESSAGES_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import { recipientsValid } from '../lib/recipients'
 import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
@@ -697,7 +698,7 @@ export const useInboxStore = defineStore('inbox', {
     async loadLabels() {
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/labels', { headers })
+        const response = await fetch(`${LABELS_API_URL}/labels`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/labels responded ${response.status}`)
         }
@@ -720,7 +721,7 @@ export const useInboxStore = defineStore('inbox', {
       const action = applied ? 'remove_label' : 'add_label'
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/messages', {
+        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ id: email.id, action, label_id: label.id }),
@@ -738,7 +739,7 @@ export const useInboxStore = defineStore('inbox', {
     async createLabel({ name, color, description }) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels', {
+        const response = await fetch(`${LABELS_API_URL}/labels`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ name, color, description }),
@@ -764,7 +765,7 @@ export const useInboxStore = defineStore('inbox', {
     async deleteLabel(id) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels', {
+        const response = await fetch(`${LABELS_API_URL}/labels`, {
           method: 'DELETE',
           headers,
           body: JSON.stringify({ id }),
@@ -787,7 +788,7 @@ export const useInboxStore = defineStore('inbox', {
       const previousName = label.name
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels', {
+        const response = await fetch(`${LABELS_API_URL}/labels`, {
           method: 'PATCH',
           headers,
           body: JSON.stringify({ id: label.id, name: nextName }),
@@ -830,7 +831,7 @@ export const useInboxStore = defineStore('inbox', {
       label.auto_apply = autoApply
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels', {
+        const response = await fetch(`${LABELS_API_URL}/labels`, {
           method: 'PATCH',
           headers,
           body: JSON.stringify({ id: label.id, auto_apply: autoApply }),
@@ -846,7 +847,7 @@ export const useInboxStore = defineStore('inbox', {
     async loadRules() {
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/labels?resource=rules', { headers })
+        const response = await fetch(`${LABELS_API_URL}/labels/rules`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/labels?resource=rules responded ${response.status}`)
         }
@@ -863,7 +864,7 @@ export const useInboxStore = defineStore('inbox', {
     async createRule(newRule) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels?resource=rules', {
+        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
           method: 'POST',
           headers,
           body: JSON.stringify(newRule),
@@ -888,7 +889,7 @@ export const useInboxStore = defineStore('inbox', {
       Object.assign(rule, changes)
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels?resource=rules', {
+        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
           method: 'PATCH',
           headers,
           body: JSON.stringify({ id: rule.id, ...changes }),
@@ -908,7 +909,7 @@ export const useInboxStore = defineStore('inbox', {
     async deleteRule(id) {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/labels?resource=rules', {
+        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
           method: 'DELETE',
           headers,
           body: JSON.stringify({ id }),
@@ -986,7 +987,7 @@ export const useInboxStore = defineStore('inbox', {
 
     async updateMessage(id, changes) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch('/api/messages', {
+      const response = await fetch(`${MESSAGES_API_URL}/messages`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ id, ...changes }),
@@ -1034,7 +1035,7 @@ export const useInboxStore = defineStore('inbox', {
       const startedAt = Date.now()
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`/api/messages?id=${encodeURIComponent(id)}`, { headers })
+        const response = await fetch(`${MESSAGES_API_URL}/messages?id=${encodeURIComponent(id)}`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
@@ -1073,7 +1074,7 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders()
         const response = await fetch(
-          `/api/messages?resource=thread-body&id=${encodeURIComponent(message.id)}`,
+          `${MESSAGES_API_URL}/messages/thread-body?id=${encodeURIComponent(message.id)}`,
           { headers },
         )
         if (!response.ok) throw new Error(`GET thread body responded ${response.status}`)
@@ -1092,7 +1093,7 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders()
         const response = await fetch(
-          `/api/messages?resource=attachment&id=${encodeURIComponent(attachment.id)}`,
+          `${MESSAGES_API_URL}/messages/attachment?id=${encodeURIComponent(attachment.id)}`,
           { headers },
         )
         if (!response.ok) {
@@ -1160,7 +1161,7 @@ export const useInboxStore = defineStore('inbox', {
       this.unsubscribingId = email.id
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/messages', {
+        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ id: email.id, action: 'unsubscribe' }),
@@ -1489,7 +1490,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.contactsLoaded) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/messages?resource=contacts', { headers })
+        const response = await fetch(`${MESSAGES_API_URL}/messages/contacts`, { headers })
         if (!response.ok) throw new Error(`GET contacts responded ${response.status}`)
         const { contacts } = await response.json()
         this.contacts = contacts
@@ -1506,7 +1507,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.tasksLoaded && !force) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/tasks', { headers })
+        const response = await fetch(`${TASKS_API_URL}/tasks`, { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
         const { tasks, digest, news } = await response.json()
         this.tasks = tasks
@@ -1525,7 +1526,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.interestsLoaded) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/tasks?resource=interests', { headers })
+        const response = await fetch(`${TASKS_API_URL}/tasks/interests`, { headers })
         if (!response.ok) throw new Error(`GET interests responded ${response.status}`)
         const { interests } = await response.json()
         this.interests = interests
@@ -1540,7 +1541,7 @@ export const useInboxStore = defineStore('inbox', {
     // in-memory copy matches what the enricher will actually read.
     async saveInterests(interests) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch('/api/tasks?resource=interests', {
+      const response = await fetch(`${TASKS_API_URL}/tasks/interests`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ interests }),
@@ -1560,7 +1561,7 @@ export const useInboxStore = defineStore('inbox', {
     // Throws on a real failure.
     async rebuildDigest() {
       const headers = await this.authHeaders()
-      const response = await fetch('/api/tasks?resource=refresh', { method: 'POST', headers })
+      const response = await fetch(`${TASKS_API_URL}/tasks/refresh`, { method: 'POST', headers })
       if (response.status === 501) return false
       if (!response.ok) {
         throw new Error(`POST /api/tasks?resource=refresh responded ${response.status}`)
@@ -1599,7 +1600,7 @@ export const useInboxStore = defineStore('inbox', {
     // optimistic UI; on success the task is dropped from the local list.
     async completeTask(id) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch('/api/tasks', {
+      const response = await fetch(`${TASKS_API_URL}/tasks`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ id, action: 'complete' }),
@@ -1618,7 +1619,7 @@ export const useInboxStore = defineStore('inbox', {
     // is the caller's call, since a reschedule to later today keeps it there.
     async rescheduleTask(id, dueDate) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch('/api/tasks', {
+      const response = await fetch(`${TASKS_API_URL}/tasks`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ id, action: 'reschedule', due_date: dueDate }),
