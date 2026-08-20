@@ -10,24 +10,49 @@ const TOOLBOX_ICON = `
   </svg>`
 
 // Every preset here is loaded together and lazily (see mountUniver): core
-// (grid, rendering, formulas), plus the feature set that makes this a real
-// spreadsheet rather than a static grid — sort, filter, conditional
-// formatting, data validation, find & replace, and hyperlinks. Real-time
-// collaboration (thread comments) and drawing/images are left out: both need
-// backend integration this block doesn't have yet, not just a client preset.
+// (grid, rendering, formulas, number formatting), plus the feature set that
+// makes this a real spreadsheet rather than a static grid — sort, filter,
+// conditional formatting, data validation, find & replace, and hyperlinks.
+// Real-time collaboration (thread comments) and drawing/images are left out:
+// both need backend integration this block doesn't have yet, not just a
+// client preset. Each preset also ships its own locale strings, which all
+// have to be merged in (mountUniver) — without a preset's locale, its menu
+// items render as raw i18n keys (e.g. "sheets-sort-ui.general.sort") instead
+// of "Sort".
 async function loadUniver() {
-  const [presets, core, coreLocaleEn, sort, filter, conditionalFormatting, dataValidation, findReplace, hyperLink] =
-    await Promise.all([
-      import('@univerjs/presets'),
-      import('@univerjs/preset-sheets-core'),
-      import('@univerjs/preset-sheets-core/locales/en-US'),
-      import('@univerjs/preset-sheets-sort'),
-      import('@univerjs/preset-sheets-filter'),
-      import('@univerjs/preset-sheets-conditional-formatting'),
-      import('@univerjs/preset-sheets-data-validation'),
-      import('@univerjs/preset-sheets-find-replace'),
-      import('@univerjs/preset-sheets-hyper-link'),
-    ])
+  const [
+    presets,
+    core,
+    coreLocaleEn,
+    sort,
+    sortLocaleEn,
+    filter,
+    filterLocaleEn,
+    conditionalFormatting,
+    conditionalFormattingLocaleEn,
+    dataValidation,
+    dataValidationLocaleEn,
+    findReplace,
+    findReplaceLocaleEn,
+    hyperLink,
+    hyperLinkLocaleEn,
+  ] = await Promise.all([
+    import('@univerjs/presets'),
+    import('@univerjs/preset-sheets-core'),
+    import('@univerjs/preset-sheets-core/locales/en-US'),
+    import('@univerjs/preset-sheets-sort'),
+    import('@univerjs/preset-sheets-sort/locales/en-US'),
+    import('@univerjs/preset-sheets-filter'),
+    import('@univerjs/preset-sheets-filter/locales/en-US'),
+    import('@univerjs/preset-sheets-conditional-formatting'),
+    import('@univerjs/preset-sheets-conditional-formatting/locales/en-US'),
+    import('@univerjs/preset-sheets-data-validation'),
+    import('@univerjs/preset-sheets-data-validation/locales/en-US'),
+    import('@univerjs/preset-sheets-find-replace'),
+    import('@univerjs/preset-sheets-find-replace/locales/en-US'),
+    import('@univerjs/preset-sheets-hyper-link'),
+    import('@univerjs/preset-sheets-hyper-link/locales/en-US'),
+  ])
   await Promise.all([
     import('@univerjs/preset-sheets-core/lib/index.css'),
     import('@univerjs/preset-sheets-sort/lib/index.css'),
@@ -37,7 +62,23 @@ async function loadUniver() {
     import('@univerjs/preset-sheets-find-replace/lib/index.css'),
     import('@univerjs/preset-sheets-hyper-link/lib/index.css'),
   ])
-  return { presets, core, coreLocaleEn, sort, filter, conditionalFormatting, dataValidation, findReplace, hyperLink }
+  return {
+    presets,
+    core,
+    coreLocaleEn,
+    sort,
+    sortLocaleEn,
+    filter,
+    filterLocaleEn,
+    conditionalFormatting,
+    conditionalFormattingLocaleEn,
+    dataValidation,
+    dataValidationLocaleEn,
+    findReplace,
+    findReplaceLocaleEn,
+    hyperLink,
+    hyperLinkLocaleEn,
+  }
 }
 
 export class UniverSheetTool {
@@ -81,8 +122,23 @@ export class UniverSheetTool {
 
   async mountUniver(loading) {
     try {
-      const { presets, core, coreLocaleEn, sort, filter, conditionalFormatting, dataValidation, findReplace, hyperLink } =
-        await loadUniver()
+      const {
+        presets,
+        core,
+        coreLocaleEn,
+        sort,
+        sortLocaleEn,
+        filter,
+        filterLocaleEn,
+        conditionalFormatting,
+        conditionalFormattingLocaleEn,
+        dataValidation,
+        dataValidationLocaleEn,
+        findReplace,
+        findReplaceLocaleEn,
+        hyperLink,
+        hyperLinkLocaleEn,
+      } = await loadUniver()
       if (!this.wrapper?.isConnected) return
 
       const { createUniver, defaultTheme, LocaleType, mergeLocales } = presets
@@ -92,22 +148,38 @@ export class UniverSheetTool {
       loading.replaceWith(canvas)
 
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
-      const fontStack = getComputedStyle(document.documentElement).getPropertyValue('--font-stack').trim()
 
       const { univer, univerAPI } = createUniver({
         theme: buildUniverTheme(defaultTheme),
         darkMode: isDark,
         locale: LocaleType.EN_US,
-        locales: { [LocaleType.EN_US]: mergeLocales(coreLocaleEn.default) },
+        locales: {
+          [LocaleType.EN_US]: mergeLocales(
+            coreLocaleEn.default,
+            sortLocaleEn.default,
+            filterLocaleEn.default,
+            conditionalFormattingLocaleEn.default,
+            dataValidationLocaleEn.default,
+            findReplaceLocaleEn.default,
+            hyperLinkLocaleEn.default,
+          ),
+        },
         presets: [
+          // ribbonType: 'simple' keeps the toolbar to one compact row (the
+          // rest — number format, filter, sort, functions by category — live
+          // under its "⋮" overflow) rather than 'classic''s full multi-row
+          // ribbon, which reads as too much chrome inside a document column.
+          // footer (sheet tabs/stats bar/zoom) stays off: one sheet per
+          // table block has no use for a sheet switcher, and the formula bar
+          // above already covers the active-cell reference.
           core.UniverSheetsCorePreset({
             container: canvas,
             header: true,
-            toolbar: false,
+            toolbar: true,
+            ribbonType: 'simple',
             footer: false,
             formulaBar: true,
             contextMenu: true,
-            customFontFamily: fontStack || undefined,
           }),
           sort.UniverSheetsSortPreset(),
           filter.UniverSheetsFilterPreset(),
@@ -121,8 +193,14 @@ export class UniverSheetTool {
       this.univer = univer
       this.univerAPI = univerAPI
 
+      // A brand-new insert (no prior workbook snapshot or legacy content) has
+      // nowhere to put column titles but row 1 — freeze it by default so it
+      // stays in view once the table grows. Existing tables keep whatever
+      // freeze state they already have; this never overrides it.
+      const isBlankInsert = !this.data?.workbook && !this.data?.content
       const workbookData = this.data?.workbook ?? contentGridToWorkbookData(this.data?.content)
       univerAPI.createWorkbook(workbookData)
+      if (isBlankInsert) univerAPI.getActiveWorkbook()?.getActiveSheet()?.setFrozenRows(1)
       univerAPI.onCommandExecuted(() => this.scheduleDocumentSave())
 
       // Formula recalculation runs asynchronously, off the command that
