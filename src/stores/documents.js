@@ -401,6 +401,15 @@ export const useDocumentsStore = defineStore('documents', {
       return this.updateDocumentMeta(id, { folderId })
     },
 
+    // The editor debounces block serialization before it hands anything to
+    // scheduleContentSave, so between an edit and that handoff the store still
+    // holds the previous save's state. Called on every editor change to close
+    // that window — otherwise the status line claims "All changes saved" while
+    // an edit is still queued upstream.
+    markContentDirty() {
+      this.saveState = 'saving'
+    },
+
     // Content autosave (title + blocks + tags) from the editor. Local state updates
     // immediately — the sidebar shows the new title as it is typed — while
     // the PATCH waits out the debounce.

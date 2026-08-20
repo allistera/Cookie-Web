@@ -196,6 +196,29 @@ describe('documents store', () => {
     expect(store.documents.find((doc) => doc.id === 'd-1').tags).toEqual(['project', 'urgent'])
   })
 
+  it('leaves the saved state as soon as the editor reports an edit', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    const fetchMock = stubFetch({
+      PATCH: (url, body) => ok({ document: { id: body.id, updated_at: 't1' } }),
+    })
+
+    store.scheduleContentSave('d-1', { blocks: [{ type: 'paragraph' }] })
+    await vi.runAllTimersAsync()
+    expect(store.saveState).toBe('saved')
+
+    // The editor debounces serialization, so this lands well before any
+    // payload does. The status must not still read "saved" in that window.
+    store.markContentDirty()
+    expect(store.saveState).toBe('saving')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    store.scheduleContentSave('d-1', { blocks: [{ type: 'paragraph' }, { type: 'header' }] })
+    await vi.runAllTimersAsync()
+    expect(store.saveState).toBe('saved')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('marks the save state on a failed flush', async () => {
     vi.useFakeTimers()
     store.documents = structuredClone(DOCS)

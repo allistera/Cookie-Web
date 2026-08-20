@@ -75,7 +75,7 @@ const props = defineProps({
   // document's line is doing something it isn't.
   isDailyNote: { type: Boolean, default: false },
 })
-const emit = defineEmits(['save'])
+const emit = defineEmits(['save', 'dirty'])
 
 const inbox = useInboxStore()
 const holder = ref(null)
@@ -219,6 +219,12 @@ const blockSaveScheduler = createDocumentSaveScheduler(
 )
 
 function scheduleBlocksSave() {
+  // Announce the edit before the scheduler's own debounce, not after it.
+  // Block saves run through two delays — this serializer's, then the store's
+  // — and the store only leaves 'saved' once it is handed a payload, so
+  // without this the document reads "All changes saved" for the whole
+  // serialize window while an edit is sitting here unsaved.
+  emit('dirty')
   blockSaveScheduler.schedule()
 }
 
