@@ -2,6 +2,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { useInboxStore } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
+import { LABELS_API_URL, MESSAGES_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
 describe('Inbox Store', () => {
   beforeEach(() => {
@@ -511,7 +512,7 @@ describe('Inbox Store', () => {
 
     // Not yet applied → add_label.
     await store.toggleMessageLabel(email, label)
-    expect(fetchMock).toHaveBeenCalledWith('/api/messages', {
+    expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -525,7 +526,7 @@ describe('Inbox Store', () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ labels: [] }) })
     await store.toggleMessageLabel(email, label)
     expect(fetchMock).toHaveBeenLastCalledWith(
-      '/api/messages',
+      `${MESSAGES_API_URL}/messages`,
       expect.objectContaining({
         body: JSON.stringify({ id: 'msg-1', action: 'remove_label', label_id: 'lbl-1' }),
       }),
@@ -599,7 +600,7 @@ describe('Inbox Store', () => {
 
     await store.loadContacts() // already loaded: no second request
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/messages?resource=contacts')
+    expect(fetchMock.mock.calls[0][0]).toBe(`${MESSAGES_API_URL}/messages/contacts`)
   })
 
   it('setSignature persists the signature and openComposer prefills a fresh draft with it', () => {
@@ -637,7 +638,7 @@ describe('Inbox Store', () => {
     store.openComposer()
     expect(store.isComposerActive).toBe(true)
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/messages?resource=contacts', expect.anything()),
+      expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages/contacts`, expect.anything()),
     )
   })
 
@@ -655,7 +656,7 @@ describe('Inbox Store', () => {
 
     await store.loadTasks() // cached: no second request
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks')
+    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_API_URL}/tasks`)
   })
 
   it('completeTask posts the completion and drops the task from the list', async () => {
@@ -670,7 +671,7 @@ describe('Inbox Store', () => {
     await store.completeTask('t1')
 
     const [url, options] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/tasks')
+    expect(url).toBe(`${TASKS_API_URL}/tasks`)
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({ id: 't1', action: 'complete' })
     expect(store.tasks.map((t) => t.id)).toEqual(['t2'])
@@ -695,7 +696,7 @@ describe('Inbox Store', () => {
     await store.rescheduleTask('t1', '2026-08-25')
 
     const [url, options] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/tasks')
+    expect(url).toBe(`${TASKS_API_URL}/tasks`)
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({
       id: 't1',
@@ -1270,7 +1271,7 @@ describe('Inbox Store', () => {
 
     await expect(store.renameLabel(label, '  Money  ')).resolves.toBe(true)
 
-    expect(fetch).toHaveBeenCalledWith('/api/labels', {
+    expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -1301,7 +1302,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadRules()
 
-    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels/rules`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.rules).toEqual([rule])
@@ -1323,7 +1324,7 @@ describe('Inbox Store', () => {
     }
     await expect(store.createRule(payload)).resolves.toEqual(rule)
 
-    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
       body: JSON.stringify(payload),
@@ -1360,7 +1361,7 @@ describe('Inbox Store', () => {
     )
     await expect(store.updateRule(rule, { enabled: false })).resolves.toBe(true)
     expect(rule.enabled).toBe(false)
-    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
       body: JSON.stringify({ id: 'rule-1', enabled: false }),
@@ -1374,7 +1375,7 @@ describe('Inbox Store', () => {
     store.rules = [{ id: 'rule-1' }, { id: 'rule-2' }]
     await store.deleteRule('rule-1')
 
-    expect(fetch).toHaveBeenCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-access-token' },
       body: JSON.stringify({ id: 'rule-1' }),
@@ -1481,7 +1482,7 @@ describe('Inbox Store', () => {
     expect(store.unreadInboxCount).toBe(1)
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
 
-    expect(fetch).toHaveBeenCalledWith('/api/messages', {
+    expect(fetch).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -1555,7 +1556,7 @@ describe('Inbox Store', () => {
     expect(store.unreadInboxCount).toBe(0)
 
     await vi.waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith('/api/messages', {
+      expect(fetch).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1572,7 +1573,7 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails.map((e) => e.id)).toEqual(['abc-123', 'def-456'])
     expect(email.unread).toBe(true)
     expect(store.unreadInboxCount).toBe(1)
-    expect(fetch).toHaveBeenLastCalledWith('/api/messages', {
+    expect(fetch).toHaveBeenLastCalledWith(`${MESSAGES_API_URL}/messages`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -1606,7 +1607,7 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails.map((item) => item.id)).toEqual(['before', 'abc-123', 'after'])
     expect(store.sentEmails).toEqual([email])
     expect(store.unreadInboxCount).toBe(1)
-    expect(fetch).toHaveBeenLastCalledWith('/api/messages', {
+    expect(fetch).toHaveBeenLastCalledWith(`${MESSAGES_API_URL}/messages`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -1696,7 +1697,7 @@ describe('Inbox Store', () => {
     store.openEmailId = '11111111-1111-1111-1111-111111111111'
     expect(store.openEmailSummary).toBe('The saved project update.')
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/messages?id=11111111-1111-1111-1111-111111111111',
+      `${MESSAGES_API_URL}/messages?id=11111111-1111-1111-1111-111111111111`,
       { headers: { Authorization: 'Bearer test-access-token' } },
     )
 
@@ -1789,7 +1790,7 @@ describe('Inbox Store', () => {
 
     expect(message.body_text).toBe('Earlier complete body')
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenCalledWith('/api/messages?resource=thread-body&id=msg-1', {
+    expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages/thread-body?id=msg-1`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
   })
@@ -1872,7 +1873,7 @@ describe('Inbox Store', () => {
       store.downloadAttachment({ id: 'att-1', filename: 'plan.pdf', downloadable: true }),
     ).resolves.toBe(true)
 
-    expect(fetch).toHaveBeenCalledWith('/api/messages?resource=attachment&id=att-1', {
+    expect(fetch).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages/attachment?id=att-1`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(click).toHaveBeenCalledOnce()
@@ -2090,7 +2091,7 @@ describe('Inbox Store', () => {
 
     store.openReader(email)
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/messages?id=msg-9', {
+      expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages?id=msg-9`, {
         headers: { Authorization: 'Bearer test-access-token' },
       }),
     )
@@ -2115,7 +2116,7 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails).toEqual([])
     expect(store.unreadInboxCount).toBe(0)
     expect(store.openEmailId).toBe(null)
-    expect(fetchMock).toHaveBeenCalledWith('/api/messages', {
+    expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -2131,7 +2132,7 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails).toEqual([email])
     expect(store.unreadInboxCount).toBe(1)
     expect(email.scheduledFor).toBe(null)
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/messages', {
+    expect(fetchMock).toHaveBeenLastCalledWith(`${MESSAGES_API_URL}/messages`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -2167,7 +2168,7 @@ describe('Inbox Store', () => {
       await expect(store.rebuildDigest()).resolves.toBe(true)
 
       const [url, init] = fetchMock.mock.calls[0]
-      expect(url).toBe('/api/tasks?resource=refresh')
+      expect(url).toBe(`${TASKS_API_URL}/tasks/refresh`)
       expect(init.method).toBe('POST')
     })
 

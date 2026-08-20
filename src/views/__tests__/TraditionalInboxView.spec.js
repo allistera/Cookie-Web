@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { MESSAGES_API_URL } from '../../lib/apiWorkers'
 import { scheduleChoices } from '../../utils/schedule'
 import { setAuth0Client } from '../../auth0-client'
 
@@ -1160,9 +1161,9 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     expect(store.openEmailId).toBe(null)
 
     const [url, options] = fetchMock.mock.calls.find(
-      ([requestUrl, options]) => requestUrl === '/api/messages' && options.method === 'POST',
+      ([requestUrl, options]) => requestUrl === `${MESSAGES_API_URL}/messages` && options.method === 'POST',
     )
-    expect(url).toBe('/api/messages')
+    expect(url).toBe(`${MESSAGES_API_URL}/messages`)
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({ id: 'news-1', action: 'unsubscribe' })
 

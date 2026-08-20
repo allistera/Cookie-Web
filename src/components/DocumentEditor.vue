@@ -10,6 +10,7 @@ import ImageTool from '@editorjs/image'
 import DragDrop from 'editorjs-drag-drop'
 
 import { useInboxStore } from '../stores/inbox'
+import { TASKS_API_URL } from '../lib/apiWorkers'
 import { formatInsertedDate } from '../lib/documentDates'
 import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
@@ -141,7 +142,7 @@ async function uploadFileToBlob(file) {
   formData.append('image', compressedFile)
   const headers = await inbox.authHeaders()
 
-  const response = await fetch('/api/tasks?resource=image-upload', {
+  const response = await fetch(`${TASKS_API_URL}/tasks/image-upload`, {
     method: 'POST',
     headers,
     body: formData,

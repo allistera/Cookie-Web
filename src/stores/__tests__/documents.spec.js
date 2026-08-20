@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useDocumentsStore } from '../documents'
 import { useInboxStore } from '../../stores/inbox'
+import { TASKS_API_URL } from '../../lib/apiWorkers'
 
 const FOLDERS = [{ id: 'f-1', parent_id: null, title: 'Projects', emoji: '📁' }]
 const DOCS = [
@@ -257,7 +258,7 @@ describe('documents store', () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const fetchMock = stubFetch({
       GET: (url) =>
-        url.includes('resource=daily-note-seed')
+        url.includes('/tasks/daily-note-seed')
           ? ok({ blocks: [] })
           : ok({ folders: [], documents: [] }),
       POST: (url, body) =>
@@ -327,7 +328,7 @@ describe('documents store', () => {
     const customSeed = [{ type: 'paragraph', data: { text: 'Standup notes' } }]
     const fetchMock = stubFetch({
       GET: (url) =>
-        url.includes('resource=daily-note-seed')
+        url.includes('/tasks/daily-note-seed')
           ? ok({ blocks: customSeed })
           : ok({
               folders: [
@@ -351,7 +352,7 @@ describe('documents store', () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const fetchMock = stubFetch({
       GET: (url) =>
-        url.includes('resource=daily-note-seed')
+        url.includes('/tasks/daily-note-seed')
           ? ok({ blocks: [] })
           : ok({
               folders: [
@@ -389,7 +390,7 @@ describe('documents store', () => {
 
     expect(result).toBe(true)
     expect(store.dailyNoteSeed).toEqual(blocks)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?resource=daily-note-seed')
+    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_API_URL}/tasks/daily-note-seed`)
     expect(fetchMock.mock.calls[0][1].method).toBe('PUT')
   })
 
@@ -415,7 +416,7 @@ describe('documents store', () => {
     expect(store.activeSearchQuery).toBe('scratch')
     expect(store.searchResults).toEqual(results)
     expect(store.documents).toHaveLength(2)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?resource=documents&q=scratch')
+    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_API_URL}/documents?q=scratch`)
   })
 
   it('appends mode=keyword for a non-semantic search', async () => {
@@ -423,7 +424,7 @@ describe('documents store', () => {
 
     await store.searchDocuments('scratch', { semantic: false })
 
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?resource=documents&q=scratch&mode=keyword')
+    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_API_URL}/documents?q=scratch&mode=keyword`)
   })
 
   it('ignores a stale search response superseded by a newer search', async () => {

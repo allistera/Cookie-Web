@@ -8,6 +8,7 @@ import SettingsView from '../SettingsView.vue'
 import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
+import { LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
 // useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
@@ -99,7 +100,7 @@ describe('SettingsView', () => {
       vi.fn().mockImplementation(async (url) => ({
         ok: true,
         json: async () => {
-          if (url === '/api/labels?resource=rules') {
+          if (url === `${LABELS_API_URL}/labels/rules`) {
             return {
               rules: FIXTURE_RULES.map((rule) => ({
                 ...rule,
@@ -107,14 +108,14 @@ describe('SettingsView', () => {
               })),
             }
           }
-          if (String(url).includes('resource=interests')) return { interests: [] }
+          if (String(url).includes('/tasks/interests')) return { interests: [] }
           if (String(url).includes('resource=calendars')) {
             return { calendars: FIXTURE_CALENDARS.map((calendar) => ({ ...calendar })) }
           }
-          if (String(url).includes('resource=documents') && String(url).includes('templates')) {
+          if (String(url).includes(`${TASKS_API_URL}/documents`) && String(url).includes('templates')) {
             return { templates: [] }
           }
-          if (String(url).includes('resource=daily-note-seed')) return { blocks: [] }
+          if (String(url).includes('/tasks/daily-note-seed')) return { blocks: [] }
           return { labels: FIXTURE_LABELS.map((label) => ({ ...label })) }
         },
       })),
@@ -356,7 +357,7 @@ describe('SettingsView', () => {
 
     await wrapper.findAll('.label-auto-tag-switch')[1].setValue(true)
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'l2', auto_apply: true }),
@@ -382,7 +383,7 @@ describe('SettingsView', () => {
     )
     await wrapper.vm.$nextTick()
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'l1', name: 'Money' }),
@@ -415,7 +416,7 @@ describe('SettingsView', () => {
     await vi.waitFor(() => expect(store.labels).toHaveLength(3))
     await wrapper.vm.$nextTick()
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Receipts', color: '#1a73e8', description: '' }),
@@ -432,7 +433,7 @@ describe('SettingsView', () => {
     await wrapper.find('.label-delete-btn').trigger('click')
     await vi.waitFor(() => expect(store.labels).toHaveLength(1))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'l1' }),
@@ -468,7 +469,7 @@ describe('SettingsView', () => {
 
     await vi.waitFor(() => expect(store.rules[0].action).toBe('mark_done'))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -491,7 +492,7 @@ describe('SettingsView', () => {
 
     await wrapper.find('.rule-row input[type="checkbox"]').setValue(false)
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'r1', enabled: false }),
@@ -527,7 +528,7 @@ describe('SettingsView', () => {
 
     await vi.waitFor(() => expect(store.rules).toHaveLength(2))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -568,7 +569,7 @@ describe('SettingsView', () => {
 
     await vi.waitFor(() => expect(store.rules).toHaveLength(2))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -588,7 +589,7 @@ describe('SettingsView', () => {
     await wrapper.find('.rule-row .label-delete-btn').trigger('click')
     await vi.waitFor(() => expect(store.rules).toHaveLength(0))
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/labels?resource=rules', {
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'r1' }),
