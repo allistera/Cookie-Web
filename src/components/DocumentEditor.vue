@@ -18,6 +18,13 @@ import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
+import {
+  convertBlocksToMarkdown,
+  convertBlocksToHTML,
+  downloadPDF,
+  downloadMarkdown,
+  sanitizeFilename,
+} from '../lib/documentExport'
 
 // "/" menu entry that stamps today's date ("Monday - 4th September") into the
 // document. It is not a real block type: on selection it swaps itself for a
@@ -355,6 +362,36 @@ function onTitleEnter() {
     editor?.focus?.()
   }
 }
+
+async function exportToMarkdown() {
+  try {
+    await flushPendingBlocks()
+    const title = titleEl.value?.textContent ?? 'Untitled'
+    const blocks = await readBlocks()
+    const markdown = convertBlocksToMarkdown(blocks, title)
+    const filename = sanitizeFilename(title)
+    downloadMarkdown(markdown, filename)
+    inbox.notify('Document exported to Markdown', 'success')
+  } catch (error) {
+    console.error('Markdown export failed:', error)
+    inbox.notify('Failed to export to Markdown', 'error')
+  }
+}
+
+async function exportToPDF() {
+  try {
+    await flushPendingBlocks()
+    const title = titleEl.value?.textContent ?? 'Untitled'
+    const blocks = await readBlocks()
+    const html = convertBlocksToHTML(blocks, title)
+    const filename = sanitizeFilename(title)
+    await downloadPDF(html, filename)
+    inbox.notify('Document exported to PDF', 'success')
+  } catch (error) {
+    console.error('PDF export failed:', error)
+    inbox.notify('Failed to export to PDF', 'error')
+  }
+}
 </script>
 
 <template>
@@ -394,6 +431,28 @@ function onTitleEnter() {
           <span class="material-symbols-outlined" aria-hidden="true">add</span>
         </button>
       </form>
+    </div>
+    <div v-if="!compact" class="document-actions" aria-label="Document actions">
+      <button
+        type="button"
+        class="export-button"
+        title="Export to Markdown"
+        aria-label="Export to Markdown"
+        @click="exportToMarkdown"
+      >
+        <span class="material-symbols-outlined">description</span>
+        <span>Export MD</span>
+      </button>
+      <button
+        type="button"
+        class="export-button"
+        title="Export to PDF"
+        aria-label="Export to PDF"
+        @click="exportToPDF"
+      >
+        <span class="material-symbols-outlined">picture_as_pdf</span>
+        <span>Export PDF</span>
+      </button>
     </div>
     <div ref="holder" class="document-blocks"></div>
   </div>
@@ -506,6 +565,40 @@ function onTitleEnter() {
 }
 
 .document-tag-form .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.document-actions {
+  max-width: 720px;
+  margin-right: auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  transition: background var(--transition-fast);
+}
+
+.export-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.export-button .material-symbols-outlined {
   font-size: 16px;
 }
 

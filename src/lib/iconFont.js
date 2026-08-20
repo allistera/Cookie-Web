@@ -48,6 +48,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'note_add',
   'notifications',
   'open_in_new',
+  'picture_as_pdf',
   'palette',
   'person',
   'reply',

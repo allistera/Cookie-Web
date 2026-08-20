@@ -11,7 +11,8 @@
     "test:e2e": "playwright test",
     "lint": "oxlint . && eslint . --cache",
     "lint:fix": "oxlint . --fix && eslint . --fix --cache",
-    "format": "oxfmt src/"
+    "format": "oxfmt --ignore-path .gitignore src/ && prettier --write .",
+    "format:check": "oxfmt --check --ignore-path .gitignore src/ && prettier --check ."
   },
   "dependencies": {
     "@auth0/auth0-vue": "^2.8.0",
@@ -35,6 +36,7 @@
     "@vercel/blob": "^2.6.1",
     "dompurify": "^3.4.13",
     "editorjs-drag-drop": "^1.1.16",
+    "html2pdf.js": "^0.10.2",
     "jose": "^6.2.3",
     "node-ical": "^0.27.1",
     "pinia": "^4.0.3",
@@ -42,6 +44,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "resend": "^6.17.2",
+    "turndown": "^7.2.0",
     "vue": "^3.5.40",
     "vue-router": "^5.2.0"
   },
@@ -62,6 +65,7 @@
     "npm-run-all2": "^9.0.2",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
+    "prettier": "3.9.6",
     "vite": "^8.1.5",
     "vite-plugin-vue-devtools": "^8.1.5",
     "vitest": "^4.1.10",

@@ -23,35 +23,35 @@ async function loadUniver() {
   const [
     presets,
     core,
-    coreLocaleEn,
+    _coreLocaleEn,
     sort,
-    sortLocaleEn,
+    _sortLocaleEn,
     filter,
-    filterLocaleEn,
+    _filterLocaleEn,
     conditionalFormatting,
-    conditionalFormattingLocaleEn,
+    _conditionalFormattingLocaleEn,
     dataValidation,
-    dataValidationLocaleEn,
+    _dataValidationLocaleEn,
     findReplace,
-    findReplaceLocaleEn,
+    _findReplaceLocaleEn,
     hyperLink,
-    hyperLinkLocaleEn,
+    _hyperLinkLocaleEn,
   ] = await Promise.all([
     import('@univerjs/presets'),
     import('@univerjs/preset-sheets-core'),
-    import('@univerjs/preset-sheets-core/locales/en-GB'),
+    import('@univerjs/preset-sheets-core/locales/en-US'),
     import('@univerjs/preset-sheets-sort'),
-    import('@univerjs/preset-sheets-sort/locales/en-GB'),
+    import('@univerjs/preset-sheets-sort/locales/en-US'),
     import('@univerjs/preset-sheets-filter'),
-    import('@univerjs/preset-sheets-filter/locales/en-GB'),
+    import('@univerjs/preset-sheets-filter/locales/en-US'),
     import('@univerjs/preset-sheets-conditional-formatting'),
-    import('@univerjs/preset-sheets-conditional-formatting/locales/en-GB'),
+    import('@univerjs/preset-sheets-conditional-formatting/locales/en-US'),
     import('@univerjs/preset-sheets-data-validation'),
-    import('@univerjs/preset-sheets-data-validation/locales/en-GB'),
+    import('@univerjs/preset-sheets-data-validation/locales/en-US'),
     import('@univerjs/preset-sheets-find-replace'),
-    import('@univerjs/preset-sheets-find-replace/locales/en-GB'),
+    import('@univerjs/preset-sheets-find-replace/locales/en-US'),
     import('@univerjs/preset-sheets-hyper-link'),
-    import('@univerjs/preset-sheets-hyper-link/locales/en-GB'),
+    import('@univerjs/preset-sheets-hyper-link/locales/en-US'),
   ])
   await Promise.all([
     import('@univerjs/preset-sheets-core/lib/index.css'),
@@ -65,19 +65,19 @@ async function loadUniver() {
   return {
     presets,
     core,
-    coreLocaleGb,
+    _coreLocaleEn,
     sort,
-    sortLocaleGb,
+    _sortLocaleEn,
     filter,
-    filterLocaleGb,
+    _filterLocaleEn,
     conditionalFormatting,
-    conditionalFormattingLocaleGb,
+    _conditionalFormattingLocaleEn,
     dataValidation,
-    dataValidationLocaleGb,
+    _dataValidationLocaleEn,
     findReplace,
-    findReplaceLocaleGb,
+    _findReplaceLocaleEn,
     hyperLink,
-    hyperLinkLocaleGb,
+    _hyperLinkLocaleEn,
   }
 }
 
@@ -125,19 +125,19 @@ export class UniverSheetTool {
       const {
         presets,
         core,
-        coreLocaleGb,
+        _coreLocaleEn,
         sort,
-        sortLocaleGb,
+        _sortLocaleEn,
         filter,
-        filterLocaleGb,
+        _filterLocaleEn,
         conditionalFormatting,
-        conditionalFormattingLocaleGb,
+        _conditionalFormattingLocaleEn,
         dataValidation,
-        dataValidationLocaleGb,
+        _dataValidationLocaleEn,
         findReplace,
-        findReplaceLocaleGb,
+        _findReplaceLocaleEn,
         hyperLink,
-        hyperLinkLocaleGb,
+        _hyperLinkLocaleEn,
       } = await loadUniver()
       if (!this.wrapper?.isConnected) return
 
@@ -152,16 +152,16 @@ export class UniverSheetTool {
       const { univer, univerAPI } = createUniver({
         theme: buildUniverTheme(defaultTheme),
         darkMode: isDark,
-        locale: LocaleType.EN_GB,
+        locale: LocaleType.EN_US,
         locales: {
-          [LocaleType.EN_GB]: mergeLocales(
-            coreLocaleGb.default,
-            sortLocaleGb.default,
-            filterLocaleGb.default,
-            conditionalFormattingLocaleGb.default,
-            dataValidationLocaleGb.default,
-            findReplaceLocaleGb.default,
-            hyperLinkLocaleGb.default,
+          [LocaleType.EN_US]: mergeLocales(
+            _coreLocaleEn.default,
+            _sortLocaleEn.default,
+            _filterLocaleEn.default,
+            _conditionalFormattingLocaleEn.default,
+            _dataValidationLocaleEn.default,
+            _findReplaceLocaleEn.default,
+            _hyperLinkLocaleEn.default,
           ),
         },
         presets: [
@@ -229,9 +229,14 @@ export class UniverSheetTool {
       ]
 
       this.themeObserver = new MutationObserver(() => {
-        this.univerAPI?.toggleDarkMode(document.documentElement.getAttribute('data-theme') === 'dark')
+        this.univerAPI?.toggleDarkMode(
+          document.documentElement.getAttribute('data-theme') === 'dark',
+        )
       })
-      this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+      this.themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
+      })
 
       // Playwright can't reach into a canvas-rendered grid via DOM locators;
       // e2e specs drive/assert sheet content through this instead.

@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+package-lock.json
+
+# src/ belongs to oxfmt (see .oxfmtrc.json and the "format" script). The two
+# formatters disagree on wrapping, so letting both near the same file would
+# make every save a fight. Prettier covers what oxfmt does not: api/, e2e/,
+# migrations tooling, the root configs and the workflows.
+src/

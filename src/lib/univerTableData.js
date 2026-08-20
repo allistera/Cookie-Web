@@ -44,7 +44,10 @@ function cellDataFor(rawCell) {
 export function contentGridToWorkbookData(content) {
   const rows = Array.isArray(content) ? content : []
   const rowCount = Math.max(rows.length, MIN_ROWS)
-  const columnCount = Math.max(rows.reduce((max, row) => Math.max(max, row?.length ?? 0), 0), MIN_COLUMNS)
+  const columnCount = Math.max(
+    rows.reduce((max, row) => Math.max(max, row?.length ?? 0), 0),
+    MIN_COLUMNS,
+  )
 
   const cellData = {}
   rows.forEach((row, rowIndex) => {
