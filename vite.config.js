@@ -25,6 +25,7 @@ function localApiPlugin(mode) {
         schedules: new Map(),
         archived: new Set(),
         summaries: new Map(),
+        stars: new Map(),
         messageLabels: new Map(),
         calendarEvents: null,
         calendars: null,
@@ -41,32 +42,54 @@ function localApiPlugin(mode) {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
       const url = new URL(req.url, 'http://localhost')
       const folder = url.searchParams.get('folder') || 'inbox'
-      const { schedules, archived, summaries } = fixtureMailboxState(req, res)
+      const labelName = (url.searchParams.get('label') || '').trim()
+      const state = fixtureMailboxState(req, res)
+      const { schedules, archived, summaries, stars, messageLabels } = state
       const now = Date.now()
-      const inbox = fixtureEmails().map((email) => ({
+      // Stars and labels changed through the messages Worker fixture override
+      // the static row, so a list reflects what the test just did to it.
+      const withState = (email) => ({
         ...email,
-        scheduled_for: schedules.get(email.id) ?? null,
+        is_starred: stars.get(email.id) ?? email.is_starred,
+        labels: messageLabels.get(email.id) ?? email.labels,
         has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+      })
+      const inbox = fixtureEmails().map((email) => ({
+        ...withState(email),
+        scheduled_for: schedules.get(email.id) ?? null,
       }))
-      const emails =
-        folder === 'sent'
-          ? fixtureSentEmails().map((email) => ({
-              ...email,
-              has_ai_summary: email.has_ai_summary || summaries.has(email.id),
-            }))
-          : folder === 'done'
-            ? inbox.filter((email) => archived.has(email.id))
-            : folder === 'spam'
-              ? []
-              : folder === 'snoozed'
-                ? inbox.filter(
-                    (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
-                  )
-                : inbox.filter(
-                    (email) =>
-                      !archived.has(email.id) &&
-                      (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
-                  )
+      const sent = fixtureSentEmails().map(withState)
+      const byNewest = (rows) =>
+        [...rows].sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))
+      // Mirrors api/emails.js's folderPredicate. Starred and label became
+      // folders of their own, and both span every non-deleted message —
+      // archived and sent rows included — rather than filtering the inbox.
+      const selectFolder = () => {
+        if (folder === 'sent') return sent
+        if (folder === 'done') return inbox.filter((email) => archived.has(email.id))
+        if (folder === 'spam') return []
+        if (folder === 'starred') {
+          return byNewest([...inbox, ...sent].filter((email) => email.is_starred))
+        }
+        if (folder === 'label') {
+          return byNewest(
+            [...inbox, ...sent].filter((email) =>
+              (email.labels || []).some((label) => label.name === labelName),
+            ),
+          )
+        }
+        if (folder === 'snoozed') {
+          return inbox.filter(
+            (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
+          )
+        }
+        return inbox.filter(
+          (email) =>
+            !archived.has(email.id) &&
+            (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
+        )
+      }
+      const emails = selectFolder()
       res.setHeader('Content-Type', 'application/json')
       if (url.searchParams.get('resource') === 'state') {
         res.end(
@@ -1057,6 +1080,12 @@ function localApiPlugin(mode) {
         const { archived } = fixtureMailboxState(req, res)
         if (body.is_archived) archived.add(body.id)
         else archived.delete(body.id)
+      }
+      // Starred is a server-side folder now, so a star has to outlive the
+      // store's optimistic update — the next ?folder=starred re-reads it here.
+      if (Object.hasOwn(body, 'is_starred')) {
+        const { stars } = fixtureMailboxState(req, res)
+        stars.set(body.id, Boolean(body.is_starred))
       }
       return json(res, { message: body })
     }
