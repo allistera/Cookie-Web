@@ -5,9 +5,9 @@
 // (Cookie-Worker's shared/cors.js) permits this app's production origin,
 // any localhost port, and *.vercel.app preview deployments.
 //
-// Not on custom domains yet — each Worker's wrangler.jsonc sets
-// workers_dev: true. Update these three lines (and each Worker's
-// ALLOWED_ORIGIN var) together when they move.
-export const LABELS_API_URL = 'https://cookie-web-labels.cloudflare-581.workers.dev'
-export const MESSAGES_API_URL = 'https://cookie-web-messages.cloudflare-581.workers.dev'
-export const TASKS_API_URL = 'https://cookie-web-tasks.cloudflare-581.workers.dev'
+// Custom domains (each Worker's wrangler.jsonc routes) — update these three
+// lines together if a Worker's domain ever changes. Each Worker also still
+// answers on its own workers.dev URL, kept for debugging.
+export const LABELS_API_URL = 'https://labels-api.infinitywave.online'
+export const MESSAGES_API_URL = 'https://messages-api.infinitywave.online'
+export const TASKS_API_URL = 'https://tasks-api.infinitywave.online'
