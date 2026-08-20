@@ -4,9 +4,17 @@ import { fetchEmails, fetchUnreadCount } from '../../emails.js'
 
 function captureQuery() {
   let text = ''
-  const sql = (strings) => {
-    text = strings.join('?')
-    return []
+  const sql = (strings, ...values) => {
+    text = strings.reduce((acc, part, i) => {
+      if (i === 0) return part
+      const value = values[i - 1]
+      if (value?.__frag) return acc + value.text + part
+      return `${acc}?${part}`
+    }, '')
+    const frag = []
+    frag.__frag = true
+    frag.text = text
+    return frag
   }
   return { sql, query: () => text }
 }
@@ -55,8 +63,8 @@ describe('fetchEmails', () => {
 
       fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'snoozed')
 
-      expect(capture.query()).toContain("? = 'snoozed'")
       expect(capture.query()).toContain('m.scheduled_for > now()')
+      expect(capture.query()).not.toContain("? = 'snoozed'")
       expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
     },
   )
@@ -72,9 +80,36 @@ describe('fetchEmails', () => {
 
     fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'done')
 
-    expect(capture.query()).toContain("? = 'done' AND m.is_archived")
-    expect(capture.query()).toContain('OR (NOT m.is_archived AND (')
+    expect(capture.query()).toContain('AND (m.is_archived)')
+    expect(capture.query()).not.toContain("? = 'done'")
     expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+  })
+
+  it('inlines the inbox folder predicate so the 0035 partial index can apply', () => {
+    const capture = captureQuery()
+
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, null, 'inbox')
+
+    expect(capture.query()).toContain('NOT m.is_archived AND NOT m.is_sent')
+    expect(capture.query()).not.toContain("? = 'inbox'")
+  })
+
+  it('selects starred messages as a real folder rather than a client filter', () => {
+    const capture = captureQuery()
+
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, null, 'starred')
+
+    expect(capture.query()).toContain('AND (m.is_starred)')
+    expect(capture.query()).toContain('NOT m.is_deleted')
+  })
+
+  it('selects a named label folder via an existence subquery', () => {
+    const capture = captureQuery()
+
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, null, 'label', 'Invoices')
+
+    expect(capture.query()).toContain('FROM message_labels tagged')
+    expect(capture.query()).toContain('tagged_l.name = ?')
   })
 })
 

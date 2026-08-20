@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
+import { verifyAccessToken, writeAuthError } from './_lib/auth.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_MESSAGES = 100
@@ -71,9 +71,8 @@ export default async function handler(req, res) {
   let userId
   try {
     ;({ userId } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
+  } catch (error) {
+    writeAuthError(res, error)
     return
   }
 

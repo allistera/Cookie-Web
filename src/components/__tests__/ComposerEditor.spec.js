@@ -65,3 +65,56 @@ describe('ComposerEditor snippets', () => {
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('Thanks,<p>Hello world</p>')
   })
 })
+
+describe('ComposerEditor paste and input sanitization', () => {
+  function paste(editor, { html, text }) {
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        getData: (type) => {
+          if (type === 'text/html') return html ?? ''
+          if (type === 'text/plain') return text ?? ''
+          return ''
+        },
+      },
+    })
+    editor.element.dispatchEvent(event)
+  }
+
+  it('inserts sanitized clipboard HTML on paste', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.focus()
+
+    paste(editor, { html: '<p>Hi</p><script>window.evil = 1</script><img src=x onerror=alert(1)>' })
+    await wrapper.vm.$nextTick()
+
+    const html = wrapper.emitted('update:modelValue').at(-1)[0]
+    expect(html).toContain('<p>Hi</p>')
+    expect(html.toLowerCase()).not.toContain('<script')
+    expect(html.toLowerCase()).not.toContain('onerror')
+  })
+
+  it('inserts escaped plain text with line breaks on paste', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.focus()
+
+    paste(editor, { text: 'a <b>\nc' })
+    await wrapper.vm.$nextTick()
+
+    const html = wrapper.emitted('update:modelValue').at(-1)[0]
+    expect(html).toContain('a &lt;b&gt;<br>c')
+  })
+
+  it('sanitizes dangerous markup on input', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.innerHTML = 'Hello<script>alert(1)</script>'
+    await editor.trigger('input')
+
+    const html = wrapper.emitted('update:modelValue').at(-1)[0]
+    expect(html).toContain('Hello')
+    expect(html.toLowerCase()).not.toContain('<script')
+  })
+})

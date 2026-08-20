@@ -71,6 +71,25 @@ describe('documents store', () => {
     ])
   })
 
+  it('shares one in-flight loadWorkspace GET across concurrent callers', async () => {
+    let resolveGet
+    const pending = new Promise((resolve) => {
+      resolveGet = resolve
+    })
+    const fetchMock = stubFetch({ GET: () => pending })
+
+    const first = store.loadWorkspace()
+    const second = store.loadWorkspace()
+
+    resolveGet(ok({ folders: FOLDERS, documents: DOCS }))
+    await Promise.all([first, second])
+
+    expect(store.documents).toHaveLength(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await store.loadWorkspace()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('resolves openDocDailyDate only for a title-and-folder daily note', () => {
     store.folders = [
       { id: 'daily', parent_id: null, title: 'Daily' },
@@ -190,6 +209,7 @@ describe('documents store', () => {
       title: 'Plan v2',
       blocks: [{ type: 'paragraph' }],
       tags: ['project', 'urgent'],
+      updatedAt: 't0',
     })
     expect(store.saveState).toBe('saved')
     expect(store.documents.find((doc) => doc.id === 'd-1').updated_at).toBe('t1')
@@ -217,6 +237,46 @@ describe('documents store', () => {
     await vi.runAllTimersAsync()
     expect(store.saveState).toBe('saved')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends openDoc updatedAt on a content PATCH', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    store.openDoc = { ...structuredClone(DOCS[0]), updated_at: 'open-t', blocks: [] }
+    const fetchMock = stubFetch({
+      PATCH: (url, body) => ok({ document: { id: body.id, updated_at: 't1' } }),
+    })
+
+    store.scheduleContentSave('d-1', { title: 'Plan v2' })
+    await vi.runAllTimersAsync()
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      id: 'd-1',
+      title: 'Plan v2',
+      updatedAt: 'open-t',
+    })
+  })
+
+  it('restores the pending save when content PATCH conflicts', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    store.openDoc = { ...structuredClone(DOCS[0]), blocks: [] }
+    const fetchMock = stubFetch({
+      PATCH: () => ({ ok: false, status: 409, json: async () => ({}) }),
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    store.scheduleContentSave('d-1', { title: 'Conflicted' })
+    await vi.runAllTimersAsync()
+
+    expect(store.saveState).toBe('error')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await store.flushPendingSave()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).title).toBe('Conflicted')
+    expect(store.saveState).toBe('error')
   })
 
   it('marks the save state on a failed flush', async () => {

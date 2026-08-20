@@ -1,7 +1,7 @@
 import process from 'node:process'
 
 import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
+import { verifyAccessToken, writeAuthError } from './_lib/auth.js'
 import { embedTextCached } from './_lib/embeddings.js'
 import { fuseRankings } from './_lib/rank-fusion.js'
 import { allowRequest } from './_lib/rate-limit.js'
@@ -19,11 +19,18 @@ const RATE_LIMIT = { limit: 10, windowMs: 60_000 } // shared with all user-trigg
 // stored snippet and fetch the authoritative body only when opened.
 export function fetchSearchEmails(sql, userId, ids) {
   return sql`
-    SELECT m.id, m.from_name, m.from_address, m.subject, m.snippet,
-           m.sent_at, m.is_unread, m.is_starred, m.scheduled_for,
+    SELECT m.id, m.from_name, m.from_address,
+           CASE WHEN jsonb_typeof(m.recipients) = 'string'
+                THEN (m.recipients #>> '{}')::jsonb
+                ELSE m.recipients END AS recipients,
+           m.subject, m.snippet,
+           m.sent_at, m.is_unread, m.is_starred,
+           m.is_sent, m.scheduled_for, ai.spam_score,
            BOOL_OR(NULLIF(BTRIM(ai.summary), '') IS NOT NULL) AS has_ai_summary,
+           (m.body_html IS NOT NULL) AS has_html,
+           EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments,
            COALESCE(
-             json_agg(json_build_object('name', l.name, 'color', l.color)
+             json_agg(json_build_object('name', l.name, 'color', l.color, 'kind', l.kind)
                       ORDER BY l.name)
                FILTER (WHERE l.id IS NOT NULL),
              '[]'
@@ -32,8 +39,10 @@ export function fetchSearchEmails(sql, userId, ids) {
     LEFT JOIN message_ai ai ON ai.message_id = m.id
     LEFT JOIN message_labels ml ON ml.message_id = m.id
     LEFT JOIN labels l ON l.id = ml.label_id
-    WHERE m.user_id = ${userId} AND m.id = ANY(${ids}::uuid[])
-    GROUP BY m.id
+    WHERE m.user_id = ${userId}
+      AND NOT m.is_deleted
+      AND m.id = ANY(${ids}::uuid[])
+    GROUP BY m.id, ai.spam_score
   `
 }
 
@@ -62,9 +71,8 @@ export function createSearchHandler(services = { getSql, verifyAccessToken, allo
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))
-    } catch {
-      res.statusCode = 401
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 

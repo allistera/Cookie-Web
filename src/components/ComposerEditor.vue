@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 
+import { escapeHtml } from '../lib/composeHtml'
 import { filterSlashCommands } from '../lib/slashCommands'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { getSlashSnippetCommands } from '../lib/snippets'
@@ -98,18 +99,44 @@ function removeSlashText() {
   return caret
 }
 
-function insertSnippet(html) {
+function insertHtmlAtCaret(html) {
+  const editor = editorRef.value
+  if (!editor || !html) return
   const selection = window.getSelection()
-  if (!selection?.rangeCount) return
+  if (!selection?.rangeCount) {
+    editor.insertAdjacentHTML('beforeend', html)
+    return
+  }
   const range = selection.getRangeAt(0)
-  const fragment = range.createContextualFragment(sanitizeEmailHtml(html))
+  if (
+    range.commonAncestorContainer !== editor &&
+    !editor.contains(range.commonAncestorContainer)
+  ) {
+    editor.insertAdjacentHTML('beforeend', html)
+    return
+  }
+  range.deleteContents()
+  const fragment = range.createContextualFragment(html)
   const lastNode = fragment.lastChild
-  if (!lastNode) return
   range.insertNode(fragment)
+  if (!lastNode) return
   range.setStartAfter(lastNode)
   range.collapse(true)
   selection.removeAllRanges()
   selection.addRange(range)
+}
+
+function insertSnippet(html) {
+  insertHtmlAtCaret(sanitizeEmailHtml(html))
+}
+
+function onPaste(event) {
+  const html = event.clipboardData?.getData('text/html')
+  const text = event.clipboardData?.getData('text/plain') ?? ''
+  const inserted = html ? sanitizeEmailHtml(html) : escapeHtml(text).replace(/\n/g, '<br>')
+  insertHtmlAtCaret(inserted)
+  emitUpdate()
+  updateSlashMenu()
 }
 
 function applyCommand(command) {
@@ -160,7 +187,13 @@ function emitUpdate() {
   emit('update:text', editorRef.value.innerText ?? editorRef.value.textContent)
 }
 
+const DANGEROUS_HTML_RE = /<script|on\w+=|javascript:/i
+
 function onInput() {
+  const el = editorRef.value
+  if (el && DANGEROUS_HTML_RE.test(el.innerHTML)) {
+    el.innerHTML = sanitizeEmailHtml(el.innerHTML)
+  }
   emitUpdate()
   updateSlashMenu()
 }
@@ -229,6 +262,7 @@ defineExpose({ focus: () => editorRef.value?.focus() })
       aria-multiline="true"
       :data-placeholder="placeholder"
       @input="onInput"
+      @paste.prevent="onPaste"
       @keydown="onKeydown"
       @blur="onBlur"
     ></div>

@@ -48,6 +48,7 @@ describe('POST /api/send security boundaries', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.RESEND_API_KEY = 'test-key'
+    process.env.EMAIL_FROM = 'Cookie <mail@example.com>'
     delete process.env.OPENAI_API_KEY
     delete process.env.PUBLIC_APP_URL
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL
@@ -99,10 +100,22 @@ describe('POST /api/send security boundaries', () => {
     expect(res.body).toEqual({ id: 'resend-1' })
     expect(mocks.resendSend).toHaveBeenCalledWith(
       expect.objectContaining({
+        from: 'Cookie <mail@example.com>',
         to: ['recipient@example.com'],
         subject: 'Hello',
         text: 'Plain text',
       }),
+      expect.objectContaining({ idempotencyKey: expect.stringMatching(/^immediate-send\//) }),
     )
+  })
+
+  it('refuses to send when EMAIL_FROM is missing', async () => {
+    delete process.env.EMAIL_FROM
+    const res = makeRes()
+
+    await handler(request(), res)
+
+    expect(res.statusCode).toBe(503)
+    expect(mocks.resendSend).not.toHaveBeenCalled()
   })
 })

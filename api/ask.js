@@ -1,7 +1,7 @@
 import process from 'node:process'
 
 import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
+import { verifyAccessToken, writeAuthError } from './_lib/auth.js'
 import { readJsonBody } from './_lib/body.js'
 import { embedTextCached } from './_lib/embeddings.js'
 import { fuseRankings } from './_lib/rank-fusion.js'
@@ -38,6 +38,7 @@ async function chatCompletion(question, rows, apiKey) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: AbortSignal.timeout(15_000),
     body: JSON.stringify({
       model: CHAT_MODEL,
       max_tokens: MAX_ANSWER_TOKENS,
@@ -72,9 +73,8 @@ export function createAskHandler(services = { getSql, verifyAccessToken, allowRe
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))
-    } catch {
-      res.statusCode = 401
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 
@@ -156,7 +156,7 @@ export function createAskHandler(services = { getSql, verifyAccessToken, allowRe
       SELECT m.id, m.from_name, m.from_address, m.subject,
              LEFT(m.body_text, ${CONTEXT_BODY_CHARS}) AS body_text, m.sent_at
       FROM messages m
-      WHERE m.user_id = ${userId} AND m.id = ANY(${ids}::uuid[])
+      WHERE m.user_id = ${userId} AND NOT m.is_deleted AND m.id = ANY(${ids}::uuid[])
     `
       const byId = new Map(rows.map((row) => [row.id, row]))
       const ordered = ids.map((id) => byId.get(id)).filter(Boolean)

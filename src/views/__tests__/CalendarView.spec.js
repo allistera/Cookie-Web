@@ -47,6 +47,17 @@ const SEED_EVENTS = [
   },
   { id: 'standup', title: 'Standup', date: '2026-07-24', start: '09:00', duration: 30, calendar: 'work' },
   {
+    id: 'recurring-review-2026-07-24',
+    seriesId: 'recurring-review',
+    seriesDate: '2026-07-10',
+    date: '2026-07-24',
+    title: 'Recurring review',
+    start: '16:00',
+    duration: 30,
+    calendar: 'work',
+    recurrenceRule: 'FREQ=WEEKLY',
+  },
+  {
     id: 'coffee',
     title: 'Coffee with Sam',
     date: '2026-07-24',
@@ -118,7 +129,7 @@ function mockCalendarApi() {
           return { ok: true, json: async () => clone({ event }) }
         }
         if (method === 'PATCH') {
-          const index = events.findIndex((item) => item.id === body.id)
+          const index = events.findIndex((item) => item.id === body.id || item.seriesId === body.id)
           events[index] = { ...events[index], ...body }
           return { ok: true, json: async () => clone({ event: events[index] }) }
         }
@@ -541,6 +552,30 @@ describe('CalendarView', () => {
       .mocked(fetch)
       .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH')
     expect(JSON.parse(updateCall[1].body).calendar).toBe('personal')
+    wrapper.unmount()
+  })
+
+  it('edits a recurring occurrence using the series master date', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    const occurrence = wrapper
+      .findAll('.day-event')
+      .find((event) => event.text().includes('Recurring review'))
+    await occurrence.trigger('click')
+
+    expect(wrapper.get('input[type="date"]').element.value).toBe('2026-07-10')
+    await wrapper.get('.new-event-title-input').setValue('Recurring review updated')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const updateCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH')
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({
+      id: 'recurring-review',
+      date: '2026-07-10',
+      title: 'Recurring review updated',
+    })
     wrapper.unmount()
   })
 

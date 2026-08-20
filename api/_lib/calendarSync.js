@@ -12,6 +12,7 @@ const EXPAND_PAST_DAYS = 365
 const EXPAND_FUTURE_DAYS = 730
 const MAX_OCCURRENCES_PER_EVENT = 366
 const MAX_EVENTS_PER_SYNC = 1000
+const TIME_RE = /^\d{2}:\d{2}$/
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 // A sync failure message can quote remote-controlled feed content (node-ical
@@ -106,9 +107,20 @@ function startOfLocalDay(date) {
 
 // A timed (non-all-day) occurrence: one row, positioned by its actual
 // start time and duration.
+function rruleOccurrences(rrule, windowStart, windowEnd, max) {
+  if (!rrule || !(rrule.between instanceof Function)) return []
+  const dates = []
+  const result = rrule.between(windowStart, windowEnd, true, (date) => {
+    dates.push(date)
+    return dates.length < max
+  })
+  if (dates.length > 0) return dates
+  return Array.isArray(result) ? result.slice(0, max) : []
+}
+
 function timedOccurrences(event, windowStart, windowEnd) {
   const starts = event.rrule
-    ? event.rrule.between(windowStart, windowEnd, true).slice(0, MAX_OCCURRENCES_PER_EVENT)
+    ? rruleOccurrences(event.rrule, windowStart, windowEnd, MAX_OCCURRENCES_PER_EVENT)
     : event.start >= windowStart && event.start <= windowEnd
       ? [event.start]
       : []
@@ -134,7 +146,7 @@ function timedOccurrences(event, windowStart, windowEnd) {
 export function allDayOccurrences(event, windowStart, windowEnd) {
   const spanDays = Math.max(Math.round((event.end.getTime() - event.start.getTime()) / MS_PER_DAY), 1)
   const starts = event.rrule
-    ? event.rrule.between(windowStart, windowEnd, true).slice(0, MAX_OCCURRENCES_PER_EVENT)
+    ? rruleOccurrences(event.rrule, windowStart, windowEnd, MAX_OCCURRENCES_PER_EVENT)
     : [event.start]
 
   const rows = []
@@ -177,6 +189,7 @@ function parseEvents(icsText, windowStart, windowEnd) {
     const location = value.location ? String(value.location).slice(0, MAX_LOCATION) : null
 
     for (const occurrence of eventOccurrences(value, windowStart, windowEnd)) {
+      if (!TIME_RE.test(occurrence.time)) continue
       rows.push({
         title,
         description,
@@ -223,6 +236,9 @@ export async function syncCalendarSubscription(sql, calendarId, userId, url, req
 
   try {
     await sql.begin(async (tx) => {
+      // Serialize overlapping syncs for the same calendar so two in-flight
+      // replaces cannot interleave delete+insert.
+      await tx`SELECT id FROM calendars WHERE id = ${calendarId} AND user_id = ${userId} FOR UPDATE`
       // user_id isn't authorization here (callers own the calendar id); it
       // lets the composite (user_id, calendar) index serve the delete —
       // calendar alone has no usable index and seq-scanned on every sync.

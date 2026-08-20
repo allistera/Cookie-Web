@@ -70,9 +70,17 @@ describe('GET /api/emails handler', () => {
 describe('fetchEmails', () => {
   it('includes a has_attachments flag scoped to each message', () => {
     let query = ''
-    const sql = (strings) => {
-      query = strings.join('?')
-      return []
+    const sql = (strings, ...values) => {
+      query = strings.reduce((acc, part, i) => {
+        if (i === 0) return part
+        const value = values[i - 1]
+        if (value?.__frag) return acc + value.text + part
+        return `${acc}?${part}`
+      }, '')
+      const frag = []
+      frag.__frag = true
+      frag.text = query
+      return frag
     }
 
     fetchEmails(sql, USER_ID, 50, null, 'inbox')

@@ -28,7 +28,7 @@ export async function embedTextCached(text, apiKey) {
     queryCache.set(text, vector) // refresh recency
     return vector
   }
-  const vector = await embedText(text, apiKey)
+  const vector = await embedText(text, apiKey, { signal: AbortSignal.timeout(8_000) })
   queryCache.set(text, vector)
   if (queryCache.size > QUERY_CACHE_MAX) {
     queryCache.delete(queryCache.keys().next().value)

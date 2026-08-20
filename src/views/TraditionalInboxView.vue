@@ -15,9 +15,9 @@ const route = useRoute()
 const router = useRouter()
 
 // --- Filtered views (?filter=starred|snoozed|sent|done|label&label=<name>) ---
-// Starred and label views filter the loaded list client-side (rows already
-// carry starred + labels; covers loaded pages only). Sent, Spam, Snoozed, and
-// the hidden Done mailbox have server-backed lists loaded lazily when opened.
+// Starred, label, Sent, Spam, Snoozed, and the hidden Done mailbox have
+// server-backed lists loaded lazily when opened. The inbox still hides
+// starred rows client-side so starring moves mail out of Inbox immediately.
 const FILTER_META = {
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
   snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
@@ -32,14 +32,16 @@ const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.que
 // The sent list refreshes on every visit — cheap, and it picks up mail sent
 // from other devices since the last look.
 watch(
-  activeFilter,
-  (filter) => {
+  [activeFilter, () => route.query.label],
+  ([filter, label]) => {
     if (filter === 'sent') store.loadSentEmails()
     if (filter === 'spam') store.loadSpamEmails()
     if (filter === 'snoozed') store.loadSnoozedEmails()
     if (filter === 'done') store.loadDonePage(0)
+    if (filter === 'starred') store.loadStarredEmails()
+    if (filter === 'label') store.loadLabelEmails(label)
     if (
-      !['sent', 'spam', 'snoozed', 'done'].includes(filter) &&
+      !['sent', 'spam', 'snoozed', 'done', 'starred', 'label'].includes(filter) &&
       !store.isInboxLoaded &&
       store.traditionalEmails.length === 0
     ) {
@@ -53,9 +55,9 @@ const filteredEmails = computed(() => {
   const emails = store.traditionalEmails
   switch (activeFilter.value) {
     case 'starred':
-      return emails.filter((e) => e.starred)
+      return store.starredEmails
     case 'label':
-      return emails.filter((e) => e.labels?.some((l) => l.name === route.query.label))
+      return store.labelEmails
     case 'sent':
       return store.sentEmails
     case 'spam':
@@ -109,6 +111,8 @@ const showLoadMore = computed(() => {
   if (activeFilter.value === 'sent') return store.hasMoreSent
   if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
+  if (activeFilter.value === 'starred') return store.hasMoreStarred
+  if (activeFilter.value === 'label') return store.hasMoreLabel
   if (activeFilter.value === 'done') return false // Done uses the pager below
   return store.hasMoreEmails
 })
@@ -122,6 +126,8 @@ const isLoadingMore = computed(() => {
   if (activeFilter.value === 'sent') return store.isSentRefreshing
   if (activeFilter.value === 'spam') return store.isSpamRefreshing
   if (activeFilter.value === 'snoozed') return store.isSnoozedRefreshing
+  if (activeFilter.value === 'starred') return store.isStarredRefreshing
+  if (activeFilter.value === 'label') return store.isLabelRefreshing
   if (activeFilter.value === 'done') return store.isDoneRefreshing
   return store.isRefreshing
 })
@@ -130,6 +136,8 @@ function loadMore() {
   if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
   else if (activeFilter.value === 'snoozed') store.loadMoreSnoozedEmails()
+  else if (activeFilter.value === 'starred') store.loadMoreStarredEmails()
+  else if (activeFilter.value === 'label') store.loadMoreLabelEmails()
   else store.loadMoreEmails()
 }
 

@@ -200,6 +200,21 @@ describe('EmailBody', () => {
     wrapper.unmount()
   })
 
+  it('updates srcdoc color-scheme when data-theme changes to dark', async () => {
+    document.documentElement.setAttribute('data-theme', 'light')
+    const wrapper = mount(EmailBody, { props: { html: '<p>Hi</p>' } })
+
+    expect(wrapper.find('iframe').attributes('srcdoc')).toContain('color-scheme: light')
+
+    document.documentElement.setAttribute('data-theme', 'dark')
+    await vi.waitFor(() => {
+      expect(wrapper.find('iframe').attributes('srcdoc')).toContain('color-scheme: dark')
+    })
+
+    wrapper.unmount()
+    document.documentElement.removeAttribute('data-theme')
+  })
+
   it('falls back to plain-text paragraphs when there is no HTML body', () => {
     const wrapper = mount(EmailBody, {
       props: { html: null, text: 'First para.\n\nSecond para.', sender: 'Ada' },

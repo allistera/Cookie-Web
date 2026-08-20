@@ -99,11 +99,14 @@ function currentTheme() {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'
 }
 
+const theme = ref(currentTheme())
+let themeObserver = null
+
 // The iframe document. Its only dynamic input is the already-sanitized body;
 // the surrounding chrome (doctype, base CSS) is a fixed string we control.
 const srcdoc = computed(() => {
   if (!hasHtml.value) return ''
-  const dark = currentTheme() === 'dark'
+  const dark = theme.value === 'dark'
   const fg = dark ? '#f7f8f8' : '#282a30'
   const link = dark ? '#858df8' : '#5e6ad2'
   // Widened only once the reader clicks "Show images" for this message.
@@ -190,9 +193,22 @@ function onFrameMessage(event) {
   }
 }
 
-onMounted(() => window.addEventListener('message', onFrameMessage))
+onMounted(() => {
+  window.addEventListener('message', onFrameMessage)
+  theme.value = currentTheme()
+  if (globalThis.document === undefined) return
+  themeObserver = new MutationObserver(() => {
+    theme.value = currentTheme()
+  })
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  })
+})
 onBeforeUnmount(() => {
   window.removeEventListener('message', onFrameMessage)
+  themeObserver?.disconnect()
+  themeObserver = null
   if (resizeTimer !== null) clearTimeout(resizeTimer)
 })
 </script>

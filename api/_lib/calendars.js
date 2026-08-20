@@ -1,3 +1,4 @@
+import { writeAuthError } from './auth.js'
 import { createServices } from './services.js'
 import { readJsonBody } from './body.js'
 import { syncCalendarSubscription, validSubscriptionUrl } from './calendarSync.js'
@@ -288,9 +289,8 @@ export function createHandler(overrides = {}) {
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))
-    } catch {
-      res.statusCode = 401
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 

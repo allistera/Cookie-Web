@@ -1,3 +1,4 @@
+import { writeAuthError } from './_lib/auth.js'
 import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 import { createHandler as createCalendarsHandler } from './_lib/calendars.js'
@@ -198,6 +199,7 @@ const MAX_OCCURRENCES_PER_SERIES = 366
 // series with BYDAY steps day-by-day (see expandEvent), so it shares DAILY's
 // ~27-year reach rather than WEEKLY's.
 const MAX_STEPS_PER_SERIES = 10_000
+const MAX_RANGE_DAYS = 800
 const WEEKDAY_RE = '(?:SU|MO|TU|WE|TH|FR|SA)'
 const RECURRENCE_RE = new RegExp(
   `^(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;BYDAY=(${WEEKDAY_RE}(?:,${WEEKDAY_RE}){0,6}))?(?:;UNTIL=(\\d{4}-\\d{2}-\\d{2}))?$`,
@@ -234,6 +236,43 @@ function stepDate(date, freq) {
 
 const toDateKey = (date) => date.toISOString().slice(0, 10)
 
+function daysBetweenUtc(from, to) {
+  return Math.round((to.getTime() - from.getTime()) / MS_PER_DAY)
+}
+
+// Skip occurrence generation that would land before windowStart so an ancient
+// DAILY series does not burn MAX_STEPS_PER_SERIES just walking to the window.
+function jumpToWindow(cursor, windowStart, freq) {
+  if (cursor >= windowStart) return cursor
+  if (freq === 'DAILY') {
+    const next = new Date(cursor)
+    next.setUTCDate(next.getUTCDate() + daysBetweenUtc(cursor, windowStart))
+    return next
+  }
+  if (freq === 'WEEKLY') {
+    const weeks = Math.floor(daysBetweenUtc(cursor, windowStart) / 7)
+    const next = new Date(cursor)
+    next.setUTCDate(next.getUTCDate() + weeks * 7)
+    return next
+  }
+  if (freq === 'YEARLY') {
+    let next = cursor
+    const years = windowStart.getUTCFullYear() - cursor.getUTCFullYear()
+    for (let i = 0; i < years; i += 1) next = stepDate(next, 'YEARLY')
+    return next
+  }
+  if (freq === 'MONTHLY') {
+    const months =
+      (windowStart.getUTCFullYear() - cursor.getUTCFullYear()) * 12 +
+      (windowStart.getUTCMonth() - cursor.getUTCMonth())
+    let next = cursor
+    for (let i = 0; i < Math.max(0, months - 1); i += 1) next = stepDate(next, 'MONTHLY')
+    while (next < windowStart) next = stepDate(next, 'MONTHLY')
+    return next
+  }
+  return cursor
+}
+
 // Expands one series-master row into its occurrences within [windowStart,
 // windowEnd]. Non-recurring events pass through unchanged. There's no
 // support for per-occurrence exceptions: editing or deleting any occurrence
@@ -250,7 +289,7 @@ function expandEvent(event, windowStart, windowEnd) {
   const weekdays = rule.byday ? new Set(rule.byday.map((code) => WEEKDAY_CODES.indexOf(code))) : null
   const stepFreq = weekdays ? 'DAILY' : rule.freq
   const occurrences = []
-  let cursor = dtstart
+  let cursor = jumpToWindow(dtstart, windowStart, stepFreq)
   let index = 0
   while (
     cursor <= windowEnd &&
@@ -259,7 +298,13 @@ function expandEvent(event, windowStart, windowEnd) {
     index < MAX_STEPS_PER_SERIES
   ) {
     if (cursor >= windowStart && (!weekdays || weekdays.has(cursor.getUTCDay()))) {
-      occurrences.push({ ...event, id: `${event.id}:${index}`, seriesId: event.id, date: toDateKey(cursor) })
+      occurrences.push({
+        ...event,
+        id: `${event.id}:${index}`,
+        seriesId: event.id,
+        seriesDate: event.date,
+        date: toDateKey(cursor),
+      })
     }
     cursor = stepDate(cursor, stepFreq)
     index += 1
@@ -308,11 +353,20 @@ async function listEvents(sql, userId, range, res) {
 // from/to are optional but must come as a valid pair: omitting both keeps the
 // original return-everything contract, anything else is a client bug worth a
 // 400 rather than a silently unbounded payload.
-function parseRangeParams(searchParams) {
+function defaultEventRange(now = new Date()) {
+  return {
+    from: toDateKey(new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)),
+    to: toDateKey(new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)),
+  }
+}
+
+export function parseRangeParams(searchParams, now = new Date()) {
   const from = searchParams.get('from')
   const to = searchParams.get('to')
-  if (from === null && to === null) return { range: null }
+  if (from === null && to === null) return { range: defaultEventRange(now) }
   if (!DATE_RE.test(from ?? '') || !DATE_RE.test(to ?? '') || from > to) return { error: true }
+  const spanDays = daysBetweenUtc(new Date(`${from}T00:00:00Z`), new Date(`${to}T00:00:00Z`))
+  if (spanDays > MAX_RANGE_DAYS) return { error: true }
   return { range: { from, to } }
 }
 
@@ -458,9 +512,8 @@ export function createHandler(overrides = {}) {
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))
-    } catch {
-      res.statusCode = 401
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 

@@ -1,7 +1,7 @@
 import process from 'node:process'
 
 import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
+import { verifyAccessToken, writeAuthError } from './_lib/auth.js'
 import { readJsonBody } from './_lib/body.js'
 import { allowRequest } from './_lib/rate-limit.js'
 
@@ -18,9 +18,10 @@ function clean(value, max) {
 async function replyContext(sql, userId, id) {
   if (!id || !UUID_RE.test(id)) return null
   const [message] = await sql`
-    SELECT m.from_name, m.from_address, m.subject, m.body_text, m.sent_at
+    SELECT m.from_name, m.from_address, m.subject,
+           left(coalesce(m.body_text, ''), 6001) AS body_text, m.sent_at
     FROM messages m
-    WHERE m.id = ${id} AND m.user_id = ${userId}
+    WHERE m.id = ${id} AND m.user_id = ${userId} AND NOT m.is_deleted
     LIMIT 1
   `
   return message ?? null
@@ -62,6 +63,7 @@ async function generateDraft(input, apiKey, mode = 'draft') {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
+    signal: AbortSignal.timeout(15_000),
     body: JSON.stringify({
       model: COMPOSE_MODEL,
       max_output_tokens: 700,
@@ -115,9 +117,8 @@ export default async function handler(req, res) {
   let userId
   try {
     ;({ userId } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
+  } catch (error) {
+    writeAuthError(res, error)
     return
   }
   if (!process.env.OPENAI_API_KEY) {

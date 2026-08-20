@@ -53,6 +53,7 @@ describe('thread summarization', () => {
     expect(query).toContain('tm.thread_id = selected.thread_id')
     expect(query).toContain('tm.user_id = selected.user_id')
     expect(query).toContain('selected.user_id =')
+    expect(query).toContain('NOT selected.is_deleted AND NOT tm.is_deleted')
     expect(query).toContain("left(coalesce(tm.body_text, ''),")
     expect(query).toContain('ORDER BY tm.sent_at DESC, tm.id DESC')
     expect(query).toContain('LIMIT')
@@ -121,10 +122,10 @@ describe('thread summarization', () => {
       'Cabinets arrive Tuesday.',
     )
 
-    expect(query).toContain('INSERT INTO message_ai (message_id, summary)')
+    expect(query).toContain('INSERT INTO message_ai (message_id, summary, status, processed_at)')
     expect(query).toContain('ON CONFLICT (message_id) DO UPDATE SET')
     expect(query).toContain('summary = EXCLUDED.summary')
-    expect(query).not.toContain('status =')
+    expect(query).toContain("status = 'completed'")
     expect(values).toEqual([
       '11111111-1111-1111-1111-111111111111',
       'Cabinets arrive Tuesday.',
