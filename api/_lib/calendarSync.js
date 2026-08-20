@@ -56,13 +56,15 @@ async function fetchIcs(url, request) {
 }
 
 const pad2 = (n) => String(n).padStart(2, '0')
-const toDateKeyUTC = (date) => `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`
+const toDateKeyUTC = (date) =>
+  `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`
 const toTimeKeyUTC = (date) => `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}`
 // node-ical builds a date-only (VALUE=DATE) VEVENT's start/end by
 // interpreting the date components as local time, so recovering the
 // intended calendar date must use local getters too — UTC getters would
 // shift the date by a day in any timezone that isn't UTC+0.
-const toDateKeyLocal = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+const toDateKeyLocal = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 const toTimeKeyLocal = (date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 
 function timedOccurrenceKeys(date, timeZone) {
@@ -125,7 +127,10 @@ function timedOccurrences(event, windowStart, windowEnd) {
       ? [event.start]
       : []
 
-  const durationMs = Math.max(new Date(event.end).getTime() - new Date(event.start).getTime(), 60_000)
+  const durationMs = Math.max(
+    new Date(event.end).getTime() - new Date(event.start).getTime(),
+    60_000,
+  )
   const durationMinutes = Math.round(durationMs / 60_000)
   return starts.map((start) => {
     const keys = timedOccurrenceKeys(new Date(start), event.start.tz)
@@ -144,7 +149,10 @@ function timedOccurrences(event, windowStart, windowEnd) {
 // all-day event stretch across the entire visible timeline). RFC5545 all-day
 // DTEND is exclusive — a "Aug 10-13" span covers the 10th, 11th, and 12th.
 export function allDayOccurrences(event, windowStart, windowEnd) {
-  const spanDays = Math.max(Math.round((event.end.getTime() - event.start.getTime()) / MS_PER_DAY), 1)
+  const spanDays = Math.max(
+    Math.round((event.end.getTime() - event.start.getTime()) / MS_PER_DAY),
+    1,
+  )
   const starts = event.rrule
     ? rruleOccurrences(event.rrule, windowStart, windowEnd, MAX_OCCURRENCES_PER_EVENT)
     : [event.start]
@@ -156,9 +164,8 @@ export function allDayOccurrences(event, windowStart, windowEnd) {
     const firstOccurrenceDay = startOfLocalDay(new Date(occurrenceStart))
     const afterLastOccurrenceDay = addDaysLocal(firstOccurrenceDay, spanDays)
     const firstDay = firstOccurrenceDay < firstWindowDay ? firstWindowDay : firstOccurrenceDay
-    const afterLastDay = afterLastOccurrenceDay > afterLastWindowDay
-      ? afterLastWindowDay
-      : afterLastOccurrenceDay
+    const afterLastDay =
+      afterLastOccurrenceDay > afterLastWindowDay ? afterLastWindowDay : afterLastOccurrenceDay
 
     for (let day = firstDay; day < afterLastDay; day = addDaysLocal(day, 1)) {
       rows.push({ date: toDateKeyLocal(day), time: '00:00', durationMinutes: 1440, allDay: true })
@@ -184,8 +191,13 @@ function parseEvents(icsText, windowStart, windowEnd) {
   const rows = []
   for (const value of Object.values(parsed)) {
     if (value.type !== 'VEVENT' || !value.start) continue
-    const title = String(value.summary || 'Untitled event').trim().slice(0, MAX_TITLE) || 'Untitled event'
-    const description = value.description ? String(value.description).slice(0, MAX_DESCRIPTION) : null
+    const title =
+      String(value.summary || 'Untitled event')
+        .trim()
+        .slice(0, MAX_TITLE) || 'Untitled event'
+    const description = value.description
+      ? String(value.description).slice(0, MAX_DESCRIPTION)
+      : null
     const location = value.location ? String(value.location).slice(0, MAX_LOCATION) : null
 
     for (const occurrence of eventOccurrences(value, windowStart, windowEnd)) {
@@ -221,7 +233,13 @@ async function recordSyncError(sql, calendarId, error) {
 // against an external feed that has none.
 // `request` is an injectable seam over the pinned public-HTTPS boundary so
 // tests can script feed responses without mocking the safe-https module.
-export async function syncCalendarSubscription(sql, calendarId, userId, url, request = requestPublicHttps) {
+export async function syncCalendarSubscription(
+  sql,
+  calendarId,
+  userId,
+  url,
+  request = requestPublicHttps,
+) {
   const now = new Date()
   const windowStart = new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
   const windowEnd = new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)

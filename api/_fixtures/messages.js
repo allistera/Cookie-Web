@@ -26,7 +26,8 @@ export function fixtureMessageBody(id) {
     return {
       id,
       body_html: HOSTILE_HTML,
-      body_text: 'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
+      body_text:
+        'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
       unsubscribe: null,
       thread: [
         {
@@ -44,7 +45,8 @@ export function fixtureMessageBody(id) {
           from_name: 'City Construction',
           from_address: 'updates@cityconstruction.com',
           snippet: 'Hi Allister, here is the updated design bringing more natural light...',
-          body_text: 'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
+          body_text:
+            'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
           sent_at: new Date(Date.now() - 0.5 * 60 * 60 * 1000).toISOString(),
           is_sent: false,
         },

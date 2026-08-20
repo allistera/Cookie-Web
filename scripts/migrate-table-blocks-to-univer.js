@@ -82,7 +82,9 @@ async function migrateDocuments() {
         WHERE id = ${row.id}
       `
     }
-    console.log(`documents: scanned ${scanned}, ${APPLY ? 'migrated' : 'would migrate'} ${migrated} so far`)
+    console.log(
+      `documents: scanned ${scanned}, ${APPLY ? 'migrated' : 'would migrate'} ${migrated} so far`,
+    )
   }
   return { scanned, migrated }
 }

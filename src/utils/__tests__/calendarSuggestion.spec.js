@@ -18,7 +18,8 @@ describe('detectCalendarSuggestion', () => {
 
     expect(suggestion).toEqual({
       title: 'August 12th guided tour',
-      description: 'From Univ of State Tours: Tours depart from the Visitor Center at 10:00 AM sharp.',
+      description:
+        'From Univ of State Tours: Tours depart from the Visitor Center at 10:00 AM sharp.',
       location: '',
       date: '2026-08-12',
       start: '10:00',

@@ -62,7 +62,9 @@ describe('setAppBadge', () => {
 
     setAppBadge(3, nav)
 
-    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith('Failed to update app badge:', expect.any(Error)))
+    await vi.waitFor(() =>
+      expect(console.error).toHaveBeenCalledWith('Failed to update app badge:', expect.any(Error)),
+    )
   })
 })
 

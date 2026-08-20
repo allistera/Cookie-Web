@@ -2,10 +2,7 @@
 // rich composer: blank-line-separated blocks become paragraphs and single
 // newlines become <br>. Text is HTML-escaped first so it can't inject markup.
 export function escapeHtml(text) {
-  return (text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 export function plainTextToHtml(text) {

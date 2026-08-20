@@ -46,7 +46,10 @@ describe('filterContacts', () => {
   })
 
   it('caps the number of results', () => {
-    const many = Array.from({ length: 20 }, (_, i) => ({ address: `user${i}@x.com`, name: `User ${i}` }))
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      address: `user${i}@x.com`,
+      name: `User ${i}`,
+    }))
     expect(filterContacts(many, 'user', 6)).toHaveLength(6)
   })
 })

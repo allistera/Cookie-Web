@@ -1017,7 +1017,8 @@ export const useInboxStore = defineStore('inbox', {
           headers,
           body: JSON.stringify({ id: rule.id, ...changes }),
         })
-        if (!response.ok) throw new Error(`PATCH /api/labels?resource=rules responded ${response.status}`)
+        if (!response.ok)
+          throw new Error(`PATCH /api/labels?resource=rules responded ${response.status}`)
         const { rule: updatedRule } = await response.json()
         Object.assign(rule, updatedRule)
         return true
@@ -1158,11 +1159,14 @@ export const useInboxStore = defineStore('inbox', {
       const startedAt = Date.now()
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${MESSAGES_API_URL}/messages?id=${encodeURIComponent(id)}`, { headers })
+        const response = await fetch(`${MESSAGES_API_URL}/messages?id=${encodeURIComponent(id)}`, {
+          headers,
+        })
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
-        const { body_html, body_text, unsubscribe, summary, thread, attachments } = await response.json()
+        const { body_html, body_text, unsubscribe, summary, thread, attachments } =
+          await response.json()
         const body = {
           html: body_html ?? null,
           text: body_text ?? null,
@@ -1296,7 +1300,12 @@ export const useInboxStore = defineStore('inbox', {
         if (result.status === 'unsubscribed') {
           const cached = this.messageBodies.get(email.id)
           if (cached) {
-            cacheSet(this.messageBodies, email.id, { ...cached, unsubscribed: true }, MAX_CACHED_MESSAGE_BODIES)
+            cacheSet(
+              this.messageBodies,
+              email.id,
+              { ...cached, unsubscribed: true },
+              MAX_CACHED_MESSAGE_BODIES,
+            )
           }
           this.notify(`Unsubscribed from ${email.sender}.`)
         } else if (result.status === 'manual' && isSafeUnsubscribeUrl(result.url)) {
@@ -1368,7 +1377,11 @@ export const useInboxStore = defineStore('inbox', {
         applied = false
         email.scheduledFor = previousScheduledFor
         if (inboxIndex > -1 && !this.traditionalEmails.includes(email)) {
-          this.traditionalEmails.splice(Math.min(inboxIndex, this.traditionalEmails.length), 0, email)
+          this.traditionalEmails.splice(
+            Math.min(inboxIndex, this.traditionalEmails.length),
+            0,
+            email,
+          )
         }
         if (snoozedIndex === -1) {
           const currentIndex = this.snoozedEmails.indexOf(email)
@@ -2061,7 +2074,11 @@ export const useInboxStore = defineStore('inbox', {
         }
         const { answer, sources } = await response.json()
         if (seq !== askSeq) return
-        pushCapped(this.chatHistory, { text: answer, sender: 'ai', sources: sources || [] }, MAX_CHAT_HISTORY)
+        pushCapped(
+          this.chatHistory,
+          { text: answer, sender: 'ai', sources: sources || [] },
+          MAX_CHAT_HISTORY,
+        )
       } catch (error) {
         if (seq !== askSeq) return
         if (error?.name === 'AbortError') return

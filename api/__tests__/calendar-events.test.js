@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildRecurrenceRule, expandEvents, fetchEvents, parseRangeParams } from '../calendar-events.js'
+import {
+  buildRecurrenceRule,
+  expandEvents,
+  fetchEvents,
+  parseRangeParams,
+} from '../calendar-events.js'
 
 describe('buildRecurrenceRule', () => {
   it('returns null for "none"', () => {
@@ -73,7 +78,8 @@ describe('fetchEvents', () => {
     const sql = (strings) => {
       queries.push(strings.join('?'))
       calls += 1
-      if (calls === 1) return Promise.reject(Object.assign(new Error('missing table'), { code: '42P01' }))
+      if (calls === 1)
+        return Promise.reject(Object.assign(new Error('missing table'), { code: '42P01' }))
       return []
     }
 
@@ -90,7 +96,8 @@ describe('fetchEvents', () => {
     const sql = (strings) => {
       queries.push(strings.join('?'))
       calls += 1
-      if (calls === 1) return Promise.reject(Object.assign(new Error('missing column'), { code: '42703' }))
+      if (calls === 1)
+        return Promise.reject(Object.assign(new Error('missing column'), { code: '42703' }))
       return []
     }
 
@@ -114,7 +121,12 @@ describe('expandEvents', () => {
   })
 
   it('expands a weekly series into occurrences within the window', () => {
-    const event = { id: 'abc', date: '2026-07-01', start: '09:00', recurrenceRule: 'WEEKLY;UNTIL=2026-07-22' }
+    const event = {
+      id: 'abc',
+      date: '2026-07-01',
+      start: '09:00',
+      recurrenceRule: 'WEEKLY;UNTIL=2026-07-22',
+    }
 
     const occurrences = expandEvents([event], now)
 
@@ -139,7 +151,12 @@ describe('expandEvents', () => {
   })
 
   it('clamps monthly recurrence to the last day of short months', () => {
-    const event = { id: 'abc', date: '2026-01-31', start: '09:00', recurrenceRule: 'MONTHLY;UNTIL=2026-04-01' }
+    const event = {
+      id: 'abc',
+      date: '2026-01-31',
+      start: '09:00',
+      recurrenceRule: 'MONTHLY;UNTIL=2026-04-01',
+    }
 
     const occurrences = expandEvents([event], now)
 
@@ -224,16 +241,29 @@ describe('expandEvents', () => {
 
     const occurrences = expandEvents([event], now)
 
-    expect(occurrences.map((occurrence) => occurrence.date)).toEqual(['2026-08-03', '2026-08-04', '2026-08-05'])
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual([
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+    ])
   })
 })
 
 describe('parseRangeParams', () => {
   it('defaults an omitted range to the expand window rather than the full date domain', () => {
     const now = new Date('2026-07-28T00:00:00Z')
-    const { range } = parseRangeParams(new URL('/api/calendar-events', 'http://localhost').searchParams, now)
-    expect(range.from).toBe(now.toISOString().slice(0, 10) === '2026-07-28' ? new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : range.from)
-    expect(range.to).toBe(new Date(now.getTime() + 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+    const { range } = parseRangeParams(
+      new URL('/api/calendar-events', 'http://localhost').searchParams,
+      now,
+    )
+    expect(range.from).toBe(
+      now.toISOString().slice(0, 10) === '2026-07-28'
+        ? new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        : range.from,
+    )
+    expect(range.to).toBe(
+      new Date(now.getTime() + 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    )
     expect(range.from < range.to).toBe(true)
     expect(range.from).not.toBe('0001-01-01')
   })

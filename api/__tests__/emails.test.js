@@ -36,7 +36,12 @@ describe('GET /api/emails handler', () => {
     await handler({ method: 'GET', url: '/api/emails?limit=50', headers: {} }, res)
 
     expect(res.statusCode).toBe(200)
-    expect(res.body).toMatchObject({ emails: [], nextCursor: null, unreadCount: 0, userId: USER_ID })
+    expect(res.body).toMatchObject({
+      emails: [],
+      nextCursor: null,
+      unreadCount: 0,
+      userId: USER_ID,
+    })
   })
 
   it('returns lightweight inbox state without a message list', async () => {
@@ -85,7 +90,9 @@ describe('fetchEmails', () => {
 
     fetchEmails(sql, USER_ID, 50, null, 'inbox')
 
-    expect(query).toContain('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments')
+    expect(query).toContain(
+      'EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments',
+    )
     expect(query).toContain('WHERE m.user_id = ?')
     expect(query).not.toContain('body_text')
   })

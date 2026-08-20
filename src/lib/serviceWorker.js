@@ -14,8 +14,6 @@ export async function registerServiceWorker({
   }
 }
 
-export function clearCachedMail(
-  serviceWorker = globalThis.navigator?.serviceWorker ?? null,
-) {
+export function clearCachedMail(serviceWorker = globalThis.navigator?.serviceWorker ?? null) {
   serviceWorker?.controller?.postMessage({ type: CLEAR_MAIL_CACHE_MESSAGE })
 }

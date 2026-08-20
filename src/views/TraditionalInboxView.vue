@@ -303,10 +303,14 @@ function markSelectedDone() {
     store.archiveEmail(email, false, undoActions)
   }
   clearSelection()
-  store.notify(`${emails.length} ${emails.length === 1 ? 'email' : 'emails'} marked done.`, 'info', {
-    label: 'Undo',
-    run: () => Promise.all(undoActions.toReversed().map((undo) => undo())),
-  })
+  store.notify(
+    `${emails.length} ${emails.length === 1 ? 'email' : 'emails'} marked done.`,
+    'info',
+    {
+      label: 'Undo',
+      run: () => Promise.all(undoActions.toReversed().map((undo) => undo())),
+    },
+  )
 }
 
 // Stars the whole selection; if every selected email is already starred the
@@ -421,9 +425,12 @@ const openEmailHtml = computed(() => store.openEmailHtml)
 // view. Reset per open so a previous email's expanded state never leaks.
 const threadHistory = computed(() => store.openEmailThread)
 const expandedThreadIds = ref(new Set())
-watch(() => store.openEmailId, () => {
-  expandedThreadIds.value = new Set()
-})
+watch(
+  () => store.openEmailId,
+  () => {
+    expandedThreadIds.value = new Set()
+  },
+)
 function toggleThreadMessage(message) {
   const { id } = message
   const next = new Set(expandedThreadIds.value)
@@ -1070,7 +1077,11 @@ onUnmounted(() => {
             <strong>Event detected</strong>
             <span>{{ openEmailCalendarSuggestionLabel }}</span>
           </div>
-          <button type="button" class="ni-calendar-suggestion-action" @click="addOpenEmailToCalendar">
+          <button
+            type="button"
+            class="ni-calendar-suggestion-action"
+            @click="addOpenEmailToCalendar"
+          >
             Add to calendar
           </button>
         </section>
@@ -1094,7 +1105,9 @@ onUnmounted(() => {
             @click="toggleThreadMessage(message)"
           >
             <div class="ni-thread-message-summary">
-              <span class="ni-thread-message-sender">{{ message.from_name || message.from_address }}</span>
+              <span class="ni-thread-message-sender">{{
+                message.from_name || message.from_address
+              }}</span>
               <span class="ni-thread-message-time">{{ formatEmailDate(message.sent_at) }}</span>
               <span class="material-symbols-outlined ni-thread-message-chevron" aria-hidden="true">
                 {{ expandedThreadIds.has(message.id) ? 'expand_less' : 'expand_more' }}

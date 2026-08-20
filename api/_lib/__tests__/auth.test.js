@@ -31,9 +31,7 @@ describe('verifyAccessToken identity binding', () => {
       { id: '11111111-1111-4111-8111-111111111111', email: 'owner@example.com' },
     ])
 
-    await expect(
-      verifyAccessToken(req, { jwks: {}, jwtVerify, sql }),
-    ).resolves.toMatchObject({
+    await expect(verifyAccessToken(req, { jwks: {}, jwtVerify, sql })).resolves.toMatchObject({
       sub: 'auth0|stable-subject',
       userId: '11111111-1111-4111-8111-111111111111',
       email: 'owner@example.com',
@@ -56,25 +54,27 @@ describe('verifyAccessToken identity binding', () => {
     }))
     const sql = vi.fn(async () => [])
 
-    await expect(
-      verifyAccessToken(req, { jwks: {}, jwtVerify, sql }),
-    ).rejects.toThrow(/not provisioned/i)
+    await expect(verifyAccessToken(req, { jwks: {}, jwtVerify, sql })).rejects.toThrow(
+      /not provisioned/i,
+    )
   })
 
   it('rejects a token without an immutable subject even if it has an email', async () => {
     const jwtVerify = vi.fn(async () => ({ payload: { email: 'owner@example.com' } }))
     const sql = vi.fn()
 
-    await expect(
-      verifyAccessToken(req, { jwks: {}, jwtVerify, sql }),
-    ).rejects.toThrow(/no subject/i)
+    await expect(verifyAccessToken(req, { jwks: {}, jwtVerify, sql })).rejects.toThrow(
+      /no subject/i,
+    )
     expect(sql).not.toHaveBeenCalled()
   })
 
   it('fails closed with 503 when Auth0 config is missing', async () => {
     delete process.env.VITE_AUTH0_DOMAIN
 
-    await expect(verifyAccessToken(req, { jwks: {}, jwtVerify: vi.fn(), sql: vi.fn() })).rejects.toMatchObject({
+    await expect(
+      verifyAccessToken(req, { jwks: {}, jwtVerify: vi.fn(), sql: vi.fn() }),
+    ).rejects.toMatchObject({
       name: 'AuthFailure',
       status: 503,
     })

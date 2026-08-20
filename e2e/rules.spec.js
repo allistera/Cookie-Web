@@ -27,7 +27,9 @@ test('Settings Rules creates a tag rule that survives a reload', async ({ page }
 
   const rule = modal.locator('.rule-row', { hasText: 'Zoom receipts' })
   await expect(rule.locator('.ni-label-pill')).toHaveText('Finance')
-  await expect(rule.locator('.rule-row-summary')).toContainText('All of: From contains "billing@zoom.us"')
+  await expect(rule.locator('.rule-row-summary')).toContainText(
+    'All of: From contains "billing@zoom.us"',
+  )
   await expect(page.locator('.toast', { hasText: 'Rule created.' })).toBeVisible()
   // The draft resets so the form is ready for the next rule.
   await expect(modal.locator('.rule-editor-form > .label-input')).toHaveValue('')
@@ -86,9 +88,13 @@ test('A tag rule can be switched to Mark done, disabled, and deleted', async ({ 
   await page.reload()
   const reopened = await openRulesSettings(page)
   const savedRule = reopened.locator('.rule-row', { hasText: 'Archive newsletters' })
-  await expect(savedRule.getByRole('checkbox', { name: 'Enable Archive newsletters' })).not.toBeChecked()
+  await expect(
+    savedRule.getByRole('checkbox', { name: 'Enable Archive newsletters' }),
+  ).not.toBeChecked()
 
   await savedRule.getByTitle('Delete Archive newsletters').click()
   await expect(reopened.locator('.rule-row')).toHaveCount(0)
-  await expect(reopened.locator('.settings-section-hint', { hasText: 'No rules yet' })).toBeVisible()
+  await expect(
+    reopened.locator('.settings-section-hint', { hasText: 'No rules yet' }),
+  ).toBeVisible()
 })

@@ -21,8 +21,12 @@ const calendars = ref([])
 let loaded = false
 let inFlight = null
 
-const writableCalendars = computed(() => calendars.value.filter((calendar) => !calendar.subscriptionUrl))
-const subscribedCalendars = computed(() => calendars.value.filter((calendar) => calendar.subscriptionUrl))
+const writableCalendars = computed(() =>
+  calendars.value.filter((calendar) => !calendar.subscriptionUrl),
+)
+const subscribedCalendars = computed(() =>
+  calendars.value.filter((calendar) => calendar.subscriptionUrl),
+)
 
 // @param {(init?: HeadersInit) => Promise<HeadersInit>} authHeaders
 // @param {(message: string, kind?: string) => void} notify

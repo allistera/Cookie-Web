@@ -35,7 +35,14 @@ const SEED_EVENTS = [
   },
   // Dated within the next 30 days (REFERENCE_DATE is 2026-07-24) so the real
   // conflict detector in CalendarView.vue actually finds this overlap.
-  { id: 'design', title: 'Design review', date: '2026-07-25', start: '11:00', duration: 60, calendar: 'work' },
+  {
+    id: 'design',
+    title: 'Design review',
+    date: '2026-07-25',
+    start: '11:00',
+    duration: 60,
+    calendar: 'work',
+  },
   {
     id: 'client-call',
     title: 'Client call — Meridian',
@@ -45,7 +52,14 @@ const SEED_EVENTS = [
     tone: 'conflict',
     calendar: 'work',
   },
-  { id: 'standup', title: 'Standup', date: '2026-07-24', start: '09:00', duration: 30, calendar: 'work' },
+  {
+    id: 'standup',
+    title: 'Standup',
+    date: '2026-07-24',
+    start: '09:00',
+    duration: 30,
+    calendar: 'work',
+  },
   {
     id: 'recurring-review-2026-07-24',
     seriesId: 'recurring-review',
@@ -119,7 +133,9 @@ function mockCalendarApi() {
           const to = params.get('to')
           const windowed =
             from && to
-              ? events.filter((event) => event.recurrenceRule || (event.date >= from && event.date <= to))
+              ? events.filter(
+                  (event) => event.recurrenceRule || (event.date >= from && event.date <= to),
+                )
               : events
           return { ok: true, json: async () => clone({ events: windowed }) }
         }
@@ -143,14 +159,29 @@ function mockCalendarApi() {
         if (method === 'GET') return { ok: true, json: async () => clone({ calendars }) }
         if (method === 'POST' && body.action === 'sync') {
           const calendar = calendars.find((item) => item.id === body.id)
-          if (!calendar?.subscriptionUrl) return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
+          if (!calendar?.subscriptionUrl)
+            return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
           calendar.subscriptionSyncedAt = '2026-07-24T12:00:00.000Z'
           calendar.subscriptionError = null
           events = [
             ...events.filter((event) => event.calendar !== calendar.id),
-            { id: `synced-${nextId++}`, title: 'Synced meetup', date: '2026-07-24', start: '16:00', duration: 30, calendar: calendar.id },
+            {
+              id: `synced-${nextId++}`,
+              title: 'Synced meetup',
+              date: '2026-07-24',
+              start: '16:00',
+              duration: 30,
+              calendar: calendar.id,
+            },
           ]
-          return { ok: true, json: async () => ({ ok: true, subscriptionSyncedAt: calendar.subscriptionSyncedAt, subscriptionError: null }) }
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              subscriptionSyncedAt: calendar.subscriptionSyncedAt,
+              subscriptionError: null,
+            }),
+          }
         }
         if (method === 'POST') {
           if (calendars.some((calendar) => calendar.name === body.name)) {
@@ -162,7 +193,14 @@ function mockCalendarApi() {
             calendar.subscriptionError = null
             events = [
               ...events,
-              { id: `synced-${nextId++}`, title: 'Imported standup', date: '2026-07-24', start: '10:00', duration: 30, calendar: calendar.id },
+              {
+                id: `synced-${nextId++}`,
+                title: 'Imported standup',
+                date: '2026-07-24',
+                start: '10:00',
+                duration: 30,
+                calendar: calendar.id,
+              },
             ]
           }
           calendars = [...calendars, calendar]
@@ -170,7 +208,8 @@ function mockCalendarApi() {
         }
         if (method === 'PATCH') {
           const index = calendars.findIndex((item) => item.id === body.id)
-          if (index === -1) return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
+          if (index === -1)
+            return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
           if (calendars.some((item) => item.id !== body.id && item.name === body.name)) {
             return { ok: false, status: 409, json: async () => ({ error: 'duplicate' }) }
           }
@@ -255,7 +294,9 @@ describe('CalendarView', () => {
       'Birthdays',
       'Holidays',
     ])
-    expect(wrapper.findAll('.calendar-sidebar-label').map((label) => label.text())).toEqual(['Calendars'])
+    expect(wrapper.findAll('.calendar-sidebar-label').map((label) => label.text())).toEqual([
+      'Calendars',
+    ])
     expect(wrapper.get('.calendar-manage-link').text()).toContain('Manage calendars')
     expect(wrapper.find('.calendar-add-btn').exists()).toBe(false)
     expect(wrapper.find('.day-event').text()).toContain('Standup')
@@ -280,7 +321,9 @@ describe('CalendarView', () => {
     expect(standup.element.style.getPropertyValue('--event-color')).toBe('#4f7c6b')
 
     await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
-    const designReview = wrapper.findAll('.month-event').find((event) => event.text().includes('Design review'))
+    const designReview = wrapper
+      .findAll('.month-event')
+      .find((event) => event.text().includes('Design review'))
     expect(designReview.element.style.getPropertyValue('--event-color')).toBe('#4f7c6b')
   })
 
@@ -427,7 +470,9 @@ describe('CalendarView', () => {
     expect(title.element).toBe(document.activeElement)
 
     const description = wrapper.get('.new-event-description-input')
-    expect(description.attributes('placeholder')).toBe('Tell Cookie what you need — it fills in the rest')
+    expect(description.attributes('placeholder')).toBe(
+      'Tell Cookie what you need — it fills in the rest',
+    )
 
     expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
     expect(wrapper.find('input[placeholder="Add location"]').exists()).toBe(true)
@@ -550,7 +595,9 @@ describe('CalendarView', () => {
     expect(dayEventTitles).not.toContain('Standup')
     const updateCall = vi
       .mocked(fetch)
-      .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH')
+      .mock.calls.find(
+        ([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH',
+      )
     expect(JSON.parse(updateCall[1].body).calendar).toBe('personal')
     wrapper.unmount()
   })
@@ -570,7 +617,9 @@ describe('CalendarView', () => {
 
     const updateCall = vi
       .mocked(fetch)
-      .mock.calls.find(([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH')
+      .mock.calls.find(
+        ([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH',
+      )
     expect(JSON.parse(updateCall[1].body)).toMatchObject({
       id: 'recurring-review',
       date: '2026-07-10',
@@ -648,7 +697,9 @@ describe('CalendarView', () => {
     ])
     expect(sections[1].text()).toContain('Team Feed')
 
-    const synced = wrapper.findAll('.day-event').find((event) => event.text().includes('Imported standup'))
+    const synced = wrapper
+      .findAll('.day-event')
+      .find((event) => event.text().includes('Imported standup'))
     await synced.trigger('click')
 
     expect(wrapper.get('.new-event-title-input').attributes('disabled')).toBeDefined()
@@ -680,7 +731,9 @@ describe('CalendarView', () => {
           return {
             ok: true,
             json: async () =>
-              clone({ events: SEED_EVENTS.map(({ autoScheduled: _autoScheduled, ...event }) => event) }),
+              clone({
+                events: SEED_EVENTS.map(({ autoScheduled: _autoScheduled, ...event }) => event),
+              }),
           }
         }
         if (url === CALENDARS_ENDPOINT && method === 'GET') {
@@ -728,8 +781,22 @@ describe('CalendarView', () => {
 
   it('ignores an overlap more than 30 days out', async () => {
     stubEventsOnly([
-      { id: 'far-a', title: 'Far A', date: '2026-09-10', start: '11:00', duration: 60, calendar: 'work' },
-      { id: 'far-b', title: 'Far B', date: '2026-09-10', start: '11:30', duration: 60, calendar: 'work' },
+      {
+        id: 'far-a',
+        title: 'Far A',
+        date: '2026-09-10',
+        start: '11:00',
+        duration: 60,
+        calendar: 'work',
+      },
+      {
+        id: 'far-b',
+        title: 'Far B',
+        date: '2026-09-10',
+        start: '11:30',
+        duration: 60,
+        calendar: 'work',
+      },
     ])
     const wrapper = await mountCalendar()
 
@@ -738,8 +805,23 @@ describe('CalendarView', () => {
 
   it('ignores an all-day event overlapping a timed one', async () => {
     stubEventsOnly([
-      { id: 'holiday-2', title: 'Company Holiday', date: '2026-07-25', start: '00:00', duration: 1440, allDay: true, calendar: 'holidays' },
-      { id: 'meeting', title: 'Team meeting', date: '2026-07-25', start: '10:00', duration: 30, calendar: 'work' },
+      {
+        id: 'holiday-2',
+        title: 'Company Holiday',
+        date: '2026-07-25',
+        start: '00:00',
+        duration: 1440,
+        allDay: true,
+        calendar: 'holidays',
+      },
+      {
+        id: 'meeting',
+        title: 'Team meeting',
+        date: '2026-07-25',
+        start: '10:00',
+        duration: 30,
+        calendar: 'work',
+      },
     ])
     const wrapper = await mountCalendar()
 

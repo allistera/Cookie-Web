@@ -28,10 +28,7 @@ function mountView(options = {}) {
 // requests a deterministic success response; tests that care about a request
 // replace this stub with a purpose-built mock.
 beforeEach(async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
-  )
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -81,9 +78,7 @@ describe('TraditionalInboxView day accordion', () => {
   })
 
   function groupHeader(wrapper, label) {
-    return wrapper
-      .findAll('.ni-group-header')
-      .find((header) => header.text().includes(label))
+    return wrapper.findAll('.ni-group-header').find((header) => header.text().includes(label))
   }
 
   it('shows only Today expanded by default', () => {
@@ -137,7 +132,10 @@ describe('TraditionalInboxView day accordion', () => {
     store.traditionalEmails.unshift(eventEmail)
     const wrapper = mountView()
 
-    await wrapper.findAll('.ni-row').find((row) => row.text().includes('guided tour')).trigger('click')
+    await wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('guided tour'))
+      .trigger('click')
 
     expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
     expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Add to calendar')
@@ -1186,7 +1184,8 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     expect(store.openEmailId).toBe(null)
 
     const [url, options] = fetchMock.mock.calls.find(
-      ([requestUrl, options]) => requestUrl === `${MESSAGES_API_URL}/messages` && options.method === 'POST',
+      ([requestUrl, options]) =>
+        requestUrl === `${MESSAGES_API_URL}/messages` && options.method === 'POST',
     )
     expect(url).toBe(`${MESSAGES_API_URL}/messages`)
     expect(options.method).toBe('POST')
@@ -1196,7 +1195,11 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
   })
 
   it('opens the unsubscribe page when the sender only offers a link', async () => {
-    const reader = await openReader({ oneClick: false, url: 'https://news.example/unsub', mailto: null })
+    const reader = await openReader({
+      oneClick: false,
+      url: 'https://news.example/unsub',
+      mailto: null,
+    })
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ status: 'manual', method: 'link', url: 'https://news.example/unsub' }),
@@ -1289,10 +1292,12 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     })
     await wrapper.vm.$nextTick()
 
-    wrapper.findComponent(EmailBody).vm.$emit(
-      'keydown',
-      new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }),
-    )
+    wrapper
+      .findComponent(EmailBody)
+      .vm.$emit(
+        'keydown',
+        new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }),
+      )
 
     expect(store.archiveEmail).toHaveBeenCalledTimes(1)
     expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')

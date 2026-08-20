@@ -12,7 +12,9 @@ describe('signature storage', () => {
   it('round-trips a saved signature', () => {
     saveStoredSignature('<p>Best, <strong>Allister</strong></p>')
     expect(getStoredSignature()).toBe('<p>Best, <strong>Allister</strong></p>')
-    expect(localStorage.getItem('cookie-signature-html')).toBe('<p>Best, <strong>Allister</strong></p>')
+    expect(localStorage.getItem('cookie-signature-html')).toBe(
+      '<p>Best, <strong>Allister</strong></p>',
+    )
   })
 
   it('coerces null/undefined to an empty string', () => {

@@ -127,9 +127,7 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(sidebar.getByRole('link', { name: '#meeting, 1 document' })).toHaveCount(0)
 
   // Star it from the tree: it joins the sidebar's Starred section.
-  const treeRow = page
-    .locator('.documents-tree .doc-item', { hasText: 'Meeting notes' })
-    .first()
+  const treeRow = page.locator('.documents-tree .doc-item', { hasText: 'Meeting notes' }).first()
   await treeRow.hover()
   await treeRow.getByRole('button', { name: 'Star Meeting notes' }).click()
   await expect(
@@ -186,12 +184,19 @@ test('A table block computes formulas, recalculates on change, and persists acro
 
   // A brand-new table freezes its header row by default.
   const frozenRows = await page.evaluate(() =>
-    document.querySelector('.univer-sheet-block').__univerAPI.getActiveWorkbook().getActiveSheet().getFrozenRows(),
+    document
+      .querySelector('.univer-sheet-block')
+      .__univerAPI.getActiveWorkbook()
+      .getActiveSheet()
+      .getFrozenRows(),
   )
   expect(frozenRows).toBe(1)
 
   await page.evaluate(() => {
-    const sheet = document.querySelector('.univer-sheet-block').__univerAPI.getActiveWorkbook().getActiveSheet()
+    const sheet = document
+      .querySelector('.univer-sheet-block')
+      .__univerAPI.getActiveWorkbook()
+      .getActiveSheet()
     sheet.getRange('A1:B2').setValues([
       ['10', '5'],
       ['=A1+B1', '=A1/B1'],
@@ -206,9 +211,13 @@ test('A table block computes formulas, recalculates on change, and persists acro
   // so matching on it alone can resolve on an earlier, still-stale save —
   // wait for the specific PATCH whose saved A1 value is the new one (20).
   const formulaPatch = page.waitForResponse((response) => {
-    if (!response.url().includes('/documents') || response.request().method() !== 'PATCH') return false
+    if (!response.url().includes('/documents') || response.request().method() !== 'PATCH')
+      return false
     try {
-      const tableBlock = response.request().postDataJSON()?.blocks?.find((block) => block.type === 'table')
+      const tableBlock = response
+        .request()
+        .postDataJSON()
+        ?.blocks?.find((block) => block.type === 'table')
       const sheets = tableBlock?.data?.workbook?.sheets
       const sheetId = tableBlock?.data?.workbook?.sheetOrder?.[0]
       return sheets?.[sheetId]?.cellData?.[0]?.[0]?.v === 20
@@ -513,9 +522,7 @@ test('Folders can be created inline and documents dragged between them', async (
   const scratchpad = sidebar.locator('.doc-item', { hasText: 'Scratchpad' })
   await scratchpad.dragTo(sidebar.locator('.folder-item', { hasText: 'Reading list' }))
   await expect
-    .poll(async () =>
-      sidebar.locator('.doc-item', { hasText: 'Scratchpad' }).getAttribute('style'),
-    )
+    .poll(async () => sidebar.locator('.doc-item', { hasText: 'Scratchpad' }).getAttribute('style'))
     .toContain('padding-left: 24px')
 
   // Deleting the folder returns its documents to the root.

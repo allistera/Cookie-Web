@@ -391,7 +391,6 @@ function onDocumentClick(e) {
   if (profileContainer && !profileContainer.contains(e.target)) {
     showLogoutMenu.value = false
   }
-
 }
 
 onMounted(() => {
@@ -436,296 +435,315 @@ onUnmounted(() => {
   <template v-else>
     <router-view v-if="route.meta.layout === 'settings'" />
     <div v-else class="app-container">
-    <!-- TOP HEADER -->
-    <header class="app-header">
-      <div class="header-left">
-        <div class="app-switcher">
-          <router-link
-            :to="APPS[activeApp].to"
-            class="logo-container"
-            :aria-label="`Cookie ${APPS[activeApp].label} home`"
-            @click="onAppLogoClick"
-          >
-            <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
-            <span class="logo-text">Cookie</span>
-            <span class="logo-suffix">{{ APPS[activeApp].label }}</span>
-          </router-link>
-          <button
-            class="app-switcher-trigger"
-            type="button"
-            aria-label="Switch Cookie app"
-            aria-haspopup="menu"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span>
-          </button>
-          <!-- Outer div is the hover-bridge positioner; the card inside is the
+      <!-- TOP HEADER -->
+      <header class="app-header">
+        <div class="header-left">
+          <div class="app-switcher">
+            <router-link
+              :to="APPS[activeApp].to"
+              class="logo-container"
+              :aria-label="`Cookie ${APPS[activeApp].label} home`"
+              @click="onAppLogoClick"
+            >
+              <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
+              <span class="logo-text">Cookie</span>
+              <span class="logo-suffix">{{ APPS[activeApp].label }}</span>
+            </router-link>
+            <button
+              class="app-switcher-trigger"
+              type="button"
+              aria-label="Switch Cookie app"
+              aria-haspopup="menu"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span>
+            </button>
+            <!-- Outer div is the hover-bridge positioner; the card inside is the
                single visual surface all app links share. -->
-          <div class="app-switcher-menu">
-            <div class="app-switcher-menu-card" role="menu">
-              <router-link
-                v-for="app in otherApps"
-                :key="app.key"
-                :to="app.to"
-                class="app-switcher-menu-item"
-                role="menuitem"
-              >
-                <span class="material-symbols-outlined" aria-hidden="true">{{ app.icon }}</span>
-                <span>{{ app.label }}</span>
-              </router-link>
+            <div class="app-switcher-menu">
+              <div class="app-switcher-menu-card" role="menu">
+                <router-link
+                  v-for="app in otherApps"
+                  :key="app.key"
+                  :to="app.to"
+                  class="app-switcher-menu-item"
+                  role="menuitem"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">{{ app.icon }}</span>
+                  <span>{{ app.label }}</span>
+                </router-link>
+              </div>
             </div>
           </div>
-        </div>
-        <button
-          v-if="notificationCount"
-          class="header-notification-btn"
-          type="button"
-          :aria-label="`Open ${notificationCount} notification${notificationCount === 1 ? '' : 's'}: ${notificationSources[0].label}`"
-          @click="openFirstNotification"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">notifications</span>
-          <span class="header-notification-count" aria-hidden="true">{{ notificationCountText }}</span>
-        </button>
-      </div>
-
-      <div class="header-center">
-        <div v-if="activeApp === 'email'" class="search-bar-container" id="searchBarContainer">
-          <span class="material-symbols-outlined search-icon">search</span>
-          <input
-            type="text"
-            class="search-input"
-            placeholder="Search mail — try tag:Personal or in:done"
-            aria-label="Search mail. Use tag:Personal, sender:foo@bar.com, or in:done/spam/all to filter."
-            v-model="searchInputVal"
-            @focus="isSearchSuggestionsActive = true"
-            @keydown.enter.prevent="handleSearchEnter"
-          />
-          <span
-            class="material-symbols-outlined search-clear-icon"
-            v-if="searchInputVal.length > 0"
-            @click="clearSearch"
+          <button
+            v-if="notificationCount"
+            class="header-notification-btn"
+            type="button"
+            :aria-label="`Open ${notificationCount} notification${notificationCount === 1 ? '' : 's'}: ${notificationSources[0].label}`"
+            @click="openFirstNotification"
           >
-            close
-          </span>
-
-          <!-- Enter searches the mailbox; this dropdown routes the same text
-               to the Q&A assistant instead. -->
-          <div
-            class="search-suggestions"
-            :class="{ active: isSearchSuggestionsActive && searchInputVal.trim().length > 0 }"
-          >
-            <div class="suggestion-item" @click="askFromSearch">
-              <span class="material-symbols-outlined text-purple">chat_bubble</span>
-              <span>Search Cookie: “{{ searchInputVal.trim() }}”</span>
-            </div>
-          </div>
-        </div>
-
-        <div
-          v-else-if="activeApp === 'documents'"
-          class="search-bar-container"
-          id="docSearchBarContainer"
-        >
-          <span class="material-symbols-outlined search-icon">search</span>
-          <input
-            type="text"
-            class="search-input"
-            placeholder="Search documents — try tag:Work or is:starred"
-            aria-label="Search documents. Use tag:Work or is:starred to filter."
-            v-model="docSearchInputVal"
-            @focus="isDocSearchSuggestionsActive = true"
-            @keydown.enter.prevent="handleDocSearchEnter"
-          />
-          <span
-            class="material-symbols-outlined search-clear-icon"
-            v-if="docSearchInputVal.length > 0"
-            @click="clearDocSearch"
-          >
-            close
-          </span>
-
-          <!-- Enter and this dropdown both run the same hybrid search; the
-               dropdown is a discoverability affordance, not a second action. -->
-          <div
-            class="search-suggestions"
-            :class="{ active: isDocSearchSuggestionsActive && docSearchInputVal.trim().length > 0 }"
-          >
-            <div class="suggestion-item" @click="searchDocumentsFromSuggestion">
-              <span class="material-symbols-outlined text-blue">description</span>
-              <span>Search documents: “{{ docSearchInputVal.trim() }}”</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="header-right">
-        <div class="profile-container" :title="user?.name || 'Account'" @click="showLogoutMenu = !showLogoutMenu">
-          <img :src="user?.picture || '/rose_avatar.webp'" :alt="user?.name || 'Account'" class="profile-img" />
-
-          <!-- Dropdown/Logout menu -->
-          <div class="profile-dropdown" v-if="showLogoutMenu" @click.stop>
-            <div class="dropdown-user-info">
-              <span class="user-name">{{ user?.name }}</span>
-              <span class="user-email">{{ user?.email }}</span>
-            </div>
-            <div class="dropdown-divider"></div>
-            <button class="dropdown-menu-btn" @click="openSettings">
-              <span class="material-symbols-outlined">settings</span>
-              <span>Settings</span>
-            </button>
-            <button class="logout-btn" @click="handleLogout">
-              <span class="material-symbols-outlined">logout</span>
-              <span>Log out</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <div class="app-body">
-      <!-- LEFT SIDEBAR -->
-      <aside v-if="activeApp === 'email'" class="left-sidebar">
-        <button class="compose-btn" @click="store.openComposer()">
-          <span class="material-symbols-outlined">edit_square</span>
-          <span>Compose</span>
-        </button>
-
-        <div class="sb-section-label">Views</div>
-
-        <nav class="sidebar-nav">
-          <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
-            <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
-            <span class="nav-text">AI Today</span>
-          </router-link>
-          <router-link
-            to="/inbox"
-            class="nav-item"
-            :class="{ active: route.name === 'traditional-inbox' && !route.query.filter }"
-            @click="leaveSearchResults"
-          >
-            <span class="material-symbols-outlined nav-icon-red">inbox</span>
-            <span class="nav-text">Inbox</span>
-            <span class="nav-badge" v-if="store.unreadInboxCount">{{ store.unreadInboxCount }}</span>
-          </router-link>
-          <router-link
-            :to="{ path: '/inbox', query: { filter: 'starred' } }"
-            class="nav-item"
-            :class="{ active: route.query.filter === 'starred' }"
-          >
-            <span class="material-symbols-outlined">star</span>
-            <span class="nav-text">Starred</span>
-          </router-link>
-          <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
-            <span class="material-symbols-outlined">{{
-              showMoreNav ? 'keyboard_arrow_up' : 'keyboard_arrow_down'
+            <span class="material-symbols-outlined" aria-hidden="true">notifications</span>
+            <span class="header-notification-count" aria-hidden="true">{{
+              notificationCountText
             }}</span>
-            <span class="nav-text">{{ showMoreNav ? 'Less' : 'More' }}</span>
-          </a>
-          <template v-if="showMoreNav">
-            <router-link
-              :to="{ path: '/inbox', query: { filter: 'snoozed' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'snoozed' }"
-            >
-              <span class="material-symbols-outlined">schedule</span>
-              <span class="nav-text">Snoozed</span>
-            </router-link>
-            <router-link
-              :to="{ path: '/scheduled' }"
-              class="nav-item"
-              :class="{ active: route.name === 'scheduled-sends' }"
-            >
-              <span class="material-symbols-outlined">upcoming</span>
-              <span class="nav-text">Scheduled</span>
-            </router-link>
-            <router-link
-              :to="{ path: '/inbox', query: { filter: 'done' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'done' }"
-            >
-              <span class="material-symbols-outlined">task_alt</span>
-              <span class="nav-text">Done</span>
-            </router-link>
-            <router-link
-              :to="{ path: '/inbox', query: { filter: 'sent' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'sent' }"
-            >
-              <span class="material-symbols-outlined">send</span>
-              <span class="nav-text">Sent</span>
-            </router-link>
-            <router-link
-              :to="{ path: '/inbox', query: { filter: 'spam' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'spam' }"
-            >
-              <span class="material-symbols-outlined">report</span>
-              <span class="nav-text">Spam</span>
-            </router-link>
-          </template>
-        </nav>
+          </button>
+        </div>
 
-        <template v-if="store.allLabels.length">
-          <div class="sb-section-label">Labels</div>
-          <nav class="sidebar-nav">
-            <router-link
-              v-for="label in store.allLabels"
-              :key="label.name"
-              :to="{ path: '/inbox', query: { filter: 'label', label: label.name } }"
-              class="nav-item"
+        <div class="header-center">
+          <div v-if="activeApp === 'email'" class="search-bar-container" id="searchBarContainer">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search mail — try tag:Personal or in:done"
+              aria-label="Search mail. Use tag:Personal, sender:foo@bar.com, or in:done/spam/all to filter."
+              v-model="searchInputVal"
+              @focus="isSearchSuggestionsActive = true"
+              @keydown.enter.prevent="handleSearchEnter"
+            />
+            <span
+              class="material-symbols-outlined search-clear-icon"
+              v-if="searchInputVal.length > 0"
+              @click="clearSearch"
+            >
+              close
+            </span>
+
+            <!-- Enter searches the mailbox; this dropdown routes the same text
+               to the Q&A assistant instead. -->
+            <div
+              class="search-suggestions"
+              :class="{ active: isSearchSuggestionsActive && searchInputVal.trim().length > 0 }"
+            >
+              <div class="suggestion-item" @click="askFromSearch">
+                <span class="material-symbols-outlined text-purple">chat_bubble</span>
+                <span>Search Cookie: “{{ searchInputVal.trim() }}”</span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-else-if="activeApp === 'documents'"
+            class="search-bar-container"
+            id="docSearchBarContainer"
+          >
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search documents — try tag:Work or is:starred"
+              aria-label="Search documents. Use tag:Work or is:starred to filter."
+              v-model="docSearchInputVal"
+              @focus="isDocSearchSuggestionsActive = true"
+              @keydown.enter.prevent="handleDocSearchEnter"
+            />
+            <span
+              class="material-symbols-outlined search-clear-icon"
+              v-if="docSearchInputVal.length > 0"
+              @click="clearDocSearch"
+            >
+              close
+            </span>
+
+            <!-- Enter and this dropdown both run the same hybrid search; the
+               dropdown is a discoverability affordance, not a second action. -->
+            <div
+              class="search-suggestions"
               :class="{
-                active: route.query.filter === 'label' && route.query.label === label.name,
+                active: isDocSearchSuggestionsActive && docSearchInputVal.trim().length > 0,
               }"
             >
-              <span class="material-symbols-outlined" :style="{ color: label.color }">sell</span>
-              <span class="nav-text">{{ label.name }}</span>
+              <div class="suggestion-item" @click="searchDocumentsFromSuggestion">
+                <span class="material-symbols-outlined text-blue">description</span>
+                <span>Search documents: “{{ docSearchInputVal.trim() }}”</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <div
+            class="profile-container"
+            :title="user?.name || 'Account'"
+            @click="showLogoutMenu = !showLogoutMenu"
+          >
+            <img
+              :src="user?.picture || '/rose_avatar.webp'"
+              :alt="user?.name || 'Account'"
+              class="profile-img"
+            />
+
+            <!-- Dropdown/Logout menu -->
+            <div class="profile-dropdown" v-if="showLogoutMenu" @click.stop>
+              <div class="dropdown-user-info">
+                <span class="user-name">{{ user?.name }}</span>
+                <span class="user-email">{{ user?.email }}</span>
+              </div>
+              <div class="dropdown-divider"></div>
+              <button class="dropdown-menu-btn" @click="openSettings">
+                <span class="material-symbols-outlined">settings</span>
+                <span>Settings</span>
+              </button>
+              <button class="logout-btn" @click="handleLogout">
+                <span class="material-symbols-outlined">logout</span>
+                <span>Log out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <!-- LEFT SIDEBAR -->
+        <aside v-if="activeApp === 'email'" class="left-sidebar">
+          <button class="compose-btn" @click="store.openComposer()">
+            <span class="material-symbols-outlined">edit_square</span>
+            <span>Compose</span>
+          </button>
+
+          <div class="sb-section-label">Views</div>
+
+          <nav class="sidebar-nav">
+            <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
+              <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
+              <span class="nav-text">AI Today</span>
             </router-link>
+            <router-link
+              to="/inbox"
+              class="nav-item"
+              :class="{ active: route.name === 'traditional-inbox' && !route.query.filter }"
+              @click="leaveSearchResults"
+            >
+              <span class="material-symbols-outlined nav-icon-red">inbox</span>
+              <span class="nav-text">Inbox</span>
+              <span class="nav-badge" v-if="store.unreadInboxCount">{{
+                store.unreadInboxCount
+              }}</span>
+            </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'starred' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'starred' }"
+            >
+              <span class="material-symbols-outlined">star</span>
+              <span class="nav-text">Starred</span>
+            </router-link>
+            <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
+              <span class="material-symbols-outlined">{{
+                showMoreNav ? 'keyboard_arrow_up' : 'keyboard_arrow_down'
+              }}</span>
+              <span class="nav-text">{{ showMoreNav ? 'Less' : 'More' }}</span>
+            </a>
+            <template v-if="showMoreNav">
+              <router-link
+                :to="{ path: '/inbox', query: { filter: 'snoozed' } }"
+                class="nav-item"
+                :class="{ active: route.query.filter === 'snoozed' }"
+              >
+                <span class="material-symbols-outlined">schedule</span>
+                <span class="nav-text">Snoozed</span>
+              </router-link>
+              <router-link
+                :to="{ path: '/scheduled' }"
+                class="nav-item"
+                :class="{ active: route.name === 'scheduled-sends' }"
+              >
+                <span class="material-symbols-outlined">upcoming</span>
+                <span class="nav-text">Scheduled</span>
+              </router-link>
+              <router-link
+                :to="{ path: '/inbox', query: { filter: 'done' } }"
+                class="nav-item"
+                :class="{ active: route.query.filter === 'done' }"
+              >
+                <span class="material-symbols-outlined">task_alt</span>
+                <span class="nav-text">Done</span>
+              </router-link>
+              <router-link
+                :to="{ path: '/inbox', query: { filter: 'sent' } }"
+                class="nav-item"
+                :class="{ active: route.query.filter === 'sent' }"
+              >
+                <span class="material-symbols-outlined">send</span>
+                <span class="nav-text">Sent</span>
+              </router-link>
+              <router-link
+                :to="{ path: '/inbox', query: { filter: 'spam' } }"
+                class="nav-item"
+                :class="{ active: route.query.filter === 'spam' }"
+              >
+                <span class="material-symbols-outlined">report</span>
+                <span class="nav-text">Spam</span>
+              </router-link>
+            </template>
           </nav>
-        </template>
-      </aside>
 
-      <!-- Documents: the file tree replaces the mail sidebar -->
-      <DocumentsSidebar v-else-if="activeApp === 'documents'" />
+          <template v-if="store.allLabels.length">
+            <div class="sb-section-label">Labels</div>
+            <nav class="sidebar-nav">
+              <router-link
+                v-for="label in store.allLabels"
+                :key="label.name"
+                :to="{ path: '/inbox', query: { filter: 'label', label: label.name } }"
+                class="nav-item"
+                :class="{
+                  active: route.query.filter === 'label' && route.query.label === label.name,
+                }"
+              >
+                <span class="material-symbols-outlined" :style="{ color: label.color }">sell</span>
+                <span class="nav-text">{{ label.name }}</span>
+              </router-link>
+            </nav>
+          </template>
+        </aside>
 
-      <!-- MAIN CONTENT PANEL -->
-      <main class="main-content">
-        <router-view />
-      </main>
+        <!-- Documents: the file tree replaces the mail sidebar -->
+        <DocumentsSidebar v-else-if="activeApp === 'documents'" />
 
-      <!-- Assistant chat drawer -->
-      <ChatDrawer v-if="chatDrawerLoaded" />
+        <!-- MAIN CONTENT PANEL -->
+        <main class="main-content">
+          <router-view />
+        </main>
+
+        <!-- Assistant chat drawer -->
+        <ChatDrawer v-if="chatDrawerLoaded" />
+      </div>
+
+      <!-- Command palette (Cmd+K) -->
+      <CommandPalette v-if="commandPaletteLoaded" />
     </div>
 
-    <!-- Command palette (Cmd+K) -->
-    <CommandPalette v-if="commandPaletteLoaded" />
-  </div>
+    <!-- Toast notifications -->
+    <div class="toast-container">
+      <Transition name="toast">
+        <div
+          v-if="store.pendingSend"
+          class="toast undo-send-toast"
+          :class="{ expanded: undoSendHover }"
+          @mouseenter="onUndoSendEnter"
+          @mouseleave="onUndoSendLeave"
+        >
+          <span class="toast-message">Sending in {{ store.pendingSend.secondsLeft }}</span>
+          <button v-if="undoSendHover" class="undo-send-btn" @click="undoSend">Undo</button>
+        </div>
+      </Transition>
+      <TransitionGroup name="toast">
+        <div
+          v-for="toast in store.toasts"
+          :key="toast.id"
+          class="toast"
+          :class="`toast-${toast.kind}`"
+        >
+          <span class="toast-message">{{ toast.message }}</span>
+          <button v-if="toast.action" class="toast-action" @click="store.runToastAction(toast.id)">
+            {{ toast.action.label }}
+          </button>
+          <button class="toast-close" title="Dismiss" @click="store.dismissToast(toast.id)">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      </TransitionGroup>
+    </div>
 
-  <!-- Toast notifications -->
-  <div class="toast-container">
-    <Transition name="toast">
-      <div
-        v-if="store.pendingSend"
-        class="toast undo-send-toast"
-        :class="{ expanded: undoSendHover }"
-        @mouseenter="onUndoSendEnter"
-        @mouseleave="onUndoSendLeave"
-      >
-        <span class="toast-message">Sending in {{ store.pendingSend.secondsLeft }}</span>
-        <button v-if="undoSendHover" class="undo-send-btn" @click="undoSend">Undo</button>
-      </div>
-    </Transition>
-    <TransitionGroup name="toast">
-      <div v-for="toast in store.toasts" :key="toast.id" class="toast" :class="`toast-${toast.kind}`">
-        <span class="toast-message">{{ toast.message }}</span>
-        <button v-if="toast.action" class="toast-action" @click="store.runToastAction(toast.id)">
-          {{ toast.action.label }}
-        </button>
-        <button class="toast-close" title="Dismiss" @click="store.dismissToast(toast.id)">
-          <span class="material-symbols-outlined">close</span>
-        </button>
-      </div>
-    </TransitionGroup>
-  </div>
-
-  <ComposerWindow v-if="composerLoaded" />
+    <ComposerWindow v-if="composerLoaded" />
   </template>
 </template>

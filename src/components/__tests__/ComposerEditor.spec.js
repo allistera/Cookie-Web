@@ -16,7 +16,11 @@ describe('ComposerEditor snippets', () => {
   it('shows and inserts a matching snippet in place of its slash trigger', async () => {
     const wrapper = mount(ComposerEditor, {
       attachTo: document.body,
-      props: { snippets: [{ id: 'hello', name: 'hello-world', html: '<p>Hello <strong>world</strong></p>' }] },
+      props: {
+        snippets: [
+          { id: 'hello', name: 'hello-world', html: '<p>Hello <strong>world</strong></p>' },
+        ],
+      },
     })
     const editor = wrapper.find('.composer-editor')
     editor.element.textContent = '/hello-world'
@@ -27,7 +31,9 @@ describe('ComposerEditor snippets', () => {
     expect(wrapper.find('.composer-slash-menu').text()).toContain('hello-world')
     await editor.trigger('keydown', { key: 'Enter' })
 
-    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('<p>Hello <strong>world</strong></p>')
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain(
+      '<p>Hello <strong>world</strong></p>',
+    )
     expect(editor.html()).not.toContain('/hello-world')
   })
 

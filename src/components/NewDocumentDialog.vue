@@ -35,7 +35,12 @@ async function createDocument(templateId = null) {
 
 <template>
   <div class="new-document-overlay" @mousedown.self="store.closeNewDocumentDialog()">
-    <section class="new-document-dialog" role="dialog" aria-modal="true" aria-labelledby="new-document-title">
+    <section
+      class="new-document-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="new-document-title"
+    >
       <header class="new-document-dialog-header">
         <div>
           <h2 id="new-document-title">New document</h2>
@@ -53,8 +58,15 @@ async function createDocument(templateId = null) {
       </header>
 
       <div class="new-document-options">
-        <button type="button" class="new-document-option" :disabled="isCreating" @click="createDocument()">
-          <span class="new-document-option-icon material-symbols-outlined" aria-hidden="true">description</span>
+        <button
+          type="button"
+          class="new-document-option"
+          :disabled="isCreating"
+          @click="createDocument()"
+        >
+          <span class="new-document-option-icon material-symbols-outlined" aria-hidden="true"
+            >description</span
+          >
           <span>
             <strong>Blank document</strong>
             <small>Start with an empty page</small>
@@ -72,7 +84,9 @@ async function createDocument(templateId = null) {
             :disabled="isCreating"
             @click="createDocument(template.id)"
           >
-            <span class="new-document-option-icon" aria-hidden="true">{{ template.emoji || '📄' }}</span>
+            <span class="new-document-option-icon" aria-hidden="true">{{
+              template.emoji || '📄'
+            }}</span>
             <span>
               <strong>{{ template.title }}</strong>
               <small>Use this template</small>

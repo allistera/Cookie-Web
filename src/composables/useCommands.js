@@ -135,8 +135,7 @@ export function useCommands() {
         title: `Go to label ${label.name}`,
         icon: 'sell',
         iconColor: label.color,
-        run: () =>
-          router.push({ path: '/inbox', query: { filter: 'label', label: label.name } }),
+        run: () => router.push({ path: '/inbox', query: { filter: 'label', label: label.name } }),
       })),
       {
         id: 'open-settings',

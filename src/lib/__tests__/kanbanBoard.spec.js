@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  createDefaultKanbanBoard,
-  kanbanBoardLabel,
-  normalizeKanbanBoard,
-} from '../kanbanBoard.js'
+import { createDefaultKanbanBoard, kanbanBoardLabel, normalizeKanbanBoard } from '../kanbanBoard.js'
 
 describe('Kanban boards', () => {
   it('defaults a brand new block to Todo/In Progress/Done', () => {

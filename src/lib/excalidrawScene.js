@@ -19,7 +19,9 @@ export function serializeExcalidrawScene(elements, appState, files, serializeAsJ
 }
 
 export function excalidrawDrawingLabel(scene) {
-  const count = normalizeExcalidrawScene(scene).elements.filter((element) => !element?.isDeleted).length
+  const count = normalizeExcalidrawScene(scene).elements.filter(
+    (element) => !element?.isDeleted,
+  ).length
   if (count === 0) return 'Excalidraw drawing, empty'
   return `Excalidraw drawing, ${count} element${count === 1 ? '' : 's'}`
 }

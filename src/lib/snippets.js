@@ -1,7 +1,15 @@
 import { sanitizeEmailHtml } from './sanitizeEmailHtml.js'
 
 const SNIPPETS_KEY = 'cookie-compose-snippets'
-const RESERVED_NAMES = new Set(['generate', 'heading', 'bullet', 'numbered', 'bold', 'quote', 'divider'])
+const RESERVED_NAMES = new Set([
+  'generate',
+  'heading',
+  'bullet',
+  'numbered',
+  'bold',
+  'quote',
+  'divider',
+])
 const MAX_SNIPPETS = 50
 const MAX_NAME_LENGTH = 50
 

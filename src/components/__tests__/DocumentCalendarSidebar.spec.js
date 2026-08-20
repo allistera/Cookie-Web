@@ -8,8 +8,23 @@ import { useDocumentsStore } from '../../stores/documents'
 
 const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
 const EVENTS = [
-  { id: 'standup', title: 'Standup', date: '2026-08-13', start: '09:00', duration: 30, calendar: 'work' },
-  { id: 'holiday', title: 'Company Holiday', date: '2026-08-13', start: '00:00', duration: 1440, allDay: true, calendar: 'holidays' },
+  {
+    id: 'standup',
+    title: 'Standup',
+    date: '2026-08-13',
+    start: '09:00',
+    duration: 30,
+    calendar: 'work',
+  },
+  {
+    id: 'holiday',
+    title: 'Company Holiday',
+    date: '2026-08-13',
+    start: '00:00',
+    duration: 1440,
+    allDay: true,
+    calendar: 'holidays',
+  },
 ]
 
 function mockApi() {
@@ -17,7 +32,10 @@ function mockApi() {
     'fetch',
     vi.fn(async (url) => {
       if (url === CALENDARS_ENDPOINT) {
-        return { ok: true, json: async () => ({ calendars: [{ id: 'work', name: 'Work', color: '#4f7c6b' }] }) }
+        return {
+          ok: true,
+          json: async () => ({ calendars: [{ id: 'work', name: 'Work', color: '#4f7c6b' }] }),
+        }
       }
       if (url === '/api/calendar-events?from=2026-08-13&to=2026-08-13') {
         return { ok: true, json: async () => ({ events: EVENTS }) }
@@ -35,12 +53,14 @@ beforeEach(() => {
 })
 
 describe('DocumentCalendarSidebar', () => {
-  it('loads and renders that day\'s all-day and timed events', async () => {
+  it("loads and renders that day's all-day and timed events", async () => {
     mockApi()
     const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('/api/calendar-events?from=2026-08-13&to=2026-08-13', { headers: {} })
+    expect(fetch).toHaveBeenCalledWith('/api/calendar-events?from=2026-08-13&to=2026-08-13', {
+      headers: {},
+    })
     expect(wrapper.get('.sidebar-all-day-chip').text()).toBe('Company Holiday')
     expect(wrapper.get('.sidebar-event').text()).toContain('Standup')
   })
@@ -59,7 +79,9 @@ describe('DocumentCalendarSidebar', () => {
     mockApi()
     const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
     await flushPromises()
-    const eventsCallCount = fetch.mock.calls.filter(([url]) => url.includes('/api/calendar-events?from')).length
+    const eventsCallCount = fetch.mock.calls.filter(([url]) =>
+      url.includes('/api/calendar-events?from'),
+    ).length
 
     await wrapper.get('[aria-label="Next month"]').trigger('click')
 
@@ -78,7 +100,9 @@ describe('DocumentCalendarSidebar', () => {
     await wrapper.setProps({ date: new Date(2026, 7, 14) })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('/api/calendar-events?from=2026-08-14&to=2026-08-14', { headers: {} })
+    expect(fetch).toHaveBeenCalledWith('/api/calendar-events?from=2026-08-14&to=2026-08-14', {
+      headers: {},
+    })
     expect(wrapper.get('.mini-month-day.selected').text()).toBe('14')
   })
 
@@ -86,7 +110,9 @@ describe('DocumentCalendarSidebar', () => {
     mockApi()
     mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
     await flushPromises()
-    const before = fetch.mock.calls.filter(([url]) => url.includes('/api/calendar-events?from')).length
+    const before = fetch.mock.calls.filter(([url]) =>
+      url.includes('/api/calendar-events?from'),
+    ).length
 
     useDocumentsStore().saveState = 'saving'
     await flushPromises()

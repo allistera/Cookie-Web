@@ -28,16 +28,20 @@ const EVENT_LANGUAGE =
 const MONTH_DATE =
   /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/
-const RELATIVE_DATE = /\b(tomorrow|next\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b/i
+const RELATIVE_DATE =
+  /\b(tomorrow|next\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b/i
 const TIME = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i
 
 const pad2 = (value) => String(value).padStart(2, '0')
-const dateKey = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+const dateKey = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
 function validDate(year, month, day) {
   const date = new Date(year, month, day)
-  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+    ? date
+    : null
 }
 
 function detectedDate(text, sentAt) {
@@ -65,7 +69,7 @@ function detectedDate(text, sentAt) {
   }
 
   const weekday = WEEKDAYS.get(relative.replace('next ', ''))
-  const daysAhead = ((weekday - date.getDay() + 7) % 7) || 7
+  const daysAhead = (weekday - date.getDay() + 7) % 7 || 7
   date.setDate(date.getDate() + daysAhead)
   return date
 }

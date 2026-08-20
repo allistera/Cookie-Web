@@ -47,11 +47,7 @@ describe('flattenDocumentsTree', () => {
   })
 
   it('does not loop on a parent cycle', () => {
-    const rows = flattenDocumentsTree(
-      [folder('a', 'b'), folder('b', 'a')],
-      [],
-      new Set(['a', 'b']),
-    )
+    const rows = flattenDocumentsTree([folder('a', 'b'), folder('b', 'a')], [], new Set(['a', 'b']))
 
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.length).toBeLessThanOrEqual(2)

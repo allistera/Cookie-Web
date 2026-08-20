@@ -56,18 +56,18 @@ describe('fetchEmails', () => {
     expect(capture.query()).not.toContain('body_text')
   })
 
-  it.each([null, { sentAt: '2026-07-13T12:00:00.000Z', id: '11111111-1111-1111-1111-111111111111' }])(
-    'selects only future scheduled messages for the snoozed folder',
-    (cursor) => {
-      const capture = captureQuery()
+  it.each([
+    null,
+    { sentAt: '2026-07-13T12:00:00.000Z', id: '11111111-1111-1111-1111-111111111111' },
+  ])('selects only future scheduled messages for the snoozed folder', (cursor) => {
+    const capture = captureQuery()
 
-      fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'snoozed')
+    fetchEmails(capture.sql, '99999999-9999-4999-8999-999999999999', 50, cursor, 'snoozed')
 
-      expect(capture.query()).toContain('m.scheduled_for > now()')
-      expect(capture.query()).not.toContain("? = 'snoozed'")
-      expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
-    },
-  )
+    expect(capture.query()).toContain('m.scheduled_for > now()')
+    expect(capture.query()).not.toContain("? = 'snoozed'")
+    expect(capture.query()).toContain('GROUP BY m.id, ai.spam_score')
+  })
 
   it.each([
     ['first page', null],

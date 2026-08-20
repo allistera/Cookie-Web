@@ -421,7 +421,8 @@ describe('documents store', () => {
               ],
               documents: [],
             }),
-      POST: (url, body) => ok({ document: { id: 'd-today', folder_id: body.folderId, title: body.title } }),
+      POST: (url, body) =>
+        ok({ document: { id: 'd-today', folder_id: body.folderId, title: body.title } }),
       PATCH: (url, body) => ok({ document: { id: body.id, updated_at: 't1' } }),
     })
 
@@ -443,7 +444,9 @@ describe('documents store', () => {
                 { id: 'f-year', parent_id: 'f-daily', title: '2026', emoji: '📁' },
                 { id: 'f-month', parent_id: 'f-year', title: 'Aug', emoji: '📁' },
               ],
-              documents: [{ id: 'd-today', folder_id: 'f-month', title: '13-08-26', starred: false }],
+              documents: [
+                { id: 'd-today', folder_id: 'f-month', title: '13-08-26', starred: false },
+              ],
             }),
     })
 
@@ -491,7 +494,9 @@ describe('documents store', () => {
 
   it('searches documents into a separate array, leaving `documents` untouched', async () => {
     store.documents = structuredClone(DOCS)
-    const results = [{ id: 'd-2', folder_id: null, title: 'Scratch', starred: true, tags: ['home'] }]
+    const results = [
+      { id: 'd-2', folder_id: null, title: 'Scratch', starred: true, tags: ['home'] },
+    ]
     const fetchMock = stubFetch({ GET: () => ok({ documents: results }) })
 
     await store.searchDocuments('scratch')
@@ -516,8 +521,7 @@ describe('documents store', () => {
       resolveFirst = resolve
     })
     stubFetch({
-      GET: (url) =>
-        url.includes('first') ? firstResponse : ok({ documents: [{ id: 'd-2' }] }),
+      GET: (url) => (url.includes('first') ? firstResponse : ok({ documents: [{ id: 'd-2' }] })),
     })
 
     const firstSearch = store.searchDocuments('first')

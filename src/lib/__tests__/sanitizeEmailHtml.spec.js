@@ -26,9 +26,7 @@ describe('sanitizeEmailHtml', () => {
   })
 
   it('neutralizes data: hrefs', () => {
-    const out = sanitizeEmailHtml(
-      '<a href="data:text/html,<script>alert(1)</script>">click</a>',
-    )
+    const out = sanitizeEmailHtml('<a href="data:text/html,<script>alert(1)</script>">click</a>')
     expect(out.toLowerCase()).not.toContain('data:text/html')
   })
 

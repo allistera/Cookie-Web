@@ -82,10 +82,12 @@ describe('POST /api/send security boundaries', () => {
       call += 1
       if (call === 1) return [{ authorized: true, quota_claimed: true }]
       if (call === 2) {
-        return [{
-          user_id: '11111111-1111-1111-1111-111111111111',
-          thread_id: null,
-        }]
+        return [
+          {
+            user_id: '11111111-1111-1111-1111-111111111111',
+            thread_id: null,
+          },
+        ]
       }
       return []
     })

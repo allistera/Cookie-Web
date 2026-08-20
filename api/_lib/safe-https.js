@@ -111,41 +111,37 @@ export async function requestPublicHttps(
             callback(null, target.address, target.family)
           }
         }
-        req = request(
-          target.url,
-          { method, headers, lookup: pinnedLookup },
-          (incoming) => {
-            response = incoming
-            if (settled) {
-              response.destroy()
+        req = request(target.url, { method, headers, lookup: pinnedLookup }, (incoming) => {
+          response = incoming
+          if (settled) {
+            response.destroy()
+            return
+          }
+
+          const status = response.statusCode || 0
+          if (maxResponseBytes <= 0) {
+            finish(resolve, { status, headers: response.headers, body: Buffer.alloc(0) })
+            response.destroy()
+            return
+          }
+
+          const chunks = []
+          let bytes = 0
+          response.on('data', (chunk) => {
+            bytes += chunk.length
+            if (bytes > maxResponseBytes) {
+              const error = new Error('The remote response is too large')
+              finish(reject, error)
+              response.destroy(error)
               return
             }
-
-            const status = response.statusCode || 0
-            if (maxResponseBytes <= 0) {
-              finish(resolve, { status, headers: response.headers, body: Buffer.alloc(0) })
-              response.destroy()
-              return
-            }
-
-            const chunks = []
-            let bytes = 0
-            response.on('data', (chunk) => {
-              bytes += chunk.length
-              if (bytes > maxResponseBytes) {
-                const error = new Error('The remote response is too large')
-                finish(reject, error)
-                response.destroy(error)
-                return
-              }
-              chunks.push(chunk)
-            })
-            response.on('end', () => {
-              finish(resolve, { status, headers: response.headers, body: Buffer.concat(chunks) })
-            })
-            response.on('error', (error) => finish(reject, error))
-          },
-        )
+            chunks.push(chunk)
+          })
+          response.on('end', () => {
+            finish(resolve, { status, headers: response.headers, body: Buffer.concat(chunks) })
+          })
+          response.on('error', (error) => finish(reject, error))
+        })
         req.on('error', (error) => finish(reject, error))
         req.end(body ?? undefined)
       })

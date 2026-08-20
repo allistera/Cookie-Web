@@ -134,10 +134,14 @@ function formatUpdated(value) {
       </p>
       <div v-else class="document-template-list">
         <div v-for="template in store.templates" :key="template.id" class="document-template-row">
-          <span class="document-template-icon" aria-hidden="true">{{ template.emoji || '📄' }}</span>
+          <span class="document-template-icon" aria-hidden="true">{{
+            template.emoji || '📄'
+          }}</span>
           <div class="document-template-copy">
             <strong>{{ template.title }}</strong>
-            <small v-if="template.updated_at">Updated {{ formatUpdated(template.updated_at) }}</small>
+            <small v-if="template.updated_at"
+              >Updated {{ formatUpdated(template.updated_at) }}</small
+            >
           </div>
           <button
             type="button"

@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  MAX_DOCUMENT_TAGS,
-  normalizeDocumentTag,
-  normalizeDocumentTags,
-} from '../documentTags'
+import { MAX_DOCUMENT_TAGS, normalizeDocumentTag, normalizeDocumentTags } from '../documentTags'
 
 describe('document tags', () => {
   it('normalizes a leading hash, case, whitespace, and duplicates', () => {

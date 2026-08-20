@@ -38,8 +38,10 @@ const DARKEN_STEPS = { 600: 0.14, 700: 0.3, 800: 0.46, 900: 0.62 }
 
 function primaryRamp(accent) {
   const ramp = { 500: accent }
-  for (const [stop, amount] of Object.entries(LIGHTEN_STEPS)) ramp[stop] = mix(accent, '#FFFFFF', amount)
-  for (const [stop, amount] of Object.entries(DARKEN_STEPS)) ramp[stop] = mix(accent, '#000000', amount)
+  for (const [stop, amount] of Object.entries(LIGHTEN_STEPS))
+    ramp[stop] = mix(accent, '#FFFFFF', amount)
+  for (const [stop, amount] of Object.entries(DARKEN_STEPS))
+    ramp[stop] = mix(accent, '#000000', amount)
   return ramp
 }
 

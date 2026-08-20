@@ -91,14 +91,17 @@ async function createCalendar(sql, userId, body, res) {
   const name = validName(body.name)
   const color = String(body.color ?? '')
   const subscriptionUrl =
-    body.subscriptionUrl !== undefined && body.subscriptionUrl !== null && body.subscriptionUrl !== ''
+    body.subscriptionUrl !== undefined &&
+    body.subscriptionUrl !== null &&
+    body.subscriptionUrl !== ''
       ? validSubscriptionUrl(body.subscriptionUrl)
       : null
   if (!name || !COLOR_RE.test(color) || (body.subscriptionUrl && !subscriptionUrl)) {
     res.statusCode = 400
     res.end(
       JSON.stringify({
-        error: 'name (max 50), a hex color, and (if subscribing) a valid https calendar URL are required',
+        error:
+          'name (max 50), a hex color, and (if subscribing) a valid https calendar URL are required',
       }),
     )
     return
@@ -309,7 +312,8 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST' && body.action === 'sync') await syncCalendar(sql, userId, body, res)
+        if (req.method === 'POST' && body.action === 'sync')
+          await syncCalendar(sql, userId, body, res)
         else if (req.method === 'POST') await createCalendar(sql, userId, body, res)
         else if (req.method === 'PATCH') await renameCalendar(sql, userId, body, res)
         else await deleteCalendar(sql, userId, body, res)
@@ -320,7 +324,9 @@ export function createHandler(overrides = {}) {
     } catch (err) {
       if (isUndefinedTable(err)) {
         res.statusCode = 503
-        res.end(JSON.stringify({ error: 'Calendar management is being upgraded. Try again shortly.' }))
+        res.end(
+          JSON.stringify({ error: 'Calendar management is being upgraded. Try again shortly.' }),
+        )
         return
       }
       console.error(`${req.method} calendar management failed:`, err)

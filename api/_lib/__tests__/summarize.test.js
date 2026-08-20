@@ -116,19 +116,12 @@ describe('thread summarization', () => {
       return []
     }
 
-    saveMessageSummary(
-      sql,
-      '11111111-1111-1111-1111-111111111111',
-      'Cabinets arrive Tuesday.',
-    )
+    saveMessageSummary(sql, '11111111-1111-1111-1111-111111111111', 'Cabinets arrive Tuesday.')
 
     expect(query).toContain('INSERT INTO message_ai (message_id, summary, status, processed_at)')
     expect(query).toContain('ON CONFLICT (message_id) DO UPDATE SET')
     expect(query).toContain('summary = EXCLUDED.summary')
     expect(query).toContain("status = 'completed'")
-    expect(values).toEqual([
-      '11111111-1111-1111-1111-111111111111',
-      'Cabinets arrive Tuesday.',
-    ])
+    expect(values).toEqual(['11111111-1111-1111-1111-111111111111', 'Cabinets arrive Tuesday.'])
   })
 })

@@ -31,11 +31,9 @@ describe('documents sidebar expanded-folder storage', () => {
   it('sanitizeStoredFolderIds drops non-array input, blanks, and duplicates', () => {
     expect(sanitizeStoredFolderIds(null)).toEqual([])
     expect(sanitizeStoredFolderIds('f-projects')).toEqual([])
-    expect(sanitizeStoredFolderIds(['f-projects', '', '  ', 'f-projects', 42, 'f-kitchen'])).toEqual([
-      'f-projects',
-      '42',
-      'f-kitchen',
-    ])
+    expect(
+      sanitizeStoredFolderIds(['f-projects', '', '  ', 'f-projects', 42, 'f-kitchen']),
+    ).toEqual(['f-projects', '42', 'f-kitchen'])
   })
 
   it('caps the number of stored ids', () => {

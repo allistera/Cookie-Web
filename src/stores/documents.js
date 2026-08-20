@@ -27,7 +27,9 @@ let documentSearchAbortController = null
 // hasn't customized one (Settings > Documents > Time Management). Exported
 // so the settings pane can show/reset to the same content the store falls
 // back to in openTodayNote().
-export const DEFAULT_DAILY_NOTE_SEED_BLOCKS = [{ type: 'header', data: { text: 'Tasks', level: 2 } }]
+export const DEFAULT_DAILY_NOTE_SEED_BLOCKS = [
+  { type: 'header', data: { text: 'Tasks', level: 2 } },
+]
 
 // The Documents workspace (paper-style notes): nested folders plus Editor.js
 // block documents, backed by /api/tasks?resource=documents. The sidebar tree
@@ -372,7 +374,9 @@ export const useDocumentsStore = defineStore('documents', {
 
       const document = await this.createDocument({ folderId: month.id, title })
       if (!document) return null
-      const seedBlocks = this.dailyNoteSeed.length ? this.dailyNoteSeed : DEFAULT_DAILY_NOTE_SEED_BLOCKS
+      const seedBlocks = this.dailyNoteSeed.length
+        ? this.dailyNoteSeed
+        : DEFAULT_DAILY_NOTE_SEED_BLOCKS
       try {
         await this.request('PATCH', {
           body: { id: document.id, blocks: seedBlocks },
@@ -467,7 +471,8 @@ export const useDocumentsStore = defineStore('documents', {
         if (title !== undefined) body.title = title
         if (blocks !== undefined) body.blocks = blocks
         if (tags !== undefined) body.tags = tags
-        const updatedAt = this.openDoc?.id === id ? this.openDoc.updated_at || row?.updated_at : row?.updated_at
+        const updatedAt =
+          this.openDoc?.id === id ? this.openDoc.updated_at || row?.updated_at : row?.updated_at
         if (updatedAt) body.updatedAt = updatedAt
 
         let conflicted = false

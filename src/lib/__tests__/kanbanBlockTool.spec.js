@@ -116,7 +116,9 @@ describe('KanbanBlockTool', () => {
     document.body.addEventListener('keydown', () => {
       bubbled = true
     })
-    title.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    title.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
 
     expect(bubbled).toBe(false)
     expect(document.activeElement).toBe(description)
@@ -127,7 +129,10 @@ describe('KanbanBlockTool', () => {
     const tool = new KanbanBlockTool({ data: {} })
     tool.render()
     const [todo, inProgress] = tool.data.lanes
-    todo.tasks.push({ id: 'task-1', title: 'A', description: '' }, { id: 'task-2', title: 'B', description: '' })
+    todo.tasks.push(
+      { id: 'task-1', title: 'A', description: '' },
+      { id: 'task-2', title: 'B', description: '' },
+    )
 
     tool.moveTask('task-1', inProgress, null)
 
@@ -242,7 +247,11 @@ describe('KanbanBlockTool', () => {
   it('loads previously-saved board data unchanged', () => {
     const saved = {
       lanes: [
-        { id: 'lane-1', title: 'Backlog', tasks: [{ id: 'task-1', title: 'Do it', description: '' }] },
+        {
+          id: 'lane-1',
+          title: 'Backlog',
+          tasks: [{ id: 'task-1', title: 'Do it', description: '' }],
+        },
       ],
     }
     const tool = new KanbanBlockTool({ data: saved })

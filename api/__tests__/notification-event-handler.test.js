@@ -52,17 +52,19 @@ beforeEach(() => {
 
 describe('POST /api/notification-event claim', () => {
   it('returns the leased event with only the sender and subject', async () => {
-    sqlQueue = [[
-      {
-        event_id: EVENT_ID,
-        claim_token: CLAIM_TOKEN,
-        claimed_until: '2026-07-30T00:00:30Z',
-        message_id: MESSAGE_ID,
-        from_name: 'Ana',
-        from_address: 'ana@example.com',
-        subject: 'Lunch?',
-      },
-    ]]
+    sqlQueue = [
+      [
+        {
+          event_id: EVENT_ID,
+          claim_token: CLAIM_TOKEN,
+          claimed_until: '2026-07-30T00:00:30Z',
+          message_id: MESSAGE_ID,
+          from_name: 'Ana',
+          from_address: 'ana@example.com',
+          subject: 'Lunch?',
+        },
+      ],
+    ]
     const res = makeRes()
 
     await handler(req({ action: 'claim', eventId: EVENT_ID }), res)
@@ -77,16 +79,18 @@ describe('POST /api/notification-event claim', () => {
   })
 
   it('falls back to the sender address when the message has no display name', async () => {
-    sqlQueue = [[
-      {
-        event_id: EVENT_ID,
-        claim_token: CLAIM_TOKEN,
-        message_id: MESSAGE_ID,
-        from_name: null,
-        from_address: 'ana@example.com',
-        subject: 'Lunch?',
-      },
-    ]]
+    sqlQueue = [
+      [
+        {
+          event_id: EVENT_ID,
+          claim_token: CLAIM_TOKEN,
+          message_id: MESSAGE_ID,
+          from_name: null,
+          from_address: 'ana@example.com',
+          subject: 'Lunch?',
+        },
+      ],
+    ]
     const res = makeRes()
 
     await handler(req({ action: 'claim', eventId: EVENT_ID }), res)

@@ -28,7 +28,9 @@ describe('browser notification event queries', () => {
     expect(migration).toContain('REVOKE ALL PRIVILEGES')
     expect(migration).toContain("created_at < clock_timestamp() - interval '24 hours'")
     expect(migration).toContain('EXCEPTION WHEN OTHERS')
-    expect(migration).toContain("jsonb_build_object('op', TG_OP, 'event_id', notification_event_id)")
+    expect(migration).toContain(
+      "jsonb_build_object('op', TG_OP, 'event_id', notification_event_id)",
+    )
     expect(migration).toContain('SET search_path = pg_catalog')
   })
 

@@ -154,7 +154,12 @@ describe('Inbox Store', () => {
     const pendingStarIds = new Set(['a'])
     const pendingUnreadIds = new Set(['a'])
 
-    const merged = mergeInboxPage([existingA, existingB], incoming, pendingStarIds, pendingUnreadIds)
+    const merged = mergeInboxPage(
+      [existingA, existingB],
+      incoming,
+      pendingStarIds,
+      pendingUnreadIds,
+    )
 
     expect(merged.map((email) => email.id)).toEqual(['z', 'a', 'b'])
     expect(merged[1]).toBe(existingA)
@@ -205,8 +210,22 @@ describe('Inbox Store', () => {
       unread: true,
       labels: [],
     }
-    const extraB = { id: 'b', sender: 'Sender', subject: 'Subject b', starred: false, unread: true, labels: [] }
-    const extraC = { id: 'c', sender: 'Sender', subject: 'Subject c', starred: false, unread: true, labels: [] }
+    const extraB = {
+      id: 'b',
+      sender: 'Sender',
+      subject: 'Subject b',
+      starred: false,
+      unread: true,
+      labels: [],
+    }
+    const extraC = {
+      id: 'c',
+      sender: 'Sender',
+      subject: 'Subject c',
+      starred: false,
+      unread: true,
+      labels: [],
+    }
     store.traditionalEmails = [originalA, extraB, extraC]
     const storedA = store.traditionalEmails[0]
     store.isInboxLoaded = true
@@ -218,9 +237,9 @@ describe('Inbox Store', () => {
 
     await store.refreshInbox()
 
-    expect(fetchMock.mock.calls.some(([_url, options]) => !options?.method || options.method === 'GET')).toBe(
-      true,
-    )
+    expect(
+      fetchMock.mock.calls.some(([_url, options]) => !options?.method || options.method === 'GET'),
+    ).toBe(true)
     expect(store.traditionalEmails.map((email) => email.id)).toEqual(['z', 'a', 'b', 'c'])
     expect(store.traditionalEmails.find((email) => email.id === 'a')).toBe(storedA)
     expect(storedA.starred).toBe(true)
@@ -366,9 +385,7 @@ describe('Inbox Store', () => {
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
-            receipts: [
-              { message_id: row.id, first_opened_at: openedAt, open_count: 2 },
-            ],
+            receipts: [{ message_id: row.id, first_opened_at: openedAt, open_count: 2 }],
           }),
         }),
     )
@@ -376,10 +393,9 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadSentEmails()
 
-    expect(fetch).toHaveBeenLastCalledWith(
-      `/api/read-receipts?messageIds=${row.id}`,
-      { headers: { Authorization: 'Bearer test-access-token' } },
-    )
+    expect(fetch).toHaveBeenLastCalledWith(`/api/read-receipts?messageIds=${row.id}`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
     expect(store.sentEmails[0]).toMatchObject({ readAt: openedAt, readCount: 2 })
   })
 
@@ -389,11 +405,19 @@ describe('Inbox Store', () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          emails: [{
-            id: 'spam-1', from_name: 'Spammer', from_address: 'spam@example.com',
-            subject: 'Guaranteed prize', snippet: 'Act now', body_text: 'Act now',
-            sent_at: new Date().toISOString(), is_unread: true, is_starred: false,
-          }],
+          emails: [
+            {
+              id: 'spam-1',
+              from_name: 'Spammer',
+              from_address: 'spam@example.com',
+              subject: 'Guaranteed prize',
+              snippet: 'Act now',
+              body_text: 'Act now',
+              sent_at: new Date().toISOString(),
+              is_unread: true,
+              is_starred: false,
+            },
+          ],
           nextCursor: null,
         }),
       }),
@@ -750,10 +774,7 @@ describe('Inbox Store', () => {
 
     await store.sendMail({ to: 'someone@example.com', subject: 'S', text: 'T' })
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/emails?folder=sent&limit=50',
-        expect.anything(),
-      ),
+      expect(fetchMock).toHaveBeenCalledWith('/api/emails?folder=sent&limit=50', expect.anything()),
     )
   })
 
@@ -776,12 +797,17 @@ describe('Inbox Store', () => {
 
   it('setSignature persists the signature and openComposer prefills a fresh draft with it', () => {
     localStorage.clear()
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }),
+    )
     const store = useInboxStore()
 
     store.setSignature('<p>Best, <strong>Allister</strong></p>')
     expect(store.signatureHtml).toBe('<p>Best, <strong>Allister</strong></p>')
-    expect(localStorage.getItem('cookie-signature-html')).toBe('<p>Best, <strong>Allister</strong></p>')
+    expect(localStorage.getItem('cookie-signature-html')).toBe(
+      '<p>Best, <strong>Allister</strong></p>',
+    )
 
     store.openComposer()
     expect(store.composerHtml).toContain('<p>Best, <strong>Allister</strong></p>')
@@ -789,7 +815,10 @@ describe('Inbox Store', () => {
   })
 
   it('openComposer does not overwrite an in-progress draft with the signature', () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }),
+    )
     const store = useInboxStore()
     store.signatureHtml = '<p>Sig</p>'
     store.composerHtml = '<p>existing draft</p>'
@@ -809,7 +838,10 @@ describe('Inbox Store', () => {
     store.openComposer()
     expect(store.isComposerActive).toBe(true)
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages/contacts`, expect.anything()),
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${MESSAGES_API_URL}/messages/contacts`,
+        expect.anything(),
+      ),
     )
   })
 
@@ -862,7 +894,9 @@ describe('Inbox Store', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
-    store.tasks = [{ id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' }]
+    store.tasks = [
+      { id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' },
+    ]
 
     await store.rescheduleTask('t1', '2026-08-25')
 
@@ -881,7 +915,9 @@ describe('Inbox Store', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 502 })
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
-    store.tasks = [{ id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' }]
+    store.tasks = [
+      { id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' },
+    ]
 
     await expect(store.rescheduleTask('t1', '2026-08-25')).rejects.toThrow('502')
     expect(store.tasks[0].due_date).toBe('2026-08-18')
@@ -1048,7 +1084,9 @@ describe('Inbox Store', () => {
 
     it('restores the message in the composer if the send fails', async () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
       vi.stubGlobal('fetch', fetchMock)
       const store = useInboxStore()
       armComposer(store)
@@ -1171,8 +1209,12 @@ describe('Inbox Store', () => {
     })
 
     it('loads the pending scheduled-send queue once and caches it', async () => {
-      const scheduledSends = [{ id: 'sched-1', subject: 'Hello', scheduledFor: '2026-08-02T09:00:00.000Z' }]
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ scheduledSends }) })
+      const scheduledSends = [
+        { id: 'sched-1', subject: 'Hello', scheduledFor: '2026-08-02T09:00:00.000Z' },
+      ]
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ scheduledSends }) })
       vi.stubGlobal('fetch', fetchMock)
       const store = useInboxStore()
 
@@ -1301,9 +1343,9 @@ describe('Inbox Store', () => {
     resolveFirst({ ok: true, json: async () => ({ answer: 'stale answer', sources: [] }) })
     await first
 
-    expect(store.chatHistory.filter((message) => message.sender === 'ai').map((message) => message.text)).toEqual([
-      'new answer',
-    ])
+    expect(
+      store.chatHistory.filter((message) => message.sender === 'ai').map((message) => message.text),
+    ).toEqual(['new answer'])
     expect(store.isChatLoading).toBe(false)
   })
 
@@ -1524,7 +1566,10 @@ describe('Inbox Store', () => {
       enabled: true,
       conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }],
     }
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rules: [rule] }) }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rules: [rule] }) }),
+    )
 
     const store = useInboxStore()
     await store.loadRules()
@@ -1537,7 +1582,11 @@ describe('Inbox Store', () => {
 
   it('creates a tag rule', async () => {
     const rule = {
-      id: 'rule-1', name: 'Bills', label_id: 'label-1', match_type: 'all', enabled: true,
+      id: 'rule-1',
+      name: 'Bills',
+      label_id: 'label-1',
+      match_type: 'all',
+      enabled: true,
       conditions: [{ field: 'subject', operator: 'contains', value: 'invoice', position: 0 }],
     }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rule }) }))
@@ -1584,7 +1633,9 @@ describe('Inbox Store', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rule: { ...rule, enabled: false } }) }),
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ rule: { ...rule, enabled: false } }) }),
     )
     await expect(store.updateRule(rule, { enabled: false })).resolves.toBe(true)
     expect(rule.enabled).toBe(false)
@@ -1893,7 +1944,10 @@ describe('Inbox Store', () => {
   })
 
   it('adds and removes a starred-folder row as soon as star state changes', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
     const store = useInboxStore()
     const email = { id: 'abc-123', starred: false }
     store.traditionalEmails = [email]
@@ -1933,7 +1987,13 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     const body = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
 
-    expect(body).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [], attachments: [] })
+    expect(body).toEqual({
+      html: '<p>Hello</p>',
+      text: 'Hello',
+      unsubscribe: null,
+      thread: [],
+      attachments: [],
+    })
     store.traditionalEmails = [{ id: '11111111-1111-1111-1111-111111111111' }]
     store.openEmailId = '11111111-1111-1111-1111-111111111111'
     expect(store.openEmailSummary).toBe('The saved project update.')
@@ -1944,7 +2004,13 @@ describe('Inbox Store', () => {
 
     // Second call for the same id is served from cache — no second request.
     const again = await store.fetchMessageBody('11111111-1111-1111-1111-111111111111')
-    expect(again).toEqual({ html: '<p>Hello</p>', text: 'Hello', unsubscribe: null, thread: [], attachments: [] })
+    expect(again).toEqual({
+      html: '<p>Hello</p>',
+      text: 'Hello',
+      unsubscribe: null,
+      thread: [],
+      attachments: [],
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -1963,7 +2029,13 @@ describe('Inbox Store', () => {
       store.fetchMessageBody('msg-1'),
     ])
 
-    expect(first).toEqual({ html: '<p>Hi</p>', text: 'Hi', unsubscribe: null, thread: [], attachments: [] })
+    expect(first).toEqual({
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      unsubscribe: null,
+      thread: [],
+      attachments: [],
+    })
     expect(second).toBe(first)
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
@@ -1987,7 +2059,13 @@ describe('Inbox Store', () => {
     expect(await store.fetchMessageBody('msg-1')).toBeNull()
     // The settled in-flight entry must not pin the failure — a later open retries.
     const body = await store.fetchMessageBody('msg-1')
-    expect(body).toEqual({ html: '<p>Hi</p>', text: 'Hi', unsubscribe: null, thread: [], attachments: [] })
+    expect(body).toEqual({
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      unsubscribe: null,
+      thread: [],
+      attachments: [],
+    })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(consoleError).toHaveBeenCalledWith('Failed to load message body:', expect.any(Error))
   })
@@ -2046,8 +2124,18 @@ describe('Inbox Store', () => {
           body_html: null,
           body_text: 'Latest reply',
           thread: [
-            { id: 'msg-1', from_name: 'Alice', snippet: 'First message', sent_at: '2026-01-01T00:00:00Z' },
-            { id: 'msg-2', from_name: 'Bob', snippet: 'Latest reply', sent_at: '2026-01-02T00:00:00Z' },
+            {
+              id: 'msg-1',
+              from_name: 'Alice',
+              snippet: 'First message',
+              sent_at: '2026-01-01T00:00:00Z',
+            },
+            {
+              id: 'msg-2',
+              from_name: 'Bob',
+              snippet: 'Latest reply',
+              sent_at: '2026-01-02T00:00:00Z',
+            },
           ],
         }),
       }),
@@ -2059,7 +2147,12 @@ describe('Inbox Store', () => {
     await store.fetchMessageBody('msg-2')
 
     expect(store.openEmailThread).toEqual([
-      { id: 'msg-1', from_name: 'Alice', snippet: 'First message', sent_at: '2026-01-01T00:00:00Z' },
+      {
+        id: 'msg-1',
+        from_name: 'Alice',
+        snippet: 'First message',
+        sent_at: '2026-01-01T00:00:00Z',
+      },
     ])
   })
 
@@ -2068,7 +2161,7 @@ describe('Inbox Store', () => {
     expect(store.openEmailThread).toEqual([])
   })
 
-  it('openEmailAttachments exposes the open message\'s attachments once the body fetch lands', async () => {
+  it("openEmailAttachments exposes the open message's attachments once the body fetch lands", async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -2078,7 +2171,13 @@ describe('Inbox Store', () => {
           body_html: null,
           body_text: 'See attached',
           attachments: [
-            { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true },
+            {
+              id: 'att-1',
+              filename: 'plan.pdf',
+              content_type: 'application/pdf',
+              size_bytes: 1024,
+              downloadable: true,
+            },
           ],
         }),
       }),
@@ -2092,7 +2191,13 @@ describe('Inbox Store', () => {
     await store.fetchMessageBody('msg-1')
 
     expect(store.openEmailAttachments).toEqual([
-      { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 1024, downloadable: true },
+      {
+        id: 'att-1',
+        filename: 'plan.pdf',
+        content_type: 'application/pdf',
+        size_bytes: 1024,
+        downloadable: true,
+      },
     ])
   })
 
@@ -2397,7 +2502,10 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails).toEqual([email])
     expect(email.scheduledFor).toBe(null)
     expect(store.unreadInboxCount).toBe(1)
-    expect(store.toasts.at(-1)).toMatchObject({ message: 'Failed to schedule email.', kind: 'error' })
+    expect(store.toasts.at(-1)).toMatchObject({
+      message: 'Failed to schedule email.',
+      kind: 'error',
+    })
   })
 
   describe('rebuildDigest', () => {
@@ -2475,7 +2583,9 @@ describe('Inbox Store', () => {
     it('does nothing when the topic has nothing unread', async () => {
       const store = useInboxStore()
       const updateMessage = vi.spyOn(store, 'updateMessage')
-      await expect(store.markTopicRead({ items: [{ message_id: 'msg-1', unread: false }] })).resolves.toBe(0)
+      await expect(
+        store.markTopicRead({ items: [{ message_id: 'msg-1', unread: false }] }),
+      ).resolves.toBe(0)
       expect(updateMessage).not.toHaveBeenCalled()
     })
   })
@@ -2538,5 +2648,4 @@ describe('Inbox Store', () => {
       ).rejects.toThrow('boom')
     })
   })
-
 })

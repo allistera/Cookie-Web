@@ -185,7 +185,9 @@ export class KanbanBlockTool {
           laneEl.setAttribute('aria-label', text || 'Untitled lane')
         },
       }),
-      this.iconButton('kanban-lane__delete', DELETE_ICON, 'Delete lane', () => this.removeLane(lane.id)),
+      this.iconButton('kanban-lane__delete', DELETE_ICON, 'Delete lane', () =>
+        this.removeLane(lane.id),
+      ),
     )
     laneEl.append(header)
 
@@ -207,7 +209,9 @@ export class KanbanBlockTool {
       if (!this.dragTaskId) return
       event.preventDefault()
       const beforeEl = this.dropIndicator.nextElementSibling
-      const beforeTaskId = beforeEl?.classList.contains('kanban-task') ? beforeEl.dataset.taskId : null
+      const beforeTaskId = beforeEl?.classList.contains('kanban-task')
+        ? beforeEl.dataset.taskId
+        : null
       this.moveTask(this.dragTaskId, lane, beforeTaskId)
       this.dropIndicator.remove()
     })

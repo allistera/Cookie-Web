@@ -42,7 +42,13 @@ function del(body) {
   return { method: 'DELETE', url: '/api/calendar-events', headers: {}, body }
 }
 
-const FIELDS = { title: 'Test event', date: '2026-08-01', start: '10:00', duration: 30, calendar: CALENDAR_ID }
+const FIELDS = {
+  title: 'Test event',
+  date: '2026-08-01',
+  start: '10:00',
+  duration: 30,
+  calendar: CALENDAR_ID,
+}
 
 describe('subscribed calendars are read-only', () => {
   beforeEach(() => {

@@ -142,7 +142,9 @@ export function createHandler(overrides = {}) {
       res.end(JSON.stringify({ error: 'Invalid folder' }))
       return
     }
-    const labelName = String(url.searchParams.get('label') || '').trim().slice(0, MAX_LABEL_NAME)
+    const labelName = String(url.searchParams.get('label') || '')
+      .trim()
+      .slice(0, MAX_LABEL_NAME)
     if (folder === 'label' && !labelName) {
       res.statusCode = 400
       res.end(JSON.stringify({ error: 'label is required' }))

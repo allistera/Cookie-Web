@@ -15,7 +15,10 @@ describe('allowRequest', () => {
     const sql = sqlReturning({ allowed: true })
 
     await expect(
-      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', { limit: 10, windowMs: 60_000 }),
+      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', {
+        limit: 10,
+        windowMs: 60_000,
+      }),
     ).resolves.toBe(true)
 
     expect(sqlReturning.query).toContain('INSERT INTO api_rate_limits')
@@ -35,7 +38,10 @@ describe('allowRequest', () => {
     const sql = sqlReturning({ allowed: false })
 
     await expect(
-      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', { limit: 10, windowMs: 60_000 }),
+      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', {
+        limit: 10,
+        windowMs: 60_000,
+      }),
     ).resolves.toBe(false)
   })
 
@@ -43,7 +49,10 @@ describe('allowRequest', () => {
     const sql = vi.fn()
 
     await expect(
-      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', { limit: 0, windowMs: 60_000 }),
+      allowRequest(sql, '11111111-1111-4111-8111-111111111111', 'ai', {
+        limit: 0,
+        windowMs: 60_000,
+      }),
     ).rejects.toThrow(/invalid rate-limit policy/i)
     expect(sql).not.toHaveBeenCalled()
   })

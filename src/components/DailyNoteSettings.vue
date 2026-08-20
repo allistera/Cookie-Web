@@ -92,7 +92,13 @@ async function resetToDefault() {
     </div>
 
     <div v-if="draft" class="daily-note-editor-surface">
-      <DocumentEditor :key="editorGeneration" ref="editorComponent" :doc="draft" compact @save="updateDraft" />
+      <DocumentEditor
+        :key="editorGeneration"
+        ref="editorComponent"
+        :doc="draft"
+        compact
+        @save="updateDraft"
+      />
     </div>
 
     <div class="daily-note-settings-actions">

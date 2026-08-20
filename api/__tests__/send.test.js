@@ -23,7 +23,9 @@ describe('parseRecipients', () => {
   })
 
   it('rejects recipient fan-out above the application limit', () => {
-    const recipients = Array.from({ length: 21 }, (_, index) => `user${index}@example.com`).join(',')
+    const recipients = Array.from({ length: 21 }, (_, index) => `user${index}@example.com`).join(
+      ',',
+    )
 
     expect(parseRecipients(recipients)).toEqual([])
   })
@@ -49,7 +51,8 @@ describe('outbound email abuse bounds', () => {
     expect(validateOutboundMessage({ ...valid, text: 'x'.repeat(100_001) }).error).toMatch(/size/i)
     expect(validateOutboundMessage({ ...valid, html: 'x'.repeat(200_001) }).error).toMatch(/size/i)
     expect(
-      validateOutboundMessage({ ...valid, text: 'x'.repeat(100_000), html: 'y'.repeat(160_000) }).error,
+      validateOutboundMessage({ ...valid, text: 'x'.repeat(100_000), html: 'y'.repeat(160_000) })
+        .error,
     ).toMatch(/size/i)
   })
 

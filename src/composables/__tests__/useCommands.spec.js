@@ -89,7 +89,10 @@ describe('useCommands', () => {
   })
 
   it('always offers a Compose command that opens the composer', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }),
+    )
     const { commands } = await setupCommands()
 
     const compose = commands.value.find((c) => c.id === 'compose')

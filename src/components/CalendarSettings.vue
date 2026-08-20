@@ -272,11 +272,7 @@ onMounted(loadCalendars)
         <p v-if="group.calendars.length === 0" class="calendar-settings-empty">
           {{ group.empty }}
         </p>
-        <div
-          v-for="calendar in group.calendars"
-          :key="calendar.id"
-          class="calendar-settings-row"
-        >
+        <div v-for="calendar in group.calendars" :key="calendar.id" class="calendar-settings-row">
           <form
             v-if="editingCalendarId === calendar.id"
             class="calendar-settings-edit"

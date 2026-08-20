@@ -69,13 +69,13 @@ Durable `pending` and `failed` rows support repair. A scheduled sweep processes 
 
 ### Alternatives retained for later
 
-| Option | Best use | Why it was not selected now |
-| --- | --- | --- |
-| Cloudflare Queues | Higher volume or stricter delivery guarantees | Adds a producer, consumer, queue, dead-letter handling, and deployment surface. |
-| Scheduled batch only | Lowest coupling to ingestion | Delays labels and spam status even when arrival-time work would succeed. |
-| Vercel enrichment endpoint | Centralised AI code | Couples Worker delivery to another service unless a queue or signed retry protocol is added. |
-| Supabase Edge Function or Queue | Supabase-centred operations | Introduces another runtime and duplicates existing Worker responsibilities. |
-| Browser or local inference | No server-side AI vendor | Cannot classify mail reliably while the browser is closed and complicates model delivery. |
+| Option                          | Best use                                      | Why it was not selected now                                                                  |
+| ------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Cloudflare Queues               | Higher volume or stricter delivery guarantees | Adds a producer, consumer, queue, dead-letter handling, and deployment surface.              |
+| Scheduled batch only            | Lowest coupling to ingestion                  | Delays labels and spam status even when arrival-time work would succeed.                     |
+| Vercel enrichment endpoint      | Centralised AI code                           | Couples Worker delivery to another service unless a queue or signed retry protocol is added. |
+| Supabase Edge Function or Queue | Supabase-centred operations                   | Introduces another runtime and duplicates existing Worker responsibilities.                  |
+| Browser or local inference      | No server-side AI vendor                      | Cannot classify mail reliably while the browser is closed and complicates model delivery.    |
 
 Move to Cloudflare Queues if recovery lag, invocation interruption, or mail volume becomes material. The database contract can remain unchanged.
 

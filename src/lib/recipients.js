@@ -3,7 +3,10 @@
 
 // The trimmed, non-empty addresses in the field.
 export function parseRecipients(value) {
-  return (value || '').split(',').map((address) => address.trim()).filter(Boolean)
+  return (value || '')
+    .split(',')
+    .map((address) => address.trim())
+    .filter(Boolean)
 }
 
 // True when there is at least one recipient and every one looks like an address.
@@ -23,7 +26,11 @@ export function completedRecipients(value) {
   const text = value || ''
   const idx = text.lastIndexOf(',')
   if (idx === -1) return []
-  return text.slice(0, idx).split(',').map((address) => address.trim()).filter(Boolean)
+  return text
+    .slice(0, idx)
+    .split(',')
+    .map((address) => address.trim())
+    .filter(Boolean)
 }
 
 // Replaces the current token with a chosen address and readies the next one,

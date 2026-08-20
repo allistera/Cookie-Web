@@ -4,7 +4,12 @@
 
 const folders = [
   { id: 'stub-folder-projects', parent_id: null, title: 'Projects', emoji: '📁' },
-  { id: 'stub-folder-kitchen', parent_id: 'stub-folder-projects', title: 'Kitchen Renovation', emoji: '📁' },
+  {
+    id: 'stub-folder-kitchen',
+    parent_id: 'stub-folder-projects',
+    title: 'Kitchen Renovation',
+    emoji: '📁',
+  },
 ]
 
 const documents = [
@@ -16,7 +21,11 @@ const documents = [
     starred: true,
     tags: ['home', 'project'],
     blocks: [
-      { id: 'b-fp-1', type: 'paragraph', data: { text: 'Notes from the revised floor plan review.' } },
+      {
+        id: 'b-fp-1',
+        type: 'paragraph',
+        data: { text: 'Notes from the revised floor plan review.' },
+      },
       { id: 'b-fp-2', type: 'header', data: { text: 'Open questions', level: 2 } },
       {
         id: 'b-fp-3',

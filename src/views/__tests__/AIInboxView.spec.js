@@ -40,7 +40,9 @@ const DIGEST = () => ({
     {
       emoji: '👀',
       title: 'Review',
-      items: [{ message_id: 'msg-3', headline: 'Practice moved', note: 'West Side Park.', unread: false }],
+      items: [
+        { message_id: 'msg-3', headline: 'Practice moved', note: 'West Side Park.', unread: false },
+      ],
     },
   ],
   noise: {
@@ -79,7 +81,9 @@ describe('AIInboxView (AI Today)', () => {
   it('shows an empty state and a zero count when nothing was gathered', () => {
     const wrapper = mountView()
     expect(rowsOf(wrapper)).toHaveLength(0)
-    expect(wrapper.get('[data-testid="tasks-empty"]').text()).toContain('Nothing gathered for today')
+    expect(wrapper.get('[data-testid="tasks-empty"]').text()).toContain(
+      'Nothing gathered for today',
+    )
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
@@ -148,7 +152,13 @@ describe('AIInboxView (AI Today)', () => {
           emoji: '📰',
           title: 'UK headlines',
           items: [
-            { title: 'Storm warning', url: 'https://bbc.co.uk/news/9', description: 'Wind', note: '', meta: '10:00' },
+            {
+              title: 'Storm warning',
+              url: 'https://bbc.co.uk/news/9',
+              description: 'Wind',
+              note: '',
+              meta: '10:00',
+            },
           ],
         },
       ],
@@ -156,7 +166,10 @@ describe('AIInboxView (AI Today)', () => {
 
     const wrapper = mountView()
     const sections = wrapper.get('[data-testid="news-sections"]').findAll('.topic-section')
-    expect(sections.map((s) => s.get('.topic-title').text())).toEqual(['💻 GitHub', '📰 UK headlines'])
+    expect(sections.map((s) => s.get('.topic-title').text())).toEqual([
+      '💻 GitHub',
+      '📰 UK headlines',
+    ])
 
     const link = sections[0].get('a.news-link')
     expect(link.attributes('href')).toBe('https://github.com/acme/rocket')
@@ -258,7 +271,9 @@ describe('AIInboxView (AI Today)', () => {
 
   it('reschedules a triage item to another day, hiding it and notifying', async () => {
     store.digest = DIGEST()
-    const rescheduleDigestItem = vi.spyOn(store, 'rescheduleDigestItem').mockResolvedValue(undefined)
+    const rescheduleDigestItem = vi
+      .spyOn(store, 'rescheduleDigestItem')
+      .mockResolvedValue(undefined)
     const notify = vi.spyOn(store, 'notify')
 
     const wrapper = mountView()
@@ -403,7 +418,13 @@ describe('AIInboxView (AI Today)', () => {
 
   it('completing a Todoist task persists it, hides it, and updates the counter', async () => {
     store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: 'x', url: null },
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        description: 'x',
+        url: null,
+      },
     ]
     const completeTask = vi.spyOn(store, 'completeTask').mockResolvedValue({ ok: true })
 
@@ -420,7 +441,13 @@ describe('AIInboxView (AI Today)', () => {
 
   it('rolls a Todoist task back into the list when completion fails', async () => {
     store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: 'x', url: null },
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        description: 'x',
+        url: null,
+      },
     ]
     vi.spyOn(store, 'completeTask').mockRejectedValue(new Error('boom'))
     const notify = vi.spyOn(store, 'notify')
@@ -437,7 +464,13 @@ describe('AIInboxView (AI Today)', () => {
 
   it('reschedules a to-do to a future day, hiding it and notifying', async () => {
     store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url: null },
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        description: null,
+        url: null,
+      },
     ]
     const rescheduleTask = vi.spyOn(store, 'rescheduleTask').mockResolvedValue({ ok: true })
     const notify = vi.spyOn(store, 'notify')
@@ -465,7 +498,13 @@ describe('AIInboxView (AI Today)', () => {
 
   it('keeps a to-do visible when rescheduled to later today', async () => {
     store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url: null },
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        description: null,
+        url: null,
+      },
     ]
     const rescheduleTask = vi.spyOn(store, 'rescheduleTask').mockResolvedValue({ ok: true })
 
@@ -488,7 +527,13 @@ describe('AIInboxView (AI Today)', () => {
 
   it('rolls a to-do back into view when rescheduling fails', async () => {
     store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url: null },
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        description: null,
+        url: null,
+      },
     ]
     vi.spyOn(store, 'rescheduleTask').mockRejectedValue(new Error('boom'))
     const notify = vi.spyOn(store, 'notify')
@@ -540,7 +585,13 @@ describe('AIInboxView (AI Today)', () => {
   it('moves the status text forward on a successful refresh even when no task changed', async () => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
     store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', url: null, gathered_at: twoHoursAgo },
+      {
+        id: 'task-1',
+        source: 'todoist',
+        content: 'Renew car insurance',
+        url: null,
+        gathered_at: twoHoursAgo,
+      },
     ]
     vi.spyOn(store, 'rebuildDigest').mockResolvedValue(true)
     // Refresh only ever rebuilds the digest/news - the task itself (and its

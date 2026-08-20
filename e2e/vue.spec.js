@@ -52,7 +52,9 @@ test('The header app switcher opens the interactive Calendar views and returns t
   const workCalendar = calendarSidebar.getByRole('button', { name: 'Work', exact: true })
   await expect(workCalendar).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('#searchBarContainer')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true })).toHaveCount(2)
+  await expect(
+    page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true }),
+  ).toHaveCount(2)
   await expect(page.locator('.day-event', { hasText: 'Standup' })).toBeVisible()
   await workCalendar.click()
   await expect(page.locator('.day-event', { hasText: 'Standup' })).toHaveCount(0)
@@ -74,9 +76,10 @@ test('The header app switcher opens the interactive Calendar views and returns t
   const titleInput = dialog.getByRole('textbox', { name: 'Event title' })
   await expect(titleInput).toHaveAttribute('placeholder', 'New event')
   await expect(titleInput).toBeFocused()
-  await expect(
-    dialog.getByRole('textbox', { name: 'Event description' }),
-  ).toHaveAttribute('placeholder', 'Tell Cookie what you need — it fills in the rest')
+  await expect(dialog.getByRole('textbox', { name: 'Event description' })).toHaveAttribute(
+    'placeholder',
+    'Tell Cookie what you need — it fills in the rest',
+  )
   await expect(dialog.getByPlaceholder('Add location')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Create Event' })).toBeDisabled()
   await titleInput.fill('Lunch with Mia')
@@ -115,7 +118,9 @@ test('The header notification count opens the section that raised the first noti
   )
 })
 
-test('Calendar settings manages subscriptions that appear in the Calendar view', async ({ page }) => {
+test('Calendar settings manages subscriptions that appear in the Calendar view', async ({
+  page,
+}) => {
   await freezeCalendarClock(page)
   await page.goto('/settings/calendar')
 
@@ -126,7 +131,10 @@ test('Calendar settings manages subscriptions that appear in the Calendar view',
   await page
     .getByRole('textbox', { name: 'Calendar subscription URL' })
     .fill('https://example.com/team.ics')
-  await page.locator('.calendar-settings-create').getByRole('button', { name: 'Add subscription' }).click()
+  await page
+    .locator('.calendar-settings-create')
+    .getByRole('button', { name: 'Add subscription' })
+    .click()
 
   await expect(page.locator('.calendar-settings-row', { hasText: 'Team Feed' })).toBeVisible()
   const syncNow = page.getByRole('button', { name: 'Sync Team Feed' })
@@ -237,7 +245,9 @@ test('Dragging on the day timeline opens New event with the date, start, and end
   await expect(page.locator('.day-event', { hasText: 'Dentist appointment' })).toBeVisible()
 })
 
-test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog', async ({ page }) => {
+test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog', async ({
+  page,
+}) => {
   await page.addInitScript(() => localStorage.setItem('cookie-theme', 'dark'))
   await page.goto('/calendar')
 
@@ -291,7 +301,9 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
   await expect(composer.locator('.composer-subject-inline')).toHaveValue(
     'Re: Revised Floor Plan - Natural Light adjustments',
   )
-  await expect(composer.locator('.composer-editor')).toContainText('A reviewable AI-generated draft.')
+  await expect(composer.locator('.composer-editor')).toContainText(
+    'A reviewable AI-generated draft.',
+  )
 
   // Reply Needed and Review become rows; Noise is summarized without listing
   // individual emails. Scope to the triage card because news shares styles.
@@ -423,7 +435,9 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
   await firstTask.locator('.todo-check-btn').click()
 
   await expect(todos.locator('.todo-row')).toHaveCount(2)
-  await expect(page.locator('.toast', { hasText: 'Marked "Renew car insurance" done.' })).toBeVisible()
+  await expect(
+    page.locator('.toast', { hasText: 'Marked "Renew car insurance" done.' }),
+  ).toBeVisible()
   await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('2 to-dos')
   expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
 })
@@ -494,9 +508,9 @@ test('A Settings snippet is available as a slash command in the composer', async
   const modal = page.locator('.settings-page')
   await modal.locator('.settings-nav-item', { hasText: 'Snippets' }).click()
   await modal.locator('.snippet-editor-form > .label-input').fill('incident')
-  await modal.locator('.snippet-editor .composer-editor').fill(
-    'Hi,\nWe’re currently investigating the incident and will share an update shortly.',
-  )
+  await modal
+    .locator('.snippet-editor .composer-editor')
+    .fill('Hi,\nWe’re currently investigating the incident and will share an update shortly.')
   await modal.getByRole('button', { name: 'Add snippet' }).click()
   await expect(modal.locator('.snippet-trigger')).toHaveText('/incident')
   await modal.locator('.settings-back-link').click()
@@ -545,9 +559,7 @@ test('Browser notifications can be enabled from Notifications settings', async (
   expect(
     await page.evaluate(() =>
       JSON.parse(
-        localStorage.getItem(
-          'cookie-browser-notifications:11111111-1111-4111-8111-111111111111',
-        ),
+        localStorage.getItem('cookie-browser-notifications:11111111-1111-4111-8111-111111111111'),
       ),
     ),
   ).toEqual({ enabled: true })
@@ -591,7 +603,9 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   expect(sendRequests).toBe(1)
 })
 
-test('Composer "Send Later" queues a scheduled send instead of sending immediately', async ({ page }) => {
+test('Composer "Send Later" queues a scheduled send instead of sending immediately', async ({
+  page,
+}) => {
   let sendRequestBody
   await page.route('**/api/send', async (route) => {
     sendRequestBody = route.request().postDataJSON()
@@ -599,7 +613,12 @@ test('Composer "Send Later" queues a scheduled send instead of sending immediate
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
-        scheduledSend: { id: 'sched-1', toAddresses: 'person@example.com', subject: '', scheduledFor: sendRequestBody.sendAt },
+        scheduledSend: {
+          id: 'sched-1',
+          toAddresses: 'person@example.com',
+          subject: '',
+          scheduledFor: sendRequestBody.sendAt,
+        },
       }),
     })
   })
@@ -658,7 +677,9 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 })
 
-test('Reader offers to add a detected email event to Calendar with details prefilled', async ({ page }) => {
+test('Reader offers to add a detected email event to Calendar with details prefilled', async ({
+  page,
+}) => {
   // The fixture's tour date is computed (always in the future — the reader
   // suppresses past events), so the expectations derive from the same date.
   const { fixtureTourDate, fixtureTourDateText } = await import('../api/_fixtures/emails.js')
@@ -687,11 +708,15 @@ test('Reader offers to add a detected email event to Calendar with details prefi
   await expect(page).toHaveURL(/\/calendar$/)
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('textbox', { name: 'Event title' })).toHaveValue(`${tourDateText} guided tour`)
+  await expect(dialog.getByRole('textbox', { name: 'Event title' })).toHaveValue(
+    `${tourDateText} guided tour`,
+  )
   await expect(dialog.locator('input[type="date"]')).toHaveValue(tourDateValue)
   await expect(dialog.locator('input[type="time"]').nth(0)).toHaveValue('10:00')
   await expect(dialog.locator('input[type="time"]').nth(1)).toHaveValue('11:00')
-  await expect(dialog.getByRole('textbox', { name: 'Event description' })).toHaveValue(/Univ of State Tours/)
+  await expect(dialog.getByRole('textbox', { name: 'Event description' })).toHaveValue(
+    /Univ of State Tours/,
+  )
 })
 
 test("Pressing 'd' after opening an email link marks it Done", async ({ page }) => {
@@ -717,7 +742,10 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) => {
-        if (!candidate.url().includes(MESSAGES_API_URL) || candidate.request().method() !== 'PATCH') {
+        if (
+          !candidate.url().includes(MESSAGES_API_URL) ||
+          candidate.request().method() !== 'PATCH'
+        ) {
           return false
         }
         const body = candidate.request().postDataJSON()
@@ -791,7 +819,9 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   await expect(summary).toContainText('City Construction shared a revised plan.')
   await expect(summarize).toBeEnabled()
   await expect(summarize).toHaveText(/Regenerate Summary/)
-  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
+  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText(
+    'auto_awesome',
+  )
 
   await page.keyboard.press('Escape')
   await expect(cityRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
@@ -820,7 +850,9 @@ test('Reader restores a saved AI summary and offers to regenerate it', async ({ 
   await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
 })
 
-test('Reader shows earlier thread messages as expandable conversation history', async ({ page }) => {
+test('Reader shows earlier thread messages as expandable conversation history', async ({
+  page,
+}) => {
   await page.goto('/inbox')
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   await row.click()
@@ -832,7 +864,9 @@ test('Reader shows earlier thread messages as expandable conversation history', 
   const earlierMessage = history.locator('.ni-thread-message')
   await expect(earlierMessage).toHaveCount(1)
   await expect(earlierMessage).toContainText('City Construction')
-  await expect(earlierMessage).toContainText('Quick check-in before we finalize the kitchen floor plan design.')
+  await expect(earlierMessage).toContainText(
+    'Quick check-in before we finalize the kitchen floor plan design.',
+  )
   await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
 
   await earlierMessage.click()
@@ -937,7 +971,7 @@ test('Snoozed groups emails by their snooze target with both groups expanded', a
   tomorrow.setDate(tomorrow.getDate() + 1)
   tomorrow.setHours(8, 0, 0, 0)
   const nextWeek = new Date(now)
-  nextWeek.setDate(nextWeek.getDate() + (((8 - nextWeek.getDay()) % 7) || 7))
+  nextWeek.setDate(nextWeek.getDate() + ((8 - nextWeek.getDay()) % 7 || 7))
   nextWeek.setHours(8, 0, 0, 0)
 
   await page.route('**/api/emails?folder=snoozed&limit=50', async (route) => {
@@ -1025,7 +1059,9 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })
 
-test('Header search filters as the user types and clearing restores the inbox', async ({ page }) => {
+test('Header search filters as the user types and clearing restores the inbox', async ({
+  page,
+}) => {
   await page.goto('/')
 
   const searchInput = page.locator('.search-input')
@@ -1063,7 +1099,8 @@ test('Header search supports in: to reach mail the default search hides', async 
   await row.hover()
   await Promise.all([
     page.waitForResponse(
-      (response) => response.url().includes(MESSAGES_API_URL) && response.request().method() === 'PATCH',
+      (response) =>
+        response.url().includes(MESSAGES_API_URL) && response.request().method() === 'PATCH',
     ),
     row.locator('[title="Done"]').click(),
   ])
@@ -1112,9 +1149,7 @@ test('Ask Cookie answers with formatted text and email sources', async ({ page }
   // sends the text to the Q&A assistant instead of the search index.
   const searchInput = page.locator('.search-input')
   await searchInput.fill('Summarize my kitchen renovation updates.')
-  await page
-    .locator('.suggestion-item', { hasText: 'kitchen renovation' })
-    .click()
+  await page.locator('.suggestion-item', { hasText: 'kitchen renovation' }).click()
 
   const drawer = page.locator('#geminiChatDrawer')
   await expect(drawer).toHaveClass(/active/)
@@ -1361,9 +1396,7 @@ test('The installed app icon is badged with the live unread inbox count', async 
   const unreadBadge = page.locator('.nav-item', { hasText: 'Inbox' }).locator('.nav-badge')
   const unreadCount = Number(await unreadBadge.textContent())
   expect(unreadCount).toBeGreaterThan(0)
-  await expect
-    .poll(() => page.evaluate(() => globalThis.appBadgeCalls.at(-1)))
-    .toBe(unreadCount)
+  await expect.poll(() => page.evaluate(() => globalThis.appBadgeCalls.at(-1))).toBe(unreadCount)
 
   // Opening an unread email marks it read, and the icon badge follows.
   await page.locator('.ni-row.unread').first().click()
@@ -1420,9 +1453,7 @@ test('Sent view lists the outbox with recipients and opens the reader', async ({
   await expect(reader.locator('.ni-read-status')).toContainText('Opened')
 })
 
-test('Multi-select: checkboxes reveal bulk pills, Done archives, Esc clears', async ({
-  page,
-}) => {
+test('Multi-select: checkboxes reveal bulk pills, Done archives, Esc clears', async ({ page }) => {
   await page.goto('/inbox')
 
   // Only Today starts expanded (one visible email); open Yesterday for more.
@@ -1461,7 +1492,8 @@ test('The hidden Done mailbox shows emails after they are marked done', async ({
   await row.hover()
   await Promise.all([
     page.waitForResponse(
-      (response) => response.url().includes(MESSAGES_API_URL) && response.request().method() === 'PATCH',
+      (response) =>
+        response.url().includes(MESSAGES_API_URL) && response.request().method() === 'PATCH',
     ),
     row.locator('[title="Done"]').click(),
   ])

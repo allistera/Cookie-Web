@@ -59,7 +59,10 @@ const rows = [
     ageMs: 0.9 * HOUR,
     is_unread: true,
     is_starred: true,
-    labels: [{ name: 'Finance', color: '#2f9e44' }, { name: 'Home', color: '#e5484d' }],
+    labels: [
+      { name: 'Finance', color: '#2f9e44' },
+      { name: 'Home', color: '#e5484d' },
+    ],
   },
   {
     from_name: 'Coach Mike',
@@ -78,8 +81,7 @@ const rows = [
     from_name: 'Univ of State Tours',
     from_address: 'tours@univstate.edu',
     subject: `Confirmation: ${TOUR_DATE_TEXT} guided tour`,
-    snippet:
-      'Thank you for scheduling a campus visit. Please complete the waiver in the link...',
+    snippet: 'Thank you for scheduling a campus visit. Please complete the waiver in the link...',
     body_text: `Thank you for scheduling a campus visit. Please complete the waiver in the link below before arriving for the ${TOUR_DATE_TEXT} guided tour.\n\nTours depart from the Visitor Center at 10:00 AM sharp. Parking passes will be emailed two days before your visit.`,
     ageMs: 1 * DAY + 4 * HOUR,
     is_unread: false,
@@ -138,8 +140,7 @@ const rows = [
     from_name: 'Netflix',
     from_address: 'info@netflix.com',
     subject: 'New Shows for June 2026',
-    snippet:
-      'Here is your curated list of movies and television series launching this month...',
+    snippet: 'Here is your curated list of movies and television series launching this month...',
     body_text:
       "Here is your curated list of movies and television series launching this month.\n\nBased on your watch history, we think you'll enjoy the new season of your saved shows arriving June 14th.",
     ageMs: 9 * DAY + 5 * HOUR,
@@ -170,7 +171,10 @@ const rows = [
     ageMs: 12 * DAY + 4 * HOUR,
     is_unread: false,
     is_starred: false,
-    labels: [{ name: 'Newsletters', color: '#d9730d' }, { name: 'Shopping', color: '#d6409f' }],
+    labels: [
+      { name: 'Newsletters', color: '#d9730d' },
+      { name: 'Shopping', color: '#d6409f' },
+    ],
   },
   {
     from_name: 'Lincoln Counselors',

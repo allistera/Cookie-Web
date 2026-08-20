@@ -44,7 +44,12 @@ const completingTaskIds = ref(new Set())
 const tasks = computed(() => store.tasks.filter((t) => !completingTaskIds.value.has(t.id)))
 const activeCount = computed(() => tasks.value.length)
 
-const firstName = computed(() => String(user.value?.name || '').trim().split(/\s+/)[0])
+const firstName = computed(
+  () =>
+    String(user.value?.name || '')
+      .trim()
+      .split(/\s+/)[0],
+)
 
 // Presets for both reschedule menus below (Later today/Tomorrow/This
 // weekend/Next week) - recomputed each time a menu opens so the dates are
@@ -225,7 +230,13 @@ onMounted(async () => {
         <span class="counter-text">{{ priorityGroupCount }} {{ priorityGroupLabel }}</span>
         to work through.
       </h1>
-      <div class="ai-update-status" role="button" tabindex="0" @click="refresh" @keydown.enter="refresh">
+      <div
+        class="ai-update-status"
+        role="button"
+        tabindex="0"
+        @click="refresh"
+        @keydown.enter="refresh"
+      >
         <span class="status-time">{{ statusTime }}</span>
         <span class="material-symbols-outlined refresh-icon" :class="{ refreshing: isRefreshing }">
           sync
@@ -253,7 +264,9 @@ onMounted(async () => {
               ><template v-if="task.description"> – {{ task.description }}</template>
               <span class="from-links-container">
                 From:
-                <span class="email-link">{{ task.source === 'todoist' ? 'Todoist' : 'Email' }}</span>
+                <span class="email-link">{{
+                  task.source === 'todoist' ? 'Todoist' : 'Email'
+                }}</span>
               </span>
             </div>
 
@@ -343,7 +356,8 @@ onMounted(async () => {
                     aria-haspopup="menu"
                     :aria-expanded="reschedulingItemId === item.message_id"
                     @click="
-                      reschedulingItemId = reschedulingItemId === item.message_id ? null : item.message_id
+                      reschedulingItemId =
+                        reschedulingItemId === item.message_id ? null : item.message_id
                     "
                   >
                     <span class="material-symbols-outlined">schedule</span>
@@ -360,7 +374,10 @@ onMounted(async () => {
             <div class="topic-footer">
               <div class="topic-meta">
                 <span class="material-symbols-outlined font-sm">link</span>
-                <span>{{ topic.items.length }} {{ topic.items.length === 1 ? 'source' : 'sources' }}</span>
+                <span
+                  >{{ topic.items.length }}
+                  {{ topic.items.length === 1 ? 'source' : 'sources' }}</span
+                >
               </div>
               <button
                 v-if="unreadCount(topic)"
@@ -377,7 +394,10 @@ onMounted(async () => {
         <div v-if="noiseCount" class="triage-noise" data-testid="triage-noise">
           <span class="material-symbols-outlined" aria-hidden="true">filter_alt</span>
           <div>
-            <strong>{{ noiseCount }} {{ noiseCount === 1 ? 'email' : 'emails' }} classified as Noise</strong>
+            <strong
+              >{{ noiseCount }} {{ noiseCount === 1 ? 'email' : 'emails' }} classified as
+              Noise</strong
+            >
             <span v-if="noiseSummary">{{ noiseSummary }}</span>
             <span>Hidden from AI Inbox; nothing was archived or deleted.</span>
           </div>

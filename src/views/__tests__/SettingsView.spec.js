@@ -112,7 +112,10 @@ describe('SettingsView', () => {
           if (String(url).includes('resource=calendars')) {
             return { calendars: FIXTURE_CALENDARS.map((calendar) => ({ ...calendar })) }
           }
-          if (String(url).includes(`${TASKS_API_URL}/documents`) && String(url).includes('templates')) {
+          if (
+            String(url).includes(`${TASKS_API_URL}/documents`) &&
+            String(url).includes('templates')
+          ) {
             return { templates: [] }
           }
           if (String(url).includes('/tasks/daily-note-seed')) return { blocks: [] }

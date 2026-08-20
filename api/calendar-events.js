@@ -67,8 +67,14 @@ function validEventFields(body) {
   }
   // Stored in a fixed week order regardless of the order the client sent, so
   // the recurrence_rule string stays stable/comparable across edits.
-  const repeatDays = repeatDaysRaw ? WEEKDAY_CODES.filter((code) => repeatDaysRaw.includes(code)) : null
-  const recurrenceRule = buildRecurrenceRule(repeat, repeat === 'none' ? null : repeatUntil, repeatDays)
+  const repeatDays = repeatDaysRaw
+    ? WEEKDAY_CODES.filter((code) => repeatDaysRaw.includes(code))
+    : null
+  const recurrenceRule = buildRecurrenceRule(
+    repeat,
+    repeat === 'none' ? null : repeatUntil,
+    repeatDays,
+  )
   return { title, description, location, date, start, duration, calendar, tone, recurrenceRule }
 }
 
@@ -103,7 +109,8 @@ async function resolveCalendarId(sql, userId, calendarId) {
     }
     // During the expand rollout, the new API may be live briefly before the
     // calendars table exists. Legacy slugs remain valid until migration 0024.
-    if (error?.code === '42P01') return legacyName ? { id: calendarId, subscriptionUrl: null } : null
+    if (error?.code === '42P01')
+      return legacyName ? { id: calendarId, subscriptionUrl: null } : null
     throw error
   }
 }
@@ -229,7 +236,9 @@ function stepDate(date, freq) {
   next.setUTCDate(1)
   next.setUTCFullYear(next.getUTCFullYear() + yearsAhead)
   next.setUTCMonth(month)
-  const daysInTargetMonth = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate()
+  const daysInTargetMonth = new Date(
+    Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0),
+  ).getUTCDate()
   next.setUTCDate(Math.min(day, daysInTargetMonth))
   return next
 }
@@ -286,7 +295,9 @@ function expandEvent(event, windowStart, windowEnd) {
   // BYDAY (e.g. "Monday to Friday") only makes sense for WEEKLY, and needs
   // day-by-day stepping to land on each selected weekday rather than jumping
   // 7 days from the series' own start-date weekday.
-  const weekdays = rule.byday ? new Set(rule.byday.map((code) => WEEKDAY_CODES.indexOf(code))) : null
+  const weekdays = rule.byday
+    ? new Set(rule.byday.map((code) => WEEKDAY_CODES.indexOf(code)))
+    : null
   const stepFreq = weekdays ? 'DAILY' : rule.freq
   const occurrences = []
   let cursor = jumpToWindow(dtstart, windowStart, stepFreq)

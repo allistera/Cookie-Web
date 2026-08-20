@@ -37,7 +37,15 @@ describe('flattenBlocksToText', () => {
 
   it('flattens table cells row by row', () => {
     const blocks = [
-      { type: 'table', data: { content: [['Name', 'Role'], ['Ada', 'Engineer']] } },
+      {
+        type: 'table',
+        data: {
+          content: [
+            ['Name', 'Role'],
+            ['Ada', 'Engineer'],
+          ],
+        },
+      },
     ]
     expect(flattenBlocksToText('', blocks)).toBe('Name\nRole\nAda\nEngineer')
   })

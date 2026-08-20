@@ -587,9 +587,8 @@ function localApiPlugin(mode) {
   // a single fetch by id carries blocks).
   const handleWorkerDocuments = async (req, res, state, url) => {
     if (!state.documents) {
-      const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } = await import(
-        './api/_fixtures/documents.js'
-      )
+      const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } =
+        await import('./api/_fixtures/documents.js')
       state.docFolders = fixtureDocumentFolders()
       state.documents = fixtureDocuments()
       state.docTemplates = fixtureDocumentTemplates()

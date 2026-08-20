@@ -14,9 +14,7 @@ describe('ChatDrawer message formatting', () => {
   })
 
   it('renders **bold** markers as <strong> without showing asterisks', () => {
-    store.chatHistory = [
-      { text: 'Update from **City Construction**: plan revised.', sender: 'ai' },
-    ]
+    store.chatHistory = [{ text: 'Update from **City Construction**: plan revised.', sender: 'ai' }]
     const wrapper = mount(ChatDrawer)
 
     const message = wrapper.find('.chat-msg.ai')
@@ -63,8 +61,6 @@ describe('ChatDrawer message formatting', () => {
     store.chatHistory = [{ text: 'Summarize my kitchen renovation updates.', sender: 'user' }]
     const wrapper = mount(ChatDrawer)
 
-    expect(wrapper.find('.chat-msg.user').text()).toBe(
-      'Summarize my kitchen renovation updates.',
-    )
+    expect(wrapper.find('.chat-msg.user').text()).toBe('Summarize my kitchen renovation updates.')
   })
 })

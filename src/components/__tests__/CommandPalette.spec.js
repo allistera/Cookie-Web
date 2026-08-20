@@ -8,9 +8,7 @@ import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
 
 function pressSlash(target = document.body) {
-  target.dispatchEvent(
-    new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }),
-  )
+  target.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }))
 }
 
 describe('CommandPalette', () => {

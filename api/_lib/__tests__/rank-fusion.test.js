@@ -32,10 +32,7 @@ describe('fuseRankings', () => {
   })
 
   it('breaks ties by first-list order', () => {
-    const fused = fuseRankings([
-      ['a', 'b'],
-      [],
-    ])
+    const fused = fuseRankings([['a', 'b'], []])
     expect(fused).toEqual(['a', 'b'])
   })
 })

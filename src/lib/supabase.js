@@ -22,8 +22,7 @@ export function getRealtimeClient() {
   if (!url || !anonKey) return Promise.resolve(null)
   if (!clientPromise) {
     clientPromise = import('@supabase/realtime-js').then(
-      ({ RealtimeClient }) =>
-        new RealtimeClient(realtimeUrl(url), { params: { apikey: anonKey } }),
+      ({ RealtimeClient }) => new RealtimeClient(realtimeUrl(url), { params: { apikey: anonKey } }),
     )
   }
   return clientPromise

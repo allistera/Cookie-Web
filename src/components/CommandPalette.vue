@@ -103,11 +103,7 @@ function onInputKeydown(e) {
 </script>
 
 <template>
-  <div
-    class="cp-overlay"
-    :class="{ active: store.isCommandPaletteOpen }"
-    @click.self="close"
-  >
+  <div class="cp-overlay" :class="{ active: store.isCommandPaletteOpen }" @click.self="close">
     <div class="cp-panel" role="dialog" aria-label="Command palette">
       <div class="cp-header">
         <span class="material-symbols-outlined">cookie</span>
@@ -131,7 +127,11 @@ function onInputKeydown(e) {
           @click="runCommand(cmd)"
         >
           <span class="cp-item-icon">
-            <span class="material-symbols-outlined" :style="cmd.iconColor ? { color: cmd.iconColor } : undefined">{{ cmd.icon }}</span>
+            <span
+              class="material-symbols-outlined"
+              :style="cmd.iconColor ? { color: cmd.iconColor } : undefined"
+              >{{ cmd.icon }}</span
+            >
           </span>
           <span class="cp-item-title">{{ cmd.title }}</span>
           <span class="cp-soon-tag" v-if="cmd.comingSoon">Soon</span>

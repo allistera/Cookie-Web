@@ -68,14 +68,11 @@ const remoteImagesBlocked = computed(
   () => !imagesAllowed.value && hasBlockedRemoteImages(safeHtml.value),
 )
 
-watch(
-  safeHtml,
-  () => {
-    frameGeneration.value = randomToken()
-    latestLinksRevision = 0
-    emit('unsubscribe-link', null)
-  },
-)
+watch(safeHtml, () => {
+  frameGeneration.value = randomToken()
+  latestLinksRevision = 0
+  emit('unsubscribe-link', null)
+})
 
 watch(
   () => [hasHtml.value, props.text, props.bodyResolved],
@@ -233,12 +230,7 @@ onBeforeUnmount(() => {
     :srcdoc="srcdoc"
     :style="{ height: frameHeight + 'px' }"
   />
-  <div
-    v-else-if="showSpinner"
-    class="ni-email-loading"
-    role="status"
-    aria-label="Loading email"
-  >
+  <div v-else-if="showSpinner" class="ni-email-loading" role="status" aria-label="Loading email">
     <div class="spinner ni-email-spinner"></div>
   </div>
   <div v-else class="ni-email-body">

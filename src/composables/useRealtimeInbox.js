@@ -69,10 +69,13 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
       const response = await postNotificationEvent({ action: 'claim', eventId })
       if (response.status === 423 && allowRetry) {
         const retryAfter = Number.parseInt(response.headers?.get?.('Retry-After') || '30', 10)
-        const timer = setTimeout(() => {
-          notificationRetryTimers.delete(timer)
-          claimNotificationEvent(eventId, userId, version, false)
-        }, Math.max(1, retryAfter) * 1000)
+        const timer = setTimeout(
+          () => {
+            notificationRetryTimers.delete(timer)
+            claimNotificationEvent(eventId, userId, version, false)
+          },
+          Math.max(1, retryAfter) * 1000,
+        )
         notificationRetryTimers.add(timer)
         return
       }
@@ -113,9 +116,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     const refresh = notificationEventIds.length
       ? storeRefresh.then(() =>
           Promise.all(
-            notificationEventIds.map((eventId) =>
-              claimNotificationEvent(eventId, userId, version),
-            ),
+            notificationEventIds.map((eventId) => claimNotificationEvent(eventId, userId, version)),
           ),
         )
       : storeRefresh

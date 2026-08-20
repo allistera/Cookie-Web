@@ -75,9 +75,7 @@ describe('selectUnsubscribeTarget', () => {
       ]),
     ).toBeNull()
     expect(
-      selectUnsubscribeTarget([
-        { href: 'mailto:leave%0d%0a@news.example', text: 'Unsubscribe' },
-      ]),
+      selectUnsubscribeTarget([{ href: 'mailto:leave%0d%0a@news.example', text: 'Unsubscribe' }]),
     ).toBeNull()
   })
 

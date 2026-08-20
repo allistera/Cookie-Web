@@ -42,7 +42,11 @@ function parseMailto(raw) {
   } catch {
     return null
   }
-  if (parsed.protocol !== 'mailto:' || parsed.pathname.includes(',') || parsed.pathname.includes(';')) {
+  if (
+    parsed.protocol !== 'mailto:' ||
+    parsed.pathname.includes(',') ||
+    parsed.pathname.includes(';')
+  ) {
     return null
   }
   const address = parsed.pathname.trim()

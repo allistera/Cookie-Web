@@ -34,11 +34,19 @@ const visibleCalendars = ref(new Set())
 const calendarSections = computed(() => [
   { id: 'calendars', label: 'Calendars', calendars: writableCalendars.value },
   ...(subscribedCalendars.value.length
-    ? [{ id: 'subscribed-calendars', label: 'Subscribed calendars', calendars: subscribedCalendars.value }]
+    ? [
+        {
+          id: 'subscribed-calendars',
+          label: 'Subscribed calendars',
+          calendars: subscribedCalendars.value,
+        },
+      ]
     : []),
 ])
 
-const calendarColorById = computed(() => new Map(calendars.value.map((calendar) => [calendar.id, calendar.color])))
+const calendarColorById = computed(
+  () => new Map(calendars.value.map((calendar) => [calendar.id, calendar.color])),
+)
 
 // Sets the --event-color custom property an event chip reads for its tint, so
 // entries visually match their owning calendar the same way the sidebar list
@@ -120,7 +128,10 @@ async function loadEvents() {
 watch(selectedDate, () => {
   if (!loadedEventRange.value) return
   const required = requiredEventRange()
-  if (dateKey(required.from) < loadedEventRange.value.from || dateKey(required.to) > loadedEventRange.value.to) {
+  if (
+    dateKey(required.from) < loadedEventRange.value.from ||
+    dateKey(required.to) > loadedEventRange.value.to
+  ) {
     loadEvents()
   }
 })
@@ -162,8 +173,9 @@ const THIS_WEEK_DATE_KEYS = new Set(
 // yet, so this reads 0 until an actual auto-scheduling feature exists.
 const autoScheduledCount = computed(
   () =>
-    visibleEvents.value.filter((event) => event.autoScheduled && THIS_WEEK_DATE_KEYS.has(event.date))
-      .length,
+    visibleEvents.value.filter(
+      (event) => event.autoScheduled && THIS_WEEK_DATE_KEYS.has(event.date),
+    ).length,
 )
 
 // Only surfaced within a bounded lookahead: a double-booking three months out
@@ -269,7 +281,9 @@ const allDayEventsForDay = computed(() =>
   allDayVisibleEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
 )
 const allDayEventsForWeek = computed(() =>
-  weekDays.value.map((date) => allDayVisibleEvents.value.filter((event) => event.date === dateKey(date))),
+  weekDays.value.map((date) =>
+    allDayVisibleEvents.value.filter((event) => event.date === dateKey(date)),
+  ),
 )
 
 const timeLabel = (hour) => {
@@ -311,8 +325,7 @@ const weekEventStyle = (event) => {
 }
 
 const snapMinutes = (minutes) => Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES
-const clampMinutes = (minutes) =>
-  Math.min(Math.max(minutes, START_HOUR * 60), END_HOUR * 60)
+const clampMinutes = (minutes) => Math.min(Math.max(minutes, START_HOUR * 60), END_HOUR * 60)
 
 const minutesFromOffset = (offsetY, hourHeight) =>
   clampMinutes(snapMinutes(START_HOUR * 60 + (offsetY / hourHeight) * 60))
@@ -341,7 +354,9 @@ const dayDragPreviewStyle = computed(() => {
 
 const weekDragPreviewStyle = computed(() => {
   if (!dragDraft.value || dragDraft.value.view !== 'week') return null
-  const dayIndex = weekDays.value.findIndex((date) => dateKey(date) === dateKey(dragDraft.value.date))
+  const dayIndex = weekDays.value.findIndex(
+    (date) => dateKey(date) === dateKey(dragDraft.value.date),
+  )
   return {
     ...dragRangeStyle(dragDraft.value),
     left: `calc(${dayIndex} * (100% / 7) + 8px)`,
@@ -457,7 +472,10 @@ function openNewEvent(prefill) {
     title: prefill?.title || '',
     description: prefill?.description || '',
     location: prefill?.location || '',
-    date: prefillDate instanceof Date ? dateKey(prefillDate) : prefillDate || dateKey(selectedDate.value),
+    date:
+      prefillDate instanceof Date
+        ? dateKey(prefillDate)
+        : prefillDate || dateKey(selectedDate.value),
     start: prefill?.start ?? (prefill ? minutesToTimeString(prefill.startMinutes) : '14:00'),
     end: prefill?.end ?? (prefill ? minutesToTimeString(prefill.endMinutes) : '14:30'),
     calendar: defaultCalendarId(),
@@ -470,14 +488,18 @@ function openNewEvent(prefill) {
 
 function toggleRepeatDay(code) {
   const days = eventForm.value.repeatDays
-  eventForm.value.repeatDays = days.includes(code) ? days.filter((day) => day !== code) : [...days, code]
+  eventForm.value.repeatDays = days.includes(code)
+    ? days.filter((day) => day !== code)
+    : [...days, code]
 }
 
 function editEvent(event) {
   editingEventId.value = event.seriesId ?? event.id
   // Subscribed-calendar events are entirely sync-managed — the dialog opens
   // read-only rather than letting the user hit a 403 on save/delete.
-  eventFormReadOnly.value = !writableCalendars.value.some((calendar) => calendar.id === event.calendar)
+  eventFormReadOnly.value = !writableCalendars.value.some(
+    (calendar) => calendar.id === event.calendar,
+  )
   eventForm.value = {
     title: event.title,
     description: event.description || '',
@@ -487,7 +509,9 @@ function editEvent(event) {
     // An all-day event's 1440-minute duration would overflow into an
     // invalid "24:00" end time; there's no meaningful end-of-day time to
     // show anyway since it's rendered as an all-day banner, not a slot.
-    end: event.allDay ? '23:59' : minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
+    end: event.allDay
+      ? '23:59'
+      : minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
     calendar: event.calendar,
     repeat: parseRepeatFrequency(event.recurrenceRule),
     repeatUntil: parseRepeatUntil(event.recurrenceRule),
@@ -506,7 +530,8 @@ async function saveEvent() {
   if (eventSaving.value) return
   const title = eventForm.value.title.trim()
   if (!title) return
-  const { date, start, end, location, description, repeat, repeatUntil, repeatDays } = eventForm.value
+  const { date, start, end, location, description, repeat, repeatUntil, repeatDays } =
+    eventForm.value
   const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
@@ -533,7 +558,9 @@ async function saveEvent() {
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (editingEventId.value) {
-      const existing = events.value.find((event) => (event.seriesId ?? event.id) === editingEventId.value)
+      const existing = events.value.find(
+        (event) => (event.seriesId ?? event.id) === editingEventId.value,
+      )
       const response = await fetch('/api/calendar-events', {
         method: 'PATCH',
         headers,
@@ -710,159 +737,106 @@ onUnmounted(() => {
 
     <div class="calendar-content">
       <div class="calendar-page">
-      <header class="calendar-page-header" :class="{ 'is-month': viewMode === 'month' }">
-        <span class="calendar-eyebrow">Calendar</span>
+        <header class="calendar-page-header" :class="{ 'is-month': viewMode === 'month' }">
+          <span class="calendar-eyebrow">Calendar</span>
 
-        <div class="calendar-toolbar">
-          <div class="calendar-date-controls">
-            <h1>{{ headerTitle }}</h1>
-            <div class="calendar-navigation" aria-label="Calendar navigation">
-              <button type="button" aria-label="Previous period" @click="navigate(-1)">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m14.5 5-7 7 7 7" />
-                </svg>
-              </button>
-              <button type="button" aria-label="Next period" @click="navigate(1)">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m9.5 5 7 7-7 7" />
-                </svg>
-              </button>
-              <button type="button" class="today-button" @click="goToday">Today</button>
+          <div class="calendar-toolbar">
+            <div class="calendar-date-controls">
+              <h1>{{ headerTitle }}</h1>
+              <div class="calendar-navigation" aria-label="Calendar navigation">
+                <button type="button" aria-label="Previous period" @click="navigate(-1)">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m14.5 5-7 7 7 7" />
+                  </svg>
+                </button>
+                <button type="button" aria-label="Next period" @click="navigate(1)">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m9.5 5 7 7-7 7" />
+                  </svg>
+                </button>
+                <button type="button" class="today-button" @click="goToday">Today</button>
+              </div>
             </div>
-          </div>
 
-          <div class="calendar-header-actions">
-            <div class="calendar-view-tabs" aria-label="Calendar view">
+            <div class="calendar-header-actions">
+              <div class="calendar-view-tabs" aria-label="Calendar view">
+                <button
+                  v-for="mode in ['day', 'week', 'month']"
+                  :key="mode"
+                  type="button"
+                  :class="{ active: viewMode === mode }"
+                  :aria-pressed="viewMode === mode"
+                  @click="setView(mode)"
+                >
+                  {{ mode.charAt(0).toUpperCase() + mode.slice(1) }}
+                </button>
+              </div>
+
               <button
-                v-for="mode in ['day', 'week', 'month']"
-                :key="mode"
+                v-if="viewMode === 'month'"
                 type="button"
-                :class="{ active: viewMode === mode }"
-                :aria-pressed="viewMode === mode"
-                @click="setView(mode)"
+                class="new-event-button month-new-event-button"
+                @click="openNewEvent()"
               >
-                {{ mode.charAt(0).toUpperCase() + mode.slice(1) }}
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                New event
               </button>
             </div>
+          </div>
+        </header>
 
-            <button
-              v-if="viewMode === 'month'"
-              type="button"
-              class="new-event-button month-new-event-button"
-              @click="openNewEvent()"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New event
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <section v-if="viewMode !== 'week'" class="calendar-insights" aria-label="Calendar insights">
-        <article v-if="conflictVisible && detectedConflict" class="calendar-insight-card">
-          <span class="insight-icon conflict-icon material-symbols-outlined" aria-hidden="true">
-            warning_amber
-          </span>
-          <div class="insight-copy">
-            <h2>Scheduling conflict</h2>
-            <p>
-              "{{ detectedConflict.laterTitle }}" overlaps "{{ detectedConflict.earlierTitle }}" by
-              {{ detectedConflict.overlapMinutes }} min on {{ detectedConflict.dayLabel }}.
-            </p>
-            <button type="button" class="primary-small-button" @click="conflictVisible = false">
-              Resolve
-            </button>
-          </div>
-        </article>
-
-        <article v-if="autoScheduledCount > 0" class="calendar-insight-card auto-scheduled-card">
-          <span class="insight-icon auto-icon material-symbols-outlined" aria-hidden="true">bolt</span>
-          <div class="insight-copy">
-            <h2>Auto-scheduled</h2>
-            <p>
-              Cookie booked {{ autoScheduledCount }}
-              {{ autoScheduledCount === 1 ? 'event' : 'events' }} this week around your availability.
-            </p>
-          </div>
-        </article>
-      </section>
-
-      <section v-if="viewMode === 'day'" class="day-calendar calendar-surface" aria-label="Day view">
-        <h2>{{ formatLongDate(selectedDate) }}</h2>
-        <div v-if="allDayEventsForDay.length" class="all-day-row" role="group" aria-label="All-day events">
-          <button
-            v-for="event in allDayEventsForDay"
-            :key="event.id"
-            type="button"
-            class="calendar-event all-day-event"
-            :class="`tone-${event.tone || 'default'}`"
-            :style="eventColorVars(event)"
-            @click="editEvent(event)"
-          >
-            {{ event.title }}
-          </button>
-        </div>
-        <div class="day-timeline" :style="{ height: `${dayBodyHeight}px` }">
-          <div
-            v-for="(hour, index) in hours"
-            :key="hour"
-            class="day-hour-line"
-            :style="{ top: `${index * DAY_HOUR_HEIGHT}px` }"
-          >
-            <span>{{ timeLabel(hour) }}</span>
-          </div>
-          <div
-            class="day-event-lane"
-            @mousedown.self="(event) => beginDrag(event, selectedDate, DAY_HOUR_HEIGHT, 'day')"
-          >
-            <button
-              v-for="event in eventsForDay"
-              :key="event.id"
-              type="button"
-              class="calendar-event day-event"
-              :class="`tone-${event.tone || 'default'}`"
-              :style="eventPosition(event, DAY_HOUR_HEIGHT)"
-              @click="editEvent(event)"
-            >
-              <strong>{{ event.title }}</strong>
-            </button>
-            <div
-              v-if="dayDragPreviewStyle"
-              class="calendar-event day-event drag-preview"
-              :style="dayDragPreviewStyle"
-            ></div>
-            <div
-              v-if="isToday(selectedDate) && nowVisible"
-              class="current-time-line day-current-time"
-              :style="dayCurrentTimeStyle"
-              :aria-label="`Current time ${nowLabel}`"
-            >
-              <span></span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section v-else-if="viewMode === 'week'" class="week-calendar calendar-surface" aria-label="Week view">
-        <div class="week-day-header">
-          <div class="week-time-spacer"></div>
-          <div v-for="date in weekDays" :key="dateKey(date)" class="week-day-heading">
-            <span>{{ formatWeekdayShort(date) }}</span>
-            <strong :class="{ today: isToday(date) }">{{ date.getDate() }}</strong>
-          </div>
-        </div>
-        <div
-          v-if="allDayEventsForWeek.some((dayEvents) => dayEvents.length)"
-          class="all-day-row week-all-day-row"
-          role="group"
-          aria-label="All-day events"
+        <section
+          v-if="viewMode !== 'week'"
+          class="calendar-insights"
+          aria-label="Calendar insights"
         >
-          <div class="week-time-spacer"></div>
-          <div v-for="(dayEvents, index) in allDayEventsForWeek" :key="dateKey(weekDays[index])" class="week-all-day-cell">
+          <article v-if="conflictVisible && detectedConflict" class="calendar-insight-card">
+            <span class="insight-icon conflict-icon material-symbols-outlined" aria-hidden="true">
+              warning_amber
+            </span>
+            <div class="insight-copy">
+              <h2>Scheduling conflict</h2>
+              <p>
+                "{{ detectedConflict.laterTitle }}" overlaps "{{ detectedConflict.earlierTitle }}"
+                by {{ detectedConflict.overlapMinutes }} min on {{ detectedConflict.dayLabel }}.
+              </p>
+              <button type="button" class="primary-small-button" @click="conflictVisible = false">
+                Resolve
+              </button>
+            </div>
+          </article>
+
+          <article v-if="autoScheduledCount > 0" class="calendar-insight-card auto-scheduled-card">
+            <span class="insight-icon auto-icon material-symbols-outlined" aria-hidden="true"
+              >bolt</span
+            >
+            <div class="insight-copy">
+              <h2>Auto-scheduled</h2>
+              <p>
+                Cookie booked {{ autoScheduledCount }}
+                {{ autoScheduledCount === 1 ? 'event' : 'events' }} this week around your
+                availability.
+              </p>
+            </div>
+          </article>
+        </section>
+
+        <section
+          v-if="viewMode === 'day'"
+          class="day-calendar calendar-surface"
+          aria-label="Day view"
+        >
+          <h2>{{ formatLongDate(selectedDate) }}</h2>
+          <div
+            v-if="allDayEventsForDay.length"
+            class="all-day-row"
+            role="group"
+            aria-label="All-day events"
+          >
             <button
-              v-for="event in dayEvents"
+              v-for="event in allDayEventsForDay"
               :key="event.id"
               type="button"
               class="calendar-event all-day-event"
@@ -873,80 +847,76 @@ onUnmounted(() => {
               {{ event.title }}
             </button>
           </div>
-        </div>
-        <div class="week-timeline" :style="{ height: `${weekBodyHeight}px` }">
-          <div class="week-time-axis">
+          <div class="day-timeline" :style="{ height: `${dayBodyHeight}px` }">
             <div
               v-for="(hour, index) in hours"
               :key="hour"
-              class="week-hour-label"
-              :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
+              class="day-hour-line"
+              :style="{ top: `${index * DAY_HOUR_HEIGHT}px` }"
             >
-              {{ timeLabel(hour) }}
+              <span>{{ timeLabel(hour) }}</span>
             </div>
-          </div>
-          <div class="week-grid">
             <div
-              v-for="date in weekDays"
-              :key="dateKey(date)"
-              class="week-day-column"
-              @mousedown="(event) => beginDrag(event, date, WEEK_HOUR_HEIGHT, 'week')"
-            ></div>
-            <div
-              v-for="(_, index) in hours"
-              :key="index"
-              class="week-hour-line"
-              :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
-            ></div>
-            <button
-              v-for="event in weekTimedEvents"
-              :key="event.id"
-              type="button"
-              class="calendar-event week-event"
-              :class="`tone-${event.tone || 'default'}`"
-              :style="weekEventStyle(event)"
-              @click="editEvent(event)"
+              class="day-event-lane"
+              @mousedown.self="(event) => beginDrag(event, selectedDate, DAY_HOUR_HEIGHT, 'day')"
             >
-              <strong>{{ event.title }}</strong>
-              <span v-if="event.duration >= 60">{{ eventTime(event) }} · {{ event.duration }} min</span>
-            </button>
-            <div
-              v-if="weekDragPreviewStyle"
-              class="calendar-event week-event drag-preview"
-              :style="weekDragPreviewStyle"
-            ></div>
-            <div
-              v-if="todayWeekIndex !== -1 && nowVisible"
-              class="current-time-line week-current-time"
-              :style="weekCurrentTimeStyle"
-              :aria-label="`Current time ${nowLabel}`"
-            >
-              <span></span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section v-else class="month-calendar calendar-surface" aria-label="Month view">
-        <div class="month-weekdays" aria-hidden="true">
-          <span v-for="day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="day">
-            {{ day }}
-          </span>
-        </div>
-        <div class="month-grid">
-          <article
-            v-for="date in monthDays"
-            :key="dateKey(date)"
-            class="month-day"
-            :class="{ muted: !isCurrentMonth(date) }"
-          >
-            <span class="month-date" :class="{ today: isToday(date) }">{{ date.getDate() }}</span>
-            <div class="month-events">
               <button
-                v-for="event in eventsForDate(date)"
+                v-for="event in eventsForDay"
                 :key="event.id"
                 type="button"
-                class="month-event"
+                class="calendar-event day-event"
+                :class="`tone-${event.tone || 'default'}`"
+                :style="eventPosition(event, DAY_HOUR_HEIGHT)"
+                @click="editEvent(event)"
+              >
+                <strong>{{ event.title }}</strong>
+              </button>
+              <div
+                v-if="dayDragPreviewStyle"
+                class="calendar-event day-event drag-preview"
+                :style="dayDragPreviewStyle"
+              ></div>
+              <div
+                v-if="isToday(selectedDate) && nowVisible"
+                class="current-time-line day-current-time"
+                :style="dayCurrentTimeStyle"
+                :aria-label="`Current time ${nowLabel}`"
+              >
+                <span></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          v-else-if="viewMode === 'week'"
+          class="week-calendar calendar-surface"
+          aria-label="Week view"
+        >
+          <div class="week-day-header">
+            <div class="week-time-spacer"></div>
+            <div v-for="date in weekDays" :key="dateKey(date)" class="week-day-heading">
+              <span>{{ formatWeekdayShort(date) }}</span>
+              <strong :class="{ today: isToday(date) }">{{ date.getDate() }}</strong>
+            </div>
+          </div>
+          <div
+            v-if="allDayEventsForWeek.some((dayEvents) => dayEvents.length)"
+            class="all-day-row week-all-day-row"
+            role="group"
+            aria-label="All-day events"
+          >
+            <div class="week-time-spacer"></div>
+            <div
+              v-for="(dayEvents, index) in allDayEventsForWeek"
+              :key="dateKey(weekDays[index])"
+              class="week-all-day-cell"
+            >
+              <button
+                v-for="event in dayEvents"
+                :key="event.id"
+                type="button"
+                class="calendar-event all-day-event"
                 :class="`tone-${event.tone || 'default'}`"
                 :style="eventColorVars(event)"
                 @click="editEvent(event)"
@@ -954,9 +924,92 @@ onUnmounted(() => {
                 {{ event.title }}
               </button>
             </div>
-          </article>
-        </div>
-      </section>
+          </div>
+          <div class="week-timeline" :style="{ height: `${weekBodyHeight}px` }">
+            <div class="week-time-axis">
+              <div
+                v-for="(hour, index) in hours"
+                :key="hour"
+                class="week-hour-label"
+                :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
+              >
+                {{ timeLabel(hour) }}
+              </div>
+            </div>
+            <div class="week-grid">
+              <div
+                v-for="date in weekDays"
+                :key="dateKey(date)"
+                class="week-day-column"
+                @mousedown="(event) => beginDrag(event, date, WEEK_HOUR_HEIGHT, 'week')"
+              ></div>
+              <div
+                v-for="(_, index) in hours"
+                :key="index"
+                class="week-hour-line"
+                :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
+              ></div>
+              <button
+                v-for="event in weekTimedEvents"
+                :key="event.id"
+                type="button"
+                class="calendar-event week-event"
+                :class="`tone-${event.tone || 'default'}`"
+                :style="weekEventStyle(event)"
+                @click="editEvent(event)"
+              >
+                <strong>{{ event.title }}</strong>
+                <span v-if="event.duration >= 60"
+                  >{{ eventTime(event) }} · {{ event.duration }} min</span
+                >
+              </button>
+              <div
+                v-if="weekDragPreviewStyle"
+                class="calendar-event week-event drag-preview"
+                :style="weekDragPreviewStyle"
+              ></div>
+              <div
+                v-if="todayWeekIndex !== -1 && nowVisible"
+                class="current-time-line week-current-time"
+                :style="weekCurrentTimeStyle"
+                :aria-label="`Current time ${nowLabel}`"
+              >
+                <span></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-else class="month-calendar calendar-surface" aria-label="Month view">
+          <div class="month-weekdays" aria-hidden="true">
+            <span v-for="day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="day">
+              {{ day }}
+            </span>
+          </div>
+          <div class="month-grid">
+            <article
+              v-for="date in monthDays"
+              :key="dateKey(date)"
+              class="month-day"
+              :class="{ muted: !isCurrentMonth(date) }"
+            >
+              <span class="month-date" :class="{ today: isToday(date) }">{{ date.getDate() }}</span>
+              <div class="month-events">
+                <button
+                  v-for="event in eventsForDate(date)"
+                  :key="event.id"
+                  type="button"
+                  class="month-event"
+                  :class="`tone-${event.tone || 'default'}`"
+                  :style="eventColorVars(event)"
+                  @click="editEvent(event)"
+                >
+                  {{ event.title }}
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -1027,7 +1080,11 @@ onUnmounted(() => {
             </label>
             <label class="new-event-field">
               <span>Calendar</span>
-              <select v-model="eventForm.calendar" aria-label="Event calendar" :disabled="eventFormReadOnly">
+              <select
+                v-model="eventForm.calendar"
+                aria-label="Event calendar"
+                :disabled="eventFormReadOnly"
+              >
                 <option
                   v-for="calendar in eventFormReadOnly ? calendars : writableCalendars"
                   :key="calendar.id"
@@ -1061,7 +1118,12 @@ onUnmounted(() => {
             </label>
           </div>
 
-          <div v-if="eventForm.repeat === 'weekly'" class="new-event-repeat-days" role="group" aria-label="Repeat on days">
+          <div
+            v-if="eventForm.repeat === 'weekly'"
+            class="new-event-repeat-days"
+            role="group"
+            aria-label="Repeat on days"
+          >
             <button
               v-for="day in WEEKDAY_OPTIONS"
               :key="day.code"
@@ -1585,7 +1647,11 @@ onUnmounted(() => {
      list; status tones below override it for conflict/accepted/suggested. */
   border: 1px solid var(--event-color, var(--calendar-event-line));
   border-radius: 10px;
-  background: color-mix(in srgb, var(--event-color, var(--calendar-event-surface)) 16%, var(--calendar-surface));
+  background: color-mix(
+    in srgb,
+    var(--event-color, var(--calendar-event-surface)) 16%,
+    var(--calendar-surface)
+  );
   color: var(--event-color, var(--calendar-ink));
   overflow: hidden;
   font-family: inherit;
@@ -1895,7 +1961,11 @@ onUnmounted(() => {
   padding: 5px 8px;
   border: 1px solid var(--event-color, var(--calendar-event-line));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--event-color, var(--calendar-event-surface)) 16%, var(--calendar-surface));
+  background: color-mix(
+    in srgb,
+    var(--event-color, var(--calendar-event-surface)) 16%,
+    var(--calendar-surface)
+  );
   color: var(--event-color, var(--calendar-event-ink));
   font-family: inherit;
   font-size: 12px;

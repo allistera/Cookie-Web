@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { highlightScheduleLines, SCHEDULE_CHECKBOX_CLASS, SCHEDULE_LINE_CLASS } from '../documentScheduleHighlight'
+import {
+  highlightScheduleLines,
+  SCHEDULE_CHECKBOX_CLASS,
+  SCHEDULE_LINE_CLASS,
+} from '../documentScheduleHighlight'
 
 function checklistItem(text) {
   return `
@@ -53,7 +57,7 @@ describe('highlightScheduleLines', () => {
     expect(items[2].classList.contains(SCHEDULE_LINE_CLASS)).toBe(true)
   })
 
-  it('rounds a matching checklist item\'s checkbox into a circle, and leaves a plain one square', () => {
+  it("rounds a matching checklist item's checkbox into a circle, and leaves a plain one square", () => {
     const root = mount(`
       <div class="ce-block"><div class="ce-block__content">
         <ol class="cdx-list cdx-list-checklist">

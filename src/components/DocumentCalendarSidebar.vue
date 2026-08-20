@@ -191,7 +191,10 @@ function hourLabel(hour) {
     </div>
 
     <div class="sidebar-agenda">
-      <div class="sidebar-agenda-body" :style="{ height: `${(END_HOUR - START_HOUR) * HOUR_HEIGHT}px` }">
+      <div
+        class="sidebar-agenda-body"
+        :style="{ height: `${(END_HOUR - START_HOUR) * HOUR_HEIGHT}px` }"
+      >
         <div
           v-for="hour in hours"
           :key="hour"

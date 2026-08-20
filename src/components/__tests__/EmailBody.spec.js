@@ -237,7 +237,13 @@ describe('EmailBody', () => {
 
   it('shows a spinner (not text, not iframe) while an HTML body is loading', () => {
     const wrapper = mount(EmailBody, {
-      props: { html: null, text: 'plain fallback', sender: 'Ada', hasHtmlBody: true, loading: true },
+      props: {
+        html: null,
+        text: 'plain fallback',
+        sender: 'Ada',
+        hasHtmlBody: true,
+        loading: true,
+      },
     })
 
     const spinner = wrapper.find('[role="status"]')

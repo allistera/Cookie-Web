@@ -17,12 +17,18 @@ const httpsResponse = (body = '', status = 200, headers = {}) => ({
 
 describe('validSubscriptionUrl', () => {
   it('accepts a well-formed https URL', () => {
-    expect(validSubscriptionUrl('https://example.com/feed.ics')).toBe('https://example.com/feed.ics')
+    expect(validSubscriptionUrl('https://example.com/feed.ics')).toBe(
+      'https://example.com/feed.ics',
+    )
   })
 
   it('accepts webcal URLs, normalized to their https equivalent', () => {
-    expect(validSubscriptionUrl('webcal://example.com/feed.ics')).toBe('https://example.com/feed.ics')
-    expect(validSubscriptionUrl('WEBCAL://example.com/feed.ics')).toBe('https://example.com/feed.ics')
+    expect(validSubscriptionUrl('webcal://example.com/feed.ics')).toBe(
+      'https://example.com/feed.ics',
+    )
+    expect(validSubscriptionUrl('WEBCAL://example.com/feed.ics')).toBe(
+      'https://example.com/feed.ics',
+    )
     expect(validSubscriptionUrl('webcal://example.com:8443/a/feed.ics?token=x')).toBe(
       'https://example.com:8443/a/feed.ics?token=x',
     )
@@ -64,9 +70,7 @@ function makeSql(queue) {
 
 describe('syncCalendarSubscription', () => {
   beforeEach(() => {
-    vi.mocked(requestPublicHttps).mockResolvedValue(
-      httpsResponse('BEGIN:VCALENDAR\nEND:VCALENDAR'),
-    )
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse('BEGIN:VCALENDAR\nEND:VCALENDAR'))
   })
   afterEach(() => {
     vi.mocked(requestPublicHttps).mockReset()
@@ -78,7 +82,13 @@ describe('syncCalendarSubscription', () => {
     )
     const sql = makeSql([])
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://internal.example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://internal.example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('disallowed address')
@@ -90,7 +100,13 @@ describe('syncCalendarSubscription', () => {
     )
     const sql = makeSql([])
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://metadata.example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://metadata.example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(false)
   })
@@ -117,7 +133,13 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse('', 302, { location: '/other' }))
     const sql = makeSql([])
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('redirect')
@@ -128,7 +150,13 @@ describe('syncCalendarSubscription', () => {
     const queue = [[]]
     const sql = makeSql(queue)
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('500')
@@ -146,7 +174,13 @@ describe('syncCalendarSubscription', () => {
     }
     sql.begin = async (fn) => fn(sql)
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(false)
     expect(result.error).toHaveLength(500)
@@ -189,7 +223,13 @@ describe('syncCalendarSubscription', () => {
     }
     sql.begin = async (fn) => fn(sql)
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(true)
     expect(result.count).toBe(3)
@@ -262,7 +302,13 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(true)
     expect(inserted[0]).toEqual([
@@ -294,7 +340,13 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(true)
     expect(inserted[0].map((row) => row.date)).toEqual(['2026-08-10', '2026-08-11', '2026-08-12'])
@@ -318,7 +370,13 @@ describe('syncCalendarSubscription', () => {
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql, inserted } = captureInsertedRows()
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(true)
     expect(inserted[0].map((row) => row.date)).toEqual(['2026-01-01', '2027-01-01', '2028-01-01'])
@@ -343,7 +401,13 @@ describe('syncCalendarSubscription', () => {
       vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
       const { sql, inserted } = captureInsertedRows()
 
-      const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+      const result = await syncCalendarSubscription(
+        sql,
+        'cal-1',
+        'user-1',
+        'https://example.com/feed.ics',
+        requestPublicHttps,
+      )
 
       expect(result.ok).toBe(true)
       expect(inserted[0][0].date).toBe('2026-08-01')
@@ -353,15 +417,17 @@ describe('syncCalendarSubscription', () => {
   })
 
   it('bounds work for many attacker-sized all-day spans before output caps apply', async () => {
-    const events = Array.from({ length: 100 }, (_, index) => [
-      'BEGIN:VEVENT',
-      `UID:oversized-${index}@example.com`,
-      'DTSTAMP:20260101T000000Z',
-      'DTSTART;VALUE=DATE:90000101',
-      'DTEND;VALUE=DATE:99991231',
-      `SUMMARY:Oversized ${index}`,
-      'END:VEVENT',
-    ].join('\r\n'))
+    const events = Array.from({ length: 100 }, (_, index) =>
+      [
+        'BEGIN:VEVENT',
+        `UID:oversized-${index}@example.com`,
+        'DTSTAMP:20260101T000000Z',
+        'DTSTART;VALUE=DATE:90000101',
+        'DTEND;VALUE=DATE:99991231',
+        `SUMMARY:Oversized ${index}`,
+        'END:VEVENT',
+      ].join('\r\n'),
+    )
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...events, 'END:VCALENDAR'].join('\r\n')
     vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse(ics))
     const { sql } = captureInsertedRows()
@@ -380,9 +446,7 @@ describe('syncCalendarSubscription', () => {
   })
 
   it('catches a failure inside the replace transaction and records it as a sync error', async () => {
-    vi.mocked(requestPublicHttps).mockResolvedValue(
-      httpsResponse('BEGIN:VCALENDAR\nEND:VCALENDAR'),
-    )
+    vi.mocked(requestPublicHttps).mockResolvedValue(httpsResponse('BEGIN:VCALENDAR\nEND:VCALENDAR'))
     const updates = []
     const sql = (strings, ...values) => {
       updates.push({ text: strings.join('?'), values })
@@ -392,7 +456,13 @@ describe('syncCalendarSubscription', () => {
       throw new Error('cannot call json_to_recordset on a scalar')
     }
 
-    const result = await syncCalendarSubscription(sql, 'cal-1', 'user-1', 'https://example.com/feed.ics', requestPublicHttps)
+    const result = await syncCalendarSubscription(
+      sql,
+      'cal-1',
+      'user-1',
+      'https://example.com/feed.ics',
+      requestPublicHttps,
+    )
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('json_to_recordset')

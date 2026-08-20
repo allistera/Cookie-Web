@@ -63,9 +63,7 @@ export function appendReadReceipt(html, text, receiptUrl) {
 
 function makeSnippet(text) {
   const collapsed = text.replace(/\s+/g, ' ').trim()
-  return collapsed.length > SNIPPET_LENGTH
-    ? `${collapsed.slice(0, SNIPPET_LENGTH)}...`
-    : collapsed
+  return collapsed.length > SNIPPET_LENGTH ? `${collapsed.slice(0, SNIPPET_LENGTH)}...` : collapsed
 }
 
 export function configuredEmailFrom(env = process.env) {
@@ -87,7 +85,10 @@ function parseFromEnv(from) {
 // non-empty ones. Exported for testing.
 export function parseRecipients(to) {
   if (!(to?.split instanceof Function)) return []
-  const recipients = to.split(',').map((address) => address.trim()).filter(Boolean)
+  const recipients = to
+    .split(',')
+    .map((address) => address.trim())
+    .filter(Boolean)
   if (recipients.length > MAX_OUTBOUND_RECIPIENTS) return []
   return recipients
 }
@@ -197,12 +198,15 @@ async function storeSentMessage(
   if (!lookup.existing_message_id) {
     const statements = []
     if (!lookup.thread_id) {
-      statements.push((sql) => sql`
+      statements.push(
+        (sql) => sql`
         INSERT INTO threads (id, user_id, subject, last_message_at)
         VALUES (${threadUuid}, ${userId}, ${subject}, ${sentAt})
-      `)
+      `,
+      )
     }
-    statements.push((sql) => sql`
+    statements.push(
+      (sql) => sql`
       INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
                             recipients, subject, snippet, body_text, body_html, sent_at,
                             message_id, is_unread, is_sent)
@@ -210,15 +214,18 @@ async function storeSentMessage(
               ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
               ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true)
       ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
-    `)
+    `,
+    )
     if (lookup.thread_id) {
-      statements.push((sql) => sql`
+      statements.push(
+        (sql) => sql`
         UPDATE threads
         SET message_count = message_count + 1,
             last_message_at = GREATEST(last_message_at, ${sentAt}::timestamptz)
         WHERE id = ${threadUuid}
           AND EXISTS (SELECT 1 FROM messages WHERE id = ${messageUuid})
-      `)
+      `,
+      )
     }
     await sql.begin(async (sql) => {
       for (const statement of statements) {
@@ -327,7 +334,10 @@ async function ownedReplyToMessageId(sql, userId, replyToMessageId) {
   return row ? { replyTo: replyToMessageId } : { missing: true }
 }
 
-function immediateSendIdempotencyKey(userId, { recipients, subject, text, html, replyToMessageId }) {
+function immediateSendIdempotencyKey(
+  userId,
+  { recipients, subject, text, html, replyToMessageId },
+) {
   const digest = crypto
     .createHash('sha256')
     .update(
@@ -551,8 +561,14 @@ async function handleScheduled(req, res, userId, services) {
 // regardless of the two strings' actual lengths, and neither a length nor a
 // byte-value mismatch is distinguishable by comparison time.
 function timingSafeEqualStrings(a, b) {
-  const digestA = crypto.createHash('sha256').update(String(a ?? '')).digest()
-  const digestB = crypto.createHash('sha256').update(String(b ?? '')).digest()
+  const digestA = crypto
+    .createHash('sha256')
+    .update(String(a ?? ''))
+    .digest()
+  const digestB = crypto
+    .createHash('sha256')
+    .update(String(b ?? ''))
+    .digest()
   return crypto.timingSafeEqual(digestA, digestB)
 }
 
@@ -597,20 +613,20 @@ async function handleFlush(req, res, services) {
   try {
     const sql = services.getSql()
     const claimed = await claimDueScheduledSends(sql, FLUSH_BATCH_SIZE)
-    const results = await mapWithConcurrency(
-      claimed,
-      FLUSH_CONCURRENCY,
-      (row) => deliverScheduledSend(sql, row, services),
+    const results = await mapWithConcurrency(claimed, FLUSH_CONCURRENCY, (row) =>
+      deliverScheduledSend(sql, row, services),
     )
     await sweepResolvedState(sql)
     res.statusCode = 200
-    res.end(JSON.stringify({
-      claimed: claimed.length,
-      sent: results.filter((result) => result === 'sent').length,
-      retried: results.filter((result) => result === 'retried').length,
-      failed: results.filter((result) => result === 'failed').length,
-      unconfirmed: results.filter((result) => result === 'unconfirmed').length,
-    }))
+    res.end(
+      JSON.stringify({
+        claimed: claimed.length,
+        sent: results.filter((result) => result === 'sent').length,
+        retried: results.filter((result) => result === 'retried').length,
+        failed: results.filter((result) => result === 'failed').length,
+        unconfirmed: results.filter((result) => result === 'unconfirmed').length,
+      }),
+    )
   } catch (err) {
     console.error('POST /api/send?resource=flush failed:', err)
     res.statusCode = 500

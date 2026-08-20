@@ -161,7 +161,9 @@ function onEditorSave(payload) {
       <div v-else-if="!dashboardDocs.length" class="documents-empty">
         <p v-if="store.activeSearchQuery">No documents match “{{ store.activeSearchQuery }}”.</p>
         <p v-else-if="activeTag">No documents tagged #{{ activeTag }}.</p>
-        <p v-else-if="starredOnly">No starred documents yet — star one from the list or the sidebar.</p>
+        <p v-else-if="starredOnly">
+          No starred documents yet — star one from the list or the sidebar.
+        </p>
         <p v-else>No documents yet. Create your first one to get started.</p>
       </div>
 

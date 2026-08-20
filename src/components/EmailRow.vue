@@ -89,9 +89,7 @@ defineEmits(['open', 'toggle-select', 'toggle-star', 'done', 'toggle-unread'])
         title="Star"
         @click="$emit('toggle-star', email)"
       >
-        <span class="material-symbols-outlined">{{
-          email.starred ? 'star' : 'star_border'
-        }}</span>
+        <span class="material-symbols-outlined">{{ email.starred ? 'star' : 'star_border' }}</span>
       </button>
       <button v-if="showDone" class="ni-action-btn" title="Done" @click="$emit('done', email)">
         <span class="material-symbols-outlined">check_box</span>

@@ -176,12 +176,20 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
             <span class="material-symbols-outlined gemini-color font-sm">auto_awesome</span>
             <span>Cookie AI</span>
           </div>
-          <button class="composer-icon-btn" title="Close Cookie AI" @click="store.isAiDraftActive = false">
+          <button
+            class="composer-icon-btn"
+            title="Close Cookie AI"
+            @click="store.isAiDraftActive = false"
+          >
             <span class="material-symbols-outlined">close</span>
           </button>
         </div>
         <div class="gemini-draft-preview" :class="{ 'typing-cursor': store.isAiDraftLoading }">
-          {{ store.isAiDraftLoading ? 'Drafting…' : store.aiDraftPreview || 'Your generated draft will appear here for review.' }}
+          {{
+            store.isAiDraftLoading
+              ? 'Drafting…'
+              : store.aiDraftPreview || 'Your generated draft will appear here for review.'
+          }}
         </div>
         <div class="gemini-draft-actions">
           <button

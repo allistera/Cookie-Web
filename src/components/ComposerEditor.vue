@@ -108,10 +108,7 @@ function insertHtmlAtCaret(html) {
     return
   }
   const range = selection.getRangeAt(0)
-  if (
-    range.commonAncestorContainer !== editor &&
-    !editor.contains(range.commonAncestorContainer)
-  ) {
+  if (range.commonAncestorContainer !== editor && !editor.contains(range.commonAncestorContainer)) {
     editor.insertAdjacentHTML('beforeend', html)
     return
   }

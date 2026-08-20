@@ -83,13 +83,27 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
 
   it('queues a scheduled_sends row instead of calling the provider', async () => {
     const sql = sequentialSql([
-      [{ id: 'sched-1', toAddresses: 'recipient@example.com', subject: 'Hello', scheduledFor: futureIso() }],
+      [
+        {
+          id: 'sched-1',
+          toAddresses: 'recipient@example.com',
+          subject: 'Hello',
+          scheduledFor: futureIso(),
+        },
+      ],
     ])
     mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
 
     await handler(
-      request({ body: { to: 'recipient@example.com', subject: 'Hello', text: 'Plain text', sendAt: futureIso() } }),
+      request({
+        body: {
+          to: 'recipient@example.com',
+          subject: 'Hello',
+          text: 'Plain text',
+          sendAt: futureIso(),
+        },
+      }),
       res,
     )
 
@@ -103,7 +117,12 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
 
     await handler(
       request({
-        body: { to: 'recipient@example.com', subject: 'Hello', text: 'Plain text', sendAt: futureIso(1000) },
+        body: {
+          to: 'recipient@example.com',
+          subject: 'Hello',
+          text: 'Plain text',
+          sendAt: futureIso(1000),
+        },
       }),
       res,
     )
@@ -118,7 +137,14 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
     const res = makeRes()
 
     await handler(
-      request({ body: { to: 'recipient@example.com', subject: 'Hello', text: 'Plain text', sendAt: futureIso() } }),
+      request({
+        body: {
+          to: 'recipient@example.com',
+          subject: 'Hello',
+          text: 'Plain text',
+          sendAt: futureIso(),
+        },
+      }),
       res,
     )
 
@@ -135,7 +161,14 @@ describe('GET/DELETE /api/send?resource=scheduled', () => {
 
   it("lists the authenticated user's pending and failed scheduled sends", async () => {
     const rows = [
-      { id: 'sched-1', toAddresses: 'a@b.com', subject: 'Hi', scheduledFor: futureIso(), status: 'pending', lastError: null },
+      {
+        id: 'sched-1',
+        toAddresses: 'a@b.com',
+        subject: 'Hi',
+        scheduledFor: futureIso(),
+        status: 'pending',
+        lastError: null,
+      },
     ]
     const sql = sequentialSql([rows])
     mocks.getSql.mockReturnValue(sql)
@@ -148,7 +181,14 @@ describe('GET/DELETE /api/send?resource=scheduled', () => {
   })
 
   it('cancels a pending scheduled send and returns its content for reopening in the composer', async () => {
-    const row = { id: 'sched-1', toAddresses: 'a@b.com', subject: 'Hi', text: 'Body', html: null, replyToMessageId: null }
+    const row = {
+      id: 'sched-1',
+      toAddresses: 'a@b.com',
+      subject: 'Hi',
+      text: 'Body',
+      html: null,
+      replyToMessageId: null,
+    }
     const sql = sequentialSql([[row]])
     mocks.getSql.mockReturnValue(sql)
     const res = makeRes()

@@ -4,11 +4,7 @@ import { Buffer } from 'node:buffer'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-  isPublicIpAddress,
-  requestPublicHttps,
-  resolvePublicHttpsUrl,
-} from '../safe-https.js'
+import { isPublicIpAddress, requestPublicHttps, resolvePublicHttpsUrl } from '../safe-https.js'
 
 describe('public HTTPS egress boundary', () => {
   it('rejects private, link-local, metadata, mapped, and documentation addresses', () => {
@@ -45,9 +41,7 @@ describe('public HTTPS egress boundary', () => {
   })
 
   it('pins the connection lookup to the validated address while preserving the URL hostname', async () => {
-    const lookup = vi.fn().mockResolvedValue([
-      { address: '93.184.216.34', family: 4 },
-    ])
+    const lookup = vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
     const request = vi.fn((url, options, callback) => {
       const req = new EventEmitter()
       req.setTimeout = vi.fn()
@@ -82,9 +76,7 @@ describe('public HTTPS egress boundary', () => {
   })
 
   it('rejects oversized responses before returning their body', async () => {
-    const lookup = vi.fn().mockResolvedValue([
-      { address: '93.184.216.34', family: 4 },
-    ])
+    const lookup = vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
     const request = vi.fn((_url, _options, callback) => {
       const req = new EventEmitter()
       req.setTimeout = vi.fn()
@@ -99,7 +91,11 @@ describe('public HTTPS egress boundary', () => {
     })
 
     await expect(
-      requestPublicHttps('https://calendar.example/feed.ics', { maxResponseBytes: 8 }, { lookup, request }),
+      requestPublicHttps(
+        'https://calendar.example/feed.ics',
+        { maxResponseBytes: 8 },
+        { lookup, request },
+      ),
     ).rejects.toThrow(/too large/i)
   })
 
@@ -121,7 +117,9 @@ describe('public HTTPS egress boundary', () => {
       await vi.advanceTimersByTimeAsync(50)
 
       await settled
-      expect(failure).toEqual(expect.objectContaining({ message: expect.stringMatching(/timed out/i) }))
+      expect(failure).toEqual(
+        expect.objectContaining({ message: expect.stringMatching(/timed out/i) }),
+      )
       expect(request).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
@@ -131,9 +129,7 @@ describe('public HTTPS egress boundary', () => {
   it('applies the absolute deadline even while response bytes keep arriving', async () => {
     vi.useFakeTimers()
     try {
-      const lookup = vi.fn().mockResolvedValue([
-        { address: '93.184.216.34', family: 4 },
-      ])
+      const lookup = vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
       let response
       const request = vi.fn((_url, _options, callback) => {
         const req = new EventEmitter()
@@ -166,8 +162,12 @@ describe('public HTTPS egress boundary', () => {
       await vi.advanceTimersByTimeAsync(1)
 
       await settled
-      expect(failure).toEqual(expect.objectContaining({ message: expect.stringMatching(/timed out/i) }))
-      expect(response.destroy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/timed out/i) }))
+      expect(failure).toEqual(
+        expect.objectContaining({ message: expect.stringMatching(/timed out/i) }),
+      )
+      expect(response.destroy).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/timed out/i) }),
+      )
     } finally {
       vi.useRealTimers()
     }
