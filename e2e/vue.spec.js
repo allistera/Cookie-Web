@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test'
 
+import { MESSAGES_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
+
+// NOTE: since the frontend was repointed at cookie-web-labels/messages/tasks
+// (three Cloudflare Workers, absolute cross-origin URLs) instead of this
+// app's own /api/labels, /api/messages, /api/tasks, the route() stubs below
+// only cover the specific request each test cares about — the GETs that used
+// to fall through to vite.config.js's local /api/* e2e fixture middleware
+// (now deleted, since that middleware target became unreachable dead code
+// the moment the frontend started requesting a different origin) have no
+// local fallback anymore and will hit the real Worker unauthenticated
+// (VITE_E2E mode sends no bearer token) and 401. Tests that render AI
+// Today/Documents/Settings-Labels/Settings-Rules/message reads without their
+// own full-coverage route() stub for the relevant Worker origin are affected
+// by this, not just the routes touched here. A proper fix needs a shared
+// Playwright fixture that mocks each Worker origin with the same fixture
+// data vite.config.js used to serve — flagging rather than building that here.
+
 // The calendar fixture (api/_fixtures/calendarEvents.js) and CalendarView.vue's
 // "today" both used to be pinned to this date; CalendarView now reads the real
 // clock, so freeze it here instead of drifting the fixture and every date
@@ -304,7 +321,7 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
 
 test('Settings Personalisation pane adds and removes news topics', async ({ page }) => {
   const saved = []
-  await page.route('**/api/tasks?resource=interests', async (route) => {
+  await page.route(`${TASKS_API_URL}/tasks/interests`, async (route) => {
     if (route.request().method() === 'PUT') saved.push(route.request().postDataJSON())
     await route.continue()
   })
@@ -329,9 +346,9 @@ test('Settings Personalisation pane adds and removes news topics', async ({ page
 
 test('The AI Today refresh control rebuilds the digest, then re-reads it', async ({ page }) => {
   const calls = []
-  await page.route('**/api/tasks*', async (route) => {
+  await page.route(`${TASKS_API_URL}/tasks**`, async (route) => {
     const url = route.request().url()
-    if (route.request().method() === 'POST' && url.includes('resource=refresh')) {
+    if (route.request().method() === 'POST' && url.includes('/tasks/refresh')) {
       calls.push('rebuild')
       await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
       return
@@ -353,7 +370,7 @@ test('The AI Today refresh control rebuilds the digest, then re-reads it', async
 
 test('Marking a triage group read clears its unread dots', async ({ page }) => {
   const reads = []
-  await page.route('**/api/messages', async (route) => {
+  await page.route(`${MESSAGES_API_URL}/messages`, async (route) => {
     if (route.request().method() === 'PATCH') {
       reads.push(route.request().postDataJSON())
       await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
@@ -382,7 +399,7 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
   page,
 }) => {
   const completions = []
-  await page.route('**/api/tasks', async (route) => {
+  await page.route(`${TASKS_API_URL}/tasks`, async (route) => {
     if (route.request().method() === 'POST') {
       completions.push(route.request().postDataJSON())
       await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
@@ -695,7 +712,7 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) => {
-        if (!candidate.url().includes('/api/messages') || candidate.request().method() !== 'PATCH') {
+        if (!candidate.url().includes(MESSAGES_API_URL) || candidate.request().method() !== 'PATCH') {
           return false
         }
         const body = candidate.request().postDataJSON()
@@ -1041,7 +1058,7 @@ test('Header search supports in: to reach mail the default search hides', async 
   await row.hover()
   await Promise.all([
     page.waitForResponse(
-      (response) => response.url().includes('/api/messages') && response.request().method() === 'PATCH',
+      (response) => response.url().includes(MESSAGES_API_URL) && response.request().method() === 'PATCH',
     ),
     row.locator('[title="Done"]').click(),
   ])
@@ -1109,7 +1126,7 @@ test('Star rollback: a failed persistence reverts the star and shows an error', 
   page,
 }) => {
   // Force the persistence call to fail; the optimistic star must roll back.
-  await page.route('**/api/messages', (route) =>
+  await page.route(`${MESSAGES_API_URL}/messages`, (route) =>
     route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"boom"}' }),
   )
   await page.goto('/inbox')
@@ -1439,7 +1456,7 @@ test('The hidden Done mailbox shows emails after they are marked done', async ({
   await row.hover()
   await Promise.all([
     page.waitForResponse(
-      (response) => response.url().includes('/api/messages') && response.request().method() === 'PATCH',
+      (response) => response.url().includes(MESSAGES_API_URL) && response.request().method() === 'PATCH',
     ),
     row.locator('[title="Done"]').click(),
   ])

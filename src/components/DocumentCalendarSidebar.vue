@@ -9,7 +9,7 @@ import { useCalendars } from '../composables/useCalendars'
 // note and the day it belongs to are visible together. Never creates,
 // edits, or navigates to events directly - open the full Calendar view for
 // that. Typed "10:00 - 11:00 - Title" lines in the note itself do create/
-// update/delete a linked event server-side (api/_lib/dailyEventSync.js);
+// update/delete a linked event server-side (Cookie-Worker's cookie-web-tasks/src/dailyEventSync.js);
 // this view just needs to refetch after a save picks one up (see the
 // documentsStore.saveState watcher below).
 const props = defineProps({
@@ -109,7 +109,7 @@ async function loadEvents() {
 watch(selectedKey, loadEvents, { immediate: true })
 
 // A successful autosave may have synced a typed time-line into a linked
-// event server-side (api/_lib/dailyEventSync.js) - refetch to pick it up.
+// event server-side (Cookie-Worker's cookie-web-tasks/src/dailyEventSync.js) - refetch to pick it up.
 // saveState also turns 'saved' for edits with no time-line at all, which
 // just means one harmless extra fetch.
 watch(
