@@ -37,16 +37,17 @@ describe('browser notification event queries', () => {
 
     claimNotificationEvent(
       capture.sql,
-      'owner@example.com',
+      '11111111-1111-4111-8111-111111111111',
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     )
 
     expect(capture.query()).toContain('UPDATE browser_notification_events event')
     expect(capture.query()).toContain('event.claimed_until < now()')
-    expect(capture.query()).toContain('lower(owner.email) =')
+    expect(capture.query()).toContain('event.user_id = ?')
+    expect(capture.query()).toContain('NOT message.is_deleted')
     expect(capture.query()).toContain("COALESCE(ai.spam_verdict, 'inbox') <> 'spam'")
     expect(capture.query()).toContain('RETURNING event.event_id, event.claim_token')
-    expect(capture.values()).toContain('owner@example.com')
+    expect(capture.values()).toContain('11111111-1111-4111-8111-111111111111')
   })
 
   it('acknowledges only the matching lease owned by the authenticated user', () => {
@@ -54,18 +55,18 @@ describe('browser notification event queries', () => {
 
     acknowledgeNotificationEvent(
       capture.sql,
-      'owner@example.com',
+      '11111111-1111-4111-8111-111111111111',
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     )
 
     expect(capture.query()).toContain('DELETE FROM browser_notification_events event')
     expect(capture.query()).toContain('event.claim_token =')
-    expect(capture.query()).toContain('lower(owner.email) =')
+    expect(capture.query()).toContain('event.user_id =')
     expect(capture.values()).toEqual([
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      'owner@example.com',
+      '11111111-1111-4111-8111-111111111111',
     ])
   })
 })

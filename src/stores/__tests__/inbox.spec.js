@@ -1,6 +1,6 @@
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
-import { useInboxStore } from '../inbox'
+import { mergeInboxPage, useInboxStore } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
 import { LABELS_API_URL, MESSAGES_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
@@ -142,6 +142,107 @@ describe('Inbox Store', () => {
     // No cursor left: loadMoreEmails is a no-op.
     await store.loadMoreEmails()
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('mergeInboxPage reuses existing row objects and keeps extra pages', () => {
+    const existingA = { id: 'a', starred: true, unread: false, subject: 'old a' }
+    const existingB = { id: 'b', starred: false, unread: true, subject: 'old b' }
+    const incoming = [
+      { id: 'z', starred: false, unread: true, subject: 'new z' },
+      { id: 'a', starred: false, unread: true, subject: 'new a' },
+    ]
+    const pendingStarIds = new Set(['a'])
+    const pendingUnreadIds = new Set(['a'])
+
+    const merged = mergeInboxPage([existingA, existingB], incoming, pendingStarIds, pendingUnreadIds)
+
+    expect(merged.map((email) => email.id)).toEqual(['z', 'a', 'b'])
+    expect(merged[1]).toBe(existingA)
+    expect(existingA.subject).toBe('new a')
+    expect(existingA.starred).toBe(true)
+    expect(existingA.unread).toBe(false)
+    expect(merged[2]).toBe(existingB)
+  })
+
+  it('refreshInbox merges the first page without dropping extra rows or in-flight stars', async () => {
+    const listRow = (id, extra = {}) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: true,
+      is_starred: false,
+      ...extra,
+    })
+    let resolveStar
+    const fetchMock = vi.fn((url, options = {}) => {
+      if (options.method === 'PATCH') {
+        return new Promise((resolve) => {
+          resolveStar = resolve
+        })
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          emails: [listRow('z'), listRow('a', { is_starred: false, is_unread: true })],
+          nextCursor: 'cursor-new',
+          unreadCount: 4,
+          userId: 'user-1',
+        }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    const originalA = {
+      id: 'a',
+      sender: 'Sender',
+      subject: 'Subject a',
+      starred: false,
+      unread: true,
+      labels: [],
+    }
+    const extraB = { id: 'b', sender: 'Sender', subject: 'Subject b', starred: false, unread: true, labels: [] }
+    const extraC = { id: 'c', sender: 'Sender', subject: 'Subject c', starred: false, unread: true, labels: [] }
+    store.traditionalEmails = [originalA, extraB, extraC]
+    const storedA = store.traditionalEmails[0]
+    store.isInboxLoaded = true
+    store.emailsCursor = 'cursor-old'
+    store.hasMoreEmails = true
+
+    store.toggleStar(storedA)
+    expect(storedA.starred).toBe(true)
+
+    await store.refreshInbox()
+
+    expect(fetchMock.mock.calls.some(([_url, options]) => !options?.method || options.method === 'GET')).toBe(
+      true,
+    )
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['z', 'a', 'b', 'c'])
+    expect(store.traditionalEmails.find((email) => email.id === 'a')).toBe(storedA)
+    expect(storedA.starred).toBe(true)
+    expect(store.emailsCursor).toBe('cursor-old')
+    expect(store.hasMoreEmails).toBe(true)
+    expect(store.unreadInboxCount).toBe(4)
+    expect(store.userId).toBe('user-1')
+
+    resolveStar({ ok: true, json: async () => ({ message: {} }) })
+    await vi.waitFor(() => expect(storedA.starred).toBe(true))
+  })
+
+  it('refreshInbox is a no-op while search results are showing', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.isInboxLoaded = true
+    store.activeSearchQuery = 'renovation'
+
+    await store.refreshInbox()
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('loads sent emails into the outbox list with recipient display fields', async () => {
@@ -305,6 +406,76 @@ describe('Inbox Store', () => {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.spamEmails.map((email) => email.id)).toEqual(['spam-1'])
+  })
+
+  it('loads starred emails as a server-backed folder', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [
+            {
+              id: 'star-1',
+              from_name: 'Sender',
+              from_address: 's@example.com',
+              subject: 'Starred',
+              snippet: '',
+              body_text: '',
+              sent_at: new Date().toISOString(),
+              is_unread: false,
+              is_starred: true,
+            },
+          ],
+          nextCursor: null,
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.loadStarredEmails()
+
+    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=starred&limit=50', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.starredEmails.map((email) => email.id)).toEqual(['star-1'])
+    expect(store.isStarredLoaded).toBe(true)
+  })
+
+  it('loads a named label folder with the label query param', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [
+            {
+              id: 'lab-1',
+              from_name: 'Sender',
+              from_address: 's@example.com',
+              subject: 'Home',
+              snippet: '',
+              body_text: '',
+              sent_at: new Date().toISOString(),
+              is_unread: false,
+              is_starred: false,
+              labels: [{ name: 'Home', color: '#ff0000' }],
+            },
+          ],
+          nextCursor: null,
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    await store.loadLabelEmails('Home')
+
+    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=label&label=Home&limit=50', {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(store.labelEmails.map((email) => email.id)).toEqual(['lab-1'])
+    expect(store.labelFolderName).toBe('Home')
+    expect(store.isLabelLoaded).toBe(true)
   })
 
   describe('Done pager', () => {
@@ -973,6 +1144,32 @@ describe('Inbox Store', () => {
       expect(consoleError).toHaveBeenCalledWith('Failed to schedule email:', expect.any(Error))
     })
 
+    it('locks sendEmailLater with isSendingEmail for the duration of the request', async () => {
+      let resolveSend
+      const fetchMock = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveSend = resolve
+          }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+
+      const first = store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+      await vi.waitFor(() => expect(store.isSendingEmail).toBe(true))
+      const second = await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+      expect(second).toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      resolveSend({
+        ok: true,
+        json: async () => ({ scheduledSend: { id: 'sched-1' } }),
+      })
+      await expect(first).resolves.toBe(true)
+      expect(store.isSendingEmail).toBe(false)
+    })
+
     it('loads the pending scheduled-send queue once and caches it', async () => {
       const scheduledSends = [{ id: 'sched-1', subject: 'Hello', scheduledFor: '2026-08-02T09:00:00.000Z' }]
       const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ scheduledSends }) })
@@ -1057,6 +1254,7 @@ describe('Inbox Store', () => {
         Authorization: 'Bearer test-access-token',
       },
       body: JSON.stringify({ question: 'What happened with the renovation?' }),
+      signal: expect.any(AbortSignal),
     })
     expect(store.isChatDrawerActive).toBe(true)
     expect(store.chatHistory).toHaveLength(2)
@@ -1078,6 +1276,35 @@ describe('Inbox Store', () => {
     expect(store.chatHistory[1].text).toContain("couldn't reach the assistant")
     expect(store.isChatLoading).toBe(false)
     expect(consoleError).toHaveBeenCalledWith('Ask failed:', expect.any(Error))
+  })
+
+  it('askAssistant aborts the previous request and ignores a stale answer', async () => {
+    let resolveFirst
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstResponse)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ answer: 'new answer', sources: [] }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    const first = store.askAssistant('old question')
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await store.askAssistant('new question')
+
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
+    resolveFirst({ ok: true, json: async () => ({ answer: 'stale answer', sources: [] }) })
+    await first
+
+    expect(store.chatHistory.filter((message) => message.sender === 'ai').map((message) => message.text)).toEqual([
+      'new answer',
+    ])
+    expect(store.isChatLoading).toBe(false)
   })
 
   it('searches emails and replaces the inbox list with results', async () => {
@@ -1663,6 +1890,20 @@ describe('Inbox Store', () => {
 
     expect(fetch.mock.calls[0][1].body).toBe(JSON.stringify({ id: 'abc-123', is_starred: true }))
     expect(fetch.mock.calls[1][1].body).toBe(JSON.stringify({ id: 'abc-123', is_starred: false }))
+  })
+
+  it('adds and removes a starred-folder row as soon as star state changes', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }))
+    const store = useInboxStore()
+    const email = { id: 'abc-123', starred: false }
+    store.traditionalEmails = [email]
+    store.isStarredLoaded = true
+
+    store.toggleStar(email)
+    expect(store.starredEmails).toEqual([email])
+
+    store.toggleStar(email)
+    expect(store.starredEmails).toEqual([])
   })
 
   it('notifies when the inbox fails to load', async () => {

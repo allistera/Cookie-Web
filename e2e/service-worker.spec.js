@@ -58,7 +58,7 @@ test('the service worker keeps the shell and recently read mail available offlin
   await expect
     .poll(() =>
       page.evaluate(async () => {
-        const cache = await caches.open('cookie-recent-mail-v2')
+        const cache = await caches.open('cookie-recent-mail-v3')
         return (await cache.keys()).length
       }),
     )

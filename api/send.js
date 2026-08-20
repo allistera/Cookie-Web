@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 
 import { Resend } from 'resend'
 
+import { writeAuthError } from './_lib/auth.js'
 import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 import { embedText, EMBEDDING_MODEL } from './_lib/embeddings.js'
@@ -65,6 +66,12 @@ function makeSnippet(text) {
   return collapsed.length > SNIPPET_LENGTH
     ? `${collapsed.slice(0, SNIPPET_LENGTH)}...`
     : collapsed
+}
+
+export function configuredEmailFrom(env = process.env) {
+  const from = String(env.EMAIL_FROM || '').trim()
+  if (!from) throw new Error('EMAIL_FROM is not configured')
+  return from
 }
 
 // "Name <addr@example.com>" -> { name, address }; bare address -> name null.
@@ -178,9 +185,7 @@ async function storeSentMessage(
     throw new Error('no users row matches the authenticated user; sent copy not stored')
   }
 
-  const { name: fromName, address: fromAddress } = parseFromEnv(
-    process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
-  )
+  const { name: fromName, address: fromAddress } = parseFromEnv(configuredEmailFrom())
   const messageUuid = lookup.existing_message_id ?? crypto.randomUUID()
   const threadUuid = lookup.thread_id ?? crypto.randomUUID()
   const sentAt = new Date().toISOString()
@@ -273,7 +278,7 @@ async function deliverMail(
 
   const resend = services.createResend(process.env.RESEND_API_KEY)
   const payload = {
-    from: process.env.EMAIL_FROM || 'Allister <me@allisterantosik.com>',
+    from: configuredEmailFrom(),
     to: recipients,
     subject,
     text,
@@ -311,6 +316,34 @@ async function deliverMail(
 // Inserts a pending scheduled_sends row, capped at MAX_PENDING_SCHEDULED_SENDS
 // per user so a runaway client can't queue unbounded future sends. Returns
 // null if the cap is hit.
+async function ownedReplyToMessageId(sql, userId, replyToMessageId) {
+  if (!replyToMessageId) return { replyTo: null }
+  const [row] = await sql`
+    SELECT m.id
+    FROM messages m
+    WHERE m.id = ${replyToMessageId}::uuid AND m.user_id = ${userId} AND NOT m.is_deleted
+    LIMIT 1
+  `
+  return row ? { replyTo: replyToMessageId } : { missing: true }
+}
+
+function immediateSendIdempotencyKey(userId, { recipients, subject, text, html, replyToMessageId }) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        userId,
+        recipients,
+        subject,
+        text,
+        html: html ?? null,
+        replyToMessageId: replyToMessageId ?? null,
+      }),
+    )
+    .digest('hex')
+  return `immediate-send/${digest}`
+}
+
 async function createScheduledSend(
   sql,
   userId,
@@ -555,7 +588,7 @@ async function handleFlush(req, res, services) {
     res.end(JSON.stringify({ error: 'Unauthorized' }))
     return
   }
-  if (!process.env.RESEND_API_KEY) {
+  if (!process.env.RESEND_API_KEY || !String(process.env.EMAIL_FROM || '').trim()) {
     res.statusCode = 503
     res.end(JSON.stringify({ error: 'Email sending is not configured' }))
     return
@@ -602,6 +635,11 @@ async function handleSend(req, res, userId, services) {
     res.end(JSON.stringify({ error: 'Email sending is not configured' }))
     return
   }
+  if (!String(process.env.EMAIL_FROM || '').trim()) {
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Email sending is not configured' }))
+    return
+  }
 
   let body
   try {
@@ -621,7 +659,7 @@ async function handleSend(req, res, userId, services) {
   }
   const { recipients, bodyHtml } = validated
   // Fixture ids from e2e/dev mode aren't UUIDs — ignore them rather than error.
-  const replyTo = UUID_RE.test(replyToMessageId) ? String(replyToMessageId) : null
+  let replyTo = UUID_RE.test(replyToMessageId) ? String(replyToMessageId) : null
 
   if (sendAt !== undefined) {
     const scheduledFor = parseScheduledFor(sendAt)
@@ -632,12 +670,18 @@ async function handleSend(req, res, userId, services) {
     }
     try {
       const sql = services.getSql()
+      const owned = await ownedReplyToMessageId(sql, userId, replyTo)
+      if (owned.missing) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Reply target not found' }))
+        return
+      }
       const scheduledSend = await createScheduledSend(sql, userId, {
         recipients,
         subject,
         text,
         html: bodyHtml,
-        replyToMessageId: replyTo,
+        replyToMessageId: owned.replyTo,
         scheduledFor,
       })
       if (!scheduledSend) {
@@ -658,6 +702,13 @@ async function handleSend(req, res, userId, services) {
   let sql
   try {
     sql = services.getSql()
+    const owned = await ownedReplyToMessageId(sql, userId, replyTo)
+    if (owned.missing) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Reply target not found' }))
+      return
+    }
+    replyTo = owned.replyTo
     const quota = await claimOutboundEmailQuota(sql, userId)
     if (!quota.authorized) {
       res.statusCode = 403
@@ -686,6 +737,13 @@ async function handleSend(req, res, userId, services) {
         text,
         html: bodyHtml,
         replyToMessageId: replyTo,
+        idempotencyKey: immediateSendIdempotencyKey(userId, {
+          recipients,
+          subject,
+          text,
+          html: bodyHtml,
+          replyToMessageId: replyTo,
+        }),
       },
       services,
     )
@@ -718,9 +776,8 @@ export function createHandler(overrides = {}) {
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))
-    } catch {
-      res.statusCode = 401
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 

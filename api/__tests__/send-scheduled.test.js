@@ -78,6 +78,7 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.RESEND_API_KEY = 'test-key'
+    process.env.EMAIL_FROM = 'Cookie <mail@example.com>'
   })
 
   it('queues a scheduled_sends row instead of calling the provider', async () => {
@@ -129,6 +130,7 @@ describe('GET/DELETE /api/send?resource=scheduled', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.RESEND_API_KEY = 'test-key'
+    process.env.EMAIL_FROM = 'Cookie <mail@example.com>'
   })
 
   it("lists the authenticated user's pending and failed scheduled sends", async () => {
@@ -186,6 +188,7 @@ describe('POST /api/send?resource=flush', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.RESEND_API_KEY = 'test-key'
+    process.env.EMAIL_FROM = 'Cookie <mail@example.com>'
     process.env.SCHEDULED_SEND_FLUSH_TOKEN = 'flush-secret'
     delete process.env.OPENAI_API_KEY
     delete process.env.PUBLIC_APP_URL

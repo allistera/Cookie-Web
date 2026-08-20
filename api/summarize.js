@@ -1,7 +1,7 @@
 import process from 'node:process'
 
 import { getSql } from './_lib/db.js'
-import { verifyAccessToken } from './_lib/auth.js'
+import { verifyAccessToken, writeAuthError } from './_lib/auth.js'
 import { readJsonBody } from './_lib/body.js'
 import { allowRequest } from './_lib/rate-limit.js'
 
@@ -36,6 +36,7 @@ export function fetchThreadMessages(sql, userId, id) {
       JOIN messages tm
         ON tm.thread_id = selected.thread_id AND tm.user_id = selected.user_id
       WHERE selected.id = ${id} AND selected.user_id = ${userId}
+        AND NOT selected.is_deleted AND NOT tm.is_deleted
       ORDER BY tm.sent_at DESC, tm.id DESC
       LIMIT ${MAX_SUMMARY_MESSAGES + 1}
     ) bounded
@@ -100,6 +101,7 @@ export async function generateThreadSummary(messages, apiKey) {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
+    signal: AbortSignal.timeout(15_000),
     body: JSON.stringify({
       model: SUMMARY_MODEL,
       max_output_tokens: 700,
@@ -148,10 +150,12 @@ export async function generateThreadSummary(messages, apiKey) {
 // classification status, spam decision, priority, or provenance.
 export function saveMessageSummary(sql, id, summary) {
   return sql`
-    INSERT INTO message_ai (message_id, summary)
-    VALUES (${id}, ${summary})
+    INSERT INTO message_ai (message_id, summary, status, processed_at)
+    VALUES (${id}, ${summary}, 'completed', now())
     ON CONFLICT (message_id) DO UPDATE SET
       summary = EXCLUDED.summary,
+      status = 'completed',
+      processed_at = EXCLUDED.processed_at,
       updated_at = now()
   `
 }
@@ -169,9 +173,8 @@ export default async function handler(req, res) {
   let userId
   try {
     ;({ userId } = await verifyAccessToken(req))
-  } catch {
-    res.statusCode = 401
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
+  } catch (error) {
+    writeAuthError(res, error)
     return
   }
   if (!process.env.OPENAI_API_KEY) {

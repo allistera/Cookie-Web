@@ -1,24 +1,25 @@
+import { writeAuthError } from './_lib/auth.js'
 import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-export function claimNotificationEvent(sql, email, eventId) {
+export function claimNotificationEvent(sql, userId, eventId) {
   return sql`
     UPDATE browser_notification_events event
     SET claim_token = gen_random_uuid(),
         claimed_until = now() + interval '30 seconds'
     FROM messages message
-    JOIN users owner ON owner.id = message.user_id
     LEFT JOIN message_ai ai ON ai.message_id = message.id
     WHERE event.event_id = ${eventId}
       AND event.message_id = message.id
-      AND event.user_id = owner.id
-      AND lower(owner.email) = ${email}
+      AND event.user_id = ${userId}
+      AND message.user_id = ${userId}
       AND (event.claimed_until IS NULL OR event.claimed_until < now())
       AND message.is_unread
       AND NOT message.is_sent
       AND NOT message.is_archived
+      AND NOT message.is_deleted
       AND (message.scheduled_for IS NULL OR message.scheduled_for <= now())
       AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
     RETURNING event.event_id, event.claim_token, event.claimed_until,
@@ -27,24 +28,21 @@ export function claimNotificationEvent(sql, email, eventId) {
   `
 }
 
-export function findNotificationEventLease(sql, email, eventId) {
+export function findNotificationEventLease(sql, userId, eventId) {
   return sql`
     SELECT event.claimed_until
     FROM browser_notification_events event
-    JOIN users owner ON owner.id = event.user_id
     WHERE event.event_id = ${eventId}
-      AND lower(owner.email) = ${email}
+      AND event.user_id = ${userId}
   `
 }
 
-export function acknowledgeNotificationEvent(sql, email, eventId, claimToken) {
+export function acknowledgeNotificationEvent(sql, userId, eventId, claimToken) {
   return sql`
     DELETE FROM browser_notification_events event
-    USING users owner
     WHERE event.event_id = ${eventId}
       AND event.claim_token = ${claimToken}
-      AND event.user_id = owner.id
-      AND lower(owner.email) = ${email}
+      AND event.user_id = ${userId}
     RETURNING event.event_id
   `
 }
@@ -65,11 +63,11 @@ export function createHandler(overrides = {}) {
       return
     }
 
-    let email
+    let userId
     try {
-      ;({ email } = await services.verifyAccessToken(req))
-    } catch {
-      sendJson(res, 401, { error: 'Unauthorized' })
+      ;({ userId } = await services.verifyAccessToken(req))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 
@@ -92,14 +90,14 @@ export function createHandler(overrides = {}) {
     try {
       const sql = services.getSql()
       if (body.action === 'ack') {
-        await acknowledgeNotificationEvent(sql, email, body.eventId, body.claimToken)
+        await acknowledgeNotificationEvent(sql, userId, body.eventId, body.claimToken)
         sendJson(res, 204, null)
         return
       }
 
-      const [claimed] = await claimNotificationEvent(sql, email, body.eventId)
+      const [claimed] = await claimNotificationEvent(sql, userId, body.eventId)
       if (!claimed) {
-        const [event] = await findNotificationEventLease(sql, email, body.eventId)
+        const [event] = await findNotificationEventLease(sql, userId, body.eventId)
         if (event?.claimed_until && new Date(event.claimed_until) > new Date()) {
           res.setHeader('Retry-After', '30')
           sendJson(res, 423, { error: 'Notification event is already claimed' })

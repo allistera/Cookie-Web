@@ -100,8 +100,10 @@ async function compressImage(file) {
     const img = new Image()
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
+    const objectUrl = URL.createObjectURL(file)
 
     img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
       let { width, height } = img
 
       // Scale down if image is too large
@@ -129,8 +131,11 @@ async function compressImage(file) {
       )
     }
 
-    img.onerror = () => reject(new Error('Failed to load image'))
-    img.src = URL.createObjectURL(file)
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Failed to load image'))
+    }
+    img.src = objectUrl
   })
 }
 
@@ -289,15 +294,22 @@ function mountEditor() {
   })
 }
 
-onMounted(mountEditor)
+function onPageHide() {
+  void flushPendingBlocks()
+}
+
+onMounted(() => {
+  mountEditor()
+  window.addEventListener('pagehide', onPageHide)
+})
 onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', onPageHide)
   const activeEditor = editor
-  const pendingFlush = flushPendingBlocks()
-  Promise.resolve(pendingFlush).finally(() => {
+  Promise.resolve(flushPendingBlocks()).finally(() => {
+    editor = null
     blockSaveScheduler.cancel()
     activeEditor?.destroy?.()
   })
-  editor = null
 })
 
 // Switching to another document rebuilds the instance; Editor.js has no

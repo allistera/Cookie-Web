@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildRecurrenceRule, expandEvents, fetchEvents } from '../calendar-events.js'
+import { buildRecurrenceRule, expandEvents, fetchEvents, parseRangeParams } from '../calendar-events.js'
 
 describe('buildRecurrenceRule', () => {
   it('returns null for "none"', () => {
@@ -125,6 +125,7 @@ describe('expandEvents', () => {
       '2026-07-22',
     ])
     expect(occurrences.every((occurrence) => occurrence.seriesId === 'abc')).toBe(true)
+    expect(occurrences.every((occurrence) => occurrence.seriesDate === '2026-07-01')).toBe(true)
     expect(new Set(occurrences.map((occurrence) => occurrence.id)).size).toBe(occurrences.length)
   })
 
@@ -134,6 +135,7 @@ describe('expandEvents', () => {
     const occurrences = expandEvents([event], now, { from: '2026-08-03', to: '2026-08-16' })
 
     expect(occurrences.map((occurrence) => occurrence.date)).toEqual(['2026-08-03', '2026-08-10'])
+    expect(occurrences.every((occurrence) => occurrence.seriesDate === '2026-01-05')).toBe(true)
   })
 
   it('clamps monthly recurrence to the last day of short months', () => {
@@ -223,5 +225,21 @@ describe('expandEvents', () => {
     const occurrences = expandEvents([event], now)
 
     expect(occurrences.map((occurrence) => occurrence.date)).toEqual(['2026-08-03', '2026-08-04', '2026-08-05'])
+  })
+})
+
+describe('parseRangeParams', () => {
+  it('defaults an omitted range to the expand window rather than the full date domain', () => {
+    const now = new Date('2026-07-28T00:00:00Z')
+    const { range } = parseRangeParams(new URL('/api/calendar-events', 'http://localhost').searchParams, now)
+    expect(range.from).toBe(now.toISOString().slice(0, 10) === '2026-07-28' ? new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : range.from)
+    expect(range.to).toBe(new Date(now.getTime() + 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+    expect(range.from < range.to).toBe(true)
+    expect(range.from).not.toBe('0001-01-01')
+  })
+
+  it('rejects a range longer than 800 days', () => {
+    const url = new URL('/api/calendar-events?from=2020-01-01&to=2024-01-01', 'http://localhost')
+    expect(parseRangeParams(url.searchParams).error).toBe(true)
   })
 })

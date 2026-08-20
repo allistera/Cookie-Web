@@ -15,6 +15,8 @@ import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
 const UNDO_SEND_SECONDS = 5
 let sendCountdownTimer = null
 let searchAbortController = null
+let askAbortController = null
+let askSeq = 0
 
 // A body fetch that resolves faster than this would otherwise flash straight
 // from click to rendered content with no visible feedback at all — hold the
@@ -103,6 +105,15 @@ function restoreCapturedLists(email, positions) {
     if (index > -1 && !list.includes(email)) {
       list.splice(Math.min(index, list.length), 0, email)
     }
+  }
+}
+
+function syncFolderMembership(list, email, belongs) {
+  const index = list.findIndex((item) => item.id === email.id)
+  if (belongs) {
+    if (index === -1) list.unshift(email)
+  } else if (index > -1) {
+    list.splice(index, 1)
   }
 }
 
@@ -206,6 +217,22 @@ const FOLDER_STATE = {
     refreshing: 'isSnoozedRefreshing',
     label: 'snoozed emails',
   },
+  starred: {
+    list: 'starredEmails',
+    cursor: 'starredCursor',
+    hasMore: 'hasMoreStarred',
+    loaded: 'isStarredLoaded',
+    refreshing: 'isStarredRefreshing',
+    label: 'starred emails',
+  },
+  label: {
+    list: 'labelEmails',
+    cursor: 'labelCursor',
+    hasMore: 'hasMoreLabel',
+    loaded: 'isLabelLoaded',
+    refreshing: 'isLabelRefreshing',
+    label: 'labeled emails',
+  },
 }
 
 // Maps a GET /api/emails (or /api/search) row to the shape the views render.
@@ -237,6 +264,24 @@ function mapEmailRow(message) {
     hasAttachments: Boolean(message.has_attachments),
     labels: message.labels || [],
   }
+}
+
+export function mergeInboxPage(existing, incoming, pendingStarIds, pendingUnreadIds) {
+  const previousById = new Map(existing.map((email) => [email.id, email]))
+  const incomingIds = new Set(incoming.map((email) => email.id))
+  const page = incoming.map((row) => {
+    const previous = previousById.get(row.id)
+    if (!previous) return row
+    const keepStarred = pendingStarIds?.has(previous.id)
+    const keepUnread = pendingUnreadIds?.has(previous.id)
+    const starred = previous.starred
+    const unread = previous.unread
+    Object.assign(previous, row)
+    if (keepStarred) previous.starred = starred
+    if (keepUnread) previous.unread = unread
+    return previous
+  })
+  return page.concat(existing.filter((email) => !incomingIds.has(email.id)))
 }
 
 export const useInboxStore = defineStore('inbox', {
@@ -274,6 +319,17 @@ export const useInboxStore = defineStore('inbox', {
     hasMoreSnoozed: false,
     isSnoozedLoaded: false,
     isSnoozedRefreshing: false,
+    starredEmails: [],
+    starredCursor: null,
+    hasMoreStarred: false,
+    isStarredLoaded: false,
+    isStarredRefreshing: false,
+    labelEmails: [],
+    labelCursor: null,
+    hasMoreLabel: false,
+    labelFolderName: null,
+    isLabelLoaded: false,
+    isLabelRefreshing: false,
     // Done archive pager (page replacement, not append): the cursor used to
     // fetch page N lives at donePageCursors[N] (null for page 0), so Newer
     // simply refetches with the earlier cursor.
@@ -397,6 +453,8 @@ export const useInboxStore = defineStore('inbox', {
     openEmail(state) {
       return (
         state.traditionalEmails.find((e) => e.id === state.openEmailId) ??
+        state.starredEmails.find((e) => e.id === state.openEmailId) ??
+        state.labelEmails.find((e) => e.id === state.openEmailId) ??
         state.sentEmails.find((e) => e.id === state.openEmailId) ??
         state.spamEmails.find((e) => e.id === state.openEmailId) ??
         state.snoozedEmails.find((e) => e.id === state.openEmailId) ??
@@ -478,10 +536,11 @@ export const useInboxStore = defineStore('inbox', {
 
     // Fetches one keyset page of a list. Throws on a non-2xx response so the
     // callers' catch blocks handle notification.
-    async fetchEmailPage({ folder, before, limit = PAGE_SIZE } = {}) {
+    async fetchEmailPage({ folder, before, limit = PAGE_SIZE, label } = {}) {
       const headers = await this.authHeaders()
       const params = new URLSearchParams()
       if (folder) params.set('folder', folder)
+      if (folder === 'label' && label) params.set('label', label)
       params.set('limit', limit)
       if (before) params.set('before', before)
       const response = await fetch(`/api/emails?${params}`, { headers })
@@ -559,15 +618,47 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     refreshInbox() {
-      return this.isInboxLoaded ? this.loadEmails() : this.loadInboxState({ force: true })
+      if (this.activeSearchQuery) return
+      return this.isInboxLoaded ? this.refreshInboxEmails() : this.loadInboxState({ force: true })
+    },
+
+    async refreshInboxEmails() {
+      if (this.activeSearchQuery) return
+      const seq = this.listSeq
+      try {
+        const { emails, nextCursor, unreadCount, userId } = await this.fetchEmailPage()
+        if (this.activeSearchQuery || seq !== this.listSeq) return
+        const incoming = emails.map(mapEmailRow)
+        const existing = this.traditionalEmails
+        this.traditionalEmails = mergeInboxPage(
+          existing,
+          incoming,
+          pendingStarUpdates,
+          pendingUnreadUpdates,
+        )
+        if (existing.length <= incoming.length) {
+          this.emailsCursor = nextCursor ?? null
+          this.hasMoreEmails = Boolean(nextCursor)
+        }
+        this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : this.unreadInboxCount
+        if (userId) this.userId = userId
+        this.isInboxStateLoaded = true
+      } catch (error) {
+        if (this.activeSearchQuery || seq !== this.listSeq) return
+        console.error('Failed to refresh inbox:', error)
+        this.notify('Failed to load inbox.', 'error')
+      }
     },
 
     // Loads (or reloads) a server-backed folder list; see FOLDER_STATE.
-    async loadFolder(folder) {
+    async loadFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
       this[keys.refreshing] = true
       try {
-        const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({ folder })
+        const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
+          folder,
+          ...extra,
+        })
         this[keys.list] = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(this[keys.list])
@@ -585,7 +676,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // Appends the folder's next keyset page. No-op while a load is already
     // running or when there is no further page.
-    async loadMoreFolder(folder) {
+    async loadMoreFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
       if (!this[keys.cursor] || this[keys.refreshing]) return
       this[keys.refreshing] = true
@@ -593,6 +684,7 @@ export const useInboxStore = defineStore('inbox', {
         const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
           folder,
           before: this[keys.cursor],
+          ...extra,
         })
         const nextEmails = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
@@ -648,6 +740,28 @@ export const useInboxStore = defineStore('inbox', {
     },
     loadMoreSnoozedEmails() {
       return this.loadMoreFolder('snoozed')
+    },
+    loadStarredEmails() {
+      return this.loadFolder('starred')
+    },
+    loadMoreStarredEmails() {
+      return this.loadMoreFolder('starred')
+    },
+    loadLabelEmails(name) {
+      const label = String(name ?? '').trim()
+      if (!label) return
+      if (this.labelFolderName !== label) {
+        this.labelEmails = []
+        this.labelCursor = null
+        this.hasMoreLabel = false
+        this.isLabelLoaded = false
+      }
+      this.labelFolderName = label
+      return this.loadFolder('label', { label })
+    },
+    loadMoreLabelEmails() {
+      if (!this.labelFolderName) return
+      return this.loadMoreFolder('label', { label: this.labelFolderName })
     },
 
     // Loads one page of the Done archive (page replacement — the view offers
@@ -729,6 +843,13 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
         const { labels } = await response.json()
         email.labels = labels
+        if (this.isLabelLoaded && this.labelFolderName === label.name) {
+          syncFolderMembership(
+            this.labelEmails,
+            email,
+            (labels || []).some((item) => item.name === label.name),
+          )
+        }
       } catch (error) {
         console.error('Failed to update message labels:', error)
         this.notify('Failed to update tags.', 'error')
@@ -805,6 +926,8 @@ export const useInboxStore = defineStore('inbox', {
 
         for (const list of [
           this.traditionalEmails,
+          this.starredEmails,
+          this.labelEmails,
           this.sentEmails,
           this.spamEmails,
           this.snoozedEmails,
@@ -1201,11 +1324,15 @@ export const useInboxStore = defineStore('inbox', {
     toggleStar(email) {
       const nextStarred = !email.starred
       email.starred = nextStarred
+      if (this.isStarredLoaded) syncFolderMembership(this.starredEmails, email, nextStarred)
       serializePerMessage(pendingStarUpdates, email.id, () =>
         this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
           console.error('Failed to update starred state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
-          if (email.starred === nextStarred) email.starred = !nextStarred
+          if (email.starred === nextStarred) {
+            email.starred = !nextStarred
+            if (this.isStarredLoaded) syncFolderMembership(this.starredEmails, email, !nextStarred)
+          }
           this.notify('Failed to update starred state.', 'error')
         }),
       )
@@ -1271,6 +1398,8 @@ export const useInboxStore = defineStore('inbox', {
       if (!email) return null
       const positions = captureListPositions(email, [
         this.traditionalEmails,
+        this.starredEmails,
+        this.labelEmails,
         this.snoozedEmails,
         this.spamEmails,
       ])
@@ -1323,6 +1452,8 @@ export const useInboxStore = defineStore('inbox', {
       if (!email) return null
       const positions = captureListPositions(email, [
         this.traditionalEmails,
+        this.starredEmails,
+        this.labelEmails,
         this.snoozedEmails,
         this.spamEmails,
         this.doneEmails,
@@ -1838,6 +1969,7 @@ export const useInboxStore = defineStore('inbox', {
         replyToMessageId: this.composerReplyToMessageId,
       }
       this.closeComposer()
+      this.isSendingEmail = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         const response = await fetch('/api/send', {
@@ -1860,6 +1992,8 @@ export const useInboxStore = defineStore('inbox', {
         this.composerReplyToMessageId = draft.replyToMessageId
         this.isComposerActive = true
         return false
+      } finally {
+        this.isSendingEmail = false
       }
     },
 
@@ -1909,6 +2043,10 @@ export const useInboxStore = defineStore('inbox', {
     async askAssistant(query) {
       this.isChatDrawerActive = true
       pushCapped(this.chatHistory, { text: query, sender: 'user' }, MAX_CHAT_HISTORY)
+      askAbortController?.abort()
+      const controller = new AbortController()
+      askAbortController = controller
+      const seq = ++askSeq
       this.isChatLoading = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
@@ -1916,13 +2054,17 @@ export const useInboxStore = defineStore('inbox', {
           method: 'POST',
           headers,
           body: JSON.stringify({ question: query }),
+          signal: controller.signal,
         })
         if (!response.ok) {
           throw new Error(`POST /api/ask responded ${response.status}`)
         }
         const { answer, sources } = await response.json()
+        if (seq !== askSeq) return
         pushCapped(this.chatHistory, { text: answer, sender: 'ai', sources: sources || [] }, MAX_CHAT_HISTORY)
       } catch (error) {
+        if (seq !== askSeq) return
+        if (error?.name === 'AbortError') return
         console.error('Ask failed:', error)
         pushCapped(
           this.chatHistory,
@@ -1934,7 +2076,8 @@ export const useInboxStore = defineStore('inbox', {
           MAX_CHAT_HISTORY,
         )
       } finally {
-        this.isChatLoading = false
+        if (askAbortController === controller) askAbortController = null
+        if (seq === askSeq) this.isChatLoading = false
       }
     },
   },

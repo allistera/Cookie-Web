@@ -2,7 +2,7 @@ import process from 'node:process'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { verifyAccessToken } from '../auth.js'
+import { AuthFailure, verifyAccessToken, writeAuthError } from '../auth.js'
 
 const req = {
   headers: { authorization: 'Bearer signed-token' },
@@ -69,5 +69,38 @@ describe('verifyAccessToken identity binding', () => {
       verifyAccessToken(req, { jwks: {}, jwtVerify, sql }),
     ).rejects.toThrow(/no subject/i)
     expect(sql).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with 503 when Auth0 config is missing', async () => {
+    delete process.env.VITE_AUTH0_DOMAIN
+
+    await expect(verifyAccessToken(req, { jwks: {}, jwtVerify: vi.fn(), sql: vi.fn() })).rejects.toMatchObject({
+      name: 'AuthFailure',
+      status: 503,
+    })
+  })
+})
+
+describe('writeAuthError', () => {
+  function makeRes() {
+    return {
+      statusCode: 0,
+      body: null,
+      end(payload) {
+        this.body = JSON.parse(payload)
+      },
+    }
+  }
+
+  it('maps AuthFailure status codes instead of collapsing everything to 401', () => {
+    const unavailable = makeRes()
+    writeAuthError(unavailable, new AuthFailure('down', 503))
+    expect(unavailable.statusCode).toBe(503)
+    expect(unavailable.body).toEqual({ error: 'Authentication unavailable' })
+
+    const forbidden = makeRes()
+    writeAuthError(forbidden, new AuthFailure('no mailbox', 403))
+    expect(forbidden.statusCode).toBe(403)
+    expect(forbidden.body).toEqual({ error: 'Forbidden' })
   })
 })

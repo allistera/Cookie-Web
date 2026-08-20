@@ -1,5 +1,5 @@
 const SHELL_CACHE = 'cookie-shell-v1'
-const MAIL_CACHE = 'cookie-recent-mail-v2'
+const MAIL_CACHE = 'cookie-recent-mail-v3'
 // Vite development serves a large module graph one file at a time; production
 // bundles need only a small bounded cache across deployments.
 const MAX_SHELL_ENTRIES = self.location.hostname === 'localhost' ? 500 : 60
@@ -80,23 +80,19 @@ self.addEventListener('fetch', (event) => {
 async function recentMailResponse(event) {
   const cache = await caches.open(MAIL_CACHE)
   const cacheKey = await privateMailCacheKey(event.request)
-  const cached = await cache.match(cacheKey)
-  const refresh = fetch(event.request)
-    .then(async (response) => {
-      if (response.ok) {
-        await cache.delete(cacheKey)
-        await cache.put(cacheKey, response.clone())
-        await trimCache(cache, MAX_MAIL_ENTRIES)
-      }
-      return response
-    })
-
-  if (cached) {
-    event.waitUntil(refresh.catch(() => undefined))
-    return cached
+  try {
+    const response = await fetch(event.request)
+    if (response.ok) {
+      await cache.delete(cacheKey)
+      await cache.put(cacheKey, response.clone())
+      await trimCache(cache, MAX_MAIL_ENTRIES)
+    }
+    return response
+  } catch {
+    const cached = await cache.match(cacheKey)
+    if (cached) return cached
+    throw new Error('Failed to fetch mail')
   }
-
-  return refresh
 }
 
 async function shellNavigationResponse(request) {

@@ -1,8 +1,40 @@
+import { writeAuthError } from './_lib/auth.js'
 import { createServices } from './_lib/services.js'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
+const MAX_LABEL_NAME = 100
 const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+const FOLDERS = new Set(['inbox', 'sent', 'spam', 'snoozed', 'done', 'starred', 'label'])
+
+// Folder predicates are inlined (not `${folder} = 'inbox'`) so Postgres can
+// use the 0035 partial indexes. Parameterized OR-across-folders cannot.
+export function folderPredicate(sql, folder, labelName) {
+  if (folder === 'done') return sql`m.is_archived`
+  if (folder === 'sent') return sql`NOT m.is_archived AND m.is_sent`
+  if (folder === 'spam') {
+    return sql`NOT m.is_archived AND NOT m.is_sent AND ai.spam_verdict = 'spam'`
+  }
+  if (folder === 'snoozed') {
+    return sql`NOT m.is_archived AND NOT m.is_sent
+      AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+      AND m.scheduled_for > now()`
+  }
+  if (folder === 'starred') return sql`m.is_starred`
+  if (folder === 'label') {
+    return sql`EXISTS (
+      SELECT 1
+      FROM message_labels tagged
+      JOIN labels tagged_l ON tagged_l.id = tagged.label_id
+      WHERE tagged.message_id = m.id
+        AND tagged_l.user_id = m.user_id
+        AND tagged_l.name = ${labelName}
+    )`
+  }
+  return sql`NOT m.is_archived AND NOT m.is_sent
+    AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
+    AND (m.scheduled_for IS NULL OR m.scheduled_for <= now())`
+}
 
 // Keyset pagination on (sent_at, id) DESC. The cursor is "<sent_at>|<id>" of
 // the last row of the previous page — stable under concurrent inserts, unlike
@@ -12,7 +44,7 @@ const CURSOR_RE = /^(.+)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // outbound rows.
 // Message bodies are deliberately excluded: list rows render the stored snippet,
 // while the authoritative body is fetched only when the reader opens.
-export function fetchEmails(sql, userId, limit, cursor, folder) {
+export function fetchEmails(sql, userId, limit, cursor, folder, labelName = '') {
   return sql`
     SELECT m.id, m.from_name, m.from_address,
            CASE WHEN jsonb_typeof(m.recipients) = 'string'
@@ -36,19 +68,7 @@ export function fetchEmails(sql, userId, limit, cursor, folder) {
     LEFT JOIN labels l ON l.id = ml.label_id
     WHERE m.user_id = ${userId}
       AND NOT m.is_deleted
-      AND (
-        (${folder} = 'done' AND m.is_archived)
-        OR (NOT m.is_archived AND (
-          (${folder} = 'sent' AND m.is_sent)
-          OR (${folder} = 'spam' AND NOT m.is_sent AND ai.spam_verdict = 'spam')
-          OR (${folder} = 'snoozed' AND NOT m.is_sent
-              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-              AND m.scheduled_for > now())
-          OR (${folder} = 'inbox' AND NOT m.is_sent
-              AND COALESCE(ai.spam_verdict, 'inbox') <> 'spam'
-              AND (m.scheduled_for IS NULL OR m.scheduled_for <= now()))
-        ))
-      )
+      AND (${folderPredicate(sql, folder, labelName)})
       ${cursor ? sql`AND (m.sent_at, m.id) < (${cursor.sentAt}::timestamptz, ${cursor.id}::uuid)` : sql``}
     GROUP BY m.id, ai.spam_score
     ORDER BY m.sent_at DESC, m.id DESC
@@ -87,9 +107,8 @@ export function createHandler(overrides = {}) {
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))
-    } catch {
-      res.statusCode = 401
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
+    } catch (error) {
+      writeAuthError(res, error)
       return
     }
 
@@ -117,12 +136,16 @@ export function createHandler(overrides = {}) {
     }
 
     const requestedFolder = url.searchParams.get('folder') || 'inbox'
-    const folder = ['inbox', 'sent', 'spam', 'snoozed', 'done'].includes(requestedFolder)
-      ? requestedFolder
-      : null
+    const folder = FOLDERS.has(requestedFolder) ? requestedFolder : null
     if (!folder) {
       res.statusCode = 400
       res.end(JSON.stringify({ error: 'Invalid folder' }))
+      return
+    }
+    const labelName = String(url.searchParams.get('label') || '').trim().slice(0, MAX_LABEL_NAME)
+    if (folder === 'label' && !labelName) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'label is required' }))
       return
     }
     const limitParam = Number.parseInt(url.searchParams.get('limit') ?? '', 10)
@@ -147,7 +170,7 @@ export function createHandler(overrides = {}) {
       // The unread count only matters on a list's first page; the client
       // ignores it on cursor pages, so skip the aggregate there.
       const [rows, [userRow]] = await Promise.all([
-        fetchEmails(sql, userId, limit, cursor, folder),
+        fetchEmails(sql, userId, limit, cursor, folder, labelName),
         cursor ? [] : fetchUnreadCount(sql, userId),
       ])
       const hasMore = rows.length > limit

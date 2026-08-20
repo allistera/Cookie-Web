@@ -17,6 +17,7 @@ const SAVE_DEBOUNCE_MS = 800
 let saveTimer = null
 let pendingSave = null
 let saveInFlight = null
+const workspaceLoads = new WeakMap()
 
 // Search: mirrors inbox.js's searchAbortController, kept at module scope for
 // the same reason (an AbortController isn't reactive state).
@@ -118,25 +119,36 @@ export const useDocumentsStore = defineStore('documents', {
       if (body !== undefined) options.body = JSON.stringify(body)
       const response = await fetch(`${TASKS_API_URL}/documents${params}`, options)
       if (!response.ok) {
-        throw new Error(`${method} /api/tasks?resource=documents responded ${response.status}`)
+        const error = new Error(
+          `${method} /api/tasks?resource=documents responded ${response.status}`,
+        )
+        error.status = response.status
+        throw error
       }
       return response.json()
     },
 
     async loadWorkspace({ force = false } = {}) {
-      if ((this.isLoaded && !force) || this.isLoading) return
+      if (this.isLoaded && !force) return
+      const inFlight = workspaceLoads.get(this)
+      if (inFlight) return inFlight
       this.isLoading = true
-      try {
-        const { folders, documents } = await this.request('GET')
-        this.folders = folders
-        this.documents = documents
-        this.isLoaded = true
-      } catch (error) {
-        console.error('Failed to load documents:', error)
-        this.notify('Failed to load documents.', 'error')
-      } finally {
-        this.isLoading = false
-      }
+      const load = (async () => {
+        try {
+          const { folders, documents } = await this.request('GET')
+          this.folders = folders
+          this.documents = documents
+          this.isLoaded = true
+        } catch (error) {
+          console.error('Failed to load documents:', error)
+          this.notify('Failed to load documents.', 'error')
+        } finally {
+          this.isLoading = false
+          workspaceLoads.delete(this)
+        }
+      })()
+      workspaceLoads.set(this, load)
+      return load
     },
 
     // Opening a new document flushes any edit still waiting on the debounce
@@ -450,11 +462,15 @@ export const useDocumentsStore = defineStore('documents', {
 
         const { id, title, blocks, tags } = pendingSave
         pendingSave = null
+        const row = this.documents.find((doc) => doc.id === id)
         const body = { id }
         if (title !== undefined) body.title = title
         if (blocks !== undefined) body.blocks = blocks
         if (tags !== undefined) body.tags = tags
+        const updatedAt = this.openDoc?.id === id ? this.openDoc.updated_at || row?.updated_at : row?.updated_at
+        if (updatedAt) body.updatedAt = updatedAt
 
+        let conflicted = false
         const operation = (async () => {
           try {
             const { document } = await this.request('PATCH', { body })
@@ -465,13 +481,17 @@ export const useDocumentsStore = defineStore('documents', {
             if (newerSave?.title !== undefined) delete update.title
             if (newerSave?.blocks !== undefined) delete update.blocks
             if (newerSave?.tags !== undefined) delete update.tags
-            const row = this.documents.find((doc) => doc.id === id)
-            if (row) Object.assign(row, update)
+            const current = this.documents.find((doc) => doc.id === id)
+            if (current) Object.assign(current, update)
             if (this.openDoc?.id === id) Object.assign(this.openDoc, update)
             if (!pendingSave) this.saveState = 'saved'
           } catch (error) {
             console.error('Failed to save document:', error)
             this.saveState = 'error'
+            if (error?.status === 409 && !pendingSave) {
+              pendingSave = { id, title, blocks, tags }
+              conflicted = true
+            }
           }
         })()
         saveInFlight = operation
@@ -480,6 +500,7 @@ export const useDocumentsStore = defineStore('documents', {
         } finally {
           if (saveInFlight === operation) saveInFlight = null
         }
+        if (conflicted) break
       }
     },
 

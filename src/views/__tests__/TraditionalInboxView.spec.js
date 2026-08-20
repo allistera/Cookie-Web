@@ -320,6 +320,10 @@ describe('TraditionalInboxView filtered views', () => {
     const labeled = makeEmail('labeled-1', Date.now() - HOUR)
     labeled.labels = [{ name: 'Home', color: '#ff0000' }]
     store.traditionalEmails = [makeEmail('plain-1', Date.now() - HOUR), starred, labeled]
+    store.starredEmails = [starred]
+    store.labelEmails = [labeled]
+    vi.spyOn(store, 'loadStarredEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
@@ -350,6 +354,7 @@ describe('TraditionalInboxView filtered views', () => {
   })
 
   it('moves an email from the inbox to the Starred folder as soon as it is starred', async () => {
+    store.isStarredLoaded = true
     let wrapper = mountView()
 
     await wrapper.find('.ni-row [title="Star"]').trigger('click')
@@ -357,6 +362,7 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.findAll('.ni-row').map((row) => row.text())).not.toContain(
       expect.stringContaining('Subject plain-1'),
     )
+    expect(store.starredEmails.some((email) => email.id === 'plain-1')).toBe(true)
 
     wrapper.unmount()
     await router.replace({ path: '/inbox', query: { filter: 'starred' } })
@@ -396,6 +402,23 @@ describe('TraditionalInboxView filtered views', () => {
     const rows = wrapper.findAll('.ni-row')
     expect(rows).toHaveLength(1)
     expect(rows[0].text()).toContain('Subject labeled-1')
+  })
+
+  it('loads more from the Starred and label folders', async () => {
+    store.hasMoreStarred = true
+    vi.spyOn(store, 'loadMoreStarredEmails').mockResolvedValue()
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    let wrapper = mountView()
+    await wrapper.find('.ni-load-more').trigger('click')
+    expect(store.loadMoreStarredEmails).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+
+    store.hasMoreLabel = true
+    vi.spyOn(store, 'loadMoreLabelEmails').mockResolvedValue()
+    await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Home' } })
+    wrapper = mountView()
+    await wrapper.find('.ni-load-more').trigger('click')
+    expect(store.loadMoreLabelEmails).toHaveBeenCalledTimes(1)
   })
 
   it('filter=snoozed groups future emails by snooze target with both groups open', async () => {
@@ -484,6 +507,8 @@ describe('TraditionalInboxView AI summary marker across email lists', () => {
     vi.spyOn(store, 'loadSentEmails').mockResolvedValue()
     vi.spyOn(store, 'loadSpamEmails').mockResolvedValue()
     vi.spyOn(store, 'loadSnoozedEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadStarredEmails').mockResolvedValue()
+    vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
     vi.spyOn(store, 'loadDonePage').mockResolvedValue()
   })
 
@@ -493,8 +518,8 @@ describe('TraditionalInboxView AI summary marker across email lists', () => {
 
   it.each([
     ['Inbox', {}, 'traditionalEmails'],
-    ['Starred', { filter: 'starred' }, 'traditionalEmails'],
-    ['Label', { filter: 'label', label: 'Projects' }, 'traditionalEmails'],
+    ['Starred', { filter: 'starred' }, 'starredEmails'],
+    ['Label', { filter: 'label', label: 'Projects' }, 'labelEmails'],
     ['Sent', { filter: 'sent' }, 'sentEmails'],
     ['Spam', { filter: 'spam' }, 'spamEmails'],
     ['Snoozed', { filter: 'snoozed' }, 'snoozedEmails'],

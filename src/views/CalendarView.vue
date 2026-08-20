@@ -482,7 +482,7 @@ function editEvent(event) {
     title: event.title,
     description: event.description || '',
     location: event.location || '',
-    date: event.date,
+    date: event.seriesDate ?? event.date,
     start: event.start,
     // An all-day event's 1440-minute duration would overflow into an
     // invalid "24:00" end time; there's no meaningful end-of-day time to

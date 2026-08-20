@@ -15,7 +15,8 @@ function getSql() {
   return fn
 }
 
-const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com' }))
+const USER_ID = '44444444-4444-4444-8444-444444444444'
+const verifyAccessToken = vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID }))
 
 const handler = createHandler({
   verifyAccessToken,
@@ -143,7 +144,7 @@ describe('POST /api/notification-event ack', () => {
     expect(res.statusCode).toBe(204)
     expect(res.body).toBeNull()
     expect(statements[0]).toContain('DELETE FROM browser_notification_events')
-    expect(statements[0]).toContain('lower(owner.email) = ?')
+    expect(statements[0]).toContain('event.user_id = ?')
   })
 
   it('rejects an ack with no claim token', async () => {
