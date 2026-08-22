@@ -9,6 +9,10 @@ const TIME_RE = /^\d{2}:\d{2}$/
 const MAX_TITLE = 200
 const MAX_LOCATION = 200
 const MAX_DESCRIPTION = 2000
+// The schema CHECK only enforces duration > 0; this upper bound stops an
+// absurd value (e.g. 2e9 minutes ≈ 3800 years) from rendering as a giant
+// block in every client that trusts the stored duration.
+const MAX_DURATION_MINUTES = 30 * 24 * 60
 const LEGACY_CALENDAR_NAMES = new Map([
   ['work', 'Work'],
   ['personal', 'Personal'],
@@ -52,6 +56,7 @@ function validEventFields(body) {
     !DATE_RE.test(date) ||
     !TIME_RE.test(start) ||
     duration <= 0 ||
+    duration > MAX_DURATION_MINUTES ||
     !(UUID_RE.test(calendar) || LEGACY_CALENDAR_NAMES.has(calendar)) ||
     (tone !== null && !ALLOWED_TONES.has(tone)) ||
     (location && location.length > MAX_LOCATION) ||
@@ -198,6 +203,10 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 const EXPAND_PAST_DAYS = 365
 const EXPAND_FUTURE_DAYS = 730
 const MAX_OCCURRENCES_PER_SERIES = 366
+// Global ceiling on occurrences emitted in one response across all series.
+// MAX_OCCURRENCES_PER_SERIES bounds each series individually; without a total
+// cap, N daily series serialize up to 366·N event objects on every load.
+const MAX_TOTAL_OCCURRENCES = 5000
 // Occurrences before the window are stepped over without being emitted, so the
 // occurrence cap alone does not bound the work: a DAILY series dated 0001-01-01
 // (which both DATE_RE and migration 0022's CHECK accept) would step ~740k times
@@ -206,7 +215,9 @@ const MAX_OCCURRENCES_PER_SERIES = 366
 // series with BYDAY steps day-by-day (see expandEvent), so it shares DAILY's
 // ~27-year reach rather than WEEKLY's.
 const MAX_STEPS_PER_SERIES = 10_000
-const MAX_RANGE_DAYS = 800
+// Explicit ranges may span at least the default window so the two contracts
+// cannot drift apart again (the default window used to exceed this cap).
+const MAX_RANGE_DAYS = EXPAND_PAST_DAYS + EXPAND_FUTURE_DAYS
 const WEEKDAY_RE = '(?:SU|MO|TU|WE|TH|FR|SA)'
 const RECURRENCE_RE = new RegExp(
   `^(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;BYDAY=(${WEEKDAY_RE}(?:,${WEEKDAY_RE}){0,6}))?(?:;UNTIL=(\\d{4}-\\d{2}-\\d{2}))?$`,
@@ -251,6 +262,9 @@ function daysBetweenUtc(from, to) {
 
 // Skip occurrence generation that would land before windowStart so an ancient
 // DAILY series does not burn MAX_STEPS_PER_SERIES just walking to the window.
+// The MONTHLY/YEARLY branches iterate stepDate too, so they share the same
+// step budget — otherwise a series dated 0001-01-01 would loop ~24k (monthly)
+// or ~2k (yearly) times per request, defeating the DAILY/WEEKLY bound.
 function jumpToWindow(cursor, windowStart, freq) {
   if (cursor >= windowStart) return cursor
   if (freq === 'DAILY') {
@@ -266,7 +280,10 @@ function jumpToWindow(cursor, windowStart, freq) {
   }
   if (freq === 'YEARLY') {
     let next = cursor
-    const years = windowStart.getUTCFullYear() - cursor.getUTCFullYear()
+    const years = Math.min(
+      Math.max(0, windowStart.getUTCFullYear() - cursor.getUTCFullYear()),
+      MAX_STEPS_PER_SERIES,
+    )
     for (let i = 0; i < years; i += 1) next = stepDate(next, 'YEARLY')
     return next
   }
@@ -275,8 +292,13 @@ function jumpToWindow(cursor, windowStart, freq) {
       (windowStart.getUTCFullYear() - cursor.getUTCFullYear()) * 12 +
       (windowStart.getUTCMonth() - cursor.getUTCMonth())
     let next = cursor
-    for (let i = 0; i < Math.max(0, months - 1); i += 1) next = stepDate(next, 'MONTHLY')
-    while (next < windowStart) next = stepDate(next, 'MONTHLY')
+    const jumps = Math.min(Math.max(0, months - 1), MAX_STEPS_PER_SERIES)
+    for (let i = 0; i < jumps; i += 1) next = stepDate(next, 'MONTHLY')
+    let guard = 0
+    while (next < windowStart && guard < MAX_STEPS_PER_SERIES) {
+      next = stepDate(next, 'MONTHLY')
+      guard += 1
+    }
     return next
   }
   return cursor
@@ -327,15 +349,32 @@ function expandEvent(event, windowStart, windowEnd) {
 // default now-relative window — the SQL range filter keeps series masters
 // unconditionally, so this clip is what actually bounds their payload.
 // Non-recurring events still pass through untouched; the SQL filter already
-// windowed them.
-export function expandEvents(events, now = new Date(), range = null) {
+// windowed them. A global occurrence cap bounds the whole response: once it
+// is hit, remaining series are dropped and `truncated` reports it.
+export function expandEventsPage(events, now = new Date(), range = null) {
   const windowStart = range
     ? new Date(`${range.from}T00:00:00Z`)
     : new Date(now.getTime() - EXPAND_PAST_DAYS * MS_PER_DAY)
   const windowEnd = range
     ? new Date(`${range.to}T23:59:59Z`)
     : new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
-  return events.flatMap((event) => expandEvent(event, windowStart, windowEnd))
+  const occurrences = []
+  let truncated = false
+  for (const event of events) {
+    const expanded = expandEvent(event, windowStart, windowEnd)
+    const remaining = MAX_TOTAL_OCCURRENCES - occurrences.length
+    if (expanded.length > remaining) {
+      occurrences.push(...expanded.slice(0, Math.max(0, remaining)))
+      truncated = true
+      break
+    }
+    occurrences.push(...expanded)
+  }
+  return { events: occurrences, truncated }
+}
+
+export function expandEvents(events, now = new Date(), range = null) {
+  return expandEventsPage(events, now, range).events
 }
 
 const READ_ONLY_ERROR = 'This calendar is read-only — its events sync automatically.'
@@ -357,8 +396,9 @@ async function isEventInSubscribedCalendar(sql, userId, eventId) {
 
 async function listEvents(sql, userId, range, res) {
   const events = await fetchEvents(sql, userId, range)
+  const { events: expanded, truncated } = expandEventsPage(events, new Date(), range)
   res.statusCode = 200
-  res.end(JSON.stringify({ events: expandEvents(events, new Date(), range) }))
+  res.end(JSON.stringify({ events: expanded, truncated }))
 }
 
 // from/to are optional but must come as a valid pair: omitting both keeps the

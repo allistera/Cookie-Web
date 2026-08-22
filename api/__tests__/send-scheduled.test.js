@@ -83,6 +83,7 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
 
   it('queues a scheduled_sends row instead of calling the provider', async () => {
     const sql = sequentialSql([
+      [], // advisory lock (sql.begin)
       [
         {
           id: 'sched-1',
@@ -132,7 +133,10 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
   })
 
   it('reports 429 when the per-user pending cap is hit', async () => {
-    const sql = sequentialSql([[]])
+    const sql = sequentialSql([
+      [], // advisory lock (sql.begin)
+      [], // insert suppressed by the cap
+    ])
     mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
 

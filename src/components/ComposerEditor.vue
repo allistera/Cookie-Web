@@ -189,7 +189,11 @@ const DANGEROUS_HTML_RE = /<script|on\w+=|javascript:/i
 function onInput() {
   const el = editorRef.value
   if (el && DANGEROUS_HTML_RE.test(el.innerHTML)) {
-    el.innerHTML = sanitizeEmailHtml(el.innerHTML)
+    const clean = sanitizeEmailHtml(el.innerHTML)
+    // Only rewrite when sanitization actually changed something: assigning
+    // innerHTML resets the caret to the start even when the output is
+    // identical — e.g. while literally typing "javascript:" in a message.
+    if (clean !== el.innerHTML) el.innerHTML = clean
   }
   emitUpdate()
   updateSlashMenu()

@@ -29,6 +29,13 @@ export function getAuth0() {
     // increasingly block — the fallback is a full top-level /authorize
     // redirect on every page load. Requires the Auth0 API to have "Allow
     // Offline Access" on and the application's Refresh Token grant enabled.
+    //
+    // Residual risk, accepted deliberately: refresh tokens in localStorage are
+    // readable by any script that executes despite our CSP (vercel.json ships
+    // `script-src 'self'` with no inline/eval on SPA routes). An in-memory
+    // cache would remove that exposure but reintroduces the full-redirect
+    // regression above on every page load. Revisit if the CSP ever loosens or
+    // Auth0 offers a durable non-storage token cache.
     useRefreshTokens: true,
     cacheLocation: 'localstorage',
     authorizationParams: {

@@ -35,7 +35,10 @@ export function bridgeCandidateIsPlausible(candidate) {
   return BRIDGE_HINT_RE.test(values.join(' '))
 }
 
-function parseMailto(raw) {
+// Strict mailto parser shared by the reader-bridge candidate scan and the
+// server-driven unsubscribe fallback: single address, subject-only param,
+// no CR/LF or percent-encoding tricks. Returns null for anything else.
+export function parseMailto(raw) {
   let parsed
   try {
     parsed = new URL(raw)

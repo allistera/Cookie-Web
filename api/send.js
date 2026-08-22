@@ -93,6 +93,27 @@ export function parseRecipients(to) {
   return recipients
 }
 
+// Pragmatic RFC 5322 subset: one @, no whitespace or control characters, no
+// header-significant punctuation, and a dotted domain. Resend would reject
+// malformed values anyway, but rejecting here keeps CRLF/control-character
+// payloads (classic SMTP header-injection shapes) out of the provider payload,
+// the stored recipients column, and the scheduled-send queue.
+const ADDRESS_RE =
+  /^[A-Za-z0-9!#$%&'*+/=?^_`{|}.-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/
+
+/** @param {string} value */
+function hasControlChars(value) {
+  for (const character of value) {
+    const code = character.codePointAt(0)
+    if (code <= 0x1f || code === 0x7f) return true
+  }
+  return false
+}
+
+function validOutboundAddress(address) {
+  return address.length <= 320 && ADDRESS_RE.test(address)
+}
+
 export function validateOutboundMessage({ to, subject, text, html }) {
   const recipients = parseRecipients(to)
   const htmlText = String(html ?? '')
@@ -101,8 +122,9 @@ export function validateOutboundMessage({ to, subject, text, html }) {
   const bodyText = String(text ?? '')
   if (
     recipients.length === 0 ||
-    !recipients.every((address) => address.length <= 320 && address.includes('@')) ||
+    !recipients.every(validOutboundAddress) ||
     !subjectText.trim() ||
+    hasControlChars(subjectText) ||
     !bodyText.trim()
   ) {
     return { error: 'to, subject and text are required and must be valid' }
@@ -156,6 +178,24 @@ export async function claimOutboundEmailQuota(sql, userId) {
       EXISTS (SELECT 1 FROM claimed) AS quota_claimed
   `
   return result || { authorized: false, quota_claimed: false }
+}
+
+// Compensating decrement after a failed provider delivery so an outage does
+// not burn the user's per-minute allowance on mail that never went out. The
+// window_start guard keeps the refund from leaking into a newer minute's
+// counter after a rollover.
+export async function refundOutboundEmailQuota(sql, userId) {
+  try {
+    await sql`
+      UPDATE outbound_email_quotas
+      SET send_count = GREATEST(send_count - 1, 0), updated_at = now()
+      WHERE user_id = ${userId}
+        AND window_start = date_trunc('minute', now())
+        AND send_count > 0
+    `
+  } catch (err) {
+    console.error('failed to refund outbound email quota:', err.message)
+  }
 }
 
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
@@ -334,9 +374,14 @@ async function ownedReplyToMessageId(sql, userId, replyToMessageId) {
   return row ? { replyTo: replyToMessageId } : { missing: true }
 }
 
+// The content hash alone would silently dedupe a deliberate re-send of the
+// identical message within the provider's idempotency window. Mixing in an
+// optional client-generated requestId keeps double-click/retry protection
+// (same requestId dedupes) while letting intentional duplicates through
+// (new requestId, new send).
 function immediateSendIdempotencyKey(
   userId,
-  { recipients, subject, text, html, replyToMessageId },
+  { recipients, subject, text, html, replyToMessageId, requestId },
 ) {
   const digest = crypto
     .createHash('sha256')
@@ -348,6 +393,7 @@ function immediateSendIdempotencyKey(
         text,
         html: html ?? null,
         replyToMessageId: replyToMessageId ?? null,
+        requestId: requestId ?? null,
       }),
     )
     .digest('hex')
@@ -359,18 +405,25 @@ async function createScheduledSend(
   userId,
   { recipients, subject, text, html, replyToMessageId, scheduledFor },
 ) {
-  const [row] = await sql`
-    INSERT INTO scheduled_sends
-      (user_id, to_addresses, subject, body_text, body_html, reply_to_message_id, scheduled_for)
-    SELECT ${userId}, ${recipients.join(', ')}, ${subject}, ${text}, ${html ?? null},
-           ${replyToMessageId}::uuid, ${scheduledFor}::timestamptz
-    WHERE (
-      SELECT count(*) FROM scheduled_sends s
-      WHERE s.user_id = ${userId} AND s.status = 'pending'
-    ) < ${MAX_PENDING_SCHEDULED_SENDS}
-    RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor"
-  `
-  return row ?? null
+  // The count-then-insert cap is not safe under READ COMMITTED on its own:
+  // two concurrent transactions can both snapshot count = MAX - 1 and both
+  // insert. A per-user transaction-scoped advisory lock serializes schedule
+  // attempts so the cap actually holds.
+  return sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${userId}::text)::bigint)`
+    const [row] = await tx`
+      INSERT INTO scheduled_sends
+        (user_id, to_addresses, subject, body_text, body_html, reply_to_message_id, scheduled_for)
+      SELECT ${userId}, ${recipients.join(', ')}, ${subject}, ${text}, ${html ?? null},
+             ${replyToMessageId}::uuid, ${scheduledFor}::timestamptz
+      WHERE (
+        SELECT count(*) FROM scheduled_sends s
+        WHERE s.user_id = ${userId} AND s.status = 'pending'
+      ) < ${MAX_PENDING_SCHEDULED_SENDS}
+      RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor"
+    `
+    return row ?? null
+  })
 }
 
 async function listScheduledSends(sql, userId) {
@@ -474,6 +527,9 @@ async function deliverScheduledSend(sql, row, services) {
   } catch (err) {
     const attempts = row.attempts + 1
     console.error(`scheduled send ${row.id} delivery failed (attempt ${attempts}):`, err.message)
+    // Nothing went out, so give the minute's quota back instead of letting a
+    // provider outage consume the user's allowance through retries.
+    await refundOutboundEmailQuota(sql, row.user_id)
     if (attempts >= MAX_SCHEDULED_SEND_ATTEMPTS) {
       await markScheduledSendFailed(sql, row.id, err.message, attempts)
       return 'failed'
@@ -666,7 +722,11 @@ async function handleSend(req, res, userId, services) {
     return
   }
 
-  const { to, subject, text, html, replyToMessageId, sendAt } = body
+  const { to, subject, text, html, replyToMessageId, sendAt, requestId } = body
+  // Optional client-generated id for idempotency; bounded and restricted so
+  // it can only widen the key space, never collide or smuggle content.
+  const requestIdText = String(requestId ?? '')
+  const clientRequestId = /^[A-Za-z0-9._:-]{1,128}$/.test(requestIdText) ? requestIdText : null
   const validated = validateOutboundMessage({ to, subject, text, html })
   if (validated.error) {
     res.statusCode = 400
@@ -759,6 +819,7 @@ async function handleSend(req, res, userId, services) {
           text,
           html: bodyHtml,
           replyToMessageId: replyTo,
+          requestId: clientRequestId,
         }),
       },
       services,
@@ -767,6 +828,9 @@ async function handleSend(req, res, userId, services) {
     res.end(JSON.stringify({ id: resendId }))
   } catch (err) {
     console.error('Resend send failed:', err)
+    // The quota was claimed but no email was delivered — refund it so a
+    // provider outage doesn't lock the user out of sending for the minute.
+    await refundOutboundEmailQuota(sql, userId)
     res.statusCode = 502
     res.end(JSON.stringify({ error: 'Failed to send email' }))
   }

@@ -269,13 +269,14 @@ describe('documents store', () => {
     store.scheduleContentSave('d-1', { title: 'Conflicted' })
     await vi.runAllTimersAsync()
 
+    // Initial attempt plus the three capped automatic conflict retries.
+    expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(store.saveState).toBe('error')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await store.flushPendingSave()
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).title).toBe('Conflicted')
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body).title).toBe('Conflicted')
     expect(store.saveState).toBe('error')
   })
 

@@ -8,6 +8,40 @@ const MAX_MESSAGES = 100
 // A transparent 1x1 GIF. Receipt requests always return the same image so an
 // invalid or expired opaque token reveals nothing about mailbox state.
 const PIXEL = Buffer.from('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', 'base64')
+// Flood guard for the unauthenticated pixel path — the only route that touches
+// Postgres without a token. In-memory state is per serverless instance, so it
+// bounds how much database load a single instance will generate rather than
+// enforcing a global quota; a platform-level WAF rule is the global control.
+const PIXEL_WINDOW_MS = 60_000
+const PIXEL_MAX_PER_WINDOW = 120
+const PIXEL_HITS_PRUNE_SIZE = 10_000
+const pixelHits = new Map()
+
+function clientIp(req) {
+  const forwarded = req.headers?.['x-forwarded-for']
+  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded
+  return (
+    String(first ?? '')
+      .split(',')[0]
+      .trim() || 'unknown'
+  )
+}
+
+function pixelFlooded(ip) {
+  const now = Date.now()
+  const entry = pixelHits.get(ip)
+  if (!entry || now - entry.windowStart >= PIXEL_WINDOW_MS) {
+    if (pixelHits.size >= PIXEL_HITS_PRUNE_SIZE) {
+      for (const [key, value] of pixelHits) {
+        if (now - value.windowStart >= PIXEL_WINDOW_MS) pixelHits.delete(key)
+      }
+    }
+    pixelHits.set(ip, { windowStart: now, count: 1 })
+    return false
+  }
+  entry.count += 1
+  return entry.count > PIXEL_MAX_PER_WINDOW
+}
 
 export function recordReadReceipt(sql, token) {
   return sql`
@@ -53,7 +87,9 @@ export default async function handler(req, res) {
   const url = new URL(req.url, 'http://localhost')
   const token = url.searchParams.get('token')
   if (token !== null) {
-    if (UUID_RE.test(token)) {
+    // The pixel response is identical either way, so a flooded client just
+    // stops reaching the database — no behavior change to legitimate opens.
+    if (UUID_RE.test(token) && !pixelFlooded(clientIp(req))) {
       try {
         await recordReadReceipt(getSql(), token)
       } catch (err) {

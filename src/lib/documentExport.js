@@ -1,4 +1,19 @@
-import html2pdf from 'html2pdf.js'
+/**
+ * Escapes plain-text values interpolated into the export HTML. Rich
+ * header/paragraph block content stays as-is (Editor.js stores intentional
+ * inline markup there); everything else — code, tables, captions, URLs,
+ * titles — is plain text and must not be able to inject markup.
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
 
 /**
  * Converts Editor.js blocks to markdown format
@@ -123,7 +138,7 @@ export function convertBlocksToHTML(blocks, title = '') {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>${title || 'Document'}</title>
+  <title>${escapeHtml(title) || 'Document'}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -197,7 +212,7 @@ export function convertBlocksToHTML(blocks, title = '') {
   </style>
 </head>
 <body>
-  ${title ? `<h1>${title}</h1>` : ''}
+  ${title ? `<h1>${escapeHtml(title)}</h1>` : ''}
 `
 
   for (const block of blocks) {
@@ -226,11 +241,11 @@ export function convertBlocksToHTML(blocks, title = '') {
             const checked = item.checked ? 'checked' : ''
             html += `<li class="checklist-item">
               <div class="checklist-checkbox ${checked}"></div>
-              <span>${item.text}</span>
+              <span>${escapeHtml(item.text)}</span>
             </li>`
           } else {
             const itemText = String(item.text || item.content || item)
-            html += `<li>${itemText}</li>`
+            html += `<li>${escapeHtml(itemText)}</li>`
           }
         }
         html += `</${listTag}>`
@@ -239,7 +254,7 @@ export function convertBlocksToHTML(blocks, title = '') {
 
       case 'code': {
         const codeText = block.data.code || ''
-        html += `<pre><code>${codeText}</code></pre>`
+        html += `<pre><code>${escapeHtml(codeText)}</code></pre>`
         break
       }
 
@@ -250,9 +265,9 @@ export function convertBlocksToHTML(blocks, title = '') {
       case 'image': {
         const imageUrl = block.data.file?.url || block.data.url || ''
         const caption = block.data.caption || ''
-        html += `<img src="${imageUrl}" alt="${caption}" />`
+        html += `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(caption)}" />`
         if (caption) {
-          html += `<p><em>${caption}</em></p>`
+          html += `<p><em>${escapeHtml(caption)}</em></p>`
         }
         break
       }
@@ -266,7 +281,7 @@ export function convertBlocksToHTML(blocks, title = '') {
       case 'excalidraw': {
         const excalidrawUrl = block.data.file?.url || block.data.url || ''
         html += `<p><em>Excalidraw drawing:</em></p>`
-        html += `<img src="${excalidrawUrl}" alt="Excalidraw drawing" />`
+        html += `<img src="${escapeHtml(excalidrawUrl)}" alt="Excalidraw drawing" />`
         break
       }
 
@@ -300,7 +315,7 @@ function convertTableToHTML(tableData) {
       if (row.cells && Array.isArray(row.cells)) {
         for (const cell of row.cells) {
           const cellValue = cell?.value || ''
-          html += `<td>${cellValue}</td>`
+          html += `<td>${escapeHtml(cellValue)}</td>`
         }
       }
       html += '</tr>'
@@ -326,6 +341,9 @@ export async function downloadPDF(html, filename = 'document') {
   }
 
   try {
+    // Lazy-loaded: exports are rare, so paying for html2pdf (+html2canvas +
+    // jsPDF, several hundred KB) on every document open is pure waste.
+    const { default: html2pdf } = await import('html2pdf.js')
     await html2pdf().set(options).from(html).save()
   } catch (error) {
     console.error('PDF generation failed:', error)

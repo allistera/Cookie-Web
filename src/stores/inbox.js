@@ -4,6 +4,7 @@ import { getAuth0 } from '../auth0-client'
 import { LABELS_API_URL, MESSAGES_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import { recipientsValid } from '../lib/recipients'
 import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
+import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
@@ -330,6 +331,8 @@ export const useInboxStore = defineStore('inbox', {
     labelFolderName: null,
     isLabelLoaded: false,
     isLabelRefreshing: false,
+    // Staleness guard for label loads, mirroring listSeq above.
+    labelSeq: 0,
     // Done archive pager (page replacement, not append): the cursor used to
     // fetch page N lives at donePageCursors[N] (null for page 0), so Newer
     // simply refetches with the earlier cursor.
@@ -651,14 +654,20 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Loads (or reloads) a server-backed folder list; see FOLDER_STATE.
+    // Label loads are labelSeq-guarded like loadEmails' listSeq: switching
+    // labels quickly starts concurrent fetches that share one list, and
+    // without the guard whichever response resolves last would win —
+    // potentially rendering label A's emails under label B's header.
     async loadFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
+      const seq = folder === 'label' ? ++this.labelSeq : null
       this[keys.refreshing] = true
       try {
         const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
           folder,
           ...extra,
         })
+        if (seq !== null && seq !== this.labelSeq) return
         this[keys.list] = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(this[keys.list])
@@ -667,18 +676,22 @@ export const useInboxStore = defineStore('inbox', {
         this[keys.hasMore] = Boolean(nextCursor)
         if (keys.loaded) this[keys.loaded] = true
       } catch (error) {
+        if (seq !== null && seq !== this.labelSeq) return
         console.error(`Failed to load ${keys.label}:`, error)
         this.notify(`Failed to load ${keys.label}.`, 'error')
       } finally {
-        this[keys.refreshing] = false
+        if (seq === null || seq === this.labelSeq) this[keys.refreshing] = false
       }
     },
 
     // Appends the folder's next keyset page. No-op while a load is already
-    // running or when there is no further page.
+    // running or when there is no further page. Label appends verify the
+    // active label hasn't switched mid-flight so page 2 of an abandoned
+    // label can't land in the new label's list.
     async loadMoreFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
       if (!this[keys.cursor] || this[keys.refreshing]) return
+      const expectedLabel = folder === 'label' ? this.labelFolderName : null
       this[keys.refreshing] = true
       try {
         const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
@@ -686,6 +699,7 @@ export const useInboxStore = defineStore('inbox', {
           before: this[keys.cursor],
           ...extra,
         })
+        if (expectedLabel !== null && this.labelFolderName !== expectedLabel) return
         const nextEmails = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(nextEmails)
@@ -1229,6 +1243,19 @@ export const useInboxStore = defineStore('inbox', {
         const { url: rawUrl, filename } = await response.json()
         const url = String(rawUrl ?? '')
         if (!url) throw new Error('Attachment URL is missing')
+        // The URL is server-supplied; only a real web (or local blob) link
+        // may reach a synthetic click, so a compromised/misconfigured
+        // response can't navigate to javascript:/data:.
+        try {
+          const { protocol } = new URL(url)
+          if (protocol !== 'https:' && protocol !== 'http:' && protocol !== 'blob:') {
+            throw new Error(`Unsupported attachment URL protocol: ${protocol}`)
+          }
+        } catch (error) {
+          console.error('Rejected unsafe attachment URL:', error)
+          this.notify('Attachment download failed.', 'error')
+          return false
+        }
 
         const link = document.createElement('a')
         link.href = url
@@ -1313,9 +1340,12 @@ export const useInboxStore = defineStore('inbox', {
           this.notify('Finish unsubscribing on the page that just opened.')
         } else if (
           result.status === 'manual' &&
-          String(result.mailto ?? '').startsWith('mailto:')
+          // Same strict mailto policy as the reader bridge: single address,
+          // subject-only param, no control characters — the value comes from
+          // sender-controlled List-Unsubscribe headers.
+          parseMailto(result.mailto)
         ) {
-          window.location.href = result.mailto
+          window.location.href = parseMailto(result.mailto)?.href ?? ''
         } else {
           this.notify('This sender offers no automated unsubscribe.', 'error')
         }

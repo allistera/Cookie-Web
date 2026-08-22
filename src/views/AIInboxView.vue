@@ -152,15 +152,24 @@ async function draftFollowUp(task) {
   if (generated) store.notify('Follow-up draft ready to review.')
 }
 
-// Task links come from Todoist via /api/tasks. Only ever render a real web link
+// External links (tasks from Todoist via /api/tasks, news from GitHub /
+// Product Hunt / RSS feeds) are untrusted: only ever render a real web link
 // as an href, so an unexpected value can't become a javascript:/data: navigation.
-function taskLink(task) {
+function safeHref(url) {
   try {
-    const { protocol } = new URL(task.url)
-    return protocol === 'https:' || protocol === 'http:' ? task.url : null
+    const { protocol } = new URL(url)
+    return protocol === 'https:' || protocol === 'http:' ? url : null
   } catch {
     return null
   }
+}
+
+function taskLink(task) {
+  return safeHref(task.url)
+}
+
+function newsLink(item) {
+  return safeHref(item.url)
 }
 
 // How stale the gathered set is, from the most recent of: a task's
@@ -422,7 +431,7 @@ onMounted(async () => {
             <div class="topic-emails">
               <div v-for="item in section.items" :key="item.url" class="topic-email-row">
                 <p>
-                  <a class="news-link" :href="item.url" target="_blank" rel="noopener noreferrer">
+                  <a class="news-link" :href="newsLink(item)" target="_blank" rel="noopener noreferrer">
                     {{ item.title }}
                   </a>
                   <template v-if="item.description"> – {{ item.description }}</template>

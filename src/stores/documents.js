@@ -14,9 +14,16 @@ import { useInboxStore } from './inbox'
 // goes out (paper's cadence). The timer and its pending payload live at
 // module scope so they stay out of reactive state.
 const SAVE_DEBOUNCE_MS = 800
+// A 409 (server has a newer version) re-queues the payload for an automatic
+// retry; this is the backoff between attempts so recovery doesn't depend on
+// the user making another edit. Retries are capped: a hard conflict (e.g. a
+// permanently newer server copy) would otherwise retry forever.
+const SAVE_CONFLICT_RETRY_MS = 3000
+const MAX_CONFLICT_RETRIES = 3
 let saveTimer = null
 let pendingSave = null
 let saveInFlight = null
+let conflictRetries = 0
 const workspaceLoads = new WeakMap()
 
 // Search: mirrors inbox.js's searchAbortController, kept at module scope for
@@ -445,6 +452,8 @@ export const useDocumentsStore = defineStore('documents', {
         blocks: blocks ?? prev?.blocks,
         tags: tags ?? prev?.tags,
       }
+      // A fresh edit is a fresh chance to converge; restart the retry budget.
+      conflictRetries = 0
       this.saveState = 'saving'
       if (saveTimer) clearTimeout(saveTimer)
       saveTimer = setTimeout(() => this.flushPendingSave(), SAVE_DEBOUNCE_MS)
@@ -479,6 +488,7 @@ export const useDocumentsStore = defineStore('documents', {
         const operation = (async () => {
           try {
             const { document } = await this.request('PATCH', { body })
+            conflictRetries = 0
             const newerSave = pendingSave?.id === id ? pendingSave : null
             const update = { ...document }
             // Do not let the response for an older save overwrite optimistic
@@ -505,7 +515,18 @@ export const useDocumentsStore = defineStore('documents', {
         } finally {
           if (saveInFlight === operation) saveInFlight = null
         }
-        if (conflicted) break
+        if (conflicted) {
+          // The conflicted payload is re-queued above; arm a retry so it
+          // actually goes out even if the user stops editing. Any newer edit
+          // (scheduleContentSave) replaces this timer with the normal debounce
+          // and resets the budget. The cap stops endless retries against a
+          // hard conflict — the user can still recover by editing again.
+          conflictRetries += 1
+          if (conflictRetries <= MAX_CONFLICT_RETRIES) {
+            saveTimer = setTimeout(() => this.flushPendingSave(), SAVE_CONFLICT_RETRY_MS)
+          }
+          break
+        }
       }
     },
 

@@ -6,6 +6,10 @@ import { syncCalendarSubscription, validSubscriptionUrl } from './calendarSync.j
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLOR_RE = /^#[0-9a-f]{6}$/i
 const MAX_NAME = 50
+// A subscription sync performs a server-side HTTPS fetch (10s timeout, 5MB
+// cap) plus a transactional rewrite of up to 1000 event rows, so both the
+// create-time initial sync and manual re-syncs share one per-user quota.
+const SYNC_RATE_LIMIT = { limit: 5, windowMs: 60_000 }
 
 const DEFAULT_CALENDARS = [
   { id: 'work', name: 'Work', color: '#4f7c6b' },
@@ -85,6 +89,24 @@ async function listCalendars(sql, userId, res) {
 function validName(name) {
   const trimmed = String(name ?? '').trim()
   return trimmed && trimmed.length <= MAX_NAME ? trimmed : null
+}
+
+async function claimSyncQuota(allowRequest, sql, userId, res) {
+  let allowed
+  try {
+    allowed = await allowRequest(sql, userId, 'calendar-sync', SYNC_RATE_LIMIT)
+  } catch (err) {
+    console.error('calendar sync quota enforcement failed:', err.message)
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Calendar sync is temporarily unavailable' }))
+    return false
+  }
+  if (!allowed) {
+    res.statusCode = 429
+    res.end(JSON.stringify({ error: 'Too many calendar syncs, slow down' }))
+    return false
+  }
+  return true
 }
 
 async function createCalendar(sql, userId, body, res) {
@@ -312,9 +334,13 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST' && body.action === 'sync')
+        if (req.method === 'POST' && body.action === 'sync') {
+          if (!(await claimSyncQuota(services.allowRequest, sql, userId, res))) return
           await syncCalendar(sql, userId, body, res)
-        else if (req.method === 'POST') await createCalendar(sql, userId, body, res)
+        } else if (req.method === 'POST' && body.subscriptionUrl) {
+          if (!(await claimSyncQuota(services.allowRequest, sql, userId, res))) return
+          await createCalendar(sql, userId, body, res)
+        } else if (req.method === 'POST') await createCalendar(sql, userId, body, res)
         else if (req.method === 'PATCH') await renameCalendar(sql, userId, body, res)
         else await deleteCalendar(sql, userId, body, res)
         return
