@@ -36,7 +36,7 @@
     "@vercel/blob": "^2.6.1",
     "dompurify": "^3.4.13",
     "editorjs-drag-drop": "^1.1.16",
-    "html2pdf.js": "^0.10.2",
+    "html2pdf.js": "^0.14.0",
     "jose": "^6.2.3",
     "node-ical": "^0.27.1",
     "pinia": "^4.0.3",
