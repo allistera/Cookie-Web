@@ -77,7 +77,19 @@ function filterClause(sql, filters = {}) {
     parts.push(sql`AND (m.from_address ILIKE ${like} OR coalesce(m.from_name, '') ILIKE ${like})`)
   }
   if (filters.to) {
-    parts.push(sql`AND m.recipients::text ILIKE ${`%${escapeLikePattern(filters.to)}%`}`)
+    const like = `%${escapeLikePattern(filters.to)}%`
+    parts.push(sql`AND EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(
+        COALESCE(m.recipients->'to', '[]'::jsonb) ||
+        COALESCE(m.recipients->'cc', '[]'::jsonb) ||
+        COALESCE(m.recipients->'bcc', '[]'::jsonb)
+      ) AS rcpt
+      WHERE (CASE WHEN jsonb_typeof(rcpt) = 'string' THEN rcpt #>> '{}'
+                  ELSE rcpt->>'address' END) ILIKE ${like}
+         OR (CASE WHEN jsonb_typeof(rcpt) = 'string' THEN ''
+                  ELSE COALESCE(rcpt->>'name', '') END) ILIKE ${like}
+    )`)
   }
   if (filters.tag) {
     const like = `%${escapeLikePattern(filters.tag)}%`

@@ -364,8 +364,9 @@ export const useDocumentsStore = defineStore('documents', {
     // if they haven't customized one) so it isn't blank the first time it's
     // opened.
     async openTodayNote() {
-      await this.loadWorkspace()
-      await this.loadDailyNoteSeed()
+      // loadWorkspace and loadDailyNoteSeed are independent — run them
+      // concurrently instead of sequentially to halve the waterfall depth.
+      await Promise.all([this.loadWorkspace(), this.loadDailyNoteSeed()])
       const now = new Date()
       const title = formatDailyNoteTitle(now)
 

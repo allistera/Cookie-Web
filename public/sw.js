@@ -55,17 +55,23 @@ self.addEventListener('fetch', (event) => {
   if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') return
 
   const url = new URL(request.url)
-  if (url.origin !== self.location.origin) return
 
+  // Message bodies are served by the cookie-web-messages Cloudflare Worker
+  // (cross-origin). The e2e/dev Vite middleware serves them same-origin at
+  // /api/messages. Both paths are mail-cache candidates.
   const mailResource = url.searchParams.get('resource')
-  if (
-    url.pathname === '/api/messages' &&
+  const isMailCacheRequest =
     url.searchParams.has('id') &&
-    (mailResource === null || mailResource === 'thread-body')
-  ) {
+    (mailResource === null || mailResource === 'thread-body') &&
+    ((url.origin === self.location.origin && url.pathname === '/api/messages') ||
+      (url.origin === 'https://messages-api.infinitywave.online' && url.pathname === '/messages'))
+  if (isMailCacheRequest) {
     event.respondWith(recentMailResponse(event))
     return
   }
+
+  // Remaining paths (shell navigation, static assets) are same-origin only.
+  if (url.origin !== self.location.origin) return
 
   if (request.mode === 'navigate') {
     event.respondWith(shellNavigationResponse(request))

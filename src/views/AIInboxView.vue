@@ -78,9 +78,14 @@ async function completeTask(task) {
 // via completingTaskIds); one moved to later today stays visible.
 async function rescheduleTask(task, choice) {
   reschedulingTaskId.value = null
-  const dueDate = choice.date.toISOString().slice(0, 10)
-  const today = new Date().toISOString().slice(0, 10)
-  const hidesToday = dueDate > today
+  // Compare local calendar days, not UTC date strings — toISOString() shifts
+  // the date backwards in forward timezones, so "Tomorrow" at 11pm in UTC+10
+  // would incorrectly appear as today.
+  const now = new Date()
+  const hidesToday = choice.date.toDateString() !== now.toDateString()
+  // Send a local YYYY-MM-DD string so the server receives the calendar day
+  // the user actually sees, not the UTC-coerced one.
+  const dueDate = `${choice.date.getFullYear()}-${String(choice.date.getMonth() + 1).padStart(2, '0')}-${String(choice.date.getDate()).padStart(2, '0')}`
   if (hidesToday) completingTaskIds.value = new Set(completingTaskIds.value).add(task.id)
   try {
     await store.rescheduleTask(task.id, dueDate)
@@ -431,7 +436,12 @@ onMounted(async () => {
             <div class="topic-emails">
               <div v-for="item in section.items" :key="item.url" class="topic-email-row">
                 <p>
-                  <a class="news-link" :href="newsLink(item)" target="_blank" rel="noopener noreferrer">
+                  <a
+                    class="news-link"
+                    :href="newsLink(item)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     {{ item.title }}
                   </a>
                   <template v-if="item.description"> – {{ item.description }}</template>

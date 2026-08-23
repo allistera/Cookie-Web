@@ -145,11 +145,7 @@ const emailGroups = computed(() => {
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const DAY = 24 * 60 * 60 * 1000
-  const group = (label, emails) => ({
-    label,
-    emails,
-    unreadCount: emails.filter((e) => e.unread).length,
-  })
+  const group = (label, emails) => ({ label, emails })
 
   // Search results are ranked by relevance server-side; keep them as one flat
   // group so the date bucketing below doesn't reorder them into Today/Earlier.
@@ -235,6 +231,17 @@ const emailGroups = computed(() => {
 })
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
+
+// Separated from emailGroups so a single email's unread toggle only
+// recomputes these counts, not the entire grouping cascade (flatEmails,
+// selectedEmails, openIndex).
+const groupUnreadCounts = computed(() => {
+  const counts = {}
+  for (const g of emailGroups.value) {
+    counts[g.label] = g.emails.filter((e) => e.unread).length
+  }
+  return counts
+})
 
 // Due Today and Today start open; every older day group starts closed.
 const openGroups = ref(new Set(['Due Today', 'Today']))
@@ -651,15 +658,18 @@ function rowSender(email) {
   return email.isSent ? `To: ${email.to ?? email.address}` : email.sender
 }
 
+// Hoisted once — toLocaleString with options constructs a DateTimeFormat
+// internally on every call, which is expensive when rendering N Sent rows.
+const READ_RECEIPT_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function readReceiptTitle(email) {
   if (!email.readAt) return 'Sent — not opened yet'
-  const openedAt = new Date(email.readAt).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-  return `Opened ${openedAt}`
+  return `Opened ${READ_RECEIPT_FMT.format(new Date(email.readAt))}`
 }
 
 // Keyboard shortcuts must not fire while the user is typing (reply textarea,
@@ -798,8 +808,8 @@ onUnmounted(() => {
           <!-- Hovering (or focusing) the badge reveals a tooltip button that
                marks the whole day read. role=button spans: a real <button>
                may not nest inside the group-header button. -->
-          <span class="ni-group-count-wrap" v-if="group.unreadCount">
-            <span class="ni-group-count">{{ group.unreadCount }}</span>
+          <span class="ni-group-count-wrap" v-if="groupUnreadCounts[group.label]">
+            <span class="ni-group-count">{{ groupUnreadCounts[group.label] }}</span>
             <span
               class="ni-group-mark-read"
               role="button"

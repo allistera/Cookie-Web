@@ -567,6 +567,18 @@ async function saveEvent() {
         body: JSON.stringify({ id: editingEventId.value, ...fields, tone: existing?.tone ?? null }),
       })
       if (!response.ok) throw new Error(`PATCH /api/calendar-events responded ${response.status}`)
+      // Non-recurring edits can be applied in place from the server's returned
+      // row, avoiding a full ±210-day reload. Recurring series need re-expansion.
+      if (repeat === 'none') {
+        const { event: updated } = await response.json()
+        events.value = events.value.map((event) =>
+          (event.seriesId ?? event.id) === editingEventId.value
+            ? { ...updated, seriesId: updated.id }
+            : event,
+        )
+        closeNewEvent()
+        return
+      }
     } else {
       const response = await fetch('/api/calendar-events', {
         method: 'POST',

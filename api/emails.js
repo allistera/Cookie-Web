@@ -104,6 +104,13 @@ export function createHandler(overrides = {}) {
   return async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json')
 
+    if (req.method !== 'GET') {
+      res.statusCode = 405
+      res.setHeader('Allow', 'GET')
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
+
     let userId
     try {
       ;({ userId } = await services.verifyAccessToken(req))

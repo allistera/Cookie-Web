@@ -490,7 +490,9 @@ describe('AIInboxView (AI Today)', () => {
     expect(rescheduleTask).toHaveBeenCalledTimes(1)
     const [id, dueDate] = rescheduleTask.mock.calls[0]
     expect(id).toBe('task-1')
-    expect(dueDate).not.toBe(new Date().toISOString().slice(0, 10))
+    // Compare against the local (not UTC) calendar day, matching the view's fix.
+    const todayLocal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
+    expect(dueDate).not.toBe(todayLocal)
     expect(notify).toHaveBeenCalledWith('Moved "Renew car insurance" to tomorrow.')
     expect(rowsOf(wrapper)).toHaveLength(0)
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
@@ -521,7 +523,8 @@ describe('AIInboxView (AI Today)', () => {
     await flushPromises()
 
     const [, dueDate] = rescheduleTask.mock.calls[0]
-    expect(dueDate).toBe(new Date().toISOString().slice(0, 10))
+    const todayLocal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
+    expect(dueDate).toBe(todayLocal)
     expect(rowsOf(wrapper)).toHaveLength(1)
   })
 
