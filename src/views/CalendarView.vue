@@ -26,6 +26,10 @@ const editingEventId = ref(null)
 const eventFormReadOnly = ref(false)
 const eventSaving = ref(false)
 const eventTitleInput = ref(null)
+const eventAiTextarea = ref(null)
+const eventCreationMode = ref('ai')
+const eventAiInput = ref('')
+const eventAiError = ref('')
 const dragDraft = ref(null)
 const conflictVisible = ref(true)
 
@@ -467,6 +471,9 @@ function parseRepeatDays(recurrenceRule) {
 function openNewEvent(prefill) {
   editingEventId.value = null
   eventFormReadOnly.value = false
+  eventCreationMode.value = prefill ? 'advanced' : 'ai'
+  eventAiInput.value = ''
+  eventAiError.value = ''
   const prefillDate = prefill?.date
   eventForm.value = {
     title: prefill?.title || '',
@@ -495,6 +502,9 @@ function toggleRepeatDay(code) {
 
 function editEvent(event) {
   editingEventId.value = event.seriesId ?? event.id
+  eventCreationMode.value = 'advanced'
+  eventAiInput.value = ''
+  eventAiError.value = ''
   // Subscribed-calendar events are entirely sync-managed — the dialog opens
   // read-only rather than letting the user hit a 403 on save/delete.
   eventFormReadOnly.value = !writableCalendars.value.some(
@@ -524,6 +534,59 @@ function closeNewEvent() {
   showNewEvent.value = false
   eventForm.value = null
   editingEventId.value = null
+  eventAiInput.value = ''
+  eventAiError.value = ''
+}
+
+function showAdvancedEvent() {
+  eventCreationMode.value = 'advanced'
+}
+
+async function createEventFromText() {
+  if (eventSaving.value) return
+  const text = eventAiInput.value.trim()
+  if (!text) return
+  const calendar = eventForm.value.calendar || defaultCalendarId()
+  if (!calendar) {
+    store.notify('Create a calendar before adding events.', 'error')
+    return
+  }
+
+  eventSaving.value = true
+  eventAiError.value = ''
+  try {
+    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    const interpretResponse = await fetch('/api/calendar-events', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'interpret', text, timeZone }),
+    })
+    if (!interpretResponse.ok) {
+      const error = new Error(`AI event request responded ${interpretResponse.status}`)
+      error.status = interpretResponse.status
+      throw error
+    }
+    const { draft } = await interpretResponse.json()
+    const createResponse = await fetch('/api/calendar-events', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...draft, calendar, tone: 'accepted' }),
+    })
+    if (!createResponse.ok) {
+      throw new Error(`POST /api/calendar-events responded ${createResponse.status}`)
+    }
+    await loadEvents()
+    closeNewEvent()
+  } catch (error) {
+    console.error('Failed to create calendar event from text:', error)
+    eventAiError.value =
+      error.status === 429
+        ? 'You have made too many AI requests. Please wait a moment and try again.'
+        : 'Cookie could not create that event. Try adding a clear date and time, or use Advanced.'
+  } finally {
+    eventSaving.value = false
+  }
 }
 
 async function saveEvent() {
@@ -621,8 +684,12 @@ async function deleteEvent() {
   }
 }
 
-watch(showNewEvent, (open) => {
-  if (open) nextTick(() => eventTitleInput.value?.focus())
+watch([showNewEvent, eventCreationMode], ([open, mode]) => {
+  if (!open) return
+  nextTick(() => {
+    if (mode === 'ai') eventAiTextarea.value?.focus()
+    else eventTitleInput.value?.focus()
+  })
 })
 
 // The command palette's "Create Event" command (opened with '/') bumps this
@@ -1033,149 +1100,215 @@ onUnmounted(() => {
           aria-modal="true"
           :aria-label="editingEventId ? 'Edit event' : 'New event'"
         >
-          <header class="new-event-dialog-header">
-            <div class="new-event-dialog-fields">
-              <input
-                ref="eventTitleInput"
-                v-model="eventForm.title"
-                type="text"
-                class="new-event-title-input"
-                placeholder="New event"
-                aria-label="Event title"
-                :disabled="eventFormReadOnly"
-                @keydown.enter.prevent="saveEvent"
-              />
-              <input
-                v-model="eventForm.description"
-                type="text"
-                class="new-event-description-input"
-                placeholder="Tell Cookie what you need — it fills in the rest"
-                aria-label="Event description"
-                :disabled="eventFormReadOnly"
-              />
-            </div>
-            <button type="button" class="new-event-close" aria-label="Close" @click="closeNewEvent">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m6 6 12 12M18 6 6 18" />
-              </svg>
-            </button>
-          </header>
-
-          <p v-if="eventFormReadOnly" class="new-event-readonly-note">
-            Synced from an external calendar — read-only.
-          </p>
-
-          <div class="new-event-datetime">
-            <label class="new-event-field new-event-datetime-field">
-              <span>Date</span>
-              <input v-model="eventForm.date" type="date" :disabled="eventFormReadOnly" />
-            </label>
-            <label class="new-event-field new-event-datetime-field">
-              <span>Start</span>
-              <input v-model="eventForm.start" type="time" :disabled="eventFormReadOnly" />
-            </label>
-            <label class="new-event-field new-event-datetime-field">
-              <span>End</span>
-              <input v-model="eventForm.end" type="time" :disabled="eventFormReadOnly" />
-            </label>
-          </div>
-
-          <div class="new-event-location-wrap">
-            <label class="new-event-field">
-              <span>Location</span>
-              <input
-                v-model="eventForm.location"
-                type="text"
-                placeholder="Add location"
-                :disabled="eventFormReadOnly"
-              />
-            </label>
-            <label class="new-event-field">
-              <span>Calendar</span>
-              <select
-                v-model="eventForm.calendar"
-                aria-label="Event calendar"
-                :disabled="eventFormReadOnly"
-              >
-                <option
-                  v-for="calendar in eventFormReadOnly ? calendars : writableCalendars"
-                  :key="calendar.id"
-                  :value="calendar.id"
-                >
-                  {{ calendar.name }}
-                </option>
-              </select>
-            </label>
-          </div>
-
-          <div v-if="!eventFormReadOnly" class="new-event-location-wrap">
-            <label class="new-event-field">
-              <span>Repeats</span>
-              <select v-model="eventForm.repeat" aria-label="Event repeats">
-                <option value="none">Does not repeat</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-            </label>
-            <label v-if="eventForm.repeat !== 'none'" class="new-event-field">
-              <span>Ends</span>
-              <input
-                v-model="eventForm.repeatUntil"
-                type="date"
-                aria-label="Repeat ends"
-                :min="eventForm.date"
-              />
-            </label>
-          </div>
-
-          <div
-            v-if="eventForm.repeat === 'weekly'"
-            class="new-event-repeat-days"
-            role="group"
-            aria-label="Repeat on days"
-          >
-            <button
-              v-for="day in WEEKDAY_OPTIONS"
-              :key="day.code"
-              type="button"
-              class="new-event-repeat-day"
-              :class="{ 'is-selected': eventForm.repeatDays.includes(day.code) }"
-              :aria-pressed="eventForm.repeatDays.includes(day.code)"
-              @click="toggleRepeatDay(day.code)"
-            >
-              {{ day.label }}
-            </button>
-          </div>
-
-          <footer v-if="eventFormReadOnly" class="new-event-dialog-actions">
-            <div class="new-event-dialog-actions-right">
-              <button type="button" class="new-event-cancel" @click="closeNewEvent">Close</button>
-            </div>
-          </footer>
-          <footer v-else class="new-event-dialog-actions">
-            <button
-              v-if="editingEventId"
-              type="button"
-              class="new-event-delete"
-              :disabled="eventSaving"
-              @click="deleteEvent"
-            >
-              {{ eventForm.repeat !== 'none' ? 'Delete series' : 'Delete' }}
-            </button>
-            <div class="new-event-dialog-actions-right">
-              <button type="button" class="new-event-cancel" @click="closeNewEvent">Cancel</button>
+          <template v-if="eventCreationMode === 'ai' && !editingEventId">
+            <header class="new-event-dialog-header">
+              <div class="new-event-ai-heading">
+                <h2>New event</h2>
+                <p>Describe the event in your own words.</p>
+              </div>
               <button
                 type="button"
-                class="new-event-create"
-                :disabled="!eventForm.title.trim() || eventSaving"
-                @click="saveEvent"
+                class="new-event-close"
+                aria-label="Close"
+                @click="closeNewEvent"
               >
-                {{ editingEventId ? 'Save Event' : 'Create Event' }}
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </header>
+
+            <div class="new-event-ai-body">
+              <textarea
+                ref="eventAiTextarea"
+                v-model="eventAiInput"
+                class="new-event-ai-input"
+                name="event-natural-language"
+                aria-label="Describe your event"
+                placeholder="Dinner with Sam tomorrow at 7pm for two hours"
+                maxlength="1000"
+                :disabled="eventSaving"
+                @keydown.meta.enter.prevent="createEventFromText"
+                @keydown.ctrl.enter.prevent="createEventFromText"
+              ></textarea>
+              <p class="new-event-ai-hint">Include a date and time. Press ⌘ Enter to create.</p>
+              <p v-if="eventAiError" class="new-event-ai-error" role="alert">
+                {{ eventAiError }}
+              </p>
+            </div>
+
+            <footer class="new-event-dialog-actions new-event-ai-actions">
+              <button type="button" class="new-event-advanced" @click="showAdvancedEvent">
+                Advanced
+              </button>
+              <div class="new-event-dialog-actions-right">
+                <button type="button" class="new-event-cancel" @click="closeNewEvent">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="new-event-create"
+                  :disabled="!eventAiInput.trim() || eventSaving"
+                  @click="createEventFromText"
+                >
+                  {{ eventSaving ? 'Creating…' : 'Create Event' }}
+                </button>
+              </div>
+            </footer>
+          </template>
+
+          <template v-else>
+            <header class="new-event-dialog-header">
+              <div class="new-event-dialog-fields">
+                <input
+                  ref="eventTitleInput"
+                  v-model="eventForm.title"
+                  type="text"
+                  class="new-event-title-input"
+                  placeholder="New event"
+                  aria-label="Event title"
+                  :disabled="eventFormReadOnly"
+                  @keydown.enter.prevent="saveEvent"
+                />
+                <input
+                  v-model="eventForm.description"
+                  type="text"
+                  class="new-event-description-input"
+                  placeholder="Tell Cookie what you need — it fills in the rest"
+                  aria-label="Event description"
+                  :disabled="eventFormReadOnly"
+                />
+              </div>
+              <button
+                type="button"
+                class="new-event-close"
+                aria-label="Close"
+                @click="closeNewEvent"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </header>
+
+            <p v-if="eventFormReadOnly" class="new-event-readonly-note">
+              Synced from an external calendar — read-only.
+            </p>
+
+            <div class="new-event-datetime">
+              <label class="new-event-field new-event-datetime-field">
+                <span>Date</span>
+                <input v-model="eventForm.date" type="date" :disabled="eventFormReadOnly" />
+              </label>
+              <label class="new-event-field new-event-datetime-field">
+                <span>Start</span>
+                <input v-model="eventForm.start" type="time" :disabled="eventFormReadOnly" />
+              </label>
+              <label class="new-event-field new-event-datetime-field">
+                <span>End</span>
+                <input v-model="eventForm.end" type="time" :disabled="eventFormReadOnly" />
+              </label>
+            </div>
+
+            <div class="new-event-location-wrap">
+              <label class="new-event-field">
+                <span>Location</span>
+                <input
+                  v-model="eventForm.location"
+                  type="text"
+                  placeholder="Add location"
+                  :disabled="eventFormReadOnly"
+                />
+              </label>
+              <label class="new-event-field">
+                <span>Calendar</span>
+                <select
+                  v-model="eventForm.calendar"
+                  aria-label="Event calendar"
+                  :disabled="eventFormReadOnly"
+                >
+                  <option
+                    v-for="calendar in eventFormReadOnly ? calendars : writableCalendars"
+                    :key="calendar.id"
+                    :value="calendar.id"
+                  >
+                    {{ calendar.name }}
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <div v-if="!eventFormReadOnly" class="new-event-location-wrap">
+              <label class="new-event-field">
+                <span>Repeats</span>
+                <select v-model="eventForm.repeat" aria-label="Event repeats">
+                  <option value="none">Does not repeat</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </label>
+              <label v-if="eventForm.repeat !== 'none'" class="new-event-field">
+                <span>Ends</span>
+                <input
+                  v-model="eventForm.repeatUntil"
+                  type="date"
+                  aria-label="Repeat ends"
+                  :min="eventForm.date"
+                />
+              </label>
+            </div>
+
+            <div
+              v-if="eventForm.repeat === 'weekly'"
+              class="new-event-repeat-days"
+              role="group"
+              aria-label="Repeat on days"
+            >
+              <button
+                v-for="day in WEEKDAY_OPTIONS"
+                :key="day.code"
+                type="button"
+                class="new-event-repeat-day"
+                :class="{ 'is-selected': eventForm.repeatDays.includes(day.code) }"
+                :aria-pressed="eventForm.repeatDays.includes(day.code)"
+                @click="toggleRepeatDay(day.code)"
+              >
+                {{ day.label }}
               </button>
             </div>
-          </footer>
+
+            <footer v-if="eventFormReadOnly" class="new-event-dialog-actions">
+              <div class="new-event-dialog-actions-right">
+                <button type="button" class="new-event-cancel" @click="closeNewEvent">Close</button>
+              </div>
+            </footer>
+            <footer v-else class="new-event-dialog-actions">
+              <button
+                v-if="editingEventId"
+                type="button"
+                class="new-event-delete"
+                :disabled="eventSaving"
+                @click="deleteEvent"
+              >
+                {{ eventForm.repeat !== 'none' ? 'Delete series' : 'Delete' }}
+              </button>
+              <div class="new-event-dialog-actions-right">
+                <button type="button" class="new-event-cancel" @click="closeNewEvent">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="new-event-create"
+                  :disabled="!eventForm.title.trim() || eventSaving"
+                  @click="saveEvent"
+                >
+                  {{ editingEventId ? 'Save Event' : 'Create Event' }}
+                </button>
+              </div>
+            </footer>
+          </template>
         </section>
       </div>
     </Transition>
@@ -2041,6 +2174,78 @@ onUnmounted(() => {
   gap: 16px;
 }
 
+.new-event-ai-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.new-event-ai-heading h2 {
+  margin: 0;
+  color: var(--calendar-ink);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.new-event-ai-heading p {
+  margin: 6px 0 0;
+  color: var(--calendar-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.new-event-ai-body {
+  margin-top: 24px;
+}
+
+.new-event-ai-input {
+  display: block;
+  width: 100%;
+  min-height: 164px;
+  padding: 16px;
+  resize: vertical;
+  border: 1px solid var(--calendar-line);
+  border-radius: 12px;
+  outline: none;
+  background: var(--calendar-input);
+  color: var(--calendar-ink);
+  font-family: var(--font-stack);
+  font-size: 16px;
+  line-height: 1.5;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.new-event-ai-input::placeholder {
+  color: var(--calendar-muted);
+  opacity: 1;
+}
+
+.new-event-ai-input:focus {
+  border-color: var(--calendar-emphasis);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--calendar-emphasis) 20%, transparent);
+}
+
+.new-event-ai-input:disabled {
+  opacity: 0.65;
+}
+
+.new-event-ai-hint,
+.new-event-ai-error {
+  margin: 8px 2px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.new-event-ai-hint {
+  color: var(--calendar-muted);
+}
+
+.new-event-ai-error {
+  color: var(--calendar-coral);
+}
+
 .new-event-dialog-fields {
   flex: 1;
   min-width: 0;
@@ -2216,6 +2421,7 @@ onUnmounted(() => {
 
 .new-event-cancel,
 .new-event-create,
+.new-event-advanced,
 .new-event-delete {
   height: 42px;
   padding: 0 20px;
@@ -2230,6 +2436,18 @@ onUnmounted(() => {
   border: 1px solid var(--calendar-line);
   background: var(--calendar-surface);
   color: var(--calendar-muted);
+}
+
+.new-event-advanced {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--calendar-emphasis);
+}
+
+.new-event-advanced:hover,
+.new-event-advanced:focus-visible {
+  background: var(--calendar-soft);
+  outline: none;
 }
 
 .new-event-create {
@@ -2497,6 +2715,7 @@ onUnmounted(() => {
 
   .new-event-cancel,
   .new-event-create,
+  .new-event-advanced,
   .new-event-delete {
     width: 100%;
     min-width: 0;

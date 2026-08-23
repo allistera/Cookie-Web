@@ -1267,6 +1267,10 @@ test("The '/' command palette offers Create Event only on the Calendar route", a
   await expect(panel).toBeHidden()
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
+  const aiInput = dialog.getByRole('textbox', { name: 'Describe your event' })
+  await expect(aiInput).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Advanced' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Advanced' }).click()
   await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
 })
 

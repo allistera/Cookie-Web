@@ -1,7 +1,10 @@
+import process from 'node:process'
+
 import { writeAuthError } from './_lib/auth.js'
 import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
 import { createHandler as createCalendarsHandler } from './_lib/calendars.js'
+import { generateCalendarEventDraft } from './_lib/calendar-ai.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -9,6 +12,8 @@ const TIME_RE = /^\d{2}:\d{2}$/
 const MAX_TITLE = 200
 const MAX_LOCATION = 200
 const MAX_DESCRIPTION = 2000
+const MAX_AI_EVENT_TEXT = 1000
+const AI_RATE_LIMIT = { limit: 10, windowMs: 60_000 }
 // The schema CHECK only enforces duration > 0; this upper bound stops an
 // absurd value (e.g. 2e9 minutes ≈ 3800 years) from rendering as a giant
 // block in every client that trusts the stored duration.
@@ -542,13 +547,72 @@ async function deleteEvent(sql, userId, body, res) {
   res.end(JSON.stringify({ ok: true }))
 }
 
-// /api/calendar-events — GET lists the user's events, POST creates one,
-// PATCH replaces one (full update, keyed by id), DELETE removes one.
+function validTimeZone(value) {
+  const timeZone = String(value ?? '')
+    .trim()
+    .slice(0, 100)
+  if (!timeZone) return 'UTC'
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone }).format()
+    return timeZone
+  } catch {
+    return null
+  }
+}
+
+async function interpretEvent(services, sql, userId, body, res) {
+  const text = String(body.text ?? '').trim()
+  const timeZone = validTimeZone(body.timeZone)
+  if (!text || text.length > MAX_AI_EVENT_TEXT || !timeZone) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'text and a valid time zone are required' }))
+    return
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'AI calendar creation is not configured' }))
+    return
+  }
+
+  let allowed
+  try {
+    allowed = await services.allowRequest(sql, userId, 'ai', AI_RATE_LIMIT)
+  } catch (error) {
+    console.error('POST /api/calendar-events AI quota enforcement failed:', error.message)
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'AI calendar creation is temporarily unavailable' }))
+    return
+  }
+  if (!allowed) {
+    res.statusCode = 429
+    res.end(JSON.stringify({ error: 'Too many AI requests, slow down' }))
+    return
+  }
+
+  try {
+    const result = await services.calendarEventGenerator(
+      { text, now: services.now().toISOString(), timeZone },
+      process.env.OPENAI_API_KEY,
+    )
+    res.statusCode = 200
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    console.error('POST /api/calendar-events AI interpretation failed:', error)
+    res.statusCode = 502
+    res.end(JSON.stringify({ error: 'AI calendar creation failed' }))
+  }
+}
+
+// /api/calendar-events — GET lists the user's events, POST creates one or
+// interprets natural language when action=interpret, PATCH replaces one (full
+// update, keyed by id), DELETE removes one.
 export function createHandler(overrides = {}) {
   const services = createServices({
     // The ?resource=calendars sub-handler shares this handler's overrides so
     // injected fakes flow through the dispatch too.
     calendarsHandler: createCalendarsHandler(overrides),
+    calendarEventGenerator: generateCalendarEventDraft,
+    now: () => new Date(),
     ...overrides,
   })
   return async function handler(req, res) {
@@ -589,7 +653,9 @@ export function createHandler(overrides = {}) {
           res.end(JSON.stringify({ error: 'Invalid JSON body' }))
           return
         }
-        if (req.method === 'POST') await createEvent(sql, userId, body, res)
+        if (req.method === 'POST' && body.action === 'interpret') {
+          await interpretEvent(services, sql, userId, body, res)
+        } else if (req.method === 'POST') await createEvent(sql, userId, body, res)
         else if (req.method === 'PATCH') await updateEvent(sql, userId, body, res)
         else await deleteEvent(sql, userId, body, res)
         return

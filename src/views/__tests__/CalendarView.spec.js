@@ -139,6 +139,25 @@ function mockCalendarApi() {
               : events
           return { ok: true, json: async () => clone({ events: windowed }) }
         }
+        if (method === 'POST' && body.action === 'interpret') {
+          return {
+            ok: true,
+            json: async () =>
+              clone({
+                draft: {
+                  title: 'Dinner with Sam',
+                  description: null,
+                  location: null,
+                  date: '2026-07-25',
+                  start: '19:00',
+                  duration: 120,
+                  repeat: 'none',
+                  repeatUntil: null,
+                  repeatDays: null,
+                },
+              }),
+          }
+        }
         if (method === 'POST') {
           const event = { id: `generated-${nextId++}`, ...body }
           events = [...events, event]
@@ -460,26 +479,25 @@ describe('CalendarView', () => {
     expect(wrapper.get('h1').text()).toBe('August 2026')
   })
 
-  it('opens the New event dialog as a manual form with title focused and no AI input', async () => {
+  it('opens the New event dialog with the AI text box focused and offers Advanced entry', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 
     await wrapper.get('.calendar-sidebar-create').trigger('click')
 
-    const title = wrapper.get('.new-event-title-input')
-    expect(title.attributes('placeholder')).toBe('New event')
-    expect(title.element).toBe(document.activeElement)
+    const aiInput = wrapper.get('.new-event-ai-input')
+    expect(aiInput.attributes('placeholder')).toBe('Dinner with Sam tomorrow at 7pm for two hours')
+    expect(aiInput.element).toBe(document.activeElement)
+    expect(wrapper.find('.new-event-title-input').exists()).toBe(false)
+    expect(wrapper.find('input[placeholder="Add location"]').exists()).toBe(false)
 
-    const description = wrapper.get('.new-event-description-input')
-    expect(description.attributes('placeholder')).toBe(
-      'Tell Cookie what you need — it fills in the rest',
-    )
-
-    expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
-    expect(wrapper.find('input[placeholder="Add location"]').exists()).toBe(true)
     expect(wrapper.get('.new-event-create').text()).toBe('Create Event')
-
     const create = wrapper.get('.new-event-create')
     expect(create.attributes('disabled')).toBeDefined()
+
+    await wrapper.get('.new-event-advanced').trigger('click')
+    const title = wrapper.get('.new-event-title-input')
+    expect(title.element).toBe(document.activeElement)
+    expect(wrapper.find('input[placeholder="Add location"]').exists()).toBe(true)
 
     await title.setValue('Lunch with Mia')
     expect(wrapper.get('.new-event-create').attributes('disabled')).toBeUndefined()
@@ -491,10 +509,47 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  it('creates an event from natural language through the AI interpreter', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper
+      .get('.new-event-ai-input')
+      .setValue('Dinner with Sam tomorrow at 7pm for two hours')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const postBodies = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url, options]) => url === '/api/calendar-events' && options?.method === 'POST',
+      )
+      .map(([, options]) => JSON.parse(options.body))
+    expect(postBodies).toContainEqual({
+      action: 'interpret',
+      text: 'Dinner with Sam tomorrow at 7pm for two hours',
+      timeZone: expect.any(String),
+    })
+    expect(postBodies).toContainEqual(
+      expect.objectContaining({
+        title: 'Dinner with Sam',
+        date: '2026-07-25',
+        start: '19:00',
+        duration: 120,
+        calendar: 'personal',
+      }),
+    )
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    await wrapper.findAll('.calendar-navigation button')[1].trigger('click')
+    expect(wrapper.text()).toContain('Dinner with Sam')
+    wrapper.unmount()
+  })
+
   it('ignores a second Create click fired before the first request resolves', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 
     await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-advanced').trigger('click')
     await wrapper.get('.new-event-title-input').setValue('Lunch with Mia')
 
     const create = wrapper.get('.new-event-create')
@@ -647,6 +702,7 @@ describe('CalendarView', () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 
     await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-advanced').trigger('click')
 
     expect(wrapper.find('.new-event-delete').exists()).toBe(false)
     expect(wrapper.get('.new-event-create').text()).toBe('Create Event')
@@ -656,6 +712,7 @@ describe('CalendarView', () => {
   it('persists created, edited, and deleted events through the backend across a remount', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
     await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-advanced').trigger('click')
     await wrapper.get('.new-event-title-input').setValue('Board game night')
     await wrapper.get('.new-event-create').trigger('click')
     await flushPromises()

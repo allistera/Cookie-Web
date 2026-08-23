@@ -391,6 +391,25 @@ function localApiPlugin(mode) {
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
+      if (req.method === 'POST' && body.action === 'interpret') {
+        res.end(
+          JSON.stringify({
+            draft: {
+              title: 'Dinner with Sam',
+              description: null,
+              location: null,
+              date: '2026-07-25',
+              start: '19:00',
+              duration: 120,
+              repeat: 'none',
+              repeatUntil: null,
+              repeatDays: null,
+            },
+            model: 'fixture',
+          }),
+        )
+        return
+      }
       // Mirrors api/calendar-events.js: the wire format sends
       // repeat/repeatUntil/repeatDays, the stored/expanded shape uses recurrenceRule.
       const { repeat, repeatUntil, repeatDays, ...rest } = body
