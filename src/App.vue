@@ -33,10 +33,12 @@ const APPS = {
   email: { label: 'Email', icon: 'mail', to: '/' },
   calendar: { label: 'Calendar', icon: 'calendar_month', to: '/calendar' },
   documents: { label: 'Documents', icon: 'description', to: '/documents' },
+  tasks: { label: 'Tasks', icon: 'task_alt', to: '/tasks' },
 }
 const activeApp = computed(() => {
   if (route.name === 'calendar') return 'calendar'
   if (route.name === 'documents') return 'documents'
+  if (route.name === 'tasks') return 'tasks'
   return 'email'
 })
 const otherApps = computed(() =>
