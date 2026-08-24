@@ -101,7 +101,7 @@ The main runtime variables are:
 | `OPENAI_API_KEY`             | Embeddings, mailbox Q&A, and AI Compose.                                                                                                                          |
 | `OPENAI_COMPOSE_MODEL`       | Optional AI Compose model override.                                                                                                                               |
 | `RESEND_API_KEY`             | Outbound email delivery.                                                                                                                                          |
-| `EMAIL_FROM`                 | Optional sender identity for outbound mail.                                                                                                                       |
+| `EMAIL_FROM`                 | Required sender identity for outbound mail (e.g. `Name <addr@domain>`); `/api/send` returns 503 without it.                                                       |
 | `SCHEDULED_SEND_FLUSH_TOKEN` | Bearer secret authorizing `POST /api/send?resource=flush`. Shared with the `scheduled-send-flusher` Cloudflare Worker in Cookie-Worker, which is the only caller. |
 | `PUBLIC_APP_URL`             | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted.                                                                |
 | `VITE_AUTH0_DOMAIN`          | Auth0 tenant domain exposed to the browser.                                                                                                                       |
