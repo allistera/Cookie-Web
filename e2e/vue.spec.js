@@ -43,6 +43,10 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await calendarLink.click()
 
   await expect(page).toHaveURL(/\/calendar$/)
+  // The switcher menu is hover-driven and the pointer is still parked on it;
+  // park the mouse elsewhere so the open menu can't intercept later clicks on
+  // content beneath it (the Tasks item reaches the calendar sidebar).
+  await page.mouse.move(0, 400)
   await expect(suffix).toHaveText('Calendar')
   await expect(page.locator('.calendar-view')).toBeVisible()
   const calendarSidebar = page.getByRole('complementary', { name: 'Calendar sidebar' })
@@ -73,6 +77,12 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await page.locator('.calendar-page .new-event-button').click()
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
+  // The dialog opens in AI mode (describe-it-in-words); the manual fields
+  // live behind the Advanced button.
+  const aiInput = dialog.getByRole('textbox', { name: 'Describe your event' })
+  await expect(aiInput).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Create Event' })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Advanced' }).click()
   const titleInput = dialog.getByRole('textbox', { name: 'Event title' })
   await expect(titleInput).toHaveAttribute('placeholder', 'New event')
   await expect(titleInput).toBeFocused()

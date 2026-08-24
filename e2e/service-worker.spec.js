@@ -7,9 +7,17 @@ test('the service worker keeps the shell and recently read mail available offlin
 }) => {
   // eslint-disable-next-line playwright/no-skipped-test -- WebKit's emulated offline mode bypasses worker fetches.
   test.skip(browserName === 'webkit', 'Playwright WebKit offline mode bypasses service workers')
-  // The service worker now intercepts both the same-origin /api/messages path
-  // (e2e/dev Vite middleware) and the cross-origin messages-api Worker path
-  // (production), so the recent-mail offline cache is live again.
+  // Firefox has the same limitation (microsoft/playwright#2311): with the
+  // page controlled, the mail cache populated, and a direct cache.match
+  // hitting, the offline fetch still throws NetworkError because the SW
+  // fetch handler is bypassed under emulated offline. Chromium covers the
+  // offline path.
+  // eslint-disable-next-line playwright/no-skipped-test -- see above.
+  test.skip(browserName === 'firefox', 'Playwright Firefox offline mode bypasses service workers')
+  // The service worker intercepts both the same-origin /api/messages path
+  // (the e2e/dev Vite middleware's legacy adapter) and the cross-origin
+  // messages-api Worker path (production), so the recent-mail offline cache
+  // is live.
 
   await page.goto('/inbox')
   await page.evaluate(async () => {

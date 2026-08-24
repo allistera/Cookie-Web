@@ -1040,11 +1040,21 @@ function localApiPlugin(mode) {
       if (id !== 'fixture-1-attachment-1') {
         return json(res, { error: 'Attachment is not available' }, 404)
       }
+      // A real http URL, not a data: URI — downloadAttachment's scheme check
+      // (inbox.js) only lets http(s)/blob URLs reach the synthetic click,
+      // exactly like the production Worker's Vercel Blob URLs.
       return json(res, {
-        url: 'data:application/pdf;base64,JVBERi0xLjQKJSBDb29raWUgZml4dHVyZQo=',
+        url: `http://${req.headers.host ?? 'localhost'}/__e2e__/messages-api/messages/attachment-file`,
         filename: 'Revised-Floor-Plan.pdf',
         contentType: 'application/pdf',
       })
+    }
+    if (sub === 'attachment-file') {
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'application/pdf')
+      res.setHeader('Content-Disposition', 'attachment; filename="Revised-Floor-Plan.pdf"')
+      res.end(Buffer.from('JVBERi0xLjQKJSBDb29raWUgZml4dHVyZQo=', 'base64'))
+      return
     }
     if (sub === 'thread-body') {
       const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
@@ -1110,7 +1120,21 @@ function localApiPlugin(mode) {
     return json(res, { ok: true })
   }
 
+  // Same-origin adapter for the legacy /api/messages?resource=… shape. The
+  // service worker (public/sw.js) caches recent mail from this path in
+  // e2e/dev — production uses the cross-origin messages Worker — but the
+  // original Vercel handler was removed in the Workers migration, so requests
+  // fell through to the SPA shell and the offline cache served HTML as JSON.
+  const handleLegacyMessagesApi = (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const resource = url.searchParams.get('resource')
+    url.searchParams.delete('resource')
+    req.url = `/messages${resource ? `/${resource}` : ''}${url.search}`
+    return handleWorkerMessagesApi(req, res)
+  }
+
   const mount = (server) => {
+    server.middlewares.use('/api/messages', handleLegacyMessagesApi)
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/calendar-events', handleCalendarEvents)
     server.middlewares.use('/api/emails', handleEmails)
