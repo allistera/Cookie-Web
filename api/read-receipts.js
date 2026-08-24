@@ -31,11 +31,16 @@ function pixelFlooded(ip) {
   const now = Date.now()
   const entry = pixelHits.get(ip)
   if (!entry || now - entry.windowStart >= PIXEL_WINDOW_MS) {
-    if (pixelHits.size >= PIXEL_HITS_PRUNE_SIZE) {
-      for (const [key, value] of pixelHits) {
-        if (now - value.windowStart >= PIXEL_WINDOW_MS) pixelHits.delete(key)
-      }
+    // Hard cap with O(1) eviction: a flood of fresh spoofed addresses must
+    // not grow the map past the cap or trigger full-map scans per request.
+    // Entries are kept in window-start order (delete+set moves a recycled
+    // window to the back), so the first key is always the oldest window and
+    // the most likely to be expired.
+    if (!entry && pixelHits.size >= PIXEL_HITS_PRUNE_SIZE) {
+      const oldest = pixelHits.keys().next().value
+      if (oldest !== undefined) pixelHits.delete(oldest)
     }
+    pixelHits.delete(ip)
     pixelHits.set(ip, { windowStart: now, count: 1 })
     return false
   }
@@ -112,7 +117,10 @@ export default async function handler(req, res) {
     return
   }
 
-  const rawIds = (url.searchParams.get('messageIds') || '').split(',').filter(Boolean)
+  // Bound the parameter before split() expands it: 100 UUIDs plus commas is
+  // 3,699 chars, so anything past 4,000 can't be a valid request.
+  const rawParam = url.searchParams.get('messageIds') || ''
+  const rawIds = rawParam.length > 4000 ? [] : rawParam.split(',').filter(Boolean)
   if (
     rawIds.length === 0 ||
     rawIds.length > MAX_MESSAGES ||

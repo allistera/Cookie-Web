@@ -83,8 +83,15 @@ function parseFromEnv(from) {
 
 // The "to" field is a comma-separated list of addresses; returns the trimmed,
 // non-empty ones. Exported for testing.
+// Longest representation a valid list can take: MAX_OUTBOUND_RECIPIENTS
+// addresses of at most 320 chars, plus separators and generous whitespace.
+// Enforced before split() so a multi-megabyte comma flood is rejected in O(1)
+// instead of being expanded into millions of array entries first.
+const MAX_RECIPIENTS_FIELD_CHARS = MAX_OUTBOUND_RECIPIENTS * 512
+
 export function parseRecipients(to) {
   if (!(to?.split instanceof Function)) return []
+  if (String(to).length > MAX_RECIPIENTS_FIELD_CHARS) return []
   const recipients = to
     .split(',')
     .map((address) => address.trim())

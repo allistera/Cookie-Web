@@ -1664,7 +1664,12 @@ export const useInboxStore = defineStore('inbox', {
       if (this.contactsLoaded) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${MESSAGES_API_URL}/messages/contacts`, { headers })
+        // cache: 'no-store' — contacts are per-account; the shared browser
+        // HTTP cache must never serve them across an account switch.
+        const response = await fetch(`${MESSAGES_API_URL}/messages/contacts`, {
+          headers,
+          cache: 'no-store',
+        })
         if (!response.ok) throw new Error(`GET contacts responded ${response.status}`)
         const { contacts } = await response.json()
         this.contacts = contacts

@@ -220,6 +220,13 @@ const MAX_TOTAL_OCCURRENCES = 5000
 // series with BYDAY steps day-by-day (see expandEvent), so it shares DAILY's
 // ~27-year reach rather than WEEKLY's.
 const MAX_STEPS_PER_SERIES = 10_000
+// One aggregate stepping budget across the whole response. Per-series caps
+// bound each series, but N pathological series each stepping up to
+// MAX_STEPS_PER_SERIES — including expired or otherwise zero-output ones —
+// still multiply into real CPU on every calendar load. 100k steps is far
+// beyond what any window of legitimate series needs to emit the 5,000
+// occurrence ceiling.
+const MAX_TOTAL_STEPS = 100_000
 // Explicit ranges may span at least the default window so the two contracts
 // cannot drift apart again (the default window used to exceed this cap).
 const MAX_RANGE_DAYS = EXPAND_PAST_DAYS + EXPAND_FUTURE_DAYS
@@ -270,7 +277,7 @@ function daysBetweenUtc(from, to) {
 // The MONTHLY/YEARLY branches iterate stepDate too, so they share the same
 // step budget — otherwise a series dated 0001-01-01 would loop ~24k (monthly)
 // or ~2k (yearly) times per request, defeating the DAILY/WEEKLY bound.
-function jumpToWindow(cursor, windowStart, freq) {
+function jumpToWindow(cursor, windowStart, freq, budget) {
   if (cursor >= windowStart) return cursor
   if (freq === 'DAILY') {
     const next = new Date(cursor)
@@ -288,8 +295,10 @@ function jumpToWindow(cursor, windowStart, freq) {
     const years = Math.min(
       Math.max(0, windowStart.getUTCFullYear() - cursor.getUTCFullYear()),
       MAX_STEPS_PER_SERIES,
+      budget.remaining,
     )
     for (let i = 0; i < years; i += 1) next = stepDate(next, 'YEARLY')
+    budget.remaining -= years
     return next
   }
   if (freq === 'MONTHLY') {
@@ -297,12 +306,14 @@ function jumpToWindow(cursor, windowStart, freq) {
       (windowStart.getUTCFullYear() - cursor.getUTCFullYear()) * 12 +
       (windowStart.getUTCMonth() - cursor.getUTCMonth())
     let next = cursor
-    const jumps = Math.min(Math.max(0, months - 1), MAX_STEPS_PER_SERIES)
+    const jumps = Math.min(Math.max(0, months - 1), MAX_STEPS_PER_SERIES, budget.remaining)
     for (let i = 0; i < jumps; i += 1) next = stepDate(next, 'MONTHLY')
+    budget.remaining -= jumps
     let guard = 0
-    while (next < windowStart && guard < MAX_STEPS_PER_SERIES) {
+    while (next < windowStart && guard < MAX_STEPS_PER_SERIES && budget.remaining > 0) {
       next = stepDate(next, 'MONTHLY')
       guard += 1
+      budget.remaining -= 1
     }
     return next
   }
@@ -313,12 +324,16 @@ function jumpToWindow(cursor, windowStart, freq) {
 // windowEnd]. Non-recurring events pass through unchanged. There's no
 // support for per-occurrence exceptions: editing or deleting any occurrence
 // acts on the whole series.
-function expandEvent(event, windowStart, windowEnd) {
+function expandEvent(event, windowStart, windowEnd, budget = { remaining: MAX_TOTAL_STEPS }) {
   const rule = parseRecurrenceRule(event.recurrenceRule)
   if (!rule) return [{ ...event, seriesId: event.id }]
 
   const dtstart = new Date(`${event.date}T${event.start}:00Z`)
   const until = rule.until ? new Date(`${rule.until}T23:59:59Z`) : null
+  // A series that ended before the window can't emit anything — return
+  // before jumpToWindow, whose MONTHLY/YEARLY paths step iteratively, so an
+  // expired series costs nothing instead of up to MAX_STEPS_PER_SERIES.
+  if (until && until < windowStart) return []
   // BYDAY (e.g. "Monday to Friday") only makes sense for WEEKLY, and needs
   // day-by-day stepping to land on each selected weekday rather than jumping
   // 7 days from the series' own start-date weekday.
@@ -327,13 +342,14 @@ function expandEvent(event, windowStart, windowEnd) {
     : null
   const stepFreq = weekdays ? 'DAILY' : rule.freq
   const occurrences = []
-  let cursor = jumpToWindow(dtstart, windowStart, stepFreq)
+  let cursor = jumpToWindow(dtstart, windowStart, stepFreq, budget)
   let index = 0
   while (
     cursor <= windowEnd &&
     (!until || cursor <= until) &&
     occurrences.length < MAX_OCCURRENCES_PER_SERIES &&
-    index < MAX_STEPS_PER_SERIES
+    index < MAX_STEPS_PER_SERIES &&
+    budget.remaining > 0
   ) {
     if (cursor >= windowStart && (!weekdays || weekdays.has(cursor.getUTCDay()))) {
       occurrences.push({
@@ -346,6 +362,7 @@ function expandEvent(event, windowStart, windowEnd) {
     }
     cursor = stepDate(cursor, stepFreq)
     index += 1
+    budget.remaining -= 1
   }
   return occurrences
 }
@@ -365,8 +382,11 @@ export function expandEventsPage(events, now = new Date(), range = null) {
     : new Date(now.getTime() + EXPAND_FUTURE_DAYS * MS_PER_DAY)
   const occurrences = []
   let truncated = false
+  // Shared across every series in the response, so many zero-output series
+  // can't each spend a full per-series step budget.
+  const budget = { remaining: MAX_TOTAL_STEPS }
   for (const event of events) {
-    const expanded = expandEvent(event, windowStart, windowEnd)
+    const expanded = expandEvent(event, windowStart, windowEnd, budget)
     const remaining = MAX_TOTAL_OCCURRENCES - occurrences.length
     if (expanded.length > remaining) {
       occurrences.push(...expanded.slice(0, Math.max(0, remaining)))
@@ -374,6 +394,10 @@ export function expandEventsPage(events, now = new Date(), range = null) {
       break
     }
     occurrences.push(...expanded)
+    if (budget.remaining <= 0) {
+      truncated = true
+      break
+    }
   }
   return { events: occurrences, truncated }
 }
