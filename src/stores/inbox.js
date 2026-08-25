@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 import {
+  EMAILS_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
   RECEIPTS_API_URL,
@@ -241,7 +242,7 @@ const FOLDER_STATE = {
   },
 }
 
-// Maps a GET /api/emails (or /api/search) row to the shape the views render.
+// Maps a GET /emails (or /api/search) row to the shape the views render.
 function mapEmailRow(message) {
   const firstRecipient = message.recipients?.to?.[0] ?? null
   return {
@@ -551,9 +552,9 @@ export const useInboxStore = defineStore('inbox', {
       if (folder === 'label' && label) params.set('label', label)
       params.set('limit', limit)
       if (before) params.set('before', before)
-      const response = await fetch(`/api/emails?${params}`, { headers })
+      const response = await fetch(`${EMAILS_API_URL}/emails?${params}`, { headers })
       if (!response.ok) {
-        throw new Error(`GET /api/emails responded ${response.status}`)
+        throw new Error(`GET /emails responded ${response.status}`)
       }
       return response.json()
     },
@@ -562,7 +563,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.isInboxStateLoaded && !force) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch('/api/emails?resource=state', { headers })
+        const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
         const { unreadCount, userId } = await response.json()
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0

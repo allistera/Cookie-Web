@@ -3,13 +3,14 @@ import { Buffer } from 'node:buffer'
 import { test as base } from '@playwright/test'
 
 import {
+  EMAILS_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
   RECEIPTS_API_URL,
   TASKS_API_URL,
 } from '../src/lib/apiWorkers.js'
 
-// The app talks to four Cloudflare Workers at absolute cross-origin URLs
+// The app talks to five Cloudflare Workers at absolute cross-origin URLs
 // (src/lib/apiWorkers.js). Nothing same-origin can intercept those, and e2e
 // mode holds no bearer token, so left alone every one of them reaches the real
 // production Worker and 401s — which is what broke 28 of the 64 specs.
@@ -25,6 +26,7 @@ const ORIGINS = [
   [LABELS_API_URL, '/__e2e__/labels-api'],
   [MESSAGES_API_URL, '/__e2e__/messages-api'],
   [RECEIPTS_API_URL, '/__e2e__/receipts-api'],
+  [EMAILS_API_URL, '/__e2e__/emails-api'],
 ]
 
 // That server state is keyed by a cookie so parallel workers never share a

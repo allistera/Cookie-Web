@@ -37,83 +37,99 @@ function localApiPlugin(mode) {
     return stubMailboxState.get(sessionId)
   }
 
-  const handleEmails = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
-      const url = new URL(req.url, 'http://localhost')
-      const folder = url.searchParams.get('folder') || 'inbox'
-      const labelName = (url.searchParams.get('label') || '').trim()
-      const state = fixtureMailboxState(req, res)
-      const { schedules, archived, summaries, stars, messageLabels } = state
-      const now = Date.now()
-      // Stars and labels changed through the messages Worker fixture override
-      // the static row, so a list reflects what the test just did to it.
-      const withState = (email) => ({
-        ...email,
-        is_starred: stars.get(email.id) ?? email.is_starred,
-        labels: messageLabels.get(email.id) ?? email.labels,
-        has_ai_summary: email.has_ai_summary || summaries.has(email.id),
-      })
-      const inbox = fixtureEmails().map((email) => ({
-        ...withState(email),
-        scheduled_for: schedules.get(email.id) ?? null,
-      }))
-      const sent = fixtureSentEmails().map(withState)
-      const byNewest = (rows) =>
-        [...rows].sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))
-      // Mirrors api/emails.js's folderPredicate. Starred and label became
-      // folders of their own, and both span every non-deleted message —
-      // archived and sent rows included — rather than filtering the inbox.
-      const selectFolder = () => {
-        if (folder === 'sent') return sent
-        if (folder === 'done') return inbox.filter((email) => archived.has(email.id))
-        if (folder === 'spam') return []
-        if (folder === 'starred') {
-          return byNewest([...inbox, ...sent].filter((email) => email.is_starred))
-        }
-        if (folder === 'label') {
-          return byNewest(
-            [...inbox, ...sent].filter((email) =>
-              (email.labels || []).some((label) => label.name === labelName),
-            ),
-          )
-        }
-        if (folder === 'snoozed') {
-          return inbox.filter(
-            (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
-          )
-        }
-        return inbox.filter(
-          (email) =>
-            !archived.has(email.id) &&
-            (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
-        )
-      }
-      const emails = selectFolder()
+  // cookie-web-emails: /emails (folder listing) and /emails/state (unread
+  // badge + Realtime identity bootstrap). Fixture-only, like the other
+  // migrated Workers — the real handler lives in Cookie-Worker now.
+  const handleWorkerEmailsApi = async (req, res) => {
+    const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
+    const url = new URL(req.url, 'http://localhost')
+    const segments = url.pathname.split('/').filter(Boolean)
+    const isState = segments.length === 2 && segments[1] === 'state'
+    if (segments[0] !== 'emails' || (segments.length > 1 && !isState)) {
+      res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
-      if (url.searchParams.get('resource') === 'state') {
-        res.end(
-          JSON.stringify({
-            unreadCount: inbox.filter((email) => email.is_unread).length,
-            userId: '11111111-1111-4111-8111-111111111111',
-          }),
-        )
-        return
+      res.end(JSON.stringify({ error: 'Not Found' }))
+      return
+    }
+    const folder = url.searchParams.get('folder') || 'inbox'
+    const labelName = (url.searchParams.get('label') || '').trim()
+    const state = fixtureMailboxState(req, res)
+    const { schedules, archived, summaries, stars, messageLabels } = state
+    const now = Date.now()
+    // Stars and labels changed through the messages Worker fixture override
+    // the static row, so a list reflects what the test just did to it.
+    const withState = (email) => ({
+      ...email,
+      is_starred: stars.get(email.id) ?? email.is_starred,
+      labels: messageLabels.get(email.id) ?? email.labels,
+      has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+    })
+    const inbox = fixtureEmails().map((email) => ({
+      ...withState(email),
+      scheduled_for: schedules.get(email.id) ?? null,
+    }))
+    const sent = fixtureSentEmails().map(withState)
+    const byNewest = (rows) =>
+      [...rows].sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))
+    // Mirrors api/emails.js's folderPredicate. Starred and label became
+    // folders of their own, and both span every non-deleted message —
+    // archived and sent rows included — rather than filtering the inbox.
+    const selectFolder = () => {
+      if (folder === 'sent') return sent
+      if (folder === 'done') return inbox.filter((email) => archived.has(email.id))
+      if (folder === 'spam') return []
+      if (folder === 'starred') {
+        return byNewest([...inbox, ...sent].filter((email) => email.is_starred))
       }
-      const list = emails.map(({ body_text: _bodyText, ...email }) => email)
+      if (folder === 'label') {
+        return byNewest(
+          [...inbox, ...sent].filter((email) =>
+            (email.labels || []).some((label) => label.name === labelName),
+          ),
+        )
+      }
+      if (folder === 'snoozed') {
+        return inbox.filter(
+          (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
+        )
+      }
+      return inbox.filter(
+        (email) =>
+          !archived.has(email.id) &&
+          (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
+      )
+    }
+    const emails = selectFolder()
+    res.setHeader('Content-Type', 'application/json')
+    if (isState) {
       res.end(
         JSON.stringify({
-          emails: list,
-          nextCursor: null,
-          unreadCount: emails.filter((e) => e.is_unread).length,
+          unreadCount: inbox.filter((email) => email.is_unread).length,
           userId: '11111111-1111-4111-8111-111111111111',
-          readReceiptsAvailable: folder === 'sent',
         }),
       )
       return
     }
-    const { default: handler } = await import('./api/emails.js')
-    await handler(req, res)
+    const list = emails.map(({ body_text: _bodyText, ...email }) => email)
+    res.end(
+      JSON.stringify({
+        emails: list,
+        nextCursor: null,
+        unreadCount: emails.filter((e) => e.is_unread).length,
+        userId: '11111111-1111-4111-8111-111111111111',
+        readReceiptsAvailable: folder === 'sent',
+      }),
+    )
+  }
+  // Same-origin adapter for the legacy /api/emails[?resource=state] shape
+  // (not-yet-refreshed SPA bundles) — production traffic goes straight to the
+  // emails Worker.
+  const handleEmails = (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const resource = url.searchParams.get('resource')
+    url.searchParams.delete('resource')
+    req.url = `/emails${resource === 'state' ? '/state' : ''}${url.search}`
+    return handleWorkerEmailsApi(req, res)
   }
   // Mirrors api/send.js's three concerns: an immediate send (default),
   // resource=scheduled (list/cancel a "Send Later" queue), and resource=flush
@@ -1160,6 +1176,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/labels-api', handleWorkerLabelsApi)
     server.middlewares.use('/__e2e__/messages-api', handleWorkerMessagesApi)
     server.middlewares.use('/__e2e__/receipts-api', handleWorkerReceiptsApi)
+    server.middlewares.use('/__e2e__/emails-api', handleWorkerEmailsApi)
   }
   return {
     name: 'local-api',

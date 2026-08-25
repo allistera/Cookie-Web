@@ -11,7 +11,7 @@ const DEBOUNCE_MS = 1500
 // Subscribes to the authenticated user's content-free Realtime "inbox
 // changed" channel and refreshes the inbox store through the normal
 // Auth0-protected API when a ping arrives. Requires: authenticated, a known
-// store.userId (set from GET /api/emails), and a non-null supabase client
+// store.userId (set from GET /emails), and a non-null supabase client
 // (it's null when VITE_SUPABASE_URL/ANON_KEY are unset — dev/e2e run with
 // live-inbox silently off). Re-subscribes whenever userId or auth state
 // changes, and cleans up on scope dispose.

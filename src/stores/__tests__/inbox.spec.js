@@ -3,6 +3,7 @@ import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { mergeInboxPage, useInboxStore } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
 import {
+  EMAILS_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
   RECEIPTS_API_URL,
@@ -48,7 +49,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadEmails()
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails?limit=50', {
+    expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails?limit=50`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.traditionalEmails).toEqual([
@@ -91,7 +92,7 @@ describe('Inbox Store', () => {
     await store.loadInboxState()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenCalledWith('/api/emails?resource=state', {
+    expect(fetchMock).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails/state`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.unreadInboxCount).toBe(9)
@@ -138,7 +139,7 @@ describe('Inbox Store', () => {
 
     await store.loadMoreEmails()
     expect(fetch).toHaveBeenLastCalledWith(
-      '/api/emails?limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111',
+      `${EMAILS_API_URL}/emails?limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111`,
       { headers: { Authorization: 'Bearer test-access-token' } },
     )
     expect(store.traditionalEmails.map((e) => e.id)).toEqual(['a', 'b'])
@@ -302,7 +303,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadSentEmails()
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=sent&limit=50', {
+    expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails?folder=sent&limit=50`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.sentEmails).toHaveLength(1)
@@ -349,7 +350,7 @@ describe('Inbox Store', () => {
 
     await store.loadMoreSentEmails()
     expect(fetch).toHaveBeenLastCalledWith(
-      '/api/emails?folder=sent&limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111',
+      `${EMAILS_API_URL}/emails?folder=sent&limit=50&before=2026-07-01T00%3A00%3A00Z%7C11111111-1111-1111-1111-111111111111`,
       { headers: { Authorization: 'Bearer test-access-token' } },
     )
     expect(store.sentEmails.map((e) => e.id)).toEqual(['a', 'b'])
@@ -434,7 +435,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadSpamEmails()
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=spam&limit=50', {
+    expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails?folder=spam&limit=50`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.spamEmails.map((email) => email.id)).toEqual(['spam-1'])
@@ -467,7 +468,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadStarredEmails()
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=starred&limit=50', {
+    expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails?folder=starred&limit=50`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
     expect(store.starredEmails.map((email) => email.id)).toEqual(['star-1'])
@@ -502,9 +503,12 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadLabelEmails('Home')
 
-    expect(fetch).toHaveBeenCalledWith('/api/emails?folder=label&label=Home&limit=50', {
-      headers: { Authorization: 'Bearer test-access-token' },
-    })
+    expect(fetch).toHaveBeenCalledWith(
+      `${EMAILS_API_URL}/emails?folder=label&label=Home&limit=50`,
+      {
+        headers: { Authorization: 'Bearer test-access-token' },
+      },
+    )
     expect(store.labelEmails.map((email) => email.id)).toEqual(['lab-1'])
     expect(store.labelFolderName).toBe('Home')
     expect(store.isLabelLoaded).toBe(true)
@@ -537,7 +541,7 @@ describe('Inbox Store', () => {
       const store = useInboxStore()
       await store.loadDonePage()
 
-      expect(fetch).toHaveBeenCalledWith('/api/emails?folder=done&limit=100', {
+      expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails?folder=done&limit=100`, {
         headers: { Authorization: 'Bearer test-access-token' },
       })
       expect(store.doneEmails.map((email) => email.id)).toEqual(['done-a', 'done-b'])
@@ -569,7 +573,7 @@ describe('Inbox Store', () => {
       // The next page starts where the trimmed page ended: after a2.
       const expectedCursor = encodeURIComponent(`${first[1].sent_at}|a2`)
       expect(fetch).toHaveBeenLastCalledWith(
-        `/api/emails?folder=done&limit=100&before=${expectedCursor}`,
+        `${EMAILS_API_URL}/emails?folder=done&limit=100&before=${expectedCursor}`,
         { headers: { Authorization: 'Bearer test-access-token' } },
       )
       expect(store.donePageIndex).toBe(1)
@@ -577,7 +581,7 @@ describe('Inbox Store', () => {
       expect(store.doneHasNext).toBe(false)
 
       await store.prevDonePage()
-      expect(fetch).toHaveBeenLastCalledWith('/api/emails?folder=done&limit=100', {
+      expect(fetch).toHaveBeenLastCalledWith(`${EMAILS_API_URL}/emails?folder=done&limit=100`, {
         headers: { Authorization: 'Bearer test-access-token' },
       })
       expect(store.donePageIndex).toBe(0)
@@ -782,7 +786,10 @@ describe('Inbox Store', () => {
 
     await store.sendMail({ to: 'someone@example.com', subject: 'S', text: 'T' })
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/emails?folder=sent&limit=50', expect.anything()),
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${EMAILS_API_URL}/emails?folder=sent&limit=50`,
+        expect.anything(),
+      ),
     )
   })
 
@@ -1481,7 +1488,7 @@ describe('Inbox Store', () => {
     )
     await store.clearSearch()
     expect(store.activeSearchQuery).toBe('')
-    expect(fetch).toHaveBeenCalledWith('/api/emails?limit=50', {
+    expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails?limit=50`, {
       headers: { Authorization: 'Bearer test-access-token' },
     })
   })
