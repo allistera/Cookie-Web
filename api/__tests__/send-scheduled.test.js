@@ -290,6 +290,42 @@ describe('POST /api/send?resource=flush', () => {
     )
   })
 
+  it('retries a transient claim connection failure', async () => {
+    vi.useFakeTimers()
+    const error = Object.assign(new Error('write CONNECT_TIMEOUT'), {
+      code: 'CONNECT_TIMEOUT',
+    })
+    const sql = sequentialSql([error, []])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    const flush = handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
+    await vi.advanceTimersByTimeAsync(500)
+    await flush
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ claimed: 0, sent: 0, retried: 0, failed: 0, unconfirmed: 0 })
+    expect(sql).toHaveBeenCalledTimes(4)
+  })
+
+  it('returns 500 after persistent transient claim failures', async () => {
+    vi.useFakeTimers()
+    const error = Object.assign(new Error('Failed to connect to database'), {
+      code: '08006',
+    })
+    const sql = sequentialSql([error, error, error])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    const flush = handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
+    await vi.advanceTimersByTimeAsync(3000)
+    await flush
+
+    expect(res.statusCode).toBe(500)
+    expect(res.body).toEqual({ error: 'Flush failed' })
+    expect(sql).toHaveBeenCalledTimes(3)
+  })
+
   it('leaves a rate-limited row pending for the next flush instead of spending a retry', async () => {
     const claimedRow = {
       id: 'sched-1',
