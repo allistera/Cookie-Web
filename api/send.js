@@ -488,7 +488,14 @@ function isTransientDbConnectionError(err) {
   const code = err?.code
   const message = err instanceof Error ? err.message : String(err)
   return (
-    ['CONNECT_TIMEOUT', '08006', '08001', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED'].includes(code) ||
+    [
+      'CONNECT_TIMEOUT',
+      '08006',
+      '08001',
+      'ETIMEDOUT',
+      'ECONNRESET',
+      'ECONNREFUSED',
+    ].includes(code) ||
     /CONNECT_TIMEOUT|Failed to connect to database|ENETUNREACH/i.test(message)
   )
 }
