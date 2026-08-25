@@ -4,6 +4,7 @@ import {
   browserNotificationsEnabled,
   showNewEmailNotification,
 } from '../lib/browserNotifications'
+import { NOTIFICATIONS_API_URL } from '../lib/apiWorkers'
 
 const DEBOUNCE_MS = 1500
 
@@ -56,7 +57,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
 
   async function postNotificationEvent(body) {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    return fetch('/api/notification-event', {
+    return fetch(`${NOTIFICATIONS_API_URL}/notification-event`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -80,7 +81,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
         return
       }
       if (response.status === 204 || response.status === 404) return
-      if (!response.ok) throw new Error(`POST /api/notification-event responded ${response.status}`)
+      if (!response.ok) throw new Error(`POST /notification-event responded ${response.status}`)
 
       const claimed = await response.json()
       if (!canShowBrowserNotification(userId, version)) return

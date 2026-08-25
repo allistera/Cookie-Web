@@ -5,6 +5,7 @@ import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { useRealtimeInbox } from '../useRealtimeInbox'
 import { useTitleUnreadBadge } from '../useTitleUnreadBadge'
 import { useInboxStore } from '../../stores/inbox'
+import { NOTIFICATIONS_API_URL } from '../../lib/apiWorkers'
 
 const BASE_TITLE = 'Cookie AI Inbox - Workspace Intelligence'
 
@@ -172,7 +173,7 @@ describe('useRealtimeInbox', () => {
     })
     expect(fetch).toHaveBeenNthCalledWith(
       1,
-      '/api/notification-event',
+      `${NOTIFICATIONS_API_URL}/notification-event`,
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -183,7 +184,7 @@ describe('useRealtimeInbox', () => {
     )
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      '/api/notification-event',
+      `${NOTIFICATIONS_API_URL}/notification-event`,
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
