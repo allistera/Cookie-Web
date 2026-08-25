@@ -32,6 +32,8 @@ const MAX_SCHEDULED_SEND_ATTEMPTS = 5
 // accumulate forever; the flush job is the only periodic cron trigger this
 // app has, so it doubles as the sweep for both.
 const RESOLVED_STATE_RETENTION_DAYS = 30
+const FLUSH_CLAIM_ATTEMPTS = 3
+const FLUSH_CLAIM_BASE_DELAY_MS = 500
 
 function escapeHtml(value) {
   return value
@@ -482,6 +484,27 @@ async function claimDueScheduledSends(sql, limit) {
   `
 }
 
+function isTransientDbConnectionError(err) {
+  const code = err?.code
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    ['CONNECT_TIMEOUT', '08006', '08001', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED'].includes(code) ||
+    /CONNECT_TIMEOUT|Failed to connect to database|ENETUNREACH/i.test(message)
+  )
+}
+
+async function claimDueScheduledSendsWithRetry(sql, limit) {
+  for (let attempt = 1; attempt <= FLUSH_CLAIM_ATTEMPTS; attempt += 1) {
+    try {
+      return await claimDueScheduledSends(sql, limit)
+    } catch (err) {
+      if (attempt === FLUSH_CLAIM_ATTEMPTS || !isTransientDbConnectionError(err)) throw err
+      await new Promise((resolve) => setTimeout(resolve, FLUSH_CLAIM_BASE_DELAY_MS * attempt))
+    }
+  }
+  throw new Error('flush claim attempts must be at least 1')
+}
+
 async function markScheduledSendFailed(sql, id, error, attempts = null) {
   await sql`
     UPDATE scheduled_sends
@@ -675,7 +698,7 @@ async function handleFlush(req, res, services) {
 
   try {
     const sql = services.getSql()
-    const claimed = await claimDueScheduledSends(sql, FLUSH_BATCH_SIZE)
+    const claimed = await claimDueScheduledSendsWithRetry(sql, FLUSH_BATCH_SIZE)
     const results = await mapWithConcurrency(claimed, FLUSH_CONCURRENCY, (row) =>
       deliverScheduledSend(sql, row, services),
     )
