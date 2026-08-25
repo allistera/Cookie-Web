@@ -34,6 +34,14 @@ const MAX_SCHEDULED_SEND_ATTEMPTS = 5
 const RESOLVED_STATE_RETENTION_DAYS = 30
 const FLUSH_CLAIM_ATTEMPTS = 3
 const FLUSH_CLAIM_BASE_DELAY_MS = 500
+const TRANSIENT_DB_ERROR_CODES = new Set([
+  'CONNECT_TIMEOUT',
+  '08006',
+  '08001',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'ECONNREFUSED',
+])
 
 function escapeHtml(value) {
   return value
@@ -488,14 +496,7 @@ function isTransientDbConnectionError(err) {
   const code = err?.code
   const message = err instanceof Error ? err.message : String(err)
   return (
-    [
-      'CONNECT_TIMEOUT',
-      '08006',
-      '08001',
-      'ETIMEDOUT',
-      'ECONNRESET',
-      'ECONNREFUSED',
-    ].includes(code) ||
+    TRANSIENT_DB_ERROR_CODES.has(code) ||
     /CONNECT_TIMEOUT|Failed to connect to database|ENETUNREACH/i.test(message)
   )
 }
