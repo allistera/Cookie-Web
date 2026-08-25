@@ -12,4 +12,5 @@
 export const LABELS_API_URL = 'https://labels-api.infinitywave.online'
 export const MESSAGES_API_URL = 'https://messages-api.infinitywave.online'
 export const NOTIFICATIONS_API_URL = 'https://notifications-api.infinitywave.online'
+export const RECEIPTS_API_URL = 'https://receipts-api.infinitywave.online'
 export const TASKS_API_URL = 'https://tasks-api.infinitywave.online'

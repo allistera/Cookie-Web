@@ -194,37 +194,49 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/send.js')
     await handler(req, res)
   }
-  const handleReadReceipts = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const url = new URL(req.url, 'http://localhost')
-      if (url.searchParams.has('token')) {
-        res.statusCode = 200
-        res.setHeader('Content-Type', 'image/gif')
-        res.end(Buffer.from('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', 'base64'))
-        return
-      }
-      const ids = (url.searchParams.get('messageIds') || '').split(',')
-      const firstId = ids.find(Boolean)
-      const openedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  // cookie-web-receipts: /read-receipts (?token= pixel | ?messageIds= status).
+  // Fixture-only, like the other migrated Workers — the real handler lives in
+  // Cookie-Worker now.
+  const handleWorkerReceiptsApi = (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    if (url.pathname !== '/read-receipts') {
+      res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
-      res.end(
-        JSON.stringify({
-          receipts: firstId
-            ? [
-                {
-                  message_id: firstId,
-                  first_opened_at: openedAt,
-                  last_opened_at: openedAt,
-                  open_count: 1,
-                },
-              ]
-            : [],
-        }),
-      )
+      res.end(JSON.stringify({ error: 'Not Found' }))
       return
     }
-    const { default: handler } = await import('./api/read-receipts.js')
-    await handler(req, res)
+    if (url.searchParams.has('token')) {
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'image/gif')
+      res.end(Buffer.from('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', 'base64'))
+      return
+    }
+    const ids = (url.searchParams.get('messageIds') || '').split(',')
+    const firstId = ids.find(Boolean)
+    const openedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    res.setHeader('Content-Type', 'application/json')
+    res.end(
+      JSON.stringify({
+        receipts: firstId
+          ? [
+              {
+                message_id: firstId,
+                first_opened_at: openedAt,
+                last_opened_at: openedAt,
+                open_count: 1,
+              },
+            ]
+          : [],
+      }),
+    )
+  }
+  // Same-origin adapter for the legacy /api/read-receipts shape (dev-sent
+  // pixels and not-yet-refreshed SPA bundles) — production forwards this path
+  // to the receipts Worker with a vercel.json redirect instead.
+  const handleReadReceipts = (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    req.url = `/read-receipts${url.search}`
+    return handleWorkerReceiptsApi(req, res)
   }
   const handleSearch = async (req, res) => {
     if (mode === 'e2e' || !process.env.DATABASE_URL) {
@@ -555,7 +567,7 @@ function localApiPlugin(mode) {
   }
   // --- Cloudflare Worker fixtures (e2e only) -------------------------------
   //
-  // The frontend calls cookie-web-tasks/labels/messages at absolute
+  // The frontend calls cookie-web-tasks/labels/messages/receipts at absolute
   // cross-origin URLs (src/lib/apiWorkers.js), so no same-origin middleware can
   // intercept them and e2e mode has no bearer token to offer — every such
   // request used to reach the real Worker and 401. e2e/workerFixtures.js routes
@@ -1147,6 +1159,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/tasks-api', handleWorkerTasksApi)
     server.middlewares.use('/__e2e__/labels-api', handleWorkerLabelsApi)
     server.middlewares.use('/__e2e__/messages-api', handleWorkerMessagesApi)
+    server.middlewares.use('/__e2e__/receipts-api', handleWorkerReceiptsApi)
   }
   return {
     name: 'local-api',

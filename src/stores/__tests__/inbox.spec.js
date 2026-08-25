@@ -2,7 +2,12 @@ import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { mergeInboxPage, useInboxStore } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
-import { LABELS_API_URL, MESSAGES_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import {
+  LABELS_API_URL,
+  MESSAGES_API_URL,
+  RECEIPTS_API_URL,
+  TASKS_API_URL,
+} from '../../lib/apiWorkers'
 
 describe('Inbox Store', () => {
   beforeEach(() => {
@@ -393,9 +398,12 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.loadSentEmails()
 
-    expect(fetch).toHaveBeenLastCalledWith(`/api/read-receipts?messageIds=${row.id}`, {
-      headers: { Authorization: 'Bearer test-access-token' },
-    })
+    expect(fetch).toHaveBeenLastCalledWith(
+      `${RECEIPTS_API_URL}/read-receipts?messageIds=${row.id}`,
+      {
+        headers: { Authorization: 'Bearer test-access-token' },
+      },
+    )
     expect(store.sentEmails[0]).toMatchObject({ readAt: openedAt, readCount: 2 })
   })
 

@@ -1,4 +1,11 @@
 {
+  "redirects": [
+    {
+      "source": "/api/read-receipts",
+      "destination": "https://receipts-api.infinitywave.online/read-receipts",
+      "permanent": false
+    }
+  ],
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
   "headers": [
     {

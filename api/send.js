@@ -52,17 +52,20 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;')
 }
 
+// The pixel endpoint lives on the cookie-web-receipts Worker now (Cookie-Worker
+// repo) — a public identifier like src/lib/apiWorkers.js's other Worker URLs,
+// not configuration. A vercel.json redirect keeps the old same-origin
+// /api/read-receipts pixels in already-sent mail working.
+const READ_RECEIPTS_PIXEL_BASE = 'https://receipts-api.infinitywave.online/read-receipts'
+
 export function buildReadReceiptUrl(token, env = process.env) {
+  // The public-origin check stays as the "is this a deployed environment?"
+  // gate: dev and e2e runs without one must keep producing pixel-free mail.
   const configured = env.PUBLIC_APP_URL || env.VERCEL_PROJECT_PRODUCTION_URL || env.VERCEL_URL
   if (!configured || !UUID_RE.test(token)) return null
-  const base = /^https?:\/\//i.test(configured) ? configured : `https://${configured}`
-  try {
-    const url = new URL('/api/read-receipts', base)
-    url.searchParams.set('token', token)
-    return url.toString()
-  } catch {
-    return null
-  }
+  const url = new URL(READ_RECEIPTS_PIXEL_BASE)
+  url.searchParams.set('token', token)
+  return url.toString()
 }
 
 export function appendReadReceipt(html, text, receiptUrl) {

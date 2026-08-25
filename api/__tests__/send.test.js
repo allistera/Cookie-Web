@@ -80,12 +80,13 @@ describe('outbound email abuse bounds', () => {
 describe('read receipt helpers', () => {
   const token = '11111111-1111-4111-8111-111111111111'
 
-  it('builds an opaque-token URL from the configured public origin', () => {
+  it('builds an opaque-token Worker URL whenever a public origin is configured', () => {
+    const workerUrl = `https://receipts-api.infinitywave.online/read-receipts?token=${token}`
     expect(buildReadReceiptUrl(token, { PUBLIC_APP_URL: 'https://mail.example.com/app' })).toBe(
-      `https://mail.example.com/api/read-receipts?token=${token}`,
+      workerUrl,
     )
     expect(buildReadReceiptUrl(token, { VERCEL_PROJECT_PRODUCTION_URL: 'cookie.vercel.app' })).toBe(
-      `https://cookie.vercel.app/api/read-receipts?token=${token}`,
+      workerUrl,
     )
   })
 

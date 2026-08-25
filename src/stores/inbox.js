@@ -1,7 +1,12 @@
 import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
-import { LABELS_API_URL, MESSAGES_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
+import {
+  LABELS_API_URL,
+  MESSAGES_API_URL,
+  RECEIPTS_API_URL,
+  TASKS_API_URL,
+} from '../lib/apiWorkers'
 import { recipientsValid } from '../lib/recipients'
 import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { parseMailto } from '../lib/unsubscribeContent'
@@ -727,10 +732,11 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders()
         const ids = emails.map((email) => email.id).join(',')
-        const response = await fetch(`/api/read-receipts?messageIds=${encodeURIComponent(ids)}`, {
-          headers,
-        })
-        if (!response.ok) throw new Error(`GET /api/read-receipts responded ${response.status}`)
+        const response = await fetch(
+          `${RECEIPTS_API_URL}/read-receipts?messageIds=${encodeURIComponent(ids)}`,
+          { headers },
+        )
+        if (!response.ok) throw new Error(`GET /read-receipts responded ${response.status}`)
         const { receipts } = await response.json()
         const byMessage = new Map(receipts.map((receipt) => [receipt.message_id, receipt]))
         for (const email of emails) {
