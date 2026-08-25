@@ -305,7 +305,7 @@ describe('POST /api/send?resource=flush', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body).toEqual({ claimed: 0, sent: 0, retried: 0, failed: 0, unconfirmed: 0 })
-    expect(sql).toHaveBeenCalledTimes(3)
+    expect(sql).toHaveBeenCalledTimes(4)
   })
 
   it('returns 500 after persistent transient claim failures', async () => {
