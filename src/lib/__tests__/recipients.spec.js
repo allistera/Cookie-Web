@@ -26,6 +26,13 @@ describe('recipientsValid', () => {
     expect(recipientsValid('a@b.com, nope')).toBe(false) // one bad address fails
     expect(recipientsValid('nope')).toBe(false)
   })
+
+  it('mirrors the server-side 20-recipient cap so Send disables up front', () => {
+    const address = (i) => `person${i}@example.com`
+    const twenty = Array.from({ length: 20 }, (_, i) => address(i)).join(', ')
+    expect(recipientsValid(twenty)).toBe(true)
+    expect(recipientsValid(`${twenty}, one-too-many@example.com`)).toBe(false)
+  })
 })
 
 describe('currentRecipientToken', () => {

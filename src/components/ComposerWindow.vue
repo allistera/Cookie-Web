@@ -124,7 +124,8 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
             type="email"
             multiple
             autocomplete="off"
-            placeholder="name@example.com"
+            placeholder="name@example.com, name2@example.com"
+            title="Send to several people by separating addresses with commas"
             @focus="openContactSuggest"
             @input="openContactSuggest"
             @blur="closeContactSuggest"
