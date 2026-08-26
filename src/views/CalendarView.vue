@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useCalendars } from '../composables/useCalendars'
+import { CALENDAR_API_URL } from '../lib/apiWorkers'
 
 const store = useInboxStore()
 const { calendars, writableCalendars, subscribedCalendars, loadCalendars } = useCalendars(
@@ -106,8 +107,10 @@ async function loadEvents() {
   const seq = ++eventsRequestSeq
   try {
     const headers = await store.authHeaders()
-    const response = await fetch(`/api/calendar-events?from=${from}&to=${to}`, { headers })
-    if (!response.ok) throw new Error(`GET /api/calendar-events responded ${response.status}`)
+    const response = await fetch(`${CALENDAR_API_URL}/calendar-events?from=${from}&to=${to}`, {
+      headers,
+    })
+    if (!response.ok) throw new Error(`GET /calendar-events responded ${response.status}`)
     const { events: rows } = await response.json()
     // A rapid navigation may have started a newer load for a different
     // window; dropping the stale response keeps events/loadedEventRange
@@ -557,7 +560,7 @@ async function createEventFromText() {
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-    const interpretResponse = await fetch('/api/calendar-events', {
+    const interpretResponse = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'interpret', text, timeZone }),
@@ -568,13 +571,13 @@ async function createEventFromText() {
       throw error
     }
     const { draft } = await interpretResponse.json()
-    const createResponse = await fetch('/api/calendar-events', {
+    const createResponse = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ ...draft, calendar, tone: 'accepted' }),
     })
     if (!createResponse.ok) {
-      throw new Error(`POST /api/calendar-events responded ${createResponse.status}`)
+      throw new Error(`POST /calendar-events responded ${createResponse.status}`)
     }
     await loadEvents()
     closeNewEvent()
@@ -624,12 +627,12 @@ async function saveEvent() {
       const existing = events.value.find(
         (event) => (event.seriesId ?? event.id) === editingEventId.value,
       )
-      const response = await fetch('/api/calendar-events', {
+      const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ id: editingEventId.value, ...fields, tone: existing?.tone ?? null }),
       })
-      if (!response.ok) throw new Error(`PATCH /api/calendar-events responded ${response.status}`)
+      if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
       // Non-recurring edits can be applied in place from the server's returned
       // row, avoiding a full ±210-day reload. Recurring series need re-expansion.
       if (repeat === 'none') {
@@ -643,12 +646,12 @@ async function saveEvent() {
         return
       }
     } else {
-      const response = await fetch('/api/calendar-events', {
+      const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ ...fields, tone: 'accepted' }),
       })
-      if (!response.ok) throw new Error(`POST /api/calendar-events responded ${response.status}`)
+      if (!response.ok) throw new Error(`POST /calendar-events responded ${response.status}`)
     }
     // Recurring series are expanded into occurrences server-side, so a full
     // reload is the simplest way to keep every occurrence in sync.
@@ -668,12 +671,12 @@ async function deleteEvent() {
   eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    const response = await fetch('/api/calendar-events', {
+    const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'DELETE',
       headers,
       body: JSON.stringify({ id }),
     })
-    if (!response.ok) throw new Error(`DELETE /api/calendar-events responded ${response.status}`)
+    if (!response.ok) throw new Error(`DELETE /calendar-events responded ${response.status}`)
     await loadEvents()
     closeNewEvent()
   } catch (error) {

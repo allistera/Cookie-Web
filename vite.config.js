@@ -410,14 +410,18 @@ function localApiPlugin(mode) {
     calendar.subscriptionSyncedAt = new Date().toISOString()
     calendar.subscriptionError = null
   }
+  // cookie-web-calendar fixtures: the real /calendar-events and /calendars
+  // handlers live in Cookie-Worker now; these answer from the shared
+  // per-session fixture state, expanding recurrence via api/_lib/recurrence.js
+  // (the kept copy of the Worker's expansion logic).
   const handleCalendarEvents = async (req, res) => {
     const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
     if (resource === 'calendars') {
       await handleCalendars(req, res)
       return
     }
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const { expandEvents, buildRecurrenceRule } = await import('./api/calendar-events.js')
+    {
+      const { expandEvents, buildRecurrenceRule } = await import('./api/_lib/recurrence.js')
       const state = await ensureCalendarEvents(fixtureMailboxState(req, res))
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'GET') {
@@ -488,13 +492,10 @@ function localApiPlugin(mode) {
       }
       res.statusCode = 405
       res.end(JSON.stringify({ error: 'Method not allowed' }))
-      return
     }
-    const { default: handler } = await import('./api/calendar-events.js')
-    await handler(req, res)
   }
   const handleCalendars = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
+    {
       const state = fixtureMailboxState(req, res)
       if (!state.calendars) {
         const { fixtureCalendars } = await import('./api/_fixtures/calendars.js')
@@ -584,10 +585,17 @@ function localApiPlugin(mode) {
       }
       res.statusCode = 405
       res.end(JSON.stringify({ error: 'Method not allowed' }))
-      return
     }
-    const { default: handler } = await import('./api/_lib/calendars.js')
-    await handler(req, res)
+  }
+  // Worker-origin dispatcher for cookie-web-calendar (e2e/workerFixtures.js
+  // routes calendar-api.infinitywave.online back here).
+  const handleWorkerCalendarApi = (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    if (url.pathname === '/calendar-events') return handleCalendarEvents(req, res)
+    if (url.pathname === '/calendars') return handleCalendars(req, res)
+    res.statusCode = 404
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ error: 'Not Found' }))
   }
   // --- Cloudflare Worker fixtures (e2e only) -------------------------------
   //
@@ -1187,6 +1195,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/emails-api', handleWorkerEmailsApi)
     server.middlewares.use('/__e2e__/ai-api', handleWorkerAiApi)
     server.middlewares.use('/__e2e__/search-api', handleWorkerSearchApi)
+    server.middlewares.use('/__e2e__/calendar-api', handleWorkerCalendarApi)
   }
   return {
     name: 'local-api',

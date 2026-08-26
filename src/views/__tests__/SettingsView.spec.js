@@ -109,7 +109,7 @@ describe('SettingsView', () => {
             }
           }
           if (String(url).includes('/tasks/interests')) return { interests: [] }
-          if (String(url).includes('resource=calendars')) {
+          if (String(url).includes('/calendars')) {
             return { calendars: FIXTURE_CALENDARS.map((calendar) => ({ ...calendar })) }
           }
           if (

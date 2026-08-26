@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useDocumentsStore } from '../stores/documents'
 import { useCalendars } from '../composables/useCalendars'
+import { CALENDAR_API_URL } from '../lib/apiWorkers'
 
 // Read-only day view docked next to a daily note (Daily/<year>/<month>/DD-MM-YY):
 // a NotePlan-style mini month calendar plus that day's Cookie events, so the
@@ -89,7 +90,9 @@ async function loadEvents() {
   const key = selectedKey.value
   try {
     const headers = await store.authHeaders()
-    const response = await fetch(`/api/calendar-events?from=${key}&to=${key}`, { headers })
+    const response = await fetch(`${CALENDAR_API_URL}/calendar-events?from=${key}&to=${key}`, {
+      headers,
+    })
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
     if (selectedKey.value !== key) return

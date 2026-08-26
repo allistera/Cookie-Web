@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarSettings from '../CalendarSettings.vue'
 import { useInboxStore } from '../../stores/inbox'
 
-const ENDPOINT = '/api/calendar-events?resource=calendars'
+import { CALENDAR_API_URL } from '../../lib/apiWorkers'
+
+const ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
 function mockCalendarApi() {

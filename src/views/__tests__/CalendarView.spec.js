@@ -106,10 +106,11 @@ const SEED_CALENDARS = [
   { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
   { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
 ]
-const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
-const isEventsEndpoint = (url) =>
-  url === '/api/calendar-events' ||
-  (url.startsWith('/api/calendar-events?') && !url.includes('resource='))
+import { CALENDAR_API_URL } from '../../lib/apiWorkers'
+
+const EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
+const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
+const isEventsEndpoint = (url) => url === EVENTS_ENDPOINT || url.startsWith(`${EVENTS_ENDPOINT}?`)
 
 // Stands in for the calendar-events and calendar-management APIs with in-memory
 // lists, mirroring the local Vite fixture middleware's behavior closely
@@ -371,7 +372,7 @@ describe('CalendarView', () => {
     const eventGets = () =>
       fetchMock.mock.calls.filter(
         ([url, options]) =>
-          String(url).startsWith('/api/calendar-events?from=') &&
+          String(url).startsWith(`${EVENTS_ENDPOINT}?from=`) &&
           !(options?.method && options.method !== 'GET'),
       )
 
@@ -521,9 +522,7 @@ describe('CalendarView', () => {
 
     const postBodies = vi
       .mocked(fetch)
-      .mock.calls.filter(
-        ([url, options]) => url === '/api/calendar-events' && options?.method === 'POST',
-      )
+      .mock.calls.filter(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'POST')
       .map(([, options]) => JSON.parse(options.body))
     expect(postBodies).toContainEqual({
       action: 'interpret',
@@ -560,7 +559,7 @@ describe('CalendarView', () => {
     await flushPromises()
 
     const postCalls = fetch.mock.calls.filter(
-      ([url, options]) => url === '/api/calendar-events' && options?.method === 'POST',
+      ([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'POST',
     )
     expect(postCalls).toHaveLength(1)
     wrapper.unmount()
@@ -650,9 +649,7 @@ describe('CalendarView', () => {
     expect(dayEventTitles).not.toContain('Standup')
     const updateCall = vi
       .mocked(fetch)
-      .mock.calls.find(
-        ([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH',
-      )
+      .mock.calls.find(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'PATCH')
     expect(JSON.parse(updateCall[1].body).calendar).toBe('personal')
     wrapper.unmount()
   })
@@ -672,9 +669,7 @@ describe('CalendarView', () => {
 
     const updateCall = vi
       .mocked(fetch)
-      .mock.calls.find(
-        ([url, options]) => url === '/api/calendar-events' && options?.method === 'PATCH',
-      )
+      .mock.calls.find(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'PATCH')
     expect(JSON.parse(updateCall[1].body)).toMatchObject({
       id: 'recurring-review',
       date: '2026-07-10',

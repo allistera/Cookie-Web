@@ -38,7 +38,6 @@
     "editorjs-drag-drop": "^1.1.16",
     "html2pdf.js": "^0.14.0",
     "jose": "^6.2.10",
-    "node-ical": "^0.27.1",
     "pinia": "^4.0.3",
     "postgres": "^3.4.9",
     "react": "^18.3.1",

@@ -10,6 +10,7 @@
 // together if a Worker's domain ever changes. Each Worker also still
 // answers on its own workers.dev URL, kept for debugging.
 export const AI_API_URL = 'https://ai-api.infinitywave.online'
+export const CALENDAR_API_URL = 'https://calendar-api.infinitywave.online'
 export const EMAILS_API_URL = 'https://emails-api.infinitywave.online'
 export const LABELS_API_URL = 'https://labels-api.infinitywave.online'
 export const MESSAGES_API_URL = 'https://messages-api.infinitywave.online'

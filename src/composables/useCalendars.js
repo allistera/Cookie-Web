@@ -2,7 +2,9 @@ import { computed, ref } from 'vue'
 
 // Shared with GET/POST/PATCH/DELETE bodies by CalendarSettings' own CRUD
 // actions - exported so this stays the single source of truth for the path.
-export const CALENDARS_ENDPOINT = '/api/calendar-events?resource=calendars'
+import { CALENDAR_API_URL } from '../lib/apiWorkers'
+
+export const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 
 // Module-level (not created per useCalendars() call) so CalendarView and
 // CalendarSettings share one list: renaming or creating a calendar in
@@ -13,7 +15,7 @@ const calendars = ref([])
 // Module-level like `calendars` above: CalendarView and DocumentCalendarSidebar
 // both call loadCalendars() on mount (often within moments of each other, e.g.
 // navigating from Documents straight to Calendar), and without this guard each
-// call fired its own GET /api/calendar-events?resource=calendars. Mutations
+// call fired its own GET /calendars. Mutations
 // (create/rename/delete/sync) already write straight into `calendars.value`
 // rather than refetching, so treating a successful load as good until an
 // explicit force is the same "loaded once, refresh on demand" idiom the inbox

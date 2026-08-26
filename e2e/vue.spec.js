@@ -151,7 +151,7 @@ test('Calendar settings manages subscriptions that appear in the Calendar view',
   await Promise.all([
     page.waitForResponse(
       (response) =>
-        response.url().includes('/api/calendar-events') && response.request().method() === 'POST',
+        response.url().includes('/calendar-events') && response.request().method() === 'POST',
     ),
     syncNow.click(),
   ])
