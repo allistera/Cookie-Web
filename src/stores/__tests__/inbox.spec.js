@@ -3,6 +3,7 @@ import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { mergeInboxPage, useInboxStore } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
 import {
+  AI_API_URL,
   EMAILS_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
@@ -616,7 +617,7 @@ describe('Inbox Store', () => {
 
     await store.requestAiDraft()
 
-    expect(fetch).toHaveBeenCalledWith('/api/compose', {
+    expect(fetch).toHaveBeenCalledWith(`${AI_API_URL}/compose`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -655,7 +656,7 @@ describe('Inbox Store', () => {
 
     await store.requestAiDraft()
 
-    expect(fetch).toHaveBeenCalledWith('/api/compose', {
+    expect(fetch).toHaveBeenCalledWith(`${AI_API_URL}/compose`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -756,7 +757,7 @@ describe('Inbox Store', () => {
 
     await store.summarizeEmail(email)
 
-    expect(fetch).toHaveBeenCalledWith('/api/summarize', {
+    expect(fetch).toHaveBeenCalledWith(`${AI_API_URL}/summarize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

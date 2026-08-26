@@ -339,12 +339,15 @@ function localApiPlugin(mode) {
     const { default: handler } = await import('./api/ask.js')
     await handler(req, res)
   }
-  const handleCompose = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      let raw = ''
-      for await (const chunk of req) raw += chunk
-      const body = JSON.parse(raw || '{}')
-      res.setHeader('Content-Type', 'application/json')
+  // cookie-web-ai: /compose and /summarize. Fixture-only, like the other
+  // migrated Workers — the real handlers live in Cookie-Worker now.
+  const handleWorkerAiApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}')
+    res.setHeader('Content-Type', 'application/json')
+    if (url.pathname === '/compose') {
       if (body.mode === 'snippet') {
         res.end(JSON.stringify({ snippet: { name: 'hello-world', text: 'Hello world!' } }))
         return
@@ -356,19 +359,11 @@ function localApiPlugin(mode) {
       )
       return
     }
-    const { default: handler } = await import('./api/compose.js')
-    await handler(req, res)
-  }
-  const handleSummarize = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      let raw = ''
-      for await (const chunk of req) raw += chunk
-      const { id } = JSON.parse(raw || '{}')
+    if (url.pathname === '/summarize') {
       const summary =
         'City Construction shared a revised kitchen floor plan designed to bring in more natural light.\n\n• Review the updated room dimensions and full plan.\n• Reply if any layout changes are needed.'
       const { summaries } = fixtureMailboxState(req, res)
-      summaries.set(id, summary)
-      res.setHeader('Content-Type', 'application/json')
+      summaries.set(body.id, summary)
       res.end(
         JSON.stringify({
           summary,
@@ -378,8 +373,19 @@ function localApiPlugin(mode) {
       )
       return
     }
-    const { default: handler } = await import('./api/summarize.js')
-    await handler(req, res)
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: 'Not Found' }))
+  }
+  // Same-origin adapters for the legacy /api/compose and /api/summarize
+  // shapes (not-yet-refreshed SPA bundles) — production traffic goes straight
+  // to the AI Worker.
+  const handleCompose = (req, res) => {
+    req.url = `/compose${new URL(req.url, 'http://localhost').search}`
+    return handleWorkerAiApi(req, res)
+  }
+  const handleSummarize = (req, res) => {
+    req.url = `/summarize${new URL(req.url, 'http://localhost').search}`
+    return handleWorkerAiApi(req, res)
   }
   const ensureCalendarEvents = async (state) => {
     if (!state.calendarEvents) {
@@ -1177,6 +1183,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/messages-api', handleWorkerMessagesApi)
     server.middlewares.use('/__e2e__/receipts-api', handleWorkerReceiptsApi)
     server.middlewares.use('/__e2e__/emails-api', handleWorkerEmailsApi)
+    server.middlewares.use('/__e2e__/ai-api', handleWorkerAiApi)
   }
   return {
     name: 'local-api',

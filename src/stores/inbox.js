@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 import {
+  AI_API_URL,
   EMAILS_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
@@ -1285,18 +1286,18 @@ export const useInboxStore = defineStore('inbox', {
       this.summaryLoadingId = id
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/summarize', {
+        const response = await fetch(`${AI_API_URL}/summarize`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ id }),
         })
         if (!response.ok) {
-          throw new Error(`POST /api/summarize responded ${response.status}`)
+          throw new Error(`POST /summarize responded ${response.status}`)
         }
         const { summary } = await response.json()
         const normalized = String(summary ?? '').trim()
         if (!normalized) {
-          throw new Error('POST /api/summarize returned an invalid summary')
+          throw new Error('POST /summarize returned an invalid summary')
         }
         cacheSet(this.messageSummaries, id, normalized, MAX_CACHED_SUMMARIES)
         return normalized
@@ -1651,12 +1652,12 @@ export const useInboxStore = defineStore('inbox', {
       if (!prompt) return null
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/compose', {
+        const response = await fetch(`${AI_API_URL}/compose`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ mode: 'snippet', instruction: prompt }),
         })
-        if (!response.ok) throw new Error(`POST /api/compose responded ${response.status}`)
+        if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
         return (await response.json()).snippet
       } catch (error) {
         console.error('AI snippet generation failed:', error)
@@ -1863,12 +1864,12 @@ export const useInboxStore = defineStore('inbox', {
           existingText: bodyWithoutSignature(this.composerTextArea, this.signatureHtml),
         }
         if (replyToMessageId) request.replyToMessageId = replyToMessageId
-        const response = await fetch('/api/compose', {
+        const response = await fetch(`${AI_API_URL}/compose`, {
           method: 'POST',
           headers,
           body: JSON.stringify(request),
         })
-        if (!response.ok) throw new Error(`POST /api/compose responded ${response.status}`)
+        if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
         const { draft } = await response.json()
         this.aiDraftPreview = draft.text
         if (!this.composerSubject.trim() && draft.subject) this.composerSubject = draft.subject
