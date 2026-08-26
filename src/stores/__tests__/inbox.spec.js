@@ -5,6 +5,7 @@ import { setAuth0Client } from '../../auth0-client'
 import {
   AI_API_URL,
   EMAILS_API_URL,
+  SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
   RECEIPTS_API_URL,
@@ -1290,7 +1291,7 @@ describe('Inbox Store', () => {
     expect(store.openEmail).toEqual(store.sentEmails[0])
   })
 
-  it('askAssistant posts to /api/ask and records the answer with sources', async () => {
+  it('askAssistant posts to /ask and records the answer with sources', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -1305,7 +1306,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.askAssistant('What happened with the renovation?')
 
-    expect(fetch).toHaveBeenCalledWith('/api/ask', {
+    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/ask`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1391,7 +1392,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.searchEmails('  zoom invoice ')
 
-    expect(fetch).toHaveBeenCalledWith('/api/search?q=zoom%20invoice', {
+    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/search?q=zoom%20invoice`, {
       headers: { Authorization: 'Bearer test-access-token' },
       signal: expect.any(AbortSignal),
     })
@@ -1467,7 +1468,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.searchEmails('quick result', { semantic: false })
 
-    expect(fetch).toHaveBeenCalledWith('/api/search?q=quick%20result&mode=keyword', {
+    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/search?q=quick%20result&mode=keyword`, {
       headers: { Authorization: 'Bearer test-access-token' },
       signal: expect.any(AbortSignal),
     })

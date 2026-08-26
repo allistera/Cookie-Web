@@ -4,6 +4,7 @@ import { getAuth0 } from '../auth0-client'
 import {
   AI_API_URL,
   EMAILS_API_URL,
+  SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
   RECEIPTS_API_URL,
@@ -243,7 +244,7 @@ const FOLDER_STATE = {
   },
 }
 
-// Maps a GET /emails (or /api/search) row to the shape the views render.
+// Maps a GET /emails (or /search) row to the shape the views render.
 function mapEmailRow(message) {
   const firstRecipient = message.recipients?.to?.[0] ?? null
   return {
@@ -1086,12 +1087,12 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders()
         const mode = semantic ? '' : '&mode=keyword'
-        const response = await fetch(`/api/search?q=${encodeURIComponent(q)}${mode}`, {
+        const response = await fetch(`${SEARCH_API_URL}/search?q=${encodeURIComponent(q)}${mode}`, {
           headers,
           signal: controller.signal,
         })
         if (!response.ok) {
-          throw new Error(`GET /api/search responded ${response.status}`)
+          throw new Error(`GET /search responded ${response.status}`)
         }
         const { emails } = await response.json()
         if (seq !== this.listSeq) return
@@ -2094,7 +2095,7 @@ export const useInboxStore = defineStore('inbox', {
       this.isComposerActive = true
     },
 
-    // Real RAG: /api/ask retrieves the most relevant stored emails via
+    // Real RAG: /ask retrieves the most relevant stored emails via
     // hybrid search and answers with the sources it used.
     async askAssistant(query) {
       this.isChatDrawerActive = true
@@ -2106,14 +2107,14 @@ export const useInboxStore = defineStore('inbox', {
       this.isChatLoading = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch('/api/ask', {
+        const response = await fetch(`${SEARCH_API_URL}/ask`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ question: query }),
           signal: controller.signal,
         })
         if (!response.ok) {
-          throw new Error(`POST /api/ask responded ${response.status}`)
+          throw new Error(`POST /ask responded ${response.status}`)
         }
         const { answer, sources } = await response.json()
         if (seq !== askSeq) return

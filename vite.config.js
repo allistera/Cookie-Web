@@ -254,90 +254,92 @@ function localApiPlugin(mode) {
     req.url = `/read-receipts${url.search}`
     return handleWorkerReceiptsApi(req, res)
   }
+  // cookie-web-search fixtures: the real /search and /ask handlers live in
+  // Cookie-Worker now; these answer from the shared per-session fixture state.
   const handleSearch = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
-      const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
-      const rawQuery = new URL(req.url, 'http://localhost').searchParams.get('q') || ''
-      const { text, filters } = parseSearchQuery(rawQuery)
-      const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
-      const { summaries, archived, schedules } = fixtureMailboxState(req, res)
-      const now = Date.now()
-      // Mirrors api/_lib/retrieval.js: `in:` scopes results to one folder, and
-      // without it a search covers everything except Done (sent copies
-      // included). No fixture mail is classified as spam.
-      const inFolder = (email) => {
-        const scheduledFor = schedules.get(email.id)
-        const snoozed = Boolean(scheduledFor) && Date.parse(scheduledFor) > now
-        if (filters.in === 'all') return true
-        if (filters.in === 'done') return archived.has(email.id)
-        if (filters.in === 'sent') return Boolean(email.is_sent)
-        if (filters.in === 'spam') return false
-        if (filters.in === 'snoozed') return !archived.has(email.id) && snoozed
-        if (filters.in === 'inbox') {
-          return !archived.has(email.id) && !email.is_sent && !snoozed
-        }
-        return !archived.has(email.id)
+    const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
+    const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
+    const rawQuery = new URL(req.url, 'http://localhost').searchParams.get('q') || ''
+    const { text, filters } = parseSearchQuery(rawQuery)
+    const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
+    const { summaries, archived, schedules } = fixtureMailboxState(req, res)
+    const now = Date.now()
+    // Mirrors api/_lib/retrieval.js: `in:` scopes results to one folder, and
+    // without it a search covers everything except Done (sent copies
+    // included). No fixture mail is classified as spam.
+    const inFolder = (email) => {
+      const scheduledFor = schedules.get(email.id)
+      const snoozed = Boolean(scheduledFor) && Date.parse(scheduledFor) > now
+      if (filters.in === 'all') return true
+      if (filters.in === 'done') return archived.has(email.id)
+      if (filters.in === 'sent') return Boolean(email.is_sent)
+      if (filters.in === 'spam') return false
+      if (filters.in === 'snoozed') return !archived.has(email.id) && snoozed
+      if (filters.in === 'inbox') {
+        return !archived.has(email.id) && !email.is_sent && !snoozed
       }
-      const emails = [...fixtureEmails(), ...fixtureSentEmails()]
-        .filter((email) => {
-          if (!inFolder(email)) return false
-          const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
-          const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
-          if (!terms.every((term) => haystack.includes(term))) return false
-          if (filters.from && !sender.includes(filters.from.toLowerCase())) return false
-          if (
-            filters.to &&
-            !JSON.stringify(email.recipients || {})
-              .toLowerCase()
-              .includes(filters.to.toLowerCase())
-          ) {
-            return false
-          }
-          if (
-            filters.tag &&
-            !email.labels.some((label) =>
-              label.name.toLowerCase().includes(filters.tag.toLowerCase()),
-            )
-          ) {
-            return false
-          }
-          if (filters.hasAttachment && !email.has_attachments) return false
-          if (filters.before && email.sent_at >= `${filters.before}T00:00:00.000Z`) return false
-          if (filters.after && email.sent_at < `${filters.after}T00:00:00.000Z`) return false
-          return true
-        })
-        .map((email) => ({
-          ...email,
-          has_ai_summary: email.has_ai_summary || summaries.has(email.id),
-        }))
-      res.setHeader('Content-Type', 'application/json')
-      res.end(JSON.stringify({ emails }))
-      return
+      return !archived.has(email.id)
     }
-    const { default: handler } = await import('./api/search.js')
-    await handler(req, res)
+    const emails = [...fixtureEmails(), ...fixtureSentEmails()]
+      .filter((email) => {
+        if (!inFolder(email)) return false
+        const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
+        const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
+        if (!terms.every((term) => haystack.includes(term))) return false
+        if (filters.from && !sender.includes(filters.from.toLowerCase())) return false
+        if (
+          filters.to &&
+          !JSON.stringify(email.recipients || {})
+            .toLowerCase()
+            .includes(filters.to.toLowerCase())
+        ) {
+          return false
+        }
+        if (
+          filters.tag &&
+          !email.labels.some((label) =>
+            label.name.toLowerCase().includes(filters.tag.toLowerCase()),
+          )
+        ) {
+          return false
+        }
+        if (filters.hasAttachment && !email.has_attachments) return false
+        if (filters.before && email.sent_at >= `${filters.before}T00:00:00.000Z`) return false
+        if (filters.after && email.sent_at < `${filters.after}T00:00:00.000Z`) return false
+        return true
+      })
+      .map((email) => ({
+        ...email,
+        has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+      }))
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ emails }))
   }
   const handleAsk = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      res.setHeader('Content-Type', 'application/json')
-      res.end(
-        JSON.stringify({
-          answer:
-            'Here is a summary of your Kitchen Renovation updates:\n\n1. **City Construction**: Sent a revised floor plan this morning.\n2. **Insurance Claim**: Your claim has been processed.',
-          sources: [
-            {
-              id: 'fixture-1',
-              subject: 'Revised Floor Plan - Natural Light adjustments',
-              from_name: 'City Construction',
-            },
-          ],
-        }),
-      )
-      return
-    }
-    const { default: handler } = await import('./api/ask.js')
-    await handler(req, res)
+    res.setHeader('Content-Type', 'application/json')
+    res.end(
+      JSON.stringify({
+        answer:
+          'Here is a summary of your Kitchen Renovation updates:\n\n1. **City Construction**: Sent a revised floor plan this morning.\n2. **Insurance Claim**: Your claim has been processed.',
+        sources: [
+          {
+            id: 'fixture-1',
+            subject: 'Revised Floor Plan - Natural Light adjustments',
+            from_name: 'City Construction',
+          },
+        ],
+      }),
+    )
+  }
+  // Worker-origin dispatcher for cookie-web-search (e2e/workerFixtures.js
+  // routes search-api.infinitywave.online back here).
+  const handleWorkerSearchApi = (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    if (url.pathname === '/search') return handleSearch(req, res)
+    if (url.pathname === '/ask') return handleAsk(req, res)
+    res.statusCode = 404
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ error: 'Not Found' }))
   }
   // cookie-web-ai: /compose and /summarize. Fixture-only, like the other
   // migrated Workers — the real handlers live in Cookie-Worker now.
@@ -1184,6 +1186,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/receipts-api', handleWorkerReceiptsApi)
     server.middlewares.use('/__e2e__/emails-api', handleWorkerEmailsApi)
     server.middlewares.use('/__e2e__/ai-api', handleWorkerAiApi)
+    server.middlewares.use('/__e2e__/search-api', handleWorkerSearchApi)
   }
   return {
     name: 'local-api',
