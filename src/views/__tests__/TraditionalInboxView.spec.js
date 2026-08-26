@@ -188,6 +188,22 @@ describe('TraditionalInboxView day accordion', () => {
     expect(wrapper.findAll('.ni-row')[0].text()).toContain('Subject due-1')
   })
 
+  it('shows due sent follow-ups in Due Today with a visible reminder badge', () => {
+    const followUp = makeEmail('follow-up-1', Date.now() - 5 * DAY)
+    followUp.isSent = true
+    followUp.unread = false
+    followUp.followUpAt = new Date(Date.now() - HOUR).toISOString()
+    store.traditionalEmails.unshift(followUp)
+
+    const wrapper = mountView()
+
+    expect(groupHeader(wrapper, 'Due Today').attributes('aria-expanded')).toBe('true')
+    const row = wrapper
+      .findAll('.ni-row')
+      .find((item) => item.text().includes('Subject follow-up-1'))
+    expect(row.get('.ni-follow-up-status').text()).toContain('Follow up')
+  })
+
   it('does not render Due Today when no scheduled emails are due', () => {
     const wrapper = mountView()
 
@@ -487,6 +503,39 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.get('.ni-reader .ni-read-status').text()).toContain('Opened 14 Jul')
   })
 
+  it('sets and clears a follow-up reminder from the sent-message reader', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'sent' } })
+    const sent = makeEmail('sent-reminder', Date.now() - HOUR)
+    sent.isSent = true
+    sent.to = 'reader@example.com'
+    sent.unread = false
+    store.sentEmails = [sent]
+    vi.spyOn(store, 'loadSentEmails').mockResolvedValue()
+    const setFollowUp = vi
+      .spyOn(store, 'setMessageFollowUp')
+      .mockImplementation(async (email, followUpAt) => {
+        email.followUpAt = followUpAt
+        return { id: email.id, followUpAt }
+      })
+
+    const wrapper = mountView()
+    await wrapper.get('.ni-row').trigger('click')
+    await wrapper.get('.ni-reader-topbar [title="Remind me if no reply"]').trigger('click')
+    const tomorrow = wrapper
+      .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
+      .find((choice) => choice.text().includes('Tomorrow'))
+    await tomorrow.trigger('click')
+
+    expect(setFollowUp).toHaveBeenCalledWith(sent, expect.any(String))
+    await wrapper.get('.ni-reader-topbar [title^="Follow-up reminder:"]').trigger('click')
+    const clear = wrapper
+      .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
+      .find((choice) => choice.text().includes('Clear reminder'))
+    await clear.trigger('click')
+
+    expect(setFollowUp).toHaveBeenLastCalledWith(sent, null)
+  })
+
   it('an unknown filter falls back to the unstarred inbox', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'bogus' } })
     const wrapper = mountView()
@@ -665,6 +714,24 @@ describe('TraditionalInboxView reply send button', () => {
       expect.objectContaining({
         text: 'Sounds good!',
         html: expect.stringContaining('Sounds good!'),
+      }),
+    )
+  })
+
+  it('sends the selected follow-up reminder with an inline reply', async () => {
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const sendButton = await openReplyBox()
+
+    await wrapper.get('.ni-follow-up-btn').trigger('click')
+    const tomorrow = wrapper
+      .findAll('.ni-reply-footer .ni-schedule-menu [role="menuitem"]')
+      .find((choice) => choice.text().includes('Tomorrow'))
+    await tomorrow.trigger('click')
+    await sendButton.trigger('click')
+
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        followUpAt: expect.any(String),
       }),
     )
   })

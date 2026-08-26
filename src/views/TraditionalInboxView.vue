@@ -211,7 +211,11 @@ const emailGroups = computed(() => {
   const earlier = []
   for (const email of filteredEmails.value) {
     const scheduledFor = email.scheduledFor ? new Date(email.scheduledFor).getTime() : null
-    if (!activeFilter.value && !store.activeSearchQuery && scheduledFor && scheduledFor <= now) {
+    if (
+      !activeFilter.value &&
+      !store.activeSearchQuery &&
+      ((scheduledFor && scheduledFor <= now) || email.followUpAt)
+    ) {
       dueToday.push(email)
       continue
     }
@@ -371,12 +375,19 @@ function labelSelected(label) {
 
 const bulkScheduleOpen = ref(false)
 const readerScheduleOpen = ref(false)
+const readerFollowUpOpen = ref(false)
+const replyFollowUpOpen = ref(false)
 const readerTagOpen = ref(false)
 // Depends on the menus' open flags so the presets recompute from the current
 // clock each time a menu opens — with no reactive deps this cached its
 // "Later today"/"Tomorrow" dates once at mount for the whole session.
 const scheduleOptions = computed(() =>
-  bulkScheduleOpen.value || readerScheduleOpen.value ? scheduleChoices() : [],
+  bulkScheduleOpen.value ||
+  readerScheduleOpen.value ||
+  readerFollowUpOpen.value ||
+  replyFollowUpOpen.value
+    ? scheduleChoices()
+    : [],
 )
 
 // Reader tag menu: whether a palette label is already on the open email (matched
@@ -489,8 +500,18 @@ const isReplyOpen = ref(false)
 // and the text/plain part.
 const replyHtml = ref('')
 const replyTextPlain = ref('')
+const replyFollowUpAt = ref(null)
 const isSendingReply = ref(false)
 const replyEditorRef = ref(null)
+const FOLLOW_UP_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+const replyFollowUpLabel = computed(() =>
+  replyFollowUpAt.value ? FOLLOW_UP_FMT.format(new Date(replyFollowUpAt.value)) : 'Remind me',
+)
 
 function openReader(email) {
   // Opening a message takes over from any text field it was launched from
@@ -528,6 +549,9 @@ watch(
     isReplyOpen.value = false
     replyHtml.value = ''
     replyTextPlain.value = ''
+    replyFollowUpAt.value = null
+    replyFollowUpOpen.value = false
+    readerFollowUpOpen.value = false
     readerTagOpen.value = false
     contentUnsubscribe.value = null
     // Fetch the full body on demand (cached) for any open path, including the
@@ -600,6 +624,30 @@ async function scheduleOpenEmail(choice) {
   if (next) openReader(next)
 }
 
+async function setOpenEmailFollowUp(choice) {
+  if (!openEmail.value) return
+  readerFollowUpOpen.value = false
+  try {
+    await store.setMessageFollowUp(openEmail.value, choice.date.toISOString())
+    store.notify(`Reminder set for ${choice.label}.`)
+  } catch (error) {
+    console.error('Failed to set follow-up reminder:', error)
+    store.notify('Failed to set reminder. The thread may already have a reply.', 'error')
+  }
+}
+
+async function clearOpenEmailFollowUp() {
+  if (!openEmail.value) return
+  readerFollowUpOpen.value = false
+  try {
+    await store.setMessageFollowUp(openEmail.value, null)
+    store.notify('Reminder cleared.')
+  } catch (error) {
+    console.error('Failed to clear follow-up reminder:', error)
+    store.notify('Failed to clear reminder.', 'error')
+  }
+}
+
 function replyToOpenEmail() {
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
@@ -609,6 +657,18 @@ function discardReply() {
   isReplyOpen.value = false
   replyHtml.value = ''
   replyTextPlain.value = ''
+  replyFollowUpAt.value = null
+  replyFollowUpOpen.value = false
+}
+
+function selectReplyFollowUp(choice) {
+  replyFollowUpAt.value = choice.date.toISOString()
+  replyFollowUpOpen.value = false
+}
+
+function clearReplyFollowUp() {
+  replyFollowUpAt.value = null
+  replyFollowUpOpen.value = false
 }
 
 // The "/generate" command escalates to the composer window prefilled as a
@@ -623,6 +683,7 @@ function generateReplyDraft() {
   store.composerReplyToMessageId = email.id
   store.composerHtml = replyHtml.value
   store.composerTextArea = replyTextPlain.value
+  store.composerFollowUpAt = replyFollowUpAt.value
   discardReply()
   store.openComposer()
   store.openAiDraft()
@@ -633,7 +694,7 @@ async function sendReply() {
   const email = openEmail.value
   isSendingReply.value = true
   try {
-    await store.sendMail({
+    const result = await store.sendMail({
       to: email.address,
       subject: `Re: ${email.subject}`,
       text: replyTextPlain.value,
@@ -641,9 +702,15 @@ async function sendReply() {
       // composer's send path).
       html: sanitizeEmailHtml(replyHtml.value),
       replyToMessageId: email.id,
+      followUpAt: replyFollowUpAt.value,
     })
     discardReply()
-    store.notify('Reply sent.')
+    store.notify(
+      result?.followUpScheduled === false
+        ? 'Reply sent, but the reminder could not be saved.'
+        : 'Reply sent.',
+      result?.followUpScheduled === false ? 'error' : 'info',
+    )
   } catch (error) {
     console.error('Failed to send reply:', error)
     store.notify('Failed to send reply. Please try again.', 'error')
@@ -749,10 +816,13 @@ function forwardEmailKeydown(event) {
 }
 
 function onDocumentClick(e) {
+  const clickedReader = e.composedPath().some((node) => node?.classList?.contains('ni-reader'))
   if (!e.target.closest('.ni-schedule-wrap')) {
     bulkScheduleOpen.value = false
     bulkLabelOpen.value = false
     readerScheduleOpen.value = false
+    readerFollowUpOpen.value = false
+    replyFollowUpOpen.value = false
   }
   if (!e.target.closest('.ni-tag-wrap')) {
     readerTagOpen.value = false
@@ -763,6 +833,7 @@ function onDocumentClick(e) {
   // Clicks inside the panel keep it open; clicks on rows are handled by
   // openReader; the bulk bar acts on the list without dismissing the reader.
   if (
+    clickedReader ||
     e.target.closest('.ni-reader') ||
     e.target.closest('.ni-row') ||
     e.target.closest('.ni-bulk-bar')
@@ -974,7 +1045,34 @@ onUnmounted(() => {
             >
               <span class="material-symbols-outlined">check_box</span>
             </button>
-            <div v-if="activeFilter !== 'done'" class="ni-schedule-wrap">
+            <div v-if="openEmail.isSent" class="ni-schedule-wrap">
+              <button
+                class="ni-reader-btn"
+                :class="{ active: openEmail.followUpAt }"
+                :title="
+                  openEmail.followUpAt
+                    ? `Follow-up reminder: ${FOLLOW_UP_FMT.format(new Date(openEmail.followUpAt))}`
+                    : 'Remind me if no reply'
+                "
+                aria-haspopup="menu"
+                :aria-expanded="readerFollowUpOpen"
+                @click="readerFollowUpOpen = !readerFollowUpOpen"
+              >
+                <span class="material-symbols-outlined">{{
+                  openEmail.followUpAt ? 'notifications_active' : 'notification_add'
+                }}</span>
+              </button>
+              <ScheduleMenu
+                v-if="readerFollowUpOpen"
+                :choices="scheduleOptions"
+                submit-label="Remind me"
+                custom-label="Custom follow-up time"
+                :clear-label="openEmail.followUpAt ? 'Clear reminder' : ''"
+                @select="setOpenEmailFollowUp"
+                @clear="clearOpenEmailFollowUp"
+              />
+            </div>
+            <div v-else-if="activeFilter !== 'done'" class="ni-schedule-wrap">
               <button
                 class="ni-reader-btn"
                 title="Reschedule"
@@ -1221,6 +1319,29 @@ onUnmounted(() => {
               >
                 {{ isSendingReply ? 'Sending…' : 'Send' }}
               </button>
+              <div class="ni-schedule-wrap ni-schedule-wrap-upward">
+                <button
+                  type="button"
+                  class="btn btn-text ni-follow-up-btn"
+                  :class="{ active: replyFollowUpAt }"
+                  :disabled="isSendingReply"
+                  aria-haspopup="menu"
+                  :aria-expanded="replyFollowUpOpen"
+                  @click="replyFollowUpOpen = !replyFollowUpOpen"
+                >
+                  <span class="material-symbols-outlined">notification_add</span>
+                  <span>{{ replyFollowUpLabel }}</span>
+                </button>
+                <ScheduleMenu
+                  v-if="replyFollowUpOpen"
+                  :choices="scheduleOptions"
+                  submit-label="Remind me"
+                  custom-label="Custom follow-up time"
+                  :clear-label="replyFollowUpAt ? 'Clear reminder' : ''"
+                  @select="selectReplyFollowUp"
+                  @clear="clearReplyFollowUp"
+                />
+              </div>
               <button class="btn btn-text" @click="discardReply">Discard</button>
             </div>
           </div>

@@ -262,6 +262,7 @@ function mapEmailRow(message) {
     unread: message.is_unread,
     starred: message.is_starred,
     scheduledFor: message.scheduled_for ?? null,
+    followUpAt: message.follow_up_at ?? null,
     readAt: null,
     readCount: 0,
     // Whether the message has an HTML body (cheap boolean from the list
@@ -366,6 +367,7 @@ export const useInboxStore = defineStore('inbox', {
     composerTextArea: '', // plain-text body (innerText of the rich editor)
     composerHtml: '', // rich HTML body from the WYSIWYG editor
     composerReplyToMessageId: null,
+    composerFollowUpAt: null,
 
     // Personal email signature (rich HTML), edited in settings and appended to
     // new emails. Persisted locally.
@@ -1608,12 +1610,12 @@ export const useInboxStore = defineStore('inbox', {
 
     // replyToMessageId (optional) threads the stored sent copy with the
     // message being replied to.
-    async sendMail({ to, subject, text, html, replyToMessageId }) {
+    async sendMail({ to, subject, text, html, replyToMessageId, followUpAt }) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch('/api/send', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ to, subject, text, html, replyToMessageId }),
+        body: JSON.stringify({ to, subject, text, html, replyToMessageId, followUpAt }),
       })
       if (!response.ok) {
         throw new Error(`POST /api/send responded ${response.status}`)
@@ -1624,6 +1626,37 @@ export const useInboxStore = defineStore('inbox', {
         this.loadSentEmails().catch(() => {})
       }
       return response.json()
+    },
+
+    async setMessageFollowUp(email, followUpAt) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch('/api/send?resource=follow-up', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ messageId: email.id, followUpAt }),
+      })
+      if (!response.ok) {
+        throw new Error(`PATCH follow-up responded ${response.status}`)
+      }
+      const { message } = await response.json()
+      for (const list of [
+        this.traditionalEmails,
+        this.starredEmails,
+        this.labelEmails,
+        this.sentEmails,
+        this.spamEmails,
+        this.snoozedEmails,
+        this.doneEmails,
+      ]) {
+        for (const item of list) {
+          if (item.id === email.id) item.followUpAt = message.followUpAt
+        }
+      }
+      if (message.followUpAt === null && email.isSent) {
+        const inboxIndex = this.traditionalEmails.findIndex((item) => item.id === email.id)
+        if (inboxIndex > -1) this.traditionalEmails.splice(inboxIndex, 1)
+      }
+      return message
     },
 
     openComposer() {
@@ -1836,6 +1869,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerTextArea = ''
       this.composerHtml = ''
       this.composerReplyToMessageId = null
+      this.composerFollowUpAt = null
       this.isAiDraftActive = false
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
@@ -1939,6 +1973,7 @@ export const useInboxStore = defineStore('inbox', {
         // Sanitize the rich body once, here at the send boundary.
         html: sanitizeEmailHtml(this.composerHtml),
         replyToMessageId: this.composerReplyToMessageId,
+        followUpAt: this.composerFollowUpAt,
       }
       this.closeComposer()
       this.startPendingSend(draft)
@@ -1969,13 +2004,14 @@ export const useInboxStore = defineStore('inbox', {
     undoPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
-      const { to, subject, text, html, replyToMessageId } = this.pendingSend
+      const { to, subject, text, html, replyToMessageId, followUpAt } = this.pendingSend
       this.pendingSend = null
       this.composerTo = to
       this.composerSubject = subject
       this.composerTextArea = text
       this.composerHtml = html
       this.composerReplyToMessageId = replyToMessageId
+      this.composerFollowUpAt = followUpAt
       this.isComposerActive = true
     },
 
@@ -1988,14 +2024,20 @@ export const useInboxStore = defineStore('inbox', {
       this.pendingSend = null
       this.isSendingEmail = true
       try {
-        await this.sendMail({
+        const result = await this.sendMail({
           to: draft.to,
           subject: draft.subject,
           text: draft.text,
           html: draft.html,
           replyToMessageId: draft.replyToMessageId,
+          followUpAt: draft.followUpAt,
         })
-        this.notify('Email sent.')
+        this.notify(
+          result?.followUpScheduled === false
+            ? 'Email sent, but the reminder could not be saved.'
+            : 'Email sent.',
+          result?.followUpScheduled === false ? 'error' : 'info',
+        )
       } catch (error) {
         console.error('Failed to send email:', error)
         this.notify('Failed to send email. Please try again.', 'error')
@@ -2004,6 +2046,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerTextArea = draft.text
         this.composerHtml = draft.html
         this.composerReplyToMessageId = draft.replyToMessageId
+        this.composerFollowUpAt = draft.followUpAt
         this.isComposerActive = true
       } finally {
         this.isSendingEmail = false
@@ -2024,6 +2067,7 @@ export const useInboxStore = defineStore('inbox', {
         text: this.composerTextArea,
         html: sanitizeEmailHtml(this.composerHtml),
         replyToMessageId: this.composerReplyToMessageId,
+        followUpAt: this.composerFollowUpAt,
       }
       this.closeComposer()
       this.isSendingEmail = true
@@ -2047,6 +2091,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerTextArea = draft.text
         this.composerHtml = draft.html
         this.composerReplyToMessageId = draft.replyToMessageId
+        this.composerFollowUpAt = draft.followUpAt
         this.isComposerActive = true
         return false
       } finally {
@@ -2092,6 +2137,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerTextArea = canceled.text
       this.composerHtml = canceled.html || plainTextToHtml(canceled.text)
       this.composerReplyToMessageId = canceled.replyToMessageId
+      this.composerFollowUpAt = canceled.followUpAt
       this.isComposerActive = true
     },
 

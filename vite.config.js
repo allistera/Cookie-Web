@@ -32,6 +32,7 @@ function localApiPlugin(mode) {
         labels: null,
         rules: [],
         scheduledSends: [],
+        followUps: new Map(),
       })
     }
     return stubMailboxState.get(sessionId)
@@ -54,7 +55,7 @@ function localApiPlugin(mode) {
     const folder = url.searchParams.get('folder') || 'inbox'
     const labelName = (url.searchParams.get('label') || '').trim()
     const state = fixtureMailboxState(req, res)
-    const { schedules, archived, summaries, stars, messageLabels } = state
+    const { schedules, archived, summaries, stars, messageLabels, followUps } = state
     const now = Date.now()
     // Stars and labels changed through the messages Worker fixture override
     // the static row, so a list reflects what the test just did to it.
@@ -63,6 +64,7 @@ function localApiPlugin(mode) {
       is_starred: stars.get(email.id) ?? email.is_starred,
       labels: messageLabels.get(email.id) ?? email.labels,
       has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+      follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
     })
     const inbox = fixtureEmails().map((email) => ({
       ...withState(email),
@@ -93,11 +95,17 @@ function localApiPlugin(mode) {
           (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
         )
       }
-      return inbox.filter(
-        (email) =>
-          !archived.has(email.id) &&
-          (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
-      )
+      const dueFollowUps = sent
+        .filter((email) => email.follow_up_at && Date.parse(email.follow_up_at) <= now)
+        .sort((a, b) => Date.parse(b.follow_up_at) - Date.parse(a.follow_up_at))
+      return [
+        ...dueFollowUps,
+        ...inbox.filter(
+          (email) =>
+            !archived.has(email.id) &&
+            (!email.scheduled_for || Date.parse(email.scheduled_for) <= now),
+        ),
+      ]
     }
     const emails = selectFolder()
     res.setHeader('Content-Type', 'application/json')
@@ -187,6 +195,29 @@ function localApiPlugin(mode) {
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
+      if (resource === 'follow-up') {
+        if (req.method !== 'PATCH') {
+          res.statusCode = 405
+          res.end(JSON.stringify({ error: 'Method not allowed' }))
+          return
+        }
+        const exists = (await import('./api/_fixtures/emails.js'))
+          .fixtureSentEmails()
+          .some((email) => email.id === body.messageId)
+        if (!exists) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Sent message not found' }))
+          return
+        }
+        if (body.followUpAt === null) state.followUps.delete(body.messageId)
+        else state.followUps.set(body.messageId, body.followUpAt)
+        res.end(
+          JSON.stringify({
+            message: { id: body.messageId, followUpAt: body.followUpAt },
+          }),
+        )
+        return
+      }
       if (body.sendAt) {
         const scheduledSend = {
           id: `stub-scheduled-${randomUUID()}`,
@@ -196,6 +227,7 @@ function localApiPlugin(mode) {
           html: body.html ?? null,
           replyToMessageId: body.replyToMessageId ?? null,
           scheduledFor: body.sendAt,
+          followUpAt: body.followUpAt ?? null,
           status: 'pending',
         }
         state.scheduledSends.push(scheduledSend)
@@ -204,7 +236,13 @@ function localApiPlugin(mode) {
         return
       }
 
-      res.end(JSON.stringify({ id: 'e2e-fixture' }))
+      res.end(
+        JSON.stringify({
+          id: 'e2e-fixture',
+          messageId: `stub-sent-${randomUUID()}`,
+          followUpScheduled: body.followUpAt ? true : undefined,
+        }),
+      )
       return
     }
     const { default: handler } = await import('./api/send.js')
@@ -262,7 +300,7 @@ function localApiPlugin(mode) {
     const rawQuery = new URL(req.url, 'http://localhost').searchParams.get('q') || ''
     const { text, filters } = parseSearchQuery(rawQuery)
     const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
-    const { summaries, archived, schedules } = fixtureMailboxState(req, res)
+    const { summaries, archived, schedules, followUps } = fixtureMailboxState(req, res)
     const now = Date.now()
     // Mirrors api/_lib/retrieval.js: `in:` scopes results to one folder, and
     // without it a search covers everything except Done (sent copies
@@ -311,6 +349,7 @@ function localApiPlugin(mode) {
       .map((email) => ({
         ...email,
         has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+        follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
       }))
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ emails }))

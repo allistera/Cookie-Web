@@ -99,7 +99,10 @@ describe('POST /api/send security boundaries', () => {
     await handler(request(), res)
 
     expect(res.statusCode).toBe(200)
-    expect(res.body).toEqual({ id: 'resend-1' })
+    expect(res.body).toEqual({
+      id: 'resend-1',
+      messageId: expect.any(String),
+    })
     expect(mocks.resendSend).toHaveBeenCalledWith(
       expect.objectContaining({
         from: 'Cookie <mail@example.com>',
@@ -111,6 +114,41 @@ describe('POST /api/send security boundaries', () => {
     )
   })
 
+  it('persists a follow-up reminder on the sent copy', async () => {
+    const followUpAt = new Date(Date.now() + 10 * 60_000).toISOString()
+    let call = 0
+    const sql = vi.fn(async () => {
+      call += 1
+      if (call === 1) return [{ authorized: true, quota_claimed: true }]
+      if (call === 2) return [{ user_id: USER_ID, thread_id: null }]
+      return []
+    })
+    sql.begin = async (callback) => callback(sql)
+    mocks.getSql.mockReturnValue(sql)
+    mocks.resendSend.mockResolvedValue({ data: { id: 'resend-2' }, error: null })
+    const res = makeRes()
+
+    await handler(request({ followUpAt }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toMatchObject({ id: 'resend-2', followUpScheduled: true })
+    const insertCall = sql.mock.calls.find(([parts]) =>
+      parts.join(' ').includes('INSERT INTO messages'),
+    )
+    expect(insertCall[0].join(' ')).toContain('follow_up_at')
+    expect(insertCall.slice(1)).toContain(followUpAt)
+  })
+
+  it('rejects a follow-up reminder that is too soon before sending', async () => {
+    const res = makeRes()
+
+    await handler(request({ followUpAt: new Date(Date.now() + 10_000).toISOString() }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(mocks.getSql).not.toHaveBeenCalled()
+    expect(mocks.resendSend).not.toHaveBeenCalled()
+  })
+
   it('refuses to send when EMAIL_FROM is missing', async () => {
     delete process.env.EMAIL_FROM
     const res = makeRes()
@@ -119,5 +157,80 @@ describe('POST /api/send security boundaries', () => {
 
     expect(res.statusCode).toBe(503)
     expect(mocks.resendSend).not.toHaveBeenCalled()
+  })
+})
+
+describe('PATCH /api/send?resource=follow-up', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('updates only an owned sent message without a later inbound reply', async () => {
+    const followUpAt = new Date(Date.now() + 10 * 60_000).toISOString()
+    const sql = vi.fn(async () => [{ id: USER_ID, followUpAt }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      {
+        method: 'PATCH',
+        url: '/api/send?resource=follow-up',
+        headers: {},
+        body: { messageId: USER_ID, followUpAt },
+      },
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ message: { id: USER_ID, followUpAt } })
+    const query = sql.mock.calls[0][0].join(' ')
+    expect(query).toContain('m.user_id =')
+    expect(query).toContain('NOT EXISTS')
+    expect(query).toContain('reply.thread_id = m.thread_id')
+  })
+
+  it('returns conflict when the owned message already has a reply', async () => {
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ exists: 1 }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      {
+        method: 'PATCH',
+        url: '/api/send?resource=follow-up',
+        headers: {},
+        body: {
+          messageId: USER_ID,
+          followUpAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        },
+      },
+      res,
+    )
+
+    expect(res.statusCode).toBe(409)
+    expect(res.body.error).toMatch(/already has a reply/i)
+  })
+
+  it('clears a reminder from an owned sent message', async () => {
+    const sql = vi.fn(async () => [{ id: USER_ID, followUpAt: null }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      {
+        method: 'PATCH',
+        url: '/api/send?resource=follow-up',
+        headers: {},
+        body: { messageId: USER_ID, followUpAt: null },
+      },
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.message.followUpAt).toBeNull()
+    expect(sql.mock.calls[0][0].join(' ')).toContain('SET follow_up_at = NULL')
   })
 })

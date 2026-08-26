@@ -18,6 +18,15 @@ defineProps({
 })
 
 defineEmits(['open', 'toggle-select', 'toggle-star', 'done', 'toggle-unread'])
+
+function followUpTitle(followUpAt) {
+  return `Follow up ${new Date(followUpAt).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`
+}
 </script>
 
 <template>
@@ -62,6 +71,14 @@ defineEmits(['open', 'toggle-select', 'toggle-star', 'done', 'toggle-unread'])
       </span>
     </div>
     <div class="ni-date">
+      <span
+        v-if="email.followUpAt"
+        class="ni-follow-up-status"
+        :title="followUpTitle(email.followUpAt)"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">notifications_active</span>
+        Follow up
+      </span>
       <span
         v-if="email.isSent"
         class="ni-read-status"
