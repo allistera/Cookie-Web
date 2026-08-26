@@ -42,6 +42,7 @@ describe('Inbox Store', () => {
               is_unread: true,
               is_starred: false,
               has_ai_summary: true,
+              follow_up_at: '2026-08-20T09:00:00.000Z',
             },
           ],
         }),
@@ -69,6 +70,7 @@ describe('Inbox Store', () => {
         unread: true,
         starred: false,
         scheduledFor: null,
+        followUpAt: '2026-08-20T09:00:00.000Z',
         readAt: null,
         readCount: 0,
         hasHtml: false,
@@ -1045,10 +1047,24 @@ describe('Inbox Store', () => {
       )
     })
 
+    it('preserves a follow-up reminder through send and undo', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerFollowUpAt = '2026-08-20T09:00:00.000Z'
+
+      store.sendEmail()
+      store.undoPendingSend()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.composerFollowUpAt).toBe('2026-08-20T09:00:00.000Z')
+    })
+
     it('undo cancels the send and restores the message in the composer', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()
       armComposer(store)
+      store.composerFollowUpAt = '2026-08-03T09:00:00.000Z'
 
       store.sendEmail()
       store.undoPendingSend()
@@ -1155,6 +1171,7 @@ describe('Inbox Store', () => {
       vi.stubGlobal('fetch', fetchMock)
       const store = useInboxStore()
       armComposer(store)
+      store.composerFollowUpAt = '2026-08-03T09:00:00.000Z'
 
       const result = await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
 
@@ -1168,6 +1185,7 @@ describe('Inbox Store', () => {
         to: 'someone@example.com',
         subject: 'Hello',
         sendAt: '2026-08-02T09:00:00.000Z',
+        followUpAt: '2026-08-03T09:00:00.000Z',
       })
       expect(store.toasts.at(-1)?.message).toBe('Email scheduled for Tomorrow.')
     })
@@ -1251,6 +1269,7 @@ describe('Inbox Store', () => {
         text: 'Checking in.',
         html: '<p>Checking in.</p>',
         replyToMessageId: null,
+        followUpAt: '2026-08-03T09:00:00.000Z',
       }
       const fetchMock = vi
         .fn()
@@ -1269,6 +1288,7 @@ describe('Inbox Store', () => {
       expect(store.scheduledSends).toEqual([{ id: 'sched-2' }])
       expect(store.composerTo).toBe('someone@example.com')
       expect(store.composerTextArea).toBe('Checking in.')
+      expect(store.composerFollowUpAt).toBe('2026-08-03T09:00:00.000Z')
       expect(store.isComposerActive).toBe(true)
     })
 
@@ -1739,6 +1759,7 @@ describe('Inbox Store', () => {
       to: 'someone@example.com',
       subject: 'Re: Hello',
       text: 'Hi there',
+      followUpAt: '2026-08-20T09:00:00.000Z',
     })
 
     expect(fetch).toHaveBeenCalledWith('/api/send', {
@@ -1747,9 +1768,56 @@ describe('Inbox Store', () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-access-token',
       },
-      body: JSON.stringify({ to: 'someone@example.com', subject: 'Re: Hello', text: 'Hi there' }),
+      body: JSON.stringify({
+        to: 'someone@example.com',
+        subject: 'Re: Hello',
+        text: 'Hi there',
+        followUpAt: '2026-08-20T09:00:00.000Z',
+      }),
     })
     expect(result).toEqual({ id: 'msg-1' })
+  })
+
+  it('sets and clears a follow-up reminder across loaded mailboxes', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          message: { id: 'sent-1', followUpAt: '2026-08-20T09:00:00.000Z' },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ message: { id: 'sent-1', followUpAt: null } }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const inboxEmail = { id: 'sent-1', isSent: true, followUpAt: null }
+    const sentEmail = { id: 'sent-1', isSent: true, followUpAt: null }
+    store.traditionalEmails = [inboxEmail]
+    store.sentEmails = [sentEmail]
+
+    await store.setMessageFollowUp(inboxEmail, '2026-08-20T09:00:00.000Z')
+
+    expect(inboxEmail.followUpAt).toBe('2026-08-20T09:00:00.000Z')
+    expect(sentEmail.followUpAt).toBe('2026-08-20T09:00:00.000Z')
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/send?resource=follow-up', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-access-token',
+      },
+      body: JSON.stringify({
+        messageId: 'sent-1',
+        followUpAt: '2026-08-20T09:00:00.000Z',
+      }),
+    })
+
+    await store.setMessageFollowUp(inboxEmail, null)
+
+    expect(store.traditionalEmails).toEqual([])
+    expect(sentEmail.followUpAt).toBeNull()
   })
 
   it('throws when sending mail fails', async () => {

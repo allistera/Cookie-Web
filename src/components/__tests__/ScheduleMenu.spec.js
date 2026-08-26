@@ -42,6 +42,24 @@ describe('ScheduleMenu', () => {
     expect(wrapper.emitted('select')).toEqual([[choices[1]]])
   })
 
+  it('optionally exposes a clear action and custom form label', async () => {
+    const wrapper = mount(ScheduleMenu, {
+      props: {
+        choices: scheduleChoices(NOW),
+        clearLabel: 'Clear reminder',
+        customLabel: 'Custom follow-up time',
+      },
+    })
+
+    const items = wrapper.findAll('button[role="menuitem"]')
+    expect(items).toHaveLength(6)
+    await items[4].trigger('click')
+    expect(wrapper.emitted('clear')).toEqual([[]])
+
+    await items[5].trigger('click')
+    expect(wrapper.get('form').attributes('aria-label')).toBe('Custom follow-up time')
+  })
+
   it('keeps the custom form hidden until the picker is opened', async () => {
     const wrapper = mountMenu()
     expect(wrapper.find('.ni-schedule-custom').exists()).toBe(false)

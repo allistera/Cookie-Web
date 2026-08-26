@@ -31,10 +31,38 @@ const isSendDisabled = computed(
 
 const scheduleSendOpen = ref(false)
 const scheduleSendOptions = computed(() => (scheduleSendOpen.value ? scheduleChoices() : []))
+const followUpOpen = ref(false)
+const followUpOptions = computed(() => (followUpOpen.value ? scheduleChoices() : []))
+const followUpLabel = computed(() => {
+  if (!store.composerFollowUpAt) return 'Remind me'
+  return new Date(store.composerFollowUpAt).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+})
 
 function selectScheduleSend(choice) {
   scheduleSendOpen.value = false
+  if (
+    store.composerFollowUpAt &&
+    Date.parse(store.composerFollowUpAt) < choice.date.getTime() + 60_000
+  ) {
+    store.notify('Choose a reminder at least one minute after the scheduled send.', 'error')
+    return
+  }
   store.sendEmailLater(choice.date.toISOString(), choice.label)
+}
+
+function selectFollowUp(choice) {
+  followUpOpen.value = false
+  store.composerFollowUpAt = choice.date.toISOString()
+}
+
+function clearFollowUp() {
+  followUpOpen.value = false
+  store.composerFollowUpAt = null
 }
 
 function openContactSuggest() {
@@ -92,7 +120,10 @@ watch(
 
 function onDocumentClick(event) {
   const target = event.target instanceof Element ? event.target : null
-  if (!target?.closest('.ni-schedule-wrap')) scheduleSendOpen.value = false
+  if (!target?.closest('.ni-schedule-wrap')) {
+    scheduleSendOpen.value = false
+    followUpOpen.value = false
+  }
 }
 
 onMounted(() => document.addEventListener('click', onDocumentClick))
@@ -231,9 +262,35 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
               v-if="scheduleSendOpen"
               :choices="scheduleSendOptions"
               submit-label="Schedule"
+              custom-label="Custom send time"
               @select="selectScheduleSend"
             />
           </div>
+        </div>
+        <div class="ni-schedule-wrap ni-schedule-wrap-upward">
+          <button
+            type="button"
+            class="btn btn-text composer-follow-up-btn"
+            :class="{ active: store.composerFollowUpAt }"
+            aria-haspopup="menu"
+            :aria-expanded="followUpOpen"
+            :title="
+              store.composerFollowUpAt ? 'Change follow-up reminder' : 'Remind me if no reply'
+            "
+            @click="followUpOpen = !followUpOpen"
+          >
+            <span class="material-symbols-outlined">notification_add</span>
+            <span>{{ followUpLabel }}</span>
+          </button>
+          <ScheduleMenu
+            v-if="followUpOpen"
+            :choices="followUpOptions"
+            submit-label="Remind me"
+            custom-label="Custom follow-up time"
+            :clear-label="store.composerFollowUpAt ? 'Clear reminder' : ''"
+            @select="selectFollowUp"
+            @clear="clearFollowUp"
+          />
         </div>
       </div>
       <div class="composer-ai-inline">

@@ -173,6 +173,19 @@ export function parseScheduledFor(sendAt) {
   return new Date(timestamp).toISOString()
 }
 
+export function parseFollowUpAt(followUpAt, after = Date.now()) {
+  const timestamp = Date.parse(String(followUpAt ?? ''))
+  const afterTimestamp = new Date(after).getTime()
+  if (
+    Number.isNaN(timestamp) ||
+    Number.isNaN(afterTimestamp) ||
+    timestamp < Math.max(Date.now(), afterTimestamp) + MIN_SCHEDULE_LEAD_MS
+  ) {
+    return null
+  }
+  return new Date(timestamp).toISOString()
+}
+
 export async function claimOutboundEmailQuota(sql, userId) {
   const [result] = await sql`
     WITH claimed AS (
@@ -226,7 +239,7 @@ export async function refundOutboundEmailQuota(sql, userId) {
 async function storeSentMessage(
   sql,
   userId,
-  { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken },
+  { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken, followUpAt },
   services,
 ) {
   const messageId = resendId ? `<${resendId}@resend.cookie-web>` : null
@@ -269,10 +282,11 @@ async function storeSentMessage(
       (sql) => sql`
       INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
                             recipients, subject, snippet, body_text, body_html, sent_at,
-                            message_id, is_unread, is_sent)
+                            message_id, is_unread, is_sent, follow_up_at)
       VALUES (${messageUuid}, ${threadUuid}, ${userId}, ${fromName},
               ${fromAddress}, ${recipientsJson}::jsonb, ${subject}, ${makeSnippet(text)},
-              ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true)
+              ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true,
+              ${followUpAt ?? null}::timestamptz)
       ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
     `,
     )
@@ -292,6 +306,12 @@ async function storeSentMessage(
         await statement(sql)
       }
     })
+  } else if (followUpAt) {
+    await sql`
+      UPDATE messages
+      SET follow_up_at = ${followUpAt}::timestamptz
+      WHERE id = ${messageUuid} AND user_id = ${userId} AND is_sent
+    `
   }
 
   // Best effort and outside the sent-copy transaction: during a rolling
@@ -336,7 +356,16 @@ async function storeSentMessage(
 async function deliverMail(
   sql,
   userId,
-  { recipients, subject, text, html, replyToMessageId, idempotencyKey, readReceiptToken },
+  {
+    recipients,
+    subject,
+    text,
+    html,
+    replyToMessageId,
+    idempotencyKey,
+    readReceiptToken,
+    followUpAt,
+  },
   services,
 ) {
   const receiptToken = readReceiptToken ?? crypto.randomUUID()
@@ -369,6 +398,7 @@ async function deliverMail(
         replyToMessageId,
         resendId: data.id,
         readReceiptToken: receiptUrl ? receiptToken : null,
+        followUpAt,
       },
       services,
     ))
@@ -423,7 +453,7 @@ function immediateSendIdempotencyKey(
 async function createScheduledSend(
   sql,
   userId,
-  { recipients, subject, text, html, replyToMessageId, scheduledFor },
+  { recipients, subject, text, html, replyToMessageId, scheduledFor, followUpAt },
 ) {
   // The count-then-insert cap is not safe under READ COMMITTED on its own:
   // two concurrent transactions can both snapshot count = MAX - 1 and both
@@ -433,14 +463,17 @@ async function createScheduledSend(
     await tx`SELECT pg_advisory_xact_lock(hashtext(${userId}::text)::bigint)`
     const [row] = await tx`
       INSERT INTO scheduled_sends
-        (user_id, to_addresses, subject, body_text, body_html, reply_to_message_id, scheduled_for)
+        (user_id, to_addresses, subject, body_text, body_html, reply_to_message_id,
+         scheduled_for, follow_up_at)
       SELECT ${userId}, ${recipients.join(', ')}, ${subject}, ${text}, ${html ?? null},
-             ${replyToMessageId}::uuid, ${scheduledFor}::timestamptz
+             ${replyToMessageId}::uuid, ${scheduledFor}::timestamptz,
+             ${followUpAt ?? null}::timestamptz
       WHERE (
         SELECT count(*) FROM scheduled_sends s
         WHERE s.user_id = ${userId} AND s.status = 'pending'
       ) < ${MAX_PENDING_SCHEDULED_SENDS}
-      RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor"
+      RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor",
+                follow_up_at AS "followUpAt"
     `
     return row ?? null
   })
@@ -449,7 +482,7 @@ async function createScheduledSend(
 async function listScheduledSends(sql, userId) {
   return sql`
     SELECT s.id, s.to_addresses AS "toAddresses", s.subject, s.scheduled_for AS "scheduledFor",
-           s.status, s.last_error AS "lastError"
+           s.follow_up_at AS "followUpAt", s.status, s.last_error AS "lastError"
     FROM scheduled_sends s
     WHERE s.user_id = ${userId} AND s.status IN ('pending', 'failed')
     ORDER BY s.scheduled_for ASC
@@ -466,7 +499,8 @@ async function cancelScheduledSend(sql, userId, id) {
     WHERE s.id = ${id} AND s.user_id = ${userId} AND s.status = 'pending'
     RETURNING s.id, s.to_addresses AS "toAddresses", s.subject,
               s.body_text AS "text", s.body_html AS "html",
-              s.reply_to_message_id AS "replyToMessageId"
+              s.reply_to_message_id AS "replyToMessageId",
+              s.follow_up_at AS "followUpAt"
   `
   return row ?? null
 }
@@ -491,7 +525,8 @@ async function claimDueScheduledSends(sql, limit) {
     WHERE s.id = due.id
     RETURNING s.id, s.user_id, s.to_addresses AS "toAddresses", s.subject,
               s.body_text AS "text", s.body_html AS "html",
-              s.reply_to_message_id AS "replyToMessageId", s.attempts
+              s.reply_to_message_id AS "replyToMessageId",
+              s.follow_up_at AS "followUpAt", s.attempts
   `
 }
 
@@ -562,6 +597,7 @@ async function deliverScheduledSend(sql, row, services) {
         // The receipt URL is part of the provider payload, so it must remain
         // stable when an expired lease retries with the same idempotency key.
         readReceiptToken: row.id,
+        followUpAt: row.followUpAt,
       },
       services,
     )
@@ -581,6 +617,11 @@ async function deliverScheduledSend(sql, row, services) {
       WHERE id = ${row.id}
     `
     return 'retried'
+  }
+
+  if (row.followUpAt && !delivered.messageUuid) {
+    console.error(`scheduled send ${row.id} delivered but its follow-up could not be stored`)
+    return 'unconfirmed'
   }
 
   try {
@@ -651,6 +692,86 @@ async function handleScheduled(req, res, userId, services) {
   }
   res.statusCode = 405
   res.end(JSON.stringify({ error: 'Method not allowed' }))
+}
+
+async function handleFollowUp(req, res, userId, services) {
+  if (req.method !== 'PATCH') {
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    return
+  }
+
+  let body
+  try {
+    body = await readJsonBody(req)
+  } catch {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+    return
+  }
+  const messageId = UUID_RE.test(body.messageId) ? String(body.messageId) : null
+  if (!messageId || !Object.hasOwn(body, 'followUpAt')) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'messageId and followUpAt are required' }))
+    return
+  }
+
+  let followUpAt = null
+  if (body.followUpAt !== null) {
+    followUpAt = parseFollowUpAt(body.followUpAt)
+    if (!followUpAt) {
+      res.statusCode = 400
+      res.end(
+        JSON.stringify({ error: 'followUpAt must be an ISO timestamp at least a minute out' }),
+      )
+      return
+    }
+  }
+
+  const sql = services.getSql()
+  const [message] =
+    followUpAt === null
+      ? await sql`
+          UPDATE messages
+          SET follow_up_at = NULL
+          WHERE id = ${messageId}::uuid AND user_id = ${userId}
+            AND is_sent AND NOT is_deleted
+          RETURNING id, follow_up_at AS "followUpAt"
+        `
+      : await sql`
+          UPDATE messages m
+          SET follow_up_at = ${followUpAt}::timestamptz
+          WHERE m.id = ${messageId}::uuid AND m.user_id = ${userId}
+            AND m.is_sent AND NOT m.is_deleted
+            AND NOT EXISTS (
+              SELECT 1
+              FROM messages reply
+              WHERE reply.user_id = m.user_id
+                AND reply.thread_id = m.thread_id
+                AND NOT reply.is_sent
+                AND NOT reply.is_deleted
+                AND reply.sent_at > m.sent_at
+            )
+          RETURNING m.id, m.follow_up_at AS "followUpAt"
+        `
+  if (message) {
+    res.statusCode = 200
+    res.end(JSON.stringify({ message }))
+    return
+  }
+
+  const [owned] = await sql`
+    SELECT 1 AS "exists"
+    FROM messages
+    WHERE id = ${messageId}::uuid AND user_id = ${userId}
+      AND is_sent AND NOT is_deleted
+  `
+  res.statusCode = owned ? 409 : 404
+  res.end(
+    JSON.stringify({
+      error: owned ? 'This message already has a reply' : 'Sent message not found',
+    }),
+  )
 }
 
 // Hashing both sides to a fixed-length digest before comparing means
@@ -763,7 +884,7 @@ async function handleSend(req, res, userId, services) {
     return
   }
 
-  const { to, subject, text, html, replyToMessageId, sendAt, requestId } = body
+  const { to, subject, text, html, replyToMessageId, sendAt, requestId, followUpAt } = body
   // Optional client-generated id for idempotency; bounded and restricted so
   // it can only widen the key space, never collide or smuggle content.
   const requestIdText = String(requestId ?? '')
@@ -785,6 +906,19 @@ async function handleSend(req, res, userId, services) {
       res.end(JSON.stringify({ error: 'sendAt must be an ISO timestamp at least a minute out' }))
       return
     }
+    const parsedFollowUpAt =
+      followUpAt === undefined || followUpAt === null
+        ? null
+        : parseFollowUpAt(followUpAt, scheduledFor)
+    if (followUpAt !== undefined && followUpAt !== null && !parsedFollowUpAt) {
+      res.statusCode = 400
+      res.end(
+        JSON.stringify({
+          error: 'followUpAt must be an ISO timestamp at least a minute after sendAt',
+        }),
+      )
+      return
+    }
     try {
       const sql = services.getSql()
       const owned = await ownedReplyToMessageId(sql, userId, replyTo)
@@ -800,6 +934,7 @@ async function handleSend(req, res, userId, services) {
         html: bodyHtml,
         replyToMessageId: owned.replyTo,
         scheduledFor,
+        followUpAt: parsedFollowUpAt,
       })
       if (!scheduledSend) {
         res.statusCode = 429
@@ -813,6 +948,14 @@ async function handleSend(req, res, userId, services) {
       res.statusCode = 500
       res.end(JSON.stringify({ error: 'Failed to schedule email' }))
     }
+    return
+  }
+
+  const parsedFollowUpAt =
+    followUpAt === undefined || followUpAt === null ? null : parseFollowUpAt(followUpAt)
+  if (followUpAt !== undefined && followUpAt !== null && !parsedFollowUpAt) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'followUpAt must be an ISO timestamp at least a minute out' }))
     return
   }
 
@@ -845,7 +988,7 @@ async function handleSend(req, res, userId, services) {
   }
 
   try {
-    const { resendId } = await deliverMail(
+    const { resendId, messageUuid } = await deliverMail(
       sql,
       userId,
       {
@@ -862,11 +1005,18 @@ async function handleSend(req, res, userId, services) {
           replyToMessageId: replyTo,
           requestId: clientRequestId,
         }),
+        followUpAt: parsedFollowUpAt,
       },
       services,
     )
     res.statusCode = 200
-    res.end(JSON.stringify({ id: resendId }))
+    res.end(
+      JSON.stringify({
+        id: resendId,
+        messageId: messageUuid,
+        followUpScheduled: parsedFollowUpAt ? Boolean(messageUuid) : undefined,
+      }),
+    )
   } catch (err) {
     console.error('Resend send failed:', err)
     // The quota was claimed but no email was delivered — refund it so a
@@ -905,6 +1055,10 @@ export function createHandler(overrides = {}) {
     try {
       if (resource === 'scheduled') {
         await handleScheduled(req, res, userId, services)
+        return
+      }
+      if (resource === 'follow-up') {
+        await handleFollowUp(req, res, userId, services)
         return
       }
       await handleSend(req, res, userId, services)

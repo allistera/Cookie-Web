@@ -2,7 +2,7 @@ import process from 'node:process'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createHandler, parseScheduledFor } from '../send.js'
+import { createHandler, parseFollowUpAt, parseScheduledFor } from '../send.js'
 
 const mocks = {
   getSql: vi.fn(),
@@ -74,6 +74,23 @@ describe('parseScheduledFor', () => {
   })
 })
 
+describe('parseFollowUpAt', () => {
+  it('accepts a reminder at least a minute after the relevant send time', () => {
+    const sendAt = futureIso(10 * 60_000)
+    const followUpAt = futureIso(20 * 60_000)
+
+    expect(parseFollowUpAt(followUpAt, sendAt)).toBe(followUpAt)
+  })
+
+  it('rejects invalid, past, and too-early reminder timestamps', () => {
+    const sendAt = futureIso(10 * 60_000)
+
+    expect(parseFollowUpAt('not a date')).toBeNull()
+    expect(parseFollowUpAt(futureIso(-60_000))).toBeNull()
+    expect(parseFollowUpAt(futureIso(10 * 60_000 + 30_000), sendAt)).toBeNull()
+  })
+})
+
 describe('POST /api/send with sendAt (schedule creation)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -82,6 +99,8 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
   })
 
   it('queues a scheduled_sends row instead of calling the provider', async () => {
+    const sendAt = futureIso()
+    const followUpAt = futureIso(20 * 60_000)
     const sql = sequentialSql([
       [], // advisory lock (sql.begin)
       [
@@ -89,7 +108,8 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
           id: 'sched-1',
           toAddresses: 'recipient@example.com',
           subject: 'Hello',
-          scheduledFor: futureIso(),
+          scheduledFor: sendAt,
+          followUpAt,
         },
       ],
     ])
@@ -102,7 +122,8 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
           to: 'recipient@example.com',
           subject: 'Hello',
           text: 'Plain text',
-          sendAt: futureIso(),
+          sendAt,
+          followUpAt,
         },
       }),
       res,
@@ -110,7 +131,30 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
 
     expect(res.statusCode).toBe(201)
     expect(res.body.scheduledSend.id).toBe('sched-1')
+    expect(res.body.scheduledSend.followUpAt).toBe(followUpAt)
+    expect(sql.mock.calls[1][0].join(' ')).toContain('follow_up_at')
     expect(mocks.resendSend).not.toHaveBeenCalled()
+  })
+
+  it('rejects a reminder that is not after the scheduled send', async () => {
+    const sendAt = futureIso(10 * 60_000)
+    const res = makeRes()
+
+    await handler(
+      request({
+        body: {
+          to: 'recipient@example.com',
+          subject: 'Hello',
+          text: 'Plain text',
+          sendAt,
+          followUpAt: futureIso(5 * 60_000),
+        },
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(400)
+    expect(mocks.getSql).not.toHaveBeenCalled()
   })
 
   it('rejects a sendAt less than a minute out without touching the database', async () => {
@@ -264,6 +308,7 @@ describe('POST /api/send?resource=flush', () => {
       text: 'Plain text',
       html: null,
       replyToMessageId: null,
+      followUpAt: futureIso(),
       attempts: 0,
     }
     const sql = sequentialSql([
@@ -288,6 +333,7 @@ describe('POST /api/send?resource=flush', () => {
       expect.objectContaining({ to: ['recipient@example.com'] }),
       { idempotencyKey: 'scheduled-send/sched-1' },
     )
+    expect(sql.mock.calls.map(([parts]) => parts.join(' ')).join('\n')).toContain('follow_up_at')
   })
 
   it('retries a transient claim connection failure', async () => {

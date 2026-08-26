@@ -4,9 +4,11 @@ import { computed, ref } from 'vue'
 defineProps({
   choices: { type: Array, required: true },
   submitLabel: { type: String, default: 'Snooze' },
+  customLabel: { type: String, default: 'Custom snooze time' },
+  clearLabel: { type: String, default: '' },
 })
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'clear'])
 const showCustom = ref(false)
 const customValue = ref('')
 
@@ -59,6 +61,10 @@ function selectCustom() {
       <span>{{ choice.label }}</span>
       <span>{{ detail(choice) }}</span>
     </button>
+    <button v-if="clearLabel" type="button" role="menuitem" @click="emit('clear')">
+      <span>{{ clearLabel }}</span>
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
     <button
       type="button"
       role="menuitem"
@@ -72,7 +78,7 @@ function selectCustom() {
     <form
       v-if="showCustom"
       class="ni-schedule-custom"
-      aria-label="Custom snooze time"
+      :aria-label="customLabel"
       @submit.prevent="selectCustom"
     >
       <label>

@@ -132,6 +132,10 @@ creating duplicates. `source_document_id` is `ON DELETE SET NULL`, not
 `CASCADE` — deleting the note detaches its events rather than deleting real
 calendar commitments along with it.
 
+`0052_follow_up_reminders.sql` adds optional follow-up timestamps to sent
+messages and pending scheduled sends. A partial due-reminder index supports
+Inbox resurfacing without scanning ordinary sent mail.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

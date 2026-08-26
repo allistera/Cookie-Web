@@ -1516,6 +1516,18 @@ body {
   font-size: 16px;
 }
 
+.ni-follow-up-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-blue);
+  white-space: nowrap;
+}
+
+.ni-follow-up-status .material-symbols-outlined {
+  font-size: 16px;
+}
+
 .ni-read-status-reader {
   margin-left: 8px;
   font-size: 13px;
@@ -1724,6 +1736,11 @@ body {
 
 .ni-reader-btn.starred {
   color: #f2c94c;
+}
+
+.ni-reader-btn.active {
+  color: var(--text-blue);
+  background: color-mix(in srgb, var(--text-blue) 10%, transparent);
 }
 
 .ni-reader-btn:disabled {
@@ -2131,6 +2148,23 @@ button.ni-attachment:hover {
 .ni-reply-footer .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.ni-follow-up-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+  white-space: nowrap;
+}
+
+.ni-follow-up-btn.active {
+  color: var(--text-blue);
+  background: color-mix(in srgb, var(--text-blue) 10%, transparent);
+}
+
+.ni-follow-up-btn .material-symbols-outlined {
+  font-size: 18px;
 }
 
 /* Superhuman-style toast notifications */
@@ -3068,6 +3102,25 @@ button.ni-attachment:hover {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.composer-follow-up-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  padding: 9px 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.composer-follow-up-btn.active {
+  color: var(--text-blue);
+  background: color-mix(in srgb, var(--text-blue) 10%, transparent);
+}
+
+.composer-follow-up-btn .material-symbols-outlined {
+  font-size: 19px;
 }
 
 .composer-send-btn:disabled {
