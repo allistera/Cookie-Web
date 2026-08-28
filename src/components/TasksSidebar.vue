@@ -165,7 +165,7 @@ function removeProject(project) {
             :aria-label="`New project in ${row.item.name}`"
             @click="showNewProject(row.item.id)"
           >
-            <span class="material-symbols-outlined">add</span>
+            <span class="material-symbols-outlined" aria-hidden="true">add</span>
           </button>
           <button
             class="row-action-btn"
@@ -174,7 +174,7 @@ function removeProject(project) {
             :aria-label="`Delete ${row.item.name}`"
             @click="removeProject(row.item)"
           >
-            <span class="material-symbols-outlined">delete</span>
+            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
           </button>
         </span>
       </router-link>
@@ -185,6 +185,7 @@ function removeProject(project) {
           class="project-rename-input"
           placeholder="Project name"
           aria-label="New project name"
+          @keydown.enter.prevent="submitNewProject"
           @keydown.escape="newProjectFor = null"
           @blur="submitNewProject"
         />

@@ -35,7 +35,7 @@ describe('TasksSidebar', () => {
     const inbox = wrapper.get('.tasks-views-nav .nav-item')
     expect(inbox.text()).toContain('Inbox')
     expect(inbox.attributes('href')).toBe('/tasks?project=inbox')
-    expect(wrapper.get('.sb-section-label').text()).toContain('My Projects')
+    expect(wrapper.get('.sb-section-label > span').text()).toBe('My Projects')
   })
 
   // Inbox is the no-project bucket, so it must never appear as a project row
@@ -105,6 +105,28 @@ describe('TasksSidebar', () => {
     await wrapper.get('.new-project-row').trigger('submit')
 
     expect(create).toHaveBeenCalledWith({ name: 'Work', parentId: null })
+  })
+
+  // Same Enter-then-blur double-fire as rename below: Enter commits and
+  // unmounts the input, which fires blur, re-entering the same handler.
+  it('creates a project once when Enter is followed by blur', async () => {
+    const store = useProjectsStore()
+    store.isLoaded = true
+    const create = vi.spyOn(store, 'createProject').mockResolvedValue({
+      id: 'p1',
+      parentId: null,
+      name: 'Work',
+    })
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.new-project-btn').trigger('click')
+    const input = wrapper.get('.new-project-row input')
+    await input.setValue('Work')
+    await input.trigger('keydown.enter')
+    await input.trigger('blur')
+
+    expect(create).toHaveBeenCalledTimes(1)
   })
 
   // Enter commits and unmounts the input, which fires blur: without a guard
