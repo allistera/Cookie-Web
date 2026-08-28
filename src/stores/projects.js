@@ -75,7 +75,14 @@ export const useProjectsStore = defineStore('projects', {
 
     async patchProject(id, changes, failureMessage) {
       const project = this.projects.find((row) => row.id === id)
-      if (!project) return null
+      if (!project) {
+        // The sidebar only ever calls this with an id from a row it is
+        // currently rendering, so this should be unreachable in practice.
+        // Notify anyway so the contract ("every failed mutation notifies")
+        // holds even if a stale id ever slips through.
+        this.notify(failureMessage, 'error')
+        return null
+      }
       const previous = { ...project }
       Object.assign(project, changes)
       try {

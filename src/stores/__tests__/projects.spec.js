@@ -55,6 +55,21 @@ describe('projects store', () => {
     expect(notify).toHaveBeenCalledWith('Failed to rename the project.', 'error')
   })
 
+  it('sends the moved parentId in the request body', async () => {
+    store.projects = [{ ...PROJECT }]
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ project: { ...PROJECT, parentId: 'p2' } }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const moved = await store.moveProject('p1', 'p2')
+
+    expect(moved.parentId).toBe('p2')
+    const [, options] = fetchMock.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 'p1', parentId: 'p2' })
+  })
+
   it('removes a deleted project and its descendants from local state', async () => {
     store.projects = [{ ...PROJECT }, { id: 'p2', parentId: 'p1', name: 'API' }]
     stubFetch(async () => ({ ok: true, json: async () => ({ ok: true }) }))
