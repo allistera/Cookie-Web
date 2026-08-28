@@ -2,7 +2,15 @@
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { useInboxStore } from '../stores/inbox'
+
 const route = useRoute()
+
+// Same chunking constraint TasksView documents: a lazily-loaded Tasks chunk
+// that touches no store makes Rolldown fold the shared pinia/auth0 chunk into
+// the entry bundle, blowing the entry-chunk budget the build enforces. The
+// store will be needed here as soon as projects have a backing source.
+useInboxStore()
 
 // Projects have no API yet — the tasks worker only serves gathered tasks, with
 // no project or list concept behind them. The section renders off this list so
