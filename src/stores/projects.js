@@ -14,6 +14,27 @@ export const useProjectsStore = defineStore('projects', {
     isLoading: false,
   }),
 
+  getters: {
+    // Every descendant of a project, direct and transitive (not including
+    // the project itself). Deleting a project cascades to this whole set,
+    // both locally and server-side, so this is the single definition of
+    // "the subtree a delete destroys" that both the store and the sidebar's
+    // confirmation prompt read from.
+    descendantIds: (state) => (id) => {
+      const ids = []
+      let frontier = [id]
+      while (frontier.length) {
+        const children = state.projects.filter((project) => frontier.includes(project.parentId))
+        frontier = []
+        for (const child of children) {
+          ids.push(child.id)
+          frontier.push(child.id)
+        }
+      }
+      return ids
+    },
+  },
+
   actions: {
     async authHeaders(extra = {}) {
       const headers = { ...extra }
@@ -39,6 +60,17 @@ export const useProjectsStore = defineStore('projects', {
       if (!response.ok) {
         const error = new Error(`${method} /projects responded ${response.status}`)
         error.status = response.status
+        try {
+          const data = await response.json()
+          const serverMessage = String(data?.error ?? '')
+          if (serverMessage) {
+            error.message = serverMessage
+            error.userMessage = serverMessage
+          }
+        } catch {
+          // Body absent or unparseable: keep the generic HTTP-status message
+          // rather than let a parse failure mask the original error.
+        }
         throw error
       }
       return response.json()
@@ -68,7 +100,7 @@ export const useProjectsStore = defineStore('projects', {
         return project
       } catch (error) {
         console.error('Failed to create project:', error)
-        this.notify('Failed to create the project.', 'error')
+        this.notify(error.userMessage || 'Failed to create the project.', 'error')
         return null
       }
     },
@@ -92,7 +124,7 @@ export const useProjectsStore = defineStore('projects', {
       } catch (error) {
         console.error('Failed to update project:', error)
         Object.assign(project, previous)
-        this.notify(failureMessage, 'error')
+        this.notify(error.userMessage || failureMessage, 'error')
         return null
       }
     },
@@ -108,17 +140,7 @@ export const useProjectsStore = defineStore('projects', {
     // The server cascades to sub-projects, so local state has to drop the
     // whole subtree or the sidebar would keep rendering rows that are gone.
     async deleteProject(id) {
-      const doomed = new Set([id])
-      let grew = true
-      while (grew) {
-        grew = false
-        for (const project of this.projects) {
-          if (!doomed.has(project.id) && doomed.has(project.parentId)) {
-            doomed.add(project.id)
-            grew = true
-          }
-        }
-      }
+      const doomed = new Set([id, ...this.descendantIds(id)])
       const previous = this.projects
       this.projects = this.projects.filter((project) => !doomed.has(project.id))
       try {
@@ -127,7 +149,7 @@ export const useProjectsStore = defineStore('projects', {
       } catch (error) {
         console.error('Failed to delete project:', error)
         this.projects = previous
-        this.notify('Failed to delete the project.', 'error')
+        this.notify(error.userMessage || 'Failed to delete the project.', 'error')
         return false
       }
     },

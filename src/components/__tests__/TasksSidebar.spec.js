@@ -168,6 +168,26 @@ describe('TasksSidebar', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 
+  it('counts the whole subtree, not just direct children, before deleting', async () => {
+    const store = useProjectsStore()
+    store.projects = [
+      { id: 'p1', parentId: null, name: 'Work' },
+      { id: 'p2', parentId: 'p1', name: 'Clients' },
+      { id: 'p3', parentId: 'p2', name: 'Acme' },
+    ]
+    store.isLoaded = true
+    const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+
+    expect(confirm).toHaveBeenCalledWith('Delete Work and its 2 sub-projects?')
+    expect(remove).not.toHaveBeenCalled()
+  })
+
   it('deletes a childless project without asking', async () => {
     const store = useProjectsStore()
     store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]

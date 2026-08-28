@@ -102,16 +102,14 @@ function onDragEnd() {
   dropId.value = undefined
 }
 
-function childCount(id) {
-  return store.projects.filter((project) => project.parentId === id).length
-}
-
-// The cascade is the one destructive edge here: sub-projects go with the
-// parent and there is no undo endpoint, so name the count before doing it.
+// The cascade is the one destructive edge here: the whole subtree goes with
+// the parent and there is no undo endpoint, so name the full count before
+// doing it. store.descendantIds is the same walk deleteProject uses to know
+// what it is about to destroy.
 function removeProject(project) {
-  const children = childCount(project.id)
-  const plural = children === 1 ? 'sub-project' : 'sub-projects'
-  if (children && !confirm(`Delete ${project.name} and its ${children} ${plural}?`)) return
+  const descendants = store.descendantIds(project.id).length
+  const plural = descendants === 1 ? 'sub-project' : 'sub-projects'
+  if (descendants && !confirm(`Delete ${project.name} and its ${descendants} ${plural}?`)) return
   store.deleteProject(project.id)
 }
 </script>

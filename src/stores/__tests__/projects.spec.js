@@ -78,4 +78,41 @@ describe('projects store', () => {
 
     expect(store.projects).toEqual([])
   })
+
+  // The server rejects a drop that would make a project its own descendant
+  // with a 400 and an explanatory body. That message is the whole point of
+  // the cycle check, so a rolled-back move must surface it verbatim rather
+  // than a generic failure the user could mistake for transient.
+  it('rolls a failed move back and notifies with the server message', async () => {
+    store.projects = [{ ...PROJECT, parentId: 'root' }]
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'A project cannot become its own descendant' }),
+    }))
+
+    const result = await store.moveProject('p1', 'p2')
+
+    expect(result).toBeNull()
+    expect(store.projects[0].parentId).toBe('root')
+    expect(notify).toHaveBeenCalledWith('A project cannot become its own descendant', 'error')
+  })
+
+  it('rolls a failed delete back to the whole subtree, not just the addressed row', async () => {
+    const subtree = [
+      { ...PROJECT },
+      { id: 'p2', parentId: 'p1', name: 'Clients' },
+      { id: 'p3', parentId: 'p2', name: 'Acme' },
+    ]
+    store.projects = subtree
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+
+    const result = await store.deleteProject('p1')
+
+    expect(result).toBe(false)
+    expect(store.projects).toEqual(subtree)
+    expect(notify).toHaveBeenCalledWith('Failed to delete the project.', 'error')
+  })
 })
