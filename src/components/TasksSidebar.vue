@@ -1,23 +1,30 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { useInboxStore } from '../stores/inbox'
+import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
+import { flattenProjectTree } from '../lib/taskProjectsTree'
+import { useProjectsStore } from '../stores/projects'
+
+const EXPANDED_KEY = 'cookie-tasks-expanded-projects'
 
 const route = useRoute()
+const store = useProjectsStore()
 
-// Same chunking constraint TasksView documents: a lazily-loaded Tasks chunk
-// that touches no store makes Rolldown fold the shared pinia/auth0 chunk into
-// the entry bundle, blowing the entry-chunk budget the build enforces. The
-// store will be needed here as soon as projects have a backing source.
-useInboxStore()
+// Which projects are open, persisted so a reload restores the same tree.
+const expandedIds = ref(new Set(getStoredExpandedIds(EXPANDED_KEY)))
+watch(expandedIds, (ids) => saveExpandedIds(EXPANDED_KEY, ids))
 
-// Projects have no API yet — the tasks worker only serves gathered tasks, with
-// no project or list concept behind them. The section renders off this list so
-// wiring it to a store later is a one-line swap; until then it stays empty and
-// the sidebar shows the empty hint. Inbox is deliberately not in here: it is
-// the no-project bucket rather than a project of its own.
-const projects = ref([])
+const rows = computed(() => flattenProjectTree(store.projects, expandedIds.value))
+
+onMounted(() => store.loadProjects())
+
+function toggle(id) {
+  const next = new Set(expandedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedIds.value = next
+}
 </script>
 
 <template>
@@ -46,17 +53,30 @@ const projects = ref([])
     <div class="sb-section-label">My Projects</div>
     <nav class="sidebar-nav tasks-projects-nav" aria-label="My projects">
       <router-link
-        v-for="project in projects"
-        :key="project.id"
-        :to="{ path: '/tasks', query: { project: project.id } }"
-        class="nav-item"
-        :class="{ active: route.query.project === project.id }"
+        v-for="row in rows"
+        :key="row.item.id"
+        :to="{ path: '/tasks', query: { project: row.item.id } }"
+        class="nav-item project-item"
+        :class="{ active: route.query.project === row.item.id }"
+        :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
       >
-        <span class="project-symbol" aria-hidden="true">#</span>
-        <span class="nav-text">{{ project.name }}</span>
-        <span class="nav-badge" v-if="project.count">{{ project.count }}</span>
+        <button
+          v-if="row.hasChildren"
+          class="project-arrow"
+          type="button"
+          :aria-expanded="row.expanded"
+          :aria-label="`${row.expanded ? 'Collapse' : 'Expand'} ${row.item.name}`"
+          @click.prevent.stop="toggle(row.item.id)"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">
+            {{ row.expanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
+          </span>
+        </button>
+        <span v-else class="project-arrow-spacer" aria-hidden="true"></span>
+        <span class="project-symbol" aria-hidden="true"></span>
+        <span class="nav-text">{{ row.item.name }}</span>
       </router-link>
-      <p v-if="!projects.length" class="tasks-projects-empty">No projects yet</p>
+      <p v-if="!rows.length" class="tasks-projects-empty">No projects yet</p>
     </nav>
   </aside>
 </template>
@@ -72,13 +92,39 @@ const projects = ref([])
 }
 
 /* A text marker rather than an icon: projects carry no colour or emoji, and
-   the documents sidebar marks its tag rows exactly this way. */
+   the documents sidebar marks its tag rows exactly this way. The marker is
+   generated content, not a text node, so a row's rendered text is just its
+   project name. */
 .project-symbol {
   width: 18px;
   flex: 0 0 auto;
   color: var(--text-secondary);
   font-size: 15px;
   text-align: center;
+}
+
+.project-symbol::before {
+  content: '#';
+}
+
+.project-arrow,
+.project-arrow-spacer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-left: -4px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.project-arrow .material-symbols-outlined {
+  font-size: 16px;
 }
 
 .tasks-projects-empty {
