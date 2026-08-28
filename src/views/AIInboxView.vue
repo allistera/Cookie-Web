@@ -261,12 +261,19 @@ onUnmounted(() => {
   <div class="view-panel active ai-today-view" aria-labelledby="ai-today-title">
     <div class="ai-header">
       <div class="beta-badge">Beta</div>
+      <!-- A count of zero is not news: drop each counter that has nothing in
+         it, and the whole sentence when both are empty. -->
       <h1 id="ai-today-title" class="ai-greeting">
-        Hi{{ greetingName ? ` ${greetingName}` : '' }}! 👋 You have
-        <span class="counter-text">{{ activeCount }} to-dos</span>
-        and
-        <span class="counter-text">{{ priorityGroupCount }} {{ priorityGroupLabel }}</span>
-        to work through.
+        Hi{{ greetingName ? ` ${greetingName}` : '' }}! 👋
+        <template v-if="activeCount || priorityGroupCount">
+          You have
+          <span v-if="activeCount" class="counter-text">{{ activeCount }} to-dos</span>
+          <template v-if="activeCount && priorityGroupCount"> and </template>
+          <span v-if="priorityGroupCount" class="counter-text"
+            >{{ priorityGroupCount }} {{ priorityGroupLabel }}</span
+          >
+          to work through.
+        </template>
       </h1>
       <div
         class="ai-update-status"

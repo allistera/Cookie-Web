@@ -102,7 +102,35 @@ describe('AIInboxView (AI Today)', () => {
   it('hides the to-dos card entirely when nothing was gathered', () => {
     const wrapper = mountView()
     expect(wrapper.find('[data-testid="todo-card"]').exists()).toBe(false)
-    expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
+    expect(wrapper.get('.ai-greeting').text()).not.toContain('to-dos')
+  })
+
+  // The counters are the headline, so a zero has nothing to say.
+  it('drops the whole sentence when both counters are zero', () => {
+    const greeting = mountView().get('.ai-greeting').text()
+
+    expect(greeting).toContain('Hi Allister!')
+    expect(greeting).not.toContain('You have')
+    expect(greeting).not.toContain('0')
+  })
+
+  it('names only the to-dos when there are no priority groups', () => {
+    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+    const greeting = mountView().get('.ai-greeting').text()
+
+    expect(greeting).toContain('You have')
+    expect(greeting).toContain('1 to-dos')
+    expect(greeting).toContain('to work through')
+    expect(greeting).not.toContain('priority group')
+    expect(greeting).not.toContain('and')
+  })
+
+  it('names only the priority groups when there are no to-dos', () => {
+    store.digest = DIGEST()
+    const greeting = mountView().get('.ai-greeting').text()
+
+    expect(greeting).toContain('2 priority groups')
+    expect(greeting).not.toContain('to-dos')
   })
 
   it('renders the priority tiers with a source count and unread dots', () => {
@@ -143,7 +171,7 @@ describe('AIInboxView (AI Today)', () => {
   it('hides the triage card entirely when no digest has been written', () => {
     const wrapper = mountView()
     expect(wrapper.find('[data-testid="triage-card"]').exists()).toBe(false)
-    expect(wrapper.get('.ai-greeting').text()).toContain('0 priority groups')
+    expect(wrapper.get('.ai-greeting').text()).not.toContain('priority group')
   })
 
   // Noise-only and overview-only digests still have something to say, so the
@@ -462,7 +490,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(completeTask).toHaveBeenCalledWith('task-1')
     // Emptying the list takes the whole card with it.
     expect(wrapper.find('[data-testid="todo-card"]').exists()).toBe(false)
-    expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
+    expect(wrapper.get('.ai-greeting').text()).not.toContain('to-dos')
   })
 
   it('rolls a Todoist task back into the list when completion fails', async () => {
@@ -522,7 +550,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(notify).toHaveBeenCalledWith('Moved "Renew car insurance" to tomorrow.')
     // Emptying the list takes the whole card with it.
     expect(wrapper.find('[data-testid="todo-card"]').exists()).toBe(false)
-    expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
+    expect(wrapper.get('.ai-greeting').text()).not.toContain('to-dos')
   })
 
   // Attached to the document so the toggle's own click really reaches the
