@@ -52,7 +52,7 @@ const projects = ref([])
         class="nav-item"
         :class="{ active: route.query.project === project.id }"
       >
-        <span class="material-symbols-outlined" :style="{ color: project.color }">tag</span>
+        <span class="project-symbol" aria-hidden="true">#</span>
         <span class="nav-text">{{ project.name }}</span>
         <span class="nav-badge" v-if="project.count">{{ project.count }}</span>
       </router-link>
@@ -69,6 +69,16 @@ const projects = ref([])
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A text marker rather than an icon: projects carry no colour or emoji, and
+   the documents sidebar marks its tag rows exactly this way. */
+.project-symbol {
+  width: 18px;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 15px;
+  text-align: center;
 }
 
 .tasks-projects-empty {

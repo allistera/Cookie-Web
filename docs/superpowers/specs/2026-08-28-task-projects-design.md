@@ -39,7 +39,7 @@ Inbox is where a task with no project belongs. It is **not** a
   a null project and therefore appears in Inbox. There is no default project
   to look up, seed per user, or backfill.
 - The awkward questions answer themselves: Inbox cannot be renamed,
-  recoloured, deleted or nested, because there is no row to act on. None of
+  deleted or nested, because there is no row to act on. None of
   the CRUD paths need a guard for it.
 
 The alternative — a seeded row flagged `is_inbox`, the way migration 0023
@@ -57,7 +57,7 @@ same empty `TasksView` the project rows will until tasks exist.
 | -------------- | ---------------------------------------------------------------------- |
 | Ownership      | Cookie-native projects, not a Todoist mirror                           |
 | Management UI  | Inline in the sidebar, mirroring document folders                      |
-| Attributes     | Name and colour (from the existing label palette)                      |
+| Attributes     | Name only — no colour, no emoji                                        |
 | API home       | `cookie-web-tasks`, alongside `/tasks` and `/documents`                |
 | Frontend state | A Pinia store, `stores/projects.js`, modelled on `stores/documents.js` |
 | Ordering       | Alphabetical within a parent; no manual ordering                       |
@@ -77,7 +77,6 @@ CREATE TABLE public.task_projects (
   user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   parent_id  uuid REFERENCES public.task_projects(id) ON DELETE CASCADE,
   name       text NOT NULL,
-  color      text NOT NULL CHECK (color ~ '^#[0-9a-fA-F]{6}$'),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX task_projects_user_idx ON public.task_projects (user_id);
@@ -85,7 +84,7 @@ ALTER TABLE public.task_projects ENABLE ROW LEVEL SECURITY;
 REVOKE ALL PRIVILEGES ON TABLE public.task_projects FROM anon, authenticated;
 ```
 
-This is `document_folders` with `title`/`emoji` swapped for `name`/`color`,
+This is `document_folders` with `title` renamed to `name` and `emoji` dropped,
 so cascade behaviour and RLS posture match a table that is already proven.
 
 - **`task_projects`, not `projects`.** A bare `projects` reads as a
@@ -95,9 +94,10 @@ so cascade behaviour and RLS posture match a table that is already proven.
   `ON DELETE SET NULL`; projects own nothing yet, so nothing is orphaned.
   It is the one destructive edge in the feature, so the UI confirms before
   deleting a project that has children.
-- **Colour is `NOT NULL`,** with the regex `calendars` already uses. The
-  create row supplies a palette default so colour is never a required
-  decision.
+- **No colour and no emoji.** A project is its name and its place in the
+  tree. The sidebar marks rows with a `#`, the way the Documents sidebar
+  already marks its tag rows, so there is nothing to pick when creating one
+  and no second visual vocabulary to maintain.
 - **No `position` column.** Ordering is alphabetical by name within each
   parent, as the documents tree does. Manual ordering would need a position
   column, reorder endpoints and drag-to-sort; it is cheap to add later.
@@ -111,17 +111,17 @@ rejecting sub-paths, reading the JSON body once and dispatching by method —
 the shape the `documents` branch already has. Handlers live in a new
 `src/projects.js`; the worker keeps only routing.
 
-| Route              | Body                               | Response                                                                    |
-| ------------------ | ---------------------------------- | --------------------------------------------------------------------------- |
-| `GET /projects`    | —                                  | `{ projects: [{ id, parentId, name, color, createdAt }] }`, ordered by name |
-| `POST /projects`   | `{ name, color?, parentId? }`      | the created row, 201                                                        |
-| `PATCH /projects`  | `{ id, name?, color?, parentId? }` | the updated row                                                             |
-| `DELETE /projects` | `{ id }`                           | `{ ok: true }`                                                              |
+| Route              | Body                       | Response                                                             |
+| ------------------ | -------------------------- | -------------------------------------------------------------------- |
+| `GET /projects`    | —                          | `{ projects: [{ id, parentId, name, createdAt }] }`, ordered by name |
+| `POST /projects`   | `{ name, parentId? }`      | the created row, 201                                                 |
+| `PATCH /projects`  | `{ id, name?, parentId? }` | the updated row                                                      |
+| `DELETE /projects` | `{ id }`                   | `{ ok: true }`                                                       |
 
 - `GET` returns a **flat** list; the tree is assembled client-side, exactly
   as `getDocuments` returns flat folders for `flattenDocumentsTree`.
 - Names are trimmed and length-capped through the same `cleanText` helper the
-  documents handlers use. Colour is validated against `^#[0-9a-fA-F]{6}$`.
+  documents handlers use.
 - `parentId` must reference a project the caller owns, else 404.
   `parentId: null` on `PATCH` moves a project to the root, which is what
   dropping onto the section header does.
@@ -163,8 +163,8 @@ around `localStorage`.
 
 `stores/projects.js`, modelled on `stores/documents.js`: a `request()` helper
 over `TASKS_API_URL/projects`, `loadProjects()` guarded by a loaded flag with
-a `force` option, and create/rename/recolour/move/delete that update local
-state first and notify through the inbox store on failure.
+a `force` option, and create/rename/move/delete that update local state first
+and notify through the inbox store on failure.
 
 This also replaces the `useInboxStore()` call currently in `TasksSidebar`,
 which exists only to keep the Tasks chunk store-connected for the
@@ -176,12 +176,8 @@ comment with it.
 The "My Projects" section becomes the tree, matching the document-folder
 interactions one for one:
 
-- A `+` on the section header opens an inline row: name input and a colour
-  swatch. Enter commits, Escape cancels. The swatch offers `LABEL_PALETTE`,
-  the fixed set `SettingsView` already renders for labels — lifted to a
-  shared module so both read one list. The row opens on the next unused
-  palette entry, the way `CalendarSettings` assigns a new calendar's colour,
-  so a project can be created without touching the picker.
+- A `+` on the section header opens an inline row holding a single name
+  input. Enter commits, Escape cancels.
 - Double-click renames in place. The rename and create rows both carry the
   Enter-then-blur guard `DocumentsSidebar` documents: Enter commits and
   unmounts the input, which fires `blur`, so the second call must be a no-op
@@ -193,7 +189,7 @@ interactions one for one:
   the root, with the same `drop-target` outline. The client blocks the
   obvious self-drop; the server owns the cycle rule.
 - Rows indent by `10 + depth * 14`px, with a chevron on anything that has
-  children. The colour tints the row's icon.
+  children, and a `#` marker in place of an icon.
 - Deleting a project that has children asks for confirmation first, naming
   the count: "Delete Work and its 3 sub-projects?". This is the one new
   interaction pattern in the feature — the app has no `confirm()` anywhere
@@ -206,7 +202,7 @@ interactions one for one:
 ## Testing
 
 - **Worker** (`test/projects.test.js`, `createMockSql`): each verb's happy
-  path; empty name, malformed colour and unknown `parentId` rejected;
+  path; an empty name and an unknown `parentId` rejected;
   another user's id returning 404; and a re-parent onto a descendant
   rejected before any UPDATE runs.
 - **Tree helper**: ordering and depth, a collapsed parent hiding rather than

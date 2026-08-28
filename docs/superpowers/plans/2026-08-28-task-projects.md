@@ -17,7 +17,6 @@
 - **Before any push to Cookie-Web:** `npm test` **and** `npm run build`. The build is where the entry-chunk budget (150000 bytes) is enforced; tests alone will not catch a violation.
 - **Before any push to Cookie-Worker:** `npm test`, `npm run lint`, `npm run typecheck`.
 - **Formatting:** `npx prettier --write` on every file touched. Cookie-Web additionally runs `npx oxlint .`, whose `anti-slop` rules reject runtime `typeof` narrowing — coerce at the boundary instead (`String(value ?? '')`).
-- **Colour format:** `^#[0-9a-fA-F]{6}$`, lowercase hex, everywhere.
 - **Inbox is never a row.** No task in this plan creates, seeds or special-cases an "Inbox" record. The static Inbox row already exists in `TasksSidebar` and must keep working.
 - **Deploy order at the end:** migration → `cookie-web-tasks` → Cookie-Web. Never web first.
 
@@ -32,7 +31,7 @@
 **Interfaces:**
 
 - Consumes: nothing.
-- Produces: table `public.task_projects` with columns `id uuid`, `user_id uuid`, `parent_id uuid`, `name text`, `color text`, `created_at timestamptz`.
+- Produces: table `public.task_projects` with columns `id uuid`, `user_id uuid`, `parent_id uuid`, `name text`, `created_at timestamptz`.
 
 - [ ] **Step 1: Write the migration**
 
@@ -42,7 +41,8 @@ Create `migrations/0053_task_projects.sql`:
 -- Cookie-owned projects for the Tasks app: a self-nesting tree the Tasks
 -- sidebar renders. Shaped after document_folders (migration 0036) so the
 -- cascade and RLS posture match a table already proven in production, with
--- title/emoji swapped for name/color.
+-- title renamed to name and emoji dropped -- a project is its name and
+-- its place in the tree, nothing more.
 --
 -- There is deliberately no "Inbox" row. Inbox is the name the UI gives to
 -- tasks belonging to no project, so it needs no record and no seeding.
@@ -54,7 +54,6 @@ CREATE TABLE public.task_projects (
   user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   parent_id  uuid REFERENCES public.task_projects(id) ON DELETE CASCADE,
   name       text NOT NULL,
-  color      text NOT NULL CHECK (color ~ '^#[0-9a-fA-F]{6}$'),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -91,7 +90,7 @@ git commit -m "Add the task_projects table"
 **Interfaces:**
 
 - Consumes: the `task_projects` table from Task 1.
-- Produces: `getProjects(sql, userId)`, `createProject(sql, userId, body)`, plus module-local `isUuid` and `MAX_NAME_LENGTH`. Response shapes: `GET` → `{ projects: [...] }`; `POST` → `{ project: {...} }` with status 201. Every row is `{ id, parentId, name, color, createdAt }`.
+- Produces: `getProjects(sql, userId)`, `createProject(sql, userId, body)`, plus module-local `isUuid` and `MAX_NAME_LENGTH`. Response shapes: `GET` → `{ projects: [...] }`; `POST` → `{ project: {...} }` with status 201. Every row is `{ id, parentId, name, createdAt }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -108,9 +107,7 @@ const PARENT_ID = '22222222-2222-4222-8222-222222222222'
 
 describe('GET /projects', () => {
   it('returns the caller rows as a flat list', async () => {
-    const sql = createMockSql([
-      [{ id: PROJECT_ID, parentId: null, name: 'Work', color: '#1a73e8', createdAt: 't0' }],
-    ])
+    const sql = createMockSql([[{ id: PROJECT_ID, parentId: null, name: 'Work', createdAt: 't0' }]])
 
     const response = await getProjects(sql, USER_ID)
 
@@ -122,10 +119,8 @@ describe('GET /projects', () => {
 })
 
 describe('POST /projects', () => {
-  it('creates a root project and defaults the colour', async () => {
-    const sql = createMockSql([
-      [{ id: PROJECT_ID, parentId: null, name: 'Work', color: '#1a73e8', createdAt: 't0' }],
-    ])
+  it('creates a root project', async () => {
+    const sql = createMockSql([[{ id: PROJECT_ID, parentId: null, name: 'Work', createdAt: 't0' }]])
 
     const response = await createProject(sql, USER_ID, { name: 'Work' })
 
@@ -136,12 +131,6 @@ describe('POST /projects', () => {
   it('rejects a blank name', async () => {
     const sql = createMockSql([])
     const response = await createProject(sql, USER_ID, { name: '   ' })
-    expect(response.status).toBe(400)
-  })
-
-  it('rejects a colour that is not six hex digits', async () => {
-    const sql = createMockSql([])
-    const response = await createProject(sql, USER_ID, { name: 'Work', color: 'red' })
     expect(response.status).toBe(400)
   })
 
@@ -169,9 +158,7 @@ Create `workers/cookie-web-tasks/src/projects.js`:
 // on GET that the client assembles into a tree.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const COLOR_RE = /^#[0-9a-fA-F]{6}$/
 const MAX_NAME_LENGTH = 120
-const DEFAULT_COLOR = '#1a73e8'
 
 /** @param {any} value */
 function isUuid(value) {
@@ -183,13 +170,6 @@ function cleanName(value) {
   if (!(value?.trim instanceof Function)) return null
   const name = value.trim().slice(0, MAX_NAME_LENGTH)
   return name || null
-}
-
-/** @param {any} value */
-function cleanColor(value) {
-  if (value === undefined || value === null) return DEFAULT_COLOR
-  const color = String(value)
-  return COLOR_RE.test(color) ? color.toLowerCase() : null
 }
 
 /** @param {import('postgres').Sql} sql @param {string} userId @param {string} id */
@@ -206,7 +186,7 @@ function fetchOwnedProject(sql, userId, id) {
  */
 export async function getProjects(sql, userId) {
   const projects = await sql`
-    SELECT p.id, p.parent_id AS "parentId", p.name, p.color, p.created_at AS "createdAt"
+    SELECT p.id, p.parent_id AS "parentId", p.name, p.created_at AS "createdAt"
     FROM task_projects p
     WHERE p.user_id = ${userId}
     ORDER BY p.name ASC
@@ -215,7 +195,7 @@ export async function getProjects(sql, userId) {
 }
 
 /**
- * POST /projects — { name, color?, parentId? }.
+ * POST /projects — { name, parentId? }.
  *
  * @param {import('postgres').Sql} sql
  * @param {string} userId
@@ -223,10 +203,7 @@ export async function getProjects(sql, userId) {
  */
 export async function createProject(sql, userId, body) {
   const name = cleanName(body?.name)
-  const color = cleanColor(body?.color)
-  if (!name || !color) {
-    return Response.json({ error: 'A name and a #rrggbb colour are required' }, { status: 400 })
-  }
+  if (!name) return Response.json({ error: 'A project name is required' }, { status: 400 })
 
   const parentId = body?.parentId ?? null
   if (parentId !== null) {
@@ -236,9 +213,9 @@ export async function createProject(sql, userId, body) {
   }
 
   const [project] = await sql`
-    INSERT INTO task_projects (user_id, parent_id, name, color)
-    VALUES (${userId}, ${parentId}, ${name}, ${color})
-    RETURNING id, parent_id AS "parentId", name, color, created_at AS "createdAt"
+    INSERT INTO task_projects (user_id, parent_id, name)
+    VALUES (${userId}, ${parentId}, ${name})
+    RETURNING id, parent_id AS "parentId", name, created_at AS "createdAt"
   `
   return Response.json({ project }, { status: 201 })
 }
@@ -303,7 +280,7 @@ git commit -m "Serve task projects from the tasks Worker"
 
 **Interfaces:**
 
-- Consumes: `isUuid`, `cleanName`, `cleanColor`, `fetchOwnedProject` from Task 2.
+- Consumes: `isUuid`, `cleanName`, `fetchOwnedProject` from Task 2.
 - Produces: `updateProject(sql, userId, body)` returning `{ project }`, and `isAncestorOf(sql, userId, projectId, candidateParentId)` returning a boolean.
 
 - [ ] **Step 1: Write the failing tests**
@@ -315,7 +292,7 @@ describe('PATCH /projects', () => {
   it('renames a project', async () => {
     const sql = createMockSql([
       [{ id: PROJECT_ID }],
-      [{ id: PROJECT_ID, parentId: null, name: 'Renamed', color: '#1a73e8', createdAt: 't0' }],
+      [{ id: PROJECT_ID, parentId: null, name: 'Renamed', createdAt: 't0' }],
     ])
 
     const response = await updateProject(sql, USER_ID, { id: PROJECT_ID, name: 'Renamed' })
@@ -353,7 +330,7 @@ describe('PATCH /projects', () => {
   it('allows a move to the root with parentId null', async () => {
     const sql = createMockSql([
       [{ id: PROJECT_ID }],
-      [{ id: PROJECT_ID, parentId: null, name: 'Work', color: '#1a73e8', createdAt: 't0' }],
+      [{ id: PROJECT_ID, parentId: null, name: 'Work', createdAt: 't0' }],
     ])
 
     const response = await updateProject(sql, USER_ID, { id: PROJECT_ID, parentId: null })
@@ -400,7 +377,7 @@ export async function isAncestorOf(sql, userId, projectId, candidateParentId) {
 }
 
 /**
- * PATCH /projects — { id, name?, color?, parentId? }. parentId: null moves the
+ * PATCH /projects — { id, name?, parentId? }. parentId: null moves the
  * project to the root.
  *
  * @param {import('postgres').Sql} sql
@@ -415,14 +392,12 @@ export async function updateProject(sql, userId, body) {
   }
 
   const hasName = Object.hasOwn(body, 'name')
-  const hasColor = Object.hasOwn(body, 'color')
   const hasParent = Object.hasOwn(body, 'parentId')
   const name = hasName ? cleanName(body.name) : null
-  const color = hasColor ? cleanColor(body.color) : null
-  if ((hasName && !name) || (hasColor && !color)) {
-    return Response.json({ error: 'A name and a #rrggbb colour are required' }, { status: 400 })
+  if (hasName && !name) {
+    return Response.json({ error: 'A project name is required' }, { status: 400 })
   }
-  if (!hasName && !hasColor && !hasParent) {
+  if (!hasName && !hasParent) {
     return Response.json({ error: 'At least one change is required' }, { status: 400 })
   }
 
@@ -442,10 +417,9 @@ export async function updateProject(sql, userId, body) {
   const [project] = await sql`
     UPDATE task_projects p SET
       name      = COALESCE(${hasName ? name : null}, p.name),
-      color     = COALESCE(${hasColor ? color : null}, p.color),
       parent_id = CASE WHEN ${hasParent}::boolean THEN ${parentId}::uuid ELSE p.parent_id END
     WHERE p.id = ${id} AND p.user_id = ${userId}
-    RETURNING p.id, p.parent_id AS "parentId", p.name, p.color, p.created_at AS "createdAt"
+    RETURNING p.id, p.parent_id AS "parentId", p.name, p.created_at AS "createdAt"
   `
   return Response.json({ project })
 }
@@ -454,7 +428,7 @@ export async function updateProject(sql, userId, body) {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd workers/cookie-web-tasks && npx vitest run test/projects.test.js`
-Expected: PASS, 9 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Wire the route**
 
@@ -475,7 +449,7 @@ Expected: all pass.
 
 ```bash
 git add workers/cookie-web-tasks/src/projects.js workers/cookie-web-tasks/test/projects.test.js workers/cookie-web-tasks/src/worker.js
-git commit -m "Let projects be renamed, recoloured and re-parented"
+git commit -m "Let projects be renamed and re-parented"
 ```
 
 ---
@@ -555,7 +529,7 @@ export async function deleteProject(sql, userId, body) {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd workers/cookie-web-tasks && npx vitest run test/projects.test.js`
-Expected: PASS, 12 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Wire the route**
 
@@ -578,106 +552,7 @@ git commit -m "Delete a project and its sub-projects"
 
 ---
 
-### Task 5: Share the colour palette
-
-**Files:**
-
-- Create: `src/lib/palette.js`
-- Modify: `src/views/SettingsView.vue` (remove the local `LABEL_PALETTE` array, import it instead)
-
-**Interfaces:**
-
-- Consumes: nothing.
-- Produces: `export const PALETTE` — an array of 8 lowercase `#rrggbb` strings — and `nextPaletteColor(usedColors)` returning the first palette entry not present in `usedColors`, falling back to `PALETTE[0]` when all are used.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `src/lib/__tests__/palette.spec.js`:
-
-```javascript
-import { describe, expect, it } from 'vitest'
-
-import { PALETTE, nextPaletteColor } from '../palette'
-
-describe('palette', () => {
-  it('is eight lowercase six-digit hex colours', () => {
-    expect(PALETTE).toHaveLength(8)
-    for (const color of PALETTE) expect(color).toMatch(/^#[0-9a-f]{6}$/)
-  })
-
-  it('offers the first unused colour', () => {
-    expect(nextPaletteColor([])).toBe(PALETTE[0])
-    expect(nextPaletteColor([PALETTE[0], PALETTE[1]])).toBe(PALETTE[2])
-  })
-
-  // A full palette should keep working rather than hand back undefined.
-  it('falls back to the first colour once every one is used', () => {
-    expect(nextPaletteColor([...PALETTE])).toBe(PALETTE[0])
-  })
-})
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `npx vitest run src/lib/__tests__/palette.spec.js`
-Expected: FAIL — cannot resolve `../palette`.
-
-- [ ] **Step 3: Write the implementation**
-
-Create `src/lib/palette.js`:
-
-```javascript
-// The colour set Settings offers for labels, shared so projects pick from the
-// same eight rather than introducing a second visual vocabulary.
-export const PALETTE = [
-  '#e5484d',
-  '#e58f1a',
-  '#2f9e44',
-  '#1a73e8',
-  '#7048e8',
-  '#d6409f',
-  '#0ca678',
-  '#64748b',
-]
-
-// New things open on a colour nothing else is using, so a fresh project or
-// calendar looks distinct without anyone touching the picker.
-export function nextPaletteColor(usedColors) {
-  const used = new Set(usedColors)
-  return PALETTE.find((color) => !used.has(color)) ?? PALETTE[0]
-}
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `npx vitest run src/lib/__tests__/palette.spec.js`
-Expected: PASS, 3 tests.
-
-- [ ] **Step 5: Point Settings at the shared module**
-
-In `src/views/SettingsView.vue`, delete the local `const LABEL_PALETTE = [...]` array (around line 244) and add to the imports:
-
-```javascript
-import { PALETTE as LABEL_PALETTE } from '../lib/palette'
-```
-
-Everything else in that file keeps referring to `LABEL_PALETTE` unchanged, so the template and `newLabel` default need no edits.
-
-- [ ] **Step 6: Verify Settings still passes**
-
-Run: `npx vitest run src/views/__tests__/SettingsView.spec.js`
-Expected: PASS, unchanged count.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add src/lib/palette.js src/lib/__tests__/palette.spec.js src/views/SettingsView.vue
-git commit -m "Share the label colour palette"
-```
-
----
-
-### Task 6: Parameterise the sidebar expansion store
+### Task 5: Parameterise the sidebar expansion store
 
 **Files:**
 
@@ -773,7 +648,7 @@ git commit -m "Key sidebar expansion state by storage key"
 
 ---
 
-### Task 7: The project tree helper
+### Task 6: The project tree helper
 
 **Files:**
 
@@ -783,7 +658,7 @@ git commit -m "Key sidebar expansion state by storage key"
 **Interfaces:**
 
 - Consumes: nothing.
-- Produces: `flattenProjectTree(projects, expandedIds)` where `projects` is an array of `{ id, parentId, name, color }` and `expandedIds` is a `Set`. Returns an array of `{ item, depth, expanded, hasChildren }` in render order, omitting rows inside a collapsed parent.
+- Produces: `flattenProjectTree(projects, expandedIds)` where `projects` is an array of `{ id, parentId, name }` and `expandedIds` is a `Set`. Returns an array of `{ item, depth, expanded, hasChildren }` in render order, omitting rows inside a collapsed parent.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -794,7 +669,7 @@ import { describe, expect, it } from 'vitest'
 
 import { flattenProjectTree } from '../taskProjectsTree'
 
-const project = (id, parentId = null, name = id) => ({ id, parentId, name, color: '#1a73e8' })
+const project = (id, parentId = null, name = id) => ({ id, parentId, name })
 
 describe('flattenProjectTree', () => {
   it('nests children under an expanded parent and marks depth', () => {
@@ -916,7 +791,7 @@ git commit -m "Flatten the project forest into sidebar rows"
 
 ---
 
-### Task 8: The projects store
+### Task 7: The projects store
 
 **Files:**
 
@@ -925,8 +800,8 @@ git commit -m "Flatten the project forest into sidebar rows"
 
 **Interfaces:**
 
-- Consumes: `TASKS_API_URL` from `src/lib/apiWorkers.js`, `nextPaletteColor` and `PALETTE` from Task 5.
-- Produces: `useProjectsStore()` with state `{ projects: [], isLoaded: false, isLoading: false }` and actions `loadProjects({ force })`, `createProject({ name, parentId })`, `renameProject(id, name)`, `recolorProject(id, color)`, `moveProject(id, parentId)`, `deleteProject(id)`. Every mutating action returns the updated project (or `true` for delete) on success and `null`/`false` on failure, having notified.
+- Consumes: `TASKS_API_URL` from `src/lib/apiWorkers.js`.
+- Produces: `useProjectsStore()` with state `{ projects: [], isLoaded: false, isLoading: false }` and actions `loadProjects({ force })`, `createProject({ name, parentId })`, `renameProject(id, name)`, `moveProject(id, parentId)`, `deleteProject(id)`. Every mutating action returns the updated project (or `true` for delete) on success and `null`/`false` on failure, having notified.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -939,7 +814,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useProjectsStore } from '../projects'
 import { useInboxStore } from '../inbox'
 
-const PROJECT = { id: 'p1', parentId: null, name: 'Work', color: '#1a73e8', createdAt: 't0' }
+const PROJECT = { id: 'p1', parentId: null, name: 'Work', createdAt: 't0' }
 
 let store
 
@@ -991,7 +866,7 @@ describe('projects store', () => {
   })
 
   it('removes a deleted project and its descendants from local state', async () => {
-    store.projects = [{ ...PROJECT }, { id: 'p2', parentId: 'p1', name: 'API', color: '#2f9e44' }]
+    store.projects = [{ ...PROJECT }, { id: 'p2', parentId: 'p1', name: 'API' }]
     stubFetch(async () => ({ ok: true, json: async () => ({ ok: true }) }))
 
     await store.deleteProject('p1')
@@ -1015,7 +890,6 @@ import { defineStore } from 'pinia'
 
 import { getAuth0 } from '../auth0-client'
 import { TASKS_API_URL } from '../lib/apiWorkers'
-import { nextPaletteColor } from '../lib/palette'
 import { useInboxStore } from './inbox'
 
 // Cookie-owned projects for the Tasks sidebar. Shaped after stores/documents.js:
@@ -1074,11 +948,10 @@ export const useProjectsStore = defineStore('projects', {
     },
 
     // Created rows come back from the server rather than being guessed at
-    // locally, so the id and colour in state are the ones that were stored.
+    // locally, so the id in state is the one that was stored.
     async createProject({ name, parentId = null }) {
-      const color = nextPaletteColor(this.projects.map((project) => project.color))
       try {
-        const { project } = await this.request('POST', { name, color, parentId })
+        const { project } = await this.request('POST', { name, parentId })
         this.projects.push(project)
         return project
       } catch (error) {
@@ -1107,10 +980,6 @@ export const useProjectsStore = defineStore('projects', {
 
     renameProject(id, name) {
       return this.patchProject(id, { name }, 'Failed to rename the project.')
-    },
-
-    recolorProject(id, color) {
-      return this.patchProject(id, { color }, 'Failed to recolour the project.')
     },
 
     moveProject(id, parentId) {
@@ -1161,7 +1030,7 @@ git commit -m "Add a projects store for the Tasks sidebar"
 
 ---
 
-### Task 9: Render the tree in the sidebar
+### Task 8: Render the tree in the sidebar
 
 **Files:**
 
@@ -1170,7 +1039,7 @@ git commit -m "Add a projects store for the Tasks sidebar"
 
 **Interfaces:**
 
-- Consumes: `useProjectsStore` (Task 8), `flattenProjectTree` (Task 7), `getStoredExpandedIds`/`saveExpandedIds` (Task 6).
+- Consumes: `useProjectsStore` (Task 7), `flattenProjectTree` (Task 6), `getStoredExpandedIds`/`saveExpandedIds` (Task 5).
 - Produces: the rendered tree. Rows carry class `nav-item project-item`, indent by `10 + depth * 14`px, and the chevron is `.project-arrow`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1180,7 +1049,7 @@ Replace the second test in `src/components/__tests__/TasksSidebar.spec.js` (`kee
 ```javascript
 it('keeps Inbox out of the projects list', async () => {
   const store = useProjectsStore()
-  store.projects = [{ id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' }]
+  store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
   store.isLoaded = true
 
   const wrapper = mountSidebar()
@@ -1194,8 +1063,8 @@ it('keeps Inbox out of the projects list', async () => {
 it('nests a sub-project under its expanded parent', async () => {
   const store = useProjectsStore()
   store.projects = [
-    { id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' },
-    { id: 'p2', parentId: 'p1', name: 'API', color: '#2f9e44' },
+    { id: 'p1', parentId: null, name: 'Work' },
+    { id: 'p2', parentId: 'p1', name: 'API' },
   ]
   store.isLoaded = true
 
@@ -1222,7 +1091,6 @@ Add to that file's imports:
 
 ```javascript
 import { flushPromises } from '@vue/test-utils'
-import { PALETTE } from '../../lib/palette'
 import { useProjectsStore } from '../../stores/projects'
 ```
 
@@ -1251,7 +1119,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
-import { PALETTE } from '../lib/palette'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 
@@ -1301,7 +1168,7 @@ Then replace the projects `<nav>` in the template with:
       </span>
     </button>
     <span v-else class="project-arrow-spacer" aria-hidden="true"></span>
-    <span class="material-symbols-outlined" :style="{ color: row.item.color }">tag</span>
+    <span class="project-symbol" aria-hidden="true">#</span>
     <span class="nav-text">{{ row.item.name }}</span>
   </router-link>
   <p v-if="!rows.length" class="tasks-projects-empty">No projects yet</p>
@@ -1330,6 +1197,16 @@ Add to the component's `<style scoped>` block:
 .project-arrow .material-symbols-outlined {
   font-size: 16px;
 }
+
+/* A text marker rather than an icon: projects carry no colour or emoji, and
+   the documents sidebar already marks its tag rows exactly this way. */
+.project-symbol {
+  width: 18px;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 15px;
+  text-align: center;
+}
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -1351,7 +1228,7 @@ git commit -m "Render the project tree in the Tasks sidebar"
 
 ---
 
-### Task 10: Create, rename and delete inline
+### Task 9: Create, rename and delete inline
 
 **Files:**
 
@@ -1360,7 +1237,7 @@ git commit -m "Render the project tree in the Tasks sidebar"
 
 **Interfaces:**
 
-- Consumes: `useProjectsStore` actions `createProject`, `renameProject`, `deleteProject` (Task 8).
+- Consumes: `useProjectsStore` actions `createProject`, `renameProject`, `deleteProject` (Task 7).
 - Produces: no new exports. New DOM hooks: `.new-project-btn` on the section label, `.new-project-row` for the create form, `.project-rename-input`, and `.row-action-btn` buttons inside `.row-actions`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1375,7 +1252,6 @@ it('creates a project from the inline row', async () => {
     id: 'p1',
     parentId: null,
     name: 'Work',
-    color: '#1a73e8',
   })
 
   const wrapper = mountSidebar()
@@ -1387,39 +1263,11 @@ it('creates a project from the inline row', async () => {
   expect(create).toHaveBeenCalledWith({ name: 'Work', parentId: null })
 })
 
-// The row opens on an unused palette colour, so a project can be created
-// without touching the picker; picking one recolours the created project.
-it('offers the palette and recolours the new project when one is picked', async () => {
-  const store = useProjectsStore()
-  store.isLoaded = true
-  vi.spyOn(store, 'createProject').mockResolvedValue({
-    id: 'p1',
-    parentId: null,
-    name: 'Work',
-    color: PALETTE[0],
-  })
-  const recolor = vi.spyOn(store, 'recolorProject').mockResolvedValue(null)
-
-  const wrapper = mountSidebar()
-  await flushPromises()
-  await wrapper.get('.new-project-btn').trigger('click')
-
-  const swatches = wrapper.findAll('.new-project-row .color-swatch')
-  expect(swatches).toHaveLength(PALETTE.length)
-
-  await swatches[5].trigger('click')
-  await wrapper.get('.new-project-row input').setValue('Work')
-  await wrapper.get('.new-project-row').trigger('submit')
-  await flushPromises()
-
-  expect(recolor).toHaveBeenCalledWith('p1', PALETTE[5])
-})
-
 // Enter commits and unmounts the input, which fires blur: without a guard
 // the same rename would be submitted twice.
 it('submits a rename once when Enter is followed by blur', async () => {
   const store = useProjectsStore()
-  store.projects = [{ id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' }]
+  store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
   store.isLoaded = true
   const rename = vi.spyOn(store, 'renameProject').mockResolvedValue(null)
 
@@ -1438,8 +1286,8 @@ it('submits a rename once when Enter is followed by blur', async () => {
 it('confirms before deleting a project that has children', async () => {
   const store = useProjectsStore()
   store.projects = [
-    { id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' },
-    { id: 'p2', parentId: 'p1', name: 'API', color: '#2f9e44' },
+    { id: 'p1', parentId: null, name: 'Work' },
+    { id: 'p2', parentId: 'p1', name: 'API' },
   ]
   store.isLoaded = true
   const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
@@ -1456,7 +1304,7 @@ it('confirms before deleting a project that has children', async () => {
 
 it('deletes a childless project without asking', async () => {
   const store = useProjectsStore()
-  store.projects = [{ id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' }]
+  store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
   store.isLoaded = true
   const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
   const confirm = vi.fn(() => true)
@@ -1488,14 +1336,10 @@ import { nextTick } from 'vue'
 const newProjectFor = ref(null)
 const newProjectName = ref('')
 const newProjectInput = ref(null)
-// Null means "whatever colour the store picks", so creating without touching
-// the swatches still lands on an unused palette entry.
-const newProjectColor = ref(null)
 
 async function showNewProject(parentId) {
   newProjectFor.value = parentId ?? ''
   newProjectName.value = ''
-  newProjectColor.value = null
   await nextTick()
   newProjectInput.value?.focus()
 }
@@ -1508,10 +1352,8 @@ async function submitNewProject() {
   const parentId = newProjectFor.value === '' ? null : newProjectFor.value
   newProjectFor.value = null
   if (!name) return
-  const chosen = newProjectColor.value
   const created = await store.createProject({ name, parentId })
   if (!created) return
-  if (chosen && chosen !== created.color) await store.recolorProject(created.id, chosen)
   if (parentId) expandedIds.value = new Set(expandedIds.value).add(parentId)
 }
 
@@ -1616,19 +1458,6 @@ Add `@dblclick.prevent="startRename(row.item)"` to the `<router-link>` opening t
     @keydown.escape="newProjectFor = null"
     @blur="submitNewProject"
   />
-  <span class="color-swatches">
-    <button
-      v-for="color in PALETTE"
-      :key="color"
-      type="button"
-      class="color-swatch"
-      :class="{ chosen: newProjectColor === color }"
-      :style="{ backgroundColor: color }"
-      :aria-label="`Use colour ${color}`"
-      @mousedown.prevent
-      @click="newProjectColor = color"
-    ></button>
-  </span>
 </form>
 ```
 
@@ -1721,33 +1550,12 @@ Add to `<style scoped>`:
   border-radius: 4px;
   padding: 1px 4px;
 }
-
-.color-swatches {
-  display: inline-flex;
-  gap: 3px;
-  flex: 0 0 auto;
-}
-
-/* mousedown is prevented on each swatch so clicking one does not blur the
-   name input, which would submit the row before the colour registers. */
-.color-swatch {
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.color-swatch.chosen {
-  border-color: var(--text-primary);
-}
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run src/components/__tests__/TasksSidebar.spec.js`
-Expected: PASS, 10 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1758,7 +1566,7 @@ git commit -m "Create, rename and delete projects inline"
 
 ---
 
-### Task 11: Drag to re-parent
+### Task 10: Drag to re-parent
 
 **Files:**
 
@@ -1767,7 +1575,7 @@ git commit -m "Create, rename and delete projects inline"
 
 **Interfaces:**
 
-- Consumes: `moveProject` from Task 8.
+- Consumes: `moveProject` from Task 7.
 - Produces: no new exports. Rows become `draggable="true"` and gain `.dragging`; drop targets gain `.drop-target`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1778,8 +1586,8 @@ Append inside the `describe` block:
 it('re-parents a project when dropped onto another', async () => {
   const store = useProjectsStore()
   store.projects = [
-    { id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' },
-    { id: 'p2', parentId: null, name: 'Admin', color: '#2f9e44' },
+    { id: 'p1', parentId: null, name: 'Work' },
+    { id: 'p2', parentId: null, name: 'Admin' },
   ]
   store.isLoaded = true
   const move = vi.spyOn(store, 'moveProject').mockResolvedValue(null)
@@ -1799,7 +1607,7 @@ it('re-parents a project when dropped onto another', async () => {
 
 it('ignores a drop onto the row being dragged', async () => {
   const store = useProjectsStore()
-  store.projects = [{ id: 'p1', parentId: null, name: 'Work', color: '#1a73e8' }]
+  store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
   store.isLoaded = true
   const move = vi.spyOn(store, 'moveProject').mockResolvedValue(null)
 
@@ -1890,7 +1698,7 @@ Add to `<style scoped>`:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run src/components/__tests__/TasksSidebar.spec.js`
-Expected: PASS, 12 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Run the full suite and the build**
 
@@ -1906,7 +1714,7 @@ git commit -m "Drag a project onto another to re-parent it"
 
 ---
 
-### Task 12: Dev and e2e fixture, and the end-to-end spec
+### Task 11: Dev and e2e fixture, and the end-to-end spec
 
 **Files:**
 
@@ -1915,7 +1723,7 @@ git commit -m "Drag a project onto another to re-parent it"
 
 **Interfaces:**
 
-- Consumes: the store and sidebar from Tasks 8–11.
+- Consumes: the store and sidebar from Tasks 7–10.
 - Produces: a `/projects` branch in the tasks fixture handler backed by `state.projects`.
 
 - [ ] **Step 1: Write the failing e2e test**
@@ -1975,7 +1783,6 @@ if (segments[0] === 'projects') {
       id: randomUUID(),
       parentId: body.parentId ?? null,
       name: String(body.name || '').slice(0, 120),
-      color: body.color || '#1a73e8',
       createdAt: new Date().toISOString(),
     }
     state.projects.push(project)
@@ -1985,7 +1792,6 @@ if (segments[0] === 'projects') {
     const project = state.projects.find((row) => row.id === body.id)
     if (!project) return json(res, { error: 'Project not found' }, 404)
     if (body.name !== undefined) project.name = body.name
-    if (body.color !== undefined) project.color = body.color
     if (Object.hasOwn(body, 'parentId')) project.parentId = body.parentId
     return json(res, { project })
   }
@@ -2027,7 +1833,7 @@ git commit -m "Cover the project tree end to end"
 
 ---
 
-### Task 13: Ship it
+### Task 12: Ship it
 
 **Files:** none — this task is deployment.
 
@@ -2084,6 +1890,7 @@ Open the Tasks app: Inbox is present, "No projects yet" shows, creating a projec
 
 ## Notes for the executor
 
-- **Tasks 1–4 are Cookie-Worker; 5–12 are Cookie-Web; 13 touches both.** They can be done in either repo order, but nothing ships until Task 13, and Task 13's order is fixed.
+- **Tasks 1–4 are Cookie-Worker; 5–11 are Cookie-Web; 12 touches both.** They can be done in either repo order, but nothing ships until Task 12, and Task 12's order is fixed.
+- **Code blocks here are formatted with Cookie-Web's Prettier config, which omits semicolons.** Cookie-Worker uses them. Copy the snippets as-is and run that repo's own `npx prettier --write` on the files you touch; it restores the semicolons.
 - **The five pre-existing e2e failures are not yours.** Confirm the set is unchanged rather than trying to fix them.
 - **Do not raise `ENTRY_CHUNK_BUDGET_BYTES`.** If the build fails on it, the fix is to keep the Tasks chunk connected to a store, not to move the line.
