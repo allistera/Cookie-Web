@@ -15,20 +15,28 @@ export function sanitizeStoredFolderIds(value) {
   return ids
 }
 
-export function getStoredExpandedFolderIds() {
+export function getStoredExpandedIds(key) {
   try {
-    return sanitizeStoredFolderIds(JSON.parse(localStorage.getItem(EXPANDED_FOLDERS_KEY) || '[]'))
+    return sanitizeStoredFolderIds(JSON.parse(localStorage.getItem(key) || '[]'))
   } catch {
     return []
   }
 }
 
-export function saveExpandedFolderIds(ids) {
+export function saveExpandedIds(key, ids) {
   const cleaned = sanitizeStoredFolderIds(Array.from(ids))
   try {
-    localStorage.setItem(EXPANDED_FOLDERS_KEY, JSON.stringify(cleaned))
+    localStorage.setItem(key, JSON.stringify(cleaned))
   } catch (error) {
-    console.error('Failed to save expanded folders:', error)
+    console.error('Failed to save expanded ids:', error)
   }
   return cleaned
+}
+
+export function getStoredExpandedFolderIds() {
+  return getStoredExpandedIds(EXPANDED_FOLDERS_KEY)
+}
+
+export function saveExpandedFolderIds(ids) {
+  return saveExpandedIds(EXPANDED_FOLDERS_KEY, ids)
 }

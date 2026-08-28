@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 
 import {
   getStoredExpandedFolderIds,
+  getStoredExpandedIds,
   saveExpandedFolderIds,
+  saveExpandedIds,
   sanitizeStoredFolderIds,
 } from '../documentsSidebarFolders.js'
 
@@ -41,5 +43,21 @@ describe('documents sidebar expanded-folder storage', () => {
     const cleaned = saveExpandedFolderIds(new Set(many))
     expect(cleaned).toHaveLength(500)
     expect(getStoredExpandedFolderIds()).toHaveLength(500)
+  })
+})
+
+describe('expansion persistence by key', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('keeps two sidebars from sharing one set', () => {
+    saveExpandedIds('cookie-tasks-expanded-projects', ['p1'])
+    saveExpandedIds('cookie-documents-expanded-folders', ['f1'])
+
+    expect(getStoredExpandedIds('cookie-tasks-expanded-projects')).toEqual(['p1'])
+    expect(getStoredExpandedFolderIds()).toEqual(['f1'])
+  })
+
+  it('returns an empty list for an unknown key', () => {
+    expect(getStoredExpandedIds('nothing-stored-here')).toEqual([])
   })
 })
