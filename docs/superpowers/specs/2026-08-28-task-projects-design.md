@@ -28,6 +28,29 @@ Out of scope for this phase, deliberately:
   and the view still shows its empty state. The tree is navigation with
   nowhere to lead until tasks land in a later phase.
 
+## Inbox
+
+Inbox is where a task with no project belongs. It is **not** a
+`task_projects` row and never becomes one.
+
+- The UI renders it as a static row above "My Projects", routing to
+  `/tasks?project=inbox`. That value is a filter, not an id.
+- When task creation arrives, a task created without a project is stored with
+  a null project and therefore appears in Inbox. There is no default project
+  to look up, seed per user, or backfill.
+- The awkward questions answer themselves: Inbox cannot be renamed,
+  recoloured, deleted or nested, because there is no row to act on. None of
+  the CRUD paths need a guard for it.
+
+The alternative — a seeded row flagged `is_inbox`, the way migration 0023
+seeds five default calendars — would make "every task belongs to a project"
+literally true, at the cost of a guard on every mutating path and a backfill
+for existing users. Not worth it for a property nothing depends on.
+
+The sidebar row ships ahead of the rest of this design: it is static markup
+with no backing data, so it costs nothing to add early, and it leads to the
+same empty `TasksView` the project rows will until tasks exist.
+
 ## Decisions
 
 | Decision       | Choice                                                                 |
@@ -38,6 +61,7 @@ Out of scope for this phase, deliberately:
 | API home       | `cookie-web-tasks`, alongside `/tasks` and `/documents`                |
 | Frontend state | A Pinia store, `stores/projects.js`, modelled on `stores/documents.js` |
 | Ordering       | Alphabetical within a parent; no manual ordering                       |
+| Inbox          | A rule, not a row: the name for tasks belonging to no project          |
 
 The through-line: the Documents sidebar already solves the nested-tree,
 inline-editing, drag-to-re-parent problem in this codebase. Every choice

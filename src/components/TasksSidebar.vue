@@ -15,7 +15,8 @@ useInboxStore()
 // Projects have no API yet — the tasks worker only serves gathered tasks, with
 // no project or list concept behind them. The section renders off this list so
 // wiring it to a store later is a one-line swap; until then it stays empty and
-// the sidebar shows the empty hint.
+// the sidebar shows the empty hint. Inbox is deliberately not in here: it is
+// the no-project bucket rather than a project of its own.
 const projects = ref([])
 </script>
 
@@ -27,6 +28,20 @@ const projects = ref([])
       <span class="material-symbols-outlined" aria-hidden="true">add_task</span>
       <span>Add Task</span>
     </button>
+
+    <!-- Inbox is a rule, not a project: it names the tasks that belong to no
+       project, so there is no row behind it to rename, recolour or delete.
+       It sits above My Projects, unlabelled, because it is not one of them. -->
+    <nav class="sidebar-nav tasks-views-nav" aria-label="Task views">
+      <router-link
+        :to="{ path: '/tasks', query: { project: 'inbox' } }"
+        class="nav-item"
+        :class="{ active: route.query.project === 'inbox' }"
+      >
+        <span class="material-symbols-outlined nav-icon-red" aria-hidden="true">inbox</span>
+        <span class="nav-text">Inbox</span>
+      </router-link>
+    </nav>
 
     <div class="sb-section-label">My Projects</div>
     <nav class="sidebar-nav tasks-projects-nav" aria-label="My projects">
