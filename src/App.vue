@@ -17,6 +17,7 @@ const ChatDrawer = defineAsyncComponent(() => import('./components/ChatDrawer.vu
 const CommandPalette = defineAsyncComponent(() => import('./components/CommandPalette.vue'))
 const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
 const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
+const TasksSidebar = defineAsyncComponent(() => import('./components/TasksSidebar.vue'))
 
 const store = useInboxStore()
 const documentsStore = useDocumentsStore()
@@ -700,6 +701,9 @@ onUnmounted(() => {
 
         <!-- Documents: the file tree replaces the mail sidebar -->
         <DocumentsSidebar v-else-if="activeApp === 'documents'" />
+
+        <!-- Tasks: its own sidebar replaces the mail one -->
+        <TasksSidebar v-else-if="activeApp === 'tasks'" />
 
         <!-- MAIN CONTENT PANEL -->
         <main class="main-content">
