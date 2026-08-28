@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
@@ -59,6 +59,15 @@ const reschedulingItemId = ref(null)
 const scheduleOptions = computed(() =>
   reschedulingTaskId.value !== null || reschedulingItemId.value !== null ? scheduleChoices() : [],
 )
+
+// Clicking anywhere outside an open menu dismisses it, the same way the
+// traditional inbox's schedule menus behave. Clicks inside the wrapper are
+// left alone: the toggle button and the menu items own those.
+function onDocumentClick(event) {
+  if (event.target.closest('.ni-schedule-wrap')) return
+  reschedulingTaskId.value = null
+  reschedulingItemId.value = null
+}
 
 async function completeTask(task) {
   completingTaskIds.value = new Set(completingTaskIds.value).add(task.id)
@@ -228,8 +237,13 @@ async function refresh() {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick)
   await store.loadTasks()
   now.value = Date.now()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
 })
 </script>
 

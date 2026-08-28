@@ -7,11 +7,12 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import AIInboxView from '../AIInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
-function mountView() {
+function mountView(options = {}) {
   // useAuth0() is inject()-based, so providing under its key feeds the view a
   // signed-in user through the real interface.
   return mount(AIInboxView, {
     global: { provide: { [AUTH0_INJECTION_KEY]: { user: ref({ name: 'Allister Antosik' }) } } },
+    ...options,
   })
 }
 
@@ -496,6 +497,30 @@ describe('AIInboxView (AI Today)', () => {
     expect(notify).toHaveBeenCalledWith('Moved "Renew car insurance" to tomorrow.')
     expect(rowsOf(wrapper)).toHaveLength(0)
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
+  })
+
+  // Attached to the document so the toggle's own click really reaches the
+  // document listener: a guard that missed it would open the menu and close it
+  // again in the same click, which an unattached mount can never show.
+  it('closes an open reschedule menu on a click outside it, but not on its own', async () => {
+    store.tasks = [
+      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', url: null },
+    ]
+
+    const wrapper = mountView({ attachTo: document.body })
+    try {
+      const toggle = rowsOf(wrapper)[0]
+        .findAll('.action-pill-btn')
+        .find((btn) => btn.text().includes('Reschedule'))
+      await toggle.trigger('click')
+      expect(wrapper.find('.ni-schedule-menu').exists()).toBe(true)
+
+      document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+      expect(wrapper.find('.ni-schedule-menu').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('keeps a to-do visible when rescheduled to later today', async () => {
