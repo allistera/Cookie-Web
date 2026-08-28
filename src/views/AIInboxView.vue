@@ -31,6 +31,11 @@ const priorityGroupLabel = computed(() =>
   priorityGroupCount.value === 1 ? 'priority group' : 'priority groups',
 )
 const noiseCount = computed(() => store.digest?.noise?.count ?? 0)
+// The triage card is worth showing for any of the three things it can hold —
+// the overview line, the priority groups, or the noise summary.
+const hasTriage = computed(
+  () => priorityGroups.value.length > 0 || noiseCount.value > 0 || Boolean(store.digest?.overview),
+)
 const noiseSummary = computed(() =>
   (store.digest?.noise?.categories ?? [])
     .map((item) => `${item.count} ${item.category}`)
@@ -44,12 +49,17 @@ const completingTaskIds = ref(new Set())
 const tasks = computed(() => store.tasks.filter((t) => !completingTaskIds.value.has(t.id)))
 const activeCount = computed(() => tasks.value.length)
 
-const firstName = computed(
-  () =>
-    String(user.value?.name || '')
-      .trim()
-      .split(/\s+/)[0],
-)
+// Auth0 fills `name` with the email address when the identity provider has no
+// real name for the account, and "Hi allisteraall@gmail.com" reads like a form
+// letter. Prefer the claims that carry an actual name, and greet without one
+// rather than print an address.
+const greetingName = computed(() => {
+  const claims = user.value ?? {}
+  const named = [claims.given_name, claims.nickname, claims.name]
+    .map((claim) => String(claim ?? '').trim())
+    .find((claim) => claim && !claim.includes('@'))
+  return named ? named.split(/\s+/)[0] : ''
+})
 
 // Presets for both reschedule menus below (Later today/Tomorrow/This
 // weekend/Next week) - recomputed each time a menu opens so the dates are
@@ -252,7 +262,7 @@ onUnmounted(() => {
     <div class="ai-header">
       <div class="beta-badge">Beta</div>
       <h1 id="ai-today-title" class="ai-greeting">
-        Hi{{ firstName ? ` ${firstName}` : '' }} 👋 You have
+        Hi{{ greetingName ? ` ${greetingName}` : '' }}! 👋 You have
         <span class="counter-text">{{ activeCount }} to-dos</span>
         and
         <span class="counter-text">{{ priorityGroupCount }} {{ priorityGroupLabel }}</span>
@@ -274,7 +284,7 @@ onUnmounted(() => {
 
     <div class="ai-cards-container">
       <!-- SUGGESTED TO-DOS -->
-      <section class="ai-card todo-card">
+      <section v-if="tasks.length" class="ai-card todo-card" data-testid="todo-card">
         <div class="card-header">
           <h2>Suggested to-dos</h2>
         </div>
@@ -339,15 +349,10 @@ onUnmounted(() => {
             </div>
           </div>
         </TransitionGroup>
-
-        <p v-if="!tasks.length" class="todo-empty" data-testid="tasks-empty">
-          Nothing gathered for today. Todoist tasks due today and action items from important mail
-          show up here after the overnight run.
-        </p>
       </section>
 
       <!-- EMAIL TRIAGE -->
-      <section class="ai-card topics-card">
+      <section v-if="hasTriage" class="ai-card topics-card" data-testid="triage-card">
         <div class="card-header">
           <h2>Email triage</h2>
         </div>
@@ -430,10 +435,6 @@ onUnmounted(() => {
             <span>Hidden from AI Inbox; nothing was archived or deleted.</span>
           </div>
         </div>
-
-        <p v-if="!priorityGroups.length" class="topic-empty" data-testid="topics-empty">
-          No Reply Needed or Review mail in the last 24 hours.
-        </p>
       </section>
 
       <!-- TODAY'S NEWS -->

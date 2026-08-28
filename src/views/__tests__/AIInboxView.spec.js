@@ -7,11 +7,11 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import AIInboxView from '../AIInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
-function mountView(options = {}) {
+function mountView({ user = { name: 'Allister Antosik' }, ...options } = {}) {
   // useAuth0() is inject()-based, so providing under its key feeds the view a
   // signed-in user through the real interface.
   return mount(AIInboxView, {
-    global: { provide: { [AUTH0_INJECTION_KEY]: { user: ref({ name: 'Allister Antosik' }) } } },
+    global: { provide: { [AUTH0_INJECTION_KEY]: { user: ref(user) } } },
     ...options,
   })
 }
@@ -73,18 +73,35 @@ describe('AIInboxView (AI Today)', () => {
     store.digest = DIGEST()
 
     const greeting = mountView().get('.ai-greeting').text()
-    expect(greeting).toContain('Hi Allister')
+    expect(greeting).toContain('Hi Allister!')
     expect(greeting).not.toContain('Antosik')
     expect(greeting).toContain('1 to-dos')
     expect(greeting).toContain('2 priority groups')
   })
 
-  it('shows an empty state and a zero count when nothing was gathered', () => {
+  it('greets by nickname when Auth0 filled name with the email address', () => {
+    const greeting = mountView({
+      user: { name: 'allisteraall@gmail.com', nickname: 'Allister' },
+    })
+      .get('.ai-greeting')
+      .text()
+
+    expect(greeting).toContain('Hi Allister!')
+    expect(greeting).not.toContain('@')
+  })
+
+  it('greets without a name rather than printing an email address', () => {
+    const greeting = mountView({ user: { name: 'allisteraall@gmail.com' } })
+      .get('.ai-greeting')
+      .text()
+
+    expect(greeting).toContain('Hi!')
+    expect(greeting).not.toContain('@')
+  })
+
+  it('hides the to-dos card entirely when nothing was gathered', () => {
     const wrapper = mountView()
-    expect(rowsOf(wrapper)).toHaveLength(0)
-    expect(wrapper.get('[data-testid="tasks-empty"]').text()).toContain(
-      'Nothing gathered for today',
-    )
+    expect(wrapper.find('[data-testid="todo-card"]').exists()).toBe(false)
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
@@ -123,13 +140,20 @@ describe('AIInboxView (AI Today)', () => {
     expect(noise).toContain('nothing was archived or deleted')
   })
 
-  it('shows an empty state when no digest has been written', () => {
+  it('hides the triage card entirely when no digest has been written', () => {
     const wrapper = mountView()
-    expect(wrapper.find('[data-testid="topic-sections"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="topics-empty"]').text()).toContain(
-      'No Reply Needed or Review mail in the last 24 hours',
-    )
+    expect(wrapper.find('[data-testid="triage-card"]').exists()).toBe(false)
     expect(wrapper.get('.ai-greeting').text()).toContain('0 priority groups')
+  })
+
+  // Noise-only and overview-only digests still have something to say, so the
+  // card stays even with no priority group in it.
+  it('keeps the triage card for a digest that is only noise', () => {
+    store.digest = { ...DIGEST(), overview: null, topics: [] }
+    const wrapper = mountView()
+
+    expect(wrapper.find('[data-testid="triage-card"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="triage-noise"]').text()).toContain('3 emails')
   })
 
   it('renders the news round-up with links, notes and meta', () => {
@@ -436,7 +460,8 @@ describe('AIInboxView (AI Today)', () => {
     await flushPromises()
 
     expect(completeTask).toHaveBeenCalledWith('task-1')
-    expect(rowsOf(wrapper)).toHaveLength(0)
+    // Emptying the list takes the whole card with it.
+    expect(wrapper.find('[data-testid="todo-card"]').exists()).toBe(false)
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
@@ -495,7 +520,8 @@ describe('AIInboxView (AI Today)', () => {
     const todayLocal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
     expect(dueDate).not.toBe(todayLocal)
     expect(notify).toHaveBeenCalledWith('Moved "Renew car insurance" to tomorrow.')
-    expect(rowsOf(wrapper)).toHaveLength(0)
+    // Emptying the list takes the whole card with it.
+    expect(wrapper.find('[data-testid="todo-card"]').exists()).toBe(false)
     expect(wrapper.get('.ai-greeting').text()).toContain('0 to-dos')
   })
 
