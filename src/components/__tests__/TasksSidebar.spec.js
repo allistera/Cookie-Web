@@ -183,4 +183,43 @@ describe('TasksSidebar', () => {
     expect(confirm).not.toHaveBeenCalled()
     expect(remove).toHaveBeenCalledWith('p1')
   })
+
+  it('re-parents a project when dropped onto another', async () => {
+    const store = useProjectsStore()
+    store.projects = [
+      { id: 'p1', parentId: null, name: 'Work' },
+      { id: 'p2', parentId: null, name: 'Admin' },
+    ]
+    store.isLoaded = true
+    const move = vi.spyOn(store, 'moveProject').mockResolvedValue(null)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rows = wrapper.findAll('.project-item')
+    const dataTransfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
+
+    // Rows render alphabetically, so Admin is first and Work second.
+    await rows[0].trigger('dragstart', { dataTransfer })
+    await rows[1].trigger('dragover', { dataTransfer })
+    await rows[1].trigger('drop')
+
+    expect(move).toHaveBeenCalledWith('p2', 'p1')
+  })
+
+  it('ignores a drop onto the row being dragged', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    const move = vi.spyOn(store, 'moveProject').mockResolvedValue(null)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const row = wrapper.get('.project-item')
+    const dataTransfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
+
+    await row.trigger('dragstart', { dataTransfer })
+    await row.trigger('drop')
+
+    expect(move).not.toHaveBeenCalled()
+  })
 })

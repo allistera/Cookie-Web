@@ -72,6 +72,36 @@ async function submitRename(project) {
   if (name && name !== project.name) await store.renameProject(project.id, name)
 }
 
+// Drag a project row onto another to re-parent it, or onto the section label
+// for the root. The client only blocks the obvious self-drop; the server owns
+// the cycle rule, so a drop onto a descendant fails there with a message.
+const dragId = ref(null)
+const dropId = ref(undefined)
+
+function onDragStart(project, event) {
+  dragId.value = project.id
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', project.id)
+}
+
+function onDragOver(targetId, event) {
+  if (!dragId.value || dragId.value === targetId) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  dropId.value = targetId
+}
+
+function onDrop(targetId) {
+  if (dragId.value && dragId.value !== targetId) store.moveProject(dragId.value, targetId)
+  dragId.value = null
+  dropId.value = undefined
+}
+
+function onDragEnd() {
+  dragId.value = null
+  dropId.value = undefined
+}
+
 function childCount(id) {
   return store.projects.filter((project) => project.parentId === id).length
 }
@@ -109,7 +139,13 @@ function removeProject(project) {
       </router-link>
     </nav>
 
-    <div class="sb-section-label tasks-projects-label">
+    <div
+      class="sb-section-label tasks-projects-label"
+      :class="{ 'drop-target': dropId === null }"
+      @dragover="onDragOver(null, $event)"
+      @dragleave="dropId = undefined"
+      @drop.prevent="onDrop(null)"
+    >
       <span>My Projects</span>
       <button
         class="new-project-btn"
@@ -127,9 +163,19 @@ function removeProject(project) {
         :key="row.item.id"
         :to="{ path: '/tasks', query: { project: row.item.id } }"
         class="nav-item project-item"
-        :class="{ active: route.query.project === row.item.id }"
+        :class="{
+          active: route.query.project === row.item.id,
+          dragging: dragId === row.item.id,
+          'drop-target': dropId === row.item.id,
+        }"
         :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+        draggable="true"
         @dblclick.prevent="startRename(row.item)"
+        @dragstart="onDragStart(row.item, $event)"
+        @dragover="onDragOver(row.item.id, $event)"
+        @dragleave="dropId = undefined"
+        @drop.prevent="onDrop(row.item.id)"
+        @dragend="onDragEnd"
       >
         <button
           v-if="row.hasChildren"
@@ -333,5 +379,15 @@ function removeProject(project) {
   border: 1px solid currentColor;
   border-radius: 4px;
   padding: 1px 4px;
+}
+
+.project-item.dragging {
+  opacity: 0.5;
+}
+
+.drop-target {
+  outline: 1.5px dashed currentColor;
+  outline-offset: -1.5px;
+  border-radius: 6px;
 }
 </style>
