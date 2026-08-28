@@ -452,6 +452,53 @@ test('Marking a Todoist task done removes it from AI Today and confirms with a t
   expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
 })
 
+test('AI Today reschedules a to-do through its day menu', async ({ page }) => {
+  const posts = []
+  await page.route(`${TASKS_API_URL}/tasks`, async (route) => {
+    if (route.request().method() === 'POST') {
+      posts.push(route.request().postDataJSON())
+      await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/')
+  const todos = page.getByTestId('task-rows')
+  // The last row is the worst case: its menu opens past the bottom of both the
+  // row and the card, so an ancestor that clips leaves nothing to click.
+  const lastTask = todos.locator('.todo-row').last()
+  await expect(lastTask.locator('strong')).toHaveText('Confirm the revised floor plan')
+  await lastTask.getByRole('button', { name: /Reschedule/ }).click()
+
+  // Hit-test where the menu actually paints. An ancestor with overflow:hidden
+  // leaves the menu in the DOM and visible to a selector while clipping it out
+  // of the page, and Playwright's own click would scroll that hidden overflow
+  // into view rather than fail — only elementFromPoint sees the difference.
+  const tomorrowItem = lastTask.getByRole('menuitem', { name: /Tomorrow/ })
+  await expect(tomorrowItem).toBeVisible()
+  const clickable = await tomorrowItem.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    return el.contains(
+      document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+    )
+  })
+  expect(clickable).toBe(true)
+
+  await tomorrowItem.click()
+
+  await expect(todos.locator('.todo-row')).toHaveCount(2)
+  await expect(
+    page.locator('.toast', { hasText: 'Moved "Confirm the revised floor plan" to tomorrow.' }),
+  ).toBeVisible()
+  expect(posts).toHaveLength(1)
+  expect(posts[0]).toMatchObject({ id: 'stub-email-task-1', action: 'reschedule' })
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const expected = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+  expect(posts[0].due_date).toBe(expected)
+})
+
 test('Profile dropdown contains Settings and Log out, and opens the settings page', async ({
   page,
 }) => {
@@ -582,7 +629,7 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   const requestStarted = new Promise((resolve) => {
     notifyRequestStarted = resolve
   })
-  await page.route('**/api/send', async (route) => {
+  await page.route('**/send-api.infinitywave.online/send', async (route) => {
     sendRequests += 1
     notifyRequestStarted()
     await new Promise((resolve) => {
@@ -617,7 +664,7 @@ test('Composer "Send Later" queues a scheduled send instead of sending immediate
   page,
 }) => {
   let sendRequestBody
-  await page.route('**/api/send', async (route) => {
+  await page.route('**/send-api.infinitywave.online/send', async (route) => {
     sendRequestBody = route.request().postDataJSON()
     await route.fulfill({
       status: 201,
@@ -1340,7 +1387,7 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
 
 test("Pressing 'u' cancels a queued send and restores its draft", async ({ page }) => {
   let sendRequests = 0
-  await page.route('**/api/send', async (route) => {
+  await page.route('**/send-api.infinitywave.online/send', async (route) => {
     sendRequests += 1
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'sent' }) })
   })
