@@ -33,6 +33,7 @@ function localApiPlugin(mode) {
         rules: [],
         scheduledSends: [],
         followUps: new Map(),
+        projects: [],
       })
     }
     return stubMailboxState.get(sessionId)
@@ -992,6 +993,47 @@ function localApiPlugin(mode) {
     if (segments[0] === 'documents') {
       await handleWorkerDocuments(req, res, state, url)
       return
+    }
+    if (segments[0] === 'projects') {
+      if (req.method === 'GET') {
+        return json(res, {
+          projects: [...state.projects].sort((a, b) => a.name.localeCompare(b.name)),
+        })
+      }
+      const body = await readBody(req)
+      if (req.method === 'POST') {
+        const project = {
+          id: randomUUID(),
+          parentId: body.parentId ?? null,
+          name: String(body.name || '').slice(0, 120),
+          createdAt: new Date().toISOString(),
+        }
+        state.projects.push(project)
+        return json(res, { project }, 201)
+      }
+      if (req.method === 'PATCH') {
+        const project = state.projects.find((row) => row.id === body.id)
+        if (!project) return json(res, { error: 'Project not found' }, 404)
+        if (body.name !== undefined) project.name = body.name
+        if (Object.hasOwn(body, 'parentId')) project.parentId = body.parentId
+        return json(res, { project })
+      }
+      if (req.method === 'DELETE') {
+        const doomed = new Set([body.id])
+        let grew = true
+        while (grew) {
+          grew = false
+          for (const project of state.projects) {
+            if (!doomed.has(project.id) && doomed.has(project.parentId)) {
+              doomed.add(project.id)
+              grew = true
+            }
+          }
+        }
+        state.projects = state.projects.filter((project) => !doomed.has(project.id))
+        return json(res, { ok: true })
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
     }
     if (segments[0] !== 'tasks') return json(res, { error: 'Not Found' }, 404)
     const sub = segments[1]

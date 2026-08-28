@@ -1703,3 +1703,30 @@ test('Tags can be added to and removed from an email in the reader', async ({ pa
 
   expect(pageErrors).toEqual([])
 })
+
+test('Tasks projects nest, collapse, and survive a reload', async ({ page }) => {
+  await page.goto('/tasks')
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await expect(sidebar.locator('.nav-item', { hasText: 'Inbox' })).toBeVisible()
+  await expect(sidebar.locator('.tasks-projects-empty')).toHaveText('No projects yet')
+
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Work')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await expect(sidebar.locator('.project-item')).toHaveCount(1)
+
+  // A sub-project appears under its parent, which auto-expands to show it.
+  await sidebar.locator('.project-item').hover()
+  await sidebar.locator('.project-item .row-action-btn[data-action="add"]').click()
+  await sidebar.locator('.new-project-row input').fill('API')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await expect(sidebar.locator('.project-item')).toHaveCount(2)
+
+  await sidebar.locator('.project-arrow').click()
+  await expect(sidebar.locator('.project-item')).toHaveCount(1)
+
+  await page.reload()
+  await expect(sidebar.locator('.project-item')).toHaveCount(1)
+  await expect(sidebar.locator('.project-item')).toContainText('Work')
+})
