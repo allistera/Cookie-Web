@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
 
@@ -28,49 +29,20 @@ onMounted(() => {
 
 watch(project, (next) => items.loadItems(next))
 
-const editingTitle = ref(false)
-const titleDraft = ref('')
-const titleInput = ref(null)
+const titleEdit = useInlineEdit({
+  read: () => current.value?.name ?? '',
+  // An empty title is not a rename: leaving edit mode keeps the existing name,
+  // which is what Enter on a cleared field should do.
+  write: (name) => (name ? projects.renameProject(project.value, name) : undefined),
+  canEdit: () => !isInbox.value,
+})
 
-async function startTitleEdit() {
-  if (isInbox.value) return
-  titleDraft.value = current.value?.name ?? ''
-  editingTitle.value = true
-  await nextTick()
-  titleInput.value?.focus()
-  titleInput.value?.select()
-}
-
-async function submitTitle() {
-  // Enter commits and unmounts the input, which fires blur; the second call
-  // must be a no-op or every rename would be sent twice.
-  if (!editingTitle.value) return
-  const name = titleDraft.value.trim()
-  editingTitle.value = false
-  if (name && name !== current.value?.name) await projects.renameProject(project.value, name)
-}
-
-const editingDescription = ref(false)
-const descriptionDraft = ref('')
-const descriptionInput = ref(null)
-
-async function startDescriptionEdit() {
-  if (isInbox.value) return
-  descriptionDraft.value = current.value?.description ?? ''
-  editingDescription.value = true
-  await nextTick()
-  descriptionInput.value?.focus()
-}
-
-async function submitDescription() {
-  // Same Enter-then-blur double fire as submitTitle.
-  if (!editingDescription.value) return
-  const description = descriptionDraft.value.trim()
-  editingDescription.value = false
-  if (description !== (current.value?.description ?? '')) {
-    await projects.describeProject(project.value, description)
-  }
-}
+const descriptionEdit = useInlineEdit({
+  read: () => current.value?.description ?? '',
+  write: (description) => projects.describeProject(project.value, description),
+  canEdit: () => !isInbox.value,
+  selectAll: false,
+})
 
 const composing = ref(false)
 const draft = ref('')
@@ -107,29 +79,29 @@ async function submitDraft() {
     </nav>
 
     <input
-      v-if="editingTitle"
-      ref="titleInput"
-      v-model="titleDraft"
+      v-if="titleEdit.editing.value"
+      :ref="(el) => (titleEdit.inputRef.value = el)"
+      v-model="titleEdit.draft.value"
       class="tasks-title-input"
       aria-label="Project name"
-      @keydown.enter.prevent="submitTitle"
-      @keydown.escape="editingTitle = false"
-      @blur="submitTitle"
+      @keydown.enter.prevent="titleEdit.submit"
+      @keydown.escape="titleEdit.editing.value = false"
+      @blur="titleEdit.submit"
     />
-    <h1 v-else class="tasks-title" @click="startTitleEdit">{{ title }}</h1>
+    <h1 v-else class="tasks-title" @click="titleEdit.start">{{ title }}</h1>
 
     <input
-      v-if="editingDescription"
-      ref="descriptionInput"
-      v-model="descriptionDraft"
+      v-if="descriptionEdit.editing.value"
+      :ref="(el) => (descriptionEdit.inputRef.value = el)"
+      v-model="descriptionEdit.draft.value"
       class="tasks-description-input"
       placeholder="Add a description"
       aria-label="Project description"
-      @keydown.enter.prevent="submitDescription"
-      @keydown.escape="editingDescription = false"
-      @blur="submitDescription"
+      @keydown.enter.prevent="descriptionEdit.submit"
+      @keydown.escape="descriptionEdit.editing.value = false"
+      @blur="descriptionEdit.submit"
     />
-    <p v-else-if="!isInbox" class="tasks-description" @click="startDescriptionEdit">
+    <p v-else-if="!isInbox" class="tasks-description" @click="descriptionEdit.start">
       {{ current?.description || 'Add a description' }}
     </p>
 
