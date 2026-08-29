@@ -57,4 +57,34 @@ describe('TasksView', () => {
     expect(wrapper.get('.tasks-title').text()).toBe('Inbox')
     expect(wrapper.get('.tasks-breadcrumb').text()).not.toContain('Technical Projects')
   })
+
+  it('renames the project from the title, submitting once on Enter then blur', async () => {
+    const projects = useProjectsStore()
+    const rename = vi.spyOn(projects, 'renameProject').mockResolvedValue(null)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.tasks-title').trigger('click')
+    const input = wrapper.get('.tasks-title-input')
+    await input.setValue('Renamed')
+    await input.trigger('keydown.enter')
+    await input.trigger('blur')
+
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(rename).toHaveBeenCalledWith('p2', 'Renamed')
+  })
+
+  it('writes a description from the placeholder', async () => {
+    const projects = useProjectsStore()
+    const describe = vi.spyOn(projects, 'describeProject').mockResolvedValue(null)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.tasks-description').trigger('click')
+    const input = wrapper.get('.tasks-description-input')
+    await input.setValue('What this project is for')
+    await input.trigger('keydown.enter')
+
+    expect(describe).toHaveBeenCalledWith('p2', 'What this project is for')
+  })
 })

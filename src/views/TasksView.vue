@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useProjectsStore } from '../stores/projects'
@@ -27,6 +27,50 @@ onMounted(() => {
 })
 
 watch(project, (next) => items.loadItems(next))
+
+const editingTitle = ref(false)
+const titleDraft = ref('')
+const titleInput = ref(null)
+
+async function startTitleEdit() {
+  if (isInbox.value) return
+  titleDraft.value = current.value?.name ?? ''
+  editingTitle.value = true
+  await nextTick()
+  titleInput.value?.focus()
+  titleInput.value?.select()
+}
+
+async function submitTitle() {
+  // Enter commits and unmounts the input, which fires blur; the second call
+  // must be a no-op or every rename would be sent twice.
+  if (!editingTitle.value) return
+  const name = titleDraft.value.trim()
+  editingTitle.value = false
+  if (name && name !== current.value?.name) await projects.renameProject(project.value, name)
+}
+
+const editingDescription = ref(false)
+const descriptionDraft = ref('')
+const descriptionInput = ref(null)
+
+async function startDescriptionEdit() {
+  if (isInbox.value) return
+  descriptionDraft.value = current.value?.description ?? ''
+  editingDescription.value = true
+  await nextTick()
+  descriptionInput.value?.focus()
+}
+
+async function submitDescription() {
+  // Same Enter-then-blur double fire as submitTitle.
+  if (!editingDescription.value) return
+  const description = descriptionDraft.value.trim()
+  editingDescription.value = false
+  if (description !== (current.value?.description ?? '')) {
+    await projects.describeProject(project.value, description)
+  }
+}
 </script>
 
 <template>
@@ -42,9 +86,30 @@ watch(project, (next) => items.loadItems(next))
       <span aria-hidden="true">/</span>
     </nav>
 
-    <h1 class="tasks-title">{{ title }}</h1>
+    <input
+      v-if="editingTitle"
+      ref="titleInput"
+      v-model="titleDraft"
+      class="tasks-title-input"
+      aria-label="Project name"
+      @keydown.enter.prevent="submitTitle"
+      @keydown.escape="editingTitle = false"
+      @blur="submitTitle"
+    />
+    <h1 v-else class="tasks-title" @click="startTitleEdit">{{ title }}</h1>
 
-    <p v-if="!isInbox" class="tasks-description">
+    <input
+      v-if="editingDescription"
+      ref="descriptionInput"
+      v-model="descriptionDraft"
+      class="tasks-description-input"
+      placeholder="Add a description"
+      aria-label="Project description"
+      @keydown.enter.prevent="submitDescription"
+      @keydown.escape="editingDescription = false"
+      @blur="submitDescription"
+    />
+    <p v-else-if="!isInbox" class="tasks-description" @click="startDescriptionEdit">
       {{ current?.description || 'Add a description' }}
     </p>
   </div>
@@ -85,5 +150,28 @@ watch(project, (next) => items.loadItems(next))
   color: var(--text-secondary);
   font-size: 14px;
   cursor: text;
+}
+
+.tasks-title-input,
+.tasks-description-input {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.tasks-title-input {
+  margin: 18px 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.tasks-description-input {
+  margin: 0 0 24px;
+  font-size: 14px;
 }
 </style>
