@@ -80,14 +80,28 @@ describe('TasksSidebar', () => {
     expect(wrapper.get('.tasks-projects-empty').text()).toBe('No projects yet')
   })
 
-  it('marks Inbox active only when the route selects it', async () => {
+  // Inbox is the default view: TasksView renders it for a bare /tasks, so the
+  // sidebar has to highlight it there too, not just for the explicit ?project.
+  it('marks Inbox active for a bare /tasks and when the route selects it', async () => {
     const wrapper = mountSidebar()
-    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).not.toContain('active')
+    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).toContain('active')
 
     await router.push('/tasks?project=inbox')
     await wrapper.vm.$nextTick()
 
     expect(wrapper.get('.tasks-views-nav .nav-item').classes()).toContain('active')
+  })
+
+  it('drops the Inbox highlight once a project is selected', async () => {
+    const store = useProjectsStore()
+    store.isLoaded = true
+    store.projects = [{ id: 'p1', name: 'Roof', parentId: null, position: 0 }]
+    const wrapper = mountSidebar()
+
+    await router.push('/tasks?project=p1')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).not.toContain('active')
   })
 
   it('creates a project from the inline row', async () => {

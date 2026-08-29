@@ -20,6 +20,10 @@ watch(expandedIds, (ids) => saveExpandedIds(EXPANDED_KEY, ids))
 
 const rows = computed(() => flattenProjectTree(store.projects, expandedIds.value))
 
+// Which row is highlighted. Inbox is the default view, so a bare /tasks — no
+// ?project at all — selects it, matching what TasksView already renders.
+const selectedProject = computed(() => String(route.query.project ?? 'inbox'))
+
 onMounted(() => store.loadProjects())
 
 function toggle(id) {
@@ -138,7 +142,7 @@ async function removeProject(project) {
 
   // Capture before the delete resolves: once it succeeds the route may still
   // point at a project the server has just cascaded away.
-  const viewedProject = String(route.query.project ?? 'inbox')
+  const viewedProject = selectedProject.value
   const viewingDoomed = viewedProject === project.id || descendants.includes(viewedProject)
 
   const deleted = await store.deleteProject(project.id)
@@ -162,7 +166,7 @@ async function removeProject(project) {
       <router-link
         :to="{ path: '/tasks', query: { project: 'inbox' } }"
         class="nav-item"
-        :class="{ active: route.query.project === 'inbox' }"
+        :class="{ active: selectedProject === 'inbox' }"
       >
         <span class="material-symbols-outlined nav-icon-red" aria-hidden="true">inbox</span>
         <span class="nav-text">Inbox</span>
@@ -194,7 +198,7 @@ async function removeProject(project) {
         :to="{ path: '/tasks', query: { project: row.item.id } }"
         class="nav-item project-item"
         :class="{
-          active: route.query.project === row.item.id,
+          active: selectedProject === row.item.id,
           dragging: dragId === row.item.id,
           'drop-target': dropId === row.item.id,
         }"
