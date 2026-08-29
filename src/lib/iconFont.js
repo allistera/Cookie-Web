@@ -46,6 +46,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'mail',
   'mark_email_read',
   'mark_email_unread',
+  'more_horiz',
   'note_add',
   'notification_add',
   'notifications',
