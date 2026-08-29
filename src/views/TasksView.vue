@@ -1,12 +1,14 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
+import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const route = useRoute()
+const router = useRouter()
 const projects = useProjectsStore()
 const items = useTaskItemsStore()
 
@@ -21,6 +23,42 @@ const ancestors = computed(() =>
   isInbox.value ? [] : projects.ancestorsOf(project.value).slice(0, -1),
 )
 const title = computed(() => (isInbox.value ? 'Inbox' : (current.value?.name ?? '')))
+
+// Which task the panel is showing, if any. Keeping it in the URL makes a task
+// linkable and survive a reload.
+const openTaskId = computed(() => {
+  const id = route.query.task
+  return id ? String(id) : ''
+})
+
+function open(id) {
+  router.push({ path: '/tasks', query: { ...route.query, task: id } })
+}
+
+const DUE_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+// due_date is a plain calendar date with no zone, so it is formatted from its
+// own parts rather than through a Date: constructing one and formatting it in
+// the local zone moves the chip a day for anyone west of Greenwich. Intl is
+// avoided for a second reason — en-GB's short September is 'Sep' on some ICU
+// versions and 'Sept' on others, which would pass locally and fail in CI.
+function formatDue(dueDate) {
+  const [, month, day] = dueDate.split('-')
+  return `${Number(day)} ${DUE_MONTHS[Number(month) - 1]}`
+}
 
 onMounted(() => {
   projects.loadProjects()
@@ -117,10 +155,11 @@ async function submitDraft() {
           :aria-label="`Complete ${item.content}`"
           @click="items.setCompleted(item.id, true)"
         ></button>
-        <div class="task-body">
+        <button class="task-open" type="button" @click="open(item.id)">
           <span class="task-content">{{ item.content }}</span>
           <span v-if="item.description" class="task-description">{{ item.description }}</span>
-        </div>
+          <span v-if="item.dueDate" class="task-due">{{ formatDue(item.dueDate) }}</span>
+        </button>
       </li>
     </ul>
 
@@ -139,6 +178,8 @@ async function submitDraft() {
       <span aria-hidden="true">+</span>
       <span>Add task</span>
     </button>
+
+    <TaskDetailPanel v-if="openTaskId" :key="openTaskId" :task-id="openTaskId" />
   </div>
 </template>
 
@@ -229,6 +270,28 @@ async function submitDraft() {
   border-bottom: 1px solid var(--border-color);
 }
 
+.task-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-due {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .task-check {
   width: 18px;
   height: 18px;
@@ -242,13 +305,6 @@ async function submitDraft() {
 
 .task-check:hover {
   border-color: var(--text-primary);
-}
-
-.task-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
 }
 
 .task-content {

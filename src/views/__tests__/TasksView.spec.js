@@ -188,4 +188,59 @@ describe('TasksView', () => {
 
     expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: null })
   })
+
+  it('opens a task in the panel by putting its id in the query', async () => {
+    const items = useTaskItemsStore()
+    items.items = [{ id: 'a', content: 'First', description: null, dueDate: null, projectId: 'p2' }]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-open').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBe('a')
+  })
+
+  it('shows a due date on the row when the task has one', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'First', description: null, dueDate: '2026-09-01', projectId: 'p2' },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.task-due').text()).toBe('1 Sep')
+  })
+
+  // A date is a plain calendar date with no zone. Formatting it through a
+  // Date in the local zone slides the chip a day west of Greenwich.
+  it('shows the due date without a timezone shift', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'First', description: null, dueDate: '2026-01-01', projectId: 'p2' },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.task-due').text()).toBe('1 Jan')
+  })
+
+  // Completing must stay on the circle: one click that both completes and
+  // opens the panel would be unusable.
+  it('does not open the panel when the completion circle is clicked', async () => {
+    const items = useTaskItemsStore()
+    items.items = [{ id: 'a', content: 'First', description: null, dueDate: null, projectId: 'p2' }]
+    items.loadedProject = 'p2'
+    vi.spyOn(items, 'setCompleted').mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-check').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+  })
 })

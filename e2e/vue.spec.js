@@ -1757,6 +1757,34 @@ test('Tasks: a task can be added to a project and completed', async ({ page }) =
   await expect(page.locator('.task-row')).toHaveCount(0)
 })
 
+test('Tasks: a task opens in the panel, takes a date, and the link survives a reload', async ({
+  page,
+}) => {
+  await page.goto('/tasks')
+
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Ship the panel')
+  await page.locator('.add-task-row input').press('Enter')
+  await expect(page.locator('.task-row')).toHaveCount(1)
+
+  await page.locator('.task-open').click()
+  await expect(page.locator('.task-panel')).toBeVisible()
+  await expect(page.locator('.task-panel-title')).toHaveText('Ship the panel')
+
+  await page.locator('.task-panel-date-input').fill('2026-09-01')
+  await expect(page.locator('.task-due')).toHaveText('1 Sep')
+
+  // URL-backed: the panel is a link, not view state that a reload forgets.
+  await page.reload()
+  await expect(page.locator('.task-panel')).toBeVisible()
+  await expect(page.locator('.task-panel-title')).toHaveText('Ship the panel')
+  await expect(page.locator('.task-panel-date-input')).toHaveValue('2026-09-01')
+
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.task-panel')).toHaveCount(0)
+  await expect(page.locator('.task-row')).toHaveCount(1)
+})
+
 // .tasks-view is a flex item in .main-content's column flex container, so its
 // cross axis is horizontal and `margin: 0 auto` there beats align-items:
 // stretch — which sizes the box to its content unless a width is stated. With

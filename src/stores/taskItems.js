@@ -149,12 +149,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     describeItem(id, description) {
-      return this.patchItem(
-        id,
-        { description },
-        { description },
-        'Failed to save the description.',
-      )
+      return this.patchItem(id, { description }, { description }, 'Failed to save the description.')
     },
 
     // `dueDate` is 'YYYY-MM-DD', or null to clear it. The server refuses

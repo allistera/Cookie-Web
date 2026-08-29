@@ -263,7 +263,7 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBeUndefined()
   })
 
-  it('shows the task\'s project in the rail', async () => {
+  it("shows the task's project in the rail", async () => {
     seed()
     const wrapper = mountPanel()
     await flushPromises()
