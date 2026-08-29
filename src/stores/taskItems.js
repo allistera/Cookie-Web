@@ -45,10 +45,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
         // The server explains permanent refusals; a parse failure here must
         // not mask the HTTP error.
         try {
-          const body = await response.json()
-          if (body?.error) error.userMessage = String(body.error)
+          const data = await response.json()
+          const serverMessage = String(data?.error ?? '')
+          if (serverMessage) {
+            error.message = serverMessage
+            error.userMessage = serverMessage
+          }
         } catch {
-          // no usable body — the generic message stands
+          // Body absent or unparseable: keep the generic HTTP-status message
+          // rather than let a parse failure mask the original error.
         }
         throw error
       }
@@ -84,16 +89,22 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
     },
 
-    async patchItem(id, changes, failureMessage) {
+    // `localPatch` is applied optimistically to the stored item, so it must
+    // only ever contain real item fields (content, completedAt, ...) — never
+    // a wire-only field like `completed`, or a failed rollback would leave a
+    // stray key on the item forever (Object.assign can add a property but
+    // never remove one). `body` is the separate, possibly different, request
+    // payload the server expects.
+    async patchItem(id, localPatch, body, failureMessage) {
       const item = this.items.find((row) => row.id === id)
       if (!item) {
         this.notify(failureMessage, 'error')
         return null
       }
       const previous = { ...item }
-      Object.assign(item, changes)
+      Object.assign(item, localPatch)
       try {
-        const { item: updated } = await this.request('PATCH', { body: { id, ...changes } })
+        const { item: updated } = await this.request('PATCH', { body: { id, ...body } })
         Object.assign(item, updated)
         // A completed task leaves the visible list; it is not deleted.
         if (updated.completedAt) this.items = this.items.filter((row) => row.id !== id)
@@ -107,11 +118,14 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     renameItem(id, content) {
-      return this.patchItem(id, { content }, 'Failed to rename the task.')
+      return this.patchItem(id, { content }, { content }, 'Failed to rename the task.')
     },
 
     setCompleted(id, completed) {
-      return this.patchItem(id, { completed }, 'Failed to update the task.')
+      // `completed` is a request field; `completedAt` is the item's actual
+      // state, so that's what gets set locally.
+      const completedAt = completed ? new Date().toISOString() : null
+      return this.patchItem(id, { completedAt }, { completed }, 'Failed to update the task.')
     },
 
     async deleteItem(id) {

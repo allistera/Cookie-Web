@@ -69,4 +69,20 @@ describe('task items store', () => {
     expect(store.items[0].content).toBe('Ship it')
     expect(notify).toHaveBeenCalledWith('Task content is required', 'error')
   })
+
+  it('rolls a failed delete back and surfaces the server message', async () => {
+    store.items = [{ ...ITEM }]
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'Task not found' }),
+    }))
+
+    const result = await store.deleteItem('t1')
+
+    expect(result).toBe(false)
+    expect(store.items).toEqual([ITEM])
+    expect(notify).toHaveBeenCalledWith('Task not found', 'error')
+  })
 })
