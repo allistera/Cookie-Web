@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useInlineEdit } from '../composables/useInlineEdit'
+import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
 
@@ -21,17 +22,21 @@ const projectName = computed(() => {
   return projects.projects.find((row) => row.id === item.value.projectId)?.name ?? 'Inbox'
 })
 
-// Siblings are the loaded list in its displayed order, so stepping through
-// them matches what is visible behind the modal.
-const siblingIndex = computed(() => items.items.findIndex((row) => row.id === props.taskId))
-const previousId = computed(() =>
-  siblingIndex.value > 0 ? items.items[siblingIndex.value - 1].id : null,
+// Every project, in the sidebar's order and depth, so the picker reads the
+// same way the tree does. Expanding every id keeps the whole forest visible —
+// a picker that hid options behind collapsed parents would be unusable.
+const projectOptions = computed(() =>
+  flattenProjectTree(projects.projects, new Set(projects.projects.map((row) => row.id))),
 )
-const nextId = computed(() =>
-  siblingIndex.value >= 0 && siblingIndex.value < items.items.length - 1
-    ? items.items[siblingIndex.value + 1].id
-    : null,
-)
+
+// 'inbox' is the select's stand-in for "no project": a value is needed for the
+// option, but the wire carries null.
+const selectedProject = computed(() => item.value?.projectId ?? 'inbox')
+
+function onProjectChange(event) {
+  const value = String(event.target.value ?? '')
+  items.moveItem(props.taskId, value === 'inbox' ? null : value)
+}
 
 const titleEdit = useInlineEdit({
   read: () => item.value?.content ?? '',
@@ -65,17 +70,6 @@ function close() {
   const query = { ...route.query }
   delete query.task
   router.push({ path: '/tasks', query })
-}
-
-function open(id) {
-  if (id) router.push({ path: '/tasks', query: { ...route.query, task: id } })
-}
-
-async function remove() {
-  if (!item.value) return
-  if (!confirm(`Delete "${item.value.content}"?`)) return
-  const deleted = await items.deleteItem(props.taskId)
-  if (deleted) close()
 }
 
 // A task id naming nothing in the loaded list is a stale link, a deleted task,
@@ -117,35 +111,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         </span>
 
         <div class="task-panel-actions">
-          <button
-            class="task-panel-prev"
-            type="button"
-            title="Previous task"
-            aria-label="Previous task"
-            :disabled="!previousId"
-            @click="open(previousId)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">expand_less</span>
-          </button>
-          <button
-            class="task-panel-next"
-            type="button"
-            title="Next task"
-            aria-label="Next task"
-            :disabled="!nextId"
-            @click="open(nextId)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
-          </button>
-          <button
-            class="task-panel-delete"
-            type="button"
-            title="Delete task"
-            aria-label="Delete task"
-            @click="remove()"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
-          </button>
           <button
             class="task-panel-close"
             type="button"
@@ -197,10 +162,17 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         <aside class="task-panel-rail">
           <div class="task-panel-field">
             <h3>Project</h3>
-            <p class="task-panel-project-value">
-              <span v-if="item?.projectId" class="project-symbol" aria-hidden="true"></span>
-              {{ projectName }}
-            </p>
+            <select
+              class="task-panel-project-select"
+              aria-label="Project"
+              :value="selectedProject"
+              @change="onProjectChange($event)"
+            >
+              <option value="inbox">Inbox</option>
+              <option v-for="row in projectOptions" :key="row.item.id" :value="row.item.id">
+                {{ '\u00a0\u00a0'.repeat(row.depth) }}{{ row.item.name }}
+              </option>
+            </select>
           </div>
 
           <div class="task-panel-field">
@@ -394,12 +366,15 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   color: var(--text-secondary);
 }
 
-.task-panel-project-value {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
+.task-panel-project-select {
+  width: 100%;
+  font: inherit;
   font-size: 14px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 6px;
 }
 
 .task-panel-date {

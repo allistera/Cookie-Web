@@ -48,6 +48,17 @@ beforeEach(async () => {
 })
 
 describe('TaskDetailPanel', () => {
+  it('has no sibling navigation or overflow menu in the header', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.task-panel-prev').exists()).toBe(false)
+    expect(wrapper.find('.task-panel-next').exists()).toBe(false)
+    expect(wrapper.find('.task-panel-delete').exists()).toBe(false)
+    expect(wrapper.find('.task-panel-close').exists()).toBe(true)
+  })
+
   it('renders the task the URL names', async () => {
     seed()
     const wrapper = mountPanel()
@@ -97,37 +108,6 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBeUndefined()
   })
 
-  it('steps to the previous sibling', async () => {
-    seed()
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-prev').trigger('click')
-    await flushPromises()
-
-    expect(router.currentRoute.value.query.task).toBe('a')
-  })
-
-  it('steps to the next sibling', async () => {
-    seed()
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-next').trigger('click')
-    await flushPromises()
-
-    expect(router.currentRoute.value.query.task).toBe('c')
-  })
-
-  it('disables sibling navigation at the ends of the list', async () => {
-    seed()
-    const wrapper = mountPanel('a')
-    await flushPromises()
-
-    expect(wrapper.get('.task-panel-prev').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('.task-panel-next').attributes('disabled')).toBeUndefined()
-  })
-
   // A stale link, a deleted task, or one hidden because it is complete.
   it('closes and notifies when the task is not in the loaded list', async () => {
     const wrapper = mountPanel('missing')
@@ -150,34 +130,6 @@ describe('TaskDetailPanel', () => {
     expect(items.notify).not.toHaveBeenCalled()
     expect(router.currentRoute.value.query.task).toBe('b')
     wrapper.unmount()
-  })
-
-  it('deletes the task and closes', async () => {
-    seed()
-    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-delete').trigger('click')
-    await flushPromises()
-
-    expect(remove).toHaveBeenCalledWith('b')
-    expect(router.currentRoute.value.query.task).toBeUndefined()
-  })
-
-  it('does not delete when the confirmation is dismissed', async () => {
-    seed()
-    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-delete').trigger('click')
-    await flushPromises()
-
-    expect(remove).not.toHaveBeenCalled()
-    expect(router.currentRoute.value.query.task).toBe('b')
   })
 
   it('renames the task from the title', async () => {
@@ -263,12 +215,54 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBeUndefined()
   })
 
-  it("shows the task's project in the rail", async () => {
+  it("selects the task's current project in the picker", async () => {
+    seed([{ ...ITEMS[1], projectId: 'p1' }])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-project-select').element.value).toBe('p1')
+  })
+
+  it('selects Inbox when the task belongs to no project', async () => {
     seed()
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.task-panel-project-value').text()).toBe('Inbox')
+    expect(wrapper.get('.task-panel-project-select').element.value).toBe('inbox')
+  })
+
+  it('lists the Inbox and every project as options', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const options = wrapper.findAll('.task-panel-project-select option')
+    expect(options.map((option) => option.text().trim())).toEqual(['Inbox', 'Githup'])
+  })
+
+  it('moves the task to another project', async () => {
+    seed()
+    const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-project-select').setValue('p1')
+    await flushPromises()
+
+    expect(move).toHaveBeenCalledWith('b', 'p1')
+  })
+
+  // The Inbox is the absence of a project, so it goes over the wire as null.
+  it('moves the task to the Inbox as null', async () => {
+    seed([{ ...ITEMS[1], projectId: 'p1' }])
+    const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-project-select').setValue('inbox')
+    await flushPromises()
+
+    expect(move).toHaveBeenCalledWith('b', null)
   })
 
   it('sets a due date', async () => {

@@ -221,3 +221,49 @@ describe('detail panel support', () => {
     expect(notify).toHaveBeenCalledWith('dueDate must be a YYYY-MM-DD date', 'error')
   })
 })
+
+describe('moving a task between projects', () => {
+  it('sends the new project and applies it locally', async () => {
+    store.items = [{ ...ITEM }]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, projectId: 'p2' } }),
+    }))
+
+    await store.moveItem('t1', 'p2')
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', projectId: 'p2' })
+    expect(store.items[0].projectId).toBe('p2')
+  })
+
+  // The Inbox is "belongs to no project", so moving there sends null.
+  it('sends null when moving a task to the Inbox', async () => {
+    store.items = [{ ...ITEM }]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, projectId: null } }),
+    }))
+
+    await store.moveItem('t1', null)
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', projectId: null })
+    expect(store.items[0].projectId).toBeNull()
+  })
+
+  it('rolls back and surfaces the server message when the move is refused', async () => {
+    store.items = [{ ...ITEM }]
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'Project not found' }),
+    }))
+
+    await store.moveItem('t1', 'gone')
+
+    expect(store.items[0].projectId).toBe('p1')
+    expect(notify).toHaveBeenCalledWith('Project not found', 'error')
+  })
+})

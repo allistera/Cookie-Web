@@ -159,6 +159,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return this.patchItem(id, { dueDate }, { dueDate }, 'Failed to set the date.')
     },
 
+    // `projectId` is a project id, or null for the Inbox — which is the
+    // absence of a project rather than a project of its own.
+    moveItem(id, projectId) {
+      return this.patchItem(id, { projectId }, { projectId }, 'Failed to move the task.')
+    },
+
     setCompleted(id, completed) {
       // `completed` is a request field; `completedAt` is the item's actual
       // state, so that's what gets set locally.
