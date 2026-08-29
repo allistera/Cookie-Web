@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import TasksSidebar from '../TasksSidebar.vue'
 import { useProjectsStore } from '../../stores/projects'
+import { useTaskItemsStore } from '../../stores/taskItems'
 
 let router
 
@@ -157,12 +158,14 @@ describe('TasksSidebar', () => {
     ]
     store.isLoaded = true
     const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(0)
     const confirm = vi.fn(() => false)
     vi.stubGlobal('confirm', confirm)
 
     const wrapper = mountSidebar()
     await flushPromises()
     await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith('Delete Work and its 1 sub-project?')
     expect(remove).not.toHaveBeenCalled()
@@ -177,31 +180,168 @@ describe('TasksSidebar', () => {
     ]
     store.isLoaded = true
     const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(0)
     const confirm = vi.fn(() => false)
     vi.stubGlobal('confirm', confirm)
 
     const wrapper = mountSidebar()
     await flushPromises()
     await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith('Delete Work and its 2 sub-projects?')
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('deletes a childless project without asking', async () => {
+  it('deletes a project with no sub-projects and no tasks without asking', async () => {
     const store = useProjectsStore()
     store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
     store.isLoaded = true
     const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(0)
     const confirm = vi.fn(() => true)
     vi.stubGlobal('confirm', confirm)
 
     const wrapper = mountSidebar()
     await flushPromises()
     await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
 
     expect(confirm).not.toHaveBeenCalled()
     expect(remove).toHaveBeenCalledWith('p1')
+  })
+
+  // The critical case: a project with no sub-projects at all can still lose
+  // tasks with a single click if the confirm is gated only on sub-project
+  // count. It must prompt, and must name the tasks.
+  it('confirms before deleting a childless project that has tasks', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    const remove = vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    const count = vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(7)
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(count).toHaveBeenCalledWith(['p1'])
+    expect(confirm).toHaveBeenCalledWith('Delete Work and its 7 tasks?')
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('names a single task in the singular', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(1)
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('Delete Work and its 1 task?')
+  })
+
+  it('names both sub-projects and tasks when a project has both', async () => {
+    const store = useProjectsStore()
+    store.projects = [
+      { id: 'p1', parentId: null, name: 'Work' },
+      { id: 'p2', parentId: 'p1', name: 'API' },
+    ]
+    store.isLoaded = true
+    vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    const count = vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(7)
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(count).toHaveBeenCalledWith(['p1', 'p2'])
+    expect(confirm).toHaveBeenCalledWith('Delete Work and its 1 sub-project and 7 tasks?')
+  })
+
+  it('routes to the Inbox when the deleted project is the one being viewed', async () => {
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/tasks', name: 'tasks', component: { template: '<div />' } }],
+    })
+    await router.push('/tasks?project=p1')
+    await router.isReady()
+
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(0)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox')
+  })
+
+  it('routes to the Inbox when a deleted descendant is the one being viewed', async () => {
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/tasks', name: 'tasks', component: { template: '<div />' } }],
+    })
+    await router.push('/tasks?project=p2')
+    await router.isReady()
+
+    const store = useProjectsStore()
+    store.projects = [
+      { id: 'p1', parentId: null, name: 'Work' },
+      { id: 'p2', parentId: 'p1', name: 'API' },
+    ]
+    store.isLoaded = true
+    vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(0)
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox')
+  })
+
+  it('does not navigate when the deleted project is unrelated to the one being viewed', async () => {
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/tasks', name: 'tasks', component: { template: '<div />' } }],
+    })
+    await router.push('/tasks?project=other')
+    await router.isReady()
+
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    vi.spyOn(store, 'deleteProject').mockResolvedValue(true)
+    vi.spyOn(useTaskItemsStore(), 'countForProjects').mockResolvedValue(0)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=other')
   })
 
   it('re-parents a project when dropped onto another', async () => {

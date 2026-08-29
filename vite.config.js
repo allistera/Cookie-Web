@@ -1049,6 +1049,10 @@ function localApiPlugin(mode) {
           }
         }
         state.projects = state.projects.filter((project) => !doomed.has(project.id))
+        // Mirrors the schema's project_id ... ON DELETE CASCADE: every task
+        // in the deleted project or any of its descendants goes with it,
+        // not just the project rows.
+        state.taskItems = state.taskItems.filter((item) => !doomed.has(item.projectId))
         return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)

@@ -1,15 +1,18 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
+import { useTaskItemsStore } from '../stores/taskItems'
 
 const EXPANDED_KEY = 'cookie-tasks-expanded-projects'
 
 const route = useRoute()
+const router = useRouter()
 const store = useProjectsStore()
+const taskItems = useTaskItemsStore()
 
 // Which projects are open, persisted so a reload restores the same tree.
 const expandedIds = ref(new Set(getStoredExpandedIds(EXPANDED_KEY)))
@@ -102,15 +105,44 @@ function onDragEnd() {
   dropId.value = undefined
 }
 
-// The cascade is the one destructive edge here: the whole subtree goes with
-// the parent and there is no undo endpoint, so name the full count before
-// doing it. store.descendantIds is the same walk deleteProject uses to know
+// The cascade is the one destructive edge here: the whole subtree — and
+// every task in it, plus the project's own tasks — goes with the parent, and
+// there is no undo endpoint. Both counts must be named before doing it: a
+// project can have no sub-projects at all and still lose tasks with a single
+// click, which is the part a prompt gated only on sub-project count misses
+// entirely. store.descendantIds is the same walk deleteProject uses to know
 // what it is about to destroy.
-function removeProject(project) {
-  const descendants = store.descendantIds(project.id).length
-  const plural = descendants === 1 ? 'sub-project' : 'sub-projects'
-  if (descendants && !confirm(`Delete ${project.name} and its ${descendants} ${plural}?`)) return
-  store.deleteProject(project.id)
+async function removeProject(project) {
+  const descendants = store.descendantIds(project.id)
+  let taskCount
+  try {
+    taskCount = await taskItems.countForProjects([project.id, ...descendants])
+  } catch (error) {
+    // Can't tell how many tasks are at stake: refuse to guess "none" and
+    // silently let a destructive delete through.
+    console.error('Failed to count tasks before delete:', error)
+    taskItems.notify('Failed to check for tasks before deleting.', 'error')
+    return
+  }
+
+  const parts = []
+  if (descendants.length) {
+    const plural = descendants.length === 1 ? 'sub-project' : 'sub-projects'
+    parts.push(`${descendants.length} ${plural}`)
+  }
+  if (taskCount) {
+    const plural = taskCount === 1 ? 'task' : 'tasks'
+    parts.push(`${taskCount} ${plural}`)
+  }
+  if (parts.length && !confirm(`Delete ${project.name} and its ${parts.join(' and ')}?`)) return
+
+  // Capture before the delete resolves: once it succeeds the route may still
+  // point at a project the server has just cascaded away.
+  const viewedProject = String(route.query.project ?? 'inbox')
+  const viewingDoomed = viewedProject === project.id || descendants.includes(viewedProject)
+
+  const deleted = await store.deleteProject(project.id)
+  if (deleted && viewingDoomed) router.push('/tasks?project=inbox')
 }
 </script>
 

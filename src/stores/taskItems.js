@@ -62,6 +62,14 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     async loadItems(project, { force = false } = {}) {
       if (this.loadedProject === project && !force) return
+      // Clear the previous project's tasks and disown loadedProject before
+      // the request goes out, so a switch never leaves the last project's
+      // rows on screen under the new heading — whether the fetch is slow or
+      // it fails outright. loadedProject is set back to `project` only on
+      // success, so a failed load also leaves the store retryable rather
+      // than stuck believing it already "loaded" nothing.
+      this.items = []
+      this.loadedProject = null
       this.isLoading = true
       try {
         const { items } = await this.request('GET', {
@@ -75,6 +83,19 @@ export const useTaskItemsStore = defineStore('taskItems', {
       } finally {
         this.isLoading = false
       }
+    },
+
+    // Counts every task in the given projects, completed included, since a
+    // project delete cascades to all of them regardless of completion state.
+    // Read-only: used only to name what a delete is about to destroy before
+    // it happens, never to populate the visible list.
+    async countForProjects(ids) {
+      const results = await Promise.all(
+        ids.map((id) =>
+          this.request('GET', { params: `?project=${encodeURIComponent(id)}&completed=1` }),
+        ),
+      )
+      return results.reduce((total, { items = [] }) => total + items.length, 0)
     },
 
     async createItem({ content, projectId = null }) {

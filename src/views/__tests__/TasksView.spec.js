@@ -143,6 +143,37 @@ describe('TasksView', () => {
     expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: 'p2' })
   })
 
+  // Regression: switching projects must never show the previous project's
+  // tasks under the new heading, even while the new load is still pending.
+  it('shows a loading state instead of the previous project tasks while switching', async () => {
+    const items = useTaskItemsStore()
+    items.items = [{ id: 't1', content: 'Old project task', description: null, completedAt: null }]
+    items.loadedProject = 'p2'
+    vi.spyOn(items, 'authHeaders').mockResolvedValue({})
+
+    let resolveFetch
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve
+          }),
+      ),
+    )
+
+    const wrapper = mountView()
+    await router.push('/tasks?project=p1')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Old project task')
+    expect(wrapper.get('.tasks-loading').text()).toBe('Loading tasks…')
+
+    resolveFetch({ ok: true, json: async () => ({ items: [] }) })
+    await flushPromises()
+    expect(wrapper.find('.tasks-loading').exists()).toBe(false)
+  })
+
   it('creates an Inbox task with no project', async () => {
     await router.push('/tasks?project=inbox')
     const items = useTaskItemsStore()

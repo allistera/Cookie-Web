@@ -133,7 +133,11 @@ async function submitDraft() {
       {{ current?.description || 'Add a description' }}
     </p>
 
-    <ul class="task-rows">
+    <!-- The store clears items.items before a switch goes out, so this only
+       ever shows while genuinely waiting on the newly-selected project —
+       never the previous project's rows. -->
+    <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
+    <ul v-else class="task-rows">
       <li v-for="item in items.items" :key="item.id" class="task-row">
         <button
           class="task-check"
@@ -223,6 +227,13 @@ async function submitDraft() {
 
 .tasks-description-input {
   margin: 0 0 24px;
+  font-size: 14px;
+}
+
+.tasks-loading {
+  margin: 0;
+  padding: 10px 0;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 

@@ -85,4 +85,74 @@ describe('task items store', () => {
     expect(store.items).toEqual([ITEM])
     expect(notify).toHaveBeenCalledWith('Task not found', 'error')
   })
+
+  // A project switch must never show the previous project's tasks under the
+  // new heading, whether the new load is merely slow or fails outright.
+  describe('switching projects', () => {
+    it('clears the list and disowns the loaded project before the fetch resolves', () => {
+      store.items = [{ ...ITEM }]
+      store.loadedProject = 'p1'
+      stubFetch(() => new Promise(() => {})) // never resolves in this test
+
+      store.loadItems('p2')
+
+      expect(store.items).toEqual([])
+      expect(store.loadedProject).toBeNull()
+      expect(store.isLoading).toBe(true)
+    })
+
+    it('does not restore the previous tasks when the new load fails', async () => {
+      store.items = [{ ...ITEM }]
+      store.loadedProject = 'p1'
+      const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+      stubFetch(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      }))
+
+      await store.loadItems('p2')
+
+      expect(store.items).toEqual([])
+      expect(store.loadedProject).toBeNull()
+      expect(notify).toHaveBeenCalled()
+    })
+
+    it('loads the new project normally once the fetch succeeds', async () => {
+      store.items = [{ ...ITEM }]
+      store.loadedProject = 'p1'
+      const otherItem = { ...ITEM, id: 't2', projectId: 'p2' }
+      stubFetch(async () => ({ ok: true, json: async () => ({ items: [otherItem] }) }))
+
+      await store.loadItems('p2')
+
+      expect(store.items).toEqual([otherItem])
+      expect(store.loadedProject).toBe('p2')
+    })
+  })
+
+  describe('countForProjects', () => {
+    it('sums tasks, completed included, across every given project', async () => {
+      stubFetch(async (url) => {
+        const items = url.includes('project=p1') ? [{}, {}] : [{}]
+        return { ok: true, json: async () => ({ items }) }
+      })
+
+      const total = await store.countForProjects(['p1', 'p2'])
+
+      expect(total).toBe(3)
+      expect(fetch).toHaveBeenCalledTimes(2)
+      for (const [url] of fetch.mock.calls) {
+        expect(url).toContain('completed=1')
+      }
+    })
+
+    it('treats a project with no tasks as zero', async () => {
+      stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+      const total = await store.countForProjects(['p1'])
+
+      expect(total).toBe(0)
+    })
+  })
 })
