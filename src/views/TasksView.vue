@@ -1,20 +1,52 @@
 <script setup>
-import { useInboxStore } from '../stores/inbox'
+import { computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
-// Unused for now beyond keeping chunking stable: every routed view pulls the
-// inbox store, and a store-free view makes Rolldown regroup the shared
-// pinia/auth0 chunk into the entry bundle, blowing the entry-chunk budget.
-// The store will be needed as soon as this page shows anything real.
-useInboxStore()
+import { useProjectsStore } from '../stores/projects'
+import { useTaskItemsStore } from '../stores/taskItems'
+
+const route = useRoute()
+const projects = useProjectsStore()
+const items = useTaskItemsStore()
+
+// 'inbox' is a filter, not a project id — the Inbox is the tasks that belong
+// to no project, so there is no row to look up.
+const project = computed(() => String(route.query.project ?? 'inbox'))
+const isInbox = computed(() => project.value === 'inbox')
+const current = computed(() =>
+  isInbox.value ? null : projects.projects.find((row) => row.id === project.value),
+)
+const ancestors = computed(() =>
+  isInbox.value ? [] : projects.ancestorsOf(project.value).slice(0, -1),
+)
+const title = computed(() => (isInbox.value ? 'Inbox' : (current.value?.name ?? '')))
+
+onMounted(() => {
+  projects.loadProjects()
+  items.loadItems(project.value)
+})
+
+watch(project, (next) => items.loadItems(next))
 </script>
 
 <template>
-  <div class="tasks-view">
-    <header class="tasks-header">
-      <h1>Tasks</h1>
-    </header>
+  <div class="view-panel active tasks-view">
+    <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
+      <span>My Projects</span>
+      <template v-for="ancestor in ancestors" :key="ancestor.id">
+        <span aria-hidden="true">/</span>
+        <router-link :to="{ path: '/tasks', query: { project: ancestor.id } }">
+          {{ ancestor.name }}
+        </router-link>
+      </template>
+      <span aria-hidden="true">/</span>
+    </nav>
 
-    <div class="tasks-empty">Nothing here yet.</div>
+    <h1 class="tasks-title">{{ title }}</h1>
+
+    <p v-if="!isInbox" class="tasks-description">
+      {{ current?.description || 'Add a description' }}
+    </p>
   </div>
 </template>
 
@@ -25,16 +57,33 @@ useInboxStore()
   padding: 32px 24px;
 }
 
-.tasks-header h1 {
-  margin: 0 0 4px;
-  font-size: 22px;
+.tasks-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.tasks-breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tasks-breadcrumb a:hover {
+  color: var(--text-primary);
+}
+
+.tasks-title {
+  margin: 18px 0 6px;
+  font-size: 26px;
   font-weight: 700;
 }
 
-.tasks-empty {
-  padding: 32px 0;
+.tasks-description {
+  margin: 0 0 24px;
   color: var(--text-secondary);
   font-size: 14px;
-  text-align: center;
+  cursor: text;
 }
 </style>

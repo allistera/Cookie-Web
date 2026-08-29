@@ -33,6 +33,22 @@ export const useProjectsStore = defineStore('projects', {
       }
       return ids
     },
+
+    // The chain from the root down to (and including) this project, for the
+    // view's breadcrumb. A parentId that no longer resolves simply stops the
+    // walk rather than looping.
+    ancestorsOf: (state) => (id) => {
+      const byId = new Map(state.projects.map((project) => [project.id, project]))
+      const chain = []
+      let current = byId.get(id)
+      const seen = new Set()
+      while (current && !seen.has(current.id)) {
+        seen.add(current.id)
+        chain.unshift(current)
+        current = current.parentId ? byId.get(current.parentId) : null
+      }
+      return chain
+    },
   },
 
   actions: {
@@ -135,6 +151,10 @@ export const useProjectsStore = defineStore('projects', {
 
     moveProject(id, parentId) {
       return this.patchProject(id, { parentId }, 'Failed to move the project.')
+    },
+
+    describeProject(id, description) {
+      return this.patchProject(id, { description }, 'Failed to save the description.')
     },
 
     // The server cascades to sub-projects, so local state has to drop the
