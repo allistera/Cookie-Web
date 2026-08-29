@@ -94,7 +94,12 @@ describe('TasksView', () => {
   it('lists tasks with their descriptions', async () => {
     const items = useTaskItemsStore()
     items.items = [
-      { id: 't1', content: 'Add auto-merge', description: 'Rather than waiting', completedAt: null },
+      {
+        id: 't1',
+        content: 'Add auto-merge',
+        description: 'Rather than waiting',
+        completedAt: null,
+      },
     ]
     items.loadedProject = 'p2'
 

@@ -222,7 +222,11 @@ function removeProject(project) {
           </button>
         </span>
       </router-link>
-      <form v-if="newProjectFor !== null" class="new-project-row" @submit.prevent="submitNewProject">
+      <form
+        v-if="newProjectFor !== null"
+        class="new-project-row"
+        @submit.prevent="submitNewProject"
+      >
         <input
           ref="newProjectInput"
           v-model="newProjectName"

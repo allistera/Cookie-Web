@@ -557,9 +557,7 @@ describe('AIInboxView (AI Today)', () => {
   // document listener: a guard that missed it would open the menu and close it
   // again in the same click, which an unattached mount can never show.
   it('closes an open reschedule menu on a click outside it, but not on its own', async () => {
-    store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', url: null },
-    ]
+    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Renew car insurance', url: null }]
 
     const wrapper = mountView({ attachTo: document.body })
     try {
