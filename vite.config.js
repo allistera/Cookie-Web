@@ -34,6 +34,7 @@ function localApiPlugin(mode) {
         scheduledSends: [],
         followUps: new Map(),
         projects: [],
+        taskItems: [],
       })
     }
     return stubMailboxState.get(sessionId)
@@ -1006,6 +1007,7 @@ function localApiPlugin(mode) {
           id: randomUUID(),
           parentId: body.parentId ?? null,
           name: String(body.name || '').slice(0, 120),
+          description: body.description ?? null,
           createdAt: new Date().toISOString(),
         }
         state.projects.push(project)
@@ -1016,6 +1018,7 @@ function localApiPlugin(mode) {
         if (!project) return json(res, { error: 'Project not found' }, 404)
         if (body.name !== undefined) project.name = body.name
         if (Object.hasOwn(body, 'parentId')) project.parentId = body.parentId
+        if (Object.hasOwn(body, 'description')) project.description = body.description
         return json(res, { project })
       }
       if (req.method === 'DELETE') {
@@ -1031,6 +1034,53 @@ function localApiPlugin(mode) {
           }
         }
         state.projects = state.projects.filter((project) => !doomed.has(project.id))
+        return json(res, { ok: true })
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
+    if (segments[0] === 'task-items') {
+      const project = url.searchParams.get('project') ?? 'inbox'
+      if (req.method === 'GET') {
+        const includeCompleted = url.searchParams.get('completed') === '1'
+        const items = state.taskItems
+          .filter((item) =>
+            project === 'inbox' ? item.projectId === null : item.projectId === project,
+          )
+          .filter((item) => includeCompleted || item.completedAt === null)
+        return json(res, { items })
+      }
+      const body = await readBody(req)
+      if (req.method === 'POST') {
+        const item = {
+          id: randomUUID(),
+          projectId: body.projectId ?? null,
+          parentId: null,
+          content: String(body.content || '').slice(0, 500),
+          description: body.description ?? null,
+          dueDate: body.dueDate ?? null,
+          completedAt: null,
+          createdAt: new Date().toISOString(),
+        }
+        state.taskItems.push(item)
+        return json(res, { item }, 201)
+      }
+      if (req.method === 'PATCH') {
+        const item = state.taskItems.find((row) => row.id === body.id)
+        if (!item) return json(res, { error: 'Task not found' }, 404)
+        if (body.content !== undefined) item.content = body.content
+        if (body.description !== undefined) item.description = body.description
+        if (Object.hasOwn(body, 'projectId')) item.projectId = body.projectId
+        if (Object.hasOwn(body, 'dueDate')) item.dueDate = body.dueDate
+        // Completion stamps a time; it never deletes, matching the real handler.
+        if (Object.hasOwn(body, 'completed')) {
+          item.completedAt = body.completed ? new Date().toISOString() : null
+        }
+        return json(res, { item })
+      }
+      if (req.method === 'DELETE') {
+        const before = state.taskItems.length
+        state.taskItems = state.taskItems.filter((row) => row.id !== body.id)
+        if (state.taskItems.length === before) return json(res, { error: 'Task not found' }, 404)
         return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)

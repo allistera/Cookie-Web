@@ -1730,3 +1730,29 @@ test('Tasks projects nest, collapse, and survive a reload', async ({ page }) => 
   await expect(sidebar.locator('.project-item')).toHaveCount(1)
   await expect(sidebar.locator('.project-item')).toContainText('Work')
 })
+
+test('Tasks: a task can be added to a project and completed', async ({ page }) => {
+  await page.goto('/tasks')
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Githup')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await sidebar.locator('.project-item', { hasText: 'Githup' }).click()
+
+  await expect(page.locator('.tasks-title')).toHaveText('Githup')
+  await expect(page.locator('.tasks-description')).toHaveText('Add a description')
+
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Add auto-merge feature')
+  await page.locator('.add-task-row input').press('Enter')
+
+  await expect(page.locator('.task-row')).toHaveCount(1)
+  await expect(page.locator('.task-content')).toHaveText('Add auto-merge feature')
+
+  // Completing hides it from the list; a reload proves the server agrees.
+  await page.locator('.task-check').click()
+  await expect(page.locator('.task-row')).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('.task-row')).toHaveCount(0)
+})
