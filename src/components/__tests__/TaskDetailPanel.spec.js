@@ -179,4 +179,87 @@ describe('TaskDetailPanel', () => {
     expect(remove).not.toHaveBeenCalled()
     expect(router.currentRoute.value.query.task).toBe('b')
   })
+
+  it('renames the task from the title', async () => {
+    seed()
+    const rename = vi.spyOn(items, 'renameItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-title').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-title-input').setValue('Second, renamed')
+    await wrapper.get('.task-panel-title-input').trigger('keydown.enter')
+    await flushPromises()
+
+    expect(rename).toHaveBeenCalledWith('b', 'Second, renamed')
+  })
+
+  it('does not rename when the title is cleared', async () => {
+    seed()
+    const rename = vi.spyOn(items, 'renameItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-title').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-title-input').setValue('   ')
+    await wrapper.get('.task-panel-title-input').trigger('keydown.enter')
+    await flushPromises()
+
+    expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('saves a description', async () => {
+    seed()
+    const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-description').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-description-input').setValue('Why this matters')
+    await wrapper.get('.task-panel-description-input').trigger('keydown.enter')
+    await flushPromises()
+
+    expect(describeItem).toHaveBeenCalledWith('b', 'Why this matters')
+  })
+
+  it('clears a description by emptying it', async () => {
+    seed([{ ...ITEMS[1], description: 'Existing' }])
+    const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-description').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-description-input').setValue('')
+    await wrapper.get('.task-panel-description-input').trigger('keydown.enter')
+    await flushPromises()
+
+    expect(describeItem).toHaveBeenCalledWith('b', null)
+  })
+
+  it('shows the placeholder when there is no description', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-description').text()).toBe('Add a description')
+  })
+
+  // Completing removes the task from the visible list, so leaving the panel
+  // open would point it at something no longer there.
+  it('completes the task and closes', async () => {
+    seed()
+    const complete = vi.spyOn(items, 'setCompleted').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-check').trigger('click')
+    await flushPromises()
+
+    expect(complete).toHaveBeenCalledWith('b', true)
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+  })
 })

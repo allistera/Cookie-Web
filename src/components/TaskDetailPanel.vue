@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
 
@@ -31,6 +32,27 @@ const nextId = computed(() =>
     ? items.items[siblingIndex.value + 1].id
     : null,
 )
+
+const titleEdit = useInlineEdit({
+  read: () => item.value?.content ?? '',
+  // An empty title is not a rename: leaving edit mode keeps the existing
+  // content, which is what Enter on a cleared field should do.
+  write: (content) => (content ? items.renameItem(props.taskId, content) : undefined),
+})
+
+const descriptionEdit = useInlineEdit({
+  read: () => item.value?.description ?? '',
+  // An emptied description is a real change: null clears the column.
+  write: (description) => items.describeItem(props.taskId, description || null),
+  selectAll: false,
+})
+
+// Completing takes the task out of the visible list, so the panel would be
+// left pointing at something that is no longer there.
+async function complete() {
+  await items.setCompleted(props.taskId, true)
+  close()
+}
 
 function close() {
   const query = { ...route.query }
@@ -131,7 +153,39 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
       <div class="task-panel-body">
         <div class="task-panel-main">
-          <h2 class="task-panel-title">{{ item?.content }}</h2>
+          <div class="task-panel-heading">
+            <button
+              class="task-panel-check"
+              type="button"
+              :aria-label="`Complete ${item?.content ?? 'task'}`"
+              @click="complete()"
+            ></button>
+            <input
+              v-if="titleEdit.editing.value"
+              :ref="(el) => (titleEdit.inputRef.value = el)"
+              v-model="titleEdit.draft.value"
+              class="task-panel-title-input"
+              aria-label="Task title"
+              @keydown.enter.prevent="titleEdit.submit"
+              @keydown.escape="titleEdit.editing.value = false"
+              @blur="titleEdit.submit"
+            />
+            <h2 v-else class="task-panel-title" @click="titleEdit.start">{{ item?.content }}</h2>
+          </div>
+
+          <input
+            v-if="descriptionEdit.editing.value"
+            :ref="(el) => (descriptionEdit.inputRef.value = el)"
+            v-model="descriptionEdit.draft.value"
+            class="task-panel-description-input"
+            aria-label="Task description"
+            @keydown.enter.prevent="descriptionEdit.submit"
+            @keydown.escape="descriptionEdit.editing.value = false"
+            @blur="descriptionEdit.submit"
+          />
+          <p v-else class="task-panel-description" @click="descriptionEdit.start">
+            {{ item?.description || 'Add a description' }}
+          </p>
         </div>
         <aside class="task-panel-rail"></aside>
       </div>
@@ -232,9 +286,61 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   background: var(--bg-app);
 }
 
+.task-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.task-panel-check {
+  width: 20px;
+  height: 20px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.task-panel-check:hover {
+  background: var(--bg-hover);
+}
+
 .task-panel-title {
   margin: 0;
   font-size: 20px;
   font-weight: 700;
+  cursor: text;
+}
+
+.task-panel-description {
+  margin: 10px 0 0 32px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: text;
+}
+
+.task-panel-title-input,
+.task-panel-description-input {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.task-panel-title-input {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.task-panel-description-input {
+  margin: 10px 0 0 32px;
+  width: calc(100% - 32px);
+  font-size: 14px;
 }
 </style>
