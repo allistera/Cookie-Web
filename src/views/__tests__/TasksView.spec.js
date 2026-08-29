@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import TasksView from '../TasksView.vue'
 import { useProjectsStore } from '../../stores/projects'
+import { useTaskItemsStore } from '../../stores/taskItems'
 
 let router
 
@@ -88,5 +89,67 @@ describe('TasksView', () => {
 
     expect(describeSpy).toHaveBeenCalledTimes(1)
     expect(describeSpy).toHaveBeenCalledWith('p2', 'What this project is for')
+  })
+
+  it('lists tasks with their descriptions', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 't1', content: 'Add auto-merge', description: 'Rather than waiting', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const row = wrapper.get('.task-row')
+    expect(row.get('.task-content').text()).toBe('Add auto-merge')
+    expect(row.get('.task-description').text()).toBe('Rather than waiting')
+  })
+
+  it('completes a task from its circle', async () => {
+    const items = useTaskItemsStore()
+    items.items = [{ id: 't1', content: 'Add auto-merge', description: null, completedAt: null }]
+    items.loadedProject = 'p2'
+    const setCompleted = vi.spyOn(items, 'setCompleted').mockResolvedValue(null)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.task-check').trigger('click')
+
+    expect(setCompleted).toHaveBeenCalledWith('t1', true)
+  })
+
+  // Enter commits and unmounts the composer, which fires blur: without the
+  // guard the same task would be created twice.
+  it('creates a task once when Enter is followed by blur', async () => {
+    const items = useTaskItemsStore()
+    items.loadedProject = 'p2'
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't9' })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.add-task-btn').trigger('click')
+    const input = wrapper.get('.add-task-row input')
+    await input.setValue('Ship it')
+    await input.trigger('keydown.enter')
+    await input.trigger('blur')
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: 'p2' })
+  })
+
+  it('creates an Inbox task with no project', async () => {
+    await router.push('/tasks?project=inbox')
+    const items = useTaskItemsStore()
+    items.loadedProject = 'inbox'
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't9' })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.add-task-btn').trigger('click')
+    await wrapper.get('.add-task-row input').setValue('Ship it')
+    await wrapper.get('.add-task-row input').trigger('keydown.enter')
+
+    expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: null })
   })
 })

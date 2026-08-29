@@ -71,6 +71,26 @@ async function submitDescription() {
     await projects.describeProject(project.value, description)
   }
 }
+
+const composing = ref(false)
+const draft = ref('')
+const draftInput = ref(null)
+
+async function startCompose() {
+  draft.value = ''
+  composing.value = true
+  await nextTick()
+  draftInput.value?.focus()
+}
+
+async function submitDraft() {
+  // Same Enter-then-blur double fire as the title and description edits.
+  if (!composing.value) return
+  const content = draft.value.trim()
+  composing.value = false
+  if (!content) return
+  await items.createItem({ content, projectId: isInbox.value ? null : project.value })
+}
 </script>
 
 <template>
@@ -112,6 +132,37 @@ async function submitDescription() {
     <p v-else-if="!isInbox" class="tasks-description" @click="startDescriptionEdit">
       {{ current?.description || 'Add a description' }}
     </p>
+
+    <ul class="task-rows">
+      <li v-for="item in items.items" :key="item.id" class="task-row">
+        <button
+          class="task-check"
+          type="button"
+          :aria-label="`Complete ${item.content}`"
+          @click="items.setCompleted(item.id, true)"
+        ></button>
+        <div class="task-body">
+          <span class="task-content">{{ item.content }}</span>
+          <span v-if="item.description" class="task-description">{{ item.description }}</span>
+        </div>
+      </li>
+    </ul>
+
+    <form v-if="composing" class="add-task-row" @submit.prevent="submitDraft">
+      <input
+        ref="draftInput"
+        v-model="draft"
+        placeholder="Task name"
+        aria-label="Task name"
+        @keydown.enter.prevent="submitDraft"
+        @keydown.escape="composing = false"
+        @blur="submitDraft"
+      />
+    </form>
+    <button v-else class="add-task-btn" type="button" @click="startCompose">
+      <span aria-hidden="true">+</span>
+      <span>Add task</span>
+    </button>
   </div>
 </template>
 
@@ -173,5 +224,82 @@ async function submitDescription() {
 .tasks-description-input {
   margin: 0 0 24px;
   font-size: 14px;
+}
+
+.task-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.task-check {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.task-check:hover {
+  border-color: var(--text-primary);
+}
+
+.task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-content {
+  font-size: 14px;
+}
+
+.task-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.add-task-row {
+  display: flex;
+  padding: 10px 0;
+}
+
+.add-task-row input {
+  flex: 1;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.add-task-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.add-task-btn:hover {
+  color: var(--text-primary);
 }
 </style>
