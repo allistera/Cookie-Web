@@ -1828,6 +1828,44 @@ test('Tasks: Today lists what is due today from across the projects', async ({ p
   await expect(page.locator('.tasks-description')).toHaveCount(0)
 })
 
+test('Tasks: Add Task creates in the Inbox from wherever you are', async ({ page }) => {
+  await page.goto('/tasks')
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Roof')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await sidebar.locator('.project-item', { hasText: 'Roof' }).click()
+  await expect(page.locator('.tasks-title')).toHaveText('Roof')
+
+  await sidebar.locator('.compose-btn').click()
+  await expect(page.locator('.add-task-dialog')).toBeVisible()
+  await page.locator('.add-task-dialog-input').fill('Buy milk')
+  await page.locator('.add-task-dialog-input').press('Enter')
+  await expect(page.locator('.add-task-dialog')).toHaveCount(0)
+
+  // Created in the Inbox, so it must not appear under the open project.
+  await expect(page.locator('.task-row')).toHaveCount(0)
+
+  await sidebar.locator('.nav-item', { hasText: 'Inbox' }).click()
+  await expect(page.locator('.task-content')).toHaveText('Buy milk')
+
+  // And it is really there, not just in local state.
+  await page.reload()
+  await expect(page.locator('.task-content')).toHaveText('Buy milk')
+})
+
+test('Tasks: the Add Task dialog closes on Escape without creating anything', async ({ page }) => {
+  await page.goto('/tasks')
+
+  await page.locator('.tasks-sidebar .compose-btn').click()
+  await page.locator('.add-task-dialog-input').fill('Never mind')
+  await page.keyboard.press('Escape')
+
+  await expect(page.locator('.add-task-dialog')).toHaveCount(0)
+  await expect(page.locator('.task-row')).toHaveCount(0)
+})
+
 // .tasks-view is a flex item in .main-content's column flex container, so its
 // cross axis is horizontal and `margin: 0 auto` there beats align-items:
 // stretch — which sizes the box to its content unless a width is stated. With

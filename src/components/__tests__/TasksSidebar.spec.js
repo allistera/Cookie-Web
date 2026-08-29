@@ -420,3 +420,31 @@ describe('the Today view', () => {
     expect(wrapper.findAll('.tasks-views-nav .nav-item')[0].classes()).not.toContain('active')
   })
 })
+
+describe('the Add Task button', () => {
+  it('shows no dialog until the button is pressed', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'AddTaskDialog' }).exists()).toBe(false)
+  })
+
+  it('opens the Add Task dialog', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('.compose-btn').trigger('click')
+
+    expect(wrapper.findComponent({ name: 'AddTaskDialog' }).exists()).toBe(true)
+  })
+
+  it('closes the dialog when it asks to be closed', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.get('.compose-btn').trigger('click')
+
+    await wrapper.findComponent({ name: 'AddTaskDialog' }).vm.$emit('close')
+
+    expect(wrapper.findComponent({ name: 'AddTaskDialog' }).exists()).toBe(false)
+  })
+})

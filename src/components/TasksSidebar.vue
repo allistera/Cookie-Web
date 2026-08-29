@@ -2,12 +2,17 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AddTaskDialog from './AddTaskDialog.vue'
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const EXPANDED_KEY = 'cookie-tasks-expanded-projects'
+
+// Add Task is reachable from any Tasks view, so its dialog lives here beside
+// the button rather than in whichever view happens to be on screen.
+const addingTask = ref(false)
 
 const route = useRoute()
 const router = useRouter()
@@ -152,12 +157,14 @@ async function removeProject(project) {
 
 <template>
   <aside class="left-sidebar tasks-sidebar" aria-label="Tasks sidebar">
-    <!-- No create flow exists yet (the tasks API has no create endpoint), so
-       the button is the shell the handler lands in. -->
-    <button class="compose-btn" type="button">
+    <!-- Reachable from every Tasks view, so the task it creates goes to the
+       Inbox rather than to whichever project happens to be on screen. -->
+    <button class="compose-btn" type="button" @click="addingTask = true">
       <span class="material-symbols-outlined" aria-hidden="true">add_task</span>
       <span>Add Task</span>
     </button>
+
+    <AddTaskDialog v-if="addingTask" @close="addingTask = false" />
 
     <!-- Inbox is a rule, not a project: it names the tasks that belong to no
        project, so there is no row behind it to rename, recolour or delete.

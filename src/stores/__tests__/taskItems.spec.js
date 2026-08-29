@@ -32,6 +32,8 @@ describe('task items store', () => {
   })
 
   it('sends the project and content when creating', async () => {
+    // The in-view composer only exists while that project is on screen.
+    store.loadedProject = 'p1'
     stubFetch(async () => ({ ok: true, json: async () => ({ item: ITEM }) }))
 
     await store.createItem({ content: 'Ship it', projectId: 'p1' })
@@ -294,5 +296,56 @@ describe('the Today list', () => {
     await store.loadItems('p1')
 
     expect(fetch.mock.calls[0][0]).not.toContain('date=')
+  })
+})
+
+describe('creating a task that belongs elsewhere', () => {
+  it('adds the new task to the list when it belongs there', async () => {
+    store.loadedProject = 'p1'
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: { ...ITEM } }) }))
+
+    await store.createItem({ content: 'Ship it', projectId: 'p1' })
+
+    expect(store.items).toHaveLength(1)
+  })
+
+  // Add Task creates in the Inbox from anywhere, so a task made while a
+  // project is on screen must not appear under that project's heading.
+  it('leaves the list alone when the new task belongs to another project', async () => {
+    store.loadedProject = 'p1'
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, id: 't2', projectId: null } }),
+    }))
+
+    const created = await store.createItem({ content: 'Inbox thing', projectId: null })
+
+    expect(created).toMatchObject({ id: 't2' })
+    expect(store.items).toEqual([])
+  })
+
+  it('adds an Inbox task while the Inbox is on screen', async () => {
+    store.loadedProject = 'inbox'
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, projectId: null } }),
+    }))
+
+    await store.createItem({ content: 'Inbox thing', projectId: null })
+
+    expect(store.items).toHaveLength(1)
+  })
+
+  // Today is a date filter, and a task created without one is not due today.
+  it('leaves Today alone when the new task has no date', async () => {
+    store.loadedProject = 'today'
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, projectId: null, dueDate: null } }),
+    }))
+
+    await store.createItem({ content: 'Someday', projectId: null })
+
+    expect(store.items).toEqual([])
   })
 })

@@ -120,10 +120,20 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return results.reduce((total, { items = [] }) => total + items.length, 0)
     },
 
+    // Whether a task belongs in the list currently on screen. Add Task creates
+    // in the Inbox from anywhere, so a new task must not appear under whatever
+    // heading happens to be open.
+    belongsToLoadedList(item) {
+      if (this.loadedProject === null) return false
+      if (this.loadedProject === 'today') return item.dueDate === localToday()
+      if (this.loadedProject === 'inbox') return item.projectId === null
+      return item.projectId === this.loadedProject
+    },
+
     async createItem({ content, projectId = null }) {
       try {
         const { item } = await this.request('POST', { body: { content, projectId } })
-        this.items.push(item)
+        if (this.belongsToLoadedList(item)) this.items.push(item)
         return item
       } catch (error) {
         console.error('Failed to create task:', error)
