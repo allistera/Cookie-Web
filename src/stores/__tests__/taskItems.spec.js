@@ -156,3 +156,68 @@ describe('task items store', () => {
     })
   })
 })
+
+describe('detail panel support', () => {
+  it('finds a loaded item by id', () => {
+    store.items = [{ ...ITEM }]
+
+    expect(store.itemById('t1')).toMatchObject({ id: 't1', content: 'Ship it' })
+    expect(store.itemById('missing')).toBeUndefined()
+  })
+
+  it('sends a description change and applies it locally', async () => {
+    store.items = [{ ...ITEM, description: null }]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, description: 'Why' } }),
+    }))
+
+    await store.describeItem('t1', 'Why')
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', description: 'Why' })
+    expect(store.items[0].description).toBe('Why')
+  })
+
+  it('sends a due date and applies it locally', async () => {
+    store.items = [{ ...ITEM, dueDate: null }]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, dueDate: '2026-09-01' } }),
+    }))
+
+    await store.setDueDate('t1', '2026-09-01')
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', dueDate: '2026-09-01' })
+    expect(store.items[0].dueDate).toBe('2026-09-01')
+  })
+
+  it('sends null to clear a due date', async () => {
+    store.items = [{ ...ITEM, dueDate: '2026-09-01' }]
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: { ...ITEM, dueDate: null } }) }))
+
+    await store.setDueDate('t1', null)
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', dueDate: null })
+    expect(store.items[0].dueDate).toBeNull()
+  })
+
+  // The server refuses a malformed date rather than clearing it, so the
+  // optimistic local value has to go back to what it was.
+  it('rolls the due date back and surfaces the server message when refused', async () => {
+    store.items = [{ ...ITEM, dueDate: '2026-09-01' }]
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'dueDate must be a YYYY-MM-DD date' }),
+    }))
+
+    await store.setDueDate('t1', 'nonsense')
+
+    expect(store.items[0].dueDate).toBe('2026-09-01')
+    expect(notify).toHaveBeenCalledWith('dueDate must be a YYYY-MM-DD date', 'error')
+  })
+})

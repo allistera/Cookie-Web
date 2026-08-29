@@ -17,6 +17,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
     isLoading: false,
   }),
 
+  getters: {
+    // The panel is addressed by URL, so it resolves its task out of whatever
+    // the list has already loaded rather than fetching one by id.
+    itemById: (state) => (id) => state.items.find((row) => row.id === id),
+  },
+
   actions: {
     async authHeaders(extra = {}) {
       const headers = { ...extra }
@@ -140,6 +146,22 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     renameItem(id, content) {
       return this.patchItem(id, { content }, { content }, 'Failed to rename the task.')
+    },
+
+    describeItem(id, description) {
+      return this.patchItem(
+        id,
+        { description },
+        { description },
+        'Failed to save the description.',
+      )
+    },
+
+    // `dueDate` is 'YYYY-MM-DD', or null to clear it. The server refuses
+    // anything else rather than clearing the date, so a rejection here is a
+    // real error worth surfacing.
+    setDueDate(id, dueDate) {
+      return this.patchItem(id, { dueDate }, { dueDate }, 'Failed to set the date.')
     },
 
     setCompleted(id, completed) {
