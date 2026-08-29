@@ -14,7 +14,7 @@
 
 - **Two repos.** Paths starting `workers/` are in `Cookie-Worker`; everything else is in `Cookie-Web`. Both are siblings under `~/Development/Projects/Cookie/`.
 - **Push straight to `main`** in both repos. No PRs.
-- **Before any push to Cookie-Web:** `npm test` **and** `npm run build`. The build is where the entry-chunk budget (150000 bytes) is enforced; tests alone will not catch a violation.
+- **Before any push to Cookie-Web:** `npm run test:unit`, `npm run test:e2e`, `npm run format:check`, `npm run lint` **and** `npm run build`. There is no `npm test` in this repo. The build is where the entry-chunk budget (150000 bytes) is enforced; tests alone will not catch a violation. `format:check` runs oxfmt **and** Prettier — passing `npx prettier --check` alone is not enough, and CI has gone red on exactly that.
 - **Before any push to Cookie-Worker:** `npm test`, `npm run lint`, `npm run typecheck`.
 - **Formatting:** `npx prettier --write` on every file touched. Cookie-Web additionally runs `npx oxlint .`, whose `anti-slop` rules reject runtime `typeof` narrowing — coerce at the boundary instead (`String(value ?? '')`).
 - **Inbox is never a row.** No task in this plan creates, seeds or special-cases an "Inbox" record. The static Inbox row already exists in `TasksSidebar` and must keep working.
@@ -1702,7 +1702,7 @@ Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Run the full suite and the build**
 
-Run: `npm test && npm run build && npx oxlint . && npx prettier --check src/components/TasksSidebar.vue`
+Run: `npm run test:unit && npm run test:e2e && npm run build && npm run lint && npm run format:check`
 Expected: all pass, no entry-chunk error.
 
 - [ ] **Step 6: Commit**
@@ -1874,7 +1874,7 @@ Expected: both jobs succeed. Verify before continuing — the web app is about t
 
 ```bash
 cd ~/Development/Projects/Cookie/Cookie-Web
-npm test && npm run build
+npm run test:unit && npm run test:e2e && npm run format:check && npm run lint && npm run build
 git push origin main
 ```
 
@@ -1892,5 +1892,5 @@ Open the Tasks app: Inbox is present, "No projects yet" shows, creating a projec
 
 - **Tasks 1–4 are Cookie-Worker; 5–11 are Cookie-Web; 12 touches both.** They can be done in either repo order, but nothing ships until Task 12, and Task 12's order is fixed.
 - **Code blocks here are formatted with Cookie-Web's Prettier config, which omits semicolons.** Cookie-Worker uses them. Copy the snippets as-is and run that repo's own `npx prettier --write` on the files you touch; it restores the semicolons.
-- **The five pre-existing e2e failures are not yours.** Confirm the set is unchanged rather than trying to fix them.
+- **The e2e suite is fully green.** There were seven pre-existing failures (21 across the three browsers) when this plan was written; they were stale route stubs pointing at retired same-origin URLs and were fixed in `aceed34`. Treat any e2e failure as yours.
 - **Do not raise `ENTRY_CHUNK_BUDGET_BYTES`.** If the build fails on it, the fix is to keep the Tasks chunk connected to a store, not to move the line.

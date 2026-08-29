@@ -14,7 +14,7 @@
 
 - **Two repos.** Paths starting `workers/` are in `Cookie-Worker`; everything else is in `Cookie-Web`. Siblings under `~/Development/Projects/Cookie/`.
 - **Push straight to `main`** in both repos. No PRs.
-- **Before any push to Cookie-Web:** `npx vitest run` **and `npm run build`**. The build enforces a 150000-byte entry-chunk budget; tests alone will not catch a violation. **Never raise the budget.**
+- **Before any push to Cookie-Web:** `npm run test:unit`, `npm run test:e2e`, `npm run format:check`, `npm run lint` **and `npm run build`**. (There is no `npm test` here.) The build enforces a 150000-byte entry-chunk budget; tests alone will not catch a violation. **Never raise the budget.** `format:check` runs oxfmt **and** Prettier — `npx prettier --check` alone leaves oxfmt failures that turn CI red.
 - **Before any push to Cookie-Worker:** `npm test`, `npm run lint`, `npm run typecheck`.
 - **Formatting:** `npx prettier --write` on every file touched. Cookie-Web also runs `npx oxlint .`, whose `anti-slop` rules reject runtime `typeof` narrowing — coerce at the boundary (`String(value ?? '')`).
 - **`/task-items`, never `/tasks`.** `/tasks` is AI Today's gathered-items endpoint and keeps that meaning. The two never share a row.
@@ -1912,7 +1912,7 @@ Expected: both jobs succeed. Verify before continuing — the web app is about t
 
 ```bash
 cd ~/Development/Projects/Cookie/Cookie-Web
-npx vitest run && npm run build
+npm run test:unit && npm run test:e2e && npm run format:check && npm run lint && npm run build
 git push origin main
 ```
 

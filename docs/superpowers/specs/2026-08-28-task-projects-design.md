@@ -230,9 +230,10 @@ Order matters — each step is useless or broken without the one before it:
 3. Push Cookie-Web; Vercel deploys it. Reversed, the sidebar would `GET
 /projects`, take a 404, and show its error path.
 
-Gates before each push: `npm test` in Cookie-Worker, and `npm test` plus
-`npm run build` in Cookie-Web — the build is where the entry-chunk budget is
-enforced.
+Gates before each push: `npm test` in Cookie-Worker, and `npm run test:unit`,
+`npm run test:e2e`, `npm run format:check`, `npm run lint` plus `npm run build`
+in Cookie-Web (which has no `npm test`) — the build is where the entry-chunk
+budget is enforced.
 
 No feature flag. The section already renders empty, so the change is
 additive and a revert is a clean undo.

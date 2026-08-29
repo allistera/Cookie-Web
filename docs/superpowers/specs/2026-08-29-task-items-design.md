@@ -340,9 +340,10 @@ one before it:
 3. Push Cookie-Web, which Vercel deploys.
 
 Gates before each push: `npm test`, `npm run lint` and `npm run typecheck` in
-Cookie-Worker; `npx vitest run` **and `npm run build`** in Cookie-Web — the
-build is where the 150,000-byte entry-chunk budget is enforced, and tests
-alone will not catch a violation.
+Cookie-Worker; `npm run test:unit`, `npm run test:e2e`, `npm run format:check`,
+`npm run lint` **and `npm run build`** in Cookie-Web (which has no `npm test`)
+— the build is where the 150,000-byte entry-chunk budget is enforced, and
+tests alone will not catch a violation.
 
 No feature flag: `TasksView` is a stub today, so every phase is additive and
 a revert is a clean undo.
