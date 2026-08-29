@@ -262,4 +262,66 @@ describe('TaskDetailPanel', () => {
     expect(complete).toHaveBeenCalledWith('b', true)
     expect(router.currentRoute.value.query.task).toBeUndefined()
   })
+
+  it('shows the task\'s project in the rail', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-project-value').text()).toBe('Inbox')
+  })
+
+  it('sets a due date', async () => {
+    seed()
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-date-input').setValue('2026-09-01')
+    await flushPromises()
+
+    expect(setDue).toHaveBeenCalledWith('b', '2026-09-01')
+  })
+
+  it('shows the date the task already has', async () => {
+    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-date-input').element.value).toBe('2026-09-01')
+  })
+
+  it('clears a due date', async () => {
+    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-date-clear').trigger('click')
+    await flushPromises()
+
+    expect(setDue).toHaveBeenCalledWith('b', null)
+  })
+
+  // An emptied date input means "no date", which is null on the wire — not
+  // an empty string, which the server would refuse.
+  it('sends null when the date input is emptied', async () => {
+    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-date-input').setValue('')
+    await flushPromises()
+
+    expect(setDue).toHaveBeenCalledWith('b', null)
+  })
+
+  it('offers no clear control when there is no date', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.task-panel-date-clear').exists()).toBe(false)
+  })
 })

@@ -47,6 +47,13 @@ const descriptionEdit = useInlineEdit({
   selectAll: false,
 })
 
+// An empty input means the date was cleared; null is what the server treats
+// as "no date", where '' would be refused as malformed.
+function onDateChange(event) {
+  const value = String(event.target.value ?? '')
+  items.setDueDate(props.taskId, value || null)
+}
+
 // Completing takes the task out of the visible list, so the panel would be
 // left pointing at something that is no longer there.
 async function complete() {
@@ -187,7 +194,38 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             {{ item?.description || 'Add a description' }}
           </p>
         </div>
-        <aside class="task-panel-rail"></aside>
+        <aside class="task-panel-rail">
+          <div class="task-panel-field">
+            <h3>Project</h3>
+            <p class="task-panel-project-value">
+              <span v-if="item?.projectId" class="project-symbol" aria-hidden="true"></span>
+              {{ projectName }}
+            </p>
+          </div>
+
+          <div class="task-panel-field">
+            <h3>Date</h3>
+            <div class="task-panel-date">
+              <input
+                class="task-panel-date-input"
+                type="date"
+                aria-label="Due date"
+                :value="item?.dueDate ?? ''"
+                @change="onDateChange($event)"
+              />
+              <button
+                v-if="item?.dueDate"
+                class="task-panel-date-clear"
+                type="button"
+                title="Clear date"
+                aria-label="Clear due date"
+                @click="items.setDueDate(taskId, null)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   </div>
@@ -342,5 +380,58 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   margin: 10px 0 0 32px;
   width: calc(100% - 32px);
   font-size: 14px;
+}
+.task-panel-field + .task-panel-field {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+.task-panel-field h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.task-panel-project-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.task-panel-date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-panel-date-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.task-panel-date-clear {
+  display: flex;
+  padding: 2px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.task-panel-date-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 </style>
