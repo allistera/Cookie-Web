@@ -74,9 +74,9 @@ describe('TasksView', () => {
     expect(rename).toHaveBeenCalledWith('p2', 'Renamed')
   })
 
-  it('writes a description from the placeholder', async () => {
+  it('writes a description from the placeholder, submitting once on Enter then blur', async () => {
     const projects = useProjectsStore()
-    const describe = vi.spyOn(projects, 'describeProject').mockResolvedValue(null)
+    const describeSpy = vi.spyOn(projects, 'describeProject').mockResolvedValue(null)
 
     const wrapper = mountView()
     await flushPromises()
@@ -84,7 +84,9 @@ describe('TasksView', () => {
     const input = wrapper.get('.tasks-description-input')
     await input.setValue('What this project is for')
     await input.trigger('keydown.enter')
+    await input.trigger('blur')
 
-    expect(describe).toHaveBeenCalledWith('p2', 'What this project is for')
+    expect(describeSpy).toHaveBeenCalledTimes(1)
+    expect(describeSpy).toHaveBeenCalledWith('p2', 'What this project is for')
   })
 })
