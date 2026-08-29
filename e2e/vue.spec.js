@@ -1,21 +1,22 @@
 import { expect, test } from './workerFixtures.js'
 
-import { MESSAGES_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
+import {
+  AI_API_URL,
+  EMAILS_API_URL,
+  MESSAGES_API_URL,
+  TASKS_API_URL,
+} from '../src/lib/apiWorkers.js'
 
-// NOTE: since the frontend was repointed at cookie-web-labels/messages/tasks
-// (three Cloudflare Workers, absolute cross-origin URLs) instead of this
-// app's own /api/labels, /api/messages, /api/tasks, the route() stubs below
-// only cover the specific request each test cares about — the GETs that used
-// to fall through to vite.config.js's local /api/* e2e fixture middleware
-// (now deleted, since that middleware target became unreachable dead code
-// the moment the frontend started requesting a different origin) have no
-// local fallback anymore and will hit the real Worker unauthenticated
-// (VITE_E2E mode sends no bearer token) and 401. Tests that render AI
-// Today/Documents/Settings-Labels/Settings-Rules/message reads without their
-// own full-coverage route() stub for the relevant Worker origin are affected
-// by this, not just the routes touched here. A proper fix needs a shared
-// Playwright fixture that mocks each Worker origin with the same fixture
-// data vite.config.js used to serve — flagging rather than building that here.
+// The app calls its Cloudflare Workers at absolute cross-origin URLs
+// (src/lib/apiWorkers.js), which nothing same-origin can intercept.
+// e2e/workerFixtures.js routes every Worker origin back to the dev/preview
+// server's /__e2e__/* fixture handlers, so a test only needs its own route()
+// stub for the specific response it wants to control.
+//
+// Stub those against the URL the app actually calls, built from the same
+// constant the app imports — never a hand-written '/api/...' path. Seven specs
+// silently broke that way: each endpoint moved to a Worker, the stubs kept
+// matching the retired same-origin URL, and so never fired at all.
 
 // The calendar fixture (api/_fixtures/calendarEvents.js) and CalendarView.vue's
 // "today" both used to be pinned to this date; CalendarView now reads the real
@@ -150,8 +151,7 @@ test('Calendar settings manages subscriptions that appear in the Calendar view',
   const syncNow = page.getByRole('button', { name: 'Sync Team Feed' })
   await Promise.all([
     page.waitForResponse(
-      (response) =>
-        response.url().includes('/calendar-events') && response.request().method() === 'POST',
+      (response) => response.url().includes('/calendars') && response.request().method() === 'POST',
     ),
     syncNow.click(),
   ])
@@ -629,7 +629,7 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   const requestStarted = new Promise((resolve) => {
     notifyRequestStarted = resolve
   })
-  await page.route('**/send-api.infinitywave.online/send', async (route) => {
+  await page.route('**/api/send', async (route) => {
     sendRequests += 1
     notifyRequestStarted()
     await new Promise((resolve) => {
@@ -664,7 +664,7 @@ test('Composer "Send Later" queues a scheduled send instead of sending immediate
   page,
 }) => {
   let sendRequestBody
-  await page.route('**/send-api.infinitywave.online/send', async (route) => {
+  await page.route('**/api/send', async (route) => {
     sendRequestBody = route.request().postDataJSON()
     await route.fulfill({
       status: 201,
@@ -866,7 +866,7 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   const summaryHeld = new Promise((resolve) => {
     releaseSummary = resolve
   })
-  await page.route('**/api/summarize', async (route) => {
+  await page.route(`${AI_API_URL}/summarize`, async (route) => {
     summaryRequestCount += 1
     requestBody = route.request().postDataJSON()
     notifyRequestStarted()
@@ -1018,7 +1018,7 @@ test('Reader scheduling offers Tomorrow and Next Week, then removes the email un
 test('A due scheduled email appears at the top in the conditional Due Today group', async ({
   page,
 }) => {
-  await page.route('**/api/emails?limit=50', async (route) => {
+  await page.route(`${EMAILS_API_URL}/emails?limit=50`, async (route) => {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -1063,7 +1063,7 @@ test('Snoozed groups emails by their snooze target with both groups expanded', a
   nextWeek.setDate(nextWeek.getDate() + ((8 - nextWeek.getDay()) % 7 || 7))
   nextWeek.setHours(8, 0, 0, 0)
 
-  await page.route('**/api/emails?folder=snoozed&limit=50', async (route) => {
+  await page.route(`${EMAILS_API_URL}/emails?folder=snoozed&limit=50`, async (route) => {
     const email = (id, subject, sentAt, scheduledFor) => ({
       id,
       from_name: 'Reminder Service',
@@ -1387,7 +1387,7 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
 
 test("Pressing 'u' cancels a queued send and restores its draft", async ({ page }) => {
   let sendRequests = 0
-  await page.route('**/send-api.infinitywave.online/send', async (route) => {
+  await page.route('**/api/send', async (route) => {
     sendRequests += 1
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'sent' }) })
   })
@@ -1429,9 +1429,9 @@ test('A top loading bar shows while the inbox is fetching and hides afterwards',
   page,
 }) => {
   // Hold the emails response so the initial load is observably in flight.
-  await page.route('**/api/emails**', async (route) => {
+  await page.route(`${EMAILS_API_URL}/emails**`, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1200))
-    await route.continue()
+    await route.fallback()
   })
 
   await page.goto('/inbox')
@@ -1606,7 +1606,7 @@ test('The hidden Done mailbox shows emails after they are marked done', async ({
 })
 
 test('Marking the last email Done shows the Inbox Zero success state', async ({ page }) => {
-  await page.route('**/api/emails?limit=50', async (route) => {
+  await page.route(`${EMAILS_API_URL}/emails?limit=50`, async (route) => {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
