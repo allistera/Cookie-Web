@@ -16,6 +16,15 @@ function isTaskUuid(value) {
   return value === String(value ?? '') && TASK_UUID_RE.test(value)
 }
 
+// Mirrors isCalendarDate in cookie-web-tasks/src/taskItems.js, so the fixture
+// refuses the dates the real Worker refuses.
+function isTaskCalendarDate(value) {
+  const text = String(value ?? '')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false
+  const date = new Date(`${text}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text
+}
+
 function cleanTaskText(value, max) {
   if (!(value?.trim instanceof Function)) return null
   const text = value.trim().slice(0, max)
@@ -1081,13 +1090,18 @@ function localApiPlugin(mode) {
           return json(res, { error: 'Project not found' }, 404)
         }
 
+        const hasDue = body.dueDate !== undefined && body.dueDate !== null && body.dueDate !== ''
+        if (hasDue && !isTaskCalendarDate(body.dueDate)) {
+          return json(res, { error: 'dueDate must be a YYYY-MM-DD date' }, 400)
+        }
+
         const item = {
           id: randomUUID(),
           projectId,
           parentId: null,
           content,
           description: body.description ?? null,
-          dueDate: body.dueDate ?? null,
+          dueDate: hasDue ? String(body.dueDate) : null,
           completedAt: null,
           createdAt: new Date().toISOString(),
         }
@@ -1120,7 +1134,13 @@ function localApiPlugin(mode) {
           }
           item.projectId = projectId
         }
-        if (hasDueDate) item.dueDate = body.dueDate ?? null
+        if (hasDueDate) {
+          const clears = body.dueDate === null || body.dueDate === ''
+          if (!clears && !isTaskCalendarDate(body.dueDate)) {
+            return json(res, { error: 'dueDate must be a YYYY-MM-DD date' }, 400)
+          }
+          item.dueDate = clears ? null : String(body.dueDate)
+        }
         // Completion stamps a time; it never deletes, matching the real handler.
         if (hasCompleted) {
           item.completedAt = body.completed ? new Date().toISOString() : null
