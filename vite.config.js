@@ -1069,14 +1069,21 @@ function localApiPlugin(mode) {
     if (segments[0] === 'task-items') {
       if (req.method === 'GET') {
         const project = url.searchParams.get('project') ?? 'inbox'
-        if (project !== 'inbox' && !isTaskUuid(project)) {
-          return json(res, { error: 'project must be a project id or "inbox"' }, 400)
+        const today = project === 'today'
+        if (project !== 'inbox' && !today && !isTaskUuid(project)) {
+          return json(res, { error: 'project must be a project id, "inbox" or "today"' }, 400)
+        }
+        const date = url.searchParams.get('date')
+        if (today && !isTaskCalendarDate(date)) {
+          return json(res, { error: 'today requires a date=YYYY-MM-DD' }, 400)
         }
         const includeCompleted = url.searchParams.get('completed') === '1'
         const items = state.taskItems
-          .filter((item) =>
-            project === 'inbox' ? item.projectId === null : item.projectId === project,
-          )
+          .filter((item) => {
+            // Today spans every project; the others filter by one.
+            if (today) return item.dueDate === date
+            return project === 'inbox' ? item.projectId === null : item.projectId === project
+          })
           .filter((item) => includeCompleted || item.completedAt === null)
         return json(res, { items })
       }

@@ -1785,6 +1785,49 @@ test('Tasks: a task opens in the panel, takes a date, and the link survives a re
   await expect(page.locator('.task-row')).toHaveCount(1)
 })
 
+test('Tasks: Today lists what is due today from across the projects', async ({ page }) => {
+  await page.goto('/tasks')
+
+  // The app asks for its own local date, so the test has to use the same one.
+  const today = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Roof')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await sidebar.locator('.project-item', { hasText: 'Roof' }).click()
+
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Due today')
+  await page.locator('.add-task-row input').press('Enter')
+  await expect(page.locator('.task-row')).toHaveCount(1)
+
+  await page.locator('.task-open').click()
+  await page.locator('.task-panel-date-input').fill(today)
+  await page.keyboard.press('Escape')
+
+  // A second task with no date, which Today must leave behind.
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Someday')
+  await page.locator('.add-task-row input').press('Enter')
+  await expect(page.locator('.task-row')).toHaveCount(2)
+
+  await sidebar.locator('.nav-item', { hasText: 'Today' }).click()
+
+  await expect(page.locator('.tasks-title')).toHaveText('Today')
+  await expect(page.locator('.task-row')).toHaveCount(1)
+  await expect(page.locator('.task-content')).toHaveText('Due today')
+  // The rows span projects, so each names where it lives.
+  await expect(page.locator('.task-home')).toHaveText('Roof')
+  // Nothing to name or describe, and no one project a new task would join.
+  await expect(page.locator('.add-task-btn')).toHaveCount(0)
+  await expect(page.locator('.tasks-description')).toHaveCount(0)
+})
+
 // .tasks-view is a flex item in .main-content's column flex container, so its
 // cross axis is horizontal and `margin: 0 auto` there beats align-items:
 // stretch — which sizes the box to its content unless a width is stated. With

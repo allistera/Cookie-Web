@@ -244,3 +244,63 @@ describe('TasksView', () => {
     expect(router.currentRoute.value.query.task).toBeUndefined()
   })
 })
+
+describe('the Today view', () => {
+  beforeEach(async () => {
+    await router.push('/tasks?project=today')
+  })
+
+  it('titles the view Today and shows no breadcrumb trail', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.tasks-title').text()).toBe('Today')
+    expect(wrapper.findAll('.tasks-breadcrumb a')).toHaveLength(0)
+  })
+
+  // Today spans every project, so there is no one project a new task would
+  // belong to and nothing to describe.
+  it('offers no description and no add-task composer', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.tasks-description').exists()).toBe(false)
+    expect(wrapper.find('.add-task-btn').exists()).toBe(false)
+  })
+
+  it('does not let the title be edited', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.tasks-title').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.tasks-title-input').exists()).toBe(false)
+  })
+
+  // The rows come from different projects, so each says where it lives.
+  it('names each task’s project on its row', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'First', description: null, dueDate: '2026-08-29', projectId: 'p2' },
+      { id: 'b', content: 'Second', description: null, dueDate: '2026-08-29', projectId: null },
+    ]
+    items.loadedProject = 'today'
+    const wrapper = mountView()
+    await flushPromises()
+
+    const homes = wrapper.findAll('.task-home')
+    expect(homes.map((home) => home.text())).toEqual(['Githup', 'Inbox'])
+  })
+
+  it('shows no project name on rows outside Today', async () => {
+    await router.push('/tasks?project=p2')
+    const items = useTaskItemsStore()
+    items.items = [{ id: 'a', content: 'First', description: null, dueDate: null, projectId: 'p2' }]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.task-home').exists()).toBe(false)
+  })
+})

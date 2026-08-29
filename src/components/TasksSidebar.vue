@@ -171,6 +171,17 @@ async function removeProject(project) {
         <span class="material-symbols-outlined nav-icon-red" aria-hidden="true">inbox</span>
         <span class="nav-text">Inbox</span>
       </router-link>
+
+      <!-- Today is a rule like Inbox, not a project: it names the tasks due
+           on the current date, wherever they live. -->
+      <router-link
+        :to="{ path: '/tasks', query: { project: 'today' } }"
+        class="nav-item"
+        :class="{ active: selectedProject === 'today' }"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">today</span>
+        <span class="nav-text">Today</span>
+      </router-link>
     </nav>
 
     <div

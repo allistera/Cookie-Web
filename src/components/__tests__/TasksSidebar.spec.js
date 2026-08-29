@@ -397,3 +397,26 @@ describe('TasksSidebar', () => {
     expect(move).not.toHaveBeenCalled()
   })
 })
+
+describe('the Today view', () => {
+  it('lists Today under Inbox', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const links = wrapper.findAll('.tasks-views-nav .nav-item')
+    expect(links.map((link) => link.get('.nav-text').text())).toEqual(['Inbox', 'Today'])
+    expect(links[1].attributes('href')).toBe('/tasks?project=today')
+  })
+
+  it('marks Today active only when the route selects it', async () => {
+    const wrapper = mountSidebar()
+    const today = () => wrapper.findAll('.tasks-views-nav .nav-item')[1]
+    expect(today().classes()).not.toContain('active')
+
+    await router.push('/tasks?project=today')
+    await wrapper.vm.$nextTick()
+
+    expect(today().classes()).toContain('active')
+    expect(wrapper.findAll('.tasks-views-nav .nav-item')[0].classes()).not.toContain('active')
+  })
+})

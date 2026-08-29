@@ -16,13 +16,26 @@ const items = useTaskItemsStore()
 // to no project, so there is no row to look up.
 const project = computed(() => String(route.query.project ?? 'inbox'))
 const isInbox = computed(() => project.value === 'inbox')
+// Today, like Inbox, is a rule rather than a project: nothing to rename,
+// describe or nest, and no single project a new task would belong to.
+const isToday = computed(() => project.value === 'today')
+const isRule = computed(() => isInbox.value || isToday.value)
 const current = computed(() =>
-  isInbox.value ? null : projects.projects.find((row) => row.id === project.value),
+  isRule.value ? null : projects.projects.find((row) => row.id === project.value),
 )
 const ancestors = computed(() =>
-  isInbox.value ? [] : projects.ancestorsOf(project.value).slice(0, -1),
+  isRule.value ? [] : projects.ancestorsOf(project.value).slice(0, -1),
 )
-const title = computed(() => (isInbox.value ? 'Inbox' : (current.value?.name ?? '')))
+const title = computed(() => {
+  if (isToday.value) return 'Today'
+  return isInbox.value ? 'Inbox' : (current.value?.name ?? '')
+})
+
+// Today's rows come from across the tree, so each says where it lives.
+function homeOf(item) {
+  if (!item.projectId) return 'Inbox'
+  return projects.projects.find((row) => row.id === item.projectId)?.name ?? 'Inbox'
+}
 
 // Which task the panel is showing, if any. Keeping it in the URL makes a task
 // linkable and survive a reload.
@@ -72,13 +85,13 @@ const titleEdit = useInlineEdit({
   // An empty title is not a rename: leaving edit mode keeps the existing name,
   // which is what Enter on a cleared field should do.
   write: (name) => (name ? projects.renameProject(project.value, name) : undefined),
-  canEdit: () => !isInbox.value,
+  canEdit: () => !isRule.value,
 })
 
 const descriptionEdit = useInlineEdit({
   read: () => current.value?.description ?? '',
   write: (description) => projects.describeProject(project.value, description),
-  canEdit: () => !isInbox.value,
+  canEdit: () => !isRule.value,
   selectAll: false,
 })
 
@@ -139,7 +152,7 @@ async function submitDraft() {
       @keydown.escape="descriptionEdit.editing.value = false"
       @blur="descriptionEdit.submit"
     />
-    <p v-else-if="!isInbox" class="tasks-description" @click="descriptionEdit.start">
+    <p v-else-if="!isRule" class="tasks-description" @click="descriptionEdit.start">
       {{ current?.description || 'Add a description' }}
     </p>
 
@@ -158,12 +171,15 @@ async function submitDraft() {
         <button class="task-open" type="button" @click="open(item.id)">
           <span class="task-content">{{ item.content }}</span>
           <span v-if="item.description" class="task-description">{{ item.description }}</span>
-          <span v-if="item.dueDate" class="task-due">{{ formatDue(item.dueDate) }}</span>
+          <span v-if="item.dueDate && !isToday" class="task-due">
+            {{ formatDue(item.dueDate) }}
+          </span>
+          <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
         </button>
       </li>
     </ul>
 
-    <form v-if="composing" class="add-task-row" @submit.prevent="submitDraft">
+    <form v-if="composing && !isToday" class="add-task-row" @submit.prevent="submitDraft">
       <input
         ref="draftInput"
         v-model="draft"
@@ -174,7 +190,7 @@ async function submitDraft() {
         @blur="submitDraft"
       />
     </form>
-    <button v-else class="add-task-btn" type="button" @click="startCompose">
+    <button v-else-if="!isToday" class="add-task-btn" type="button" @click="startCompose">
       <span aria-hidden="true">+</span>
       <span>Add task</span>
     </button>
@@ -286,7 +302,8 @@ async function submitDraft() {
   cursor: pointer;
 }
 
-.task-due {
+.task-due,
+.task-home {
   margin-top: 4px;
   font-size: 12px;
   color: var(--text-secondary);

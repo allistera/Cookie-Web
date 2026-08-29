@@ -267,3 +267,32 @@ describe('moving a task between projects', () => {
     expect(notify).toHaveBeenCalledWith('Project not found', 'error')
   })
 })
+
+describe('the Today list', () => {
+  it("sends the browser's local date, not a UTC one", async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+    // 23:30 on the 29th in a zone behind UTC is already the 30th in UTC. The
+    // request must carry the date the person is actually living in.
+    vi.setSystemTime(new Date('2026-08-30T02:30:00Z'))
+    const localDate = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+
+    await store.loadItems('today')
+
+    const [requestUrl] = fetch.mock.calls[0]
+    expect(requestUrl).toContain('project=today')
+    expect(requestUrl).toContain(`date=${localDate}`)
+    vi.useRealTimers()
+  })
+
+  it('does not send a date for an ordinary project', async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    await store.loadItems('p1')
+
+    expect(fetch.mock.calls[0][0]).not.toContain('date=')
+  })
+})
