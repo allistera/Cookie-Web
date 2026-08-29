@@ -7,6 +7,21 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
+// Mirrors the validation in cookie-web-tasks/src/taskItems.js so the /task-items
+// fixture rejects what the real Worker handler rejects. See cleanText/isUuid there.
+const TASK_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TASK_MAX_CONTENT_LENGTH = 500
+
+function isTaskUuid(value) {
+  return value === String(value ?? '') && TASK_UUID_RE.test(value)
+}
+
+function cleanTaskText(value, max) {
+  if (!(value?.trim instanceof Function)) return null
+  const text = value.trim().slice(0, max)
+  return text || null
+}
+
 // Serves /api/emails locally, where Vercel's serverless functions don't run.
 // E2E mode (and dev without DATABASE_URL) answers from fixtures; otherwise the
 // real Vercel handler runs against Postgres.
@@ -1039,8 +1054,11 @@ function localApiPlugin(mode) {
       return json(res, { error: 'Method not allowed' }, 405)
     }
     if (segments[0] === 'task-items') {
-      const project = url.searchParams.get('project') ?? 'inbox'
       if (req.method === 'GET') {
+        const project = url.searchParams.get('project') ?? 'inbox'
+        if (project !== 'inbox' && !isTaskUuid(project)) {
+          return json(res, { error: 'project must be a project id or "inbox"' }, 400)
+        }
         const includeCompleted = url.searchParams.get('completed') === '1'
         const items = state.taskItems
           .filter((item) =>
@@ -1051,11 +1069,19 @@ function localApiPlugin(mode) {
       }
       const body = await readBody(req)
       if (req.method === 'POST') {
+        const content = cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
+        if (!content) return json(res, { error: 'Task content is required' }, 400)
+
+        const projectId = body.projectId ?? null
+        if (projectId !== null && !state.projects.some((row) => row.id === projectId)) {
+          return json(res, { error: 'Project not found' }, 404)
+        }
+
         const item = {
           id: randomUUID(),
-          projectId: body.projectId ?? null,
+          projectId,
           parentId: null,
-          content: String(body.content || '').slice(0, 500),
+          content,
           description: body.description ?? null,
           dueDate: body.dueDate ?? null,
           completedAt: null,
@@ -1067,20 +1093,40 @@ function localApiPlugin(mode) {
       if (req.method === 'PATCH') {
         const item = state.taskItems.find((row) => row.id === body.id)
         if (!item) return json(res, { error: 'Task not found' }, 404)
-        if (body.content !== undefined) item.content = body.content
-        if (body.description !== undefined) item.description = body.description
-        if (Object.hasOwn(body, 'projectId')) item.projectId = body.projectId
-        if (Object.hasOwn(body, 'dueDate')) item.dueDate = body.dueDate
+
+        const hasContent = Object.hasOwn(body, 'content')
+        const hasDescription = Object.hasOwn(body, 'description')
+        const hasProject = Object.hasOwn(body, 'projectId')
+        const hasDueDate = Object.hasOwn(body, 'dueDate')
+        const hasCompleted = Object.hasOwn(body, 'completed')
+        if (!hasContent && !hasDescription && !hasProject && !hasDueDate && !hasCompleted) {
+          return json(res, { error: 'At least one change is required' }, 400)
+        }
+
+        if (hasContent) {
+          const content = cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
+          if (!content) return json(res, { error: 'Task content is required' }, 400)
+          item.content = content
+        }
+        if (hasDescription) item.description = body.description ?? null
+        if (hasProject) {
+          const projectId = body.projectId ?? null
+          if (projectId !== null && !state.projects.some((row) => row.id === projectId)) {
+            return json(res, { error: 'Project not found' }, 404)
+          }
+          item.projectId = projectId
+        }
+        if (hasDueDate) item.dueDate = body.dueDate ?? null
         // Completion stamps a time; it never deletes, matching the real handler.
-        if (Object.hasOwn(body, 'completed')) {
+        if (hasCompleted) {
           item.completedAt = body.completed ? new Date().toISOString() : null
         }
         return json(res, { item })
       }
       if (req.method === 'DELETE') {
-        const before = state.taskItems.length
+        const item = state.taskItems.find((row) => row.id === body.id)
+        if (!item) return json(res, { error: 'Task not found' }, 404)
         state.taskItems = state.taskItems.filter((row) => row.id !== body.id)
-        if (state.taskItems.length === before) return json(res, { error: 'Task not found' }, 404)
         return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)
