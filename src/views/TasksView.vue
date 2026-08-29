@@ -171,8 +171,14 @@ async function submitDraft() {
 </template>
 
 <style scoped>
+/* The panel is a flex item in .main-content's column flex container, so the
+   cross axis is horizontal: an auto side margin there beats align-items:
+   stretch and sizes the box to its content. Without an explicit width that
+   collapsed the column to the width of its widest row and floated it out to
+   the middle of the panel, so state the width and let max-width cap it. */
 .tasks-view {
-  max-width: 720px;
+  width: 100%;
+  max-width: 900px;
   margin: 0 auto;
   padding: 32px 24px;
 }

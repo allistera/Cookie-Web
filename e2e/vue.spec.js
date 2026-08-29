@@ -1756,3 +1756,24 @@ test('Tasks: a task can be added to a project and completed', async ({ page }) =
   await page.reload()
   await expect(page.locator('.task-row')).toHaveCount(0)
 })
+
+// .tasks-view is a flex item in .main-content's column flex container, so its
+// cross axis is horizontal and `margin: 0 auto` there beats align-items:
+// stretch — which sizes the box to its content unless a width is stated. With
+// no width the column collapsed to the width of its widest row (~150px) and
+// floated into the middle of the panel. jsdom has no layout, so only a real
+// browser can catch this.
+test('The Tasks column fills its panel rather than collapsing to its content', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/tasks')
+  await expect(page.locator('.tasks-title')).toBeVisible()
+
+  const view = await page.locator('.tasks-view').boundingBox()
+  const panel = await page.locator('.main-content').boundingBox()
+
+  expect(view.width).toBe(Math.min(900, panel.width))
+
+  const leftGap = view.x - panel.x
+  const rightGap = panel.x + panel.width - (view.x + view.width)
+  expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1)
+})
