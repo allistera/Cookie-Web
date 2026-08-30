@@ -48,14 +48,13 @@ beforeEach(async () => {
 })
 
 describe('TaskDetailPanel', () => {
-  it('has no sibling navigation or overflow menu in the header', async () => {
+  it('has no sibling navigation in the header', async () => {
     seed()
     const wrapper = mountPanel()
     await flushPromises()
 
     expect(wrapper.find('.task-panel-prev').exists()).toBe(false)
     expect(wrapper.find('.task-panel-next').exists()).toBe(false)
-    expect(wrapper.find('.task-panel-delete').exists()).toBe(false)
     expect(wrapper.find('.task-panel-close').exists()).toBe(true)
   })
 
@@ -317,5 +316,62 @@ describe('TaskDetailPanel', () => {
     await flushPromises()
 
     expect(wrapper.find('.task-panel-date-clear').exists()).toBe(false)
+  })
+
+  it('deletes the task and closes', async () => {
+    seed()
+    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-delete').trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith('b')
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+  })
+
+  // Deleting takes the task's sub-tasks with it via ON DELETE CASCADE and
+  // there is no undo, so it asks first.
+  it('does not delete when the confirmation is dismissed', async () => {
+    seed()
+    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-delete').trigger('click')
+    await flushPromises()
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
+  it('names the task in the confirmation', async () => {
+    seed()
+    vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-delete').trigger('click')
+
+    expect(confirm).toHaveBeenCalledWith('Delete "Second"?')
+  })
+
+  // A failed delete has already notified; the panel stays put rather than
+  // closing over a task that is still there.
+  it('stays open when the delete fails', async () => {
+    seed()
+    vi.spyOn(items, 'deleteItem').mockResolvedValue(false)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-delete').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBe('b')
   })
 })

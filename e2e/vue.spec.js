@@ -1866,6 +1866,41 @@ test('Tasks: the Add Task dialog closes on Escape without creating anything', as
   await expect(page.locator('.task-row')).toHaveCount(0)
 })
 
+test('Tasks: an overdue task is carried into Today and can be deleted', async ({ page }) => {
+  await page.goto('/tasks')
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Roof')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await sidebar.locator('.project-item', { hasText: 'Roof' }).click()
+
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Long overdue')
+  await page.locator('.add-task-row input').press('Enter')
+
+  // A date well in the past: Today must still carry it.
+  await page.locator('.task-open').click()
+  await page.locator('.task-panel-date-input').fill('2020-01-02')
+  await page.keyboard.press('Escape')
+
+  await sidebar.locator('.nav-item', { hasText: 'Today' }).click()
+  await expect(page.locator('.task-content')).toHaveText('Long overdue')
+  // Dated and flagged, because it no longer shares Today's date.
+  await expect(page.locator('.task-due')).toHaveText('2 Jan')
+  await expect(page.locator('.task-due')).toHaveClass(/overdue/)
+
+  // Delete it from the panel's header icon.
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.locator('.task-open').click()
+  await page.locator('.task-panel-delete').click()
+
+  await expect(page.locator('.task-panel')).toHaveCount(0)
+  await expect(page.locator('.task-row')).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('.task-row')).toHaveCount(0)
+})
+
 // .tasks-view is a flex item in .main-content's column flex container, so its
 // cross axis is horizontal and `margin: 0 auto` there beats align-items:
 // stretch — which sizes the box to its content unless a width is stated. With

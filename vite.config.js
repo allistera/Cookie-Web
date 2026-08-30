@@ -1080,8 +1080,10 @@ function localApiPlugin(mode) {
         const includeCompleted = url.searchParams.get('completed') === '1'
         const items = state.taskItems
           .filter((item) => {
-            // Today spans every project; the others filter by one.
-            if (today) return item.dueDate === date
+            // Today spans every project and carries overdue tasks forward,
+            // so it matches on or before the date. ISO dates compare as
+            // strings. The others filter by one project.
+            if (today) return Boolean(item.dueDate) && item.dueDate <= date
             return project === 'inbox' ? item.projectId === null : item.projectId === project
           })
           .filter((item) => includeCompleted || item.completedAt === null)

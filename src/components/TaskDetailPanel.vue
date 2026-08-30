@@ -66,6 +66,17 @@ async function complete() {
   close()
 }
 
+// Deleting takes any sub-tasks with it via ON DELETE CASCADE and there is no
+// undo endpoint, so it asks first and names what it is about to remove.
+async function remove() {
+  if (!item.value) return
+  if (!confirm(`Delete "${item.value.content}"?`)) return
+  const deleted = await items.deleteItem(props.taskId)
+  // A failed delete has already notified; stay put rather than close over a
+  // task that is still there.
+  if (deleted) close()
+}
+
 function close() {
   const query = { ...route.query }
   delete query.task
@@ -111,6 +122,15 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         </span>
 
         <div class="task-panel-actions">
+          <button
+            class="task-panel-delete"
+            type="button"
+            title="Delete task"
+            aria-label="Delete task"
+            @click="remove()"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+          </button>
           <button
             class="task-panel-close"
             type="button"

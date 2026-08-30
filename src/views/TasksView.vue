@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
+import { localToday } from '../lib/localDate'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -68,6 +69,17 @@ const DUE_MONTHS = [
 // the local zone moves the chip a day for anyone west of Greenwich. Intl is
 // avoided for a second reason — en-GB's short September is 'Sep' on some ICU
 // versions and 'Sept' on others, which would pass locally and fail in CI.
+// Today carries overdue tasks forward, so its rows no longer share one date.
+// A row due today needs no chip — the heading already says so — but anything
+// late does, and says it plainly.
+function isOverdue(item) {
+  return Boolean(item.dueDate) && item.dueDate < localToday()
+}
+
+function showsDue(item) {
+  return Boolean(item.dueDate) && (!isToday.value || isOverdue(item))
+}
+
 function formatDue(dueDate) {
   const [, month, day] = dueDate.split('-')
   return `${Number(day)} ${DUE_MONTHS[Number(month) - 1]}`
@@ -171,7 +183,7 @@ async function submitDraft() {
         <button class="task-open" type="button" @click="open(item.id)">
           <span class="task-content">{{ item.content }}</span>
           <span v-if="item.description" class="task-description">{{ item.description }}</span>
-          <span v-if="item.dueDate && !isToday" class="task-due">
+          <span v-if="showsDue(item)" class="task-due" :class="{ overdue: isOverdue(item) }">
             {{ formatDue(item.dueDate) }}
           </span>
           <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
@@ -300,6 +312,10 @@ async function submitDraft() {
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.task-due.overdue {
+  color: #eb5757;
 }
 
 .task-due,

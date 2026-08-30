@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import TasksView from '../TasksView.vue'
 import { useProjectsStore } from '../../stores/projects'
+import { localToday } from '../../lib/localDate'
 import { useTaskItemsStore } from '../../stores/taskItems'
 
 let router
@@ -302,5 +303,32 @@ describe('the Today view', () => {
     await flushPromises()
 
     expect(wrapper.find('.task-home').exists()).toBe(false)
+  })
+
+  // Today now carries overdue tasks, so its rows no longer share one date.
+  it('dates an overdue row and marks it overdue', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'Late', description: null, dueDate: '2020-01-02', projectId: 'p2' },
+    ]
+    items.loadedProject = 'today'
+    const wrapper = mountView()
+    await flushPromises()
+
+    const due = wrapper.get('.task-due')
+    expect(due.text()).toBe('2 Jan')
+    expect(due.classes()).toContain('overdue')
+  })
+
+  it('leaves a row due today undated and unmarked', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'Today', description: null, dueDate: localToday(), projectId: 'p2' },
+    ]
+    items.loadedProject = 'today'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.task-due').exists()).toBe(false)
   })
 })
