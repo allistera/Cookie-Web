@@ -27,6 +27,17 @@ async function freezeCalendarClock(page) {
   await page.clock.setFixedTime(new Date(2026, 6, 24, 10, 30))
 }
 
+// The relative-day schedule options collapse onto each other depending on
+// which day it is: 'Next Week' means the coming Monday, so on a Sunday it is
+// the same day as 'Tomorrow', and 'This weekend' is 'Tomorrow' on a Friday.
+// A test that pairs two of them then sets a reminder on top of its own
+// scheduled send, which the app rightly refuses. Freezing to a Wednesday —
+// where Tomorrow, This weekend and Next Week are three distinct days — is what
+// keeps such a test from depending on the day it happens to run.
+async function freezeClockToMidweek(page) {
+  await page.clock.setFixedTime(new Date(2026, 7, 26, 10, 30))
+}
+
 test('The header app switcher opens the interactive Calendar views and returns to Email', async ({
   page,
 }) => {
@@ -663,6 +674,10 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
 test('Composer "Send Later" queues a scheduled send instead of sending immediately', async ({
   page,
 }) => {
+  // Pairs a 'Next Week' reminder with a 'Tomorrow' send, so the two must fall
+  // on different days — see freezeClockToMidweek.
+  await freezeClockToMidweek(page)
+
   let sendRequestBody
   await page.route('**/api/send', async (route) => {
     sendRequestBody = route.request().postDataJSON()
