@@ -426,6 +426,27 @@ async function scheduleSelected(choice) {
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
+
+// The AI Inbox's triage rows link here as /inbox?open=<message id>. The list
+// is usually still in flight when the route lands, so this waits for the email
+// to arrive rather than giving up on the first miss. Each id opens once, so
+// closing the reader does not immediately reopen it.
+const requestedEmailId = computed(() => (route.query.open ? String(route.query.open) : ''))
+let openedFromRoute = ''
+
+watch(
+  [requestedEmailId, () => store.emailById(requestedEmailId.value)],
+  ([id, email]) => {
+    if (!id) {
+      openedFromRoute = ''
+      return
+    }
+    if (!email || openedFromRoute === id) return
+    openedFromRoute = id
+    store.openReader(email)
+  },
+  { immediate: true },
+)
 const openEmailCalendarSuggestion = computed(() =>
   detectCalendarSuggestion(
     openEmail.value ? { ...openEmail.value, body: store.openEmailText } : null,

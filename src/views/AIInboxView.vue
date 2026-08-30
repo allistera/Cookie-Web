@@ -386,7 +386,12 @@ onUnmounted(() => {
                 </div>
                 <p>
                   <strong>{{ item.headline }}</strong> – {{ item.note }} From:
-                  <span class="email-link">Email</span>
+                  <RouterLink
+                    class="email-link"
+                    :to="{ path: '/inbox', query: { open: item.message_id } }"
+                    :title="`Open: ${item.headline}`"
+                    >Email</RouterLink
+                  >
                   <span v-if="item.unread" class="unread-dot"></span>
                 </p>
                 <div class="ni-schedule-wrap">

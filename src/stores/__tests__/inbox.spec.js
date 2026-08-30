@@ -2734,3 +2734,33 @@ describe('Inbox Store', () => {
     })
   })
 })
+
+describe('finding an email by id', () => {
+  it('looks across every list the reader can open from', () => {
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'a', subject: 'Inbox one' }]
+    store.doneEmails = [{ id: 'b', subject: 'Archived one' }]
+    store.sentEmails = [{ id: 'c', subject: 'Sent one' }]
+
+    expect(store.emailById('a')).toMatchObject({ subject: 'Inbox one' })
+    expect(store.emailById('b')).toMatchObject({ subject: 'Archived one' })
+    expect(store.emailById('c')).toMatchObject({ subject: 'Sent one' })
+    expect(store.emailById('missing')).toBeNull()
+  })
+
+  it('returns null for an empty id rather than the first email', () => {
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'a', subject: 'Inbox one' }]
+
+    expect(store.emailById('')).toBeNull()
+    expect(store.emailById(null)).toBeNull()
+  })
+
+  it('still resolves the open email through the same lookup', () => {
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'a', subject: 'Inbox one' }]
+    store.openEmailId = 'a'
+
+    expect(store.openEmail).toMatchObject({ subject: 'Inbox one' })
+  })
+})

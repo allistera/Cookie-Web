@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
@@ -1505,5 +1506,70 @@ describe('TraditionalInboxView search results', () => {
     const subjects = wrapper.findAll('.ni-row .ni-subject').map((s) => s.text())
     expect(subjects[0]).toContain('Subject rel-1')
     expect(subjects[1]).toContain('Subject rel-2')
+  })
+})
+
+// The AI Inbox's triage rows link to /inbox?open=<id>, so the view has to open
+// that specific email rather than just landing on the list.
+describe('opening an email from the route', () => {
+  // This file shares one pinia across its tests, so the reader state has to be
+  // cleared rather than assumed empty.
+  function resetReader() {
+    const store = useInboxStore()
+    store.openEmailId = null
+    store.traditionalEmails = []
+    return store
+  }
+
+  it('opens the email named by ?open', async () => {
+    const store = resetReader()
+    store.traditionalEmails = [
+      { id: 'm1', subject: 'First', sender: 'A', unread: true },
+      { id: 'm2', subject: 'Second', sender: 'B', unread: true },
+    ]
+    await router.replace({ path: '/inbox', query: { open: 'm2' } })
+
+    mountView()
+    await nextTick()
+
+    expect(store.openEmailId).toBe('m2')
+  })
+
+  it('leaves the reader closed when no ?open is given', async () => {
+    const store = resetReader()
+    store.traditionalEmails = [{ id: 'm1', subject: 'First', sender: 'A', unread: true }]
+    await router.replace({ path: '/inbox' })
+
+    mountView()
+    await nextTick()
+
+    expect(store.openEmailId).toBeNull()
+  })
+
+  // The list is usually still in flight when the route lands, so the view must
+  // wait for the email to arrive rather than give up on the first miss.
+  it('opens the email once the list finishes loading', async () => {
+    const store = resetReader()
+    await router.replace({ path: '/inbox', query: { open: 'm2' } })
+
+    mountView()
+    await nextTick()
+    expect(store.openEmailId).toBeNull()
+
+    store.traditionalEmails = [{ id: 'm2', subject: 'Second', sender: 'B', unread: true }]
+    await nextTick()
+
+    expect(store.openEmailId).toBe('m2')
+  })
+
+  it('marks the opened email read', async () => {
+    const store = resetReader()
+    store.traditionalEmails = [{ id: 'm2', subject: 'Second', sender: 'B', unread: true }]
+    await router.replace({ path: '/inbox', query: { open: 'm2' } })
+
+    mountView()
+    await nextTick()
+
+    expect(store.traditionalEmails[0].unread).toBe(false)
   })
 })

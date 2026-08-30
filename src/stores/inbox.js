@@ -460,20 +460,27 @@ export const useInboxStore = defineStore('inbox', {
         .filter((label) => label.kind !== 'system')
         .sort((a, b) => a.name.localeCompare(b.name))
     },
+    // Finds a loaded email by id across every list the reader can open from.
+    // Returns null for a blank id so an absent one never resolves to the first
+    // email of a list.
+    emailById: (state) => (id) => {
+      if (!id) return null
+      return (
+        state.traditionalEmails.find((e) => e.id === id) ??
+        state.starredEmails.find((e) => e.id === id) ??
+        state.labelEmails.find((e) => e.id === id) ??
+        state.sentEmails.find((e) => e.id === id) ??
+        state.spamEmails.find((e) => e.id === id) ??
+        state.snoozedEmails.find((e) => e.id === id) ??
+        state.doneEmails.find((e) => e.id === id) ??
+        null
+      )
+    },
     // The email open in the reading panel; null once it leaves the list
     // (archived, or the list was replaced by a search). Sent mail opens from
     // its own list.
-    openEmail(state) {
-      return (
-        state.traditionalEmails.find((e) => e.id === state.openEmailId) ??
-        state.starredEmails.find((e) => e.id === state.openEmailId) ??
-        state.labelEmails.find((e) => e.id === state.openEmailId) ??
-        state.sentEmails.find((e) => e.id === state.openEmailId) ??
-        state.spamEmails.find((e) => e.id === state.openEmailId) ??
-        state.snoozedEmails.find((e) => e.id === state.openEmailId) ??
-        state.doneEmails.find((e) => e.id === state.openEmailId) ??
-        null
-      )
+    openEmail() {
+      return this.emailById(this.openEmailId)
     },
     // Raw (still-untrusted) body_html for the open email, once fetched; null
     // until the fetch lands or when the message has no HTML body. The reader

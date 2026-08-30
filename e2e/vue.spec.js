@@ -406,6 +406,20 @@ test('The AI Today refresh control rebuilds the digest, then re-reads it', async
   await expect(page.getByTestId('topic-sections').locator('.topic-title')).toHaveCount(2)
 })
 
+test('AI Inbox: a triage row links through to its own email', async ({ page }) => {
+  await page.goto('/')
+
+  const firstRow = page.getByTestId('topic-sections').locator('.topic-email-row').first()
+  await firstRow.locator('.email-link').click()
+
+  await expect(page).toHaveURL(/\/inbox\?open=fixture-1/)
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+  await expect(reader.locator('.ni-reader-subject-text')).toHaveText(
+    'Revised Floor Plan - Natural Light adjustments',
+  )
+})
+
 test('Marking a triage group read clears its unread dots', async ({ page }) => {
   const reads = []
   await page.route(`${MESSAGES_API_URL}/messages`, async (route) => {

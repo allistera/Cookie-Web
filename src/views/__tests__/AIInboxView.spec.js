@@ -2,16 +2,31 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 
 import AIInboxView from '../AIInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
+// Triage rows link into the inbox, so the view needs a router to render.
+function makeRouter() {
+  return createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', name: 'ai-inbox', component: { template: '<div />' } },
+      { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
+    ],
+  })
+}
+
 function mountView({ user = { name: 'Allister Antosik' }, ...options } = {}) {
   // useAuth0() is inject()-based, so providing under its key feeds the view a
   // signed-in user through the real interface.
   return mount(AIInboxView, {
-    global: { provide: { [AUTH0_INJECTION_KEY]: { user: ref(user) } } },
+    global: {
+      plugins: [makeRouter()],
+      provide: { [AUTH0_INJECTION_KEY]: { user: ref(user) } },
+    },
     ...options,
   })
 }
@@ -730,5 +745,32 @@ describe('AIInboxView (AI Today)', () => {
   it('falls back when no task carries a gathered_at', () => {
     store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
     expect(mountView().get('.status-time').text()).toBe('Not gathered yet')
+  })
+})
+
+// The triage row names the email it is about; that name should take you to it.
+describe('triage rows link to their email', () => {
+  it('links each row to its own message', async () => {
+    const store = useInboxStore()
+    store.digest = DIGEST()
+    const wrapper = mountView()
+    await flushPromises()
+
+    const links = wrapper.findAll('[data-testid="topic-sections"] .email-link')
+    expect(links.length).toBeGreaterThan(0)
+    expect(links[0].attributes('href')).toBe('/inbox?open=msg-1')
+  })
+
+  it('gives every row a distinct link', async () => {
+    const store = useInboxStore()
+    store.digest = DIGEST()
+    const wrapper = mountView()
+    await flushPromises()
+
+    const hrefs = wrapper
+      .findAll('[data-testid="topic-sections"] .email-link')
+      .map((link) => link.attributes('href'))
+    expect(new Set(hrefs).size).toBe(hrefs.length)
+    expect(hrefs.every((href) => href.startsWith('/inbox?open='))).toBe(true)
   })
 })

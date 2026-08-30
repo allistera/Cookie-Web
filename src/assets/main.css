@@ -742,6 +742,9 @@ body {
   color: var(--text-blue);
   cursor: pointer;
   font-weight: 500;
+  /* Triage rows render this as a real link now; the underline belongs on
+     hover only, matching how it read as a span. */
+  text-decoration: none;
 }
 
 .email-link:hover {
