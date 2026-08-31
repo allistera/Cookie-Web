@@ -328,7 +328,8 @@ function localApiPlugin(mode) {
     const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
     const { summaries, archived, schedules, followUps } = fixtureMailboxState(req, res)
     const now = Date.now()
-    // Mirrors api/_lib/retrieval.js: `in:` scopes results to one folder, and
+    // Mirrors the search Worker's folder handling: `in:` scopes results to
+    // one folder, and
     // without it a search covers everything except Done (sent copies
     // included). No fixture mail is classified as spam.
     const inFolder = (email) => {

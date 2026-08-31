@@ -21,12 +21,14 @@ Cloudflare Email Routing
        -> parse MIME and upload attachments to Vercel Blob
        -> store through Hyperdrive in Supabase Postgres
        -> forward the original email
-       -> run best-effort OpenAI classification and embeddings
+       -> run best-effort OpenAI classification
+       -> index into Meilisearch
 
 Vue 3 browser application
-  -> Auth0-protected Vercel functions
-       -> Supabase Postgres + pgvector
-       -> OpenAI Responses and embeddings APIs
+  -> Auth0-protected Cloudflare Workers (and `/api/send`, still on Vercel)
+       -> Supabase Postgres
+       -> Meilisearch Cloud
+       -> OpenAI Responses API
        -> Resend
 ```
 
@@ -36,7 +38,7 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 
 - Inbox, Starred, Sent, Snoozed, Spam, Done, and label views.
 - Auth0 authentication and per-user mailbox queries.
-- Debounced keyword and semantic search over stored mail, with filters such as
+- Debounced hybrid search over stored mail, served by Meilisearch, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
 - AI Today: gathered to-dos (Todoist tasks due today plus action items extracted
@@ -62,15 +64,16 @@ See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.m
 
 ## Technology
 
-| Area            | Technology                           |
-| --------------- | ------------------------------------ |
-| UI              | Vue 3, Pinia, Vue Router, Vite       |
-| Hosting and API | Vercel Functions                     |
-| Authentication  | Auth0                                |
-| Database        | Supabase Postgres with pgvector      |
-| Realtime        | Supabase Realtime broadcast          |
-| AI              | OpenAI Responses and Embeddings APIs |
-| Outbound email  | Resend                               |
+| Area            | Technology                                        |
+| --------------- | ------------------------------------------------- |
+| UI              | Vue 3, Pinia, Vue Router, Vite                    |
+| Hosting and API | Vercel (static + `/api/send`), Cloudflare Workers |
+| Authentication  | Auth0                                             |
+| Database        | Supabase Postgres                                 |
+| Realtime        | Supabase Realtime broadcast                       |
+| Search          | Meilisearch Cloud (hybrid)                        |
+| AI              | OpenAI Responses API                              |
+| Outbound email  | Resend                                            |
 
 ## Local development
 
@@ -98,7 +101,7 @@ The main runtime variables are:
 | Name                         | Purpose                                                                                                                                                           |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`               | Supabase Postgres connection used by Vercel functions and migrations.                                                                                             |
-| `OPENAI_API_KEY`             | Embeddings, mailbox Q&A, and AI Compose.                                                                                                                          |
+| `OPENAI_API_KEY`             | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.                                                                                                 |
 | `OPENAI_COMPOSE_MODEL`       | Optional AI Compose model override.                                                                                                                               |
 | `RESEND_API_KEY`             | Outbound email delivery.                                                                                                                                          |
 | `EMAIL_FROM`                 | Required sender identity for outbound mail (e.g. `Name <addr@domain>`); `/api/send` returns 503 without it.                                                       |
@@ -112,7 +115,7 @@ The main runtime variables are:
 
 `TODOIST_API_TOKEN`, `ENRICHER_RUN_URL`, and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those three now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
-Vercel stores production values. GitHub Actions stores only the secrets required by migrations and embedding backfills.
+Vercel stores production values. GitHub Actions stores only the secrets its migration workflow needs.
 
 ### Auth0 user provisioning
 
@@ -154,4 +157,4 @@ Run a narrower browser test with `--project=chromium` or a specific file path wh
 
 Pushes to `main` run CI and trigger the linked Vercel production deployment. Migration changes also trigger the database migration workflow.
 
-The weekly `Backfill Embeddings` workflow repairs messages whose best-effort embedding call did not finish. Cloudflare Worker deployment and email-routing operations are documented in the Cookie-Worker runbook.
+Search reindexing and drift repair run from the Cookie-Worker repository (`search-reindex.yml` and `search-drift-repair.yml`). Cloudflare Worker deployment and email-routing operations are documented in the Cookie-Worker runbook.

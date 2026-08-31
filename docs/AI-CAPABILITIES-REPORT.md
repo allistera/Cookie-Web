@@ -5,6 +5,15 @@ Scope: private, single-user Cookie deployment
 
 ## Status
 
+> **Superseded in part, 31 August 2026.** The retrieval design described
+> below — OpenAI embeddings stored in Postgres via pgvector — has been
+> replaced by Meilisearch hybrid search, and the `embedding` columns were
+> dropped in migration `0056`. Cookie no longer generates embeddings itself;
+> Meilisearch's own `openAi` embedder does. The classification, spam, and
+> AI Compose decisions recorded here still hold. This document is kept as
+> the record of the original decision, not as a description of the system
+> as it stands.
+
 Option A was selected and implemented across Cookie-Web and Cookie-Worker.
 
 The shipped release provides per-label auto-tag controls, conservative spam detection, a hidden Spam folder, and review-before-send AI Compose.
