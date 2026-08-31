@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { getAuth0 } from '../auth0-client'
+import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
 import { useInboxStore } from './inbox'
@@ -25,14 +25,11 @@ export const useTaskItemsStore = defineStore('taskItems', {
   },
 
   actions: {
-    async authHeaders(extra = {}) {
-      const headers = { ...extra }
-      const auth0 = getAuth0()
-      if (auth0) {
-        const token = await auth0.getAccessTokenSilently()
-        headers.Authorization = `Bearer ${token}`
-      }
-      return headers
+    // Delegates so a dead session is recognised in one place: it sends the
+    // person to sign in rather than letting each store report a generic
+    // failure against a session that will never work again.
+    authHeaders(extra = {}) {
+      return buildAuthHeaders(extra)
     },
 
     notify(message, kind = 'info') {

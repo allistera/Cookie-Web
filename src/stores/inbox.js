@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { getAuth0 } from '../auth0-client'
+import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import {
   AI_API_URL,
   EMAILS_API_URL,
@@ -544,14 +544,11 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Bearer-token headers for API calls; Auth0 is absent in e2e/fixture mode.
-    async authHeaders(extra = {}) {
-      const headers = { ...extra }
-      const auth0 = getAuth0()
-      if (auth0) {
-        const token = await auth0.getAccessTokenSilently()
-        headers.Authorization = `Bearer ${token}`
-      }
-      return headers
+    // Delegates so a dead session is recognised in one place: it sends the
+    // person to sign in rather than letting each store report a generic
+    // failure against a session that will never work again.
+    authHeaders(extra = {}) {
+      return buildAuthHeaders(extra)
     },
 
     // Fetches one keyset page of a list. Throws on a non-2xx response so the
