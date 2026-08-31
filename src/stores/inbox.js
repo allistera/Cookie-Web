@@ -533,6 +533,12 @@ export const useInboxStore = defineStore('inbox', {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.attachments ?? []
     },
+    // Structured calendar invite metadata parsed by the Worker for the open
+    // message. Null until the full message request has populated the cache.
+    openEmailCalendarInvite(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.calendarInvite ?? null
+    },
   },
 
   actions: {
@@ -1192,14 +1198,20 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
-        const { body_html, body_text, unsubscribe, summary, thread, attachments } =
-          await response.json()
+        const payload = await response.json()
+        const { body_html, body_text, unsubscribe, summary, thread, attachments, calendar_invite } =
+          payload
         const body = {
           html: body_html ?? null,
           text: body_text ?? null,
           unsubscribe: unsubscribe ?? null,
           thread: Array.isArray(thread) ? thread : [],
           attachments: Array.isArray(attachments) ? attachments : [],
+        }
+        // Keep backwards compatibility with older API responses that omit the
+        // field while preserving an explicit null from the new API.
+        if (Object.prototype.hasOwnProperty.call(payload, 'calendar_invite')) {
+          body.calendarInvite = calendar_invite ?? null
         }
         if (willShowSpinner) {
           const elapsed = Date.now() - startedAt

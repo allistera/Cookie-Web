@@ -2180,6 +2180,35 @@ describe('Inbox Store', () => {
     expect(store.openEmailText).toBe('plain only')
   })
 
+  it('caches a structured calendar invite and exposes it for the open message', async () => {
+    const calendarInvite = {
+      title: 'Whitburn Recycling Centre',
+      description: 'Booking 1292383',
+      location: 'Whitburn Recycling Centre',
+      start_at: '2026-09-02T14:00:00Z',
+      end_at: '2026-09-02T14:30:00Z',
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'invite-1',
+          body_text: 'Booking',
+          calendar_invite: calendarInvite,
+        }),
+      }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'invite-1', body: 'Booking' }]
+    store.openEmailId = 'invite-1'
+    await store.fetchMessageBody('invite-1')
+
+    expect(store.messageBodies.get('invite-1').calendarInvite).toEqual(calendarInvite)
+    expect(store.openEmailCalendarInvite).toEqual(calendarInvite)
+  })
+
   it('fetches an earlier thread body only when requested', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

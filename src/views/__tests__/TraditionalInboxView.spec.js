@@ -175,6 +175,47 @@ describe('TraditionalInboxView day accordion', () => {
     expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
   })
 
+  it('uses a cached structured invite and keeps its 30-minute end time', async () => {
+    const inviteStart = new Date(2026, 8, 2, 15, 0)
+    const inviteEnd = new Date(2026, 8, 2, 15, 30)
+    const eventEmail = makeEmail('event-invite', Date.now() - HOUR)
+    eventEmail.subject = 'Booking confirmation'
+    eventEmail.body = 'Your booking is confirmed.'
+    store.traditionalEmails.unshift(eventEmail)
+    const wrapper = mountView()
+
+    await wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('Booking confirmation'))
+      .trigger('click')
+
+    // Let the open-reader fetch settle before supplying the cached API result.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    store.messageBodies.set('event-invite', {
+      html: null,
+      text: 'Your booking is confirmed.',
+      calendarInvite: {
+        title: 'Whitburn Recycling Centre',
+        description: 'Booking 1292383',
+        location: 'Whitburn Recycling Centre',
+        start_at: inviteStart.toISOString(),
+        end_at: inviteEnd.toISOString(),
+      },
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
+    await wrapper.get('.ni-calendar-suggestion-action').trigger('click')
+    expect(store.calendarNewEventDraft).toMatchObject({
+      title: 'Whitburn Recycling Centre',
+      description: 'Booking 1292383',
+      location: 'Whitburn Recycling Centre',
+      date: '2026-09-02',
+      start: '15:00',
+      end: '15:30',
+    })
+  })
+
   it('shows due scheduled emails in an expanded Due Today group above Today', () => {
     const due = makeEmail('due-1', Date.now() - 5 * DAY)
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()

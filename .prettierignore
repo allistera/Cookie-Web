@@ -4,6 +4,7 @@ coverage
 playwright-report
 test-results
 package-lock.json
+.superpowers/
 
 # src/ belongs to oxfmt (see .oxfmtrc.json and the "format" script). The two
 # formatters disagree on wrapping, so letting both near the same file would

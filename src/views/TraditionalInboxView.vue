@@ -449,7 +449,13 @@ watch(
 )
 const openEmailCalendarSuggestion = computed(() =>
   detectCalendarSuggestion(
-    openEmail.value ? { ...openEmail.value, body: store.openEmailText } : null,
+    openEmail.value
+      ? {
+          ...openEmail.value,
+          body: store.openEmailText,
+          calendarInvite: store.openEmailCalendarInvite,
+        }
+      : null,
   ),
 )
 const openEmailCalendarSuggestionLabel = computed(() =>

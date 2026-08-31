@@ -24,13 +24,17 @@ const WEEKDAYS = new Map([
 ])
 
 const EVENT_LANGUAGE =
-  /\b(appointment|call|class|conference|dinner|event|game|interview|invitation|lunch|meeting|party|reservation|scrimmage|session|tour|visit|webinar|workshop)\b/i
+  /\b(appointment|booking|call|class|conference|dinner|event|game|interview|invitation|lunch|meeting|party|reservation|scrimmage|session|tour|visit|webinar|workshop)\b/i
 const MONTH_DATE =
   /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i
+const SLASH_MONTH_DATE =
+  /\b(\d{1,2})\/(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\/(\d{4})\b/i
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/
 const RELATIVE_DATE =
   /\b(tomorrow|next\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b/i
-const TIME = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i
+const TIME =
+  /\b(\d{1,2}):(\d{2})(?:\s*(a\.?m\.?|p\.?m\.?))?\b|\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i
 
 const pad2 = (value) => String(value).padStart(2, '0')
 const dateKey = (date) =>
@@ -60,6 +64,12 @@ function detectedDate(text, sentAt) {
     return date
   }
 
+  const slashMonthDate = text.match(SLASH_MONTH_DATE)
+  if (slashMonthDate) {
+    const month = MONTHS.get(slashMonthDate[2].slice(0, 3).toLowerCase())
+    return validDate(Number(slashMonthDate[3]), month, Number(slashMonthDate[1]))
+  }
+
   const relative = text.match(RELATIVE_DATE)?.[1].toLowerCase()
   if (!relative) return null
   const date = startOfDay(sentAt)
@@ -77,12 +87,18 @@ function detectedDate(text, sentAt) {
 function detectedTime(text) {
   const match = text.match(TIME)
   if (!match) return null
-  let hour = Number(match[1])
-  const minute = Number(match[2] ?? 0)
-  if (hour < 1 || hour > 12 || minute > 59) return null
-  const meridiem = match[3].toLowerCase().startsWith('p') ? 'pm' : 'am'
+  let hour = Number(match[1] ?? match[4])
+  const minute = Number(match[2] ?? match[5] ?? 0)
+  const meridiem = match[3] ?? match[6]
+  if (minute > 59) return null
+  if (!meridiem) {
+    if (hour > 23) return null
+    return hour * 60 + minute
+  }
+  if (hour < 1 || hour > 12) return null
+  const normalizedMeridiem = meridiem.toLowerCase().startsWith('p') ? 'pm' : 'am'
   if (hour === 12) hour = 0
-  if (meridiem === 'pm') hour += 12
+  if (normalizedMeridiem === 'pm') hour += 12
   return hour * 60 + minute
 }
 
@@ -90,8 +106,54 @@ function cleanTitle(subject) {
   return subject.replace(/^(?:(?:re|fwd?|confirmation|invitation):\s*)+/i, '').trim()
 }
 
+function localDateKey(date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+}
+
+function localTime(date) {
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+function structuredCalendarSuggestion(email, now) {
+  const invite = email?.calendarInvite
+  if (!invite || Array.isArray(invite)) return null
+
+  const title = String(invite.title ?? '').trim()
+  const startValue = invite.start_at
+  const endValue = invite.end_at
+  if (!startValue?.match?.(ISO_INSTANT) || !endValue?.match?.(ISO_INSTANT)) {
+    return null
+  }
+  const start = new Date(startValue)
+  const end = new Date(endValue)
+  if (
+    !title ||
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end <= start ||
+    end <= now
+  ) {
+    return null
+  }
+
+  // The existing draft contract has one local date and two local clock times;
+  // a midnight-spanning invite cannot be represented without changing it.
+  if (localDateKey(start) !== localDateKey(end)) return null
+
+  return {
+    title,
+    description: String(invite.description ?? ''),
+    location: String(invite.location ?? ''),
+    date: localDateKey(start),
+    start: localTime(start),
+    end: localTime(end),
+  }
+}
+
 export function detectCalendarSuggestion(email, now = new Date()) {
   if (!email || email.isSent) return null
+  const structured = structuredCalendarSuggestion(email, now)
+  if (structured) return structured
   const subject = String(email.subject || '')
   const body = String(email.body || email.snippet || '')
   const text = `${subject}\n${body}`
