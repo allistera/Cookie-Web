@@ -7,7 +7,6 @@ import { Resend } from 'resend'
 import { writeAuthError } from './_lib/auth.js'
 import { createServices } from './_lib/services.js'
 import { readJsonBody } from './_lib/body.js'
-import { embedText, EMBEDDING_MODEL } from './_lib/embeddings.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SNIPPET_LENGTH = 100
@@ -240,7 +239,6 @@ async function storeSentMessage(
   sql,
   userId,
   { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken, followUpAt },
-  services,
 ) {
   const messageId = resendId ? `<${resendId}@resend.cookie-web>` : null
   const [lookup] = await sql`
@@ -330,23 +328,6 @@ async function storeSentMessage(
     }
   }
 
-  // Best-effort embedding so sent mail is semantically searchable; NULL rows
-  // are healed by the Backfill Embeddings workflow. Not awaited: the send
-  // response shouldn't wait on an OpenAI round trip for a value that's
-  // already designed to be safely missing and healed later.
-  if (process.env.OPENAI_API_KEY) {
-    services
-      .embedText(`${subject}\n\n${text}`, process.env.OPENAI_API_KEY)
-      .then(
-        (vector) => sql`
-          UPDATE messages
-          SET embedding = ${JSON.stringify(vector)}::extensions.vector, embedding_model = ${EMBEDDING_MODEL}
-          WHERE id = ${messageUuid} AND embedding IS NULL
-        `,
-      )
-      .catch((err) => console.error('sent-message embedding failed:', err.message))
-  }
-
   return { messageUuid }
 }
 
@@ -387,21 +368,16 @@ async function deliverMail(
 
   let messageUuid = null
   try {
-    ;({ messageUuid } = await storeSentMessage(
-      sql,
-      userId,
-      {
-        recipients,
-        subject,
-        text,
-        html,
-        replyToMessageId,
-        resendId: data.id,
-        readReceiptToken: receiptUrl ? receiptToken : null,
-        followUpAt,
-      },
-      services,
-    ))
+    ;({ messageUuid } = await storeSentMessage(sql, userId, {
+      recipients,
+      subject,
+      text,
+      html,
+      replyToMessageId,
+      resendId: data.id,
+      readReceiptToken: receiptUrl ? receiptToken : null,
+      followUpAt,
+    }))
   } catch (err) {
     // Sending always wins: a storage failure is logged but the mail really
     // did go out, so this must never be treated as a failed send.
@@ -1029,7 +1005,6 @@ async function handleSend(req, res, userId, services) {
 
 export function createHandler(overrides = {}) {
   const services = createServices({
-    embedText,
     createResend: (key) => new Resend(key),
     ...overrides,
   })

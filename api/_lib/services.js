@@ -1,6 +1,5 @@
 import { getSql } from './db.js'
 import { verifyAccessToken } from './auth.js'
-import { embedText, embedTextCached } from './embeddings.js'
 import { allowRequest } from './rate-limit.js'
 
 // Production wiring for the dependencies every handler shares. Each api/
@@ -8,5 +7,5 @@ import { allowRequest } from './rate-limit.js'
 // same handler with fakes passed here — the seam is an ordinary argument, so
 // nothing needs module mocking.
 export function createServices(overrides = {}) {
-  return { getSql, verifyAccessToken, allowRequest, embedText, embedTextCached, ...overrides }
+  return { getSql, verifyAccessToken, allowRequest, ...overrides }
 }

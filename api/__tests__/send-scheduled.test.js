@@ -14,7 +14,6 @@ const USER_ID = '11111111-1111-1111-1111-111111111111'
 const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: mocks.getSql,
-  embedText: vi.fn(),
   createResend: () => ({ emails: { send: mocks.resendSend } }),
 })
 
@@ -278,7 +277,6 @@ describe('POST /api/send?resource=flush', () => {
     process.env.RESEND_API_KEY = 'test-key'
     process.env.EMAIL_FROM = 'Cookie <mail@example.com>'
     process.env.SCHEDULED_SEND_FLUSH_TOKEN = 'flush-secret'
-    delete process.env.OPENAI_API_KEY
     delete process.env.PUBLIC_APP_URL
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL
     delete process.env.VERCEL_URL

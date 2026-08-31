@@ -1,9 +1,8 @@
 // Flattens a document's title + Editor.js blocks into plain text for search:
-// the generated tsvector column (migration 0048) and the embedding input
-// (migration 0049) both read from content_text, computed by
-// flattenBlocksToText and written alongside every title/blocks save in
-// documents.js. Keeping the block-walking logic here, once, means neither the
-// SQL generated column nor the embedding call has to re-implement it.
+// the generated tsvector column (migration 0048) reads from content_text,
+// computed by flattenBlocksToText and written alongside every title/blocks
+// save in documents.js. Keeping the block-walking logic here, once, means
+// the SQL generated column doesn't have to re-implement it.
 
 import { flattenWorkbookCellText } from '../../src/lib/univerTableData.js'
 

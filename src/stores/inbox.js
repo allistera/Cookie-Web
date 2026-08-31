@@ -53,9 +53,7 @@ function followUpSubject(subject) {
 }
 
 // Bounds on the in-memory caches below, so a long-lived tab reading many
-// emails or asking many questions doesn't grow these without limit. Same
-// delete-then-set-to-refresh-recency LRU pattern as embedTextCached
-// (api/_lib/embeddings.js).
+// emails or asking many questions doesn't grow these without limit.
 const MAX_CACHED_MESSAGE_BODIES = 100
 const MAX_CACHED_SUMMARIES = 100
 const MAX_CHAT_HISTORY = 200
