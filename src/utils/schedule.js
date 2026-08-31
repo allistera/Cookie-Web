@@ -40,11 +40,33 @@ export function nextWeekMorning(now = new Date()) {
   return result
 }
 
+// The presets are relative days, so near the weekend two of them name the same
+// date: on a Sunday "Next Week" is the coming Monday, which is also
+// "Tomorrow"; on a Friday, and on a Saturday past the morning slot, "This
+// weekend" is "Tomorrow". Three days in seven offered the same day twice.
+//
+// Beyond looking odd, it let a follow-up reminder be set to the same instant
+// as the scheduled send it was meant to follow, which the app then refuses
+// with "Choose a reminder at least one minute after the scheduled send" — an
+// error that reads like a bug when both options were picked from the menu.
+//
+// Duplicates are dropped rather than nudged to another day, because the label
+// that survives is always the plainer name for that same date: on a Sunday
+// "Tomorrow" already is next week's Monday, and on a Friday it already is the
+// weekend. Nothing becomes unreachable.
 export function scheduleChoices(now = new Date()) {
-  return [
+  const choices = [
     { id: 'later-today', label: 'Later today', date: laterToday(now) },
     { id: 'tomorrow', label: 'Tomorrow', date: tomorrowMorning(now) },
     { id: 'this-weekend', label: 'This weekend', date: thisWeekendMorning(now) },
     { id: 'next-week', label: 'Next Week', date: nextWeekMorning(now) },
   ]
+
+  const days = new Set()
+  return choices.filter(({ date }) => {
+    const day = date.toDateString()
+    if (days.has(day)) return false
+    days.add(day)
+    return true
+  })
 }

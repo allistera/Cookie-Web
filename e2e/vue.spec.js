@@ -1018,6 +1018,9 @@ test('Attachments show in the reader and download when clicked', async ({ page }
 test('Reader scheduling offers Tomorrow and Next Week, then removes the email until it is due', async ({
   page,
 }) => {
+  // Asserts both options are present, and near the weekend one of them is
+  // dropped for naming the same day as the other — see freezeClockToMidweek.
+  await freezeClockToMidweek(page)
   await page.goto('/inbox')
 
   const row = page.locator('.ni-row', { hasText: 'City Construction' })

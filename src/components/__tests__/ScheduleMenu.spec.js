@@ -5,7 +5,10 @@ import ScheduleMenu from '../ScheduleMenu.vue'
 import { scheduleChoices } from '../../utils/schedule'
 
 // Fixed "now" so the presets and the custom-time minimum are deterministic.
-const NOW = new Date(2026, 6, 24, 10, 0, 0)
+// Deliberately midweek: near the weekend two presets name the same day and one
+// is dropped, so a Friday or Sunday would render four items rather than five.
+// That behaviour belongs to utils/schedule and is tested there.
+const NOW = new Date(2026, 6, 22, 10, 0, 0)
 
 function mountMenu(choices = scheduleChoices(NOW)) {
   return mount(ScheduleMenu, { props: { choices } })
@@ -29,7 +32,11 @@ describe('ScheduleMenu', () => {
     expect(items).toHaveLength(5)
     expect(items[0].text()).toContain('Later today')
     expect(items[1].text()).toContain('Tomorrow')
-    expect(items[1].text()).toContain('Sat 25 Jul')
+    expect(items[1].text()).toContain('Thu 23 Jul')
+    expect(items[2].text()).toContain('This weekend')
+    expect(items[2].text()).toContain('Sat 25 Jul')
+    expect(items[3].text()).toContain('Next Week')
+    expect(items[3].text()).toContain('Mon 27 Jul')
     expect(items[4].text()).toContain('Pick date & time')
   })
 
@@ -68,7 +75,7 @@ describe('ScheduleMenu', () => {
 
     expect(wrapper.find('.ni-schedule-custom').exists()).toBe(true)
     // The input cannot offer a time that has already passed.
-    expect(wrapper.get('input[type="datetime-local"]').attributes('min')).toBe('2026-07-24T10:01')
+    expect(wrapper.get('input[type="datetime-local"]').attributes('min')).toBe('2026-07-22T10:01')
   })
 
   it('emits a labelled custom choice on submit', async () => {
