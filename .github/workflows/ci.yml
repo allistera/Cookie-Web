@@ -7,7 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-test:
+  # Formatting, linting, unit tests and the production build. Together these
+  # run in about two minutes, comfortably inside the time one e2e shard takes,
+  # so splitting them further would buy nothing.
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -32,19 +36,48 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit -- --run
 
+      # Also where the entry-chunk budget is enforced; the tests never see it.
       - name: Build production bundle
         run: npm run build
 
-      - name: Install Playwright browsers and dependencies
-        run: npx playwright install --with-deps
+  # E2E dominated the pipeline: 560s of a 739s run. One job per browser turns
+  # that into three ~190s runs at once, and each installs only the browser it
+  # needs rather than all three.
+  e2e:
+    name: E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      # One browser failing should not cancel the others: knowing whether a
+      # failure is browser-specific is most of the diagnosis.
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser and dependencies
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Run E2E tests
-        run: npm run test:e2e
+        run: npm run test:e2e -- --project=${{ matrix.browser }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: playwright-report
+          # Per-browser, or the three jobs would fight over one artifact name.
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 30
