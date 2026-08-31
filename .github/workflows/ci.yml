@@ -40,19 +40,12 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
-  # E2E dominated the pipeline: 560s of a 739s run. One job per browser turns
-  # that into three ~190s runs at once, and each installs only the browser it
-  # needs rather than all three.
+  # E2E dominated the pipeline: 560s of a 739s run. It runs alongside the
+  # checks above rather than after them, and on Chromium only — see the note
+  # in playwright.config.js for what that trades away.
   e2e:
-    name: E2E (${{ matrix.browser }})
+    name: E2E
     runs-on: ubuntu-latest
-
-    strategy:
-      # One browser failing should not cancel the others: knowing whether a
-      # failure is browser-specific is most of the diagnosis.
-      fail-fast: false
-      matrix:
-        browser: [chromium, firefox, webkit]
 
     steps:
       - name: Checkout repository
@@ -68,16 +61,15 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browser and dependencies
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
-        run: npm run test:e2e -- --project=${{ matrix.browser }}
+        run: npm run test:e2e
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          # Per-browser, or the three jobs would fight over one artifact name.
-          name: playwright-report-${{ matrix.browser }}
+          name: playwright-report
           path: playwright-report/
           retention-days: 30

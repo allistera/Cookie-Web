@@ -27,11 +27,13 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-  ],
+  // Chromium only. Firefox and WebKit were dropped for run time: they tripled
+  // the e2e wall clock, and WebKit alone was longer than the other two put
+  // together. The cost is real — a scheduling bug once failed on Firefox and
+  // WebKit while Chromium passed — so a cross-browser check is now a
+  // deliberate act: add the project back, or run `npx playwright test
+  // --project=webkit` after `npx playwright install webkit`.
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
   /* Run your local dev server before starting the tests */
   webServer: {
