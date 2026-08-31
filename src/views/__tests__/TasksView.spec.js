@@ -332,3 +332,82 @@ describe('the Today view', () => {
     expect(wrapper.find('.task-due').exists()).toBe(false)
   })
 })
+
+// Deleting was reachable only from the detail panel, so removing a task meant
+// opening it first.
+describe('deleting a task from the list', () => {
+  function seedOne() {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'Drop me', description: null, dueDate: null, projectId: 'p2' },
+    ]
+    items.loadedProject = 'p2'
+    return items
+  }
+
+  it('deletes the row after confirming', async () => {
+    const items = seedOne()
+    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-delete').trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith('a')
+  })
+
+  it('names the task in the confirmation', async () => {
+    const items = seedOne()
+    vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-delete').trigger('click')
+
+    expect(confirm).toHaveBeenCalledWith('Delete "Drop me"?')
+  })
+
+  it('does not delete when the confirmation is dismissed', async () => {
+    const items = seedOne()
+    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-delete').trigger('click')
+    await flushPromises()
+
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  // The row itself is a button that opens the task; deleting must not do both.
+  it('does not open the task when the delete control is clicked', async () => {
+    const items = seedOne()
+    vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-delete').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+  })
+
+  it('gives every row its own delete control', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', description: null, dueDate: null, projectId: 'p2' },
+      { id: 'b', content: 'Two', description: null, dueDate: null, projectId: 'p2' },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    const labels = wrapper.findAll('.task-delete').map((b) => b.attributes('aria-label'))
+    expect(labels).toEqual(['Delete One', 'Delete Two'])
+  })
+})

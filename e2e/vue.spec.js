@@ -1930,6 +1930,25 @@ test('Tasks: an overdue task is carried into Today and can be deleted', async ({
   await expect(page.locator('.task-row')).toHaveCount(0)
 })
 
+test('Tasks: a task can be deleted from the list without opening it', async ({ page }) => {
+  await page.goto('/tasks')
+
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Delete me from the list')
+  await page.locator('.add-task-row input').press('Enter')
+  await expect(page.locator('.task-row')).toHaveCount(1)
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.locator('.task-row').hover()
+  await page.locator('.task-delete').click()
+
+  // Gone, and the panel never opened.
+  await expect(page.locator('.task-row')).toHaveCount(0)
+  await expect(page.locator('.task-panel')).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('.task-row')).toHaveCount(0)
+})
+
 // .tasks-view is a flex item in .main-content's column flex container, so its
 // cross axis is horizontal and `margin: 0 auto` there beats align-items:
 // stretch — which sizes the box to its content unless a width is stated. With

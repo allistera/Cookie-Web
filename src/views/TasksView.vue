@@ -45,6 +45,14 @@ const openTaskId = computed(() => {
   return id ? String(id) : ''
 })
 
+// Deleting cascades to any sub-tasks and there is no undo endpoint, so it
+// confirms first and names what it is about to remove — the same bargain the
+// detail panel's delete makes.
+async function removeItem(item) {
+  if (!confirm(`Delete "${item.content}"?`)) return
+  await items.deleteItem(item.id)
+}
+
 function open(id) {
   router.push({ path: '/tasks', query: { ...route.query, task: id } })
 }
@@ -188,6 +196,15 @@ async function submitDraft() {
           </span>
           <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
         </button>
+        <button
+          class="task-delete"
+          type="button"
+          title="Delete task"
+          :aria-label="`Delete ${item.content}`"
+          @click="removeItem(item)"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+        </button>
       </li>
     </ul>
 
@@ -296,6 +313,46 @@ async function submitDraft() {
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border-color);
+}
+
+/* Revealed on hover, but always present for keyboard and touch: a control
+   that only exists on hover cannot be reached without a pointer. */
+.task-delete {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* The row is top-aligned, so this sits level with the circle and the first
+     line of the title rather than drifting down beside a long description. */
+  margin-top: 1px;
+  padding: 2px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast) ease;
+}
+
+.task-row:hover .task-delete,
+.task-delete:focus-visible {
+  opacity: 1;
+}
+
+.task-delete:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.task-delete .material-symbols-outlined {
+  font-size: 18px;
+}
+
+@media (hover: none) {
+  /* No hover to reveal it on a touch screen. */
+  .task-delete {
+    opacity: 1;
+  }
 }
 
 .task-open {
