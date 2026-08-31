@@ -1949,6 +1949,40 @@ test('Tasks: a task can be deleted from the list without opening it', async ({ p
   await expect(page.locator('.task-row')).toHaveCount(0)
 })
 
+// The sidebar's per-row controls used to sit in the flow of the row, so every
+// project name permanently lost 42px to buttons that are invisible until you
+// hover — clipping nested names like "Home Dashboard" to "Home Das…". jsdom
+// performs no layout, so only a real browser can catch this.
+test('Tasks: a nested project name is not clipped by the row controls', async ({ page }) => {
+  await page.goto('/tasks')
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Personal')
+  await sidebar.locator('.new-project-row input').press('Enter')
+
+  const parent = sidebar.locator('.project-item', { hasText: 'Personal' }).first()
+  await parent.hover()
+  await parent.locator('[data-action="add"]').click()
+  await sidebar.locator('.new-project-row input').fill('Home Dashboard')
+  await sidebar.locator('.new-project-row input').press('Enter')
+
+  const nested = sidebar.locator('.project-item', { hasText: 'Home Dashboard' }).first()
+  await expect(nested).toBeVisible()
+
+  const clipped = await nested.locator('.nav-text').evaluate((el) => ({
+    avail: el.clientWidth,
+    needed: el.scrollWidth,
+  }))
+  expect(clipped.needed).toBeLessThanOrEqual(clipped.avail)
+
+  // The controls are out of the row's flow; in it, they take the space back.
+  const position = await nested
+    .locator('.row-actions')
+    .evaluate((el) => getComputedStyle(el).position)
+  expect(position).toBe('absolute')
+})
+
 // .tasks-view is a flex item in .main-content's column flex container, so its
 // cross axis is horizontal and `margin: 0 auto` there beats align-items:
 // stretch — which sizes the box to its content unless a width is stated. With

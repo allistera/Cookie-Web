@@ -382,10 +382,20 @@ async function removeProject(project) {
 
 /* Hidden by opacity, not display: display-none rows became unreachable to
    assistive tech and to WebKit hit testing in the documents sidebar. */
+/* Out of flow, so a project name gets the row's whole width instead of
+   permanently losing 42px to controls that are invisible until you hover —
+   which is what was clipping nested names like "Home Dashboard" to
+   "Home Das…". The fade masks the end of a long name while the controls
+   are showing. */
 .project-item .row-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
-  margin-left: auto;
   gap: 2px;
+  padding-left: 28px;
+  background: linear-gradient(to right, transparent, var(--bg-hover) 28px);
   opacity: 0;
 }
 
