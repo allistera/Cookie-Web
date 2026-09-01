@@ -67,7 +67,7 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(calendarSidebar.getByRole('link', { name: 'Manage calendars' })).toBeVisible()
   const workCalendar = calendarSidebar.getByRole('button', { name: 'Work', exact: true })
   await expect(workCalendar).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.locator('#searchBarContainer')).toHaveCount(0)
+  await expect(page.locator('.search-bar-container')).toHaveCount(0)
   await expect(
     page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true }),
   ).toHaveCount(2)
@@ -1180,39 +1180,82 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })
 
-test('Header search filters as the user types and clearing restores the inbox', async ({
+test('Header search debounces to /search with mode=keyword; Enter searches without it', async ({
   page,
 }) => {
   await page.goto('/')
 
   const searchInput = page.locator('.search-input')
   await searchInput.fill('zoom')
-  await expect(page).toHaveURL(/\/inbox$/)
+  await expect(page).toHaveURL(/\/search\?/)
+  await expect(page.locator('.search-results-item')).toHaveCount(1)
+  await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
+  let params = new URL(page.url()).searchParams
+  expect(params.get('q')).toBe('zoom')
+  expect(params.get('mode')).toBe('keyword')
 
-  const rows = page.locator('.ni-row')
-  await expect(rows).toHaveCount(1)
-  await expect(rows.first()).toContainText('Zoom Video')
-
-  // Clearing the search restores the full inbox (Today group, newest first).
-  await page.locator('.search-clear-icon').click()
+  // Enter re-navigates immediately (no debounce wait needed) and drops
+  // mode=keyword for the full semantic/hybrid index.
+  await searchInput.fill('city')
+  await searchInput.press('Enter')
   await expect(page.locator('.ni-row').first()).toContainText('City Construction')
+  params = new URL(page.url()).searchParams
+  expect(params.get('q')).toBe('city')
+  expect(params.get('mode')).toBeNull()
 })
 
-test('Header search supports tag: and sender: properties', async ({ page }) => {
-  await page.goto('/')
+test('/search renders mixed mail and document results from a direct URL', async ({ page }) => {
+  await page.goto('/search?q=floor+plan')
 
-  const searchInput = page.locator('.search-input')
-  await searchInput.fill('tag:Finance')
+  await expect(page.locator('.search-results-tab.active')).toHaveText('All')
+  const items = page.locator('.search-results-item')
+  await expect(items).not.toHaveCount(0)
+  await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+  await expect(page.locator('.search-result-doc', { hasText: 'Floor plan notes' })).toBeVisible()
+})
+
+test('Clicking a mail result in search results opens it in the reader', async ({ page }) => {
+  await page.goto('/search?q=floor+plan')
+
+  await page.locator('.ni-row', { hasText: 'Revised Floor Plan' }).click()
+
   await expect(page).toHaveURL(/\/inbox$/)
-  await expect(page.locator('.ni-row')).toHaveCount(3)
-  await expect(page.locator('.ni-row', { hasText: 'Zoom Video' })).toBeVisible()
+  await expect(page.locator('.ni-reader-subject-text')).toHaveText(
+    'Revised Floor Plan - Natural Light adjustments',
+  )
+})
 
-  await searchInput.fill('sender:billing@zoom.us')
-  await expect(page.locator('.ni-row')).toHaveCount(1)
+test('Clicking a document result in search results opens the document', async ({ page }) => {
+  await page.goto('/search?q=floor+plan')
+
+  await page.locator('.search-result-doc', { hasText: 'Floor plan notes' }).click()
+
+  await expect(page).toHaveURL(/\/documents\/stub-doc-floor-plan$/)
+})
+
+test('Search scope tabs re-fetch, and a mail-only operator returns nothing under Docs', async ({
+  page,
+}) => {
+  await page.goto('/search?q=sender%3Abilling%40zoom.us')
+
+  await expect(page.locator('.search-results-item')).toHaveCount(1)
+  await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
+  await expect(page.locator('.search-result-doc')).toHaveCount(0)
+
+  // sender: is mail-only: under the Docs tab it matches nothing at all,
+  // rather than falling back to an unfiltered document list.
+  await page.locator('.search-results-tab', { hasText: 'Docs' }).click()
+  await expect(page).toHaveURL(/scope=documents/)
+  await expect(page.locator('.search-results-empty')).toContainText('No results')
+
+  await page.locator('.search-results-tab', { hasText: 'Mail' }).click()
+  await expect(page).toHaveURL(/scope=mail/)
   await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
 })
 
-test('Header search supports in: to reach mail the default search hides', async ({ page }) => {
+test('in:done reaches archived mail the default search hides, without pulling in documents', async ({
+  page,
+}) => {
   await page.goto('/inbox')
 
   const subject = 'Revised Floor Plan - Natural Light adjustments'
@@ -1227,50 +1270,61 @@ test('Header search supports in: to reach mail the default search hides', async 
   ])
 
   // Search skips Done mail unless in: asks for it — the operator the search
-  // placeholder advertises.
+  // placeholder advertises. The document with the same words in its title is
+  // unaffected by mail's archived state either way.
   const searchInput = page.locator('.search-input')
   await searchInput.fill('floor plan')
+  await expect(page).toHaveURL(/\/search\?/)
   await expect(page.locator('.ni-row')).toHaveCount(0)
+  await expect(page.locator('.search-result-doc', { hasText: 'Floor plan notes' })).toBeVisible()
 
+  // in: is mail-only, so it also excludes the document from this result set.
   await searchInput.fill('in:done floor plan')
   await expect(page.locator('.ni-row')).toHaveCount(1)
   await expect(page.locator('.ni-row').first()).toContainText('City Construction')
+  await expect(page.locator('.search-result-doc')).toHaveCount(0)
 })
 
-test('Navigating away from search results clears the active search', async ({ page }) => {
-  await page.goto('/')
+test('tag: filters mail and documents independently, by their own tag/label field', async ({
+  page,
+}) => {
+  await page.goto('/search?q=tag%3AFinance')
+
+  await expect(page.locator('.ni-row')).toHaveCount(3)
+  await expect(page.locator('.ni-row', { hasText: 'Zoom Video' })).toBeVisible()
+  await expect(page.locator('.search-result-doc')).toHaveCount(0)
+
+  await page.locator('.search-input').fill('tag:notes')
+  await expect(page.locator('.ni-row')).toHaveCount(0)
+  await expect(page.locator('.search-result-doc')).toHaveCount(1)
+  await expect(page.locator('.search-result-doc')).toContainText('Scratchpad')
+})
+
+test('The clear icon empties the header search box, and leaving /search clears it too', async ({
+  page,
+}) => {
+  await page.goto('/search?q=zoom')
 
   const searchInput = page.locator('.search-input')
-  await searchInput.fill('zoom')
-  await searchInput.press('Enter')
-  await expect(page).toHaveURL(/\/inbox$/)
-  await expect(page.locator('.ni-row')).toHaveCount(1)
-  await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
+  await expect(searchInput).toHaveValue('zoom')
 
+  await page.locator('.search-clear-icon').click()
+  await expect(searchInput).toHaveValue('')
+
+  await searchInput.fill('zoom')
+  await expect(page).toHaveURL(/\/search\?/)
   await page.locator('.nav-item', { hasText: 'Inbox' }).click()
 
+  await expect(page).toHaveURL(/\/inbox$/)
   await expect(searchInput).toHaveValue('')
-  await expect(page.locator('.ni-row').first()).toContainText('City Construction')
-
-  await searchInput.fill('zoom')
-  await searchInput.press('Enter')
-  await expect(page.locator('.ni-row')).toHaveCount(1)
-
-  await page.locator('.nav-item', { hasText: 'Starred' }).click()
-
-  await expect(page).toHaveURL(/filter=starred/)
-  await expect(searchInput).toHaveValue('')
-  await expect(page.locator('.ni-header h1')).toHaveText('Starred')
 })
 
-test('Ask Cookie answers with formatted text and email sources', async ({ page }) => {
-  await page.goto('/')
+test('Ask the assistant about a search query answers with formatted text and email sources', async ({
+  page,
+}) => {
+  await page.goto('/search?q=Summarize%20my%20kitchen%20renovation%20updates.')
 
-  // Typing in the search bar offers a "Search Cookie" suggestion item that
-  // sends the text to the Q&A assistant instead of the search index.
-  const searchInput = page.locator('.search-input')
-  await searchInput.fill('Summarize my kitchen renovation updates.')
-  await page.locator('.suggestion-item', { hasText: 'kitchen renovation' }).click()
+  await page.locator('.search-results-ask', { hasText: 'kitchen renovation' }).click()
 
   const drawer = page.locator('#geminiChatDrawer')
   await expect(drawer).toHaveClass(/active/)

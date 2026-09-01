@@ -320,18 +320,14 @@ function localApiPlugin(mode) {
   }
   // cookie-web-search fixtures: the real /search and /ask handlers live in
   // Cookie-Worker now; these answer from the shared per-session fixture state.
-  const handleSearch = async (req, res) => {
-    const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
-    const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
-    const rawQuery = new URL(req.url, 'http://localhost').searchParams.get('q') || ''
-    const { text, filters } = parseSearchQuery(rawQuery)
-    const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
-    const { summaries, archived, schedules, followUps } = fixtureMailboxState(req, res)
+  //
+  // Mirrors the search Worker's folder handling: `in:` scopes results to one
+  // folder, and without it a search covers everything except Done (sent
+  // copies included). No fixture mail is classified as spam. Shared by both
+  // handleSearch (the legacy, mail-only shape) and handleCombinedSearch (the
+  // scoped mail+documents shape) below.
+  function matchFixtureEmails({ emails, filters, terms, schedules, archived }) {
     const now = Date.now()
-    // Mirrors the search Worker's folder handling: `in:` scopes results to
-    // one folder, and
-    // without it a search covers everything except Done (sent copies
-    // included). No fixture mail is classified as spam.
     const inFolder = (email) => {
       const scheduledFor = schedules.get(email.id)
       const snoozed = Boolean(scheduledFor) && Date.parse(scheduledFor) > now
@@ -345,39 +341,151 @@ function localApiPlugin(mode) {
       }
       return !archived.has(email.id)
     }
-    const emails = [...fixtureEmails(), ...fixtureSentEmails()]
-      .filter((email) => {
-        if (!inFolder(email)) return false
-        const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
-        const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
-        if (!terms.every((term) => haystack.includes(term))) return false
-        if (filters.from && !sender.includes(filters.from.toLowerCase())) return false
-        if (
-          filters.to &&
-          !JSON.stringify(email.recipients || {})
-            .toLowerCase()
-            .includes(filters.to.toLowerCase())
-        ) {
-          return false
-        }
-        if (
-          filters.tag &&
-          !email.labels.some((label) =>
-            label.name.toLowerCase().includes(filters.tag.toLowerCase()),
-          )
-        ) {
-          return false
-        }
-        if (filters.hasAttachment && !email.has_attachments) return false
-        if (filters.before && email.sent_at >= `${filters.before}T00:00:00.000Z`) return false
-        if (filters.after && email.sent_at < `${filters.after}T00:00:00.000Z`) return false
-        return true
-      })
-      .map((email) => ({
+    return emails.filter((email) => {
+      if (!inFolder(email)) return false
+      const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
+      const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
+      if (!terms.every((term) => haystack.includes(term))) return false
+      if (filters.from && !sender.includes(filters.from.toLowerCase())) return false
+      if (
+        filters.to &&
+        !JSON.stringify(email.recipients || {})
+          .toLowerCase()
+          .includes(filters.to.toLowerCase())
+      ) {
+        return false
+      }
+      if (
+        filters.tag &&
+        !email.labels.some((label) => label.name.toLowerCase().includes(filters.tag.toLowerCase()))
+      ) {
+        return false
+      }
+      if (filters.hasAttachment && !email.has_attachments) return false
+      if (filters.before && email.sent_at >= `${filters.before}T00:00:00.000Z`) return false
+      if (filters.after && email.sent_at < `${filters.after}T00:00:00.000Z`) return false
+      return true
+    })
+  }
+
+  // The header's combined mail + documents search (stores/search.js) always
+  // sends `scope=all|mail|documents` (handleSearch below dispatches here when
+  // it sees that param) and expects
+  // `{ query, results: [{type:'email',...}|{type:'document',...}], estimatedTotalHits, limit, offset }`.
+  // Every operator parseSearchQuery understands except tag: only means
+  // something for mail (from:/sender:/to:/has:/before:/after:/in:), so any of
+  // them narrows the whole search to mail even under scope=all — and to
+  // nothing under scope=documents — mirroring the real combined index, where
+  // those operators never match a document.
+  const handleCombinedSearch = async (req, res, url) => {
+    const rawQuery = (url.searchParams.get('q') || '').trim()
+    if (!rawQuery) {
+      res.statusCode = 400
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'q is required' }))
+      return
+    }
+    const scope = url.searchParams.get('scope') || 'all'
+    const limit = Number(url.searchParams.get('limit')) || 20
+    const offset = Number(url.searchParams.get('offset')) || 0
+
+    const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
+    const { text, filters } = parseSearchQuery(rawQuery)
+    const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
+    const hasMailOnlyOperator = Boolean(
+      filters.from ||
+      filters.to ||
+      filters.hasAttachment ||
+      filters.before ||
+      filters.after ||
+      filters.in,
+    )
+
+    const state = fixtureMailboxState(req, res)
+    let emailResults = []
+    if (scope !== 'documents') {
+      const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
+      const { summaries, archived, schedules, followUps } = state
+      emailResults = matchFixtureEmails({
+        emails: [...fixtureEmails(), ...fixtureSentEmails()],
+        filters,
+        terms,
+        schedules,
+        archived,
+      }).map((email) => ({
+        type: 'email',
         ...email,
         has_ai_summary: email.has_ai_summary || summaries.has(email.id),
         follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
       }))
+    }
+
+    let docResults = []
+    if (scope !== 'mail' && !hasMailOnlyOperator) {
+      if (!state.documents) {
+        const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } =
+          await import('./api/_fixtures/documents.js')
+        state.docFolders = fixtureDocumentFolders()
+        state.documents = fixtureDocuments()
+        state.docTemplates = fixtureDocumentTemplates()
+      }
+      docResults = state.documents
+        .filter((doc) => {
+          const haystack = `${doc.title} ${JSON.stringify(doc.blocks)}`.toLowerCase()
+          if (!terms.every((term) => haystack.includes(term))) return false
+          if (
+            filters.tag &&
+            !doc.tags?.some((tag) => tag.toLowerCase() === filters.tag.toLowerCase())
+          ) {
+            return false
+          }
+          return true
+        })
+        .map((doc) => ({
+          type: 'document',
+          id: doc.id,
+          title: doc.title,
+          tags: doc.tags,
+          starred: doc.starred,
+          updated_at: Date.parse(doc.updated_at),
+        }))
+    }
+
+    const combined = [...emailResults, ...docResults]
+    const results = combined.slice(offset, offset + limit)
+    res.setHeader('Content-Type', 'application/json')
+    res.end(
+      JSON.stringify({
+        query: rawQuery,
+        results,
+        estimatedTotalHits: combined.length,
+        limit,
+        offset,
+      }),
+    )
+  }
+
+  const handleSearch = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    if (url.searchParams.has('scope')) return handleCombinedSearch(req, res, url)
+
+    const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
+    const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
+    const rawQuery = url.searchParams.get('q') || ''
+    const { text, filters } = parseSearchQuery(rawQuery)
+    const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
+    const { summaries, archived, schedules, followUps } = fixtureMailboxState(req, res)
+    const emails = matchFixtureEmails({
+      emails: [...fixtureEmails(), ...fixtureSentEmails()],
+      filters,
+      terms,
+      schedules,
+      archived,
+    }).map((email) => ({
+      ...email,
+      has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+      follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
+    }))
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ emails }))
   }

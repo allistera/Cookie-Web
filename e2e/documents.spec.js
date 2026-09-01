@@ -14,8 +14,8 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
 
   await expect(page).toHaveURL(/\/documents$/)
   await expect(page.locator('.logo-suffix')).toHaveText('Documents')
-  // The mail search bar belongs to the Email app only.
-  await expect(page.locator('#searchBarContainer')).toHaveCount(0)
+  // The combined header search bar (mail + documents) also shows here.
+  await expect(page.locator('.search-bar-container')).toHaveCount(1)
 
   // The left sidebar shows the fixture folder tree; folders start closed.
   const sidebar = page.locator('.documents-sidebar')
@@ -533,57 +533,32 @@ test('Folders can be created inline and documents dragged between them', async (
   await expect(sidebar.locator('.doc-item', { hasText: 'Scratchpad' })).toBeVisible()
 })
 
-test('The header search finds documents by content and filters, without disturbing the sidebar tree', async ({
+test('The header search from Documents finds documents by content on the /search page', async ({
   page,
 }) => {
   await page.goto('/documents')
-
-  const searchInput = page.locator('#docSearchBarContainer .search-input')
-  await expect(searchInput).toBeVisible()
 
   const dashboard = page.locator('.documents-table')
   await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
   await expect(dashboard.getByText('Scratchpad')).toBeVisible()
 
-  // Folders start closed; expand Projects so the "search doesn't disturb the
-  // tree" assertion below actually exercises open state, not just default.
-  const sidebar = page.locator('.documents-sidebar')
-  await sidebar.locator('.folder-item', { hasText: 'Projects' }).first().click()
-  await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
-
-  // Type-ahead matches a word from the body, not just the title.
+  // Type-ahead matches a word from the body, not just the title, and lands
+  // on the dedicated /search results page rather than filtering the
+  // dashboard in place.
+  const searchInput = page.locator('.search-input')
   await searchInput.fill('bay window')
-  await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
-  await expect(dashboard.getByText('Scratchpad')).toHaveCount(0)
-  // The sidebar's folder tree is unaffected by an active search.
-  await expect(sidebar.getByText('Kitchen Renovation')).toBeVisible()
-  await expect(sidebar.getByText('Scratchpad')).toBeVisible()
-
-  // Clearing restores the full dashboard.
-  await page.locator('#docSearchBarContainer .search-clear-icon').click()
-  await expect(searchInput).toHaveValue('')
-  await expect(dashboard.getByText('Scratchpad')).toBeVisible()
-
-  // tag: and is:starred filters.
-  await searchInput.fill('tag:notes')
-  await searchInput.press('Enter')
-  await expect(dashboard.getByText('Scratchpad')).toBeVisible()
-  await expect(dashboard.getByText('Floor plan notes')).toHaveCount(0)
-
-  await searchInput.fill('is:starred')
-  await searchInput.press('Enter')
-  await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
-  await expect(dashboard.getByText('Scratchpad')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/search\?/)
+  await expect(page.locator('.search-result-doc', { hasText: 'Floor plan notes' })).toBeVisible()
+  await expect(page.locator('.search-result-doc', { hasText: 'Scratchpad' })).toHaveCount(0)
 
   // A query matching nothing shows the empty state, not a stale list.
   await searchInput.fill('xyznotfound')
-  await expect(page.getByText('No documents')).toBeVisible()
+  await expect(page.locator('.search-results-empty')).toContainText('No results')
 
-  // Navigating to a document leaves search mode.
+  // Clicking a result opens that document directly.
   await searchInput.fill('floor')
-  await dashboard.getByText('Floor plan notes').click()
+  await page.locator('.search-result-doc', { hasText: 'Floor plan notes' }).click()
   await expect(page).toHaveURL(/\/documents\/stub-doc-floor-plan$/)
-  await expect(searchInput).toHaveValue('')
 })
 
 test('The default content for new daily notes can be customized in Settings > Documents > Time Management', async ({
