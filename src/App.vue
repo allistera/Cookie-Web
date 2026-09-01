@@ -383,10 +383,7 @@ onUnmounted(() => {
         </div>
 
         <div class="header-center">
-          <div
-            v-if="activeApp === 'email' || activeApp === 'documents'"
-            class="search-bar-container"
-          >
+          <div class="search-bar-container">
             <span class="material-symbols-outlined search-icon">search</span>
             <input
               type="text"
