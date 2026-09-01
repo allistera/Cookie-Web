@@ -2,7 +2,6 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
-import { useDocumentsStore } from './stores/documents'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
@@ -20,7 +19,6 @@ const DocumentsSidebar = defineAsyncComponent(() => import('./components/Documen
 const TasksSidebar = defineAsyncComponent(() => import('./components/TasksSidebar.vue'))
 
 const store = useInboxStore()
-const documentsStore = useDocumentsStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -73,18 +71,7 @@ const notificationCountText = computed(() =>
 function openFirstNotification() {
   const source = notificationSources.value[0]
   if (!source) return
-  if (source.key === 'email') leaveSearchResults()
   router.push(source.to)
-}
-
-// Clicking the header logo while already on that app's home route is a
-// same-route navigation vue-router won't report as a change, so the
-// route.fullPath watcher below never fires — this is the app-agnostic
-// equivalent of email's explicit @click="leaveSearchResults" on its Inbox
-// link, which documents has no persistent nav-link analogue for.
-function onAppLogoClick() {
-  if (activeApp.value === 'email') leaveSearchResults()
-  else if (activeApp.value === 'documents') leaveDocSearchResults()
 }
 
 // Undo-send toast: hovering pauses the countdown and reveals the Undo button;
@@ -174,11 +161,18 @@ function handleLogout() {
   logout({ logoutParams: { returnTo: window.location.origin } })
 }
 
-// Header Search
+// Header Search: one combined box (mail + documents) leading to the
+// dedicated /search results page, which keeps q/scope/page in the URL so
+// results stay shareable and back-button friendly (see
+// views/SearchResultsView.vue). Behavior mirrors the two per-app boxes this
+// replaces: minimum 2 characters, type-ahead is debounced and stays on the
+// keyword index (mode=keyword), Enter searches immediately with the full
+// semantic/hybrid index. The old dropdown's "ask the assistant" affordance
+// now lives on the results page itself (its "Ask the assistant about" action
+// calls store.askAssistant, same as before).
 const searchInputVal = ref('')
-const isSearchSuggestionsActive = ref(false)
 const AUTO_SEARCH_DELAY_MS = 400
-let isNavigatingToSearchResults = false
+const SEARCH_MIN_CHARS = 2
 let autoSearchTimer
 
 function cancelScheduledSearch() {
@@ -186,154 +180,63 @@ function cancelScheduledSearch() {
   autoSearchTimer = undefined
 }
 
-// The dropdown's single "Search Cookie" item sends the typed text to the
-// mailbox Q&A assistant instead of the search index.
-function askFromSearch() {
-  const query = searchInputVal.value.trim()
-  if (!query) return
-  cancelScheduledSearch()
-  store.cancelPendingSearch()
-  isSearchSuggestionsActive.value = false
-  store.askAssistant(query)
+// Reuses the current /search scope tab (if any) so typing more into an
+// already-scoped search doesn't silently reset it back to "All".
+function navigateToSearch(q, mode) {
+  const query = { q }
+  if (mode) query.mode = mode
+  if (route.name === 'search' && route.query.scope) query.scope = route.query.scope
+  return route.name === 'search'
+    ? router.replace({ name: 'search', query })
+    : router.push({ name: 'search', query })
 }
 
-async function runMailboxSearch(query, { semantic = true, force = false } = {}) {
-  if (!query || (!force && query === store.activeSearchQuery)) return
-
-  if (route.name !== 'traditional-inbox') {
-    isNavigatingToSearchResults = true
-    try {
-      await router.push('/inbox')
-    } finally {
-      isNavigatingToSearchResults = false
-    }
-  }
-  // The inbox view starts its initial list request when it mounts. Search
-  // afterwards so its list sequence is authoritative and a slower bootstrap
-  // response cannot replace the results that were just rendered.
-  return store.searchEmails(query, { semantic })
-}
-
-// Enter searches immediately; typing searches after a short pause. The
-// dropdown's "Search Cookie" item routes the same text to Q&A instead.
+// Enter searches immediately with the full semantic/hybrid index; typing
+// searches after a short pause using the keyword-only index (see the
+// debounce watcher below).
 function handleSearchEnter() {
   cancelScheduledSearch()
-  isSearchSuggestionsActive.value = false
-  return runMailboxSearch(searchInputVal.value.trim(), { semantic: true, force: true })
+  const q = searchInputVal.value.trim()
+  if (q.length < SEARCH_MIN_CHARS) return
+  navigateToSearch(q)
 }
 
-function leaveSearchResults() {
-  if (!searchInputVal.value && !store.activeSearchQuery) return
-  searchInputVal.value = ''
-  isSearchSuggestionsActive.value = false
-  store.clearSearch()
-}
-
+// Only clears the box itself — there is no per-app search state to tear
+// down anymore, and leaving /search already happens through normal
+// navigation (handled by the sync watcher below).
 function clearSearch() {
-  store.isChatDrawerActive = false
-  leaveSearchResults()
+  cancelScheduledSearch()
+  searchInputVal.value = ''
 }
 
-// Documents search: mirrors the email search block above (same debounce/
-// Enter pattern, same CSS classes), but scoped to the Documents app and its
-// own store. There is no Q&A-style assistant for documents, so the dropdown's
-// single suggestion just triggers the same hybrid search as Enter — a
-// discoverability affordance for click vs. Enter, not a second feature.
-const docSearchInputVal = ref('')
-const isDocSearchSuggestionsActive = ref(false)
-let isNavigatingToDocSearchResults = false
-let docAutoSearchTimer
-
-function cancelScheduledDocSearch() {
-  window.clearTimeout(docAutoSearchTimer)
-  docAutoSearchTimer = undefined
-}
-
-async function runDocumentSearch(query, { semantic = true, force = false } = {}) {
-  if (!query || (!force && query === documentsStore.activeSearchQuery)) return
-
-  // /documents/:id shares the search bar (it's the same activeApp) but
-  // results render on the dashboard route, so a search from an open document
-  // navigates back to it first.
-  if (route.name !== 'documents' || route.params.id) {
-    isNavigatingToDocSearchResults = true
-    try {
-      await router.push('/documents')
-    } finally {
-      isNavigatingToDocSearchResults = false
-    }
-  }
-  return documentsStore.searchDocuments(query, { semantic })
-}
-
-function handleDocSearchEnter() {
-  cancelScheduledDocSearch()
-  isDocSearchSuggestionsActive.value = false
-  return runDocumentSearch(docSearchInputVal.value.trim(), { semantic: true, force: true })
-}
-
-function searchDocumentsFromSuggestion() {
-  return handleDocSearchEnter()
-}
-
-function leaveDocSearchResults() {
-  if (!docSearchInputVal.value && !documentsStore.activeSearchQuery) return
-  docSearchInputVal.value = ''
-  isDocSearchSuggestionsActive.value = false
-  documentsStore.clearSearch()
-}
-
-function clearDocSearch() {
-  leaveDocSearchResults()
-}
-
-// Search results share the /inbox (email) or /documents (documents) route
-// with the regular list. Any actual route change leaves search mode; the
-// Inbox link handles email's same-route case (documents has no equivalent
-// persistent "all documents" link — clearing the input or the "x" icon
-// covers the same-route case there).
+// Keeps the box in sync with the URL: opening a /search link directly, using
+// Back/Forward, or navigating away from /search altogether all update the
+// box without it triggering a search of its own (the debounce watcher below
+// no-ops whenever the value already matches the route).
 watch(
-  () => route.fullPath,
-  () => {
-    if (!isNavigatingToSearchResults) leaveSearchResults()
-    if (!isNavigatingToDocSearchResults) leaveDocSearchResults()
+  () => [route.name, route.query.q],
+  ([name, q]) => {
+    if (name !== 'search') {
+      searchInputVal.value = ''
+      return
+    }
+    const value = Array.isArray(q) ? q[0] : q
+    searchInputVal.value = String(value ?? '')
   },
+  { immediate: true },
 )
 
 watch(searchInputVal, (value) => {
   cancelScheduledSearch()
   const query = value.trim()
-
-  // Do not issue broad one-character searches. Clearing or shortening the
-  // value also restores the inbox and invalidates any request still in
-  // flight. Only call clearSearch() when a search is actually active: this
-  // watcher also fires as a side effect of leaveSearchResults() setting
-  // searchInputVal to '', which already called clearSearch() itself — a
-  // second, redundant call here would otherwise still bump the store's
-  // listSeq and discard that first call's own in-flight inbox reload.
-  if (query.length < 2) {
-    if (store.activeSearchQuery) store.clearSearch()
-    return
-  }
+  if (query.length < SEARCH_MIN_CHARS) return
+  // Nothing to do if the URL already reflects this exact text — this fires
+  // as a side effect of the sync watcher above restoring the box from the
+  // route, not from typing.
+  if (route.name === 'search' && route.query.q === query) return
 
   autoSearchTimer = window.setTimeout(() => {
-    // Type-ahead stays on the local keyword index. Semantic retrieval adds an
-    // embedding round trip and is reserved for an explicit Enter submission.
-    runMailboxSearch(query, { semantic: false })
-  }, AUTO_SEARCH_DELAY_MS)
-})
-
-watch(docSearchInputVal, (value) => {
-  cancelScheduledDocSearch()
-  const query = value.trim()
-
-  if (query.length < 2) {
-    if (documentsStore.activeSearchQuery) documentsStore.clearSearch()
-    return
-  }
-
-  docAutoSearchTimer = window.setTimeout(() => {
-    runDocumentSearch(query, { semantic: false })
+    navigateToSearch(query, 'keyword')
   }, AUTO_SEARCH_DELAY_MS)
 })
 
@@ -377,18 +280,8 @@ useTitleUnreadBadge(store)
 // Dock/taskbar icon badge with the unread inbox count, once installed as a PWA.
 useAppBadge(store)
 
-// Document level click listener to close the search dropdown and profile menu
+// Document level click listener to close the profile menu
 function onDocumentClick(e) {
-  const searchContainer = document.getElementById('searchBarContainer')
-  if (searchContainer && !searchContainer.contains(e.target)) {
-    isSearchSuggestionsActive.value = false
-  }
-
-  const docSearchContainer = document.getElementById('docSearchBarContainer')
-  if (docSearchContainer && !docSearchContainer.contains(e.target)) {
-    isDocSearchSuggestionsActive.value = false
-  }
-
   // Close profile dropdown when clicking outside
   const profileContainer = document.querySelector('.profile-container')
   if (profileContainer && !profileContainer.contains(e.target)) {
@@ -404,7 +297,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   cancelScheduledSearch()
-  cancelScheduledDocSearch()
   document.removeEventListener('keydown', onUndoKeydown)
   document.removeEventListener('keydown', onCommandPaletteKeydown)
   document.removeEventListener('click', onDocumentClick)
@@ -446,7 +338,6 @@ onUnmounted(() => {
               :to="APPS[activeApp].to"
               class="logo-container"
               :aria-label="`Cookie ${APPS[activeApp].label} home`"
-              @click="onAppLogoClick"
             >
               <img class="app-logo" src="/icons/cookie-mark.svg" alt="" />
               <span class="logo-text">Cookie</span>
@@ -492,15 +383,17 @@ onUnmounted(() => {
         </div>
 
         <div class="header-center">
-          <div v-if="activeApp === 'email'" class="search-bar-container" id="searchBarContainer">
+          <div
+            v-if="activeApp === 'email' || activeApp === 'documents'"
+            class="search-bar-container"
+          >
             <span class="material-symbols-outlined search-icon">search</span>
             <input
               type="text"
               class="search-input"
-              placeholder="Search mail — try tag:Personal or in:done"
-              aria-label="Search mail. Use tag:Personal, sender:foo@bar.com, or in:done/spam/all to filter."
+              placeholder="Search mail and documents"
+              aria-label="Search mail and documents"
               v-model="searchInputVal"
-              @focus="isSearchSuggestionsActive = true"
               @keydown.enter.prevent="handleSearchEnter"
             />
             <span
@@ -510,56 +403,6 @@ onUnmounted(() => {
             >
               close
             </span>
-
-            <!-- Enter searches the mailbox; this dropdown routes the same text
-               to the Q&A assistant instead. -->
-            <div
-              class="search-suggestions"
-              :class="{ active: isSearchSuggestionsActive && searchInputVal.trim().length > 0 }"
-            >
-              <div class="suggestion-item" @click="askFromSearch">
-                <span class="material-symbols-outlined text-purple">chat_bubble</span>
-                <span>Search Cookie: “{{ searchInputVal.trim() }}”</span>
-              </div>
-            </div>
-          </div>
-
-          <div
-            v-else-if="activeApp === 'documents'"
-            class="search-bar-container"
-            id="docSearchBarContainer"
-          >
-            <span class="material-symbols-outlined search-icon">search</span>
-            <input
-              type="text"
-              class="search-input"
-              placeholder="Search documents — try tag:Work or is:starred"
-              aria-label="Search documents. Use tag:Work or is:starred to filter."
-              v-model="docSearchInputVal"
-              @focus="isDocSearchSuggestionsActive = true"
-              @keydown.enter.prevent="handleDocSearchEnter"
-            />
-            <span
-              class="material-symbols-outlined search-clear-icon"
-              v-if="docSearchInputVal.length > 0"
-              @click="clearDocSearch"
-            >
-              close
-            </span>
-
-            <!-- Enter and this dropdown both run the same hybrid search; the
-               dropdown is a discoverability affordance, not a second action. -->
-            <div
-              class="search-suggestions"
-              :class="{
-                active: isDocSearchSuggestionsActive && docSearchInputVal.trim().length > 0,
-              }"
-            >
-              <div class="suggestion-item" @click="searchDocumentsFromSuggestion">
-                <span class="material-symbols-outlined text-blue">description</span>
-                <span>Search documents: “{{ docSearchInputVal.trim() }}”</span>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -614,7 +457,6 @@ onUnmounted(() => {
               to="/inbox"
               class="nav-item"
               :class="{ active: route.name === 'traditional-inbox' && !route.query.filter }"
-              @click="leaveSearchResults"
             >
               <span class="material-symbols-outlined nav-icon-red">inbox</span>
               <span class="nav-text">Inbox</span>

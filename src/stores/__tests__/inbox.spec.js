@@ -1891,6 +1891,48 @@ describe('Inbox Store', () => {
     expect(store.openEmail).toBe(null)
   })
 
+  it('openEmailFromSearch maps and splices a /search row into traditionalEmails, then opens it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = []
+    const row = {
+      id: 'search-1',
+      subject: 'From search',
+      from_name: 'Ada',
+      from_address: 'ada@example.com',
+      sent_at: '2026-01-01T00:00:00Z',
+      is_unread: true,
+    }
+
+    store.openEmailFromSearch(row)
+
+    expect(store.openEmailId).toBe('search-1')
+    expect(store.openEmail.subject).toBe('From search')
+    expect(store.openEmail.unread).toBe(false)
+    expect(store.traditionalEmails).toHaveLength(1)
+  })
+
+  it('openEmailFromSearch reuses the already-loaded row instead of duplicating it', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+
+    const store = useInboxStore()
+    const existing = { id: 'e-1', subject: 'Loaded', unread: true }
+    store.traditionalEmails = [existing]
+
+    store.openEmailFromSearch({ id: 'e-1', subject: 'Stale copy from the index' })
+
+    expect(store.traditionalEmails).toHaveLength(1)
+    expect(store.openEmail).toStrictEqual(existing)
+    expect(store.openEmail.subject).toBe('Loaded')
+  })
+
   it('openEmail getter returns null once the email leaves the list', () => {
     const store = useInboxStore()
     const email = { id: 'abc-123', unread: false }

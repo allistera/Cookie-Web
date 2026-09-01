@@ -242,8 +242,10 @@ const FOLDER_STATE = {
   },
 }
 
-// Maps a GET /emails (or /search) row to the shape the views render.
-function mapEmailRow(message) {
+// Maps a GET /emails (or /search) row to the shape the views render. Exported
+// for the combined /search results page (stores/search.js's mail rows come
+// from the same backend row shape) so it doesn't duplicate this mapping.
+export function mapEmailRow(message) {
   const firstRecipient = message.recipients?.to?.[0] ?? null
   return {
     id: message.id,
@@ -1159,6 +1161,27 @@ export const useInboxStore = defineStore('inbox', {
       this.setUnread(email, false)
       this.openEmailId = email.id
       this.fetchMessageBody(email.id)
+    },
+
+    // Opens an email row surfaced by the combined /search results page (see
+    // views/SearchResultsView.vue). There is no per-email route — the reader
+    // is keyed off traditionalEmails + openEmailId — so this mirrors clicking
+    // a row in the loaded inbox: splice the row into traditionalEmails if it
+    // isn't already there (TraditionalInboxView's filteredEmails-presence
+    // watch would otherwise close the reader the moment the list next
+    // recomputes), then open it exactly like any other row. A search result
+    // that is starred, sent, or otherwise excluded from the default inbox
+    // view will still open once but can be closed by an unrelated list
+    // refresh — a known gap in the absence of a real per-email route.
+    openEmailFromSearch(row) {
+      const existing = this.traditionalEmails.find((e) => e.id === row.id)
+      if (existing) {
+        this.openReader(existing)
+        return
+      }
+      const email = mapEmailRow(row)
+      this.traditionalEmails.unshift(email)
+      this.openReader(email)
     },
 
     // Fetches a message's full body on demand and caches it by id. Returns the
