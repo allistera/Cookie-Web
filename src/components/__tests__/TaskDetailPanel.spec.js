@@ -206,6 +206,53 @@ describe('TaskDetailPanel', () => {
     expect(describeItem).toHaveBeenCalledWith('b', null)
   })
 
+  it('lists sub-tasks with a done/total count and completes one in place', async () => {
+    seed([
+      ...ITEMS,
+      { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
+      { id: 's2', content: 'Step two', parentId: 'b', completedAt: '2026-09-01T10:00:00Z', projectId: null },
+    ])
+    const setCompleted = vi.spyOn(items, 'setCompleted').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-subtasks-count').text()).toBe('1/2')
+    const rows = wrapper.findAll('.subtask-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[1].get('.subtask-content').classes()).toContain('done')
+
+    await rows[0].get('.subtask-check').trigger('click')
+    expect(setCompleted).toHaveBeenCalledWith('s1', true)
+  })
+
+  it('collapses the sub-task list behind the header toggle', async () => {
+    seed([...ITEMS, { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null }])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-subtasks-toggle').trigger('click')
+    expect(wrapper.find('.subtask-row').exists()).toBe(false)
+    expect(wrapper.find('.add-subtask-btn').exists()).toBe(false)
+  })
+
+  it('adds a sub-task against the open task', async () => {
+    seed()
+    const createItem = vi.spyOn(items, 'createItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // No sub-tasks yet: no header row, just the add affordance.
+    expect(wrapper.find('.task-subtasks-header').exists()).toBe(false)
+    await wrapper.get('.add-subtask-btn').trigger('click')
+    await flushPromises()
+    await wrapper.get('.add-subtask-row input').setValue('Step one')
+    await wrapper.get('.add-subtask-row input').trigger('keydown.enter')
+    await flushPromises()
+
+    expect(createItem).toHaveBeenCalledTimes(1)
+    expect(createItem).toHaveBeenCalledWith({ content: 'Step one', parentId: 'b' })
+  })
+
   it('shows the placeholder when there is no description', async () => {
     seed()
     const wrapper = mountPanel()

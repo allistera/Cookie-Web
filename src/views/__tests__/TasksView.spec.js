@@ -124,6 +124,24 @@ describe('TasksView', () => {
     expect(row.get('.task-description').text()).toBe('Rather than waiting')
   })
 
+  // Sub-tasks live inside their parent's panel; the list shows only the
+  // top level even though the store loads both.
+  it('keeps sub-tasks out of the task list', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 't1', content: 'Parent', description: null, parentId: null, completedAt: null },
+      { id: 't2', content: 'Child', description: null, parentId: 't1', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].get('.task-content').text()).toBe('Parent')
+  })
+
   it('completes a task from its circle', async () => {
     const items = useTaskItemsStore()
     items.items = [{ id: 't1', content: 'Add auto-merge', description: null, completedAt: null }]

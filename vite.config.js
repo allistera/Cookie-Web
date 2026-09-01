@@ -1187,15 +1187,23 @@ function localApiPlugin(mode) {
           return json(res, { error: 'today requires a date=YYYY-MM-DD' }, 400)
         }
         const includeCompleted = url.searchParams.get('completed') === '1'
+        const dueToday = (item) => Boolean(item.dueDate) && item.dueDate <= date
         const items = state.taskItems
           .filter((item) => {
             // Today spans every project and carries overdue tasks forward,
             // so it matches on or before the date. ISO dates compare as
-            // strings. The others filter by one project.
-            if (today) return Boolean(item.dueDate) && item.dueDate <= date
+            // strings. It also carries the sub-tasks of every task it lists,
+            // since the panel resolves sub-tasks out of the loaded list. The
+            // others filter by one project.
+            if (today) {
+              const parent = state.taskItems.find((row) => row.id === item.parentId)
+              return dueToday(item) || (parent && dueToday(parent))
+            }
             return project === 'inbox' ? item.projectId === null : item.projectId === project
           })
-          .filter((item) => includeCompleted || item.completedAt === null)
+          // Completed sub-tasks stay listed so the panel can count them into
+          // its "done/total" progress; only completed top-level tasks hide.
+          .filter((item) => includeCompleted || item.completedAt === null || item.parentId !== null)
         return json(res, { items })
       }
       const body = await readBody(req)
@@ -1203,8 +1211,14 @@ function localApiPlugin(mode) {
         const content = cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
         if (!content) return json(res, { error: 'Task content is required' }, 400)
 
-        const projectId = body.projectId ?? null
-        if (projectId !== null && !state.projects.some((row) => row.id === projectId)) {
+        // A sub-task lives in its parent's project; any projectId in the
+        // body is ignored, mirroring the real handler.
+        const parentId = body.parentId ?? null
+        const parent = parentId === null ? null : state.taskItems.find((row) => row.id === parentId)
+        if (parentId !== null && !parent) return json(res, { error: 'Task not found' }, 404)
+
+        const projectId = parent ? parent.projectId : (body.projectId ?? null)
+        if (!parent && projectId !== null && !state.projects.some((row) => row.id === projectId)) {
           return json(res, { error: 'Project not found' }, 404)
         }
 
@@ -1216,7 +1230,7 @@ function localApiPlugin(mode) {
         const item = {
           id: randomUUID(),
           projectId,
-          parentId: null,
+          parentId,
           content,
           description: body.description ?? null,
           dueDate: hasDue ? String(body.dueDate) : null,
@@ -1268,7 +1282,10 @@ function localApiPlugin(mode) {
       if (req.method === 'DELETE') {
         const item = state.taskItems.find((row) => row.id === body.id)
         if (!item) return json(res, { error: 'Task not found' }, 404)
-        state.taskItems = state.taskItems.filter((row) => row.id !== body.id)
+        // Mirrors parent_id ... ON DELETE CASCADE: sub-tasks go with it.
+        state.taskItems = state.taskItems.filter(
+          (row) => row.id !== body.id && row.parentId !== body.id,
+        )
         return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)

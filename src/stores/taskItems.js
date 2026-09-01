@@ -107,17 +107,23 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     // Whether a task belongs in the list currently on screen. Add Task creates
     // in the Inbox from anywhere, so a new task must not appear under whatever
-    // heading happens to be open.
+    // heading happens to be open. A sub-task travels with its parent: it
+    // belongs wherever the parent is already listed, which also covers Today,
+    // where a fresh sub-task has no due date of its own to qualify on.
     belongsToLoadedList(item) {
       if (this.loadedProject === null) return false
+      if (item.parentId) return this.items.some((row) => row.id === item.parentId)
       if (this.loadedProject === 'today') return item.dueDate === localToday()
       if (this.loadedProject === 'inbox') return item.projectId === null
       return item.projectId === this.loadedProject
     },
 
-    async createItem({ content, projectId = null }) {
+    // A sub-task sends only its parent — the server derives the project from
+    // the parent row, so the two can never disagree.
+    async createItem({ content, projectId = null, parentId = null }) {
       try {
-        const { item } = await this.request('POST', { body: { content, projectId } })
+        const body = parentId === null ? { content, projectId } : { content, parentId }
+        const { item } = await this.request('POST', { body })
         if (this.belongsToLoadedList(item)) this.items.push(item)
         return item
       } catch (error) {
@@ -144,8 +150,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
       try {
         const { item: updated } = await this.request('PATCH', { body: { id, ...body } })
         Object.assign(item, updated)
-        // A completed task leaves the visible list; it is not deleted.
-        if (updated.completedAt) this.items = this.items.filter((row) => row.id !== id)
+        // A completed task leaves the visible list; it is not deleted. A
+        // completed sub-task stays: the panel shows it checked and counts it
+        // into its "done/total" progress.
+        if (updated.completedAt && !updated.parentId) {
+          this.items = this.items.filter((row) => row.id !== id)
+        }
         return item
       } catch (error) {
         console.error('Failed to update task:', error)

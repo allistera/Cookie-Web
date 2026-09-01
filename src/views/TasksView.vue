@@ -122,6 +122,10 @@ const descriptionRows = computed(() =>
   Math.min(8, Math.max(2, descriptionEdit.draft.value.split('\n').length)),
 )
 
+// Sub-tasks live inside their parent's panel, not in the list; the store
+// still loads them so the panel can resolve them from the same list.
+const topLevelItems = computed(() => items.items.filter((item) => !item.parentId))
+
 const composing = ref(false)
 const draft = ref('')
 const draftInput = ref(null)
@@ -188,7 +192,7 @@ async function submitDraft() {
        never the previous project's rows. -->
     <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
     <ul v-else class="task-rows">
-      <li v-for="item in items.items" :key="item.id" class="task-row">
+      <li v-for="item in topLevelItems" :key="item.id" class="task-row">
         <button
           class="task-check"
           type="button"

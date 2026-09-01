@@ -1871,6 +1871,45 @@ test('Tasks: a task opens in the panel, takes a date, and the link survives a re
   await expect(page.locator('.task-row')).toHaveCount(1)
 })
 
+test('Tasks: sub-tasks are added and completed in the panel, and stay out of the list', async ({
+  page,
+}) => {
+  await page.goto('/tasks?project=inbox')
+
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Investigate this animation style')
+  await page.locator('.add-task-row input').press('Enter')
+  await page.locator('.task-open').click()
+  await expect(page.locator('.task-panel')).toBeVisible()
+
+  // Two sub-tasks via the composer; each Enter closes it again.
+  await page.locator('.add-subtask-btn').click()
+  await page.locator('.add-subtask-row input').fill('Example 1')
+  await page.locator('.add-subtask-row input').press('Enter')
+  await page.locator('.add-subtask-btn').click()
+  await page.locator('.add-subtask-row input').fill('Example 2')
+  await page.locator('.add-subtask-row input').press('Enter')
+
+  await expect(page.locator('.subtask-row')).toHaveCount(2)
+  await expect(page.locator('.task-subtasks-count')).toHaveText('0/2')
+
+  // Completing one keeps it listed, checked, and counted.
+  await page.locator('.subtask-row', { hasText: 'Example 1' }).locator('.subtask-check').click()
+  await expect(page.locator('.task-subtasks-count')).toHaveText('1/2')
+  await expect(
+    page.locator('.subtask-row', { hasText: 'Example 1' }).locator('.subtask-content'),
+  ).toHaveClass(/done/)
+
+  // The panel is URL-backed, so the sub-tasks survive a reload intact.
+  await page.reload()
+  await expect(page.locator('.subtask-row')).toHaveCount(2)
+  await expect(page.locator('.task-subtasks-count')).toHaveText('1/2')
+
+  // The list behind the panel shows only the top-level task.
+  await page.locator('.task-panel-close').click()
+  await expect(page.locator('.task-row')).toHaveCount(1)
+})
+
 test('Tasks: Today lists what is due today from across the projects', async ({ page }) => {
   await page.goto('/tasks')
 

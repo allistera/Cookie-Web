@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useInlineEdit } from '../composables/useInlineEdit'
@@ -58,6 +58,32 @@ const descriptionEdit = useInlineEdit({
 const descriptionRows = computed(() =>
   Math.min(8, Math.max(2, descriptionEdit.draft.value.split('\n').length)),
 )
+
+// Sub-tasks resolve out of the same loaded list the panel's own task does —
+// the list query returns them (completed included) alongside their parent.
+const subtasks = computed(() => items.items.filter((row) => row.parentId === props.taskId))
+const doneCount = computed(() => subtasks.value.filter((row) => row.completedAt).length)
+const subtasksOpen = ref(true)
+
+const addingSubtask = ref(false)
+const subtaskDraft = ref('')
+const subtaskInput = ref(null)
+
+async function startAddSubtask() {
+  subtaskDraft.value = ''
+  addingSubtask.value = true
+  await nextTick()
+  subtaskInput.value?.focus()
+}
+
+async function submitSubtask() {
+  // Same Enter-then-blur double fire as the title and description edits.
+  if (!addingSubtask.value) return
+  const content = subtaskDraft.value.trim()
+  addingSubtask.value = false
+  if (!content) return
+  await items.createItem({ content, parentId: props.taskId })
+}
 
 // An empty input means the date was cleared; null is what the server treats
 // as "no date", where '' would be refused as malformed.
@@ -186,6 +212,59 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <p v-else class="task-panel-description" @click="descriptionEdit.start">
             {{ item?.description || 'Add a description' }}
           </p>
+
+          <section class="task-subtasks" aria-label="Sub-tasks">
+            <header v-if="subtasks.length" class="task-subtasks-header">
+              <button
+                class="task-subtasks-toggle"
+                type="button"
+                :aria-expanded="subtasksOpen ? 'true' : 'false'"
+                @click="subtasksOpen = !subtasksOpen"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">
+                  {{ subtasksOpen ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
+                </span>
+                <span class="task-subtasks-title">Sub-tasks</span>
+                <span class="task-subtasks-count">{{ doneCount }}/{{ subtasks.length }}</span>
+              </button>
+            </header>
+
+            <template v-if="subtasksOpen">
+              <ul v-if="subtasks.length" class="subtask-rows">
+                <li v-for="sub in subtasks" :key="sub.id" class="subtask-row">
+                  <button
+                    class="subtask-check"
+                    :class="{ done: sub.completedAt }"
+                    type="button"
+                    :aria-label="`${sub.completedAt ? 'Reopen' : 'Complete'} ${sub.content}`"
+                    @click="items.setCompleted(sub.id, !sub.completedAt)"
+                  >
+                    <span v-if="sub.completedAt" class="material-symbols-outlined" aria-hidden="true"
+                      >check</span
+                    >
+                  </button>
+                  <span class="subtask-content" :class="{ done: sub.completedAt }">
+                    {{ sub.content }}
+                  </span>
+                </li>
+              </ul>
+
+              <form v-if="addingSubtask" class="add-subtask-row" @submit.prevent="submitSubtask">
+                <input
+                  ref="subtaskInput"
+                  v-model="subtaskDraft"
+                  placeholder="Sub-task name"
+                  aria-label="Sub-task name"
+                  @keydown.enter.prevent="submitSubtask"
+                  @keydown.escape.stop="addingSubtask = false"
+                  @blur="submitSubtask"
+                />
+              </form>
+              <button v-else class="add-subtask-btn" type="button" @click="startAddSubtask">
+                <span aria-hidden="true">+</span> Add sub-task
+              </button>
+            </template>
+          </section>
         </div>
         <aside class="task-panel-rail">
           <div class="task-panel-field">
@@ -387,6 +466,125 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   resize: none;
   field-sizing: content;
 }
+.task-subtasks {
+  margin: 22px 0 0 32px;
+}
+
+.task-subtasks-header {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.task-subtasks-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-subtasks-toggle .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.task-subtasks-count {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.subtask-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.subtask-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.subtask-check:hover {
+  background: var(--bg-hover);
+}
+
+.subtask-check.done {
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
+  color: var(--bg-dialog);
+}
+
+.subtask-check .material-symbols-outlined {
+  font-size: 12px;
+}
+
+.subtask-content {
+  font-size: 14px;
+  min-width: 0;
+}
+
+.subtask-content.done {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.add-subtask-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.add-subtask-btn:hover {
+  color: var(--text-primary);
+}
+
+.add-subtask-row {
+  display: flex;
+  margin-top: 8px;
+}
+
+.add-subtask-row input {
+  flex: 1;
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .task-panel-field + .task-panel-field {
   margin-top: 18px;
   padding-top: 18px;

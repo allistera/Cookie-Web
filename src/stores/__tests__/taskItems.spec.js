@@ -56,6 +56,48 @@ describe('task items store', () => {
     expect(store.items).toEqual([])
   })
 
+  // A sub-task sends only its parent — the server derives the project from
+  // the parent row — and it belongs wherever its parent is already listed.
+  it('creates a sub-task against its parent and lists it beside it', async () => {
+    store.loadedProject = 'p1'
+    store.items = [{ ...ITEM }]
+    const SUB = { id: 't2', projectId: 'p1', parentId: 't1', content: 'Step one', completedAt: null }
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: SUB }) }))
+
+    await store.createItem({ content: 'Step one', parentId: 't1' })
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ content: 'Step one', parentId: 't1' })
+    expect(store.items).toHaveLength(2)
+  })
+
+  it('leaves the list alone for a sub-task whose parent is not on screen', async () => {
+    store.loadedProject = 'today'
+    store.items = []
+    const SUB = { id: 't2', projectId: 'p1', parentId: 't1', content: 'Step one', completedAt: null }
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: SUB }) }))
+
+    await store.createItem({ content: 'Step one', parentId: 't1' })
+
+    expect(store.items).toEqual([])
+  })
+
+  // A completed sub-task stays listed: the panel shows it checked and counts
+  // it into its "done/total" progress.
+  it('keeps a completed sub-task in the list, marked complete', async () => {
+    const SUB = { id: 't2', projectId: 'p1', parentId: 't1', content: 'Step one', completedAt: null }
+    store.items = [{ ...ITEM }, { ...SUB }]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...SUB, completedAt: '2026-08-29T10:00:00Z' } }),
+    }))
+
+    await store.setCompleted('t2', true)
+
+    expect(store.items).toHaveLength(2)
+    expect(store.items[1].completedAt).toBe('2026-08-29T10:00:00Z')
+  })
+
   it('rolls a failed rename back and surfaces the server message', async () => {
     store.items = [{ ...ITEM }]
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
