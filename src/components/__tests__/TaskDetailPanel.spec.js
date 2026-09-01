@@ -170,10 +170,25 @@ describe('TaskDetailPanel', () => {
     await wrapper.get('.task-panel-description').trigger('click')
     await flushPromises()
     await wrapper.get('.task-panel-description-input').setValue('Why this matters')
-    await wrapper.get('.task-panel-description-input').trigger('keydown.enter')
+    await wrapper.get('.task-panel-description-input').trigger('blur')
     await flushPromises()
 
     expect(describeItem).toHaveBeenCalledWith('b', 'Why this matters')
+  })
+
+  it('keeps the newlines of a multi-line description', async () => {
+    seed()
+    const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-description').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-description-input').setValue('First line\nSecond line')
+    await wrapper.get('.task-panel-description-input').trigger('blur')
+    await flushPromises()
+
+    expect(describeItem).toHaveBeenCalledWith('b', 'First line\nSecond line')
   })
 
   it('clears a description by emptying it', async () => {
@@ -185,7 +200,7 @@ describe('TaskDetailPanel', () => {
     await wrapper.get('.task-panel-description').trigger('click')
     await flushPromises()
     await wrapper.get('.task-panel-description-input').setValue('')
-    await wrapper.get('.task-panel-description-input').trigger('keydown.enter')
+    await wrapper.get('.task-panel-description-input').trigger('blur')
     await flushPromises()
 
     expect(describeItem).toHaveBeenCalledWith('b', null)

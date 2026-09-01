@@ -52,6 +52,13 @@ const descriptionEdit = useInlineEdit({
   selectAll: false,
 })
 
+// Descriptions are multi-line, so Enter makes a newline and only blur (or
+// Escape, discarding) leaves the edit. The rows track the draft as a fallback
+// for browsers without field-sizing, which otherwise does the growing.
+const descriptionRows = computed(() =>
+  Math.min(8, Math.max(2, descriptionEdit.draft.value.split('\n').length)),
+)
+
 // An empty input means the date was cleared; null is what the server treats
 // as "no date", where '' would be refused as malformed.
 function onDateChange(event) {
@@ -165,16 +172,17 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             <h2 v-else class="task-panel-title" @click="titleEdit.start">{{ item?.content }}</h2>
           </div>
 
-          <input
+          <textarea
             v-if="descriptionEdit.editing.value"
             :ref="(el) => (descriptionEdit.inputRef.value = el)"
             v-model="descriptionEdit.draft.value"
             class="task-panel-description-input"
+            placeholder="Add a description"
             aria-label="Task description"
-            @keydown.enter.prevent="descriptionEdit.submit"
+            :rows="descriptionRows"
             @keydown.escape="descriptionEdit.editing.value = false"
             @blur="descriptionEdit.submit"
-          />
+          ></textarea>
           <p v-else class="task-panel-description" @click="descriptionEdit.start">
             {{ item?.description || 'Add a description' }}
           </p>
@@ -349,8 +357,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   color: var(--text-secondary);
   font-size: 14px;
   cursor: text;
+  white-space: pre-wrap;
 }
 
+/* Editing happens in place: the field carries the same metrics as the text it
+   replaces and no box of its own, so entering and leaving edit mode moves
+   nothing — the caret is the only sign the field is live. */
 .task-panel-title-input,
 .task-panel-description-input {
   display: block;
@@ -358,9 +370,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font: inherit;
   color: inherit;
   background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 2px 6px;
+  border: none;
+  outline: none;
+  padding: 0;
 }
 
 .task-panel-title-input {
@@ -372,6 +384,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   margin: 10px 0 0 32px;
   width: calc(100% - 32px);
   font-size: 14px;
+  resize: none;
+  field-sizing: content;
 }
 .task-panel-field + .task-panel-field {
   margin-top: 18px;

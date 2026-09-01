@@ -115,6 +115,13 @@ const descriptionEdit = useInlineEdit({
   selectAll: false,
 })
 
+// Descriptions are multi-line, so Enter makes a newline and only blur (or
+// Escape, discarding) leaves the edit. The rows track the draft as a fallback
+// for browsers without field-sizing, which otherwise does the growing.
+const descriptionRows = computed(() =>
+  Math.min(8, Math.max(2, descriptionEdit.draft.value.split('\n').length)),
+)
+
 const composing = ref(false)
 const draft = ref('')
 const draftInput = ref(null)
@@ -161,17 +168,17 @@ async function submitDraft() {
     />
     <h1 v-else class="tasks-title" @click="titleEdit.start">{{ title }}</h1>
 
-    <input
+    <textarea
       v-if="descriptionEdit.editing.value"
       :ref="(el) => (descriptionEdit.inputRef.value = el)"
       v-model="descriptionEdit.draft.value"
       class="tasks-description-input"
       placeholder="Add a description"
       aria-label="Project description"
-      @keydown.enter.prevent="descriptionEdit.submit"
+      :rows="descriptionRows"
       @keydown.escape="descriptionEdit.editing.value = false"
       @blur="descriptionEdit.submit"
-    />
+    ></textarea>
     <p v-else-if="!isRule" class="tasks-description" @click="descriptionEdit.start">
       {{ current?.description || 'Add a description' }}
     </p>
@@ -269,8 +276,12 @@ async function submitDraft() {
   color: var(--text-secondary);
   font-size: 14px;
   cursor: text;
+  white-space: pre-wrap;
 }
 
+/* Editing happens in place: the field carries the same metrics as the text it
+   replaces and no box of its own, so entering and leaving edit mode moves
+   nothing — the caret is the only sign the field is live. */
 .tasks-title-input,
 .tasks-description-input {
   display: block;
@@ -278,9 +289,9 @@ async function submitDraft() {
   font: inherit;
   color: inherit;
   background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 2px 6px;
+  border: none;
+  outline: none;
+  padding: 0;
 }
 
 .tasks-title-input {
@@ -292,6 +303,8 @@ async function submitDraft() {
 .tasks-description-input {
   margin: 0 0 24px;
   font-size: 14px;
+  resize: none;
+  field-sizing: content;
 }
 
 .tasks-loading {

@@ -22,6 +22,7 @@ export function useInlineEdit({ read, write, canEdit = () => true, selectAll = t
     await nextTick()
     inputRef.value?.focus()
     if (selectAll) inputRef.value?.select?.()
+    else inputRef.value?.setSelectionRange?.(draft.value.length, draft.value.length)
   }
 
   async function submit() {
