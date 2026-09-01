@@ -1846,7 +1846,7 @@ test('Tasks: a task can be added to a project and completed', async ({ page }) =
 test('Tasks: a task opens in the panel, takes a date, and the link survives a reload', async ({
   page,
 }) => {
-  await page.goto('/tasks')
+  await page.goto('/tasks?project=inbox')
 
   await page.locator('.add-task-btn').click()
   await page.locator('.add-task-row input').fill('Ship the panel')
@@ -1988,7 +1988,7 @@ test('Tasks: an overdue task is carried into Today and can be deleted', async ({
 })
 
 test('Tasks: a task can be deleted from the list without opening it', async ({ page }) => {
-  await page.goto('/tasks')
+  await page.goto('/tasks?project=inbox')
 
   await page.locator('.add-task-btn').click()
   await page.locator('.add-task-row input').fill('Delete me from the list')
