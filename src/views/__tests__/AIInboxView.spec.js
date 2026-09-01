@@ -15,6 +15,7 @@ function makeRouter() {
     routes: [
       { path: '/', name: 'ai-inbox', component: { template: '<div />' } },
       { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
+      { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
     ],
   })
 }
@@ -84,7 +85,7 @@ describe('AIInboxView (AI Today)', () => {
   })
 
   it('greets the signed-in user by first name with the counters', () => {
-    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+    store.tasks = [{ id: 'task-1', source: 'task', content: 'Book dentist', url: null }]
     store.digest = DIGEST()
 
     const greeting = mountView().get('.ai-greeting').text()
@@ -130,7 +131,7 @@ describe('AIInboxView (AI Today)', () => {
   })
 
   it('names only the to-dos when there are no priority groups', () => {
-    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+    store.tasks = [{ id: 'task-1', source: 'task', content: 'Book dentist', url: null }]
     const greeting = mountView().get('.ai-greeting').text()
 
     expect(greeting).toContain('You have')
@@ -389,10 +390,10 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         description: 'Policy expires Friday',
-        url: 'https://app.todoist.com/app/task/task-1',
+        url: null,
       },
       {
         id: 'task-3',
@@ -406,9 +407,10 @@ describe('AIInboxView (AI Today)', () => {
       },
       {
         id: 'task-2',
-        source: 'todoist',
+        source: 'email',
         content: 'Book dentist',
         description: null,
+        message_id: null,
         url: null,
       },
     ]
@@ -425,15 +427,14 @@ describe('AIInboxView (AI Today)', () => {
 
     // Title is bold, description sits beside it.
     expect(rows[0].text()).toContain('Renew car insurance – Policy expires Friday')
-    expect(rows[0].text()).toContain('From: Todoist')
+    expect(rows[0].text()).toContain('From: Tasks')
     expect(rows[1].text()).toContain('From: Email')
 
-    // A Todoist task with a url gets an Open link; one without gets no action.
+    // A built-in task gets a router link into the Tasks app.
     const openLink = rows[0].get('a.action-pill-btn')
-    expect(openLink.attributes('href')).toBe('https://app.todoist.com/app/task/task-1')
-    expect(openLink.attributes('target')).toBe('_blank')
-    // A task with neither a url nor a message_id gets no Open/Draft action,
-    // but every row still offers Reschedule.
+    expect(openLink.attributes('href')).toBe('/tasks?project=today&task=task-1')
+    // A task with neither a task source nor a message_id gets no Open/Draft
+    // action, but every row still offers Reschedule.
     expect(rows[2].find('a.action-pill-btn').exists()).toBe(false)
     expect(rows[2].findAll('.action-pill-btn').map((el) => el.text())).toEqual([
       expect.stringContaining('Reschedule'),
@@ -443,23 +444,6 @@ describe('AIInboxView (AI Today)', () => {
     expect(rows[1].get('.action-pill-btn').text()).toContain('Draft')
 
     expect(wrapper.get('.ai-greeting').text()).toContain('3 to-dos')
-  })
-
-  // Task URLs reach the app from Todoist via /api/tasks, so they are external
-  // input rendered straight into an href.
-  it.each([
-    ['javascript:', 'javascript:alert(1)'],
-    ['data:', 'data:text/html,<script>alert(1)</script>'],
-    ['a relative path', '/app/task/task-1'],
-  ])('does not render %s as an Open link', (_label, url) => {
-    store.tasks = [
-      { id: 'task-1', source: 'todoist', content: 'Renew car insurance', description: null, url },
-    ]
-
-    const rows = rowsOf(mountView())
-
-    expect(rows).toHaveLength(1)
-    expect(rows[0].find('a.action-pill-btn').exists()).toBe(false)
   })
 
   it('generates a follow-up draft from an email task', async () => {
@@ -484,11 +468,11 @@ describe('AIInboxView (AI Today)', () => {
     expect(notify).toHaveBeenCalledWith('Follow-up draft ready to review.')
   })
 
-  it('completing a Todoist task persists it, hides it, and updates the counter', async () => {
+  it('completing a built-in task persists it, hides it, and updates the counter', async () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         description: 'x',
         url: null,
@@ -508,11 +492,11 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.get('.ai-greeting').text()).not.toContain('to-dos')
   })
 
-  it('rolls a Todoist task back into the list when completion fails', async () => {
+  it('rolls a built-in task back into the list when completion fails', async () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         description: 'x',
         url: null,
@@ -535,7 +519,7 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         description: null,
         url: null,
@@ -572,7 +556,7 @@ describe('AIInboxView (AI Today)', () => {
   // document listener: a guard that missed it would open the menu and close it
   // again in the same click, which an unattached mount can never show.
   it('closes an open reschedule menu on a click outside it, but not on its own', async () => {
-    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Renew car insurance', url: null }]
+    store.tasks = [{ id: 'task-1', source: 'task', content: 'Renew car insurance', url: null }]
 
     const wrapper = mountView({ attachTo: document.body })
     try {
@@ -594,7 +578,7 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         description: null,
         url: null,
@@ -624,7 +608,7 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         description: null,
         url: null,
@@ -654,7 +638,7 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         url: null,
         gathered_at: twoHoursAgo,
@@ -682,7 +666,7 @@ describe('AIInboxView (AI Today)', () => {
     store.tasks = [
       {
         id: 'task-1',
-        source: 'todoist',
+        source: 'task',
         content: 'Renew car insurance',
         url: null,
         gathered_at: twoHoursAgo,
@@ -691,7 +675,7 @@ describe('AIInboxView (AI Today)', () => {
     vi.spyOn(store, 'rebuildDigest').mockResolvedValue(true)
     // Refresh only ever rebuilds the digest/news - the task itself (and its
     // gathered_at) is untouched, same as a real refresh where nothing new
-    // was gathered from Todoist/email since the overnight run.
+    // was gathered from the Tasks app/email since the overnight run.
     vi.spyOn(store, 'loadTasks').mockImplementation(async () => {
       store.digest = { ...DIGEST(), created_at: new Date().toISOString() }
     })
@@ -743,7 +727,7 @@ describe('AIInboxView (AI Today)', () => {
   })
 
   it('falls back when no task carries a gathered_at', () => {
-    store.tasks = [{ id: 'task-1', source: 'todoist', content: 'Book dentist', url: null }]
+    store.tasks = [{ id: 'task-1', source: 'task', content: 'Book dentist', url: null }]
     expect(mountView().get('.status-time').text()).toBe('Not gathered yet')
   })
 })

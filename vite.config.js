@@ -1014,32 +1014,34 @@ function localApiPlugin(mode) {
     return json(res, { error: 'Method not allowed' }, 405)
   }
 
-  // Held three hours back so AI Today's staleness line is deterministic.
+  // Held three hours back so AI Today's staleness line is deterministic. Built-in
+  // task rows carry no gathered_at (the Worker sends null for them), so the
+  // staleness comes from the email task, digest and news.
   const fixtureTasksPayload = () => {
     const gatheredAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
     return {
       tasks: [
         {
           id: 'stub-task-1',
-          source: 'todoist',
+          source: 'task',
           content: 'Renew car insurance',
           description: 'Policy lapses on Friday — compare two quotes first.',
           due_date: null,
-          priority: 4,
-          url: 'https://app.todoist.com/app/task/stub-task-1',
+          priority: null,
+          url: null,
           message_id: null,
-          gathered_at: gatheredAt,
+          gathered_at: null,
         },
         {
           id: 'stub-task-2',
-          source: 'todoist',
+          source: 'task',
           content: 'Book dentist appointment',
           description: 'Six-month check-up for the whole family.',
           due_date: null,
-          priority: 2,
-          url: 'https://app.todoist.com/app/task/stub-task-2',
+          priority: null,
+          url: null,
           message_id: null,
-          gathered_at: gatheredAt,
+          gathered_at: null,
         },
         {
           id: 'stub-email-task-1',
@@ -1345,8 +1347,8 @@ function localApiPlugin(mode) {
     }
     if (sub) return json(res, { error: 'Not Found' }, 404)
     if (req.method === 'POST') {
-      // Completing a task: pretend the Todoist close + row delete succeeded.
-      return json(res, { ok: true, closedInTodoist: true })
+      // Completing/rescheduling a task: pretend the Tasks-app update succeeded.
+      return json(res, { ok: true })
     }
     return json(res, fixtureTasksPayload())
   }

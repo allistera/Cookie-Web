@@ -2,6 +2,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { mergeInboxPage, useInboxStore } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
+import { localToday } from '../../lib/localDate'
 import {
   AI_API_URL,
   EMAILS_API_URL,
@@ -878,7 +879,7 @@ describe('Inbox Store', () => {
 
     await store.loadTasks() // cached: no second request
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_API_URL}/tasks`)
+    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_API_URL}/tasks?date=${localToday()}`)
   })
 
   it('completeTask posts the completion and drops the task from the list', async () => {
@@ -886,8 +887,8 @@ describe('Inbox Store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
     store.tasks = [
-      { id: 't1', source: 'todoist', content: 'Renew insurance' },
-      { id: 't2', source: 'todoist', content: 'Book dentist' },
+      { id: 't1', source: 'task', content: 'Renew insurance' },
+      { id: 't2', source: 'task', content: 'Book dentist' },
     ]
 
     await store.completeTask('t1')
@@ -903,7 +904,7 @@ describe('Inbox Store', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 502 })
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
-    store.tasks = [{ id: 't1', source: 'todoist', content: 'Renew insurance' }]
+    store.tasks = [{ id: 't1', source: 'task', content: 'Renew insurance' }]
 
     await expect(store.completeTask('t1')).rejects.toThrow('502')
     expect(store.tasks.map((t) => t.id)).toEqual(['t1'])
@@ -913,9 +914,7 @@ describe('Inbox Store', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
-    store.tasks = [
-      { id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' },
-    ]
+    store.tasks = [{ id: 't1', source: 'task', content: 'Renew insurance', due_date: '2026-08-18' }]
 
     await store.rescheduleTask('t1', '2026-08-25')
 
@@ -934,9 +933,7 @@ describe('Inbox Store', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 502 })
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
-    store.tasks = [
-      { id: 't1', source: 'todoist', content: 'Renew insurance', due_date: '2026-08-18' },
-    ]
+    store.tasks = [{ id: 't1', source: 'task', content: 'Renew insurance', due_date: '2026-08-18' }]
 
     await expect(store.rescheduleTask('t1', '2026-08-25')).rejects.toThrow('502')
     expect(store.tasks[0].due_date).toBe('2026-08-18')

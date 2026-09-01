@@ -291,7 +291,7 @@ test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog'
 test('The root path shows AI Today to-dos, email triage, and news', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
-  // Two Todoist tasks and one email follow-up, all really gathered.
+  // Two built-in tasks and one email follow-up, all really gathered.
   await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('3 to-dos')
 
   // Sidebar labels this view "AI Today".
@@ -306,10 +306,10 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
   const firstTask = todos.locator('.todo-row').first()
   await expect(firstTask.locator('strong')).toHaveText('Renew car insurance')
   await expect(firstTask).toContainText('Renew car insurance – Policy lapses on Friday')
-  await expect(firstTask).toContainText('From: Todoist')
+  await expect(firstTask).toContainText('From: Tasks')
   await expect(firstTask.locator('a.action-pill-btn')).toHaveAttribute(
     'href',
-    'https://app.todoist.com/app/task/stub-task-1',
+    '/tasks?project=today&task=stub-task-1',
   )
 
   // Email action items offer a one-click, editable follow-up draft.
@@ -447,7 +447,7 @@ test('Marking a triage group read clears its unread dots', async ({ page }) => {
   await expect(replyNeeded.locator('.topic-action-btn')).toHaveCount(0)
 })
 
-test('Marking a Todoist task done removes it from AI Today and confirms with a toast', async ({
+test('Marking a built-in task done removes it from AI Today and confirms with a toast', async ({
   page,
 }) => {
   const completions = []

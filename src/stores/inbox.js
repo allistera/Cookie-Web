@@ -10,6 +10,7 @@ import {
   RECEIPTS_API_URL,
   TASKS_API_URL,
 } from '../lib/apiWorkers'
+import { localToday } from '../lib/localDate'
 import { recipientsValid } from '../lib/recipients'
 import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { parseMailto } from '../lib/unsubscribeContent'
@@ -394,8 +395,9 @@ export const useInboxStore = defineStore('inbox', {
     contacts: [],
     contactsLoaded: false,
 
-    // AI dashboard "Needs attention" tasks (Todoist + email action items),
-    // loaded lazily when the AI view opens.
+    // AI dashboard "Needs attention" tasks (built-in Tasks-app items due
+    // today/overdue + email action items), loaded lazily when the AI view
+    // opens.
     tasks: [],
     tasksLoaded: false,
 
@@ -1790,7 +1792,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.tasksLoaded && !force) return
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${TASKS_API_URL}/tasks`, { headers })
+        const response = await fetch(`${TASKS_API_URL}/tasks?date=${localToday()}`, { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
         const { tasks, digest, news } = await response.json()
         this.tasks = tasks
@@ -1878,9 +1880,10 @@ export const useInboxStore = defineStore('inbox', {
       return results.filter((result) => result.status === 'fulfilled').length
     },
 
-    // Marks a gathered task done (POST /api/tasks). Todoist tasks are closed in
-    // Todoist server-side. Throws on a non-2xx so the caller can roll back its
-    // optimistic UI; on success the task is dropped from the local list.
+    // Marks a gathered task done (POST /api/tasks). A built-in task is marked
+    // completed in the Tasks app server-side. Throws on a non-2xx so the
+    // caller can roll back its optimistic UI; on success the task is dropped
+    // from the local list.
     async completeTask(id) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch(`${TASKS_API_URL}/tasks`, {
@@ -1895,11 +1898,12 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
-    // Reschedules a gathered task to another day (POST /api/tasks). Todoist
-    // tasks are rescheduled in Todoist server-side first. Throws on a non-2xx
-    // so the caller can roll back its optimistic UI; on success the task's
-    // due_date is updated in place - whether it should still be visible today
-    // is the caller's call, since a reschedule to later today keeps it there.
+    // Reschedules a gathered task to another day (POST /api/tasks). A
+    // built-in task has its due date set in the Tasks app server-side first.
+    // Throws on a non-2xx so the caller can roll back its optimistic UI; on
+    // success the task's due_date is updated in place - whether it should
+    // still be visible today is the caller's call, since a reschedule to
+    // later today keeps it there.
     async rescheduleTask(id, dueDate) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch(`${TASKS_API_URL}/tasks`, {

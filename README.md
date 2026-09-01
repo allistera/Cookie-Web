@@ -41,8 +41,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Debounced hybrid search over stored mail, served by Meilisearch, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
-- AI Today: gathered to-dos (Todoist tasks due today plus action items extracted
-  from important mail), Reply Needed/Review/Noise triage over the last 24 hours
+- AI Today: gathered to-dos (built-in Tasks due today or overdue plus action items
+  extracted from important mail), Reply Needed/Review/Noise triage over the last 24 hours
   of Inbox mail, and a personalised news round-up. Reply Needed and Review are
   visible priority groups; Noise is summarized by category without archiving or
   deleting anything. The `data-enricher` Worker produces these records and
@@ -113,7 +113,7 @@ The main runtime variables are:
 | `VITE_SUPABASE_URL`          | Supabase project URL used for Realtime.                                                                                                                           |
 | `VITE_SUPABASE_ANON_KEY`     | Supabase publishable key used for content-free Realtime pings.                                                                                                    |
 
-`TODOIST_API_TOKEN`, `ENRICHER_RUN_URL`, and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those three now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
+`ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those two now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
 Vercel stores production values. GitHub Actions stores only the secrets its migration workflow needs.
 

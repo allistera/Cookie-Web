@@ -9,11 +9,12 @@ const store = useInboxStore()
 const { user } = useAuth()
 
 // "AI Today" shows what the data-enricher Worker gathered overnight: tasks
-// (Todoist tasks due today plus action items extracted from important mail)
-// and a three-tier triage of the last 24 hours of inbox mail. Reply Needed and
-// Review are shown as priority groups; Noise is summarized rather than listed.
-// Completing a task hides it immediately, then persists via the store (which closes it in
-// Todoist); a failure rolls the row back.
+// (built-in Tasks-app items due today or overdue plus action items extracted
+// from important mail) and a three-tier triage of the last 24 hours of inbox
+// mail. Reply Needed and Review are shown as priority groups; Noise is
+// summarized rather than listed.
+// Completing a task hides it immediately, then persists via the store (which
+// completes it in the Tasks app); a failure rolls the row back.
 // Dismissing a priority item's done checkbox hides it immediately (mirroring
 // completeTask below), so groups are re-derived to drop dismissed items and
 // any group left with none.
@@ -176,9 +177,9 @@ async function draftFollowUp(task) {
   if (generated) store.notify('Follow-up draft ready to review.')
 }
 
-// External links (tasks from Todoist via /api/tasks, news from GitHub /
-// Product Hunt / RSS feeds) are untrusted: only ever render a real web link
-// as an href, so an unexpected value can't become a javascript:/data: navigation.
+// External links (news from GitHub / Product Hunt / RSS feeds) are untrusted:
+// only ever render a real web link as an href, so an unexpected value can't
+// become a javascript:/data: navigation.
 function safeHref(url) {
   try {
     const { protocol } = new URL(url)
@@ -188,18 +189,14 @@ function safeHref(url) {
   }
 }
 
-function taskLink(task) {
-  return safeHref(task.url)
-}
-
 function newsLink(item) {
   return safeHref(item.url)
 }
 
 // How stale the gathered set is, from the most recent of: a task's
 // gathered_at, or the digest's/news's created_at. Refresh only ever rebuilds
-// the digest and news (tasks come from Todoist/email gathering, untouched by
-// it), so anchoring this to tasks alone left the status text - the one
+// the digest and news (tasks come from the Tasks app/email gathering,
+// untouched by it), so anchoring this to tasks alone left the status text - the one
 // visible sign a refresh did anything - stuck on the last overnight run even
 // after a successful rebuild. `now` is only re-read on mount and on refresh;
 // this is a dashboard glanced at, not a live clock.
@@ -309,23 +306,19 @@ onUnmounted(() => {
               ><template v-if="task.description"> – {{ task.description }}</template>
               <span class="from-links-container">
                 From:
-                <span class="email-link">{{
-                  task.source === 'todoist' ? 'Todoist' : 'Email'
-                }}</span>
+                <span class="email-link">{{ task.source === 'task' ? 'Tasks' : 'Email' }}</span>
               </span>
             </div>
 
             <div class="todo-actions">
-              <a
-                v-if="taskLink(task)"
+              <RouterLink
+                v-if="task.source === 'task'"
                 class="action-pill-btn"
-                :href="taskLink(task)"
-                target="_blank"
-                rel="noopener noreferrer"
+                :to="{ path: '/tasks', query: { project: 'today', task: task.id } }"
               >
                 <span class="material-symbols-outlined">open_in_new</span>
                 <span>Open</span>
-              </a>
+              </RouterLink>
               <button
                 v-else-if="task.message_id"
                 class="action-pill-btn"
