@@ -98,7 +98,12 @@ onMounted(() => {
   items.loadItems(project.value)
 })
 
-watch(project, (next) => items.loadItems(next))
+watch(project, (next) => {
+  // A query naming a task in the old project would silently keep filtering
+  // once the new project's rows arrive, hiding them for no visible reason.
+  searchQuery.value = ''
+  items.loadItems(next)
+})
 
 const titleEdit = useInlineEdit({
   read: () => current.value?.name ?? '',
@@ -125,6 +130,46 @@ const descriptionRows = computed(() =>
 // Sub-tasks live inside their parent's panel, not in the list; the store
 // still loads them so the panel can resolve them from the same list.
 const topLevelItems = computed(() => items.items.filter((item) => !item.parentId))
+
+const searchQuery = ref('')
+const trimmedQuery = computed(() => searchQuery.value.trim())
+
+function matchesQuery(item, query) {
+  return (
+    item.content.toLowerCase().includes(query) ||
+    (item.description ?? '').toLowerCase().includes(query)
+  )
+}
+
+// A match can be a sub-task nested more than one level deep, so each match is
+// walked up to its top-level ancestor through a map rather than the tree
+// itself — the flat list has no child pointers. The hop count is capped at
+// the list length as a guard against a dangling parentId or an accidental
+// cycle, either of which would otherwise loop forever.
+function rootOf(item, byId) {
+  let current = item
+  let hops = 0
+  while (current.parentId && hops < items.items.length) {
+    const parent = byId.get(current.parentId)
+    if (!parent) break
+    current = parent
+    hops += 1
+  }
+  return current
+}
+
+const visibleItems = computed(() => {
+  const query = trimmedQuery.value.toLowerCase()
+  if (!query) return topLevelItems.value
+
+  const byId = new Map(items.items.map((item) => [item.id, item]))
+  const matchingRootIds = new Set()
+  for (const item of items.items) {
+    if (matchesQuery(item, query)) matchingRootIds.add(rootOf(item, byId).id)
+  }
+
+  return topLevelItems.value.filter((item) => matchingRootIds.has(item.id))
+})
 
 const composing = ref(false)
 const draft = ref('')
@@ -187,12 +232,25 @@ async function submitDraft() {
       {{ current?.description || 'Add a description' }}
     </p>
 
+    <input
+      v-if="items.items.length"
+      v-model="searchQuery"
+      type="search"
+      class="task-search"
+      placeholder="Search tasks"
+      aria-label="Search tasks"
+      @keydown.escape="searchQuery = ''"
+    />
+
     <!-- The store clears items.items before a switch goes out, so this only
        ever shows while genuinely waiting on the newly-selected project —
        never the previous project's rows. -->
     <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
+    <p v-else-if="trimmedQuery && !visibleItems.length" class="tasks-empty">
+      No tasks match "{{ trimmedQuery }}"
+    </p>
     <ul v-else class="task-rows">
-      <li v-for="item in topLevelItems" :key="item.id" class="task-row">
+      <li v-for="item in visibleItems" :key="item.id" class="task-row">
         <button
           class="task-check"
           type="button"
@@ -219,7 +277,13 @@ async function submitDraft() {
       </li>
     </ul>
 
-    <form v-if="composing && !isToday" class="add-task-row" @submit.prevent="submitDraft">
+    <!-- A task added while a query is active would match nothing and vanish
+       the instant it appears, so the composer waits for the query to clear. -->
+    <form
+      v-if="composing && !isToday && !trimmedQuery"
+      class="add-task-row"
+      @submit.prevent="submitDraft"
+    >
       <input
         ref="draftInput"
         v-model="draft"
@@ -230,7 +294,12 @@ async function submitDraft() {
         @blur="submitDraft"
       />
     </form>
-    <button v-else-if="!isToday" class="add-task-btn" type="button" @click="startCompose">
+    <button
+      v-else-if="!isToday && !trimmedQuery"
+      class="add-task-btn"
+      type="button"
+      @click="startCompose"
+    >
       <span aria-hidden="true">+</span>
       <span>Add task</span>
     </button>
@@ -311,7 +380,20 @@ async function submitDraft() {
   field-sizing: content;
 }
 
-.tasks-loading {
+.task-search {
+  display: block;
+  width: 100%;
+  margin: 0 0 12px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.tasks-loading,
+.tasks-empty {
   margin: 0;
   padding: 10px 0;
   color: var(--text-secondary);

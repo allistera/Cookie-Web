@@ -441,3 +441,122 @@ describe('deleting a task from the list', () => {
     expect(labels).toEqual(['Delete One', 'Delete Two'])
   })
 })
+
+describe('searching tasks', () => {
+  function seedItems() {
+    const items = useTaskItemsStore()
+    items.items = [
+      {
+        id: 't1',
+        content: 'Ship the release',
+        description: null,
+        parentId: null,
+        completedAt: null,
+      },
+      {
+        id: 't2',
+        content: 'Buy milk',
+        description: 'Get oat milk from the shop',
+        parentId: null,
+        completedAt: null,
+      },
+      { id: 't3', content: 'Write report', description: null, parentId: null, completedAt: null },
+      { id: 't4', content: 'Fix login bug', description: null, parentId: 't3', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    return items
+  }
+
+  it('filters to tasks whose title matches the query', async () => {
+    seedItems()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('ship')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-row')
+    expect(rows.map((row) => row.get('.task-content').text())).toEqual(['Ship the release'])
+  })
+
+  it('matches on a task’s description', async () => {
+    seedItems()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('oat milk')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-row')
+    expect(rows.map((row) => row.get('.task-content').text())).toEqual(['Buy milk'])
+  })
+
+  // Sub-tasks live inside their parent's panel, so a match on one keeps the
+  // parent row visible rather than surfacing the child directly.
+  it('keeps a parent visible when only a sub-task matches', async () => {
+    seedItems()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('login')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-row')
+    expect(rows.map((row) => row.get('.task-content').text())).toEqual(['Write report'])
+  })
+
+  it('matches regardless of case', async () => {
+    seedItems()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('SHIP')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-row')
+    expect(rows.map((row) => row.get('.task-content').text())).toEqual(['Ship the release'])
+  })
+
+  it('restores every row once the query is cleared', async () => {
+    const seeded = seedItems()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('ship')
+    await flushPromises()
+    await wrapper.get('.task-search').setValue('')
+    await flushPromises()
+
+    expect(wrapper.findAll('.task-row')).toHaveLength(3)
+    // Filtering is purely client-side: the store's own list is untouched.
+    expect(seeded.items).toHaveLength(4)
+  })
+
+  it('shows a no-match message when nothing matches the query', async () => {
+    seedItems()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('nonexistent')
+    await flushPromises()
+
+    expect(wrapper.find('.task-row').exists()).toBe(false)
+    expect(wrapper.get('.tasks-empty').text()).toBe('No tasks match "nonexistent"')
+  })
+
+  it('resets the query when the project changes', async () => {
+    const seeded = seedItems()
+    vi.spyOn(seeded, 'loadItems').mockResolvedValue(null)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.task-search').setValue('ship')
+    await flushPromises()
+    expect(wrapper.get('.task-search').element.value).toBe('ship')
+
+    await router.push('/tasks?project=p1')
+    await flushPromises()
+
+    expect(wrapper.get('.task-search').element.value).toBe('')
+  })
+})
