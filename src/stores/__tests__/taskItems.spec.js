@@ -61,7 +61,13 @@ describe('task items store', () => {
   it('creates a sub-task against its parent and lists it beside it', async () => {
     store.loadedProject = 'p1'
     store.items = [{ ...ITEM }]
-    const SUB = { id: 't2', projectId: 'p1', parentId: 't1', content: 'Step one', completedAt: null }
+    const SUB = {
+      id: 't2',
+      projectId: 'p1',
+      parentId: 't1',
+      content: 'Step one',
+      completedAt: null,
+    }
     stubFetch(async () => ({ ok: true, json: async () => ({ item: SUB }) }))
 
     await store.createItem({ content: 'Step one', parentId: 't1' })
@@ -74,7 +80,13 @@ describe('task items store', () => {
   it('leaves the list alone for a sub-task whose parent is not on screen', async () => {
     store.loadedProject = 'today'
     store.items = []
-    const SUB = { id: 't2', projectId: 'p1', parentId: 't1', content: 'Step one', completedAt: null }
+    const SUB = {
+      id: 't2',
+      projectId: 'p1',
+      parentId: 't1',
+      content: 'Step one',
+      completedAt: null,
+    }
     stubFetch(async () => ({ ok: true, json: async () => ({ item: SUB }) }))
 
     await store.createItem({ content: 'Step one', parentId: 't1' })
@@ -85,7 +97,13 @@ describe('task items store', () => {
   // A completed sub-task stays listed: the panel shows it checked and counts
   // it into its "done/total" progress.
   it('keeps a completed sub-task in the list, marked complete', async () => {
-    const SUB = { id: 't2', projectId: 'p1', parentId: 't1', content: 'Step one', completedAt: null }
+    const SUB = {
+      id: 't2',
+      projectId: 'p1',
+      parentId: 't1',
+      content: 'Step one',
+      completedAt: null,
+    }
     store.items = [{ ...ITEM }, { ...SUB }]
     stubFetch(async () => ({
       ok: true,

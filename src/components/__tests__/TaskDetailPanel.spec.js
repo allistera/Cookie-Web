@@ -210,7 +210,13 @@ describe('TaskDetailPanel', () => {
     seed([
       ...ITEMS,
       { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
-      { id: 's2', content: 'Step two', parentId: 'b', completedAt: '2026-09-01T10:00:00Z', projectId: null },
+      {
+        id: 's2',
+        content: 'Step two',
+        parentId: 'b',
+        completedAt: '2026-09-01T10:00:00Z',
+        projectId: null,
+      },
     ])
     const setCompleted = vi.spyOn(items, 'setCompleted').mockResolvedValue({})
     const wrapper = mountPanel()
@@ -226,7 +232,10 @@ describe('TaskDetailPanel', () => {
   })
 
   it('collapses the sub-task list behind the header toggle', async () => {
-    seed([...ITEMS, { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null }])
+    seed([
+      ...ITEMS,
+      { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
+    ])
     const wrapper = mountPanel()
     await flushPromises()
 

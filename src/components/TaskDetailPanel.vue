@@ -239,7 +239,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                     :aria-label="`${sub.completedAt ? 'Reopen' : 'Complete'} ${sub.content}`"
                     @click="items.setCompleted(sub.id, !sub.completedAt)"
                   >
-                    <span v-if="sub.completedAt" class="material-symbols-outlined" aria-hidden="true"
+                    <span
+                      v-if="sub.completedAt"
+                      class="material-symbols-outlined"
+                      aria-hidden="true"
                       >check</span
                     >
                   </button>
