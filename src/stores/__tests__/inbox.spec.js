@@ -2388,15 +2388,48 @@ describe('Inbox Store', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => result }))
     }
 
-    it('records a one-click unsubscribe against the cached body', async () => {
+    it('records a one-click unsubscribe against the cached body and marks it done', async () => {
       stubUnsubscribeResponse({ status: 'unsubscribed', method: 'one-click' })
       const store = useInboxStore()
+      store.archiveEmail = vi.fn()
       store.messageBodies.set('news-1', { html: null, text: 'hi' })
 
       await store.unsubscribeEmail(EMAIL)
 
       expect(store.messageBodies.get('news-1').unsubscribed).toBe(true)
       expect(store.toasts.at(-1).message).toBe('Unsubscribed from Daily Bites.')
+      expect(store.archiveEmail).toHaveBeenCalledWith(EMAIL)
+      expect(store.unsubscribingId).toBe(null)
+    })
+
+    it('sends allow_ai so the server may drive link-only unsubscribe pages', async () => {
+      stubUnsubscribeResponse({ status: 'unsubscribed', method: 'ai' })
+      const store = useInboxStore()
+      store.archiveEmail = vi.fn()
+
+      await store.unsubscribeEmail(EMAIL)
+
+      const [, options] = vi.mocked(fetch).mock.calls[0]
+      expect(JSON.parse(options.body)).toEqual({
+        id: 'news-1',
+        action: 'unsubscribe',
+        allow_ai: true,
+      })
+      expect(store.archiveEmail).toHaveBeenCalledWith(EMAIL)
+    })
+
+    it('flags the cached body and does not mark done when the AI attempt fails', async () => {
+      stubUnsubscribeResponse({ status: 'ai_failed', method: 'ai', url: 'https://x.example/u' })
+      const store = useInboxStore()
+      store.archiveEmail = vi.fn()
+      store.messageBodies.set('news-1', { html: null, text: 'hi' })
+
+      await store.unsubscribeEmail(EMAIL)
+
+      expect(store.messageBodies.get('news-1').unsubscribeFailed).toBe(true)
+      expect(store.toasts.at(-1).message).toBe('AI could not unsubscribe from Daily Bites.')
+      expect(store.toasts.at(-1).kind).toBe('error')
+      expect(store.archiveEmail).not.toHaveBeenCalled()
       expect(store.unsubscribingId).toBe(null)
     })
 

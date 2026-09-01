@@ -1696,6 +1696,25 @@ body {
   font-size: 18px;
 }
 
+.ni-unsub-btn:disabled {
+  cursor: default;
+}
+
+.ni-unsub-btn.failed {
+  color: var(--danger, #e5484d);
+}
+
+/* In-flight AI unsubscribe: the reader disables the button and swaps the
+   icon for a spinner (the attempt can run for up to three minutes). */
+.ni-unsub-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
 .ni-unsub-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);

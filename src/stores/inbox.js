@@ -505,6 +505,12 @@ export const useInboxStore = defineStore('inbox', {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.unsubscribed === true
     },
+    // True once an AI unsubscribe attempt for the open email failed this
+    // session; the reader swaps the button for a disabled failed state.
+    openEmailUnsubscribeFailed(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.unsubscribeFailed === true
+    },
     // True while the open email's body is being fetched. The reader uses this
     // (together with the email's hasHtml flag) to show a spinner instead of the
     // text fallback until the HTML iframe is ready.
@@ -1355,9 +1361,13 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Automated unsubscribe for newsletters (List-Unsubscribe header). The
-    // server performs a one-click POST when the sender supports RFC 8058;
-    // otherwise it hands back the sender's unsubscribe link (opened in a new
-    // tab) or a mailto fallback.
+    // server performs a one-click POST when the sender supports RFC 8058,
+    // sends a mailto unsubscribe via Resend, or — for link-only senders —
+    // drives the sender's unsubscribe page with AI (allow_ai). That last
+    // tier can take up to three minutes, so the reader shows a spinner off
+    // unsubscribingId for the duration. A confirmed unsubscribe marks the
+    // email done; a failed AI attempt flags the cached body so the reader
+    // shows a disabled "AI Unsubscribe Failed" state instead.
     async unsubscribeEmail(email) {
       if (!email || this.unsubscribingId) return
       this.unsubscribingId = email.id
@@ -1366,7 +1376,10 @@ export const useInboxStore = defineStore('inbox', {
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ id: email.id, action: 'unsubscribe' }),
+          body: JSON.stringify({ id: email.id, action: 'unsubscribe', allow_ai: true }),
+          // Slightly longer than the server's own three-minute AI budget so
+          // the server verdict, not this abort, decides the outcome.
+          signal: AbortSignal.timeout(190_000),
         })
         if (!response.ok) {
           throw new Error(`POST /api/messages responded ${response.status}`)
@@ -1383,6 +1396,18 @@ export const useInboxStore = defineStore('inbox', {
             )
           }
           this.notify(`Unsubscribed from ${email.sender}.`)
+          this.archiveEmail(email)
+        } else if (result.status === 'ai_failed') {
+          const cached = this.messageBodies.get(email.id)
+          if (cached) {
+            cacheSet(
+              this.messageBodies,
+              email.id,
+              { ...cached, unsubscribeFailed: true },
+              MAX_CACHED_MESSAGE_BODIES,
+            )
+          }
+          this.notify(`AI could not unsubscribe from ${email.sender}.`, 'error')
         } else if (result.status === 'manual' && isSafeUnsubscribeUrl(result.url)) {
           window.open(result.url, '_blank', 'noopener')
           this.notify('Finish unsubscribing on the page that just opened.')

@@ -1298,7 +1298,11 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     )
     expect(url).toBe(`${MESSAGES_API_URL}/messages`)
     expect(options.method).toBe('POST')
-    expect(JSON.parse(options.body)).toEqual({ id: 'news-1', action: 'unsubscribe' })
+    expect(JSON.parse(options.body)).toEqual({
+      id: 'news-1',
+      action: 'unsubscribe',
+      allow_ai: true,
+    })
 
     expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
@@ -1320,8 +1324,61 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     await vi.waitFor(() => {
       expect(openSpy).toHaveBeenCalledWith('https://news.example/unsub', '_blank', 'noopener')
     })
-    expect(store.traditionalEmails.some((email) => email.id === 'news-1')).toBe(false)
-    expect(store.openEmailId).toBe(null)
+    // Only a confirmed unsubscribe marks the email done — the manual page may
+    // still be abandoned, so the email stays in the inbox.
+    expect(store.traditionalEmails.some((email) => email.id === 'news-1')).toBe(true)
+    expect(store.openEmailId).toBe('news-1')
+  })
+
+  it('disables the button and shows a spinner while the unsubscribe is in flight', async () => {
+    const reader = await openReader({
+      oneClick: false,
+      url: 'https://news.example/unsub',
+      mailto: null,
+    })
+    let resolveRequest
+    fetchMock.mockReturnValue(new Promise((resolve) => (resolveRequest = resolve)))
+
+    await reader.find('[title="Unsubscribe"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(store.unsubscribingId).toBe('news-1')
+    })
+    await wrapper.vm.$nextTick()
+
+    const button = reader.find('[title="Unsubscribe"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.find('.ni-unsub-spinner').exists()).toBe(true)
+    expect(button.text()).toContain('Unsubscribing')
+
+    resolveRequest({ ok: true, json: async () => ({ status: 'unsubscribed', method: 'ai' }) })
+    await vi.waitFor(() => {
+      expect(store.unsubscribingId).toBe(null)
+    })
+  })
+
+  it('replaces the button with a disabled failed state when the AI attempt fails', async () => {
+    const reader = await openReader({
+      oneClick: false,
+      url: 'https://news.example/unsub',
+      mailto: null,
+    })
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'ai_failed', method: 'ai', url: 'https://news.example/unsub' }),
+    })
+
+    await reader.find('[title="Unsubscribe"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(store.toasts.some((t) => t.message.includes('AI could not unsubscribe'))).toBe(true)
+    })
+    await wrapper.vm.$nextTick()
+
+    const button = reader.find('[title="Unsubscribe"]')
+    expect(button.text()).toContain('AI Unsubscribe Failed')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.classes()).toContain('failed')
+    // The email is not marked done on failure.
+    expect(store.traditionalEmails.some((email) => email.id === 'news-1')).toBe(true)
   })
 
   it('surfaces an error toast when the unsubscribe request fails', async () => {

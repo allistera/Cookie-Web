@@ -515,6 +515,12 @@ const openEmailUnsubscribe = computed(
 )
 const isUnsubscribed = computed(() => store.openEmailUnsubscribed)
 const isUnsubscribing = computed(() => store.unsubscribingId === store.openEmailId)
+const hasUnsubscribeFailed = computed(() => store.openEmailUnsubscribeFailed)
+const unsubscribeLabel = computed(() => {
+  if (hasUnsubscribeFailed.value) return 'AI Unsubscribe Failed'
+  if (isUnsubscribing.value) return 'Unsubscribing\u2026'
+  return isUnsubscribed.value ? 'Unsubscribed' : 'Unsubscribe'
+})
 const openEmailSummary = computed(() => store.openEmailSummary)
 const isSummarizing = computed(() => store.isOpenSummaryLoading)
 const summarizeLabel = computed(() => {
@@ -609,11 +615,13 @@ function archiveOpenEmail() {
   }
 }
 
+// The store marks the email done itself once the server confirms the
+// unsubscribe (the AI tier can take minutes and can fail, so done is no
+// longer assumed at click time).
 function unsubscribeOpenEmail() {
   const email = openEmail.value
   if (!email) return
   store.unsubscribeEmail(email)
-  store.archiveEmail(email)
 }
 
 function unsubscribeFromContent() {
@@ -1165,12 +1173,14 @@ onUnmounted(() => {
             <button
               v-else-if="openEmailUnsubscribe"
               class="ni-unsub-btn"
+              :class="{ failed: hasUnsubscribeFailed }"
               title="Unsubscribe"
-              :disabled="isUnsubscribing || isUnsubscribed"
+              :disabled="isUnsubscribing || isUnsubscribed || hasUnsubscribeFailed"
               @click="unsubscribeOpenEmail"
             >
-              <span class="material-symbols-outlined">unsubscribe</span>
-              <span>{{ isUnsubscribed ? 'Unsubscribed' : 'Unsubscribe' }}</span>
+              <span v-if="isUnsubscribing" class="ni-unsub-spinner" aria-hidden="true"></span>
+              <span v-else class="material-symbols-outlined">unsubscribe</span>
+              <span>{{ unsubscribeLabel }}</span>
             </button>
           </div>
         </div>
