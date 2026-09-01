@@ -80,16 +80,19 @@ describe('TasksSidebar', () => {
     expect(wrapper.get('.tasks-projects-empty').text()).toBe('No projects yet')
   })
 
-  // Inbox is the default view: TasksView renders it for a bare /tasks, so the
-  // sidebar has to highlight it there too, not just for the explicit ?project.
-  it('marks Inbox active for a bare /tasks and when the route selects it', async () => {
+  // Today is the default view: TasksView renders it for a bare /tasks, so the
+  // sidebar has to highlight it there while keeping explicit Inbox working.
+  it('marks Today active for a bare /tasks and Inbox active when explicitly selected', async () => {
     const wrapper = mountSidebar()
-    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).toContain('active')
+    const [inbox, today] = wrapper.findAll('.tasks-views-nav .nav-item')
+    expect(today.classes()).toContain('active')
+    expect(inbox.classes()).not.toContain('active')
 
     await router.push('/tasks?project=inbox')
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).toContain('active')
+    expect(inbox.classes()).toContain('active')
+    expect(today.classes()).not.toContain('active')
   })
 
   it('drops the Inbox highlight once a project is selected', async () => {
@@ -408,10 +411,10 @@ describe('the Today view', () => {
     expect(links[1].attributes('href')).toBe('/tasks?project=today')
   })
 
-  it('marks Today active only when the route selects it', async () => {
+  it('marks Today active for the bare route and when the route selects it', async () => {
     const wrapper = mountSidebar()
     const today = () => wrapper.findAll('.tasks-views-nav .nav-item')[1]
-    expect(today().classes()).not.toContain('active')
+    expect(today().classes()).toContain('active')
 
     await router.push('/tasks?project=today')
     await wrapper.vm.$nextTick()

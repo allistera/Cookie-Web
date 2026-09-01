@@ -15,7 +15,7 @@ const items = useTaskItemsStore()
 
 // 'inbox' is a filter, not a project id — the Inbox is the tasks that belong
 // to no project, so there is no row to look up.
-const project = computed(() => String(route.query.project ?? 'inbox'))
+const project = computed(() => String(route.query.project ?? 'today'))
 const isInbox = computed(() => project.value === 'inbox')
 // Today, like Inbox, is a rule rather than a project: nothing to rename,
 // describe or nest, and no single project a new task would belong to.

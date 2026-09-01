@@ -60,6 +60,17 @@ describe('TasksView', () => {
     expect(wrapper.get('.tasks-breadcrumb').text()).not.toContain('Technical Projects')
   })
 
+  it('defaults a bare /tasks route to Today and loads Today items', async () => {
+    await router.push('/tasks')
+    const items = useTaskItemsStore()
+    const loadItems = vi.spyOn(items, 'loadItems').mockResolvedValue(null)
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.tasks-title').text()).toBe('Today')
+    expect(loadItems).toHaveBeenCalledWith('today')
+  })
+
   it('renames the project from the title, submitting once on Enter then blur', async () => {
     const projects = useProjectsStore()
     const rename = vi.spyOn(projects, 'renameProject').mockResolvedValue(null)

@@ -25,9 +25,9 @@ watch(expandedIds, (ids) => saveExpandedIds(EXPANDED_KEY, ids))
 
 const rows = computed(() => flattenProjectTree(store.projects, expandedIds.value))
 
-// Which row is highlighted. Inbox is the default view, so a bare /tasks — no
+// Which row is highlighted. Today is the default view, so a bare /tasks — no
 // ?project at all — selects it, matching what TasksView already renders.
-const selectedProject = computed(() => String(route.query.project ?? 'inbox'))
+const selectedProject = computed(() => String(route.query.project ?? 'today'))
 
 onMounted(() => store.loadProjects())
 
