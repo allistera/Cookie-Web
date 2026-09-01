@@ -1233,6 +1233,48 @@ test('Clicking a document result in search results opens the document', async ({
   await expect(page).toHaveURL(/\/documents\/stub-doc-floor-plan$/)
 })
 
+test('Search: task names, descriptions and sub-task titles match, and open the panel', async ({
+  page,
+}) => {
+  // A task with a description and a sub-task, so all three searchable fields
+  // exist on one row.
+  await page.goto('/tasks?project=inbox')
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('Repaint the hallway')
+  await page.locator('.add-task-row input').press('Enter')
+  await page.locator('.task-open').click()
+  await expect(page.locator('.task-panel')).toBeVisible()
+
+  await page.locator('.task-panel-description').click()
+  await page.locator('.task-panel-description-input').fill('Pick an eggshell finish')
+  await page.locator('.task-panel-description-input').blur()
+
+  await page.locator('.add-subtask-btn').click()
+  await page.locator('.add-subtask-row input').fill('Buy sandpaper')
+  await page.locator('.add-subtask-row input').press('Enter')
+  await expect(page.locator('.subtask-row')).toHaveCount(1)
+
+  // A name match under the Tasks tab.
+  await page.goto('/search?q=hallway&scope=tasks')
+  await expect(page.locator('.search-results-tab.active')).toHaveText('Tasks')
+  await expect(
+    page.locator('.search-result-task', { hasText: 'Repaint the hallway' }),
+  ).toBeVisible()
+
+  // A description match, this time under All — tasks join the combined list.
+  await page.goto('/search?q=eggshell')
+  await expect(
+    page.locator('.search-result-task', { hasText: 'Repaint the hallway' }),
+  ).toBeVisible()
+
+  // A sub-task title match surfaces the parent task (the row a person can
+  // open), and clicking it lands on the task's list with the panel open.
+  await page.goto('/search?q=sandpaper&scope=tasks')
+  await page.locator('.search-result-task', { hasText: 'Repaint the hallway' }).click()
+  await expect(page).toHaveURL(/\/tasks\?.*task=/)
+  await expect(page.locator('.task-panel-title')).toHaveText('Repaint the hallway')
+})
+
 test('Search scope tabs re-fetch, and a mail-only operator returns nothing under Docs', async ({
   page,
 }) => {

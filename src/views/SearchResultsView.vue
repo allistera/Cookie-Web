@@ -15,6 +15,7 @@ const SCOPES = [
   { key: 'all', label: 'All' },
   { key: 'mail', label: 'Mail' },
   { key: 'documents', label: 'Docs' },
+  { key: 'tasks', label: 'Tasks' },
 ]
 
 const currentQuery = computed(() => {
@@ -94,6 +95,19 @@ function openDocumentResult(row) {
   router.push(`/documents/${row.id}`)
 }
 
+// The detail panel resolves a task out of the loaded list, so the route must
+// carry the task's own project (null means the Inbox) alongside the task id.
+function openTaskResult(row) {
+  router.push({ path: '/tasks', query: { project: row.projectId ?? 'inbox', task: row.id } })
+}
+
+function formatDue(dueDate) {
+  return new Date(`${dueDate}T00:00:00`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
 function formatUpdated(epochMs) {
   return new Date(epochMs).toLocaleString('en-GB', {
     day: 'numeric',
@@ -165,6 +179,27 @@ const errorMessage = computed(() => {
           :show-done="false"
           @open="openEmailResult(row)"
         />
+        <button
+          v-else-if="row.type === 'task'"
+          type="button"
+          class="search-result-task"
+          @click="openTaskResult(row)"
+        >
+          <span class="material-symbols-outlined search-result-task-icon" aria-hidden="true">
+            task_alt
+          </span>
+          <span class="search-result-task-body">
+            <span class="search-result-task-title">{{ row.content }}</span>
+            <span v-if="row.description || row.dueDate" class="search-result-task-meta">
+              <span v-if="row.dueDate" class="search-result-task-due">
+                Due {{ formatDue(row.dueDate) }}
+              </span>
+              <span v-if="row.description" class="search-result-task-description">
+                {{ row.description }}
+              </span>
+            </span>
+          </span>
+        </button>
         <button v-else type="button" class="search-result-doc" @click="openDocumentResult(row)">
           <span class="material-symbols-outlined search-result-doc-icon" aria-hidden="true">
             description
@@ -344,6 +379,62 @@ const errorMessage = computed(() => {
 
 .search-result-doc-tag {
   color: var(--accent);
+}
+
+/* Task rows share the document row's anatomy — icon, title, one-line meta. */
+.search-result-task {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.search-result-task:hover {
+  background-color: var(--bg-hover);
+}
+
+.search-result-task-icon {
+  color: var(--accent);
+}
+
+.search-result-task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.search-result-task-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.search-result-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.search-result-task-due {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Descriptions can run long (and multiline); the row shows one line. */
+.search-result-task-description {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .search-results-pagination {

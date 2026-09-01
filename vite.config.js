@@ -368,15 +368,16 @@ function localApiPlugin(mode) {
     })
   }
 
-  // The header's combined mail + documents search (stores/search.js) always
-  // sends `scope=all|mail|documents` (handleSearch below dispatches here when
-  // it sees that param) and expects
-  // `{ query, results: [{type:'email',...}|{type:'document',...}], estimatedTotalHits, limit, offset }`.
+  // The header's combined mail + documents + tasks search (stores/search.js)
+  // always sends `scope=all|mail|documents|tasks` (handleSearch below
+  // dispatches here when it sees that param) and expects
+  // `{ query, results: [{type:'email',...}|{type:'document',...}|{type:'task',...}], estimatedTotalHits, limit, offset }`.
   // Every operator parseSearchQuery understands except tag: only means
   // something for mail (from:/sender:/to:/has:/before:/after:/in:), so any of
   // them narrows the whole search to mail even under scope=all — and to
   // nothing under scope=documents — mirroring the real combined index, where
-  // those operators never match a document.
+  // those operators never match a document. Tasks understand no operator at
+  // all, so any operator drops the tasks leg entirely.
   const handleCombinedSearch = async (req, res, url) => {
     const rawQuery = (url.searchParams.get('q') || '').trim()
     if (!rawQuery) {
@@ -403,7 +404,7 @@ function localApiPlugin(mode) {
 
     const state = fixtureMailboxState(req, res)
     let emailResults = []
-    if (scope !== 'documents') {
+    if (scope === 'all' || scope === 'mail') {
       const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
       const { summaries, archived, schedules, followUps } = state
       emailResults = matchFixtureEmails({
@@ -421,7 +422,7 @@ function localApiPlugin(mode) {
     }
 
     let docResults = []
-    if (scope !== 'mail' && !hasMailOnlyOperator) {
+    if ((scope === 'all' || scope === 'documents') && !hasMailOnlyOperator) {
       if (!state.documents) {
         const { fixtureDocumentFolders, fixtureDocuments, fixtureDocumentTemplates } =
           await import('./api/_fixtures/documents.js')
@@ -451,7 +452,32 @@ function localApiPlugin(mode) {
         }))
     }
 
-    const combined = [...emailResults, ...docResults]
+    // Only top-level, uncompleted tasks are searchable — a sub-task title
+    // matches through its parent, which is the row a person can open.
+    let taskResults = []
+    if ((scope === 'all' || scope === 'tasks') && Object.keys(filters).length === 0) {
+      taskResults = state.taskItems
+        .filter((item) => !item.parentId && !item.completedAt)
+        .filter((item) => {
+          const subtaskTitles = state.taskItems
+            .filter((row) => row.parentId === item.id)
+            .map((row) => row.content)
+          const haystack =
+            `${item.content} ${item.description ?? ''} ${subtaskTitles.join(' ')}`.toLowerCase()
+          return terms.every((term) => haystack.includes(term))
+        })
+        .map((item) => ({
+          type: 'task',
+          id: item.id,
+          content: item.content,
+          description: item.description ?? null,
+          projectId: item.projectId ?? null,
+          dueDate: item.dueDate ?? null,
+          completedAt: item.completedAt ?? null,
+        }))
+    }
+
+    const combined = [...emailResults, ...docResults, ...taskResults]
     const results = combined.slice(offset, offset + limit)
     res.setHeader('Content-Type', 'application/json')
     res.end(
