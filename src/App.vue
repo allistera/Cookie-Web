@@ -388,8 +388,8 @@ onUnmounted(() => {
             <input
               type="text"
               class="search-input"
-              placeholder="Search mail and documents"
-              aria-label="Search mail and documents"
+              placeholder="Search..."
+              aria-label="Search"
               v-model="searchInputVal"
               @keydown.enter.prevent="handleSearchEnter"
             />
