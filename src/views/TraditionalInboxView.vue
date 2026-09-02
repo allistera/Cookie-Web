@@ -553,11 +553,27 @@ const replyFollowUpLabel = computed(() =>
 
 const { user } = useAuth()
 
+// Reply all is only offered when the message went to more than one contact
+// across its To and Cc lines; a one-to-one message has nobody else to add.
+const canReplyAll = computed(() => {
+  const email = openEmail.value
+  if (!email) return false
+  const addresses = new Set(
+    [...(email.recipients?.to ?? []), ...(email.recipients?.cc ?? [])]
+      .map((entry) =>
+        String(entry?.address ?? '')
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
+  )
+  return addresses.size > 1
+})
+
 // Everyone a reply-all goes to: the sender first, then the To and Cc lists,
 // minus the signed-in account and any duplicates (case-insensitive). The
 // send endpoint takes one comma-separated "to" list, so Cc recipients travel
-// in "to" as well. A message the account sent to itself would otherwise leave
-// nobody, so that case falls back to the sender.
+// in "to" as well.
 const replyAllRecipients = computed(() => {
   const email = openEmail.value
   if (!email) return []
@@ -577,9 +593,6 @@ const replyAllRecipients = computed(() => {
     if (!address || key === self || seen.has(key)) continue
     seen.add(key)
     recipients.push({ name: candidate.name || null, address })
-  }
-  if (recipients.length === 0 && email.address) {
-    recipients.push({ name: email.sender, address: email.address })
   }
   return recipients
 })
@@ -1346,7 +1359,12 @@ onUnmounted(() => {
               <button class="ni-reader-btn" title="Reply" @click="replyToOpenEmail">
                 <span class="material-symbols-outlined">reply</span>
               </button>
-              <button class="ni-reader-btn" title="Reply all" @click="replyAllToOpenEmail">
+              <button
+                v-if="canReplyAll"
+                class="ni-reader-btn"
+                title="Reply all"
+                @click="replyAllToOpenEmail"
+              >
                 <span class="material-symbols-outlined">reply_all</span>
               </button>
               <span class="ni-email-time">{{ openEmail.date }}</span>

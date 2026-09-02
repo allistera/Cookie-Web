@@ -876,25 +876,50 @@ describe('TraditionalInboxView reply send button', () => {
     )
   })
 
-  it('falls back to the sender when reply-all would leave nobody', async () => {
+  it('hides Reply all when the message went to a single contact', async () => {
     store.traditionalEmails = [
       {
         ...makeEmail('today-1', Date.now() - HOUR),
-        address: SELF_EMAIL,
         recipients: { to: [{ name: null, address: SELF_EMAIL }], cc: [] },
       },
     ]
-    vi.spyOn(store, 'sendMail').mockResolvedValue({})
     wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
-    await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
-    const editor = wrapper.find('.ni-reply-box .composer-editor')
-    editor.element.innerHTML = 'Note to self'
-    await editor.trigger('input')
-    await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
+    expect(wrapper.find('.ni-reader [title="Reply"]').exists()).toBe(true)
+    expect(wrapper.find('.ni-reader [title="Reply all"]').exists()).toBe(false)
+  })
 
-    expect(store.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: SELF_EMAIL }))
+  it('shows Reply all when the second contact is only on the Cc line', async () => {
+    store.traditionalEmails = [
+      {
+        ...makeEmail('today-1', Date.now() - HOUR),
+        recipients: {
+          to: [{ name: null, address: SELF_EMAIL }],
+          cc: [{ name: null, address: 'cara@example.com' }],
+        },
+      },
+    ]
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader [title="Reply all"]').exists()).toBe(true)
+  })
+
+  it('treats the same address on To and Cc as one contact', async () => {
+    store.traditionalEmails = [
+      {
+        ...makeEmail('today-1', Date.now() - HOUR),
+        recipients: {
+          to: [{ name: null, address: SELF_EMAIL }],
+          cc: [{ name: 'Me', address: SELF_EMAIL.toUpperCase() }],
+        },
+      },
+    ]
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader [title="Reply all"]').exists()).toBe(false)
   })
 
   it('carries the reply-all recipients into the composer for an AI draft', async () => {
@@ -1339,7 +1364,8 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
 
     const reader = wrapper.find('.ni-reader')
     expect(reader.find('[title="Reply"]').exists()).toBe(true)
-    expect(reader.find('[title="Reply all"]').exists()).toBe(true)
+    // Reply all only appears for messages with more than one contact.
+    expect(reader.find('[title="Reply all"]').exists()).toBe(false)
     expect(reader.find('[title="Star"]').exists()).toBe(true)
     expect(reader.find('[title="Done"]').exists()).toBe(true)
     expect(reader.find('[title="Reschedule"]').exists()).toBe(true)
