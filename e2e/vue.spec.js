@@ -1180,6 +1180,30 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })
 
+test('Forward opens a quoted draft with the original attachment', async ({ page }) => {
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+
+  const reader = page.locator('.ni-reader')
+  await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Forward' }).click()
+
+  const composer = page.locator('#composerToast')
+  await expect(composer).toHaveClass(/active/)
+  await expect(composer.locator('.composer-to-inline')).toHaveValue('')
+  await expect(composer.locator('.composer-subject-inline')).toHaveValue(
+    'Fwd: Revised Floor Plan - Natural Light adjustments',
+  )
+  await expect(composer.locator('.composer-editor')).toContainText('Forwarded message')
+  await expect(composer.locator('.composer-editor')).toContainText(
+    'Hi Allister, here is the updated design',
+  )
+
+  const attachment = composer.locator('.composer-attachment-chip')
+  await expect(attachment).toContainText('Revised-Floor-Plan.pdf')
+  await attachment.getByRole('button', { name: 'Remove Revised-Floor-Plan.pdf' }).click()
+  await expect(composer.locator('.composer-attachment-chip')).toHaveCount(0)
+})
+
 test('Header search debounces to /search with mode=keyword; Enter searches without it', async ({
   page,
 }) => {

@@ -36,6 +36,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'format_list_bulleted',
   'format_list_numbered',
   'format_quote',
+  'forward',
   'horizontal_rule',
   'inbox',
   'interests',

@@ -618,7 +618,7 @@ describe('Inbox Store', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ draft: { subject: 'Hello', text: 'Generated body' } }),
+        json: async () => ({ draft: { subject: 'Hello 😊', text: 'Generated body 🎉' } }),
       }),
     )
     const store = useInboxStore()
@@ -640,12 +640,12 @@ describe('Inbox Store', () => {
         existingText: '',
       }),
     })
-    expect(store.aiDraftPreview).toBe('Generated body')
-    expect(store.composerSubject).toBe('Hello')
+    expect(store.aiDraftPreview).toBe('Generated body \\o/')
+    expect(store.composerSubject).toBe('Hello :)')
     expect(store.composerTextArea).toBe('')
 
     store.insertAiDraft()
-    expect(store.composerTextArea).toBe('Generated body')
+    expect(store.composerTextArea).toBe('Generated body \\o/')
   })
 
   it('excludes the personal signature from the AI compose request', async () => {
@@ -1036,6 +1036,23 @@ describe('Inbox Store', () => {
       expect(body.html).not.toContain('<script') // sanitized at the send boundary
     })
 
+    it('converts emoji in the outgoing subject and body while preserving rich HTML', () => {
+      stubSendOk()
+      const store = useInboxStore()
+      store.composerTo = 'a@b.com'
+      store.composerSubject = 'Great news 🎉'
+      store.composerTextArea = 'Thanks 😊 ❤️'
+      store.composerHtml = '<p>Thanks <strong>😊</strong> ❤️</p>'
+
+      store.sendEmail()
+
+      expect(store.pendingSend).toMatchObject({
+        subject: 'Great news \\o/',
+        text: 'Thanks :) <3',
+        html: '<p>Thanks <strong>:)</strong> &lt;3</p>',
+      })
+    })
+
     it('preserves follow-up threading through the undo-send queue', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()
@@ -1048,6 +1065,31 @@ describe('Inbox Store', () => {
       expect(JSON.parse(fetchMock.mock.calls[0][1].body).replyToMessageId).toBe(
         '11111111-1111-1111-1111-111111111111',
       )
+    })
+
+    it('carries selected forwarded attachment ids through send and undo', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerAttachments = [
+        { id: 'att-1', filename: 'plan.pdf', content_type: 'application/pdf', size_bytes: 2048 },
+      ]
+
+      store.sendEmail()
+      expect(store.composerAttachments).toEqual([])
+      expect(store.pendingSend.attachments).toEqual([
+        expect.objectContaining({ id: 'att-1', filename: 'plan.pdf' }),
+      ])
+
+      store.undoPendingSend()
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.composerAttachments).toEqual([
+        expect.objectContaining({ id: 'att-1', filename: 'plan.pdf' }),
+      ])
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).attachmentIds).toEqual(['att-1'])
     })
 
     it('preserves a follow-up reminder through send and undo', async () => {
@@ -1193,6 +1235,42 @@ describe('Inbox Store', () => {
       expect(store.toasts.at(-1)?.message).toBe('Email scheduled for Tomorrow.')
     })
 
+    it('converts emoji before scheduling an email', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ scheduledSend: { id: 'sched-emoji' } }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.composerTo = 'someone@example.com'
+      store.composerSubject = 'Party 🎉'
+      store.composerTextArea = 'See you there 👍'
+      store.composerHtml = '<p>See you <strong>there</strong> 👍</p>'
+
+      await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+        subject: 'Party \\o/',
+        text: 'See you there +1',
+        html: '<p>See you <strong>there</strong> +1</p>',
+      })
+    })
+
+    it('includes carried attachment ids when scheduling a forwarded email', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ scheduledSend: { id: 'sched-forward' } }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerAttachments = [{ id: 'att-1', filename: 'plan.pdf' }]
+
+      await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).attachmentIds).toEqual(['att-1'])
+    })
+
     it('does nothing when the composer has no valid recipient', async () => {
       const fetchMock = vi.fn()
       vi.stubGlobal('fetch', fetchMock)
@@ -1273,6 +1351,7 @@ describe('Inbox Store', () => {
         html: '<p>Checking in.</p>',
         replyToMessageId: null,
         followUpAt: '2026-08-03T09:00:00.000Z',
+        attachments: [{ id: 'att-1', filename: 'plan.pdf', size_bytes: 2048 }],
       }
       const fetchMock = vi
         .fn()
@@ -1292,6 +1371,9 @@ describe('Inbox Store', () => {
       expect(store.composerTo).toBe('someone@example.com')
       expect(store.composerTextArea).toBe('Checking in.')
       expect(store.composerFollowUpAt).toBe('2026-08-03T09:00:00.000Z')
+      expect(store.composerAttachments).toEqual([
+        expect.objectContaining({ id: 'att-1', filename: 'plan.pdf' }),
+      ])
       expect(store.isComposerActive).toBe(true)
     })
 

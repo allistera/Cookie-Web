@@ -40,6 +40,34 @@ const CONFIG = {
   WHOLE_DOCUMENT: false,
 }
 
+// A forwarded body is inserted into the live contenteditable composer rather
+// than the reader's sandboxed iframe. Strip resources and presentation hooks
+// that could track the user or escape the quote's visual boundaries.
+const FORWARD_CONFIG = {
+  ...CONFIG,
+  FORBID_TAGS: [
+    ...CONFIG.FORBID_TAGS,
+    'style',
+    'img',
+    'picture',
+    'source',
+    'video',
+    'audio',
+    'svg',
+    'math',
+  ],
+  FORBID_ATTR: [
+    ...CONFIG.FORBID_ATTR,
+    'style',
+    'class',
+    'id',
+    'src',
+    'srcset',
+    'background',
+    'poster',
+  ],
+}
+
 let hookInstalled = false
 
 function installLinkHook() {
@@ -63,6 +91,13 @@ export function sanitizeEmailHtml(dirty) {
   if (html === '') return ''
   installLinkHook()
   return DOMPurify.sanitize(html, CONFIG)
+}
+
+export function sanitizeForwardedEmailHtml(dirty) {
+  const html = String(dirty ?? '')
+  if (html === '') return ''
+  installLinkHook()
+  return DOMPurify.sanitize(html, FORWARD_CONFIG)
 }
 
 // Whether this (already-sanitized) HTML references a remote image the

@@ -776,7 +776,7 @@ describe('TraditionalInboxView reply send button', () => {
     expect(consoleError).toHaveBeenCalledWith('Failed to send reply:', expect.any(Error))
   })
 
-  it('inserts a picked emoji into the reply body', async () => {
+  it('inserts a picked emoji as an emoticon in the reply body', async () => {
     vi.spyOn(store, 'sendMail').mockResolvedValue({})
     const sendButton = await openReplyBox()
 
@@ -784,13 +784,13 @@ describe('TraditionalInboxView reply send button', () => {
     await wrapper.get('.composer-emoji-item[aria-label="thumbs up"]').trigger('click')
 
     expect(wrapper.find('.composer-emoji-popover').exists()).toBe(false)
-    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toContain('👍')
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toContain('+1')
 
     await sendButton.trigger('click')
     expect(store.sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining('👍'),
-        html: expect.stringContaining('👍'),
+        text: expect.stringContaining('+1'),
+        html: expect.stringContaining('+1'),
       }),
     )
   })
@@ -1360,18 +1360,85 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(wrapper.find('.ni-row [title="Snooze"]').exists()).toBe(false)
   })
 
-  it('the reader has no Snooze, More or Forward controls', async () => {
+  it('the reader keeps placeholder controls hidden and offers Forward beside Reply', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const reader = wrapper.find('.ni-reader')
     expect(reader.find('[title="Snooze"]').exists()).toBe(false)
     expect(reader.find('[title="More"]').exists()).toBe(false)
-    expect(reader.find('[title="Forward"]').exists()).toBe(false)
+    expect(reader.find('[title="Forward"]').exists()).toBe(true)
 
     const pills = reader.findAll('.ni-reader-footer .ni-pill-btn')
-    expect(pills).toHaveLength(1)
+    expect(pills).toHaveLength(2)
     expect(pills[0].text()).toContain('Reply')
+    expect(pills[1].text()).toContain('Forward')
+  })
+
+  it('opens a forward draft with a quoted body and downloadable attachments', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageBodies.set(email.id, {
+      html: '<p>Original <strong>message</strong></p><script>alert(1)</script>',
+      text: 'Original message',
+      attachments: [
+        {
+          id: 'att-1',
+          filename: 'plan.pdf',
+          content_type: 'application/pdf',
+          size_bytes: 2048,
+          downloadable: true,
+        },
+        {
+          id: 'legacy-att',
+          filename: 'legacy.txt',
+          downloadable: false,
+        },
+      ],
+    })
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const forward = wrapper
+      .findAll('.ni-reader-footer .ni-pill-btn')
+      .find((button) => button.text().includes('Forward'))
+    await forward.trigger('click')
+
+    expect(store.isComposerActive).toBe(true)
+    expect(store.composerTo).toBe('')
+    expect(store.composerSubject).toBe(`Fwd: ${email.subject}`)
+    expect(store.composerTextArea).toContain('---------- Forwarded message ----------')
+    expect(store.composerTextArea).toContain('> Original message')
+    expect(store.composerHtml).toContain('<blockquote><p>Original <strong>message</strong></p>')
+    expect(store.composerHtml).not.toContain('<script')
+    expect(store.composerAttachments).toEqual([
+      expect.objectContaining({ id: 'att-1', filename: 'plan.pdf' }),
+    ])
+  })
+
+  it('does not replace an existing draft or create a truncated forward', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageBodies.set(email.id, { html: null, text: 'Original', attachments: [] })
+    store.isComposerActive = true
+    store.composerHtml = '<p>My draft</p>'
+    const notify = vi.spyOn(store, 'notify')
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    const forward = wrapper
+      .findAll('.ni-reader-footer .ni-pill-btn')
+      .find((button) => button.text().includes('Forward'))
+
+    await forward.trigger('click')
+
+    expect(store.composerHtml).toBe('<p>My draft</p>')
+    expect(notify).toHaveBeenCalledWith('Close your current draft before forwarding.', 'error')
+
+    store.closeComposer()
+    store.messageBodies.delete(email.id)
+    vi.spyOn(store, 'fetchMessageBody').mockResolvedValue(null)
+    await forward.trigger('click')
+
+    expect(store.isComposerActive).toBe(false)
+    expect(notify).toHaveBeenCalledWith('Could not load the original email to forward.', 'error')
   })
 
   it('keeps the working reader controls', async () => {

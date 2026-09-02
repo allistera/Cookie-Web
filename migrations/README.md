@@ -147,6 +147,17 @@ Apply `0058` before deploying Cookie-Worker code that reads or writes
 `task_items.priority`; the `cookie-web-tasks` Worker selects and returns the
 column on every task read.
 
+## Forwarded attachments
+
+`0059_scheduled_send_attachments.sql` stores ownership-checked attachment
+references for pending outbound messages. This lets Send Later carry private
+attachments without exposing Blob URLs or file bytes to the browser; rows are
+removed automatically with their scheduled send.
+
+Apply `0059` before enabling forwarded attachments. During a rolling deploy,
+both send handlers fall back to attachment-free cancel/flush queries so mail
+already queued by the previous release keeps working until the table exists.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

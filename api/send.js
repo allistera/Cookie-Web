@@ -2,6 +2,7 @@ import process from 'node:process'
 import crypto from 'node:crypto'
 import { Buffer } from 'node:buffer'
 
+import { get } from '@vercel/blob'
 import { Resend } from 'resend'
 
 import { writeAuthError } from './_lib/auth.js'
@@ -15,6 +16,10 @@ export const MAX_OUTBOUND_SUBJECT_BYTES = 998
 export const MAX_OUTBOUND_TEXT_BYTES = 100_000
 export const MAX_OUTBOUND_HTML_BYTES = 200_000
 export const MAX_OUTBOUND_TOTAL_BYTES = 256_000
+export const MAX_OUTBOUND_ATTACHMENTS = 20
+// Resend's 40 MB ceiling is measured after Base64 encoding, and Workers need
+// headroom while converting streamed bytes into a provider-safe Base64 string.
+export const MAX_OUTBOUND_ATTACHMENT_BYTES = 20 * 1024 * 1024
 const OUTBOUND_SENDS_PER_MINUTE = 10
 // A scheduled send needs enough lead time that it can't fire before the
 // composer has even finished closing — matches ScheduleMenu's own minimum.
@@ -22,6 +27,7 @@ const MIN_SCHEDULE_LEAD_MS = 60_000
 export const MAX_PENDING_SCHEDULED_SENDS = 50
 const FLUSH_BATCH_SIZE = 20
 const FLUSH_CONCURRENCY = 4
+const ATTACHMENT_FLUSH_CONCURRENCY = 1
 const SCHEDULED_SEND_LEASE_MINUTES = 15
 // After this many failed delivery attempts a scheduled send stops retrying
 // and is surfaced to the user as failed, rather than silently retried on
@@ -110,6 +116,14 @@ export function parseRecipients(to) {
     .filter(Boolean)
   if (recipients.length > MAX_OUTBOUND_RECIPIENTS) return []
   return recipients
+}
+
+export function parseAttachmentIds(value) {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > MAX_OUTBOUND_ATTACHMENTS) return null
+  const ids = value.map((id) => String(id))
+  if (ids.some((id) => !UUID_RE.test(id)) || new Set(ids).size !== ids.length) return null
+  return ids
 }
 
 // Pragmatic RFC 5322 subset: one @, no whitespace or control characters, no
@@ -230,6 +244,68 @@ export async function refundOutboundEmailQuota(sql, userId) {
   }
 }
 
+async function resolveOwnedAttachments(sql, userId, attachmentIds) {
+  if (attachmentIds.length === 0) return { attachments: [] }
+  const rows = await sql`
+    SELECT a.id, a.filename, a.content_type, a.size_bytes, a.blob_url
+    FROM attachments a
+    JOIN messages m ON m.id = a.message_id
+    WHERE a.id = ANY(${attachmentIds}::uuid[])
+      AND m.user_id = ${userId}
+      AND NOT m.is_deleted
+      AND a.blob_url IS NOT NULL
+    ORDER BY array_position(${attachmentIds}::uuid[], a.id)
+  `
+  if (rows.length !== attachmentIds.length) return { missing: true }
+
+  let declaredBytes = 0
+  for (const attachment of rows) {
+    if (attachment.size_bytes === null || attachment.size_bytes === undefined) continue
+    const size = Number(attachment.size_bytes)
+    if (!Number.isSafeInteger(size) || size < 0) return { invalid: true }
+    declaredBytes += size
+  }
+  if (declaredBytes > MAX_OUTBOUND_ATTACHMENT_BYTES) return { tooLarge: true }
+  return { attachments: rows }
+}
+
+async function readAttachmentContent(attachment, readBlob) {
+  const result = await readBlob(attachment.blob_url)
+  if (!result?.stream) throw new Error(`Attachment blob is unavailable: ${attachment.id}`)
+  const chunks = []
+  let bytes = 0
+  for await (const chunk of result.stream) {
+    const buffer = Buffer.from(chunk)
+    bytes += buffer.byteLength
+    if (bytes > MAX_OUTBOUND_ATTACHMENT_BYTES) {
+      throw new Error('Outbound attachments exceed the provider size limit')
+    }
+    chunks.push(buffer)
+  }
+  return {
+    byteLength: bytes,
+    providerAttachment: {
+      content: Buffer.concat(chunks).toString('base64'),
+      filename: attachment.filename || 'attachment',
+      contentType: attachment.content_type || 'application/octet-stream',
+    },
+  }
+}
+
+async function loadProviderAttachments(attachments, readBlob) {
+  const loaded = []
+  let totalBytes = 0
+  for (const attachment of attachments) {
+    const loadedAttachment = await readAttachmentContent(attachment, readBlob)
+    totalBytes += loadedAttachment.byteLength
+    if (totalBytes > MAX_OUTBOUND_ATTACHMENT_BYTES) {
+      throw new Error('Outbound attachments exceed the provider size limit')
+    }
+    loaded.push(loadedAttachment.providerAttachment)
+  }
+  return loaded
+}
+
 // Stores the sent copy in the existing tables (is_sent=true, excluded from
 // the inbox list, included in search). Threads with the replied-to message
 // when replyToMessageId is given; otherwise starts a fresh thread. Returns
@@ -238,7 +314,17 @@ export async function refundOutboundEmailQuota(sql, userId) {
 async function storeSentMessage(
   sql,
   userId,
-  { recipients, subject, text, html, replyToMessageId, resendId, readReceiptToken, followUpAt },
+  {
+    recipients,
+    subject,
+    text,
+    html,
+    replyToMessageId,
+    resendId,
+    readReceiptToken,
+    followUpAt,
+    attachments = [],
+  },
 ) {
   const messageId = resendId ? `<${resendId}@resend.cookie-web>` : null
   const [lookup] = await sql`
@@ -276,6 +362,7 @@ async function storeSentMessage(
       `,
       )
     }
+    const messagesStatement = statements.length
     statements.push(
       (sql) => sql`
       INSERT INTO messages (id, thread_id, user_id, from_name, from_address,
@@ -286,6 +373,7 @@ async function storeSentMessage(
               ${text}, ${html ?? null}, ${sentAt}, ${messageId}, false, true,
               ${followUpAt ?? null}::timestamptz)
       ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO NOTHING
+      RETURNING id
     `,
     )
     if (lookup.thread_id) {
@@ -300,8 +388,20 @@ async function storeSentMessage(
       )
     }
     await sql.begin(async (sql) => {
-      for (const statement of statements) {
-        await statement(sql)
+      let inserted = false
+      for (const [index, statement] of statements.entries()) {
+        const result = await statement(sql)
+        if (index === messagesStatement) inserted = result.length > 0
+      }
+      if (inserted) {
+        for (const attachment of attachments) {
+          await sql`
+            INSERT INTO attachments (message_id, filename, content_type, size_bytes, blob_url)
+            VALUES (${messageUuid}, ${attachment.filename ?? null},
+                    ${attachment.content_type ?? null}, ${attachment.size_bytes ?? null},
+                    ${attachment.blob_url})
+          `
+        }
       }
     })
   } else if (followUpAt) {
@@ -346,6 +446,7 @@ async function deliverMail(
     idempotencyKey,
     readReceiptToken,
     followUpAt,
+    attachments = [],
   },
   services,
 ) {
@@ -354,6 +455,9 @@ async function deliverMail(
   const trackedHtml = appendReadReceipt(html, text, receiptUrl)
 
   const resend = services.createResend(process.env.RESEND_API_KEY)
+  const providerAttachments = attachments.length
+    ? await loadProviderAttachments(attachments, services.readBlob)
+    : []
   const payload = {
     from: configuredEmailFrom(),
     to: recipients,
@@ -361,6 +465,7 @@ async function deliverMail(
     text,
   }
   if (trackedHtml) payload.html = trackedHtml
+  if (providerAttachments.length) payload.attachments = providerAttachments
   const { data, error } = idempotencyKey
     ? await resend.emails.send(payload, { idempotencyKey })
     : await resend.emails.send(payload)
@@ -377,6 +482,7 @@ async function deliverMail(
       resendId: data.id,
       readReceiptToken: receiptUrl ? receiptToken : null,
       followUpAt,
+      attachments,
     }))
   } catch (err) {
     // Sending always wins: a storage failure is logged but the mail really
@@ -407,7 +513,7 @@ async function ownedReplyToMessageId(sql, userId, replyToMessageId) {
 // (new requestId, new send).
 function immediateSendIdempotencyKey(
   userId,
-  { recipients, subject, text, html, replyToMessageId, requestId },
+  { recipients, subject, text, html, replyToMessageId, attachmentIds = [], requestId },
 ) {
   const digest = crypto
     .createHash('sha256')
@@ -419,6 +525,7 @@ function immediateSendIdempotencyKey(
         text,
         html: html ?? null,
         replyToMessageId: replyToMessageId ?? null,
+        attachmentIds,
         requestId: requestId ?? null,
       }),
     )
@@ -429,7 +536,7 @@ function immediateSendIdempotencyKey(
 async function createScheduledSend(
   sql,
   userId,
-  { recipients, subject, text, html, replyToMessageId, scheduledFor, followUpAt },
+  { recipients, subject, text, html, replyToMessageId, scheduledFor, followUpAt, attachments = [] },
 ) {
   // The count-then-insert cap is not safe under READ COMMITTED on its own:
   // two concurrent transactions can both snapshot count = MAX - 1 and both
@@ -451,7 +558,15 @@ async function createScheduledSend(
       RETURNING id, to_addresses AS "toAddresses", subject, scheduled_for AS "scheduledFor",
                 follow_up_at AS "followUpAt"
     `
-    return row ?? null
+    if (!row) return null
+    for (const [position, attachment] of attachments.entries()) {
+      await tx`
+        INSERT INTO scheduled_send_attachments
+          (scheduled_send_id, attachment_id, position)
+        VALUES (${row.id}, ${attachment.id}, ${position})
+      `
+    }
+    return row
   })
 }
 
@@ -465,20 +580,63 @@ async function listScheduledSends(sql, userId) {
   `
 }
 
+function isUndefinedScheduledAttachmentsTable(err) {
+  return err?.code === '42P01' && /scheduled_send_attachments/i.test(String(err.message ?? ''))
+}
+
+async function cancelScheduledSendWithoutAttachments(sql, userId, id) {
+  return sql.begin(async (tx) => {
+    const [row] = await tx`
+      SELECT s.id, s.to_addresses AS "toAddresses", s.subject,
+             s.body_text AS "text", s.body_html AS "html",
+             s.reply_to_message_id AS "replyToMessageId",
+             s.follow_up_at AS "followUpAt", '[]'::jsonb AS attachments
+      FROM scheduled_sends s
+      WHERE s.id = ${id} AND s.user_id = ${userId} AND s.status = 'pending'
+      FOR UPDATE
+    `
+    if (!row) return null
+    await tx`DELETE FROM scheduled_sends WHERE id = ${id}`
+    return row
+  })
+}
+
 // Only a still-pending row can be canceled — one already claimed by the
 // flush job (status 'sending') or already resolved ('sent'/'failed') is
 // left alone. Returns the full content so the client can reopen it in the
 // composer, mirroring undoPendingSend's immediate-send equivalent.
 async function cancelScheduledSend(sql, userId, id) {
-  const [row] = await sql`
-    DELETE FROM scheduled_sends s
-    WHERE s.id = ${id} AND s.user_id = ${userId} AND s.status = 'pending'
-    RETURNING s.id, s.to_addresses AS "toAddresses", s.subject,
-              s.body_text AS "text", s.body_html AS "html",
-              s.reply_to_message_id AS "replyToMessageId",
-              s.follow_up_at AS "followUpAt"
-  `
-  return row ?? null
+  try {
+    return await sql.begin(async (tx) => {
+      const [row] = await tx`
+        SELECT s.id, s.to_addresses AS "toAddresses", s.subject,
+               s.body_text AS "text", s.body_html AS "html",
+               s.reply_to_message_id AS "replyToMessageId",
+               s.follow_up_at AS "followUpAt",
+               COALESCE((
+                 SELECT jsonb_agg(jsonb_build_object(
+                   'id', a.id,
+                   'filename', a.filename,
+                   'content_type', a.content_type,
+                   'size_bytes', a.size_bytes,
+                   'downloadable', a.blob_url IS NOT NULL
+                 ) ORDER BY ssa.position)
+                 FROM scheduled_send_attachments ssa
+                 JOIN attachments a ON a.id = ssa.attachment_id
+                 WHERE ssa.scheduled_send_id = s.id
+               ), '[]'::jsonb) AS attachments
+        FROM scheduled_sends s
+        WHERE s.id = ${id} AND s.user_id = ${userId} AND s.status = 'pending'
+        FOR UPDATE
+      `
+      if (!row) return null
+      await tx`DELETE FROM scheduled_sends WHERE id = ${id}`
+      return row
+    })
+  } catch (err) {
+    if (!isUndefinedScheduledAttachmentsTable(err)) throw err
+    return cancelScheduledSendWithoutAttachments(sql, userId, id)
+  }
 }
 
 // Atomically claims up to `limit` due rows so two overlapping flush calls
@@ -486,24 +644,59 @@ async function cancelScheduledSend(sql, userId, id) {
 // — FOR UPDATE SKIP LOCKED lets a concurrent call skip rows this one already
 // has locked instead of blocking on them.
 async function claimDueScheduledSends(sql, limit) {
-  return sql`
-    UPDATE scheduled_sends s
-    SET status = 'sending', claimed_at = now()
-    FROM (
-      SELECT id FROM scheduled_sends
-      WHERE (status = 'pending' AND scheduled_for <= now())
-         OR (status = 'sending'
-             AND claimed_at < now() - make_interval(mins => ${SCHEDULED_SEND_LEASE_MINUTES}))
-      ORDER BY scheduled_for
-      LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    ) due
-    WHERE s.id = due.id
-    RETURNING s.id, s.user_id, s.to_addresses AS "toAddresses", s.subject,
-              s.body_text AS "text", s.body_html AS "html",
-              s.reply_to_message_id AS "replyToMessageId",
-              s.follow_up_at AS "followUpAt", s.attempts
-  `
+  try {
+    return await sql`
+      UPDATE scheduled_sends s
+      SET status = 'sending', claimed_at = now()
+      FROM (
+        SELECT id FROM scheduled_sends
+        WHERE (status = 'pending' AND scheduled_for <= now())
+           OR (status = 'sending'
+               AND claimed_at < now() - make_interval(mins => ${SCHEDULED_SEND_LEASE_MINUTES}))
+        ORDER BY scheduled_for
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      ) due
+      WHERE s.id = due.id
+      RETURNING s.id, s.user_id, s.to_addresses AS "toAddresses", s.subject,
+                s.body_text AS "text", s.body_html AS "html",
+                s.reply_to_message_id AS "replyToMessageId",
+                s.follow_up_at AS "followUpAt", s.attempts,
+                COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object(
+                    'id', a.id,
+                    'filename', a.filename,
+                    'content_type', a.content_type,
+                    'size_bytes', a.size_bytes,
+                    'blob_url', a.blob_url
+                  ) ORDER BY ssa.position)
+                  FROM scheduled_send_attachments ssa
+                  JOIN attachments a ON a.id = ssa.attachment_id
+                  WHERE ssa.scheduled_send_id = s.id
+                ), '[]'::jsonb) AS attachments
+    `
+  } catch (err) {
+    if (!isUndefinedScheduledAttachmentsTable(err)) throw err
+    return sql`
+      UPDATE scheduled_sends s
+      SET status = 'sending', claimed_at = now()
+      FROM (
+        SELECT id FROM scheduled_sends
+        WHERE (status = 'pending' AND scheduled_for <= now())
+           OR (status = 'sending'
+               AND claimed_at < now() - make_interval(mins => ${SCHEDULED_SEND_LEASE_MINUTES}))
+        ORDER BY scheduled_for
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      ) due
+      WHERE s.id = due.id
+      RETURNING s.id, s.user_id, s.to_addresses AS "toAddresses", s.subject,
+                s.body_text AS "text", s.body_html AS "html",
+                s.reply_to_message_id AS "replyToMessageId",
+                s.follow_up_at AS "followUpAt", s.attempts,
+                '[]'::jsonb AS attachments
+    `
+  }
 }
 
 function isTransientDbConnectionError(err) {
@@ -574,6 +767,7 @@ async function deliverScheduledSend(sql, row, services) {
         // stable when an expired lease retries with the same idempotency key.
         readReceiptToken: row.id,
         followUpAt: row.followUpAt,
+        attachments: row.attachments ?? [],
       },
       services,
     )
@@ -807,9 +1001,19 @@ async function handleFlush(req, res, services) {
   try {
     const sql = services.getSql()
     const claimed = await claimDueScheduledSendsWithRetry(sql, FLUSH_BATCH_SIZE)
-    const results = await mapWithConcurrency(claimed, FLUSH_CONCURRENCY, (row) =>
-      deliverScheduledSend(sql, row, services),
-    )
+    const attachmentRows = claimed.filter((row) => row.attachments?.length)
+    const ordinaryRows = claimed.filter((row) => !row.attachments?.length)
+    // Attachment payloads are buffered for the provider. Keep those rows
+    // serial so several large forwards cannot exhaust the function's memory.
+    const [ordinaryResults, attachmentResults] = await Promise.all([
+      mapWithConcurrency(ordinaryRows, FLUSH_CONCURRENCY, (row) =>
+        deliverScheduledSend(sql, row, services),
+      ),
+      mapWithConcurrency(attachmentRows, ATTACHMENT_FLUSH_CONCURRENCY, (row) =>
+        deliverScheduledSend(sql, row, services),
+      ),
+    ])
+    const results = [...ordinaryResults, ...attachmentResults]
     await sweepResolvedState(sql)
     res.statusCode = 200
     res.end(
@@ -860,7 +1064,17 @@ async function handleSend(req, res, userId, services) {
     return
   }
 
-  const { to, subject, text, html, replyToMessageId, sendAt, requestId, followUpAt } = body
+  const {
+    to,
+    subject,
+    text,
+    html,
+    replyToMessageId,
+    sendAt,
+    requestId,
+    followUpAt,
+    attachmentIds: rawAttachmentIds,
+  } = body
   // Optional client-generated id for idempotency; bounded and restricted so
   // it can only widen the key space, never collide or smuggle content.
   const requestIdText = String(requestId ?? '')
@@ -872,6 +1086,12 @@ async function handleSend(req, res, userId, services) {
     return
   }
   const { recipients, bodyHtml } = validated
+  const attachmentIds = parseAttachmentIds(rawAttachmentIds)
+  if (attachmentIds === null) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'attachmentIds must be a unique list of valid ids' }))
+    return
+  }
   // Fixture ids from e2e/dev mode aren't UUIDs — ignore them rather than error.
   let replyTo = UUID_RE.test(replyToMessageId) ? String(replyToMessageId) : null
 
@@ -903,6 +1123,17 @@ async function handleSend(req, res, userId, services) {
         res.end(JSON.stringify({ error: 'Reply target not found' }))
         return
       }
+      const resolved = await resolveOwnedAttachments(sql, userId, attachmentIds)
+      if (resolved.missing) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Attachment not found' }))
+        return
+      }
+      if (resolved.invalid || resolved.tooLarge) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'Attachments exceed the allowed size' }))
+        return
+      }
       const scheduledSend = await createScheduledSend(sql, userId, {
         recipients,
         subject,
@@ -911,6 +1142,7 @@ async function handleSend(req, res, userId, services) {
         replyToMessageId: owned.replyTo,
         scheduledFor,
         followUpAt: parsedFollowUpAt,
+        attachments: resolved.attachments,
       })
       if (!scheduledSend) {
         res.statusCode = 429
@@ -936,6 +1168,7 @@ async function handleSend(req, res, userId, services) {
   }
 
   let sql
+  let attachments
   try {
     sql = services.getSql()
     const owned = await ownedReplyToMessageId(sql, userId, replyTo)
@@ -945,6 +1178,18 @@ async function handleSend(req, res, userId, services) {
       return
     }
     replyTo = owned.replyTo
+    const resolved = await resolveOwnedAttachments(sql, userId, attachmentIds)
+    if (resolved.missing) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Attachment not found' }))
+      return
+    }
+    if (resolved.invalid || resolved.tooLarge) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Attachments exceed the allowed size' }))
+      return
+    }
+    attachments = resolved.attachments
     const quota = await claimOutboundEmailQuota(sql, userId)
     if (!quota.authorized) {
       res.statusCode = 403
@@ -979,9 +1224,11 @@ async function handleSend(req, res, userId, services) {
           text,
           html: bodyHtml,
           replyToMessageId: replyTo,
+          attachmentIds,
           requestId: clientRequestId,
         }),
         followUpAt: parsedFollowUpAt,
+        attachments,
       },
       services,
     )
@@ -1006,6 +1253,7 @@ async function handleSend(req, res, userId, services) {
 export function createHandler(overrides = {}) {
   const services = createServices({
     createResend: (key) => new Resend(key),
+    readBlob: (url) => get(url, { access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN }),
     ...overrides,
   })
   return async function handler(req, res) {

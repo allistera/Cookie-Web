@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useInboxStore } from '../stores/inbox'
 import { filterContacts } from '../lib/contactSuggest'
+import { convertEmojiToEmoticons } from '../lib/emoticons'
 import {
   appendRecipient,
   completedRecipients,
@@ -11,10 +12,16 @@ import {
 } from '../lib/recipients'
 import { scheduleChoices } from '../utils/schedule'
 import ComposerEditor from './ComposerEditor.vue'
-import EmojiPicker from './EmojiPicker.vue'
 import ScheduleMenu from './ScheduleMenu.vue'
 
 const store = useInboxStore()
+
+const composerSubject = computed({
+  get: () => store.composerSubject,
+  set: (value) => {
+    store.composerSubject = convertEmojiToEmoticons(value)
+  },
+})
 
 const contactSuggestOpen = ref(false)
 const contactHighlight = ref(-1)
@@ -64,6 +71,14 @@ function selectFollowUp(choice) {
 function clearFollowUp() {
   followUpOpen.value = false
   store.composerFollowUpAt = null
+}
+
+function formatAttachmentSize(bytes) {
+  const size = Number(bytes)
+  if (!Number.isFinite(size) || size < 0) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function openContactSuggest() {
@@ -142,7 +157,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
       <div class="composer-draft-title">
         <input
           ref="composerSubjectRef"
-          v-model="store.composerSubject"
+          v-model="composerSubject"
           class="composer-subject-inline"
           placeholder="Hello"
           @keydown.tab.exact.prevent="composerToRef?.focus()"
@@ -193,6 +208,31 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
     </div>
     <div class="composer-body">
       <div class="composer-main">
+        <div
+          v-if="store.composerAttachments.length"
+          class="composer-attachments"
+          aria-label="Forwarded attachments"
+        >
+          <div
+            v-for="attachment in store.composerAttachments"
+            :key="attachment.id"
+            class="composer-attachment-chip"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">attach_file</span>
+            <span class="composer-attachment-name">{{ attachment.filename || 'Attachment' }}</span>
+            <span v-if="attachment.size_bytes != null" class="composer-attachment-size">
+              {{ formatAttachmentSize(attachment.size_bytes) }}
+            </span>
+            <button
+              type="button"
+              class="composer-attachment-remove"
+              :aria-label="`Remove ${attachment.filename || 'attachment'}`"
+              @click="store.removeComposerAttachment(attachment.id)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </div>
+        </div>
         <ComposerEditor
           ref="composerBodyRef"
           v-model="store.composerHtml"
@@ -293,7 +333,6 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
             @clear="clearFollowUp"
           />
         </div>
-        <EmojiPicker @select="composerBodyRef?.insertText($event)" />
       </div>
       <div class="composer-ai-inline">
         <span class="material-symbols-outlined">auto_fix_high</span>

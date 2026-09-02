@@ -1,12 +1,15 @@
 import process from 'node:process'
+import { Buffer } from 'node:buffer'
+import { Readable } from 'node:stream'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createHandler } from '../send.js'
+import { createHandler, MAX_OUTBOUND_ATTACHMENT_BYTES } from '../send.js'
 
 const mocks = {
   getSql: vi.fn(),
   resendSend: vi.fn(),
+  readBlob: vi.fn(),
 }
 
 const USER_ID = '11111111-1111-1111-1111-111111111111'
@@ -15,6 +18,7 @@ const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: mocks.getSql,
   createResend: () => ({ emails: { send: mocks.resendSend } }),
+  readBlob: mocks.readBlob,
 })
 
 function makeRes() {
@@ -110,6 +114,100 @@ describe('POST /api/send security boundaries', () => {
       }),
       expect.objectContaining({ idempotencyKey: expect.stringMatching(/^immediate-send\//) }),
     )
+  })
+
+  it('loads owned private attachments into the provider payload and stores them on the sent copy', async () => {
+    const attachmentId = '22222222-2222-4222-8222-222222222222'
+    const attachment = {
+      id: attachmentId,
+      filename: 'plan.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 3,
+      blob_url: 'https://store.private.blob.vercel-storage.com/plan.pdf',
+    }
+    let call = 0
+    const sql = vi.fn(async (parts) => {
+      call += 1
+      if (call === 1) return [attachment]
+      if (call === 2) return [{ authorized: true, quota_claimed: true }]
+      if (call === 3) return [{ user_id: USER_ID, thread_id: null }]
+      if (parts.join(' ').includes('INSERT INTO messages')) return [{ id: 'sent-message' }]
+      return []
+    })
+    sql.begin = async (callback) => callback(sql)
+    mocks.getSql.mockReturnValue(sql)
+    mocks.readBlob.mockResolvedValue({
+      statusCode: 200,
+      stream: Readable.from([Buffer.from('pdf')]),
+      blob: { size: 3 },
+    })
+    mocks.resendSend.mockResolvedValue({ data: { id: 'resend-forward' }, error: null })
+    const res = makeRes()
+
+    await handler(request({ attachmentIds: [attachmentId] }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(mocks.readBlob).toHaveBeenCalledWith(attachment.blob_url)
+    expect(mocks.resendSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            filename: 'plan.pdf',
+            contentType: 'application/pdf',
+            content: Buffer.from('pdf').toString('base64'),
+          }),
+        ],
+      }),
+      expect.any(Object),
+    )
+    const attachmentInsert = sql.mock.calls.find(([parts]) =>
+      parts.join(' ').includes('INSERT INTO attachments'),
+    )
+    expect(attachmentInsert).toBeTruthy()
+    expect(attachmentInsert.slice(1)).toContain(attachment.blob_url)
+  })
+
+  it('rejects attachment ids that are not owned by the authenticated user', async () => {
+    const sql = vi.fn(async () => [])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(request({ attachmentIds: ['22222222-2222-4222-8222-222222222222'] }), res)
+
+    expect(res.statusCode).toBe(404)
+    expect(mocks.readBlob).not.toHaveBeenCalled()
+    expect(mocks.resendSend).not.toHaveBeenCalled()
+  })
+
+  it('rejects raw attachments that would exceed the provider limit after encoding', async () => {
+    const attachmentId = '22222222-2222-4222-8222-222222222222'
+    const sql = vi.fn(async () => [
+      {
+        id: attachmentId,
+        filename: 'too-large.zip',
+        content_type: 'application/zip',
+        size_bytes: MAX_OUTBOUND_ATTACHMENT_BYTES + 1,
+        blob_url: 'https://store.private.blob.vercel-storage.com/too-large.zip',
+      },
+    ])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(request({ attachmentIds: [attachmentId] }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(mocks.readBlob).not.toHaveBeenCalled()
+    expect(mocks.resendSend).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed attachment ids before touching the database', async () => {
+    const res = makeRes()
+
+    await handler(request({ attachmentIds: ['not-a-uuid'] }), res)
+
+    expect(res.statusCode).toBe(400)
+    expect(mocks.getSql).not.toHaveBeenCalled()
+    expect(mocks.resendSend).not.toHaveBeenCalled()
   })
 
   it('persists a follow-up reminder on the sent copy', async () => {

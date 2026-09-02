@@ -4,9 +4,34 @@ import {
   appendReadReceipt,
   buildReadReceiptUrl,
   claimOutboundEmailQuota,
+  parseAttachmentIds,
   parseRecipients,
   validateOutboundMessage,
 } from '../send.js'
+
+describe('parseAttachmentIds', () => {
+  const first = '11111111-1111-4111-8111-111111111111'
+  const second = '22222222-2222-4222-8222-222222222222'
+
+  it('accepts a bounded unique UUID list and treats omission as no attachments', () => {
+    expect(parseAttachmentIds(undefined)).toEqual([])
+    expect(parseAttachmentIds([first, second])).toEqual([first, second])
+  })
+
+  it('rejects malformed, duplicate, and oversized attachment id lists', () => {
+    expect(parseAttachmentIds('not-an-array')).toBeNull()
+    expect(parseAttachmentIds(['not-a-uuid'])).toBeNull()
+    expect(parseAttachmentIds([first, first])).toBeNull()
+    expect(
+      parseAttachmentIds(
+        Array.from(
+          { length: 21 },
+          (_, index) => `${String(index).padStart(8, '0')}-1111-4111-8111-111111111111`,
+        ),
+      ),
+    ).toBeNull()
+  })
+})
 
 describe('parseRecipients', () => {
   it('parses a comma-separated to field into trimmed addresses', () => {

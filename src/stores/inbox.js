@@ -16,6 +16,7 @@ import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
+import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
 
@@ -51,6 +52,15 @@ function followUpSubject(subject) {
   const value = String(subject ?? '').trim()
   if (!value) return ''
   return /^re:/i.test(value) ? value : `Re: ${value}`
+}
+
+function normalizeOutgoingDraft(draft) {
+  return {
+    ...draft,
+    subject: convertEmojiToEmoticons(draft.subject),
+    text: convertEmojiToEmoticons(draft.text),
+    html: convertEmojiInHtml(sanitizeEmailHtml(draft.html)),
+  }
 }
 
 // Bounds on the in-memory caches below, so a long-lived tab reading many
@@ -382,6 +392,9 @@ export const useInboxStore = defineStore('inbox', {
     composerHtml: '', // rich HTML body from the WYSIWYG editor
     composerReplyToMessageId: null,
     composerFollowUpAt: null,
+    // Existing owned attachments carried into a forwarded message. The
+    // browser keeps metadata for removable chips; only ids cross the API.
+    composerAttachments: [],
 
     // Personal email signature (rich HTML), edited in settings and appended to
     // new emails. Persisted locally.
@@ -1687,12 +1700,14 @@ export const useInboxStore = defineStore('inbox', {
 
     // replyToMessageId (optional) threads the stored sent copy with the
     // message being replied to.
-    async sendMail({ to, subject, text, html, replyToMessageId, followUpAt }) {
+    async sendMail({ to, subject, text, html, replyToMessageId, followUpAt, attachments = [] }) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const payload = { to, subject, text, html, replyToMessageId, followUpAt }
+      if (attachments.length) payload.attachmentIds = attachments.map(({ id }) => id)
       const response = await fetch('/api/send', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ to, subject, text, html, replyToMessageId, followUpAt }),
+        body: JSON.stringify(payload),
       })
       if (!response.ok) {
         throw new Error(`POST /api/send responded ${response.status}`)
@@ -1949,10 +1964,17 @@ export const useInboxStore = defineStore('inbox', {
       this.composerHtml = ''
       this.composerReplyToMessageId = null
       this.composerFollowUpAt = null
+      this.composerAttachments = []
       this.isAiDraftActive = false
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
       this.composerAiInstruction = ''
+    },
+
+    removeComposerAttachment(id) {
+      this.composerAttachments = this.composerAttachments.filter(
+        (attachment) => attachment.id !== id,
+      )
     },
 
     openAiDraft() {
@@ -1985,8 +2007,10 @@ export const useInboxStore = defineStore('inbox', {
         })
         if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
         const { draft } = await response.json()
-        this.aiDraftPreview = draft.text
-        if (!this.composerSubject.trim() && draft.subject) this.composerSubject = draft.subject
+        this.aiDraftPreview = convertEmojiToEmoticons(draft.text)
+        if (!this.composerSubject.trim() && draft.subject) {
+          this.composerSubject = convertEmojiToEmoticons(draft.subject)
+        }
         return true
       } catch (error) {
         console.error('AI compose failed:', error)
@@ -2045,15 +2069,15 @@ export const useInboxStore = defineStore('inbox', {
     sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
-      const draft = {
+      const draft = normalizeOutgoingDraft({
         to: this.composerTo,
         subject: this.composerSubject,
         text: this.composerTextArea,
-        // Sanitize the rich body once, here at the send boundary.
-        html: sanitizeEmailHtml(this.composerHtml),
+        html: this.composerHtml,
         replyToMessageId: this.composerReplyToMessageId,
         followUpAt: this.composerFollowUpAt,
-      }
+        attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
+      })
       this.closeComposer()
       this.startPendingSend(draft)
     },
@@ -2083,7 +2107,8 @@ export const useInboxStore = defineStore('inbox', {
     undoPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
-      const { to, subject, text, html, replyToMessageId, followUpAt } = this.pendingSend
+      const { to, subject, text, html, replyToMessageId, followUpAt, attachments } =
+        this.pendingSend
       this.pendingSend = null
       this.composerTo = to
       this.composerSubject = subject
@@ -2091,6 +2116,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerHtml = html
       this.composerReplyToMessageId = replyToMessageId
       this.composerFollowUpAt = followUpAt
+      this.composerAttachments = attachments ?? []
       this.isComposerActive = true
     },
 
@@ -2110,6 +2136,7 @@ export const useInboxStore = defineStore('inbox', {
           html: draft.html,
           replyToMessageId: draft.replyToMessageId,
           followUpAt: draft.followUpAt,
+          attachments: draft.attachments,
         })
         this.notify(
           result?.followUpScheduled === false
@@ -2126,6 +2153,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerHtml = draft.html
         this.composerReplyToMessageId = draft.replyToMessageId
         this.composerFollowUpAt = draft.followUpAt
+        this.composerAttachments = draft.attachments ?? []
         this.isComposerActive = true
       } finally {
         this.isSendingEmail = false
@@ -2140,22 +2168,28 @@ export const useInboxStore = defineStore('inbox', {
     async sendEmailLater(sendAt, label) {
       if (this.isSendingEmail || this.pendingSend) return false
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
-      const draft = {
+      const draft = normalizeOutgoingDraft({
         to: this.composerTo,
         subject: this.composerSubject,
         text: this.composerTextArea,
-        html: sanitizeEmailHtml(this.composerHtml),
+        html: this.composerHtml,
         replyToMessageId: this.composerReplyToMessageId,
         followUpAt: this.composerFollowUpAt,
-      }
+        attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
+      })
       this.closeComposer()
       this.isSendingEmail = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const { attachments, ...message } = draft
         const response = await fetch('/api/send', {
           method: 'POST',
           headers,
-          body: JSON.stringify({ ...draft, sendAt }),
+          body: JSON.stringify({
+            ...message,
+            sendAt,
+            attachmentIds: attachments.map(({ id }) => id),
+          }),
         })
         if (!response.ok) throw new Error(`POST /api/send responded ${response.status}`)
         const { scheduledSend } = await response.json()
@@ -2171,6 +2205,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerHtml = draft.html
         this.composerReplyToMessageId = draft.replyToMessageId
         this.composerFollowUpAt = draft.followUpAt
+        this.composerAttachments = draft.attachments ?? []
         this.isComposerActive = true
         return false
       } finally {
@@ -2217,6 +2252,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerHtml = canceled.html || plainTextToHtml(canceled.text)
       this.composerReplyToMessageId = canceled.replyToMessageId
       this.composerFollowUpAt = canceled.followUpAt
+      this.composerAttachments = canceled.attachments ?? []
       this.isComposerActive = true
     },
 

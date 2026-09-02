@@ -2947,6 +2947,67 @@ button.ni-attachment:hover {
   overflow-y: auto;
 }
 
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.composer-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.composer-attachment-chip > .material-symbols-outlined {
+  flex: 0 0 auto;
+  font-size: 17px;
+  color: var(--text-secondary);
+}
+
+.composer-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-size {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.composer-attachment-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.composer-attachment-remove:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.composer-attachment-remove .material-symbols-outlined {
+  font-size: 16px;
+}
+
 .composer-body textarea::placeholder {
   color: var(--text-secondary);
   letter-spacing: 2px;

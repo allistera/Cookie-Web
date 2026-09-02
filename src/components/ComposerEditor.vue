@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 
 import { escapeHtml } from '../lib/composeHtml'
+import { convertEmojiToEmoticons } from '../lib/emoticons'
 import { filterSlashCommands } from '../lib/slashCommands'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { getSlashSnippetCommands } from '../lib/snippets'
@@ -127,37 +128,11 @@ function insertSnippet(html) {
   insertHtmlAtCaret(sanitizeEmailHtml(html))
 }
 
-// --- Caret memory for toolbar insertions ---
-// Toolbar controls (the emoji picker) take focus away from the editor, which
-// drops its selection. Remember the last caret position inside the editor so
-// an insertion still lands where the user was typing.
-let savedRange = null
-
-function rememberSelection() {
-  const selection = window.getSelection()
-  if (!selection?.rangeCount) return
-  const range = selection.getRangeAt(0)
-  const editor = editorRef.value
-  if (editor && editor.contains(range.commonAncestorContainer)) savedRange = range.cloneRange()
-}
-
-function restoreSelection() {
-  const editor = editorRef.value
-  if (!editor) return
-  editor.focus()
-  if (!savedRange || !editor.contains(savedRange.commonAncestorContainer)) return
-  const selection = window.getSelection()
-  selection.removeAllRanges()
-  selection.addRange(savedRange)
-}
-
-// Inserts plain text (e.g. an emoji) at the remembered caret, or appends it
-// when the editor has never had a caret.
+// Toolbar controls move focus away from the editor. Insert at the browser's
+// retained selection when it is still inside the editor, or append otherwise.
 function insertText(text) {
   if (!text) return
-  restoreSelection()
   insertHtmlAtCaret(escapeHtml(text))
-  rememberSelection()
   emitUpdate()
 }
 
@@ -210,8 +185,53 @@ function selectCommand(command) {
   emitUpdate()
 }
 
+function normalizeEmoji() {
+  const editor = editorRef.value
+  if (!editor) return false
+
+  const selection = window.getSelection()
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null
+  const selectionInEditor =
+    range &&
+    (range.startContainer === editor || editor.contains(range.startContainer)) &&
+    (range.endContainer === editor || editor.contains(range.endContainer))
+  const startContainer = selectionInEditor ? range.startContainer : null
+  const endContainer = selectionInEditor ? range.endContainer : null
+  let startOffset = selectionInEditor ? range.startOffset : 0
+  let endOffset = selectionInEditor ? range.endOffset : 0
+  let changed = false
+
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode()
+  while (node) {
+    const original = node.data
+    const converted = convertEmojiToEmoticons(original)
+    if (converted !== original) {
+      if (node === startContainer) {
+        startOffset = convertEmojiToEmoticons(original.slice(0, startOffset)).length
+      }
+      if (node === endContainer) {
+        endOffset = convertEmojiToEmoticons(original.slice(0, endOffset)).length
+      }
+      node.data = converted
+      changed = true
+    }
+    node = walker.nextNode()
+  }
+
+  if (changed && selectionInEditor) {
+    const restored = document.createRange()
+    restored.setStart(startContainer, startOffset)
+    restored.setEnd(endContainer, endOffset)
+    selection.removeAllRanges()
+    selection.addRange(restored)
+  }
+  return changed
+}
+
 function emitUpdate() {
   if (!editorRef.value) return
+  normalizeEmoji()
   emit('update:modelValue', editorRef.value.innerHTML)
   // innerText is layout-aware (keeps line breaks); jsdom doesn't implement
   // it, so tests fall back to textContent.
@@ -266,7 +286,6 @@ function onKeydown(event) {
 function onBlur() {
   // Item clicks use mousedown.prevent, so blur won't fire from selecting one.
   menuOpen.value = false
-  rememberSelection()
 }
 
 // External updates (AI insert, reset on close) replace the content — but only
@@ -277,12 +296,16 @@ watch(
     const el = editorRef.value
     if (el && document.activeElement !== el && value !== el.innerHTML) {
       el.innerHTML = sanitizeEmailHtml(value)
+      if (normalizeEmoji()) emitUpdate()
     }
   },
 )
 
 onMounted(() => {
-  if (editorRef.value) editorRef.value.innerHTML = sanitizeEmailHtml(props.modelValue)
+  if (editorRef.value) {
+    editorRef.value.innerHTML = sanitizeEmailHtml(props.modelValue)
+    if (normalizeEmoji()) emitUpdate()
+  }
 })
 
 defineExpose({ focus: () => editorRef.value?.focus(), insertText })
@@ -300,8 +323,6 @@ defineExpose({ focus: () => editorRef.value?.focus(), insertText })
       @input="onInput"
       @paste.prevent="onPaste"
       @keydown="onKeydown"
-      @keyup="rememberSelection"
-      @mouseup="rememberSelection"
       @blur="onBlur"
     ></div>
     <div v-if="menuOpen && menuCommands.length" class="composer-slash-menu" :style="menuStyle">

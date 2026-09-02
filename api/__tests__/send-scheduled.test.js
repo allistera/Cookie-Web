@@ -1,4 +1,6 @@
 import process from 'node:process'
+import { Buffer } from 'node:buffer'
+import { Readable } from 'node:stream'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,6 +9,7 @@ import { createHandler, parseFollowUpAt, parseScheduledFor } from '../send.js'
 const mocks = {
   getSql: vi.fn(),
   resendSend: vi.fn(),
+  readBlob: vi.fn(),
 }
 
 const USER_ID = '11111111-1111-1111-1111-111111111111'
@@ -15,6 +18,7 @@ const handler = createHandler({
   verifyAccessToken: vi.fn(async () => ({ email: 'owner@example.com', userId: USER_ID })),
   getSql: mocks.getSql,
   createResend: () => ({ emails: { send: mocks.resendSend } }),
+  readBlob: mocks.readBlob,
 })
 
 afterEach(() => {
@@ -197,6 +201,48 @@ describe('POST /api/send with sendAt (schedule creation)', () => {
 
     expect(res.statusCode).toBe(429)
   })
+
+  it('snapshots owned attachment references with a scheduled send', async () => {
+    const attachmentId = '22222222-2222-4222-8222-222222222222'
+    const sql = sequentialSql([
+      [
+        {
+          id: attachmentId,
+          filename: 'plan.pdf',
+          content_type: 'application/pdf',
+          size_bytes: 3,
+          blob_url: 'https://store.private.blob.vercel-storage.com/plan.pdf',
+        },
+      ],
+      [],
+      [{ id: 'sched-1', scheduledFor: futureIso() }],
+      [],
+    ])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      request({
+        body: {
+          to: 'recipient@example.com',
+          subject: 'Fwd: Plan',
+          text: 'Forwarded plan',
+          sendAt: futureIso(),
+          attachmentIds: [attachmentId],
+        },
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(201)
+    const joinInsert = sql.mock.calls.find(([parts]) =>
+      parts.join(' ').includes('INSERT INTO scheduled_send_attachments'),
+    )
+    expect(joinInsert).toBeTruthy()
+    expect(joinInsert.slice(1)).toContain(attachmentId)
+    expect(mocks.readBlob).not.toHaveBeenCalled()
+    expect(mocks.resendSend).not.toHaveBeenCalled()
+  })
 })
 
 describe('GET/DELETE /api/send?resource=scheduled', () => {
@@ -236,7 +282,8 @@ describe('GET/DELETE /api/send?resource=scheduled', () => {
       html: null,
       replyToMessageId: null,
     }
-    const sql = sequentialSql([[row]])
+    row.attachments = [{ id: 'att-1', filename: 'plan.pdf', downloadable: true }]
+    const sql = sequentialSql([[row], []])
     mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
 
@@ -251,6 +298,39 @@ describe('GET/DELETE /api/send?resource=scheduled', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body.scheduledSend).toEqual(row)
+    expect(sql.mock.calls[0][0].join(' ')).toContain('scheduled_send_attachments')
+  })
+
+  it('keeps attachment-free cancellation working before migration 0059 is applied', async () => {
+    const missingTable = Object.assign(
+      new Error('relation "scheduled_send_attachments" does not exist'),
+      { code: '42P01' },
+    )
+    const row = {
+      id: 'sched-1',
+      toAddresses: 'a@b.com',
+      subject: 'Hi',
+      text: 'Body',
+      html: null,
+      replyToMessageId: null,
+      attachments: [],
+    }
+    const sql = sequentialSql([missingTable, [row], []])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      request({
+        method: 'DELETE',
+        url: '/api/send?resource=scheduled',
+        body: { id: '11111111-1111-1111-1111-111111111111' },
+      }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.scheduledSend).toEqual(row)
+    expect(sql.mock.calls[1][0].join(' ')).toContain("'[]'::jsonb AS attachments")
   })
 
   it('404s canceling an id that is no longer pending (already sending/sent/failed)', async () => {
@@ -332,6 +412,64 @@ describe('POST /api/send?resource=flush', () => {
       { idempotencyKey: 'scheduled-send/sched-1' },
     )
     expect(sql.mock.calls.map(([parts]) => parts.join(' ')).join('\n')).toContain('follow_up_at')
+  })
+
+  it('delivers scheduled attachments and preserves them on the sent copy', async () => {
+    const attachment = {
+      id: '22222222-2222-4222-8222-222222222222',
+      filename: 'plan.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 3,
+      blob_url: 'https://store.private.blob.vercel-storage.com/plan.pdf',
+    }
+    const claimedRow = {
+      id: 'sched-forward',
+      user_id: 'user-1',
+      toAddresses: 'recipient@example.com',
+      subject: 'Fwd: Plan',
+      text: 'Forwarded plan',
+      html: null,
+      replyToMessageId: null,
+      followUpAt: null,
+      attempts: 0,
+      attachments: [attachment],
+    }
+    const sql = sequentialSql([
+      [claimedRow],
+      [{ email: 'owner@example.com' }],
+      [{ authorized: true, quota_claimed: true }],
+      [{ user_id: 'user-1', thread_id: null }],
+      [],
+      [{ id: 'sent-message' }],
+      [],
+      [],
+    ])
+    mocks.getSql.mockReturnValue(sql)
+    mocks.readBlob.mockResolvedValue({
+      statusCode: 200,
+      stream: Readable.from([Buffer.from('pdf')]),
+      blob: { size: 3 },
+    })
+    mocks.resendSend.mockResolvedValue({ data: { id: 'resend-forward' }, error: null })
+    const res = makeRes()
+
+    await handler(flushRequest({ authorization: 'Bearer flush-secret' }), res)
+
+    expect(res.body.sent).toBe(1)
+    expect(mocks.resendSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            filename: 'plan.pdf',
+            content: Buffer.from('pdf').toString('base64'),
+          }),
+        ],
+      }),
+      { idempotencyKey: 'scheduled-send/sched-forward' },
+    )
+    expect(
+      sql.mock.calls.some(([parts]) => parts.join(' ').includes('INSERT INTO attachments')),
+    ).toBe(true)
   })
 
   it('retries a transient claim connection failure', async () => {

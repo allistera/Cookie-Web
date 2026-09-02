@@ -106,11 +106,38 @@ describe('ComposerEditor paste and input sanitization', () => {
     const editor = wrapper.find('.composer-editor')
     editor.element.focus()
 
-    paste(editor, { text: 'a <b>\nc' })
+    paste(editor, { text: 'a <b> 😊\nc ❤️ 👍 🎉' })
     await wrapper.vm.$nextTick()
 
     const html = wrapper.emitted('update:modelValue').at(-1)[0]
-    expect(html).toContain('a &lt;b&gt;<br>c')
+    expect(html).toContain('a &lt;b&gt; :)<br>c &lt;3 +1 \\o/')
+  })
+
+  it('converts typed emoji in text nodes without flattening rich formatting', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.innerHTML = '<p>Hello <strong>😊</strong> 😢 😂 😮 🛸</p>'
+    editor.element.focus()
+    setCaret(editor.element.querySelector('p').lastChild, ' 😢 😂 😮 🛸'.length)
+
+    await editor.trigger('input')
+
+    const html = wrapper.emitted('update:modelValue').at(-1)[0]
+    expect(html).toContain('<strong>:)</strong> :( :D :O 🛸')
+    expect(editor.element.querySelector('strong').textContent).toBe(':)')
+    expect(window.getSelection().isCollapsed).toBe(true)
+  })
+
+  it('normalizes emoji in externally inserted drafts', async () => {
+    const wrapper = mount(ComposerEditor, {
+      attachTo: document.body,
+      props: { modelValue: '<p>Great news 🎉 ❤️</p>' },
+    })
+
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.composer-editor').html()).toContain('Great news \\o/ &lt;3')
+    expect(wrapper.emitted('update:text').at(-1)[0]).toBe('Great news \\o/ <3')
   })
 
   it('sanitizes dangerous markup on input', async () => {
@@ -122,56 +149,5 @@ describe('ComposerEditor paste and input sanitization', () => {
     const html = wrapper.emitted('update:modelValue').at(-1)[0]
     expect(html).toContain('Hello')
     expect(html.toLowerCase()).not.toContain('<script')
-  })
-})
-
-describe('ComposerEditor insertText', () => {
-  it('inserts at the caret remembered before the editor lost focus', async () => {
-    const wrapper = mount(ComposerEditor, { attachTo: document.body })
-    const editor = wrapper.find('.composer-editor')
-    editor.element.textContent = 'Hello world'
-    editor.element.focus()
-    setCaret(editor.element.firstChild, 'Hello'.length)
-    await editor.trigger('keyup')
-    // A toolbar click moves focus away and drops the editor selection.
-    editor.element.blur()
-    window.getSelection().removeAllRanges()
-
-    wrapper.vm.insertText('🎉')
-
-    expect(editor.element.textContent).toBe('Hello🎉 world')
-    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Hello🎉 world')
-    expect(wrapper.emitted('update:text').at(-1)[0]).toBe('Hello🎉 world')
-    wrapper.unmount()
-  })
-
-  it('inserts consecutive emoji in order and escapes markup characters', async () => {
-    const wrapper = mount(ComposerEditor, { attachTo: document.body })
-    const editor = wrapper.find('.composer-editor')
-    editor.element.textContent = 'Hi'
-    editor.element.focus()
-    setCaret(editor.element.firstChild, 'Hi'.length)
-    await editor.trigger('keyup')
-
-    wrapper.vm.insertText('👍')
-    wrapper.vm.insertText('<b>')
-
-    expect(editor.element.textContent).toBe('Hi👍<b>')
-    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Hi👍&lt;b&gt;')
-    wrapper.unmount()
-  })
-
-  it('appends when the editor has never had a caret', () => {
-    const wrapper = mount(ComposerEditor, {
-      attachTo: document.body,
-      props: { modelValue: '<p>Thanks</p>' },
-    })
-    window.getSelection().removeAllRanges()
-
-    wrapper.vm.insertText('🙏')
-
-    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('🙏')
-    expect(wrapper.find('.composer-editor').element.textContent).toContain('Thanks')
-    wrapper.unmount()
   })
 })

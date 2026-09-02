@@ -8,6 +8,7 @@ import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
 import EmailRow from '../components/EmailRow.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
+import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { scheduleChoices } from '../utils/schedule'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
@@ -752,6 +753,47 @@ function replyAllToOpenEmail() {
   nextTick(() => replyEditorRef.value?.focus())
 }
 
+function composerHasDraft() {
+  // Even a visually blank composer can have focus or an AI draft in flight.
+  // Treat the open window itself as a draft rather than replacing its state.
+  return store.isComposerActive
+}
+
+async function forwardOpenEmail() {
+  const email = openEmail.value
+  if (!email) return
+  if (composerHasDraft()) {
+    store.notify('Close your current draft before forwarding.', 'error')
+    return
+  }
+  const body = await store.fetchMessageBody(email.id)
+  if (openEmail.value?.id !== email.id) return
+  if (!body) {
+    store.notify('Could not load the original email to forward.', 'error')
+    return
+  }
+  // Do not overwrite a draft the user started while the original body was loading.
+  if (composerHasDraft()) {
+    store.notify('Close your current draft before forwarding.', 'error')
+    return
+  }
+  const draft = buildForwardDraft({
+    ...email,
+    text: body.text ?? '',
+    html: body.html ?? null,
+  })
+
+  store.closeComposer()
+  store.composerTo = ''
+  store.composerSubject = forwardSubject(email.subject)
+  store.composerHtml = draft.html
+  store.composerTextArea = draft.text
+  store.composerAttachments = (body.attachments ?? []).filter(
+    (attachment) => attachment.downloadable,
+  )
+  store.openComposer()
+}
+
 function discardReply() {
   isReplyOpen.value = false
   isReplyAll.value = false
@@ -1354,6 +1396,9 @@ onUnmounted(() => {
               >
                 <span class="material-symbols-outlined">reply_all</span>
               </button>
+              <button class="ni-reader-btn" title="Forward" @click="forwardOpenEmail">
+                <span class="material-symbols-outlined">forward</span>
+              </button>
               <span class="ni-email-time">{{ openEmail.date }}</span>
               <span
                 v-if="openEmail.isSent"
@@ -1467,6 +1512,10 @@ onUnmounted(() => {
           <button class="ni-pill-btn" @click="replyToOpenEmail">
             <span class="material-symbols-outlined">reply</span>
             <span>Reply</span>
+          </button>
+          <button class="ni-pill-btn" @click="forwardOpenEmail">
+            <span class="material-symbols-outlined">forward</span>
+            <span>Forward</span>
           </button>
         </div>
       </div>
