@@ -100,9 +100,35 @@ function onDateChange(event) {
 const priority = computed(() => priorityOf(item.value))
 const priorityMenuOpen = ref(false)
 const priorityButton = ref(null)
+const priorityMenu = ref(null)
 
-function togglePriorityMenu() {
+// The menu is fixed to the viewport, not absolutely positioned in the rail:
+// the dialog clips its overflow, and the field sits at the bottom of the
+// rail, so a menu dropping out of the button would be cut off at the
+// dialog's edge. It is measured against the button once rendered, and flips
+// above the button when the viewport has no room below.
+const priorityMenuStyle = ref({})
+
+function placePriorityMenu() {
+  const button = priorityButton.value
+  const menu = priorityMenu.value
+  if (!button || !menu) return
+  const rect = button.getBoundingClientRect()
+  const gap = 4
+  const height = menu.offsetHeight
+  const fitsBelow = rect.bottom + gap + height <= window.innerHeight
+  priorityMenuStyle.value = {
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+    top: `${fitsBelow ? rect.bottom + gap : rect.top - gap - height}px`,
+  }
+}
+
+async function togglePriorityMenu() {
   priorityMenuOpen.value = !priorityMenuOpen.value
+  if (!priorityMenuOpen.value) return
+  await nextTick()
+  placePriorityMenu()
 }
 
 async function choosePriority(value) {
@@ -376,7 +402,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
               <ul
                 v-if="priorityMenuOpen"
+                ref="priorityMenu"
                 class="task-panel-priority-menu"
+                :style="priorityMenuStyle"
                 role="listbox"
                 aria-labelledby="task-panel-priority-label"
               >
@@ -779,11 +807,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .task-panel-priority-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
+  /* Placed from script (see placePriorityMenu); z-index only has to clear
+     the dialog's own content, since the backdrop already sits above the app. */
+  position: fixed;
   z-index: 1;
-  min-width: 180px;
   margin: 0;
   padding: 4px;
   list-style: none;

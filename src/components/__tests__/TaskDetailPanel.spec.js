@@ -494,6 +494,41 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBe('b')
   })
 
+  // The dialog clips its overflow and the field sits at the bottom of the
+  // rail, so a menu positioned inside the rail was cut off at the dialog's
+  // edge. It is fixed to the viewport instead, measured from the button.
+  it('places the menu under the button, matching its width', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+    const button = wrapper.get('.task-panel-priority-button').element
+    button.getBoundingClientRect = () => ({ left: 100, width: 220, top: 500, bottom: 530 })
+    window.innerHeight = 900
+
+    await button.click()
+    await flushPromises()
+
+    const style = wrapper.get('.task-panel-priority-menu').attributes('style')
+    expect(style).toContain('left: 100px')
+    expect(style).toContain('width: 220px')
+    expect(style).toContain('top: 534px')
+  })
+
+  it('flips the menu above the button when the viewport has no room below', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+    const button = wrapper.get('.task-panel-priority-button').element
+    button.getBoundingClientRect = () => ({ left: 100, width: 220, top: 500, bottom: 530 })
+    window.innerHeight = 520
+
+    await button.click()
+    await flushPromises()
+
+    // jsdom gives the menu no height, so "above" is the gap alone.
+    expect(wrapper.get('.task-panel-priority-menu').attributes('style')).toContain('top: 496px')
+  })
+
   it('deletes the task and closes', async () => {
     seed()
     const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
