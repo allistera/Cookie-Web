@@ -890,6 +890,19 @@ describe('TraditionalInboxView reply send button', () => {
     expect(wrapper.find('.ni-reader [title="Reply all"]').exists()).toBe(false)
   })
 
+  it('shows Reply all for a message sent to someone else, such as a list', async () => {
+    store.traditionalEmails = [
+      {
+        ...makeEmail('today-1', Date.now() - HOUR),
+        recipients: { to: [{ name: null, address: 'team@example.com' }], cc: [] },
+      },
+    ]
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader [title="Reply all"]').exists()).toBe(true)
+  })
+
   it('shows Reply all when the second contact is only on the Cc line', async () => {
     store.traditionalEmails = [
       {
@@ -906,13 +919,16 @@ describe('TraditionalInboxView reply send button', () => {
     expect(wrapper.find('.ni-reader [title="Reply all"]').exists()).toBe(true)
   })
 
-  it('treats the same address on To and Cc as one contact', async () => {
+  it('hides Reply all when the only other addresses are the sender and the signed-in account', async () => {
     store.traditionalEmails = [
       {
         ...makeEmail('today-1', Date.now() - HOUR),
         recipients: {
           to: [{ name: null, address: SELF_EMAIL }],
-          cc: [{ name: 'Me', address: SELF_EMAIL.toUpperCase() }],
+          cc: [
+            { name: 'Me', address: SELF_EMAIL.toUpperCase() },
+            { name: null, address: 'Sender-Today-1@example.com' },
+          ],
         },
       },
     ]

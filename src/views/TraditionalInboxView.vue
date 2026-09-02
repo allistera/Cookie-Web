@@ -553,23 +553,6 @@ const replyFollowUpLabel = computed(() =>
 
 const { user } = useAuth()
 
-// Reply all is only offered when the message went to more than one contact
-// across its To and Cc lines; a one-to-one message has nobody else to add.
-const canReplyAll = computed(() => {
-  const email = openEmail.value
-  if (!email) return false
-  const addresses = new Set(
-    [...(email.recipients?.to ?? []), ...(email.recipients?.cc ?? [])]
-      .map((entry) =>
-        String(entry?.address ?? '')
-          .trim()
-          .toLowerCase(),
-      )
-      .filter(Boolean),
-  )
-  return addresses.size > 1
-})
-
 // Everyone a reply-all goes to: the sender first, then the To and Cc lists,
 // minus the signed-in account and any duplicates (case-insensitive). The
 // send endpoint takes one comma-separated "to" list, so Cc recipients travel
@@ -596,6 +579,10 @@ const replyAllRecipients = computed(() => {
   }
   return recipients
 })
+
+// Reply all is only offered when it would reach more than one person; a
+// one-to-one message has nobody to add beyond the sender.
+const canReplyAll = computed(() => replyAllRecipients.value.length > 1)
 
 const replyRecipients = computed(() => {
   const email = openEmail.value
