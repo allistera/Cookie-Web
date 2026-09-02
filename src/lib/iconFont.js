@@ -57,6 +57,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'person',
   'picture_as_pdf',
   'reply',
+  'reply_all',
   'report',
   'rule',
   'schedule',

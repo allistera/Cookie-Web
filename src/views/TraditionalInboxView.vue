@@ -2,6 +2,7 @@
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore, formatEmailDate } from '../stores/inbox'
+import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
@@ -529,6 +530,9 @@ const summarizeLabel = computed(() => {
   return openEmailSummary.value ? 'Regenerate Summary' : 'Summarize'
 })
 const isReplyOpen = ref(false)
+// Reply all addresses the sender plus everyone else on the To and Cc lines;
+// the flag decides which recipient set the open reply box sends to.
+const isReplyAll = ref(false)
 // The reply uses the same rich editor as compose: html is what gets sent
 // (sanitized at the send boundary), the plain text mirrors it for validation
 // and the text/plain part.
@@ -546,6 +550,56 @@ const FOLLOW_UP_FMT = new Intl.DateTimeFormat('en-GB', {
 const replyFollowUpLabel = computed(() =>
   replyFollowUpAt.value ? FOLLOW_UP_FMT.format(new Date(replyFollowUpAt.value)) : 'Remind me',
 )
+
+const { user } = useAuth()
+
+// Everyone a reply-all goes to: the sender first, then the To and Cc lists,
+// minus the signed-in account and any duplicates (case-insensitive). The
+// send endpoint takes one comma-separated "to" list, so Cc recipients travel
+// in "to" as well. A message the account sent to itself would otherwise leave
+// nobody, so that case falls back to the sender.
+const replyAllRecipients = computed(() => {
+  const email = openEmail.value
+  if (!email) return []
+  const self = String(user.value?.email ?? '')
+    .trim()
+    .toLowerCase()
+  const candidates = [
+    { name: email.sender, address: email.address },
+    ...(email.recipients?.to ?? []),
+    ...(email.recipients?.cc ?? []),
+  ]
+  const seen = new Set()
+  const recipients = []
+  for (const candidate of candidates) {
+    const address = String(candidate?.address ?? '').trim()
+    const key = address.toLowerCase()
+    if (!address || key === self || seen.has(key)) continue
+    seen.add(key)
+    recipients.push({ name: candidate.name || null, address })
+  }
+  if (recipients.length === 0 && email.address) {
+    recipients.push({ name: email.sender, address: email.address })
+  }
+  return recipients
+})
+
+const replyRecipients = computed(() => {
+  const email = openEmail.value
+  if (!email) return []
+  return isReplyAll.value
+    ? replyAllRecipients.value
+    : [{ name: email.sender, address: email.address }]
+})
+
+const replyTo = computed(() =>
+  replyRecipients.value.map((recipient) => recipient.address).join(', '),
+)
+
+const replyHeading = computed(() => {
+  const names = replyRecipients.value.map((recipient) => recipient.name || recipient.address)
+  return `${isReplyAll.value ? 'Reply all to' : 'Reply to'} ${names.join(', ')}`
+})
 
 function openReader(email) {
   // Opening a message takes over from any text field it was launched from
@@ -581,6 +635,7 @@ watch(
   () => store.openEmailId,
   (id) => {
     isReplyOpen.value = false
+    isReplyAll.value = false
     replyHtml.value = ''
     replyTextPlain.value = ''
     replyFollowUpAt.value = null
@@ -685,12 +740,21 @@ async function clearOpenEmailFollowUp() {
 }
 
 function replyToOpenEmail() {
+  isReplyAll.value = false
+  isReplyOpen.value = true
+  nextTick(() => replyEditorRef.value?.focus())
+}
+
+// Switching modes keeps any text already typed; only the recipient set changes.
+function replyAllToOpenEmail() {
+  isReplyAll.value = true
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
 }
 
 function discardReply() {
   isReplyOpen.value = false
+  isReplyAll.value = false
   replyHtml.value = ''
   replyTextPlain.value = ''
   replyFollowUpAt.value = null
@@ -714,7 +778,7 @@ function clearReplyFollowUp() {
 function generateReplyDraft() {
   const email = openEmail.value
   if (!email) return
-  store.composerTo = email.address
+  store.composerTo = replyTo.value
   store.composerSubject = `Re: ${email.subject}`
   store.composerReplyToMessageId = email.id
   store.composerHtml = replyHtml.value
@@ -731,7 +795,7 @@ async function sendReply() {
   isSendingReply.value = true
   try {
     const result = await store.sendMail({
-      to: email.address,
+      to: replyTo.value,
       subject: `Re: ${email.subject}`,
       text: replyTextPlain.value,
       // Sanitize the rich body once, here at the send boundary (same as the
@@ -1282,6 +1346,9 @@ onUnmounted(() => {
               <button class="ni-reader-btn" title="Reply" @click="replyToOpenEmail">
                 <span class="material-symbols-outlined">reply</span>
               </button>
+              <button class="ni-reader-btn" title="Reply all" @click="replyAllToOpenEmail">
+                <span class="material-symbols-outlined">reply_all</span>
+              </button>
               <span class="ni-email-time">{{ openEmail.date }}</span>
               <span
                 v-if="openEmail.isSent"
@@ -1337,8 +1404,10 @@ onUnmounted(() => {
         <Transition name="ni-reply">
           <div class="ni-reply-box" v-if="isReplyOpen">
             <div class="ni-reply-header">
-              <span class="material-symbols-outlined">reply</span>
-              <span>Reply to {{ openEmail.sender }}</span>
+              <span class="material-symbols-outlined">{{
+                isReplyAll ? 'reply_all' : 'reply'
+              }}</span>
+              <span>{{ replyHeading }}</span>
             </div>
             <ComposerEditor
               ref="replyEditorRef"

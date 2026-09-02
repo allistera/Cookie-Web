@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
@@ -20,8 +21,19 @@ setAuth0Client(null)
 let router
 let routerPush
 
+// The signed-in account's address; reply-all leaves it out of the recipients.
+const SELF_EMAIL = 'me@example.com'
+
 function mountView(options = {}) {
-  return mount(TraditionalInboxView, { ...options, global: { plugins: [router] } })
+  // useAuth0() is inject()-based, so providing under its key feeds the view a
+  // signed-in user through the real interface.
+  return mount(TraditionalInboxView, {
+    ...options,
+    global: {
+      plugins: [router],
+      provide: { [AUTH0_INJECTION_KEY]: { user: ref({ email: SELF_EMAIL }) } },
+    },
+  })
 }
 
 // View tests exercise optimistic store actions, but authentication and the
@@ -791,10 +803,114 @@ describe('TraditionalInboxView reply send button', () => {
 
     expect(store.sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
+        to: 'sender-today-1@example.com',
         text: 'Sounds good!',
         html: expect.stringContaining('Sounds good!'),
       }),
     )
+  })
+
+  function seedGroupEmail() {
+    store.traditionalEmails = [
+      {
+        ...makeEmail('today-1', Date.now() - HOUR),
+        recipients: {
+          to: [
+            { name: 'Me', address: SELF_EMAIL },
+            { name: 'Bea', address: 'bea@example.com' },
+          ],
+          cc: [
+            { name: null, address: 'cara@example.com' },
+            // Same person as the sender, differing only in case.
+            { name: null, address: 'Sender-Today-1@example.com' },
+          ],
+        },
+      },
+    ]
+  }
+
+  it('replies to everyone except the signed-in account from the reply-all icon', async () => {
+    seedGroupEmail()
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
+    expect(wrapper.get('.ni-reply-header span:last-child').text()).toBe(
+      'Reply all to Sender today-1, Bea, cara@example.com',
+    )
+    expect(wrapper.get('.ni-reply-header .material-symbols-outlined').text()).toBe('reply_all')
+
+    const editor = wrapper.find('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'Sounds good!'
+    await editor.trigger('input')
+    await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
+
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'sender-today-1@example.com, bea@example.com, cara@example.com',
+        subject: 'Re: Subject today-1',
+        replyToMessageId: 'today-1',
+      }),
+    )
+  })
+
+  it('switching between Reply and Reply all keeps the draft and changes only the recipients', async () => {
+    seedGroupEmail()
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
+    const editor = wrapper.find('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'Sounds good!'
+    await editor.trigger('input')
+
+    await wrapper.get('.ni-reader [title="Reply"]').trigger('click')
+    expect(wrapper.get('.ni-reply-header span:last-child').text()).toBe('Reply to Sender today-1')
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toContain('Sounds good!')
+
+    await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'sender-today-1@example.com' }),
+    )
+  })
+
+  it('falls back to the sender when reply-all would leave nobody', async () => {
+    store.traditionalEmails = [
+      {
+        ...makeEmail('today-1', Date.now() - HOUR),
+        address: SELF_EMAIL,
+        recipients: { to: [{ name: null, address: SELF_EMAIL }], cc: [] },
+      },
+    ]
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
+    const editor = wrapper.find('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'Note to self'
+    await editor.trigger('input')
+    await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
+
+    expect(store.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: SELF_EMAIL }))
+  })
+
+  it('carries the reply-all recipients into the composer for an AI draft', async () => {
+    seedGroupEmail()
+    vi.spyOn(store, 'openComposer').mockImplementation(() => {})
+    vi.spyOn(store, 'openAiDraft').mockImplementation(() => {})
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
+    wrapper.findComponent({ name: 'ComposerEditor' }).vm.$emit('generate')
+    await nextTick()
+
+    expect(store.composerTo).toBe('sender-today-1@example.com, bea@example.com, cara@example.com')
+    expect(store.composerReplyToMessageId).toBe('today-1')
+    expect(store.openComposer).toHaveBeenCalled()
   })
 
   it('sends the selected follow-up reminder with an inline reply', async () => {
@@ -1223,6 +1339,7 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
 
     const reader = wrapper.find('.ni-reader')
     expect(reader.find('[title="Reply"]').exists()).toBe(true)
+    expect(reader.find('[title="Reply all"]').exists()).toBe(true)
     expect(reader.find('[title="Star"]').exists()).toBe(true)
     expect(reader.find('[title="Done"]').exists()).toBe(true)
     expect(reader.find('[title="Reschedule"]').exists()).toBe(true)

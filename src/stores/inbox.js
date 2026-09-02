@@ -243,6 +243,15 @@ const FOLDER_STATE = {
   },
 }
 
+// The recipients column is a {to, cc, bcc} object of {name, address} entries.
+// Keep the To and Cc lists (Bcc is never shared back out) so the reader can
+// address a reply-all without another round trip.
+function mapRecipientList(entries) {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => ({ name: entry?.name || null, address: String(entry?.address ?? '').trim() }))
+    .filter((entry) => entry.address)
+}
+
 // Maps a GET /emails (or /search) row to the shape the views render. Exported
 // for the combined /search results page (stores/search.js's mail rows come
 // from the same backend row shape) so it doesn't duplicate this mapping.
@@ -255,6 +264,10 @@ export function mapEmailRow(message) {
     // Outbound rows render "To: <recipient>" instead of the sender.
     isSent: Boolean(message.is_sent),
     to: firstRecipient ? firstRecipient.name || firstRecipient.address : null,
+    recipients: {
+      to: mapRecipientList(message.recipients?.to),
+      cc: mapRecipientList(message.recipients?.cc),
+    },
     subject: message.subject,
     snippet: message.snippet,
     body: message.body_text,

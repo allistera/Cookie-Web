@@ -63,6 +63,7 @@ describe('Inbox Store', () => {
         address: 'updates@cityconstruction.com',
         isSent: false,
         to: null,
+        recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
         snippet: 'Hi Allister, following up...',
         body: undefined,
@@ -288,8 +289,8 @@ describe('Inbox Store', () => {
               from_address: 'me@allisterantosik.com',
               recipients: {
                 to: [{ name: null, address: 'info@citytileandstone.com' }],
-                cc: [],
-                bcc: [],
+                cc: [{ name: 'Site Lead', address: 'lead@citytileandstone.com' }],
+                bcc: [{ name: null, address: 'hidden@example.com' }],
               },
               subject: 'Re: Kitchen Renovation - Tile Selection Due',
               snippet: 'I confirm the selection of the White Subway Tiles...',
@@ -313,6 +314,11 @@ describe('Inbox Store', () => {
     })
     expect(store.sentEmails).toHaveLength(1)
     expect(store.sentEmails[0].to).toBe('info@citytileandstone.com')
+    // The reader's reply-all needs the full To/Cc lists; Bcc stays private.
+    expect(store.sentEmails[0].recipients).toEqual({
+      to: [{ name: null, address: 'info@citytileandstone.com' }],
+      cc: [{ name: 'Site Lead', address: 'lead@citytileandstone.com' }],
+    })
     expect(store.sentEmails[0].isSent).toBe(true)
     expect(store.hasMoreSent).toBe(false)
     expect(store.isSentLoaded).toBe(true)
