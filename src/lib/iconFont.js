@@ -31,6 +31,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'expand_less',
   'expand_more',
   'filter_alt',
+  'flag',
   'format_bold',
   'format_list_bulleted',
   'format_list_numbered',

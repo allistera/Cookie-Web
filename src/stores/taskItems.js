@@ -180,6 +180,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return this.patchItem(id, { dueDate }, { dueDate }, 'Failed to set the date.')
     },
 
+    // `priority` is an integer 1..4 (1 most urgent, 4 the default). The
+    // server refuses anything else rather than clamping it, so a rejection is
+    // a real error worth surfacing.
+    setPriority(id, priority) {
+      return this.patchItem(id, { priority }, { priority }, 'Failed to set the priority.')
+    },
+
     // `projectId` is a project id, or null for the Inbox — which is the
     // absence of a project rather than a project of its own.
     moveItem(id, projectId) {

@@ -284,6 +284,37 @@ describe('detail panel support', () => {
   })
 })
 
+describe('priority', () => {
+  it('sends a priority and applies it locally', async () => {
+    store.items = [{ ...ITEM, priority: 4 }]
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: { ...ITEM, priority: 1 } }) }))
+
+    await store.setPriority('t1', 1)
+
+    const [, options] = fetch.mock.calls[0]
+    expect(options.method).toBe('PATCH')
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', priority: 1 })
+    expect(store.items[0].priority).toBe(1)
+  })
+
+  // The server refuses a bad priority rather than clamping it, so the
+  // optimistic local value has to go back to what it was.
+  it('rolls the priority back and surfaces the server message when refused', async () => {
+    store.items = [{ ...ITEM, priority: 2 }]
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'priority must be an integer from 1 to 4' }),
+    }))
+
+    await store.setPriority('t1', 9)
+
+    expect(store.items[0].priority).toBe(2)
+    expect(notify).toHaveBeenCalledWith('priority must be an integer from 1 to 4', 'error')
+  })
+})
+
 describe('moving a task between projects', () => {
   it('sends the new project and applies it locally', async () => {
     store.items = [{ ...ITEM }]

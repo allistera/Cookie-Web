@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import { localToday } from '../lib/localDate'
+import { priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -251,8 +252,11 @@ async function submitDraft() {
     </p>
     <ul v-else class="task-rows">
       <li v-for="item in visibleItems" :key="item.id" class="task-row">
+        <!-- The circle takes the priority's colour, the way Todoist's list
+           does, so an urgent task stands out without another chip. -->
         <button
           class="task-check"
+          :class="`priority-${priorityOf(item)}`"
           type="button"
           :aria-label="`Complete ${item.content}`"
           @click="items.setCompleted(item.id, true)"
@@ -494,6 +498,23 @@ async function submitDraft() {
 
 .task-check:hover {
   border-color: var(--text-primary);
+}
+
+/* Todoist's colours, shared with the detail panel's flags (lib/taskPriority).
+   P4 keeps the plain circle. */
+.task-check.priority-1 {
+  border-color: #d1453b;
+  background: rgba(209, 69, 59, 0.12);
+}
+
+.task-check.priority-2 {
+  border-color: #eb8909;
+  background: rgba(235, 137, 9, 0.12);
+}
+
+.task-check.priority-3 {
+  border-color: #246fe0;
+  background: rgba(36, 111, 224, 0.12);
 }
 
 .task-content {

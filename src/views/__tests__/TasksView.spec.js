@@ -245,6 +245,32 @@ describe('TasksView', () => {
     expect(wrapper.get('.task-due').text()).toBe('1 Sep')
   })
 
+  // The completion circle carries the priority's colour, the way Todoist's
+  // list does. P4 (and a row from before the column existed) stays plain.
+  it('colours the completion circle by priority', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      {
+        id: 'a',
+        content: 'Urgent',
+        description: null,
+        dueDate: null,
+        projectId: 'p2',
+        priority: 1,
+      },
+      { id: 'b', content: 'Plain', description: null, dueDate: null, projectId: 'p2', priority: 4 },
+      { id: 'c', content: 'Legacy', description: null, dueDate: null, projectId: 'p2' },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    const checks = wrapper.findAll('.task-check')
+    expect(checks[0].classes()).toContain('priority-1')
+    expect(checks[1].classes()).toContain('priority-4')
+    expect(checks[2].classes()).toContain('priority-4')
+  })
+
   // A date is a plain calendar date with no zone. Formatting it through a
   // Date in the local zone slides the chip a day west of Greenwich.
   it('shows the due date without a timezone shift', async () => {

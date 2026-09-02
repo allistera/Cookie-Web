@@ -389,6 +389,111 @@ describe('TaskDetailPanel', () => {
     expect(wrapper.find('.task-panel-date-clear').exists()).toBe(false)
   })
 
+  // Priority is Todoist's four levels: 1 the most urgent, 4 the default.
+  it('shows the default priority for a task that has none', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-priority-short').text()).toBe('P4')
+    expect(wrapper.get('.task-panel-priority-button .priority-flag').classes()).toContain(
+      'priority-4',
+    )
+    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
+  })
+
+  it('shows the priority the task already has', async () => {
+    seed([{ ...ITEMS[1], priority: 1 }])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-priority-short').text()).toBe('P1')
+    expect(wrapper.get('.task-panel-priority-button').attributes('aria-label')).toBe(
+      'Priority: Priority 1',
+    )
+    expect(wrapper.get('.task-panel-priority-button .priority-flag').classes()).toContain(
+      'priority-1',
+    )
+  })
+
+  it('opens a menu of the four levels with the current one marked', async () => {
+    seed([{ ...ITEMS[1], priority: 2 }])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-priority-button').trigger('click')
+
+    const options = wrapper.findAll('.task-panel-priority-option')
+    expect(options.map((option) => option.get('.task-panel-priority-option-label').text())).toEqual(
+      ['Priority 1', 'Priority 2', 'Priority 3', 'Priority 4'],
+    )
+    expect(options.map((option) => option.attributes('aria-selected'))).toEqual([
+      'false',
+      'true',
+      'false',
+      'false',
+    ])
+    expect(options[1].find('.task-panel-priority-check').exists()).toBe(true)
+    expect(options[0].find('.task-panel-priority-check').exists()).toBe(false)
+    expect(wrapper.get('.task-panel-priority-button').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('sets a priority from the menu and closes it', async () => {
+    seed()
+    const setPriority = vi.spyOn(items, 'setPriority').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-priority-button').trigger('click')
+    await wrapper.findAll('.task-panel-priority-option')[0].trigger('click')
+    await flushPromises()
+
+    expect(setPriority).toHaveBeenCalledWith('b', 1)
+    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
+  })
+
+  it('does not send the priority the task already has', async () => {
+    seed([{ ...ITEMS[1], priority: 3 }])
+    const setPriority = vi.spyOn(items, 'setPriority').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-priority-button').trigger('click')
+    await wrapper.findAll('.task-panel-priority-option')[2].trigger('click')
+    await flushPromises()
+
+    expect(setPriority).not.toHaveBeenCalled()
+    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
+  })
+
+  // Escape with the menu open is asking to leave the menu, not the panel.
+  it('closes the priority menu on Escape without closing the panel', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-priority-button').trigger('click')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
+  it('closes the priority menu on a click elsewhere in the panel', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-priority-button').trigger('click')
+    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(true)
+
+    await wrapper.get('.task-panel-main').trigger('click')
+
+    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
   it('deletes the task and closes', async () => {
     seed()
     const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)

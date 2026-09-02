@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useInlineEdit } from '../composables/useInlineEdit'
+import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -92,6 +93,36 @@ function onDateChange(event) {
   items.setDueDate(props.taskId, value || null)
 }
 
+// Priority is a custom menu rather than a <select>: a native select cannot
+// carry the coloured flag beside each level, and the flag is what makes the
+// levels legible at a glance. It behaves as a listbox — one button that opens
+// it, one option per level, the current one marked.
+const priority = computed(() => priorityOf(item.value))
+const priorityMenuOpen = ref(false)
+const priorityButton = ref(null)
+
+function togglePriorityMenu() {
+  priorityMenuOpen.value = !priorityMenuOpen.value
+}
+
+async function choosePriority(value) {
+  priorityMenuOpen.value = false
+  priorityButton.value?.focus()
+  if (value === priority.value) return
+  await items.setPriority(props.taskId, value)
+}
+
+// A click anywhere else in the panel closes the menu. The dialog stops clicks
+// from reaching the backdrop (which would close the whole panel), so this is
+// where an "outside" click is seen; a backdrop click closes everything anyway.
+const priorityField = ref(null)
+
+function onPanelClick(event) {
+  if (!priorityMenuOpen.value) return
+  if (event.target instanceof Node && priorityField.value?.contains(event.target)) return
+  priorityMenuOpen.value = false
+}
+
 // Completing takes the task out of the visible list, so the panel would be
 // left pointing at something that is no longer there.
 async function complete() {
@@ -131,7 +162,14 @@ watch(
 )
 
 function onKeydown(event) {
-  if (event.key === 'Escape') close()
+  if (event.key !== 'Escape') return
+  // Escape with the menu open is asking to leave the menu, not the panel.
+  if (priorityMenuOpen.value) {
+    priorityMenuOpen.value = false
+    priorityButton.value?.focus()
+    return
+  }
+  close()
 }
 
 onMounted(() => document.addEventListener('keydown', onKeydown))
@@ -145,7 +183,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
       role="dialog"
       aria-modal="true"
       :aria-label="item?.content ?? 'Task'"
-      @click.stop
+      @click.stop="onPanelClick($event)"
     >
       <header class="task-panel-header">
         <span class="task-panel-project">
@@ -305,6 +343,67 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               >
                 <span class="material-symbols-outlined" aria-hidden="true">close</span>
               </button>
+            </div>
+          </div>
+
+          <div class="task-panel-field">
+            <h3 id="task-panel-priority-label">Priority</h3>
+            <div ref="priorityField" class="task-panel-priority">
+              <button
+                ref="priorityButton"
+                class="task-panel-priority-button"
+                :class="[`priority-${priority}`, { open: priorityMenuOpen }]"
+                type="button"
+                aria-haspopup="listbox"
+                :aria-expanded="priorityMenuOpen ? 'true' : 'false'"
+                :aria-label="`Priority: ${priorityInfo(priority).label}`"
+                @click="togglePriorityMenu()"
+              >
+                <span
+                  class="material-symbols-outlined priority-flag"
+                  :class="`priority-${priority}`"
+                  aria-hidden="true"
+                  >flag</span
+                >
+                <span class="task-panel-priority-short">{{ priorityInfo(priority).short }}</span>
+                <span
+                  class="material-symbols-outlined task-panel-priority-chevron"
+                  aria-hidden="true"
+                >
+                  {{ priorityMenuOpen ? 'expand_less' : 'expand_more' }}
+                </span>
+              </button>
+
+              <ul
+                v-if="priorityMenuOpen"
+                class="task-panel-priority-menu"
+                role="listbox"
+                aria-labelledby="task-panel-priority-label"
+              >
+                <li
+                  v-for="level in PRIORITIES"
+                  :key="level.value"
+                  class="task-panel-priority-option"
+                  :class="{ selected: level.value === priority }"
+                  role="option"
+                  :aria-selected="level.value === priority ? 'true' : 'false'"
+                  @click="choosePriority(level.value)"
+                >
+                  <span
+                    class="material-symbols-outlined priority-flag"
+                    :class="`priority-${level.value}`"
+                    aria-hidden="true"
+                    >flag</span
+                  >
+                  <span class="task-panel-priority-option-label">{{ level.label }}</span>
+                  <span
+                    v-if="level.value === priority"
+                    class="material-symbols-outlined task-panel-priority-check"
+                    aria-hidden="true"
+                    >check</span
+                  >
+                </li>
+              </ul>
             </div>
           </div>
         </aside>
@@ -643,5 +742,104 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 .task-panel-date-clear:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.task-panel-priority {
+  position: relative;
+}
+
+.task-panel-priority-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.task-panel-priority-button:hover,
+.task-panel-priority-button.open {
+  background: var(--bg-hover);
+}
+
+.task-panel-priority-short {
+  flex: 1;
+}
+
+.task-panel-priority-chevron {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.task-panel-priority-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 1;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-dialog);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.task-panel-priority-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.task-panel-priority-option:hover,
+.task-panel-priority-option.selected {
+  background: var(--bg-hover);
+}
+
+.task-panel-priority-option-label {
+  flex: 1;
+}
+
+.task-panel-priority-check {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+/* Todoist's colours: red, orange, blue, and a plain flag for the default.
+   Filled for the three real levels so the colour reads at 18px; outlined for
+   P4 so "no priority" looks like an absence rather than a grey level. */
+.priority-flag {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.priority-flag.priority-1,
+.priority-flag.priority-2,
+.priority-flag.priority-3 {
+  font-variation-settings: 'FILL' 1;
+}
+
+.priority-flag.priority-1 {
+  color: #d1453b;
+}
+
+.priority-flag.priority-2 {
+  color: #eb8909;
+}
+
+.priority-flag.priority-3 {
+  color: #246fe0;
 }
 </style>

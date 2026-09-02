@@ -136,6 +136,17 @@ calendar commitments along with it.
 messages and pending scheduled sends. A partial due-reminder index supports
 Inbox resurfacing without scanning ordinary sent mail.
 
+## Task priority
+
+`0058_task_items_priority.sql` adds `task_items.priority` (`smallint NOT NULL
+DEFAULT 4`, checked to `1..4`), Todoist-style: 1 is the most urgent, 4 is the
+default and reads as "no priority" in the Tasks app. The column is not
+nullable — every task has a priority, and "unset" is just the lowest level.
+
+Apply `0058` before deploying Cookie-Worker code that reads or writes
+`task_items.priority`; the `cookie-web-tasks` Worker selects and returns the
+column on every task read.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
