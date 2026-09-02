@@ -746,6 +746,25 @@ describe('TraditionalInboxView reply send button', () => {
     expect(consoleError).toHaveBeenCalledWith('Failed to send reply:', expect.any(Error))
   })
 
+  it('inserts a picked emoji into the reply body', async () => {
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const sendButton = await openReplyBox()
+
+    await wrapper.get('.ni-reply-footer .composer-emoji-btn').trigger('click')
+    await wrapper.get('.composer-emoji-item[aria-label="thumbs up"]').trigger('click')
+
+    expect(wrapper.find('.composer-emoji-popover').exists()).toBe(false)
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toContain('👍')
+
+    await sendButton.trigger('click')
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('👍'),
+        html: expect.stringContaining('👍'),
+      }),
+    )
+  })
+
   it('sends the reply as sanitized html alongside its plain text', async () => {
     vi.spyOn(store, 'sendMail').mockResolvedValue({})
     const sendButton = await openReplyBox()

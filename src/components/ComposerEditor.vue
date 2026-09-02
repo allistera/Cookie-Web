@@ -127,6 +127,40 @@ function insertSnippet(html) {
   insertHtmlAtCaret(sanitizeEmailHtml(html))
 }
 
+// --- Caret memory for toolbar insertions ---
+// Toolbar controls (the emoji picker) take focus away from the editor, which
+// drops its selection. Remember the last caret position inside the editor so
+// an insertion still lands where the user was typing.
+let savedRange = null
+
+function rememberSelection() {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return
+  const range = selection.getRangeAt(0)
+  const editor = editorRef.value
+  if (editor && editor.contains(range.commonAncestorContainer)) savedRange = range.cloneRange()
+}
+
+function restoreSelection() {
+  const editor = editorRef.value
+  if (!editor) return
+  editor.focus()
+  if (!savedRange || !editor.contains(savedRange.commonAncestorContainer)) return
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(savedRange)
+}
+
+// Inserts plain text (e.g. an emoji) at the remembered caret, or appends it
+// when the editor has never had a caret.
+function insertText(text) {
+  if (!text) return
+  restoreSelection()
+  insertHtmlAtCaret(escapeHtml(text))
+  rememberSelection()
+  emitUpdate()
+}
+
 function onPaste(event) {
   const html = event.clipboardData?.getData('text/html')
   const text = event.clipboardData?.getData('text/plain') ?? ''
@@ -232,6 +266,7 @@ function onKeydown(event) {
 function onBlur() {
   // Item clicks use mousedown.prevent, so blur won't fire from selecting one.
   menuOpen.value = false
+  rememberSelection()
 }
 
 // External updates (AI insert, reset on close) replace the content — but only
@@ -250,7 +285,7 @@ onMounted(() => {
   if (editorRef.value) editorRef.value.innerHTML = sanitizeEmailHtml(props.modelValue)
 })
 
-defineExpose({ focus: () => editorRef.value?.focus() })
+defineExpose({ focus: () => editorRef.value?.focus(), insertText })
 </script>
 
 <template>
@@ -265,6 +300,8 @@ defineExpose({ focus: () => editorRef.value?.focus() })
       @input="onInput"
       @paste.prevent="onPaste"
       @keydown="onKeydown"
+      @keyup="rememberSelection"
+      @mouseup="rememberSelection"
       @blur="onBlur"
     ></div>
     <div v-if="menuOpen && menuCommands.length" class="composer-slash-menu" :style="menuStyle">

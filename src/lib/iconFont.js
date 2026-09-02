@@ -3,6 +3,7 @@
 // needed; iconFontSubset.spec.js keeps this list aligned with source usage.
 export const MATERIAL_SYMBOL_NAMES = [
   'add',
+  'add_reaction',
   'add_task',
   'arrow_back',
   'attach_file',

@@ -3,6 +3,7 @@ import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore, formatEmailDate } from '../stores/inbox'
 import ComposerEditor from '../components/ComposerEditor.vue'
+import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
 import EmailRow from '../components/EmailRow.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
@@ -1379,6 +1380,10 @@ onUnmounted(() => {
                   @clear="clearReplyFollowUp"
                 />
               </div>
+              <EmojiPicker
+                :disabled="isSendingReply"
+                @select="replyEditorRef?.insertText($event)"
+              />
               <button class="btn btn-text" @click="discardReply">Discard</button>
             </div>
           </div>

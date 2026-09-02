@@ -11,6 +11,7 @@ import {
 } from '../lib/recipients'
 import { scheduleChoices } from '../utils/schedule'
 import ComposerEditor from './ComposerEditor.vue'
+import EmojiPicker from './EmojiPicker.vue'
 import ScheduleMenu from './ScheduleMenu.vue'
 
 const store = useInboxStore()
@@ -292,6 +293,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
             @clear="clearFollowUp"
           />
         </div>
+        <EmojiPicker @select="composerBodyRef?.insertText($event)" />
       </div>
       <div class="composer-ai-inline">
         <span class="material-symbols-outlined">auto_fix_high</span>

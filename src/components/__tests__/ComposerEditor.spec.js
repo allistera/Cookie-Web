@@ -124,3 +124,54 @@ describe('ComposerEditor paste and input sanitization', () => {
     expect(html.toLowerCase()).not.toContain('<script')
   })
 })
+
+describe('ComposerEditor insertText', () => {
+  it('inserts at the caret remembered before the editor lost focus', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = 'Hello world'
+    editor.element.focus()
+    setCaret(editor.element.firstChild, 'Hello'.length)
+    await editor.trigger('keyup')
+    // A toolbar click moves focus away and drops the editor selection.
+    editor.element.blur()
+    window.getSelection().removeAllRanges()
+
+    wrapper.vm.insertText('🎉')
+
+    expect(editor.element.textContent).toBe('Hello🎉 world')
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Hello🎉 world')
+    expect(wrapper.emitted('update:text').at(-1)[0]).toBe('Hello🎉 world')
+    wrapper.unmount()
+  })
+
+  it('inserts consecutive emoji in order and escapes markup characters', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = 'Hi'
+    editor.element.focus()
+    setCaret(editor.element.firstChild, 'Hi'.length)
+    await editor.trigger('keyup')
+
+    wrapper.vm.insertText('👍')
+    wrapper.vm.insertText('<b>')
+
+    expect(editor.element.textContent).toBe('Hi👍<b>')
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Hi👍&lt;b&gt;')
+    wrapper.unmount()
+  })
+
+  it('appends when the editor has never had a caret', () => {
+    const wrapper = mount(ComposerEditor, {
+      attachTo: document.body,
+      props: { modelValue: '<p>Thanks</p>' },
+    })
+    window.getSelection().removeAllRanges()
+
+    wrapper.vm.insertText('🙏')
+
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('🙏')
+    expect(wrapper.find('.composer-editor').element.textContent).toContain('Thanks')
+    wrapper.unmount()
+  })
+})
