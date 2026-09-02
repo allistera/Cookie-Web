@@ -176,8 +176,26 @@ describe('TraditionalInboxView day accordion', () => {
   })
 
   it('uses a cached structured invite and keeps its 30-minute end time', async () => {
-    const inviteStart = new Date(2026, 8, 2, 15, 0)
-    const inviteEnd = new Date(2026, 8, 2, 15, 30)
+    // Tomorrow, not a fixed date: the suggestion is suppressed once the
+    // invite has ended, so a hardcoded date turned into a time bomb.
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const inviteStart = new Date(
+      tomorrow.getFullYear(),
+      tomorrow.getMonth(),
+      tomorrow.getDate(),
+      15,
+      0,
+    )
+    const inviteEnd = new Date(
+      tomorrow.getFullYear(),
+      tomorrow.getMonth(),
+      tomorrow.getDate(),
+      15,
+      30,
+    )
+    const pad2 = (n) => String(n).padStart(2, '0')
+    const inviteDate = `${inviteStart.getFullYear()}-${pad2(inviteStart.getMonth() + 1)}-${pad2(inviteStart.getDate())}`
     const eventEmail = makeEmail('event-invite', Date.now() - HOUR)
     eventEmail.subject = 'Booking confirmation'
     eventEmail.body = 'Your booking is confirmed.'
@@ -210,7 +228,7 @@ describe('TraditionalInboxView day accordion', () => {
       title: 'Whitburn Recycling Centre',
       description: 'Booking 1292383',
       location: 'Whitburn Recycling Centre',
-      date: '2026-09-02',
+      date: inviteDate,
       start: '15:00',
       end: '15:30',
     })
