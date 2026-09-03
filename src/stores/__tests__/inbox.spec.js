@@ -308,6 +308,140 @@ describe('Inbox Store', () => {
       expect(notify).toHaveBeenCalledWith('Could not load your drafts.', 'error')
     })
 
+    it('replays saves that landed while the drafts list was loading', async () => {
+      // Sign-in bootstraps the list while the user has already started
+      // typing; the GET's snapshot predates the autosave that followed it.
+      let resolveList
+      const listResponse = new Promise((resolve) => {
+        resolveList = resolve
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url, options = {}) => {
+          if (options.method === 'POST') {
+            return {
+              ok: true,
+              status: 201,
+              json: async () => ({ draft: { id: DRAFT_ID, updatedAt: '2026-09-03T10:00:00Z' } }),
+            }
+          }
+          await listResponse
+          return { ok: true, status: 200, json: async () => ({ drafts: [{ id: 'older' }] }) }
+        }),
+      )
+      const store = useInboxStore()
+      const load = store.loadDrafts({ silent: true })
+      armComposer(store)
+      await store.saveComposerDraft()
+      expect(store.draftCount).toBe(1)
+
+      resolveList()
+      await load
+
+      expect(store.drafts.map((draft) => draft.id)).toEqual([DRAFT_ID, 'older'])
+    })
+
+    it('puts a draft back when deleting it fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+      const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+      store.drafts = [{ id: 'first' }, { id: DRAFT_ID }, { id: 'third' }]
+
+      const discard = store.discardDraft(DRAFT_ID)
+      expect(store.draftCount).toBe(2)
+      await discard
+
+      expect(store.drafts.map((draft) => draft.id)).toEqual(['first', DRAFT_ID, 'third'])
+      expect(notify).toHaveBeenCalledWith('Could not delete the draft.', 'error')
+    })
+
+    it('hands a row created after the send began to that send', async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+      let finishSave
+      const saved = new Promise((resolve) => {
+        finishSave = () => resolve(DRAFT_ID)
+      })
+      vi.spyOn(store, 'persistDraft').mockImplementation(() => saved)
+      const save = store.saveComposerDraft()
+
+      // Send clicked while that first POST is still in flight: no id yet.
+      const send = store.sendEmail()
+      expect(store.pendingSend.draftId).toBeNull()
+
+      finishSave()
+      await save
+      await send
+      expect(store.pendingSend.draftId).toBe(DRAFT_ID)
+      expect(store.composerDraftId).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(5000)
+      const deleted = fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')
+      expect(deleted[0]).toContain(`/drafts/${DRAFT_ID}`)
+      vi.useRealTimers()
+    })
+
+    it('returns a late row to the composer when the send is undone first', async () => {
+      const store = useInboxStore()
+      armComposer(store)
+      let finishSave
+      const saved = new Promise((resolve) => {
+        finishSave = () => resolve(DRAFT_ID)
+      })
+      vi.spyOn(store, 'persistDraft').mockImplementation(() => saved)
+      const save = store.saveComposerDraft()
+      const send = store.sendEmail()
+      store.undoPendingSend()
+      expect(store.composerDraftId).toBeNull()
+
+      finishSave()
+      await save
+      await send
+
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerDraftId).toBe(DRAFT_ID)
+    })
+
+    it('waits for an in-flight first save before scheduling a send', async () => {
+      const calls = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url, options = {}) => {
+          calls.push([url, options.method ?? 'GET'])
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ scheduledSend: { id: 'sched-1' } }),
+          }
+        }),
+      )
+      const store = useInboxStore()
+      vi.spyOn(store, 'notify').mockImplementation(() => {})
+      armComposer(store)
+      let finishSave
+      const saved = new Promise((resolve) => {
+        finishSave = () => resolve(DRAFT_ID)
+      })
+      vi.spyOn(store, 'persistDraft').mockImplementation(() => saved)
+      const save = store.saveComposerDraft()
+      const later = store.sendEmailLater('2026-09-04T09:00:00Z', 'tomorrow')
+      await Promise.resolve()
+      expect(calls).toEqual([])
+
+      finishSave()
+      await save
+      await later
+
+      expect(calls.map(([, method]) => method)).toEqual(['POST', 'DELETE'])
+      expect(calls[1][0]).toContain(`/drafts/${DRAFT_ID}`)
+    })
+
     it('does not autosave a composer that has already closed', async () => {
       const fetchMock = stubDraftFetch()
       const store = useInboxStore()

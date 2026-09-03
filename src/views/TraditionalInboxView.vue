@@ -900,13 +900,21 @@ function generateReplyDraft() {
   store.composerFollowUpAt = replyFollowUpAt.value
   store.composerAttachments = replyAttachments.value
   // The composer now owns this draft row and keeps autosaving into it.
-  store.composerDraftId = store.consumeReplyDraft()
+  const replyDraftId = store.consumeReplyDraft()
+  store.composerDraftId = replyDraftId
   pendingReplyDraft.value = null
   // Handed to the composer, so discardReply() must not reclaim them.
   replyAttachments.value = []
   discardReply()
   store.openComposer()
   store.openAiDraft()
+  // The reply's first save may still be in flight; its row is this
+  // message's, so it goes to the composer once it lands.
+  const handoff = replyDraftId ? null : store.settleReplyHandoff()
+  if (handoff) {
+    const session = store.composerSessionId
+    handoff.then((lateId) => store.adoptLateComposerDraft(session, lateId))
+  }
 }
 
 // Held so the draft can still be flushed after navigation has already moved
@@ -933,10 +941,13 @@ async function sendReply() {
   const email = openEmail.value
   // Taken before the request so a queued autosave cannot re-create the row
   // while the mail is in flight; deleted only once the send succeeds.
-  const replyDraftId = store.consumeReplyDraft()
+  let replyDraftId = store.consumeReplyDraft()
   pendingReplyDraft.value = null
   isSendingReply.value = true
   try {
+    // A first save still in flight owns the only row for this reply.
+    const handoff = replyDraftId ? null : store.settleReplyHandoff()
+    if (handoff) replyDraftId = await handoff
     const result = await store.sendMail({
       to: replyTo.value,
       subject: `Re: ${email.subject}`,

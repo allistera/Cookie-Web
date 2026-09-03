@@ -222,6 +222,46 @@ let replyDraftTimer = null
 // a newer one and undo it.
 let composerSaveChain = Promise.resolve()
 let replySaveChain = Promise.resolve()
+// The id each surface's most recent save produced, and the session it was
+// for. A send takes over a message the moment it starts; if the first save of
+// that message is still in flight there is no id to take yet, and the row it
+// goes on to create would be nobody's — a sent message left in Drafts for
+// good. consumeComposerDraft/consumeReplyDraft therefore record the save that
+// was pending at handoff, so the send can collect the id once it lands
+// (settleComposerHandoff/settleReplyHandoff).
+let lastComposerSave = { session: -1, draftId: null }
+let lastReplySave = { session: -1, draftId: null }
+let composerHandoff = null
+let replyHandoff = null
+// Saves queued or running on each chain. A handoff is only worth recording
+// while one of these is non-zero.
+let composerSavesPending = 0
+let replySavesPending = 0
+
+// A GET /drafts in flight while autosave or a discard changes the list would
+// otherwise replace those changes with an older snapshot. Edits made during a
+// load are logged and replayed over its response; a load that a newer load
+// superseded is dropped.
+let draftsLoadSeq = 0
+let draftEditsDuringLoad = null
+
+// Newest-first upsert or removal, shared by the live list and the replay in
+// loadDrafts. `index` places a restored entry back where it was.
+function applyDraftEdit(list, edit) {
+  if (edit.kind === 'drop') return list.filter((draft) => draft.id !== edit.id)
+  const rest = list.filter((draft) => draft.id !== edit.entry.id)
+  rest.splice(Math.min(edit.index ?? 0, rest.length), 0, edit.entry)
+  return rest
+}
+
+// Once the save that was running at handoff finishes, the id it produced —
+// provided it was for that session and not an earlier message's.
+function lateDraftIdFor(chain, session, surface) {
+  return chain.then(() => {
+    const last = surface === 'composer' ? lastComposerSave : lastReplySave
+    return last.session === session ? last.draftId : null
+  })
+}
 
 // State keys for each server-backed folder list (?folder=). The inbox list
 // has its own loader: it additionally tracks the unread count, userId, and
@@ -2025,18 +2065,29 @@ export const useInboxStore = defineStore('inbox', {
     // Drafts folder at all. A failure there should not toast — the folder
     // simply stays hidden until the next save or the Drafts view loads.
     async loadDrafts({ silent = false } = {}) {
+      const seq = ++draftsLoadSeq
+      draftEditsDuringLoad = []
       this.isDraftsLoading = true
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${DRAFTS_API_URL}/drafts`, { headers })
         if (!response.ok) throw new Error(`GET /drafts responded ${response.status}`)
         const { drafts } = await response.json()
-        this.drafts = Array.isArray(drafts) ? drafts : []
+        if (seq !== draftsLoadSeq) return
+        // The response predates whatever autosave and discard did while it
+        // was on its way; replay those so a draft saved a moment ago (and the
+        // sidebar folder it brought with it) is not undone by the fetch.
+        let list = Array.isArray(drafts) ? drafts : []
+        for (const edit of draftEditsDuringLoad) list = applyDraftEdit(list, edit)
+        this.drafts = list
       } catch (error) {
         console.error('Failed to load drafts:', error)
         if (!silent) this.notify('Could not load your drafts.', 'error')
       } finally {
-        this.isDraftsLoading = false
+        if (seq === draftsLoadSeq) {
+          draftEditsDuringLoad = null
+          this.isDraftsLoading = false
+        }
       }
     },
 
@@ -2055,12 +2106,17 @@ export const useInboxStore = defineStore('inbox', {
         attachments: (draft.attachments ?? []).map((attachment) => ({ ...attachment })),
         updatedAt: draft.updatedAt ?? new Date().toISOString(),
       }
-      this.drafts = [entry, ...this.drafts.filter((existing) => existing.id !== entry.id)]
+      this.applyDraftEdit({ kind: 'keep', entry, index: 0 })
     },
 
     forgetDraft(draftId) {
       if (!draftId) return
-      this.drafts = this.drafts.filter((draft) => draft.id !== draftId)
+      this.applyDraftEdit({ kind: 'drop', id: draftId })
+    },
+
+    applyDraftEdit(edit) {
+      draftEditsDuringLoad?.push(edit)
+      this.drafts = applyDraftEdit(this.drafts, edit)
     },
 
     // Creates the row on first save and replaces it on every save after.
@@ -2117,9 +2173,11 @@ export const useInboxStore = defineStore('inbox', {
           followUpAt: this.composerFollowUpAt,
           attachments: this.composerAttachments,
         })
+        lastComposerSave = { session, draftId }
         // A send, a close-and-reopen, or another draft opening while this was
         // in flight means the id belongs to a message that is no longer the
-        // one on screen. The row still holds real content and stays in Drafts.
+        // one on screen. A send that took the message collects the id through
+        // settleComposerHandoff; otherwise the row keeps its content in Drafts.
         if (session !== this.composerSessionId) return
         this.composerDraftId = draftId
       } catch (error) {
@@ -2128,7 +2186,12 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     saveComposerDraft(session = this.composerSessionId) {
-      composerSaveChain = composerSaveChain.then(() => this.writeComposerDraft(session))
+      composerSavesPending += 1
+      composerSaveChain = composerSaveChain
+        .then(() => this.writeComposerDraft(session))
+        .finally(() => {
+          composerSavesPending -= 1
+        })
       return composerSaveChain
     },
 
@@ -2154,6 +2217,7 @@ export const useInboxStore = defineStore('inbox', {
       if (session !== this.replySessionId) return
       try {
         const draftId = await this.persistDraft(this.replyDraftId, draft)
+        lastReplySave = { session, draftId }
         if (session !== this.replySessionId) return
         this.replyDraftId = draftId
       } catch (error) {
@@ -2162,7 +2226,12 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     saveReplyDraft(draft, session = this.replySessionId) {
-      replySaveChain = replySaveChain.then(() => this.writeReplyDraft(draft, session))
+      replySavesPending += 1
+      replySaveChain = replySaveChain
+        .then(() => this.writeReplyDraft(draft, session))
+        .finally(() => {
+          replySavesPending -= 1
+        })
       return replySaveChain
     },
 
@@ -2185,22 +2254,58 @@ export const useInboxStore = defineStore('inbox', {
     // gone (or hand it back on undo).
     consumeComposerDraft() {
       clearTimeout(composerDraftTimer)
+      const session = this.composerSessionId
       this.composerSessionId += 1
       const draftId = this.composerDraftId
       this.composerDraftId = null
+      // No id yet: a first save may still be in flight, and its row belongs
+      // to whoever just took the message.
+      composerHandoff =
+        !draftId && composerSavesPending > 0
+          ? lateDraftIdFor(composerSaveChain, session, 'composer')
+          : null
       return draftId
+    },
+
+    // A promise of the id a still-pending save creates for the message the
+    // last consumeComposerDraft() took, or null when no save was pending —
+    // so the common case costs the caller no await at all.
+    settleComposerHandoff() {
+      const handoff = composerHandoff
+      composerHandoff = null
+      return handoff
     },
 
     consumeReplyDraft() {
       clearTimeout(replyDraftTimer)
+      const session = this.replySessionId
       this.replySessionId += 1
       const draftId = this.replyDraftId
       this.replyDraftId = null
+      replyHandoff =
+        !draftId && replySavesPending > 0 ? lateDraftIdFor(replySaveChain, session, 'reply') : null
       return draftId
+    },
+
+    settleReplyHandoff() {
+      const handoff = replyHandoff
+      replyHandoff = null
+      return handoff
+    },
+
+    // Gives a row that arrived late to the composer, if it still holds the
+    // message that row was saved from. Nothing is ever deleted here unless
+    // the composer has already made its own row for the same words.
+    adoptLateComposerDraft(session, draftId) {
+      if (!draftId || !this.isComposerActive || this.composerSessionId !== session) return
+      if (this.composerDraftId) this.discardDraft(draftId)
+      else this.composerDraftId = draftId
     },
 
     async discardDraft(draftId) {
       if (!draftId) return
+      const index = this.drafts.findIndex((draft) => draft.id === draftId)
+      const removed = index === -1 ? null : this.drafts[index]
       this.forgetDraft(draftId)
       try {
         const headers = await this.authHeaders()
@@ -2213,6 +2318,10 @@ export const useInboxStore = defineStore('inbox', {
         }
       } catch (error) {
         console.error('Failed to delete draft:', error)
+        // The row is still on the server, so the list — and the sidebar
+        // folder counting it — must say so. Back where it was.
+        if (removed) this.applyDraftEdit({ kind: 'keep', entry: removed, index })
+        this.notify('Could not delete the draft.', 'error')
       }
     },
 
@@ -2404,7 +2513,7 @@ export const useInboxStore = defineStore('inbox', {
     // undo. This snapshots the draft, closes the composer, and hands off to the
     // countdown; the real request happens in commitPendingSend. The guards also
     // stop two rapid clicks from queueing a second send.
-    sendEmail() {
+    async sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
       const draft = normalizeOutgoingDraft({
@@ -2417,8 +2526,26 @@ export const useInboxStore = defineStore('inbox', {
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
       })
       const draftId = this.consumeComposerDraft()
+      // The session an undo or a failed send restores the message into.
+      const session = this.composerSessionId
       this.closeComposer({ save: false })
       this.startPendingSend({ ...draft, draftId })
+      // The first save may still be in flight; its row goes with this send.
+      const handoff = draftId ? null : this.settleComposerHandoff()
+      if (!handoff) return
+      const pending = this.pendingSend
+      const lateDraftId = await handoff
+      if (!lateDraftId) return
+      // Counting down or sending: commit and undo read draftId from this
+      // object later, so attaching it is enough.
+      if (this.pendingSend === pending || pending.outcome === 'sending') {
+        pending.draftId = lateDraftId
+      } else if (pending.outcome === 'sent') {
+        await this.discardDraft(lateDraftId)
+      } else {
+        // Undone or failed: the message is back in the composer.
+        this.adoptLateComposerDraft(session, lateDraftId)
+      }
     },
 
     // Counts down UNDO_SEND_SECONDS, then sends. Hovering the toast pauses it
@@ -2446,9 +2573,11 @@ export const useInboxStore = defineStore('inbox', {
     undoPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
+      const pending = this.pendingSend
       const { to, subject, text, html, replyToMessageId, followUpAt, attachments, draftId } =
-        this.pendingSend
+        pending
       this.pendingSend = null
+      pending.outcome = 'undone'
       // Keep writing into the same row the composer was autosaving before.
       this.composerDraftId = draftId ?? null
       this.composerTo = to
@@ -2468,6 +2597,7 @@ export const useInboxStore = defineStore('inbox', {
       clearInterval(sendCountdownTimer)
       const draft = this.pendingSend
       this.pendingSend = null
+      draft.outcome = 'sending'
       this.isSendingEmail = true
       try {
         const result = await this.sendMail({
@@ -2487,8 +2617,10 @@ export const useInboxStore = defineStore('inbox', {
         )
         // Only now is the message really gone; deleting the draft any earlier
         // would lose it if the send failed.
+        draft.outcome = 'sent'
         await this.discardDraft(draft.draftId)
       } catch (error) {
+        draft.outcome = 'failed'
         console.error('Failed to send email:', error)
         this.notify('Failed to send email. Please try again.', 'error')
         this.composerTo = draft.to
@@ -2522,10 +2654,13 @@ export const useInboxStore = defineStore('inbox', {
         followUpAt: this.composerFollowUpAt,
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
       })
-      const draftId = this.consumeComposerDraft()
+      let draftId = this.consumeComposerDraft()
       this.closeComposer({ save: false })
       this.isSendingEmail = true
       try {
+        // A first save still in flight owns the only row for this message.
+        const handoff = draftId ? null : this.settleComposerHandoff()
+        if (handoff) draftId = await handoff
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         const { attachments, ...message } = draft
         const response = await fetch('/api/send', {
