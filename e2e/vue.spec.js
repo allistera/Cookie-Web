@@ -1563,6 +1563,39 @@ test("Pressing 'u' cancels a queued send and restores its draft", async ({ page 
   expect(sendRequests).toBe(0)
 })
 
+test('Drafts folder sits under Sent only while a draft exists', async ({ page }) => {
+  await page.goto('/')
+  const navItems = page.locator('.sidebar-nav .nav-item')
+  await navItems.filter({ hasText: 'More' }).click()
+  await expect(navItems.filter({ hasText: 'Sent' })).toBeVisible()
+  // Nothing saved yet: no folder at all, not an empty one.
+  const draftsItem = navItems.filter({ hasText: 'Drafts' })
+  await expect(draftsItem).toHaveCount(0)
+
+  await page.locator('.compose-btn').click()
+  const composer = page.locator('#composerToast')
+  await composer.locator('.composer-subject-inline').fill('Half-written')
+  await composer.locator('.composer-editor').fill('Back to this later.')
+
+  // Autosave lands after the typing pause and the folder follows it in,
+  // directly beneath Sent.
+  await expect(draftsItem).toBeVisible()
+  await expect(draftsItem.locator('.nav-badge')).toHaveText('1')
+  const labels = await page.locator('.sidebar-nav .nav-item .nav-text').allTextContents()
+  expect(labels.indexOf('Drafts')).toBe(labels.indexOf('Sent') + 1)
+
+  // Reloading proves the draft (and so the folder) came back from the server.
+  await page.reload()
+  await navItems.filter({ hasText: 'More' }).click()
+  await expect(draftsItem).toBeVisible()
+
+  await draftsItem.click()
+  await expect(page.locator('.drafts-row', { hasText: 'Half-written' })).toBeVisible()
+  await page.locator('.drafts-discard').click()
+  await expect(page.locator('.drafts-row')).toHaveCount(0)
+  await expect(draftsItem).toHaveCount(0)
+})
+
 test('Escape closes the palette but keeps the reading panel open', async ({ page }) => {
   await page.goto('/inbox')
 

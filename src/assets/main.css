@@ -576,6 +576,12 @@ body {
   color: var(--text-secondary);
 }
 
+/* A folder nested under another nav item (Drafts under Sent): its icon
+   lines up with the parent's label. */
+.nav-item-nested {
+  padding-left: 36px;
+}
+
 /* Main Content Panel — floating card over the gray canvas, like Linear */
 .main-content {
   flex-grow: 1;
