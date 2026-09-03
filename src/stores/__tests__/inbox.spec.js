@@ -135,6 +135,80 @@ describe('Inbox Store', () => {
       vi.useRealTimers()
     })
 
+    it('does not attach a slow upload to the next message the user starts', async () => {
+      // Devin review: closing one message and starting another during an
+      // upload let the old file land on the new message.
+      const store = useInboxStore()
+      store.isComposerActive = true
+      store.userId = 'user-1'
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+      vi.stubGlobal('fetch', fetchMock)
+      vi.spyOn(store, 'uploadAttachmentFiles').mockImplementation(async () => {
+        // The composer is closed and reopened while the upload is in flight.
+        store.closeComposer({ save: false })
+        store.openComposer()
+        return [{ id: 'att-late', filename: 'slow.pdf', source: 'upload' }]
+      })
+
+      await store.attachComposerFiles([{ name: 'slow.pdf', size: 10 }])
+
+      expect(store.composerAttachments).toEqual([])
+      // Orphaned bytes are reclaimed rather than left for the sweep. The
+      // discard is deliberately not awaited by the caller, so wait for it.
+      await vi.waitFor(() => {
+        const deleted = fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')
+        expect(deleted?.[0]).toContain('att-late')
+      })
+    })
+
+    it('does not let a save that was in flight claim a later session', async () => {
+      const store = useInboxStore()
+      armComposer(store)
+      vi.spyOn(store, 'persistDraft').mockImplementation(async () => {
+        // A send takes the draft while this save is still in flight.
+        store.consumeComposerDraft()
+        return 'draft-from-old-session'
+      })
+
+      await store.saveComposerDraft()
+
+      expect(store.composerDraftId).toBeNull()
+    })
+
+    it('serializes overlapping saves so one composer cannot create two rows', async () => {
+      const store = useInboxStore()
+      armComposer(store)
+      let creates = 0
+      vi.spyOn(store, 'persistDraft').mockImplementation(async (draftId) => {
+        if (!draftId) creates += 1
+        return DRAFT_ID
+      })
+
+      // The debounce firing and a flush-on-close, overlapping.
+      await Promise.all([store.saveComposerDraft(), store.saveComposerDraft()])
+
+      expect(creates).toBe(1)
+      expect(store.composerDraftId).toBe(DRAFT_ID)
+    })
+
+    it('flushes the draft it is replacing before opening another', async () => {
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerDraftId = DRAFT_ID
+      const saved = []
+      vi.spyOn(store, 'persistDraft').mockImplementation(async (draftId, draft) => {
+        saved.push({ draftId, text: draft.text })
+        return draftId ?? 'draft-2'
+      })
+
+      await store.openDraft({ id: 'draft-2', to: 'x@y.com', subject: 'Other', text: 'Other body' })
+
+      // The outgoing draft's last edits reached the server, against its own row.
+      expect(saved).toEqual([{ draftId: DRAFT_ID, text: 'Checking in.' }])
+      expect(store.composerDraftId).toBe('draft-2')
+      expect(store.composerTextArea).toBe('Other body')
+    })
+
     it('reopens a saved draft into the composer and keeps writing to that row', () => {
       const store = useInboxStore()
 

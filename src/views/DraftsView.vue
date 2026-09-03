@@ -30,8 +30,8 @@ function draftPreview(draft) {
   return text.length > 140 ? `${text.slice(0, 140)}…` : text
 }
 
-function openDraft(draft) {
-  store.openDraft(draft)
+async function openDraft(draft) {
+  await store.openDraft(draft)
 }
 
 async function discard(draft) {

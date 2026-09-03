@@ -216,6 +216,12 @@ export function localDayKey(sentAt) {
 const DRAFT_AUTOSAVE_DELAY_MS = 800
 let composerDraftTimer = null
 let replyDraftTimer = null
+// Autosaves for one surface run one at a time. Without this, the debounce
+// firing and a flush-on-close can be in flight together with no draft id yet,
+// and both POST — two rows for one message — or an older PATCH can land after
+// a newer one and undo it.
+let composerSaveChain = Promise.resolve()
+let replySaveChain = Promise.resolve()
 
 // State keys for each server-backed folder list (?folder=). The inbox list
 // has its own loader: it additionally tracks the unread count, userId, and
@@ -409,6 +415,13 @@ export const useInboxStore = defineStore('inbox', {
     // first save of a session creates one.
     composerDraftId: null,
     replyDraftId: null,
+    // Identifies one composing session — one message being written. Bumped
+    // whenever a surface starts a new message or hands the current one off to
+    // a send. Uploads and saves capture it and refuse to apply their result to
+    // a session that has since moved on, which is what stops a slow upload
+    // from landing on the next message the user opens.
+    composerSessionId: 0,
+    replySessionId: 0,
     // How many composer uploads are still in flight, so the composer can
     // disable sending until every picked file actually exists server-side.
     pendingAttachmentUploads: 0,
@@ -1772,6 +1785,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     openComposer() {
+      if (!this.isComposerActive) this.composerSessionId += 1
       this.isComposerActive = true
       // Populate the "to" auto-suggest; cached after the first load.
       this.loadContacts()
@@ -2052,10 +2066,10 @@ export const useInboxStore = defineStore('inbox', {
 
     // Autosave is best-effort: a failed save must never interrupt typing or
     // steal focus with a toast, so it is logged and retried on the next pause.
-    async saveComposerDraft() {
-      if (!this.isComposerActive) return
+    async writeComposerDraft(session) {
+      if (session !== this.composerSessionId || !this.isComposerActive) return
       try {
-        this.composerDraftId = await this.persistDraft(this.composerDraftId, {
+        const draftId = await this.persistDraft(this.composerDraftId, {
           to: this.composerTo,
           subject: this.composerSubject,
           text: this.composerTextArea,
@@ -2064,14 +2078,30 @@ export const useInboxStore = defineStore('inbox', {
           followUpAt: this.composerFollowUpAt,
           attachments: this.composerAttachments,
         })
+        // A send, a close-and-reopen, or another draft opening while this was
+        // in flight means the id belongs to a message that is no longer the
+        // one on screen. The row still holds real content and stays in Drafts.
+        if (session !== this.composerSessionId) return
+        this.composerDraftId = draftId
       } catch (error) {
         console.error('Draft autosave failed:', error)
       }
     },
 
+    saveComposerDraft(session = this.composerSessionId) {
+      composerSaveChain = composerSaveChain.then(() => this.writeComposerDraft(session))
+      return composerSaveChain
+    },
+
     scheduleComposerDraftSave() {
+      // Captured now, not when the timer fires: by then the composer may hold
+      // a different message entirely.
+      const session = this.composerSessionId
       clearTimeout(composerDraftTimer)
-      composerDraftTimer = setTimeout(() => this.saveComposerDraft(), DRAFT_AUTOSAVE_DELAY_MS)
+      composerDraftTimer = setTimeout(
+        () => this.saveComposerDraft(session),
+        DRAFT_AUTOSAVE_DELAY_MS,
+      )
     },
 
     // Called when the composer closes or the tab is hidden: the pending
@@ -2081,17 +2111,29 @@ export const useInboxStore = defineStore('inbox', {
       return this.saveComposerDraft()
     },
 
-    async saveReplyDraft(draft) {
+    async writeReplyDraft(draft, session) {
+      if (session !== this.replySessionId) return
       try {
-        this.replyDraftId = await this.persistDraft(this.replyDraftId, draft)
+        const draftId = await this.persistDraft(this.replyDraftId, draft)
+        if (session !== this.replySessionId) return
+        this.replyDraftId = draftId
       } catch (error) {
         console.error('Reply draft autosave failed:', error)
       }
     },
 
+    saveReplyDraft(draft, session = this.replySessionId) {
+      replySaveChain = replySaveChain.then(() => this.writeReplyDraft(draft, session))
+      return replySaveChain
+    },
+
     scheduleReplyDraftSave(draft) {
+      const session = this.replySessionId
       clearTimeout(replyDraftTimer)
-      replyDraftTimer = setTimeout(() => this.saveReplyDraft(draft), DRAFT_AUTOSAVE_DELAY_MS)
+      replyDraftTimer = setTimeout(
+        () => this.saveReplyDraft(draft, session),
+        DRAFT_AUTOSAVE_DELAY_MS,
+      )
     },
 
     flushReplyDraft(draft) {
@@ -2104,6 +2146,7 @@ export const useInboxStore = defineStore('inbox', {
     // gone (or hand it back on undo).
     consumeComposerDraft() {
       clearTimeout(composerDraftTimer)
+      this.composerSessionId += 1
       const draftId = this.composerDraftId
       this.composerDraftId = null
       return draftId
@@ -2111,6 +2154,7 @@ export const useInboxStore = defineStore('inbox', {
 
     consumeReplyDraft() {
       clearTimeout(replyDraftTimer)
+      this.replySessionId += 1
       const draftId = this.replyDraftId
       this.replyDraftId = null
       return draftId
@@ -2135,7 +2179,12 @@ export const useInboxStore = defineStore('inbox', {
 
     // Reopens a saved draft in the composer. Autosave then continues into the
     // same row rather than forking a second copy.
-    openDraft(draft) {
+    async openDraft(draft) {
+      // Whatever is in the composer now is a different message: get its last
+      // edits to the server before its state is overwritten, and await it so
+      // the write cannot land after this draft has taken the composer over.
+      if (this.isComposerActive) await this.flushComposerDraft()
+      this.composerSessionId += 1
       this.composerTo = draft.to ?? ''
       this.composerSubject = draft.subject ?? ''
       this.composerTextArea = draft.text ?? ''
@@ -2182,12 +2231,25 @@ export const useInboxStore = defineStore('inbox', {
       return uploaded
     },
 
+    // Uploads that outlived the message they were picked for have no owner:
+    // reclaim them now rather than leaving bytes for the 24-hour sweep.
+    discardUploads(attachments) {
+      for (const attachment of attachments) {
+        this.discardUploadedAttachment(attachment.id).catch(() => {})
+      }
+    },
+
     async attachComposerFiles(files) {
+      const session = this.composerSessionId
       const uploaded = await this.uploadAttachmentFiles(files, this.composerAttachments.length)
       if (!uploaded.length) return
-      // The composer may have been closed while these were in flight; the
-      // orphan sweep reclaims anything left behind.
-      if (!this.isComposerActive) return
+      // Closing the composer and starting another message while a large file
+      // uploads would otherwise attach it to whatever is on screen when it
+      // lands, which is not the message the user picked it for.
+      if (!this.isComposerActive || session !== this.composerSessionId) {
+        this.discardUploads(uploaded)
+        return
+      }
       this.composerAttachments.push(...uploaded)
     },
 

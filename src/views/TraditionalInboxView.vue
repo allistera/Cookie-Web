@@ -752,6 +752,7 @@ async function clearOpenEmailFollowUp() {
 }
 
 function replyToOpenEmail() {
+  if (!isReplyOpen.value) store.replySessionId += 1
   isReplyAll.value = false
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
@@ -759,6 +760,7 @@ function replyToOpenEmail() {
 
 // Switching modes keeps any text already typed; only the recipient set changes.
 function replyAllToOpenEmail() {
+  if (!isReplyOpen.value) store.replySessionId += 1
   isReplyAll.value = true
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
@@ -843,10 +845,17 @@ function replyDraftPayload() {
 
 function onReplyAttachFiles(event) {
   const input = event.target
+  const session = store.replySessionId
   store
     .uploadAttachmentFiles(input.files, replyAttachments.value.length)
     .then((uploaded) => {
-      if (!isReplyOpen.value) return
+      if (!uploaded.length) return
+      // Switching emails mid-upload must not attach the file to the reply
+      // that happens to be open when it finishes.
+      if (!isReplyOpen.value || session !== store.replySessionId) {
+        store.discardUploads(uploaded)
+        return
+      }
       replyAttachments.value = [...replyAttachments.value, ...uploaded]
     })
     .catch(() => {})
