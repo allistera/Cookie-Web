@@ -65,6 +65,9 @@ export function sanitizeAttachmentFilename(value) {
   const base = String(value ?? '')
     .split(/[/\\]/)
     .pop()
+  // Stripping control characters is the whole point here: they are what makes
+  // a filename header-injection bait.
+  // oxlint-disable-next-line no-control-regex
   const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').trim()
   if (!cleaned || cleaned === '.' || cleaned === '..') return 'attachment'
   return cleaned.slice(0, 200)

@@ -2033,7 +2033,9 @@ export const useInboxStore = defineStore('inbox', {
         attachmentIds: (draft.attachments ?? []).map(({ id }) => id),
       }
       const response = await fetch(
-        draftId ? `${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}` : `${DRAFTS_API_URL}/drafts`,
+        draftId
+          ? `${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}`
+          : `${DRAFTS_API_URL}/drafts`,
         { method: draftId ? 'PATCH' : 'POST', headers, body: JSON.stringify(payload) },
       )
       // 204: the draft was emptied and the row is gone. 400 on a create is

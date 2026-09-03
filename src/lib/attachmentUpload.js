@@ -21,9 +21,12 @@ export function attachmentPathname(userId, filename) {
 }
 
 export function attachmentSizeError(file) {
-  if (!file || typeof file.size !== 'number') return 'That file could not be read.'
-  if (file.size === 0) return 'That file is empty.'
-  if (file.size > MAX_ATTACHMENT_BYTES) {
+  const reportedSize = file?.size
+  if (reportedSize === null || reportedSize === undefined) return 'That file could not be read.'
+  const size = Number(reportedSize)
+  if (!Number.isFinite(size) || size < 0) return 'That file could not be read.'
+  if (size === 0) return 'That file is empty.'
+  if (size > MAX_ATTACHMENT_BYTES) {
     return `Attachments are limited to ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB.`
   }
   return null
@@ -46,13 +49,14 @@ export async function uploadAttachment(
   if (sizeError) throw new Error(sizeError)
 
   const headers = await authHeaders()
-  const blob = await uploader(attachmentPathname(userId, file.name), file, {
+  const uploadOptions = {
     access: 'private',
     handleUploadUrl: UPLOAD_TOKEN_URL,
     contentType: file.type || 'application/octet-stream',
     headers,
-    ...(onProgress ? { onUploadProgress: onProgress } : {}),
-  })
+  }
+  if (onProgress) uploadOptions.onUploadProgress = onProgress
+  const blob = await uploader(attachmentPathname(userId, file.name), file, uploadOptions)
 
   const registerHeaders = await authHeaders({ 'Content-Type': 'application/json' })
   const response = await fetchImpl('/api/send?resource=attachment', {
