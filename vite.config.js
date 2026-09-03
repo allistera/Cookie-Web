@@ -1270,9 +1270,29 @@ function localApiPlugin(mode) {
           // Completed sub-tasks stay listed so the panel can count them into
           // its "done/total" progress; only completed top-level tasks hide.
           .filter((item) => includeCompleted || item.completedAt === null || item.parentId !== null)
+          // Project and Inbox lists come back in arranged order (position,
+          // migration 0062); Today keeps its due-date order.
+          .sort((a, b) => (today ? 0 : (a.position ?? 0) - (b.position ?? 0)))
         return json(res, { items })
       }
       const body = await readBody(req)
+      // POST /task-items/reorder: the whole visible order, numbered 1..n.
+      if (segments[1] === 'reorder') {
+        if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+        const ids = Array.isArray(body.ids) ? body.ids : null
+        if (!ids?.length || !ids.every(isTaskUuid)) {
+          return json(res, { error: 'ids must be a list of task ids' }, 400)
+        }
+        const updated = []
+        ids.forEach((id, index) => {
+          const item = state.taskItems.find((row) => row.id === id)
+          if (!item) return
+          item.position = index + 1
+          updated.push({ id: item.id, position: item.position })
+        })
+        return json(res, { items: updated })
+      }
+      if (segments[1]) return json(res, { error: 'Not Found' }, 404)
       if (req.method === 'POST') {
         const content = cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
         if (!content) return json(res, { error: 'Task content is required' }, 400)
@@ -1300,6 +1320,8 @@ function localApiPlugin(mode) {
           content,
           description: body.description ?? null,
           dueDate: hasDue ? String(body.dueDate) : null,
+          // New rows go last, as the column default does.
+          position: Date.now() / 1000 + state.taskItems.length,
           completedAt: null,
           createdAt: new Date().toISOString(),
         }

@@ -3,7 +3,14 @@ import { defineStore } from 'pinia'
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
+import { sortByPosition } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
+
+// Re-arranging sends the whole order, so the requests must reach the server
+// in the order they were made; one chain carries them. reorderSeq tells a
+// failed older request not to roll back a newer order.
+let reorderQueue = Promise.resolve()
+let reorderSeq = 0
 
 // Cookie-owned tasks for the Tasks app. Shaped after stores/projects.js: the
 // same auth headers, the same request helper that surfaces the server's own
@@ -113,7 +120,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
     belongsToLoadedList(item) {
       if (this.loadedProject === null) return false
       if (item.parentId) return this.items.some((row) => row.id === item.parentId)
-      if (this.loadedProject === 'today') return item.dueDate === localToday()
+      // Today carries overdue tasks forward, so it is "due on or before".
+      if (this.loadedProject === 'today')
+        return Boolean(item.dueDate) && item.dueDate <= localToday()
       if (this.loadedProject === 'inbox') return item.projectId === null
       return item.projectId === this.loadedProject
     },
@@ -152,8 +161,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
         Object.assign(item, updated)
         // A completed task leaves the visible list; it is not deleted. A
         // completed sub-task stays: the panel shows it checked and counts it
-        // into its "done/total" progress.
-        if (updated.completedAt && !updated.parentId) {
+        // into its "done/total" progress. A task moved to another project
+        // (dragged onto it in the sidebar, or via the panel) leaves too.
+        const moved =
+          Object.hasOwn(body, 'projectId') &&
+          this.loadedProject !== null &&
+          !this.belongsToLoadedList(updated)
+        if (!updated.parentId && (updated.completedAt || moved)) {
           this.items = this.items.filter((row) => row.id !== id)
         }
         return item
@@ -191,6 +205,39 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // absence of a project rather than a project of its own.
     moveItem(id, projectId) {
       return this.patchItem(id, { projectId }, { projectId }, 'Failed to move the task.')
+    },
+
+    // Drag-and-drop re-arranging: `ids` is the whole visible top-level order
+    // (lib/taskOrder's orderAfterDrop). The list is re-sorted at once, and
+    // the server numbers the rows 1..n in one statement. Requests go out one
+    // at a time so two quick drags cannot land out of order, and a reply or
+    // failure from an older drag never overwrites a newer one's order.
+    async reorderItems(ids) {
+      if (!ids?.length) return false
+      const seq = ++reorderSeq
+      const previous = new Map(this.items.map((row) => [row.id, row.position]))
+      const byId = new Map(this.items.map((row) => [row.id, row]))
+      ids.forEach((id, index) => {
+        const item = byId.get(id)
+        if (item) item.position = index + 1
+      })
+      this.items = sortByPosition(this.items)
+
+      const send = () => this.request('POST', { params: '/reorder', body: { ids } })
+      reorderQueue = reorderQueue.catch(() => {}).then(send)
+      try {
+        await reorderQueue
+        return true
+      } catch (error) {
+        if (seq !== reorderSeq) return false
+        console.error('Failed to re-arrange tasks:', error)
+        for (const row of this.items) {
+          if (previous.has(row.id)) row.position = previous.get(row.id)
+        }
+        this.items = sortByPosition(this.items)
+        this.notify(error.userMessage || 'Failed to re-arrange the tasks.', 'error')
+        return false
+      }
     },
 
     setCompleted(id, completed) {

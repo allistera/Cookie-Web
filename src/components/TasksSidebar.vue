@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddTaskDialog from './AddTaskDialog.vue'
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
+import { localToday } from '../lib/localDate'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -97,13 +98,15 @@ function onDragStart(project, event) {
 }
 
 function onDragOver(targetId, event) {
+  if (onTaskDragOver(targetId, event)) return
   if (!dragId.value || dragId.value === targetId) return
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   dropId.value = targetId
 }
 
-function onDrop(targetId) {
+function onDrop(targetId, event) {
+  if (onTaskDrop(targetId, event)) return
   if (dragId.value && dragId.value !== targetId) store.moveProject(dragId.value, targetId)
   dragId.value = null
   dropId.value = undefined
@@ -112,6 +115,44 @@ function onDrop(targetId) {
 function onDragEnd() {
   dragId.value = null
   dropId.value = undefined
+}
+
+// A task row dragged out of the list (TasksView marks it with this MIME
+// type) can be dropped on Inbox or a project to move it there, or on Today
+// to make it due today. Only the type is readable while dragging; the id
+// comes out on drop.
+const TASK_DRAG_TYPE = 'application/x-cookie-task'
+const taskDropTarget = ref(null)
+
+function isTaskDrag(event) {
+  return Array.from(event.dataTransfer?.types ?? []).includes(TASK_DRAG_TYPE)
+}
+
+// `target` is 'inbox', 'today' or a project id; null is the My Projects
+// label, which is a root target for project re-parenting only — a task has
+// nowhere to go there. Returns whether the event was handled as a task drag,
+// so the project handlers can stand aside.
+function onTaskDragOver(target, event) {
+  if (target === null || !isTaskDrag(event)) return false
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  taskDropTarget.value = target
+  return true
+}
+
+function onTaskDragLeave(target) {
+  if (taskDropTarget.value === target) taskDropTarget.value = null
+}
+
+function onTaskDrop(target, event) {
+  if (target === null) return isTaskDrag(event)
+  if (!isTaskDrag(event)) return false
+  taskDropTarget.value = null
+  const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
+  if (!id) return true
+  if (target === 'today') taskItems.setDueDate(id, localToday())
+  else taskItems.moveItem(id, target === 'inbox' ? null : target)
+  return true
 }
 
 // The cascade is the one destructive edge here: the whole subtree — and
@@ -173,7 +214,10 @@ async function removeProject(project) {
       <router-link
         :to="{ path: '/tasks', query: { project: 'inbox' } }"
         class="nav-item"
-        :class="{ active: selectedProject === 'inbox' }"
+        :class="{ active: selectedProject === 'inbox', 'drop-target': taskDropTarget === 'inbox' }"
+        @dragover="onTaskDragOver('inbox', $event)"
+        @dragleave="onTaskDragLeave('inbox')"
+        @drop.prevent="onTaskDrop('inbox', $event)"
       >
         <span class="material-symbols-outlined nav-icon-red" aria-hidden="true">inbox</span>
         <span class="nav-text">Inbox</span>
@@ -184,7 +228,10 @@ async function removeProject(project) {
       <router-link
         :to="{ path: '/tasks', query: { project: 'today' } }"
         class="nav-item"
-        :class="{ active: selectedProject === 'today' }"
+        :class="{ active: selectedProject === 'today', 'drop-target': taskDropTarget === 'today' }"
+        @dragover="onTaskDragOver('today', $event)"
+        @dragleave="onTaskDragLeave('today')"
+        @drop.prevent="onTaskDrop('today', $event)"
       >
         <span class="material-symbols-outlined" aria-hidden="true">today</span>
         <span class="nav-text">Today</span>
@@ -196,7 +243,7 @@ async function removeProject(project) {
       :class="{ 'drop-target': dropId === null }"
       @dragover="onDragOver(null, $event)"
       @dragleave="dropId = undefined"
-      @drop.prevent="onDrop(null)"
+      @drop.prevent="onDrop(null, $event)"
     >
       <span>My Projects</span>
       <button
@@ -218,15 +265,15 @@ async function removeProject(project) {
         :class="{
           active: selectedProject === row.item.id,
           dragging: dragId === row.item.id,
-          'drop-target': dropId === row.item.id,
+          'drop-target': dropId === row.item.id || taskDropTarget === row.item.id,
         }"
         :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
         draggable="true"
         @dblclick.prevent="startRename(row.item)"
         @dragstart="onDragStart(row.item, $event)"
         @dragover="onDragOver(row.item.id, $event)"
-        @dragleave="dropId = undefined"
-        @drop.prevent="onDrop(row.item.id)"
+        @dragleave="((dropId = undefined), onTaskDragLeave(row.item.id))"
+        @drop.prevent="onDrop(row.item.id, $event)"
         @dragend="onDragEnd"
       >
         <button

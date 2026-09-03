@@ -345,6 +345,37 @@ describe('moving a task between projects', () => {
     expect(store.items[0].projectId).toBeNull()
   })
 
+  // The list on screen is one project's; a task moved to another no longer
+  // belongs on it. Today spans every project, so there a move changes only
+  // the row's home.
+  it('drops the task from the project list it was moved out of', async () => {
+    store.items = [{ ...ITEM }]
+    store.loadedProject = 'p1'
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, projectId: 'p2' } }),
+    }))
+
+    await store.moveItem('t1', 'p2')
+
+    expect(store.items).toEqual([])
+  })
+
+  it('keeps a moved task on the Today list', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    store.items = [{ ...ITEM, dueDate: today }]
+    store.loadedProject = 'today'
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...ITEM, dueDate: today, projectId: 'p2' } }),
+    }))
+
+    await store.moveItem('t1', 'p2')
+
+    expect(store.items).toHaveLength(1)
+    expect(store.items[0].projectId).toBe('p2')
+  })
+
   it('rolls back and surfaces the server message when the move is refused', async () => {
     store.items = [{ ...ITEM }]
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
@@ -361,7 +392,94 @@ describe('moving a task between projects', () => {
   })
 })
 
+describe('re-arranging tasks', () => {
+  const rows = () => [
+    { id: 'a', content: 'A', position: 1, completedAt: null },
+    { id: 'b', content: 'B', position: 2, completedAt: null },
+    { id: 'c', content: 'C', position: 3, completedAt: null },
+  ]
+
+  it('re-sorts the list at once and sends the whole order', async () => {
+    store.items = rows()
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    const pending = store.reorderItems(['c', 'a', 'b'])
+    expect(store.items.map((row) => row.id)).toEqual(['c', 'a', 'b'])
+    await expect(pending).resolves.toBe(true)
+
+    const [requestUrl, options] = fetch.mock.calls[0]
+    expect(requestUrl).toContain('/task-items/reorder')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({ ids: ['c', 'a', 'b'] })
+    expect(store.items.map((row) => row.position)).toEqual([1, 2, 3])
+  })
+
+  it('puts the order back and surfaces the server message when refused', async () => {
+    store.items = rows()
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'ids must not repeat' }),
+    }))
+
+    await expect(store.reorderItems(['c', 'a', 'b'])).resolves.toBe(false)
+
+    expect(store.items.map((row) => row.id)).toEqual(['a', 'b', 'c'])
+    expect(store.items.map((row) => row.position)).toEqual([1, 2, 3])
+    expect(notify).toHaveBeenCalledWith('ids must not repeat', 'error')
+  })
+
+  // Two quick drags: the second order must reach the server after the
+  // first, and an older failure must not undo the newer order.
+  it('sends orders one at a time and lets the newest win', async () => {
+    store.items = rows()
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    let failFirst
+    const first = new Promise((resolve) => {
+      failFirst = resolve
+    })
+    stubFetch(
+      vi
+        .fn()
+        .mockImplementationOnce(() => first)
+        .mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+    )
+
+    const firstDrag = store.reorderItems(['c', 'a', 'b'])
+    const secondDrag = store.reorderItems(['b', 'c', 'a'])
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    failFirst({ ok: false, status: 500, json: async () => ({}) })
+    await expect(firstDrag).resolves.toBe(false)
+    await expect(secondDrag).resolves.toBe(true)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ ids: ['b', 'c', 'a'] })
+    expect(store.items.map((row) => row.id)).toEqual(['b', 'c', 'a'])
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('does nothing with an empty order', async () => {
+    store.items = rows()
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    expect(await store.reorderItems([])).toBe(false)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
 describe('the Today list', () => {
+  // Today carries overdue tasks forward, so a task due yesterday belongs on
+  // it as much as one due today.
+  it('counts an overdue task as belonging to the Today list', () => {
+    store.loadedProject = 'today'
+    expect(store.belongsToLoadedList({ ...ITEM, dueDate: '2000-01-01' })).toBe(true)
+    expect(store.belongsToLoadedList({ ...ITEM, dueDate: '2999-01-01' })).toBe(false)
+    expect(store.belongsToLoadedList({ ...ITEM, dueDate: null })).toBe(false)
+  })
+
   it("sends the browser's local date, not a UTC one", async () => {
     stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
     // 23:30 on the 29th in a zone behind UTC is already the 30th in UTC. The

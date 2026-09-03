@@ -1975,6 +1975,45 @@ test('Tasks: a task can be added to a project and completed', async ({ page }) =
   await expect(page.locator('.task-row')).toHaveCount(0)
 })
 
+test('Tasks: rows drag to re-arrange, and onto Today or a project', async ({ page }) => {
+  await page.goto('/tasks?project=inbox')
+  for (const name of ['First', 'Second', 'Third']) {
+    await page.locator('.add-task-btn').click()
+    await page.locator('.add-task-row input').fill(name)
+    await page.locator('.add-task-row input').press('Enter')
+  }
+  await expect(page.locator('.task-content')).toHaveText(['First', 'Second', 'Third'])
+
+  // Dropped on the upper half of First, Third lands before it — and the
+  // order is the server's, not just the screen's.
+  const rows = page.locator('.task-row')
+  await rows.nth(2).dragTo(rows.nth(0), { targetPosition: { x: 40, y: 3 } })
+  await expect(page.locator('.task-content')).toHaveText(['Third', 'First', 'Second'])
+  await page.reload()
+  await expect(page.locator('.task-content')).toHaveText(['Third', 'First', 'Second'])
+
+  // Onto Today: the task stays in the Inbox and is now due today.
+  const sidebar = page.locator('.tasks-sidebar')
+  await page
+    .locator('.task-row', { hasText: 'Second' })
+    .dragTo(sidebar.locator('.nav-item', { hasText: 'Today' }))
+  await sidebar.locator('.nav-item', { hasText: 'Today' }).click()
+  await expect(page.locator('.task-content')).toHaveText(['Second'])
+
+  // Onto a project: the task leaves the Inbox for it.
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Work')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await sidebar.locator('.nav-item', { hasText: 'Inbox' }).click()
+  await expect(page.locator('.task-content')).toHaveText(['Third', 'First', 'Second'])
+  await page
+    .locator('.task-row', { hasText: 'First' })
+    .dragTo(sidebar.locator('.project-item', { hasText: 'Work' }))
+  await expect(page.locator('.task-content')).toHaveText(['Third', 'Second'])
+  await sidebar.locator('.project-item', { hasText: 'Work' }).click()
+  await expect(page.locator('.task-content')).toHaveText(['First'])
+})
+
 test('Tasks: a task opens in the panel, takes a date, and the link survives a reload', async ({
   page,
 }) => {

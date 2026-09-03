@@ -302,6 +302,107 @@ describe('TasksView', () => {
   })
 })
 
+describe('dragging rows', () => {
+  const dataTransfer = () => ({ effectAllowed: '', dropEffect: '', setData: vi.fn() })
+
+  function threeTasks() {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 't1', content: 'One', position: 1, completedAt: null },
+      { id: 't2', content: 'Two', position: 2, completedAt: null },
+      { id: 't3', content: 'Three', position: 3, completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    return items
+  }
+
+  it('marks every row draggable and names the task for the sidebar', async () => {
+    threeTasks()
+    const wrapper = mountView()
+    await flushPromises()
+    const transfer = dataTransfer()
+
+    const row = wrapper.get('.task-row')
+    expect(row.attributes('draggable')).toBe('true')
+    await row.trigger('dragstart', { dataTransfer: transfer })
+
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 't1')
+    expect(row.classes()).toContain('dragging')
+  })
+
+  // jsdom reports every row at 0×0, so any positive pointer is "below the
+  // middle": dropping there means after the row.
+  it('drops a row after another and sends the whole new order', async () => {
+    const items = threeTasks()
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    const rows = wrapper.findAll('.task-row')
+    const transfer = dataTransfer()
+
+    await rows[0].trigger('dragstart', { dataTransfer: transfer })
+    await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+    expect(rows[2].classes()).toContain('drop-after')
+    await rows[2].trigger('drop')
+
+    expect(reorder).toHaveBeenCalledWith(['t2', 't3', 't1'])
+    expect(rows[2].classes()).not.toContain('drop-after')
+  })
+
+  it('drops a row before another', async () => {
+    const items = threeTasks()
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    const rows = wrapper.findAll('.task-row')
+    const transfer = dataTransfer()
+
+    await rows[2].trigger('dragstart', { dataTransfer: transfer })
+    await rows[1].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
+    expect(rows[1].classes()).toContain('drop-before')
+    await rows[1].trigger('drop')
+
+    expect(reorder).toHaveBeenCalledWith(['t1', 't3', 't2'])
+  })
+
+  it('ignores a drop onto the row being dragged', async () => {
+    const items = threeTasks()
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    const row = wrapper.get('.task-row')
+    const transfer = dataTransfer()
+
+    await row.trigger('dragstart', { dataTransfer: transfer })
+    await row.trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+    await row.trigger('drop')
+
+    expect(row.classes()).not.toContain('drop-after')
+    expect(reorder).not.toHaveBeenCalled()
+  })
+
+  // Today is ordered by due date, so a hand-picked position there would
+  // mean nothing; rows can still be dragged out to the sidebar.
+  it('does not re-arrange the Today list', async () => {
+    await router.push('/tasks?project=today')
+    const items = threeTasks()
+    items.loadedProject = 'today'
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    const rows = wrapper.findAll('.task-row')
+    const transfer = dataTransfer()
+
+    await rows[0].trigger('dragstart', { dataTransfer: transfer })
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 't1')
+    await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+    expect(rows[2].classes()).not.toContain('drop-after')
+    await rows[2].trigger('drop')
+
+    expect(reorder).not.toHaveBeenCalled()
+  })
+})
+
 describe('the Today view', () => {
   beforeEach(async () => {
     await router.push('/tasks?project=today')
