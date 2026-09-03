@@ -61,6 +61,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'reply',
   'reply_all',
   'report',
+  'report_off',
   'rule',
   'schedule',
   'search',

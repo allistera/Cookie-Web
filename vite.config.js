@@ -73,7 +73,8 @@ function localApiPlugin(mode) {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
     const isState = segments.length === 2 && segments[1] === 'state'
-    if (segments[0] !== 'emails' || (segments.length > 1 && !isState)) {
+    const isSpamRetention = segments.length === 2 && segments[1] === 'spam-retention'
+    if (segments[0] !== 'emails' || (segments.length > 1 && !isState && !isSpamRetention)) {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ error: 'Not Found' }))
@@ -82,6 +83,31 @@ function localApiPlugin(mode) {
     const folder = url.searchParams.get('folder') || 'inbox'
     const labelName = (url.searchParams.get('label') || '').trim()
     const state = fixtureMailboxState(req, res)
+    // GET/PUT /emails/spam-retention: how long spam is kept, stored per
+    // fixture session like the Worker stores it in users.prefs.
+    if (isSpamRetention) {
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        const days = Number(body?.spamRetentionDays)
+        if (!Number.isInteger(days) || days < 1 || days > 365) {
+          res.statusCode = 400
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'spamRetentionDays must be 1 to 365' }))
+          return
+        }
+        state.spamRetentionDays = days
+      }
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          spamRetentionDays: state.spamRetentionDays ?? 30,
+          defaultDays: 30,
+          minDays: 1,
+          maxDays: 365,
+        }),
+      )
+      return
+    }
     const { schedules, archived, summaries, stars, messageLabels, followUps } = state
     const now = Date.now()
     // Stars and labels changed through the messages Worker fixture override
@@ -135,11 +161,20 @@ function localApiPlugin(mode) {
       ]
     }
     const emails = selectFolder()
+    // The sidebar lists Spam and Snoozed only while they hold something, so
+    // both counts ride along with the state and first-page payloads exactly
+    // as the Worker sends them. Spam has no fixture mail (see selectFolder).
+    const spamCount = 0
+    const snoozedCount = inbox.filter(
+      (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
+    ).length
     res.setHeader('Content-Type', 'application/json')
     if (isState) {
       res.end(
         JSON.stringify({
           unreadCount: inbox.filter((email) => email.is_unread).length,
+          spamCount,
+          snoozedCount,
           userId: '11111111-1111-4111-8111-111111111111',
         }),
       )
@@ -151,6 +186,8 @@ function localApiPlugin(mode) {
         emails: list,
         nextCursor: null,
         unreadCount: emails.filter((e) => e.is_unread).length,
+        spamCount,
+        snoozedCount,
         userId: '11111111-1111-4111-8111-111111111111',
         readReceiptsAvailable: folder === 'sent',
       }),

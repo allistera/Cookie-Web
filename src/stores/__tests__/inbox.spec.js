@@ -1,6 +1,6 @@
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
-import { mergeInboxPage, useInboxStore } from '../inbox'
+import { mergeInboxPage, useInboxStore, mapEmailRow } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
 import { localToday } from '../../lib/localDate'
 import {
@@ -492,6 +492,7 @@ describe('Inbox Store', () => {
         sender: 'City Construction',
         address: 'updates@cityconstruction.com',
         isSent: false,
+        isSpam: false,
         to: null,
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
@@ -2523,6 +2524,478 @@ describe('Inbox Store', () => {
       },
       body: JSON.stringify({ id: 'abc-123', is_archived: false, is_unread: true }),
     })
+  })
+
+  describe('setSpam', () => {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer test-access-token',
+    }
+
+    beforeEach(() => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+      )
+    })
+
+    it('reporting spam moves the email from the inbox to Spam, keeps it unread, and offers Undo', async () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: true, isSpam: false, scheduledFor: null }
+      store.traditionalEmails = [email, { id: 'def-456', unread: false, isSpam: false }]
+      store.isInboxLoaded = true
+      store.isSpamLoaded = true
+      store.spamEmails = [{ id: 'old-spam', unread: false, isSpam: true }]
+      store.unreadInboxCount = 1
+      store.openEmailId = email.id
+
+      store.setSpam(email, true)
+
+      expect(store.traditionalEmails.map((e) => e.id)).toEqual(['def-456'])
+      expect(store.spamEmails.map((e) => e.id)).toEqual(['abc-123', 'old-spam'])
+      expect(email.isSpam).toBe(true)
+      expect(email.unread).toBe(true)
+      expect(store.unreadInboxCount).toBe(0)
+      expect(store.openEmailId).toBe(null)
+
+      await vi.waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: 'abc-123', is_spam: true }),
+        }),
+      )
+
+      const toast = store.toasts.find((item) => item.message === 'Reported as spam.')
+      expect(toast.action.label).toBe('Undo')
+      await store.runToastAction(toast.id)
+
+      expect(store.traditionalEmails.map((e) => e.id)).toEqual(['abc-123', 'def-456'])
+      expect(store.spamEmails.map((e) => e.id)).toEqual(['old-spam'])
+      expect(email.isSpam).toBe(false)
+      expect(store.unreadInboxCount).toBe(1)
+      expect(fetch).toHaveBeenLastCalledWith(`${MESSAGES_API_URL}/messages`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ id: 'abc-123', is_spam: false }),
+      })
+    })
+
+    it('marking not spam returns the email to the loaded inbox and counts it unread again', async () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: true, isSpam: true, scheduledFor: null }
+      store.spamEmails = [email]
+      store.isSpamLoaded = true
+      store.traditionalEmails = [{ id: 'def-456', unread: false, isSpam: false }]
+      store.isInboxLoaded = true
+      store.unreadInboxCount = 0
+
+      store.setSpam(email, false)
+
+      expect(store.spamEmails).toEqual([])
+      expect(store.traditionalEmails.map((e) => e.id)).toEqual(['abc-123', 'def-456'])
+      expect(email.isSpam).toBe(false)
+      expect(store.unreadInboxCount).toBe(1)
+      await vi.waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: 'abc-123', is_spam: false }),
+        }),
+      )
+      expect(store.toasts.some((item) => item.message === 'Marked not spam.')).toBe(true)
+    })
+
+    it('marking not spam sends a still-snoozed email to Snoozed rather than the inbox', () => {
+      const store = useInboxStore()
+      const soon = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      const email = { id: 'abc-123', unread: true, isSpam: true, scheduledFor: soon }
+      store.spamEmails = [email]
+      store.isSpamLoaded = true
+      store.traditionalEmails = []
+      store.isInboxLoaded = true
+      store.snoozedEmails = []
+      store.isSnoozedLoaded = true
+      store.unreadInboxCount = 0
+
+      store.setSpam(email, false)
+
+      expect(store.traditionalEmails).toEqual([])
+      expect(store.snoozedEmails.map((e) => e.id)).toEqual(['abc-123'])
+      expect(store.unreadInboxCount).toBe(0)
+    })
+
+    it('leaves Starred and label lists alone: they show spam too', () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, isSpam: false, scheduledFor: null }
+      store.traditionalEmails = [email]
+      store.starredEmails = [email]
+      store.isStarredLoaded = true
+      store.labelEmails = [email]
+      store.isLabelLoaded = true
+
+      store.setSpam(email, true)
+
+      expect(store.traditionalEmails).toEqual([])
+      expect(store.starredEmails).toEqual([email])
+      expect(store.labelEmails).toEqual([email])
+    })
+
+    it('reverts the move and reports when the PATCH fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: true, isSpam: false, scheduledFor: null }
+      store.traditionalEmails = [email]
+      store.isInboxLoaded = true
+      store.unreadInboxCount = 1
+
+      store.setSpam(email, true)
+      expect(store.traditionalEmails).toEqual([])
+
+      await vi.waitFor(() => expect(store.traditionalEmails).toEqual([email]))
+      expect(email.isSpam).toBe(false)
+      expect(store.unreadInboxCount).toBe(1)
+      expect(store.toasts.some((item) => item.message === 'Failed to report spam.')).toBe(true)
+    })
+
+    it('keeps the Spam folder count in step with the verdict, and with Undo', async () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, isSpam: false, scheduledFor: null }
+      store.traditionalEmails = [email]
+      store.isInboxLoaded = true
+      store.spamCount = 0
+
+      store.setSpam(email, true)
+      expect(store.spamCount).toBe(1)
+
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+      const toast = store.toasts.find((item) => item.message === 'Reported as spam.')
+      await store.runToastAction(toast.id)
+      expect(store.spamCount).toBe(0)
+
+      store.setSpam(email, true)
+      store.setSpam(email, false)
+      expect(store.spamCount).toBe(0)
+    })
+
+    it('is a no-op when the email already carries that verdict', () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, isSpam: true }
+      store.spamEmails = [email]
+
+      expect(store.setSpam(email, true)).toBe(null)
+      expect(store.spamEmails).toEqual([email])
+      expect(fetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('spamCount', () => {
+    beforeEach(() => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+      )
+    })
+
+    it('is taken from the inbox state bootstrap', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ unreadCount: 2, spamCount: 5, userId: 'user-1' }),
+        }),
+      )
+      const store = useInboxStore()
+      await store.loadInboxState()
+      expect(store.spamCount).toBe(5)
+    })
+
+    it('is refreshed with every first inbox page so new spam surfaces the folder', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ emails: [], nextCursor: null, unreadCount: 0, spamCount: 3 }),
+        }),
+      )
+      const store = useInboxStore()
+      await store.loadEmails()
+      expect(store.spamCount).toBe(3)
+
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ emails: [], nextCursor: null, unreadCount: 0, spamCount: 0 }),
+      })
+      await store.refreshInboxEmails()
+      expect(store.spamCount).toBe(0)
+    })
+
+    it('is left alone by a payload without the field', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ unreadCount: 2, userId: 'user-1' }),
+        }),
+      )
+      const store = useInboxStore()
+      store.spamCount = 4
+      await store.loadInboxState()
+      expect(store.spamCount).toBe(4)
+    })
+
+    it('trusts a fully loaded Spam folder over the cached count', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            emails: [{ id: 'a', sent_at: '2026-07-13T12:00:00.000Z', spam_verdict: 'spam' }],
+            nextCursor: null,
+          }),
+        }),
+      )
+      const store = useInboxStore()
+      store.spamCount = 9
+      await store.loadSpamEmails()
+      expect(store.spamCount).toBe(1)
+      expect(store.isSpamLoaded).toBe(true)
+    })
+
+    it('drops when a spam email is marked Done or deleted, and returns on Undo', async () => {
+      const store = useInboxStore()
+      const done = { id: 'abc-123', unread: false, isSpam: true }
+      const trashed = { id: 'def-456', unread: false, isSpam: true }
+      store.spamEmails = [done, trashed]
+      store.spamCount = 2
+
+      store.archiveEmail(done)
+      expect(store.spamCount).toBe(1)
+      store.deleteEmail(trashed)
+      expect(store.spamCount).toBe(0)
+
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      for (const message of ['Marked done.', 'Deleted.']) {
+        const toast = store.toasts.find((item) => item.message === message)
+        await store.runToastAction(toast.id)
+      }
+      expect(store.spamCount).toBe(2)
+    })
+
+    it('does not drop when a non-spam email is marked Done', () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, isSpam: false }
+      store.traditionalEmails = [email]
+      store.spamCount = 1
+
+      store.archiveEmail(email)
+      expect(store.spamCount).toBe(1)
+    })
+  })
+
+  describe('snoozedCount', () => {
+    const future = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+    beforeEach(() => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+      )
+    })
+
+    it('is taken from the inbox state bootstrap and left alone when absent', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ unreadCount: 0, snoozedCount: 4, userId: 'user-1' }),
+        }),
+      )
+      const store = useInboxStore()
+      await store.loadInboxState()
+      expect(store.snoozedCount).toBe(4)
+
+      fetch.mockResolvedValue({ ok: true, json: async () => ({ unreadCount: 0 }) })
+      await store.loadInboxState({ force: true })
+      expect(store.snoozedCount).toBe(4)
+    })
+
+    it('rises when an email is snoozed and falls again on Undo', async () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, scheduledFor: null }
+      store.traditionalEmails = [email]
+      store.snoozedCount = 0
+
+      await store.scheduleEmail(email, future(), 'Tomorrow')
+      expect(store.snoozedCount).toBe(1)
+
+      const toast = store.toasts.find((item) => item.message === 'Scheduled for Tomorrow.')
+      await store.runToastAction(toast.id)
+      expect(store.snoozedCount).toBe(0)
+    })
+
+    it('does not double-count a re-snooze of an already snoozed email', async () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, scheduledFor: future() }
+      store.snoozedEmails = [email]
+      store.snoozedCount = 1
+
+      await store.scheduleEmail(email, future(), 'Next week')
+      expect(store.snoozedCount).toBe(1)
+    })
+
+    it('drops when a snoozed email is marked Done or deleted, and returns on Undo', async () => {
+      const store = useInboxStore()
+      const done = { id: 'abc-123', unread: false, scheduledFor: future() }
+      const trashed = { id: 'def-456', unread: false, scheduledFor: future() }
+      store.snoozedEmails = [done, trashed]
+      store.snoozedCount = 2
+
+      store.archiveEmail(done)
+      expect(store.snoozedCount).toBe(1)
+      store.deleteEmail(trashed)
+      expect(store.snoozedCount).toBe(0)
+
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      for (const message of ['Marked done.', 'Deleted.']) {
+        const toast = store.toasts.find((item) => item.message === message)
+        await store.runToastAction(toast.id)
+      }
+      expect(store.snoozedCount).toBe(2)
+    })
+
+    it('ignores a due-in-the-past scheduled time: that email is back in the inbox', () => {
+      const store = useInboxStore()
+      const past = new Date(Date.now() - 60_000).toISOString()
+      const email = { id: 'abc-123', unread: false, scheduledFor: past }
+      store.traditionalEmails = [email]
+      store.snoozedCount = 0
+
+      store.archiveEmail(email)
+      expect(store.snoozedCount).toBe(0)
+    })
+
+    it('moves with the spam verdict, since Snoozed never lists spam', async () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, isSpam: false, scheduledFor: future() }
+      store.snoozedEmails = [email]
+      store.isSnoozedLoaded = true
+      store.snoozedCount = 1
+
+      store.setSpam(email, true)
+      expect(store.snoozedCount).toBe(0)
+
+      store.setSpam(email, false)
+      expect(store.snoozedCount).toBe(1)
+    })
+
+    it('trusts a fully loaded Snoozed folder over the cached count', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            emails: [{ id: 'a', sent_at: '2026-07-13T12:00:00.000Z' }],
+            nextCursor: null,
+          }),
+        }),
+      )
+      const store = useInboxStore()
+      store.snoozedCount = 9
+      await store.loadSnoozedEmails()
+      expect(store.snoozedCount).toBe(1)
+    })
+  })
+
+  describe('scheduledSendCount', () => {
+    it('counts the pending Send Later queue', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ scheduledSends: [{ id: 'a' }, { id: 'b' }] }),
+        }),
+      )
+      const store = useInboxStore()
+      expect(store.scheduledSendCount).toBe(0)
+
+      await store.loadScheduledSends()
+      expect(store.scheduledSendCount).toBe(2)
+    })
+  })
+
+  describe('spam retention', () => {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer test-access-token',
+    }
+
+    it('loads the stored retention and its bounds once', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ spamRetentionDays: 14, defaultDays: 30, minDays: 1, maxDays: 365 }),
+        }),
+      )
+      const store = useInboxStore()
+      await store.loadSpamRetention()
+      await store.loadSpamRetention()
+
+      expect(store.spamRetentionDays).toBe(14)
+      expect(store.spamRetentionBounds).toEqual({ defaultDays: 30, minDays: 1, maxDays: 365 })
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails/spam-retention`, {
+        headers: { Authorization: 'Bearer test-access-token' },
+      })
+    })
+
+    it('keeps the default and stays quiet when the load fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+      await store.loadSpamRetention()
+
+      expect(store.spamRetentionDays).toBe(30)
+      expect(store.spamRetentionLoaded).toBe(false)
+      expect(store.toasts).toEqual([])
+    })
+
+    it('saves through PUT and adopts the server-normalized value', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ spamRetentionDays: 7, defaultDays: 30, minDays: 1, maxDays: 365 }),
+        }),
+      )
+      const store = useInboxStore()
+      await expect(store.saveSpamRetention(7.9)).resolves.toBe(7)
+
+      expect(store.spamRetentionDays).toBe(7)
+      expect(fetch).toHaveBeenCalledWith(`${EMAILS_API_URL}/emails/spam-retention`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ spamRetentionDays: 7.9 }),
+      })
+    })
+
+    it('throws on a rejected save and leaves the stored value alone', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }))
+      const store = useInboxStore()
+      store.spamRetentionDays = 30
+
+      await expect(store.saveSpamRetention(0)).rejects.toThrow('400')
+      expect(store.spamRetentionDays).toBe(30)
+    })
+  })
+
+  it('mapEmailRow exposes the spam verdict as isSpam', () => {
+    const sentAt = '2026-07-13T12:00:00.000Z'
+    expect(mapEmailRow({ id: 'a', sent_at: sentAt, spam_verdict: 'spam' }).isSpam).toBe(true)
+    expect(mapEmailRow({ id: 'b', sent_at: sentAt, spam_verdict: 'review' }).isSpam).toBe(false)
+    expect(mapEmailRow({ id: 'c', sent_at: sentAt }).isSpam).toBe(false)
   })
 
   it('deleteEmail offers Undo that restores every list position', async () => {
