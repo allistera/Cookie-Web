@@ -227,6 +227,87 @@ describe('Inbox Store', () => {
       expect(store.composerDraftId).toBe(DRAFT_ID)
     })
 
+    it('lists a draft as soon as its first save lands, so the sidebar folder can appear', async () => {
+      stubDraftFetch()
+      const store = useInboxStore()
+      expect(store.draftCount).toBe(0)
+      armComposer(store)
+
+      await store.saveComposerDraft()
+      expect(store.draftCount).toBe(1)
+      expect(store.drafts[0]).toMatchObject({
+        id: DRAFT_ID,
+        to: 'someone@example.com',
+        subject: 'Hello',
+        text: 'Checking in.',
+        updatedAt: '2026-09-03T10:00:00Z',
+      })
+
+      // Later saves rewrite the same entry rather than adding another.
+      store.composerSubject = 'Hello again'
+      await store.saveComposerDraft()
+      expect(store.draftCount).toBe(1)
+      expect(store.drafts[0].subject).toBe('Hello again')
+    })
+
+    it('drops a draft from the list once a save empties it', async () => {
+      // The worker answers an emptying PATCH with 204: the row is gone.
+      stubDraftFetch({ status: 204 })
+      const store = useInboxStore()
+      store.drafts = [{ id: DRAFT_ID, subject: 'Hello' }]
+      store.isComposerActive = true
+      store.composerDraftId = DRAFT_ID
+
+      await store.saveComposerDraft()
+
+      expect(store.composerDraftId).toBeNull()
+      expect(store.draftCount).toBe(0)
+    })
+
+    it('forgets a draft that was deleted elsewhere before starting its fresh row', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({ draft: { id: 'draft-2', updatedAt: '2026-09-03T10:01:00Z' } }),
+        })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.drafts = [{ id: DRAFT_ID, subject: 'Hello' }]
+      armComposer(store)
+      store.composerDraftId = DRAFT_ID
+
+      await store.saveComposerDraft()
+
+      expect(store.drafts.map((draft) => draft.id)).toEqual(['draft-2'])
+    })
+
+    it('discarding a draft removes it from the list', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+      const store = useInboxStore()
+      store.drafts = [{ id: DRAFT_ID }, { id: 'draft-2' }]
+
+      await store.discardDraft(DRAFT_ID)
+
+      expect(store.drafts.map((draft) => draft.id)).toEqual(['draft-2'])
+      expect(store.draftCount).toBe(1)
+    })
+
+    it('loads drafts quietly for the sidebar and only toasts when asked to', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+      const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+
+      await store.loadDrafts({ silent: true })
+      expect(notify).not.toHaveBeenCalled()
+
+      await store.loadDrafts()
+      expect(notify).toHaveBeenCalledWith('Could not load your drafts.', 'error')
+    })
+
     it('does not autosave a composer that has already closed', async () => {
       const fetchMock = stubDraftFetch()
       const store = useInboxStore()

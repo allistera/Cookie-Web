@@ -251,6 +251,9 @@ watch(
       // Load the full label palette so the sidebar lists every defined label,
       // not only ones on loaded emails (and without needing settings opened).
       store.loadLabels()
+      // The sidebar's Drafts folder only renders once something is in it, so
+      // the count has to be known before the user ever opens Drafts.
+      store.loadDrafts({ silent: true })
     }
   },
   { immediate: true },
@@ -485,14 +488,6 @@ onUnmounted(() => {
                 <span class="nav-text">Snoozed</span>
               </router-link>
               <router-link
-                :to="{ path: '/drafts' }"
-                class="nav-item"
-                :class="{ active: route.name === 'drafts' }"
-              >
-                <span class="material-symbols-outlined">draft</span>
-                <span class="nav-text">Drafts</span>
-              </router-link>
-              <router-link
                 :to="{ path: '/scheduled' }"
                 class="nav-item"
                 :class="{ active: route.name === 'scheduled-sends' }"
@@ -515,6 +510,18 @@ onUnmounted(() => {
               >
                 <span class="material-symbols-outlined">send</span>
                 <span class="nav-text">Sent</span>
+              </router-link>
+              <!-- Drafts is a sub-folder of Sent and only exists while there
+                   is at least one saved draft (see store.draftCount). -->
+              <router-link
+                v-if="store.draftCount"
+                :to="{ path: '/drafts' }"
+                class="nav-item nav-item-nested"
+                :class="{ active: route.name === 'drafts' }"
+              >
+                <span class="material-symbols-outlined">draft</span>
+                <span class="nav-text">Drafts</span>
+                <span class="nav-badge">{{ store.draftCount }}</span>
               </router-link>
               <router-link
                 :to="{ path: '/inbox', query: { filter: 'spam' } }"

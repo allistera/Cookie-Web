@@ -59,6 +59,7 @@ function localApiPlugin(mode) {
         followUps: new Map(),
         projects: [],
         taskItems: [],
+        drafts: [],
       })
     }
     return stubMailboxState.get(sessionId)
@@ -1528,6 +1529,77 @@ function localApiPlugin(mode) {
     return json(res, { ok: true })
   }
 
+  // cookie-web-drafts: GET/POST /drafts, GET/PATCH/DELETE /drafts/:id. Keeps
+  // the Worker's whole-draft-replace semantics — an empty create is refused
+  // and a save that empties a draft deletes it — because the sidebar's
+  // Drafts folder keys off whether any row exists at all.
+  const handleWorkerDraftsApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const segments = url.pathname.split('/').filter(Boolean)
+    if (segments[0] !== 'drafts' || segments.length > 2) {
+      return json(res, { error: 'Not Found' }, 404)
+    }
+    const { drafts } = fixtureMailboxState(req, res)
+    const id = segments[1] ?? null
+    const fromBody = (body) => ({
+      to: String(body.to ?? ''),
+      subject: String(body.subject ?? ''),
+      text: String(body.text ?? ''),
+      html: body.html ?? null,
+      replyToMessageId: body.replyToMessageId ?? null,
+      followUpAt: body.followUpAt ?? null,
+      attachments: (Array.isArray(body.attachmentIds) ? body.attachmentIds : []).map(
+        (attachmentId) => ({
+          id: attachmentId,
+          filename: 'attachment',
+          content_type: 'application/octet-stream',
+          size_bytes: 0,
+          source: 'upload',
+        }),
+      ),
+    })
+    const isEmpty = (draft) =>
+      !draft.to.trim() &&
+      !draft.subject.trim() &&
+      !draft.text.trim() &&
+      draft.attachments.length === 0
+    const noContent = () => {
+      res.statusCode = 204
+      res.end()
+    }
+
+    if (req.method === 'GET') {
+      if (!id) return json(res, { drafts })
+      const draft = drafts.find((entry) => entry.id === id)
+      return draft ? json(res, { draft }) : json(res, { error: 'Draft not found' }, 404)
+    }
+    if (req.method === 'DELETE') {
+      if (!id) return json(res, { error: 'A draft id is required' }, 400)
+      const index = drafts.findIndex((entry) => entry.id === id)
+      if (index === -1) return json(res, { error: 'Draft not found' }, 404)
+      drafts.splice(index, 1)
+      return noContent()
+    }
+    if (req.method === 'POST' && !id) {
+      const draft = fromBody(await readBody(req))
+      if (isEmpty(draft)) return json(res, { error: 'Draft is empty' }, 400)
+      const saved = { id: randomUUID(), ...draft, updatedAt: new Date().toISOString() }
+      drafts.unshift(saved)
+      return json(res, { draft: { id: saved.id, updatedAt: saved.updatedAt } }, 201)
+    }
+    if (req.method === 'PATCH' && id) {
+      const index = drafts.findIndex((entry) => entry.id === id)
+      if (index === -1) return json(res, { error: 'Draft not found' }, 404)
+      const draft = fromBody(await readBody(req))
+      drafts.splice(index, 1)
+      if (isEmpty(draft)) return noContent()
+      const saved = { id, ...draft, updatedAt: new Date().toISOString() }
+      drafts.unshift(saved)
+      return json(res, { draft: { id: saved.id, updatedAt: saved.updatedAt } })
+    }
+    return json(res, { error: 'Method not allowed' }, 405)
+  }
+
   // Same-origin adapter for the legacy /api/messages?resource=… shape. The
   // service worker (public/sw.js) caches recent mail from this path in
   // e2e/dev — production uses the cross-origin messages Worker — but the
@@ -1560,6 +1632,7 @@ function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/ai-api', handleWorkerAiApi)
     server.middlewares.use('/__e2e__/search-api', handleWorkerSearchApi)
     server.middlewares.use('/__e2e__/calendar-api', handleWorkerCalendarApi)
+    server.middlewares.use('/__e2e__/drafts-api', handleWorkerDraftsApi)
   }
   return {
     name: 'local-api',

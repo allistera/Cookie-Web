@@ -521,6 +521,11 @@ export const useInboxStore = defineStore('inbox', {
         .filter((label) => label.kind !== 'system')
         .sort((a, b) => a.name.localeCompare(b.name))
     },
+    // Drives the sidebar's Drafts folder, which only renders once there is
+    // something in it. Kept current by autosave (rememberDraft) and discard
+    // rather than by re-fetching, so the folder appears as soon as the first
+    // save lands and goes when the last draft is sent or thrown away.
+    draftCount: (state) => state.drafts.length,
     // Finds a loaded email by id across every list the reader can open from.
     // Returns null for a blank id so an absent one never resolves to the first
     // email of a list.
@@ -2016,7 +2021,10 @@ export const useInboxStore = defineStore('inbox', {
     // the undo-send holding state (pendingSend) stays client-side, since it
     // is a countdown rather than a document.
 
-    async loadDrafts() {
+    // silent: the sign-in bootstrap that decides whether the sidebar shows a
+    // Drafts folder at all. A failure there should not toast — the folder
+    // simply stays hidden until the next save or the Drafts view loads.
+    async loadDrafts({ silent = false } = {}) {
       this.isDraftsLoading = true
       try {
         const headers = await this.authHeaders()
@@ -2026,10 +2034,33 @@ export const useInboxStore = defineStore('inbox', {
         this.drafts = Array.isArray(drafts) ? drafts : []
       } catch (error) {
         console.error('Failed to load drafts:', error)
-        this.notify('Could not load your drafts.', 'error')
+        if (!silent) this.notify('Could not load your drafts.', 'error')
       } finally {
         this.isDraftsLoading = false
       }
+    },
+
+    // Keeps the in-memory Drafts list — and so the sidebar folder — in step
+    // with what autosave just wrote, without another round trip. Newest
+    // first, matching GET /drafts.
+    rememberDraft(draft) {
+      const entry = {
+        id: draft.id,
+        to: draft.to ?? '',
+        subject: draft.subject ?? '',
+        text: draft.text ?? '',
+        html: draft.html ?? null,
+        replyToMessageId: draft.replyToMessageId ?? null,
+        followUpAt: draft.followUpAt ?? null,
+        attachments: (draft.attachments ?? []).map((attachment) => ({ ...attachment })),
+        updatedAt: draft.updatedAt ?? new Date().toISOString(),
+      }
+      this.drafts = [entry, ...this.drafts.filter((existing) => existing.id !== entry.id)]
+    },
+
+    forgetDraft(draftId) {
+      if (!draftId) return
+      this.drafts = this.drafts.filter((draft) => draft.id !== draftId)
     },
 
     // Creates the row on first save and replaces it on every save after.
@@ -2054,14 +2085,22 @@ export const useInboxStore = defineStore('inbox', {
       )
       // 204: the draft was emptied and the row is gone. 400 on a create is
       // the worker declining to store an untouched composer.
-      if (response.status === 204) return null
+      if (response.status === 204) {
+        this.forgetDraft(draftId)
+        return null
+      }
       if (response.status === 400 && !draftId) return null
       // A draft deleted elsewhere (another tab, the Drafts view) should start
       // a fresh row rather than resurrect a dead id.
-      if (response.status === 404 && draftId) return this.persistDraft(null, draft)
+      if (response.status === 404 && draftId) {
+        this.forgetDraft(draftId)
+        return this.persistDraft(null, draft)
+      }
       if (!response.ok) throw new Error(`Draft save responded ${response.status}`)
       const { draft: saved } = await response.json()
-      return saved?.id ?? null
+      if (!saved?.id) return null
+      this.rememberDraft({ ...draft, id: saved.id, updatedAt: saved.updatedAt })
+      return saved.id
     },
 
     // Autosave is best-effort: a failed save must never interrupt typing or
@@ -2162,7 +2201,7 @@ export const useInboxStore = defineStore('inbox', {
 
     async discardDraft(draftId) {
       if (!draftId) return
-      this.drafts = this.drafts.filter((draft) => draft.id !== draftId)
+      this.forgetDraft(draftId)
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}`, {
