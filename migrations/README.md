@@ -158,6 +158,67 @@ Apply `0059` before enabling forwarded attachments. During a rolling deploy,
 both send handlers fall back to attachment-free cancel/flush queries so mail
 already queued by the previous release keeps working until the table exists.
 
+## Composer uploads
+
+`0060_outbound_attachments.sql` adds `outbound_attachments`, the home for files
+picked in the composer or reply box. Inbound attachments are owned through
+their message (`attachments.message_id` is `NOT NULL`), which leaves a draft's
+uploads nowhere to live until the send that consumes them; this table owns them
+by `user_id` instead.
+
+Bytes never pass through the Vercel function: the browser gets a short-lived
+Blob client token scoped to `outbound-attachments/<user_id>/` and uploads
+directly, because a proxied upload would be capped at Vercel's ~4.5 MB request
+body limit — well under the 20 MB `MAX_OUTBOUND_ATTACHMENT_BYTES` ceiling. The
+registration call re-derives ownership from the stored pathname and records the
+size `head()` reports, so a client cannot claim another account's blob or
+misstate what it uploaded.
+
+The migration also widens `scheduled_send_attachments` (0059) to reference
+either source: `attachment_id` becomes nullable, `outbound_attachment_id` is
+added, and a CHECK keeps exactly one of the two set. 0059's primary key is
+replaced by one partial unique index per source plus a plain
+`(scheduled_send_id)` index, since neither partial index alone covers a mixed
+row set.
+
+Apply `0060` before deploying code that serves `POST /api/send?resource=attachment`.
+Both the send and cancel paths fall back to forwarded-attachment-only queries
+while the table is missing, so a rolling deploy keeps existing mail working.
+
+Abandoned uploads are swept by `POST /api/send?resource=flush` after each
+batch, alongside the resolved scheduled sends and expired receipts it already
+cleans up. A row is only eligible once it is a day old, is referenced by no
+pending scheduled send, and shares its `blob_url` with no `attachments` row —
+a sent copy records the same blob, and deleting those bytes would empty an
+attachment the user can still open in their sent mail.
+
+## Drafts
+
+`0061_drafts.sql` adds `drafts` and `draft_attachments`, backing composer
+autosave and the Drafts view. Before this, the only outbound state that
+survived a reload was the undo-send holding row in `scheduled_sends`; a
+half-written message lived in the browser tab and died with it.
+
+Drafts are deliberately not `messages` rows. `messages` requires
+`from_address`, `recipients`, `thread_id` and `sent_at`, carries the search
+tsvector and thread counters, and is append-only in practice. A draft is empty
+when it is created, has none of those, and is rewritten every few seconds
+while someone types.
+
+`draft_attachments` uses the same two-source shape as
+`scheduled_send_attachments`: `attachment_id` for a forwarded inbound file,
+`outbound_attachment_id` for a composer upload, with a CHECK keeping exactly
+one set. Ownership is re-resolved on every save, so an id the user does not
+own is dropped rather than stored.
+
+The orphaned-upload sweep in `POST /api/send?resource=flush` now also spares
+any upload a draft references (see 0060). A draft can sit untouched for weeks,
+well past the 24-hour retention window, and its files must outlive it.
+
+Apply `0061` before deploying the `cookie-web-drafts` Worker (Cookie-Worker
+repo), which serves `GET /drafts`, `POST /drafts`, and
+`GET/PATCH/DELETE /drafts/:id`.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.

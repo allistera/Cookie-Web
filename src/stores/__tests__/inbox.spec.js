@@ -24,6 +24,147 @@ describe('Inbox Store', () => {
     vi.restoreAllMocks()
   })
 
+  describe('Draft autosave', () => {
+    const DRAFT_ID = 'draft-1'
+
+    function armComposer(store) {
+      store.isComposerActive = true
+      store.composerTo = 'someone@example.com'
+      store.composerSubject = 'Hello'
+      store.composerTextArea = 'Checking in.'
+    }
+
+    function stubDraftFetch({ status = 201, id = DRAFT_ID } = {}) {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: status < 400,
+        status,
+        json: async () => ({ draft: { id, updatedAt: '2026-09-03T10:00:00Z' } }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+
+    it('creates the row on the first save and updates the same one after', async () => {
+      const fetchMock = stubDraftFetch()
+      const store = useInboxStore()
+      armComposer(store)
+
+      await store.saveComposerDraft()
+      expect(fetchMock.mock.calls[0][1].method).toBe('POST')
+      expect(store.composerDraftId).toBe(DRAFT_ID)
+
+      await store.saveComposerDraft()
+      const [url, options] = fetchMock.mock.calls[1]
+      expect(options.method).toBe('PATCH')
+      expect(url).toContain(`/drafts/${DRAFT_ID}`)
+    })
+
+    it('sends attachment ids rather than attachment objects', async () => {
+      const fetchMock = stubDraftFetch()
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerAttachments = [{ id: 'att-1', filename: 'plan.pdf', source: 'upload' }]
+
+      await store.saveComposerDraft()
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).attachmentIds).toEqual(['att-1'])
+    })
+
+    it('starts a fresh row when the draft was deleted elsewhere', async () => {
+      // Another tab (or the Drafts view) removed it; resurrecting a dead id
+      // would silently drop everything typed since.
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({ draft: { id: 'draft-2' } }),
+        })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerDraftId = DRAFT_ID
+
+      await store.saveComposerDraft()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls[1][1].method).toBe('POST')
+      expect(store.composerDraftId).toBe('draft-2')
+    })
+
+    it('keeps the draft through the undo window and deletes it only once sent', async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerDraftId = DRAFT_ID
+
+      store.sendEmail()
+      // Still recoverable: nothing has gone out yet.
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.pendingSend.draftId).toBe(DRAFT_ID)
+
+      store.undoPendingSend()
+      expect(store.composerDraftId).toBe(DRAFT_ID)
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+      const deleted = fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')
+      expect(deleted[0]).toContain(`/drafts/${DRAFT_ID}`)
+      vi.useRealTimers()
+    })
+
+    it('keeps the draft when the send fails', async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi.fn().mockRejectedValue(new Error('network down'))
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      armComposer(store)
+      store.composerDraftId = DRAFT_ID
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(store.composerDraftId).toBe(DRAFT_ID)
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
+      vi.useRealTimers()
+    })
+
+    it('reopens a saved draft into the composer and keeps writing to that row', () => {
+      const store = useInboxStore()
+
+      store.openDraft({
+        id: DRAFT_ID,
+        to: 'a@b.com',
+        subject: 'Half written',
+        text: 'Body',
+        html: '<p>Body</p>',
+        attachments: [{ id: 'att-1', filename: 'plan.pdf' }],
+      })
+
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerTo).toBe('a@b.com')
+      expect(store.composerAttachments).toHaveLength(1)
+      expect(store.composerDraftId).toBe(DRAFT_ID)
+    })
+
+    it('does not autosave a composer that has already closed', async () => {
+      const fetchMock = stubDraftFetch()
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = false
+
+      await store.saveComposerDraft()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
   it('loads emails from the API and maps them for the inbox list', async () => {
     const sentAt = new Date()
     sentAt.setHours(10, 4, 0, 0)
@@ -1065,6 +1206,28 @@ describe('Inbox Store', () => {
       expect(JSON.parse(fetchMock.mock.calls[0][1].body).replyToMessageId).toBe(
         '11111111-1111-1111-1111-111111111111',
       )
+    })
+
+    it('reclaims a removed upload but leaves a forwarded attachment alone', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.composerAttachments = [
+        { id: 'att-1', filename: 'forwarded.pdf' },
+        { id: 'att-2', filename: 'picked.pdf', source: 'upload' },
+      ]
+
+      // A forwarded attachment still belongs to the original message, so
+      // dropping it from this draft must not delete anything server-side.
+      store.removeComposerAttachment('att-1')
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      store.removeComposerAttachment('att-2')
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      const [url, options] = fetchMock.mock.calls[0]
+      expect(url).toContain('/api/send?resource=attachment&id=att-2')
+      expect(options.method).toBe('DELETE')
+      expect(store.composerAttachments).toEqual([])
     })
 
     it('carries selected forwarded attachment ids through send and undo', async () => {

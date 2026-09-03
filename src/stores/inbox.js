@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
+import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
 import {
   AI_API_URL,
+  DRAFTS_API_URL,
   EMAILS_API_URL,
   SEARCH_API_URL,
   LABELS_API_URL,
@@ -207,6 +209,14 @@ export function localDayKey(sentAt) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
 }
 
+// Autosave cadence. Short enough that a crashed tab loses at most a phrase,
+// long enough that ordinary typing produces one write per pause rather than
+// one per keystroke. The composer and the inline reply box each get their own
+// timer: both can be open at once, on different drafts.
+const DRAFT_AUTOSAVE_DELAY_MS = 800
+let composerDraftTimer = null
+let replyDraftTimer = null
+
 // State keys for each server-backed folder list (?folder=). The inbox list
 // has its own loader: it additionally tracks the unread count, userId, and
 // search interplay. Folders without consumers of a "loaded" flag omit it.
@@ -392,6 +402,16 @@ export const useInboxStore = defineStore('inbox', {
     composerHtml: '', // rich HTML body from the WYSIWYG editor
     composerReplyToMessageId: null,
     composerFollowUpAt: null,
+    // Saved drafts, newest first, for the Drafts view.
+    drafts: [],
+    isDraftsLoading: false,
+    // The row each open composing surface autosaves into. Null until the
+    // first save of a session creates one.
+    composerDraftId: null,
+    replyDraftId: null,
+    // How many composer uploads are still in flight, so the composer can
+    // disable sending until every picked file actually exists server-side.
+    pendingAttachmentUploads: 0,
     // Existing owned attachments carried into a forwarded message. The
     // browser keeps metadata for removable chips; only ids cross the API.
     composerAttachments: [],
@@ -1956,7 +1976,11 @@ export const useInboxStore = defineStore('inbox', {
       await this.updateMessage(item.message_id, { scheduled_for: scheduledFor })
     },
 
-    closeComposer() {
+    // save:false is for the send paths, which have already taken the draft id
+    // via consumeComposerDraft() — flushing there would write a fresh row for
+    // a message that is on its way out.
+    closeComposer({ save = true } = {}) {
+      if (save) this.flushComposerDraft()
       this.isComposerActive = false
       this.composerTo = ''
       this.composerSubject = ''
@@ -1965,16 +1989,227 @@ export const useInboxStore = defineStore('inbox', {
       this.composerReplyToMessageId = null
       this.composerFollowUpAt = null
       this.composerAttachments = []
+      this.composerDraftId = null
       this.isAiDraftActive = false
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
       this.composerAiInstruction = ''
     },
 
+    // --- Drafts ---------------------------------------------------------
+    // Composer contents are autosaved server-side (cookie-web-drafts), so a
+    // reload, a crash, or a different device picks the message back up. Only
+    // the undo-send holding state (pendingSend) stays client-side, since it
+    // is a countdown rather than a document.
+
+    async loadDrafts() {
+      this.isDraftsLoading = true
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`${DRAFTS_API_URL}/drafts`, { headers })
+        if (!response.ok) throw new Error(`GET /drafts responded ${response.status}`)
+        const { drafts } = await response.json()
+        this.drafts = Array.isArray(drafts) ? drafts : []
+      } catch (error) {
+        console.error('Failed to load drafts:', error)
+        this.notify('Could not load your drafts.', 'error')
+      } finally {
+        this.isDraftsLoading = false
+      }
+    },
+
+    // Creates the row on first save and replaces it on every save after.
+    // Returns the draft id, or null when the save left nothing worth keeping
+    // (the worker deletes a draft that has been emptied out).
+    async persistDraft(draftId, draft) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const payload = {
+        to: draft.to ?? '',
+        subject: draft.subject ?? '',
+        text: draft.text ?? '',
+        html: draft.html ?? null,
+        replyToMessageId: draft.replyToMessageId ?? null,
+        followUpAt: draft.followUpAt ?? null,
+        attachmentIds: (draft.attachments ?? []).map(({ id }) => id),
+      }
+      const response = await fetch(
+        draftId ? `${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}` : `${DRAFTS_API_URL}/drafts`,
+        { method: draftId ? 'PATCH' : 'POST', headers, body: JSON.stringify(payload) },
+      )
+      // 204: the draft was emptied and the row is gone. 400 on a create is
+      // the worker declining to store an untouched composer.
+      if (response.status === 204) return null
+      if (response.status === 400 && !draftId) return null
+      // A draft deleted elsewhere (another tab, the Drafts view) should start
+      // a fresh row rather than resurrect a dead id.
+      if (response.status === 404 && draftId) return this.persistDraft(null, draft)
+      if (!response.ok) throw new Error(`Draft save responded ${response.status}`)
+      const { draft: saved } = await response.json()
+      return saved?.id ?? null
+    },
+
+    // Autosave is best-effort: a failed save must never interrupt typing or
+    // steal focus with a toast, so it is logged and retried on the next pause.
+    async saveComposerDraft() {
+      if (!this.isComposerActive) return
+      try {
+        this.composerDraftId = await this.persistDraft(this.composerDraftId, {
+          to: this.composerTo,
+          subject: this.composerSubject,
+          text: this.composerTextArea,
+          html: this.composerHtml,
+          replyToMessageId: this.composerReplyToMessageId,
+          followUpAt: this.composerFollowUpAt,
+          attachments: this.composerAttachments,
+        })
+      } catch (error) {
+        console.error('Draft autosave failed:', error)
+      }
+    },
+
+    scheduleComposerDraftSave() {
+      clearTimeout(composerDraftTimer)
+      composerDraftTimer = setTimeout(() => this.saveComposerDraft(), DRAFT_AUTOSAVE_DELAY_MS)
+    },
+
+    // Called when the composer closes or the tab is hidden: the pending
+    // debounce would otherwise never fire.
+    flushComposerDraft() {
+      clearTimeout(composerDraftTimer)
+      return this.saveComposerDraft()
+    },
+
+    async saveReplyDraft(draft) {
+      try {
+        this.replyDraftId = await this.persistDraft(this.replyDraftId, draft)
+      } catch (error) {
+        console.error('Reply draft autosave failed:', error)
+      }
+    },
+
+    scheduleReplyDraftSave(draft) {
+      clearTimeout(replyDraftTimer)
+      replyDraftTimer = setTimeout(() => this.saveReplyDraft(draft), DRAFT_AUTOSAVE_DELAY_MS)
+    },
+
+    flushReplyDraft(draft) {
+      clearTimeout(replyDraftTimer)
+      return this.saveReplyDraft(draft)
+    },
+
+    // Hands the draft row off to a send: cancels any queued autosave and
+    // returns the id so the caller can delete it once the mail is really
+    // gone (or hand it back on undo).
+    consumeComposerDraft() {
+      clearTimeout(composerDraftTimer)
+      const draftId = this.composerDraftId
+      this.composerDraftId = null
+      return draftId
+    },
+
+    consumeReplyDraft() {
+      clearTimeout(replyDraftTimer)
+      const draftId = this.replyDraftId
+      this.replyDraftId = null
+      return draftId
+    },
+
+    async discardDraft(draftId) {
+      if (!draftId) return
+      this.drafts = this.drafts.filter((draft) => draft.id !== draftId)
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}`, {
+          method: 'DELETE',
+          headers,
+        })
+        if (!response.ok && response.status !== 404) {
+          throw new Error(`DELETE /drafts responded ${response.status}`)
+        }
+      } catch (error) {
+        console.error('Failed to delete draft:', error)
+      }
+    },
+
+    // Reopens a saved draft in the composer. Autosave then continues into the
+    // same row rather than forking a second copy.
+    openDraft(draft) {
+      this.composerTo = draft.to ?? ''
+      this.composerSubject = draft.subject ?? ''
+      this.composerTextArea = draft.text ?? ''
+      this.composerHtml = draft.html ?? ''
+      this.composerReplyToMessageId = draft.replyToMessageId ?? null
+      this.composerFollowUpAt = draft.followUpAt ?? null
+      this.composerAttachments = draft.attachments ?? []
+      this.composerDraftId = draft.id
+      this.isComposerActive = true
+    },
+
+    // Uploads picked files and returns the stored attachment rows. Shared by
+    // the composer and the inline reply box, which keep their own draft
+    // state. Each file is independent: one failure notifies and drops that
+    // file alone rather than discarding a batch already waited for.
+    async uploadAttachmentFiles(files, existingCount = 0) {
+      const picked = Array.from(files ?? [])
+      if (!picked.length) return []
+      const room = MAX_ATTACHMENTS - existingCount
+      if (room <= 0) {
+        this.notify(`You can attach up to ${MAX_ATTACHMENTS} files.`, 'error')
+        return []
+      }
+      if (picked.length > room) {
+        this.notify(`Only the first ${room} of those files were attached.`, 'info')
+      }
+
+      const uploaded = []
+      for (const file of picked.slice(0, room)) {
+        this.pendingAttachmentUploads += 1
+        try {
+          const attachment = await uploadAttachment(file, {
+            userId: this.userId,
+            authHeaders: (extra) => this.authHeaders(extra),
+          })
+          uploaded.push({ ...attachment, source: 'upload' })
+        } catch (error) {
+          console.error('Attachment upload failed:', error)
+          this.notify(`Could not attach ${file.name}.`, 'error')
+        } finally {
+          this.pendingAttachmentUploads -= 1
+        }
+      }
+      return uploaded
+    },
+
+    async attachComposerFiles(files) {
+      const uploaded = await this.uploadAttachmentFiles(files, this.composerAttachments.length)
+      if (!uploaded.length) return
+      // The composer may have been closed while these were in flight; the
+      // orphan sweep reclaims anything left behind.
+      if (!this.isComposerActive) return
+      this.composerAttachments.push(...uploaded)
+    },
+
+    // Forwarded attachments belong to the original message and are only
+    // dropped from this draft; an upload exists solely for this draft, so
+    // removing it should reclaim its bytes now rather than wait for the sweep.
     removeComposerAttachment(id) {
+      const removed = this.composerAttachments.find((attachment) => attachment.id === id)
       this.composerAttachments = this.composerAttachments.filter(
         (attachment) => attachment.id !== id,
       )
+      if (removed?.source !== 'upload') return
+      this.discardUploadedAttachment(id).catch(() => {})
+    },
+
+    async discardUploadedAttachment(id) {
+      const headers = await this.authHeaders()
+      const response = await fetch(`/api/send?resource=attachment&id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers,
+      })
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`DELETE /api/send?resource=attachment responded ${response.status}`)
+      }
     },
 
     openAiDraft() {
@@ -2078,8 +2313,9 @@ export const useInboxStore = defineStore('inbox', {
         followUpAt: this.composerFollowUpAt,
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
       })
-      this.closeComposer()
-      this.startPendingSend(draft)
+      const draftId = this.consumeComposerDraft()
+      this.closeComposer({ save: false })
+      this.startPendingSend({ ...draft, draftId })
     },
 
     // Counts down UNDO_SEND_SECONDS, then sends. Hovering the toast pauses it
@@ -2107,9 +2343,11 @@ export const useInboxStore = defineStore('inbox', {
     undoPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
-      const { to, subject, text, html, replyToMessageId, followUpAt, attachments } =
+      const { to, subject, text, html, replyToMessageId, followUpAt, attachments, draftId } =
         this.pendingSend
       this.pendingSend = null
+      // Keep writing into the same row the composer was autosaving before.
+      this.composerDraftId = draftId ?? null
       this.composerTo = to
       this.composerSubject = subject
       this.composerTextArea = text
@@ -2144,6 +2382,9 @@ export const useInboxStore = defineStore('inbox', {
             : 'Email sent.',
           result?.followUpScheduled === false ? 'error' : 'info',
         )
+        // Only now is the message really gone; deleting the draft any earlier
+        // would lose it if the send failed.
+        await this.discardDraft(draft.draftId)
       } catch (error) {
         console.error('Failed to send email:', error)
         this.notify('Failed to send email. Please try again.', 'error')
@@ -2154,6 +2395,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerReplyToMessageId = draft.replyToMessageId
         this.composerFollowUpAt = draft.followUpAt
         this.composerAttachments = draft.attachments ?? []
+        this.composerDraftId = draft.draftId ?? null
         this.isComposerActive = true
       } finally {
         this.isSendingEmail = false
@@ -2177,7 +2419,8 @@ export const useInboxStore = defineStore('inbox', {
         followUpAt: this.composerFollowUpAt,
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
       })
-      this.closeComposer()
+      const draftId = this.consumeComposerDraft()
+      this.closeComposer({ save: false })
       this.isSendingEmail = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
@@ -2195,6 +2438,8 @@ export const useInboxStore = defineStore('inbox', {
         const { scheduledSend } = await response.json()
         if (this.isScheduledSendsLoaded) this.scheduledSends.unshift(scheduledSend)
         this.notify(`Email scheduled for ${label}.`)
+        // The scheduled_sends row is now the durable copy of this message.
+        await this.discardDraft(draftId)
         return true
       } catch (error) {
         console.error('Failed to schedule email:', error)
@@ -2206,6 +2451,7 @@ export const useInboxStore = defineStore('inbox', {
         this.composerReplyToMessageId = draft.replyToMessageId
         this.composerFollowUpAt = draft.followUpAt
         this.composerAttachments = draft.attachments ?? []
+        this.composerDraftId = draftId ?? null
         this.isComposerActive = true
         return false
       } finally {
