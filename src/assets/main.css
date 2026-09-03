@@ -4270,6 +4270,29 @@ button.ni-attachment:hover {
   flex: 1;
 }
 
+.spam-retention {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.spam-retention-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spam-retention-input {
+  width: 6em;
+}
+
+.settings-error {
+  margin-top: 8px;
+  color: var(--danger-color, #e5484d);
+  font-size: 0.9rem;
+}
+
 .rule-list {
   display: grid;
   gap: 8px;

@@ -251,9 +251,10 @@ watch(
       // Load the full label palette so the sidebar lists every defined label,
       // not only ones on loaded emails (and without needing settings opened).
       store.loadLabels()
-      // The sidebar's Drafts folder only renders once something is in it, so
-      // the count has to be known before the user ever opens Drafts.
+      // The sidebar's Drafts and Scheduled folders only render once something
+      // is in them, so both counts have to be known before either is opened.
       store.loadDrafts({ silent: true })
+      store.loadScheduledSends()
     }
   },
   { immediate: true },
@@ -479,7 +480,11 @@ onUnmounted(() => {
               <span class="nav-text">{{ showMoreNav ? 'Less' : 'More' }}</span>
             </a>
             <template v-if="showMoreNav">
+              <!-- Snoozed and Scheduled only exist while they hold something:
+                   store.snoozedCount arrives with the inbox state, and the
+                   Send Later queue is loaded quietly on sign-in. -->
               <router-link
+                v-if="store.snoozedCount"
                 :to="{ path: '/inbox', query: { filter: 'snoozed' } }"
                 class="nav-item"
                 :class="{ active: route.query.filter === 'snoozed' }"
@@ -488,6 +493,7 @@ onUnmounted(() => {
                 <span class="nav-text">Snoozed</span>
               </router-link>
               <router-link
+                v-if="store.scheduledSendCount"
                 :to="{ path: '/scheduled' }"
                 class="nav-item"
                 :class="{ active: route.name === 'scheduled-sends' }"
@@ -523,7 +529,10 @@ onUnmounted(() => {
                 <span class="nav-text">Drafts</span>
                 <span class="nav-badge">{{ store.draftCount }}</span>
               </router-link>
+              <!-- Spam only exists while the folder holds something (see
+                   store.spamCount, server-provided with the inbox state). -->
               <router-link
+                v-if="store.spamCount"
                 :to="{ path: '/inbox', query: { filter: 'spam' } }"
                 class="nav-item"
                 :class="{ active: route.query.filter === 'spam' }"

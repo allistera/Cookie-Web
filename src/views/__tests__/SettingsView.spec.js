@@ -8,7 +8,7 @@ import SettingsView from '../SettingsView.vue'
 import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
-import { LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import { EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
 // useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
@@ -109,6 +109,9 @@ describe('SettingsView', () => {
             }
           }
           if (String(url).includes('/tasks/interests')) return { interests: [] }
+          if (String(url).includes('/emails/spam-retention')) {
+            return { spamRetentionDays: 30, defaultDays: 30, minDays: 1, maxDays: 365 }
+          }
           if (String(url).includes('/calendars')) {
             return { calendars: FIXTURE_CALENDARS.map((calendar) => ({ ...calendar })) }
           }
@@ -164,7 +167,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(11)
+    expect(navItems).toHaveLength(12)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -174,6 +177,7 @@ describe('SettingsView', () => {
       'Snippets',
       'Labels',
       'Rules',
+      'Spam',
       'Calendars',
       'Templates',
       'Time Management',
@@ -338,6 +342,67 @@ describe('SettingsView', () => {
     expect(wrapper.find('.browser-notifications-switch').element.checked).toBe(false)
     expect(wrapper.find('.browser-notifications-switch').element.disabled).toBe(true)
     expect(wrapper.find('.browser-notifications-status').text()).toContain('blocked')
+  })
+
+  describe('Spam pane', () => {
+    it('sits in the Email group and shows the stored retention', async () => {
+      const wrapper = await openView()
+      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
+
+      const emailGroup = wrapper
+        .findAll('.settings-nav-group')
+        .find((group) => group.text().includes('Email'))
+      expect(emailGroup.text()).toContain('Spam')
+
+      await openPane(wrapper, 'spam')
+      const pane = wrapper.find('[data-testid="spam-section"]')
+      expect(pane.exists()).toBe(true)
+      expect(pane.text()).toContain('Delete spam automatically')
+      expect(pane.find('input[type="number"]').element.value).toBe('30')
+      expect(pane.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+    })
+
+    it('saves a new retention and confirms it', async () => {
+      const wrapper = await openView()
+      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
+      await openPane(wrapper, 'spam')
+      const pane = wrapper.find('[data-testid="spam-section"]')
+      fetch.mockImplementation(async () => ({
+        ok: true,
+        json: async () => ({ spamRetentionDays: 14, defaultDays: 30, minDays: 1, maxDays: 365 }),
+      }))
+
+      await pane.find('input[type="number"]').setValue('14')
+      expect(pane.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
+      await pane.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(fetch).toHaveBeenCalledWith(
+        `${EMAILS_API_URL}/emails/spam-retention`,
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ spamRetentionDays: 14 }),
+        }),
+      )
+      expect(store.spamRetentionDays).toBe(14)
+      expect(store.toasts.at(-1).message).toBe('Spam will be deleted after 14 days.')
+    })
+
+    it('refuses an out-of-range value without calling the server', async () => {
+      const wrapper = await openView()
+      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
+      await openPane(wrapper, 'spam')
+      const pane = wrapper.find('[data-testid="spam-section"]')
+      fetch.mockClear()
+
+      await pane.find('input[type="number"]').setValue('0')
+      await pane.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(pane.find('[role="alert"]').text()).toBe('Enter a whole number of days from 1 to 365.')
+      expect(fetch).not.toHaveBeenCalled()
+      expect(store.spamRetentionDays).toBe(30)
+    })
   })
 
   it('lists labels with colors and descriptions in the Labels pane', async () => {

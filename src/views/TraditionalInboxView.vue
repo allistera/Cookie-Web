@@ -669,18 +669,38 @@ watch(filteredEmails, (emails) => {
 
 const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
 
-// Archives the open email and auto-advances the reader to the email that
-// followed it (or the new last one when the archived email was last); the
-// reader only closes when the list is now empty.
-function archiveOpenEmail() {
+// Runs an action that takes the open email out of the list and auto-advances
+// the reader to the email that followed it (or the new last one when the
+// removed email was last); the reader only closes when the list is now empty.
+function removeOpenEmail(remove) {
   if (!openEmail.value) return
+  const email = openEmail.value
   const index = openIndex.value
-  removeEmail(openEmail.value)
+  remove(email)
   const remaining = flatEmails.value
+  // Some lists keep the row (Starred, labels and search all show spam):
+  // then the reader simply stays on it, without the read-marking a fresh
+  // open would do.
+  if (remaining.some((candidate) => candidate.id === email.id)) {
+    store.openEmailId = email.id
+    return
+  }
   const next = remaining[index] ?? remaining[remaining.length - 1]
   if (next) {
     openReader(next)
   }
+}
+
+function archiveOpenEmail() {
+  removeOpenEmail(removeEmail)
+}
+
+// Report spam / Not spam for the open email. Spam leaves the inbox for the
+// Spam folder (and vice versa), so the reader advances like Done does. In
+// lists that show spam regardless (Starred, labels, search) the email stays
+// put and the reader stays on it.
+function toggleOpenEmailSpam() {
+  removeOpenEmail((email) => store.setSpam(email, !email.isSpam))
 }
 
 // The store marks the email done itself once the server confirms the
@@ -1305,6 +1325,18 @@ onUnmounted(() => {
               @click="archiveOpenEmail"
             >
               <span class="material-symbols-outlined">check_box</span>
+            </button>
+            <button
+              v-if="!openEmail.isSent"
+              class="ni-reader-btn"
+              :title="openEmail.isSpam ? 'Not spam' : 'Report spam'"
+              :aria-label="openEmail.isSpam ? 'Not spam' : 'Report spam'"
+              :aria-pressed="Boolean(openEmail.isSpam)"
+              @click="toggleOpenEmailSpam"
+            >
+              <span class="material-symbols-outlined">{{
+                openEmail.isSpam ? 'report_off' : 'report'
+              }}</span>
             </button>
             <div v-if="openEmail.isSent" class="ni-schedule-wrap">
               <button

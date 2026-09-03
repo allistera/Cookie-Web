@@ -1189,6 +1189,84 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(topbar.find('[title="Archive"]').exists()).toBe(false)
   })
 
+  it('the reader topbar offers Report spam with the report icon for inbound mail', async () => {
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const spam = wrapper.find('.ni-reader-topbar [title="Report spam"]')
+    expect(spam.exists()).toBe(true)
+    expect(spam.text()).toContain('report')
+    expect(spam.attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('.ni-reader-topbar [title="Not spam"]').exists()).toBe(false)
+  })
+
+  it('hides Report spam for sent mail', async () => {
+    store.traditionalEmails = [{ ...makeEmail('sent-1', Date.now() - HOUR), isSent: true }]
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader-topbar [title="Report spam"]').exists()).toBe(false)
+  })
+
+  it('clicking Report spam records the verdict and advances to the next email', async () => {
+    store.traditionalEmails = [
+      makeEmail('today-1', Date.now() - HOUR),
+      makeEmail('today-2', Date.now() - 2 * HOUR),
+    ]
+    store.isInboxLoaded = true
+    vi.spyOn(store, 'setSpam')
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.find('.ni-reader-topbar [title="Report spam"]').trigger('click')
+
+    expect(store.setSpam).toHaveBeenCalledTimes(1)
+    expect(store.setSpam.mock.calls[0][0].id).toBe('today-1')
+    expect(store.setSpam.mock.calls[0][1]).toBe(true)
+    expect(store.traditionalEmails.map((e) => e.id)).toEqual(['today-2'])
+    expect(store.openEmailId).toBe('today-2')
+  })
+
+  it('keeps the reader on the row in Starred, without marking it read again', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    vi.spyOn(store, 'loadStarredEmails').mockResolvedValue()
+    store.starredEmails = [{ ...makeEmail('star-1', Date.now() - HOUR), starred: true }]
+    store.isStarredLoaded = true
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    store.starredEmails[0].unread = true
+    const setUnread = vi.spyOn(store, 'setUnread')
+
+    await wrapper.find('.ni-reader-topbar [title="Report spam"]').trigger('click')
+
+    expect(store.openEmailId).toBe('star-1')
+    expect(store.starredEmails[0].isSpam).toBe(true)
+    expect(store.starredEmails[0].unread).toBe(true)
+    expect(setUnread).not.toHaveBeenCalled()
+    expect(wrapper.find('.ni-reader-topbar [title="Not spam"]').exists()).toBe(true)
+  })
+
+  it('offers Not spam with the report_off icon in the Spam folder', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'spam' } })
+    vi.spyOn(store, 'loadSpamEmails').mockResolvedValue()
+    store.spamEmails = [{ ...makeEmail('spam-1', Date.now() - HOUR), isSpam: true }]
+    store.isSpamLoaded = true
+    vi.spyOn(store, 'setSpam')
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const notSpam = wrapper.find('.ni-reader-topbar [title="Not spam"]')
+    expect(notSpam.exists()).toBe(true)
+    expect(notSpam.text()).toContain('report_off')
+    expect(notSpam.attributes('aria-pressed')).toBe('true')
+
+    await notSpam.trigger('click')
+
+    expect(store.setSpam.mock.calls[0][0].id).toBe('spam-1')
+    expect(store.setSpam.mock.calls[0][1]).toBe(false)
+    expect(store.spamEmails).toEqual([])
+  })
+
   it('the reader Star action stars the open email', async () => {
     vi.spyOn(store, 'toggleStar')
     const wrapper = mountView()

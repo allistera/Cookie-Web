@@ -96,6 +96,13 @@ const pendingBodyFetches = new Map()
 // the second. Each map holds the tail of that message's update chain.
 const pendingStarUpdates = new Map()
 const pendingUnreadUpdates = new Map()
+// Spam verdict PATCHes, serialized per message like stars and read state,
+// and the latest setSpam action per message so a failed earlier request
+// knows not to roll back a newer choice (the verdict value alone can't tell:
+// spam → not spam → spam ends on the same value it started from).
+const pendingSpamUpdates = new Map()
+const latestSpamAction = new Map()
+let spamActionSeq = 0
 
 // @param {Map<string, Promise<unknown>>} pending
 // @param {string} id
@@ -103,29 +110,45 @@ const pendingUnreadUpdates = new Map()
 function serializePerMessage(pending, id, run) {
   const chained = (pending.get(id) ?? Promise.resolve()).catch(() => {}).then(run)
   pending.set(id, chained)
-  chained.finally(() => {
-    if (pending.get(id) === chained) pending.delete(id)
-  })
+  // The caller handles chained's own rejection; this bookkeeping branch must
+  // not surface it a second time as an unhandled rejection.
+  chained
+    .finally(() => {
+      if (pending.get(id) === chained) pending.delete(id)
+    })
+    .catch(() => {})
   return chained
 }
 
+// Every folder loader maps rows into its own objects, so the same message in
+// Starred, a label, search results and the inbox is a different object in
+// each list. Membership is therefore by id, and each list's own copy is
+// what gets put back on Undo.
 function captureListPositions(email, lists) {
-  return lists.map((list) => ({ list, index: list.indexOf(email) }))
+  return lists.map((list) => {
+    const index = list.findIndex((item) => item.id === email.id)
+    return { list, index, item: index > -1 ? list[index] : null }
+  })
 }
 
 function removeFromCapturedLists(email, positions) {
   for (const { list } of positions) {
-    const index = list.indexOf(email)
+    const index = list.findIndex((item) => item.id === email.id)
     if (index > -1) list.splice(index, 1)
   }
 }
 
 function restoreCapturedLists(email, positions) {
-  for (const { list, index } of positions) {
-    if (index > -1 && !list.includes(email)) {
-      list.splice(Math.min(index, list.length), 0, email)
+  for (const { list, index, item } of positions) {
+    if (index > -1 && !list.some((candidate) => candidate.id === email.id)) {
+      list.splice(Math.min(index, list.length), 0, item ?? email)
     }
   }
+}
+
+// Whether a due time still keeps a message in the Snoozed folder.
+function isSnoozedAt(scheduledFor) {
+  return Boolean(scheduledFor) && new Date(scheduledFor) > new Date()
 }
 
 function syncFolderMembership(list, email, belongs) {
@@ -137,20 +160,37 @@ function syncFolderMembership(list, email, belongs) {
   }
 }
 
+// `persist` lets an action route its PATCHes through a per-message queue
+// (see serializePerMessage) so rapid opposite actions reach the server in
+// click order; it defaults to a plain updateMessage.
+// `isCurrent` says whether the email still reflects this action when its
+// request fails; a later action on the same message (rapid toggles) has
+// already moved the state on, and rolling back would overwrite that choice.
 function reversibleMessageUpdate(
   store,
-  { email, apply, restore, changes, undoChanges, message, errorMessage, shouldNotify },
+  {
+    email,
+    apply,
+    restore,
+    changes,
+    undoChanges,
+    message,
+    errorMessage,
+    shouldNotify,
+    persist,
+    isCurrent = () => true,
+  },
 ) {
+  const send = persist ?? ((next) => store.updateMessage(email.id, next))
   let undoRequested = false
   let toastId = null
   apply()
 
-  const persistence = store
-    .updateMessage(email.id, changes)
+  const persistence = send(changes)
     .then(() => true)
     .catch((error) => {
       console.error(errorMessage, error)
-      if (!undoRequested) {
+      if (!undoRequested && isCurrent()) {
         restore()
         if (toastId !== null) store.dismissToast(toastId)
         store.notify(errorMessage, 'error')
@@ -165,7 +205,7 @@ function reversibleMessageUpdate(
     if (!(await persistence)) return
 
     try {
-      await store.updateMessage(email.id, undoChanges)
+      await send(undoChanges)
     } catch (error) {
       console.error('Failed to undo email action:', error)
       apply()
@@ -279,7 +319,7 @@ const FOLDER_STATE = {
     list: 'spamEmails',
     cursor: 'spamCursor',
     hasMore: 'hasMoreSpam',
-    loaded: null,
+    loaded: 'isSpamLoaded',
     refreshing: 'isSpamRefreshing',
     label: 'spam',
   },
@@ -352,6 +392,13 @@ export function mapEmailRow(message) {
     // List endpoints expose only summary presence, never the generated text.
     hasAiSummary: Boolean(message.has_ai_summary),
     hasAttachments: Boolean(message.has_attachments),
+    // The AI classifier's verdict, or the user's own report (see setSpam).
+    // Drives the reader's Report spam / Not spam toggle wherever the row is
+    // listed (Starred, labels and search include spam; the inbox does not).
+    isSpam: message.spam_verdict === 'spam',
+    // Starred, label and search lists span Done, and the Spam and Snoozed
+    // folders exclude it, so count adjustments need to know.
+    isArchived: Boolean(message.is_archived),
     labels: message.labels || [],
   }
 }
@@ -403,7 +450,18 @@ export const useInboxStore = defineStore('inbox', {
     spamEmails: [],
     spamCursor: null,
     hasMoreSpam: false,
+    // Gates setSpam's move into the Spam list: nothing to insert into until
+    // the folder has been fetched once.
+    isSpamLoaded: false,
     isSpamRefreshing: false,
+    // How many messages the Spam folder holds; the sidebar lists Spam only
+    // while this is non-zero. Server-provided with every inbox bootstrap and
+    // refresh (so newly classified spam surfaces the folder), and kept in
+    // step locally by the actions that move mail in or out of Spam.
+    spamCount: 0,
+    // Same for the Snoozed folder, adjusted by snoozing and by the actions
+    // that take a snoozed message out of it.
+    snoozedCount: 0,
     snoozedEmails: [],
     snoozedCursor: null,
     hasMoreSnoozed: false,
@@ -514,6 +572,13 @@ export const useInboxStore = defineStore('inbox', {
     interests: [],
     interestsLoaded: false,
 
+    // How many days spam is kept before the ingest cron deletes it. Stored
+    // server-side (users.prefs) for the same reason as interests: the sweep
+    // runs with no browser open. The bounds come from the server too.
+    spamRetentionDays: 30,
+    spamRetentionBounds: { defaultDays: 30, minDays: 1, maxDays: 365 },
+    spamRetentionLoaded: false,
+
     // Toast notifications
     toasts: [],
     nextToastId: 1,
@@ -566,6 +631,8 @@ export const useInboxStore = defineStore('inbox', {
     // rather than by re-fetching, so the folder appears as soon as the first
     // save lands and goes when the last draft is sent or thrown away.
     draftCount: (state) => state.drafts.length,
+    // The sidebar lists Scheduled only while a Send Later is still queued.
+    scheduledSendCount: (state) => state.scheduledSends.length,
     // Finds a loaded email by id across every list the reader can open from.
     // Returns null for a blank id so an absent one never resolves to the first
     // email of a list.
@@ -685,14 +752,22 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
+    // Folder counts ride along with every inbox bootstrap and first page;
+    // a payload without one (older Worker, cursor page) leaves it as is.
+    applyFolderCounts({ spamCount, snoozedCount }) {
+      if (Number.isFinite(spamCount)) this.spamCount = spamCount
+      if (Number.isFinite(snoozedCount)) this.snoozedCount = snoozedCount
+    },
+
     async loadInboxState({ force = false } = {}) {
       if (this.isInboxStateLoaded && !force) return
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
-        const { unreadCount, userId } = await response.json()
+        const { unreadCount, spamCount, snoozedCount, userId } = await response.json()
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0
+        this.applyFolderCounts({ spamCount, snoozedCount })
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -708,7 +783,8 @@ export const useInboxStore = defineStore('inbox', {
       const seq = ++this.listSeq
       this.isRefreshing = true
       try {
-        const { emails, nextCursor, unreadCount, userId } = await this.fetchEmailPage()
+        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, userId } =
+          await this.fetchEmailPage()
         if (seq !== this.listSeq) return
         this.traditionalEmails = emails.map(mapEmailRow)
         this.emailsCursor = nextCursor ?? null
@@ -716,6 +792,7 @@ export const useInboxStore = defineStore('inbox', {
         this.unreadInboxCount = Number.isFinite(unreadCount)
           ? unreadCount
           : this.traditionalEmails.filter((e) => e.unread).length
+        this.applyFolderCounts({ spamCount, snoozedCount })
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
         this.isInboxLoaded = true
@@ -761,7 +838,8 @@ export const useInboxStore = defineStore('inbox', {
       if (this.activeSearchQuery) return
       const seq = this.listSeq
       try {
-        const { emails, nextCursor, unreadCount, userId } = await this.fetchEmailPage()
+        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, userId } =
+          await this.fetchEmailPage()
         if (this.activeSearchQuery || seq !== this.listSeq) return
         const incoming = emails.map(mapEmailRow)
         const existing = this.traditionalEmails
@@ -776,6 +854,7 @@ export const useInboxStore = defineStore('inbox', {
           this.hasMoreEmails = Boolean(nextCursor)
         }
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : this.unreadInboxCount
+        this.applyFolderCounts({ spamCount, snoozedCount })
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -807,6 +886,14 @@ export const useInboxStore = defineStore('inbox', {
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
         if (keys.loaded) this[keys.loaded] = true
+        if (folder === 'spam' || folder === 'snoozed') {
+          // The list is the truth once it has been fetched: a single page
+          // is the whole folder, a partial one is a floor for the count.
+          const countKey = folder === 'spam' ? 'spamCount' : 'snoozedCount'
+          this[countKey] = nextCursor
+            ? Math.max(this[countKey], this[keys.list].length)
+            : this[keys.list].length
+        }
       } catch (error) {
         if (seq !== null && seq !== this.labelSeq) return
         console.error(`Failed to load ${keys.label}:`, error)
@@ -1565,12 +1652,18 @@ export const useInboxStore = defineStore('inbox', {
       const snoozedIndex = this.snoozedEmails.indexOf(email)
       const previousScheduledFor = email.scheduledFor
       const wasUnreadInbox = inboxIndex > -1 && email.unread
+      // Spam never shows in Snoozed, so only non-spam moves the count.
+      const snoozedDelta =
+        email.isSpam || email.isArchived
+          ? 0
+          : Number(isSnoozedAt(scheduledFor)) - Number(isSnoozedAt(previousScheduledFor))
       let applied = false
 
       const apply = () => {
         if (applied) return
         applied = true
         email.scheduledFor = scheduledFor
+        this.snoozedCount = Math.max(0, this.snoozedCount + snoozedDelta)
         if (inboxIndex > -1) {
           const currentIndex = this.traditionalEmails.indexOf(email)
           if (currentIndex > -1) this.traditionalEmails.splice(currentIndex, 1)
@@ -1585,6 +1678,7 @@ export const useInboxStore = defineStore('inbox', {
         if (!applied) return
         applied = false
         email.scheduledFor = previousScheduledFor
+        this.snoozedCount = Math.max(0, this.snoozedCount - snoozedDelta)
         if (inboxIndex > -1 && !this.traditionalEmails.includes(email)) {
           this.traditionalEmails.splice(
             Math.min(inboxIndex, this.traditionalEmails.length),
@@ -1627,6 +1721,11 @@ export const useInboxStore = defineStore('inbox', {
       ])
       const wasUnread = email.unread
       const wasUnreadInbox = positions[0].index > -1 && wasUnread
+      // Starred and label lists include Done, where Done again is a no-op
+      // for the Spam and Snoozed folders (both exclude archived mail).
+      const wasArchived = Boolean(email.isArchived)
+      const leavesSpam = Boolean(email.isSpam) && !wasArchived
+      const leavesSnoozed = !email.isSpam && isSnoozedAt(email.scheduledFor) && !wasArchived
       const addToDone =
         this.isDoneLoaded &&
         this.donePageIndex === 0 &&
@@ -1638,8 +1737,11 @@ export const useInboxStore = defineStore('inbox', {
         applied = true
         removeFromCapturedLists(email, positions)
         email.unread = false
+        email.isArchived = true
         if (this.openEmailId === email.id) this.openEmailId = null
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        if (leavesSpam) this.spamCount = Math.max(0, this.spamCount - 1)
+        if (leavesSnoozed) this.snoozedCount = Math.max(0, this.snoozedCount - 1)
         if (addToDone && !this.doneEmails.includes(email)) this.doneEmails.unshift(email)
       }
       const restore = () => {
@@ -1647,7 +1749,10 @@ export const useInboxStore = defineStore('inbox', {
         applied = false
         restoreCapturedLists(email, positions)
         email.unread = wasUnread
+        email.isArchived = wasArchived
         if (wasUnreadInbox) this.unreadInboxCount++
+        if (leavesSpam) this.spamCount++
+        if (leavesSnoozed) this.snoozedCount++
         if (addToDone) {
           const doneIndex = this.doneEmails.indexOf(email)
           if (doneIndex > -1) this.doneEmails.splice(doneIndex, 1)
@@ -1668,6 +1773,95 @@ export const useInboxStore = defineStore('inbox', {
       return undo
     },
 
+    // Records the user's spam verdict. Reporting moves the email out of the
+    // inbox and Snoozed into Spam; clearing the report moves it back (to
+    // Snoozed while its scheduled time is still ahead, otherwise the inbox).
+    // Starred and label lists show spam too, so they are left alone. Read
+    // state is untouched — only the inbox unread badge follows the move.
+    setSpam(email, spam, shouldNotify = true, undoActions = null) {
+      if (!email || email.isSpam === spam) return null
+      const wasSpam = email.isSpam
+      const snoozed = isSnoozedAt(email.scheduledFor)
+      const seq = ++spamActionSeq
+      latestSpamAction.set(email.id, seq)
+      // During a search traditionalEmails holds results from every folder
+      // (search includes spam), so it is neither the inbox nor a list the
+      // email should leave. Archived mail is outside both Spam and Snoozed,
+      // so its verdict changes no folder count.
+      const searching = Boolean(this.activeSearchQuery)
+      const live = !email.isArchived
+      const leaving = spam
+        ? searching
+          ? [this.snoozedEmails]
+          : [this.traditionalEmails, this.snoozedEmails]
+        : [this.spamEmails]
+      const positions = captureListPositions(email, leaving)
+      const inboxPosition = positions.find(({ list }) => list === this.traditionalEmails)
+      const wasUnreadInbox = Boolean(inboxPosition && inboxPosition.index > -1 && email.unread)
+      let destination = null
+      if (!live) destination = null
+      else if (spam && this.isSpamLoaded) destination = this.spamEmails
+      else if (!spam && snoozed && this.isSnoozedLoaded) destination = this.snoozedEmails
+      else if (!spam && !snoozed && this.isInboxLoaded && !searching) {
+        destination = this.traditionalEmails
+      }
+      const entersInbox = destination === this.traditionalEmails
+      let applied = false
+
+      const apply = () => {
+        if (applied) return
+        applied = true
+        email.isSpam = spam
+        for (const { item } of positions) if (item) item.isSpam = spam
+        removeFromCapturedLists(email, positions)
+        if (destination && !destination.includes(email)) destination.unshift(email)
+        if (this.openEmailId === email.id) this.openEmailId = null
+        if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        if (entersInbox && email.unread) this.unreadInboxCount++
+        if (live) {
+          this.spamCount = Math.max(0, this.spamCount + (spam ? 1 : -1))
+          if (snoozed) this.snoozedCount = Math.max(0, this.snoozedCount + (spam ? -1 : 1))
+        }
+      }
+      const restore = () => {
+        if (!applied) return
+        applied = false
+        email.isSpam = wasSpam
+        for (const { item } of positions) if (item) item.isSpam = wasSpam
+        if (destination) {
+          const index = destination.indexOf(email)
+          if (index > -1) destination.splice(index, 1)
+        }
+        restoreCapturedLists(email, positions)
+        if (wasUnreadInbox) this.unreadInboxCount++
+        if (entersInbox && email.unread) {
+          this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        }
+        if (live) {
+          this.spamCount = Math.max(0, this.spamCount + (spam ? -1 : 1))
+          if (snoozed) this.snoozedCount = Math.max(0, this.snoozedCount + (spam ? 1 : -1))
+        }
+      }
+
+      const { undo } = reversibleMessageUpdate(this, {
+        email,
+        apply,
+        restore,
+        changes: { is_spam: spam },
+        undoChanges: { is_spam: wasSpam },
+        message: spam ? 'Reported as spam.' : 'Marked not spam.',
+        errorMessage: spam ? 'Failed to report spam.' : 'Failed to mark not spam.',
+        shouldNotify,
+        persist: (next) =>
+          serializePerMessage(pendingSpamUpdates, email.id, () =>
+            this.updateMessage(email.id, next),
+          ),
+        isCurrent: () => latestSpamAction.get(email.id) === seq,
+      })
+      if (undoActions) undoActions.push(undo)
+      return undo
+    },
+
     // Soft-deletes an email: optimistically removes it from every visible
     // list (including Done) and persists the is_deleted flag.
     deleteEmail(email, shouldNotify = true, undoActions = null) {
@@ -1682,6 +1876,11 @@ export const useInboxStore = defineStore('inbox', {
         this.sentEmails,
       ])
       const wasUnreadInbox = positions[0].index > -1 && email.unread
+      // Done hides spam and snoozed mail too, so only a live row lowers
+      // either count.
+      const live = !email.isArchived
+      const leavesSpam = Boolean(email.isSpam) && live
+      const leavesSnoozed = !email.isSpam && isSnoozedAt(email.scheduledFor) && live
       let applied = false
 
       const apply = () => {
@@ -1690,12 +1889,16 @@ export const useInboxStore = defineStore('inbox', {
         removeFromCapturedLists(email, positions)
         if (this.openEmailId === email.id) this.openEmailId = null
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        if (leavesSpam) this.spamCount = Math.max(0, this.spamCount - 1)
+        if (leavesSnoozed) this.snoozedCount = Math.max(0, this.snoozedCount - 1)
       }
       const restore = () => {
         if (!applied) return
         applied = false
         restoreCapturedLists(email, positions)
         if (wasUnreadInbox) this.unreadInboxCount++
+        if (leavesSpam) this.spamCount++
+        if (leavesSnoozed) this.snoozedCount++
       }
 
       const { undo } = reversibleMessageUpdate(this, {
@@ -1945,6 +2148,46 @@ export const useInboxStore = defineStore('inbox', {
       this.interests = saved.interests
       this.interestsLoaded = true
       return this.interests
+    },
+
+    async loadSpamRetention() {
+      if (this.spamRetentionLoaded) return
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`${EMAILS_API_URL}/emails/spam-retention`, { headers })
+        if (!response.ok) throw new Error(`GET spam retention responded ${response.status}`)
+        const payload = await response.json()
+        // A save that completed while this was in flight is newer than
+        // whatever the server had when it answered.
+        if (this.spamRetentionLoaded) return
+        this.applySpamRetention(payload)
+      } catch (error) {
+        console.error('Failed to load spam retention:', error)
+      }
+    },
+
+    // Throws on failure so the settings pane can report it; the server's
+    // normalized value wins, so the pane shows what the sweep will use.
+    async saveSpamRetention(days) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${EMAILS_API_URL}/emails/spam-retention`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ spamRetentionDays: days }),
+      })
+      if (!response.ok) {
+        throw new Error(`PUT spam retention responded ${response.status}`)
+      }
+      this.applySpamRetention(await response.json())
+      return this.spamRetentionDays
+    },
+
+    applySpamRetention({ spamRetentionDays, defaultDays, minDays, maxDays }) {
+      if (Number.isFinite(spamRetentionDays)) this.spamRetentionDays = spamRetentionDays
+      if ([defaultDays, minDays, maxDays].every(Number.isFinite)) {
+        this.spamRetentionBounds = { defaultDays, minDays, maxDays }
+      }
+      this.spamRetentionLoaded = true
     },
 
     // Asks the enricher to rebuild AI Today's triage now, then re-reads it.

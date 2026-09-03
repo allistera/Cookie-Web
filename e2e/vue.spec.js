@@ -382,6 +382,36 @@ test('Settings Personalisation pane adds and removes news topics', async ({ page
   })
 })
 
+test('Settings Spam pane changes how long spam is kept, and the change survives a reload', async ({
+  page,
+}) => {
+  const saved = []
+  await page.route(`${EMAILS_API_URL}/emails/spam-retention`, async (route) => {
+    if (route.request().method() === 'PUT') saved.push(route.request().postDataJSON())
+    await route.fallback()
+  })
+
+  await page.goto('/settings/spam')
+  const pane = page.getByTestId('spam-section')
+  await expect(pane).toContainText('The default is 30 days')
+  const input = pane.locator('input[type="number"]')
+  await expect(input).toHaveValue('30')
+  const save = pane.locator('button', { hasText: 'Save' })
+  await expect(save).toBeDisabled()
+
+  await input.fill('14')
+  await expect(save).toBeEnabled()
+  await save.click()
+
+  await expect(
+    page.locator('.toast', { hasText: 'Spam will be deleted after 14 days.' }),
+  ).toBeVisible()
+  expect(saved).toEqual([{ spamRetentionDays: 14 }])
+
+  await page.reload()
+  await expect(page.getByTestId('spam-section').locator('input[type="number"]')).toHaveValue('14')
+})
+
 test('The AI Today refresh control rebuilds the digest, then re-reads it', async ({ page }) => {
   const calls = []
   await page.route(`${TASKS_API_URL}/tasks**`, async (route) => {
@@ -1837,9 +1867,12 @@ test('Sidebar links open the filtered views', async ({ page }) => {
   await expect(page.locator('.ni-row')).toHaveCount(2)
 
   await page.locator('.nav-item', { hasText: 'More' }).click()
-  await page.locator('.nav-item', { hasText: 'Snoozed' }).click()
-  await expect(page.locator('.ni-header h1')).toHaveText('Snoozed')
-  await expect(page.locator('.ni-empty')).toHaveText('No snoozed emails yet.')
+
+  // Snoozed, Scheduled and Spam are listed only while they hold something,
+  // and no fixture mail is snoozed, queued to send later, or spam.
+  await expect(page.locator('.nav-item', { hasText: 'Snoozed' })).toHaveCount(0)
+  await expect(page.locator('.nav-item', { hasText: 'Scheduled' })).toHaveCount(0)
+  await expect(page.locator('.nav-item', { hasText: 'Spam' })).toHaveCount(0)
 
   // Done lives in the expanded More area, directly above Sent.
   const moreItems = page.locator('.sidebar-nav .nav-item')
