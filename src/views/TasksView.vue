@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import { localToday } from '../lib/localDate'
+import { neighboursFor, positionBetween } from '../lib/taskOrder'
 import { priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
@@ -172,6 +173,56 @@ const visibleItems = computed(() => {
   return topLevelItems.value.filter((item) => matchingRootIds.has(item.id))
 })
 
+// --- Drag and drop ---
+// A row can be dragged onto another row to re-arrange the list, or out to
+// the sidebar (Inbox, Today, or a project) — TasksSidebar handles those
+// drops, reading the id back from this MIME type. Re-arranging is for the
+// project and Inbox lists only: Today is ordered by due date, so a position
+// there would mean nothing.
+const TASK_DRAG_TYPE = 'application/x-cookie-task'
+const dragTaskId = ref(null)
+const dropRowId = ref(null)
+const dropPlace = ref('after')
+const canReorder = computed(() => !isToday.value)
+
+function onTaskDragStart(item, event) {
+  dragTaskId.value = item.id
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData(TASK_DRAG_TYPE, item.id)
+  event.dataTransfer.setData('text/plain', item.id)
+}
+
+// The upper half of a row means "before it", the lower half "after".
+function onTaskDragOver(item, event) {
+  if (!canReorder.value || !dragTaskId.value || dragTaskId.value === item.id) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  const rect = event.currentTarget.getBoundingClientRect()
+  dropRowId.value = item.id
+  dropPlace.value = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function onTaskDragLeave(item) {
+  if (dropRowId.value === item.id) dropRowId.value = null
+}
+
+function clearTaskDrag() {
+  dragTaskId.value = null
+  dropRowId.value = null
+}
+
+// The neighbours come from the full list, not the filtered one: a drop made
+// while searching still lands between the rows it was seen between.
+function onTaskDrop(item) {
+  const draggedId = dragTaskId.value
+  const place = dropPlace.value
+  clearTaskDrag()
+  if (!canReorder.value || !draggedId || draggedId === item.id) return
+  const neighbours = neighboursFor(topLevelItems.value, draggedId, item.id, place)
+  if (!neighbours) return
+  items.reorderItem(draggedId, positionBetween(neighbours.prev, neighbours.next))
+}
+
 const composing = ref(false)
 const draft = ref('')
 const draftInput = ref(null)
@@ -251,7 +302,22 @@ async function submitDraft() {
       No tasks match "{{ trimmedQuery }}"
     </p>
     <ul v-else class="task-rows">
-      <li v-for="item in visibleItems" :key="item.id" class="task-row">
+      <li
+        v-for="item in visibleItems"
+        :key="item.id"
+        class="task-row"
+        :class="{
+          dragging: dragTaskId === item.id,
+          'drop-before': dropRowId === item.id && dropPlace === 'before',
+          'drop-after': dropRowId === item.id && dropPlace === 'after',
+        }"
+        draggable="true"
+        @dragstart="onTaskDragStart(item, $event)"
+        @dragover="onTaskDragOver(item, $event)"
+        @dragleave="onTaskDragLeave(item)"
+        @drop.prevent="onTaskDrop(item)"
+        @dragend="clearTaskDrag"
+      >
         <!-- The circle takes the priority's colour, the way Todoist's list
            does, so an urgent task stands out without another chip. -->
         <button
@@ -416,6 +482,20 @@ async function submitDraft() {
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border-color);
+}
+
+.task-row.dragging {
+  opacity: 0.5;
+}
+
+/* The insertion line: drawn inside the row's edge so it never shifts layout
+   while the pointer moves. */
+.task-row.drop-before {
+  box-shadow: inset 0 2px 0 0 var(--accent-color, #4f7c6b);
+}
+
+.task-row.drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent-color, #4f7c6b);
 }
 
 /* Revealed on hover, but always present for keyboard and touch: a control

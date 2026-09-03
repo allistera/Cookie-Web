@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import TasksSidebar from '../TasksSidebar.vue'
 import { useProjectsStore } from '../../stores/projects'
+import { localToday } from '../../lib/localDate'
 import { useTaskItemsStore } from '../../stores/taskItems'
 
 let router
@@ -398,6 +399,75 @@ describe('TasksSidebar', () => {
     await row.trigger('drop')
 
     expect(move).not.toHaveBeenCalled()
+  })
+})
+
+// A task row dragged out of the list carries its id under a MIME type of its
+// own; the sidebar tells such a drag from a project drag by that type.
+describe('dropping a task from the list', () => {
+  const taskTransfer = (id) => ({
+    types: ['application/x-cookie-task', 'text/plain'],
+    dropEffect: '',
+    getData: vi.fn(() => id),
+  })
+
+  it('moves the task into the project it is dropped on', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    const moveProject = vi.spyOn(store, 'moveProject').mockResolvedValue(null)
+    const moveItem = vi.spyOn(useTaskItemsStore(), 'moveItem').mockResolvedValue(null)
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const row = wrapper.get('.project-item')
+    const dataTransfer = taskTransfer('t1')
+
+    await row.trigger('dragover', { dataTransfer })
+    expect(row.classes()).toContain('drop-target')
+    await row.trigger('drop', { dataTransfer })
+
+    expect(moveItem).toHaveBeenCalledWith('t1', 'p1')
+    expect(moveProject).not.toHaveBeenCalled()
+    expect(row.classes()).not.toContain('drop-target')
+  })
+
+  it('moves the task to the Inbox when dropped on it', async () => {
+    const moveItem = vi.spyOn(useTaskItemsStore(), 'moveItem').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+    const inbox = wrapper.findAll('.tasks-views-nav .nav-item')[0]
+    const dataTransfer = taskTransfer('t1')
+
+    await inbox.trigger('dragover', { dataTransfer })
+    expect(inbox.classes()).toContain('drop-target')
+    await inbox.trigger('drop', { dataTransfer })
+
+    expect(moveItem).toHaveBeenCalledWith('t1', null)
+  })
+
+  it('makes the task due today when dropped on Today', async () => {
+    const setDueDate = vi.spyOn(useTaskItemsStore(), 'setDueDate').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+    const today = wrapper.findAll('.tasks-views-nav .nav-item')[1]
+    const dataTransfer = taskTransfer('t1')
+
+    await today.trigger('dragover', { dataTransfer })
+    await today.trigger('drop', { dataTransfer })
+
+    expect(setDueDate).toHaveBeenCalledWith('t1', localToday())
+  })
+
+  it('leaves a project drag to the project handlers', async () => {
+    const moveItem = vi.spyOn(useTaskItemsStore(), 'moveItem').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+    const inbox = wrapper.findAll('.tasks-views-nav .nav-item')[0]
+    const dataTransfer = { types: ['text/plain'], dropEffect: '', getData: vi.fn(() => 'p1') }
+
+    await inbox.trigger('dragover', { dataTransfer })
+    expect(inbox.classes()).not.toContain('drop-target')
+    await inbox.trigger('drop', { dataTransfer })
+
+    expect(moveItem).not.toHaveBeenCalled()
   })
 })
 

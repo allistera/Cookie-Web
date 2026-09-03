@@ -1270,6 +1270,9 @@ function localApiPlugin(mode) {
           // Completed sub-tasks stay listed so the panel can count them into
           // its "done/total" progress; only completed top-level tasks hide.
           .filter((item) => includeCompleted || item.completedAt === null || item.parentId !== null)
+          // Project and Inbox lists come back in arranged order (position,
+          // migration 0062); Today keeps its due-date order.
+          .sort((a, b) => (today ? 0 : (a.position ?? 0) - (b.position ?? 0)))
         return json(res, { items })
       }
       const body = await readBody(req)
@@ -1300,6 +1303,8 @@ function localApiPlugin(mode) {
           content,
           description: body.description ?? null,
           dueDate: hasDue ? String(body.dueDate) : null,
+          // New rows go last, as the column default does.
+          position: Date.now() / 1000 + state.taskItems.length,
           completedAt: null,
           createdAt: new Date().toISOString(),
         }
@@ -1315,8 +1320,23 @@ function localApiPlugin(mode) {
         const hasProject = Object.hasOwn(body, 'projectId')
         const hasDueDate = Object.hasOwn(body, 'dueDate')
         const hasCompleted = Object.hasOwn(body, 'completed')
-        if (!hasContent && !hasDescription && !hasProject && !hasDueDate && !hasCompleted) {
+        const hasPosition = Object.hasOwn(body, 'position')
+        if (
+          !hasContent &&
+          !hasDescription &&
+          !hasProject &&
+          !hasDueDate &&
+          !hasCompleted &&
+          !hasPosition
+        ) {
           return json(res, { error: 'At least one change is required' }, 400)
+        }
+        if (hasPosition) {
+          // Number.isFinite does not coerce, so a numeric string is refused too.
+          if (!Number.isFinite(body.position)) {
+            return json(res, { error: 'position must be a finite number' }, 400)
+          }
+          item.position = body.position
         }
 
         if (hasContent) {

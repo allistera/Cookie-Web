@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
+import { sortByPosition } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
 
 // Cookie-owned tasks for the Tasks app. Shaped after stores/projects.js: the
@@ -113,7 +114,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
     belongsToLoadedList(item) {
       if (this.loadedProject === null) return false
       if (item.parentId) return this.items.some((row) => row.id === item.parentId)
-      if (this.loadedProject === 'today') return item.dueDate === localToday()
+      // Today carries overdue tasks forward, so it is "due on or before".
+      if (this.loadedProject === 'today')
+        return Boolean(item.dueDate) && item.dueDate <= localToday()
       if (this.loadedProject === 'inbox') return item.projectId === null
       return item.projectId === this.loadedProject
     },
@@ -152,8 +155,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
         Object.assign(item, updated)
         // A completed task leaves the visible list; it is not deleted. A
         // completed sub-task stays: the panel shows it checked and counts it
-        // into its "done/total" progress.
-        if (updated.completedAt && !updated.parentId) {
+        // into its "done/total" progress. A task moved to another project
+        // (dragged onto it in the sidebar, or via the panel) leaves too.
+        const moved =
+          Object.hasOwn(body, 'projectId') &&
+          this.loadedProject !== null &&
+          !this.belongsToLoadedList(updated)
+        if (!updated.parentId && (updated.completedAt || moved)) {
           this.items = this.items.filter((row) => row.id !== id)
         }
         return item
@@ -191,6 +199,30 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // absence of a project rather than a project of its own.
     moveItem(id, projectId) {
       return this.patchItem(id, { projectId }, { projectId }, 'Failed to move the task.')
+    },
+
+    // Drag-and-drop re-arranging. `position` comes from lib/taskOrder's
+    // positionBetween; the list is re-sorted locally at once and again on
+    // the server's answer (or on rollback), since the order is what the
+    // person is looking at.
+    async reorderItem(id, position) {
+      const item = this.items.find((row) => row.id === id)
+      if (!item) return null
+      const previous = item.position
+      item.position = position
+      this.items = sortByPosition(this.items)
+      try {
+        const { item: updated } = await this.request('PATCH', { body: { id, position } })
+        Object.assign(item, updated)
+        this.items = sortByPosition(this.items)
+        return item
+      } catch (error) {
+        console.error('Failed to re-arrange task:', error)
+        item.position = previous
+        this.items = sortByPosition(this.items)
+        this.notify(error.userMessage || 'Failed to re-arrange the task.', 'error')
+        return null
+      }
     },
 
     setCompleted(id, completed) {
