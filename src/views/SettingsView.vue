@@ -691,7 +691,9 @@ function toggleRuleEnabled(rule) {
               <button
                 class="btn btn-primary"
                 type="submit"
-                :disabled="isSavingSpamRetention || !spamRetentionDirty"
+                :disabled="
+                  isSavingSpamRetention || !store.spamRetentionLoaded || !spamRetentionDirty
+                "
               >
                 Save
               </button>

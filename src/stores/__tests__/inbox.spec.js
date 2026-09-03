@@ -493,6 +493,7 @@ describe('Inbox Store', () => {
         address: 'updates@cityconstruction.com',
         isSent: false,
         isSpam: false,
+        isArchived: false,
         to: null,
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
@@ -2679,6 +2680,80 @@ describe('Inbox Store', () => {
       expect(store.spamCount).toBe(0)
     })
 
+    it('sends rapid opposite verdicts in click order, one at a time', async () => {
+      let releaseFirst
+      const first = new Promise((resolve) => {
+        releaseFirst = resolve
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockImplementationOnce(() => first)
+          .mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+      )
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: false, isSpam: false, scheduledFor: null }
+      store.starredEmails = [email]
+      store.isStarredLoaded = true
+
+      store.setSpam(email, true, false)
+      store.setSpam(email, false, false)
+
+      // The second PATCH waits for the first, however long it takes.
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ id: 'abc-123', is_spam: true })
+
+      releaseFirst({ ok: true, json: async () => ({ message: {} }) })
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ id: 'abc-123', is_spam: false })
+      expect(email.isSpam).toBe(false)
+    })
+
+    it('during a search leaves the result in place and the inbox badge alone', () => {
+      const store = useInboxStore()
+      const email = { id: 'abc-123', unread: true, isSpam: false, scheduledFor: null }
+      store.activeSearchQuery = 'invoice'
+      store.traditionalEmails = [email]
+      store.isInboxLoaded = true
+      store.unreadInboxCount = 3
+      store.spamCount = 0
+
+      store.setSpam(email, true)
+
+      expect(store.traditionalEmails).toEqual([email])
+      expect(store.unreadInboxCount).toBe(3)
+      expect(email.isSpam).toBe(true)
+      expect(store.spamCount).toBe(1)
+    })
+
+    it('changes no folder count for archived mail, which neither folder lists', () => {
+      const store = useInboxStore()
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      const email = {
+        id: 'abc-123',
+        unread: false,
+        isSpam: false,
+        isArchived: true,
+        scheduledFor: future,
+      }
+      store.starredEmails = [email]
+      store.isStarredLoaded = true
+      store.isSpamLoaded = true
+      store.spamEmails = []
+      store.spamCount = 2
+      store.snoozedCount = 2
+
+      store.setSpam(email, true)
+
+      expect(store.spamCount).toBe(2)
+      expect(store.snoozedCount).toBe(2)
+      expect(store.spamEmails).toEqual([])
+      expect(email.isSpam).toBe(true)
+    })
+
     it('is a no-op when the email already carries that verdict', () => {
       const store = useInboxStore()
       const email = { id: 'abc-123', unread: false, isSpam: true }
@@ -2781,6 +2856,19 @@ describe('Inbox Store', () => {
         await store.runToastAction(toast.id)
       }
       expect(store.spamCount).toBe(2)
+    })
+
+    it('does not drop when already-archived spam is marked Done again from Starred', async () => {
+      const store = useInboxStore()
+      const done = { id: 'abc-123', unread: false, isSpam: true, isArchived: true }
+      const trashed = { id: 'def-456', unread: false, isSpam: true, isArchived: true }
+      store.starredEmails = [done, trashed]
+      store.isStarredLoaded = true
+      store.spamCount = 1
+
+      store.archiveEmail(done)
+      store.deleteEmail(trashed)
+      expect(store.spamCount).toBe(1)
     })
 
     it('does not drop when a non-spam email is marked Done', () => {
@@ -2979,6 +3067,39 @@ describe('Inbox Store', () => {
         headers,
         body: JSON.stringify({ spamRetentionDays: 7.9 }),
       })
+    })
+
+    it('lets a save that finishes first win over a slow initial load', async () => {
+      let releaseLoad
+      const load = new Promise((resolve) => {
+        releaseLoad = resolve
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockImplementationOnce(() => load)
+          .mockResolvedValue({
+            ok: true,
+            json: async () => ({
+              spamRetentionDays: 14,
+              defaultDays: 30,
+              minDays: 1,
+              maxDays: 365,
+            }),
+          }),
+      )
+      const store = useInboxStore()
+      const loading = store.loadSpamRetention()
+      await store.saveSpamRetention(14)
+      expect(store.spamRetentionDays).toBe(14)
+
+      releaseLoad({
+        ok: true,
+        json: async () => ({ spamRetentionDays: 30, defaultDays: 30, minDays: 1, maxDays: 365 }),
+      })
+      await loading
+      expect(store.spamRetentionDays).toBe(14)
     })
 
     it('throws on a rejected save and leaves the stored value alone', async () => {
