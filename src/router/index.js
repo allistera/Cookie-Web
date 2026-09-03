@@ -25,6 +25,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/drafts',
+      name: 'drafts',
+      component: () => import('../views/DraftsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/scheduled',
       name: 'scheduled-sends',
       component: () => import('../views/ScheduledSendsView.vue'),

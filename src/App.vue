@@ -485,6 +485,14 @@ onUnmounted(() => {
                 <span class="nav-text">Snoozed</span>
               </router-link>
               <router-link
+                :to="{ path: '/drafts' }"
+                class="nav-item"
+                :class="{ active: route.name === 'drafts' }"
+              >
+                <span class="material-symbols-outlined">draft</span>
+                <span class="nav-text">Drafts</span>
+              </router-link>
+              <router-link
                 :to="{ path: '/scheduled' }"
                 class="nav-item"
                 :class="{ active: route.name === 'scheduled-sends' }"

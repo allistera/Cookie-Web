@@ -2,7 +2,8 @@ import process from 'node:process'
 import crypto from 'node:crypto'
 import { Buffer } from 'node:buffer'
 
-import { get } from '@vercel/blob'
+import { del, get, head } from '@vercel/blob'
+import { handleUpload } from '@vercel/blob/client'
 import { Resend } from 'resend'
 
 import { writeAuthError } from './_lib/auth.js'
@@ -21,6 +22,15 @@ export const MAX_OUTBOUND_ATTACHMENTS = 20
 // headroom while converting streamed bytes into a provider-safe Base64 string.
 export const MAX_OUTBOUND_ATTACHMENT_BYTES = 20 * 1024 * 1024
 const OUTBOUND_SENDS_PER_MINUTE = 10
+// Composer uploads land under a per-user prefix so a registration call can
+// only ever claim a blob the caller's own token was minted for.
+const ATTACHMENT_BLOB_PREFIX = 'outbound-attachments'
+const ATTACHMENT_UPLOADS_PER_MINUTE = 30
+// An upload the composer never sent (draft abandoned, tab closed) keeps its
+// bytes in Blob forever otherwise. A day is long enough that a slow draft is
+// never swept out from under the person writing it.
+const ORPHAN_UPLOAD_RETENTION_HOURS = 24
+const ORPHAN_UPLOAD_SWEEP_LIMIT = 50
 // A scheduled send needs enough lead time that it can't fire before the
 // composer has even finished closing — matches ScheduleMenu's own minimum.
 const MIN_SCHEDULE_LEAD_MS = 60_000
@@ -47,6 +57,21 @@ const TRANSIENT_DB_ERROR_CODES = new Set([
   'ECONNRESET',
   'ECONNREFUSED',
 ])
+
+// A picked filename reaches the recipient as the provider attachment name, so
+// drop directory separators and control characters (classic header/path
+// smuggling shapes) and keep the result short enough for any mail client.
+export function sanitizeAttachmentFilename(value) {
+  const base = String(value ?? '')
+    .split(/[/\\]/)
+    .pop()
+  // Stripping control characters is the whole point here: they are what makes
+  // a filename header-injection bait.
+  // oxlint-disable-next-line no-control-regex
+  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  if (!cleaned || cleaned === '.' || cleaned === '..') return 'attachment'
+  return cleaned.slice(0, 200)
+}
 
 function escapeHtml(value) {
   return value
@@ -244,18 +269,56 @@ export async function refundOutboundEmailQuota(sql, userId) {
   }
 }
 
+function isUndefinedOutboundAttachmentsTable(err) {
+  return err?.code === '42P01' && /outbound_attachments/i.test(String(err.message ?? ''))
+}
+
+// Inbound attachments are owned through their message; composer uploads are
+// owned directly. Both are addressed by the same opaque id in the request, so
+// resolve across both and let the caller treat them uniformly.
+async function selectOwnedAttachmentRows(sql, userId, attachmentIds) {
+  try {
+    return await sql`
+      SELECT * FROM (
+        SELECT a.id, a.filename, a.content_type, a.size_bytes, a.blob_url,
+               'inbound' AS source
+        FROM attachments a
+        JOIN messages m ON m.id = a.message_id
+        WHERE a.id = ANY(${attachmentIds}::uuid[])
+          AND m.user_id = ${userId}
+          AND NOT m.is_deleted
+          AND a.blob_url IS NOT NULL
+        UNION ALL
+        SELECT o.id, o.filename, o.content_type, o.size_bytes, o.blob_url,
+               'upload' AS source
+        FROM outbound_attachments o
+        WHERE o.id = ANY(${attachmentIds}::uuid[])
+          AND o.user_id = ${userId}
+      ) owned
+      ORDER BY array_position(${attachmentIds}::uuid[], owned.id)
+    `
+  } catch (err) {
+    // Rolling deploy: this release can run against a database that has not
+    // taken 0060 yet. Forwarded attachments keep working; an upload id simply
+    // resolves to nothing and the send is rejected as a missing attachment.
+    if (!isUndefinedOutboundAttachmentsTable(err)) throw err
+    return sql`
+      SELECT a.id, a.filename, a.content_type, a.size_bytes, a.blob_url,
+             'inbound' AS source
+      FROM attachments a
+      JOIN messages m ON m.id = a.message_id
+      WHERE a.id = ANY(${attachmentIds}::uuid[])
+        AND m.user_id = ${userId}
+        AND NOT m.is_deleted
+        AND a.blob_url IS NOT NULL
+      ORDER BY array_position(${attachmentIds}::uuid[], a.id)
+    `
+  }
+}
+
 async function resolveOwnedAttachments(sql, userId, attachmentIds) {
   if (attachmentIds.length === 0) return { attachments: [] }
-  const rows = await sql`
-    SELECT a.id, a.filename, a.content_type, a.size_bytes, a.blob_url
-    FROM attachments a
-    JOIN messages m ON m.id = a.message_id
-    WHERE a.id = ANY(${attachmentIds}::uuid[])
-      AND m.user_id = ${userId}
-      AND NOT m.is_deleted
-      AND a.blob_url IS NOT NULL
-    ORDER BY array_position(${attachmentIds}::uuid[], a.id)
-  `
+  const rows = await selectOwnedAttachmentRows(sql, userId, attachmentIds)
   if (rows.length !== attachmentIds.length) return { missing: true }
 
   let declaredBytes = 0
@@ -560,10 +623,12 @@ async function createScheduledSend(
     `
     if (!row) return null
     for (const [position, attachment] of attachments.entries()) {
+      const isUpload = attachment.source === 'upload'
       await tx`
         INSERT INTO scheduled_send_attachments
-          (scheduled_send_id, attachment_id, position)
-        VALUES (${row.id}, ${attachment.id}, ${position})
+          (scheduled_send_id, attachment_id, outbound_attachment_id, position)
+        VALUES (${row.id}, ${isUpload ? null : attachment.id}::uuid,
+                ${isUpload ? attachment.id : null}::uuid, ${position})
       `
     }
     return row
@@ -580,8 +645,13 @@ async function listScheduledSends(sql, userId) {
   `
 }
 
+// Either half of the scheduled-attachment join can be missing mid-rollout:
+// scheduled_send_attachments arrives with 0059, outbound_attachments with 0060.
 function isUndefinedScheduledAttachmentsTable(err) {
-  return err?.code === '42P01' && /scheduled_send_attachments/i.test(String(err.message ?? ''))
+  return (
+    err?.code === '42P01' &&
+    /scheduled_send_attachments|outbound_attachments/i.test(String(err.message ?? ''))
+  )
 }
 
 async function cancelScheduledSendWithoutAttachments(sql, userId, id) {
@@ -615,14 +685,19 @@ async function cancelScheduledSend(sql, userId, id) {
                s.follow_up_at AS "followUpAt",
                COALESCE((
                  SELECT jsonb_agg(jsonb_build_object(
-                   'id', a.id,
-                   'filename', a.filename,
-                   'content_type', a.content_type,
-                   'size_bytes', a.size_bytes,
-                   'downloadable', a.blob_url IS NOT NULL
+                   'id', COALESCE(a.id, oa.id),
+                   'filename', COALESCE(a.filename, oa.filename),
+                   'content_type', COALESCE(a.content_type, oa.content_type),
+                   'size_bytes', COALESCE(a.size_bytes, oa.size_bytes),
+                   'downloadable', COALESCE(a.blob_url, oa.blob_url) IS NOT NULL,
+                   -- Reopening a canceled send puts these chips back in the
+                   -- composer, where removing an upload should reclaim its
+                   -- bytes rather than wait for the orphan sweep.
+                   'source', CASE WHEN oa.id IS NOT NULL THEN 'upload' ELSE 'inbound' END
                  ) ORDER BY ssa.position)
                  FROM scheduled_send_attachments ssa
-                 JOIN attachments a ON a.id = ssa.attachment_id
+                 LEFT JOIN attachments a ON a.id = ssa.attachment_id
+                 LEFT JOIN outbound_attachments oa ON oa.id = ssa.outbound_attachment_id
                  WHERE ssa.scheduled_send_id = s.id
                ), '[]'::jsonb) AS attachments
         FROM scheduled_sends s
@@ -664,14 +739,15 @@ async function claimDueScheduledSends(sql, limit) {
                 s.follow_up_at AS "followUpAt", s.attempts,
                 COALESCE((
                   SELECT jsonb_agg(jsonb_build_object(
-                    'id', a.id,
-                    'filename', a.filename,
-                    'content_type', a.content_type,
-                    'size_bytes', a.size_bytes,
-                    'blob_url', a.blob_url
+                    'id', COALESCE(a.id, oa.id),
+                    'filename', COALESCE(a.filename, oa.filename),
+                    'content_type', COALESCE(a.content_type, oa.content_type),
+                    'size_bytes', COALESCE(a.size_bytes, oa.size_bytes),
+                    'blob_url', COALESCE(a.blob_url, oa.blob_url)
                   ) ORDER BY ssa.position)
                   FROM scheduled_send_attachments ssa
-                  JOIN attachments a ON a.id = ssa.attachment_id
+                  LEFT JOIN attachments a ON a.id = ssa.attachment_id
+                  LEFT JOIN outbound_attachments oa ON oa.id = ssa.outbound_attachment_id
                   WHERE ssa.scheduled_send_id = s.id
                 ), '[]'::jsonb) AS attachments
     `
@@ -962,7 +1038,7 @@ function timingSafeEqualStrings(a, b) {
 
 // Best-effort; a sweep failure must never block the flush job's actual
 // purpose of sending due mail.
-async function sweepResolvedState(sql) {
+async function sweepResolvedState(sql, services) {
   try {
     await sql`
       DELETE FROM scheduled_sends
@@ -972,6 +1048,53 @@ async function sweepResolvedState(sql) {
     await sql`DELETE FROM message_read_receipts WHERE expires_at < now()`
   } catch (err) {
     console.error('resolved-state sweep failed:', err.message)
+  }
+  await sweepOrphanedUploads(sql, services)
+}
+
+// A composer upload the user never sent keeps its bytes in Blob forever. Rows
+// still referenced by a pending scheduled send or a saved draft are off
+// limits, and so is any
+// blob a sent copy now shares (storeSentMessage records the same blob_url on
+// the sent message's own attachments row) — deleting those bytes would empty
+// an attachment the user can still open in their sent mail.
+async function sweepOrphanedUploads(sql, services) {
+  try {
+    const orphans = await sql`
+      DELETE FROM outbound_attachments oa
+      WHERE oa.id IN (
+        SELECT candidate.id
+        FROM outbound_attachments candidate
+        WHERE candidate.created_at
+                < now() - make_interval(hours => ${ORPHAN_UPLOAD_RETENTION_HOURS})
+          AND NOT EXISTS (
+            SELECT 1 FROM scheduled_send_attachments ssa
+            WHERE ssa.outbound_attachment_id = candidate.id
+          )
+          -- A saved draft can sit untouched for weeks; its files are still
+          -- spoken for and must outlive the retention window.
+          AND NOT EXISTS (
+            SELECT 1 FROM draft_attachments da
+            WHERE da.outbound_attachment_id = candidate.id
+          )
+        ORDER BY candidate.created_at
+        LIMIT ${ORPHAN_UPLOAD_SWEEP_LIMIT}
+      )
+      RETURNING oa.blob_url,
+                NOT EXISTS (
+                  SELECT 1 FROM attachments a WHERE a.blob_url = oa.blob_url
+                ) AS "blobUnreferenced"
+    `
+    for (const orphan of orphans) {
+      if (!orphan.blobUnreferenced) continue
+      try {
+        await services.deleteBlob(orphan.blob_url)
+      } catch (err) {
+        console.error('failed to delete orphaned attachment blob:', err.message)
+      }
+    }
+  } catch (err) {
+    console.error('orphaned-upload sweep failed:', err.message)
   }
 }
 
@@ -1014,7 +1137,7 @@ async function handleFlush(req, res, services) {
       ),
     ])
     const results = [...ordinaryResults, ...attachmentResults]
-    await sweepResolvedState(sql)
+    await sweepResolvedState(sql, services)
     res.statusCode = 200
     res.end(
       JSON.stringify({
@@ -1250,10 +1373,234 @@ async function handleSend(req, res, userId, services) {
   }
 }
 
+// Composer uploads are addressed by a pathname the browser proposes, so every
+// path that trusts one re-derives ownership from this prefix rather than from
+// anything the client asserts about itself.
+function attachmentPrefix(userId) {
+  return `${ATTACHMENT_BLOB_PREFIX}/${userId}/`
+}
+
+// Only our own store's hosts are worth a head() call; anything else is a
+// client-supplied URL we should reject before it reaches the Blob API.
+function parseBlobUrl(value) {
+  let url
+  try {
+    url = new URL(String(value ?? ''))
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:') return null
+  if (url.hostname !== 'vercel-storage.com' && !url.hostname.endsWith('.vercel-storage.com')) {
+    return null
+  }
+  return url.href
+}
+
+// POST /api/send?resource=upload-token — mints a short-lived Blob client
+// token so the browser can stream attachment bytes straight to storage.
+// Proxying them through this function instead would cap attachments at
+// Vercel's ~4.5 MB request body limit, well under the 20 MB outbound ceiling.
+async function handleAttachmentUploadToken(req, res, userId, services) {
+  if (req.method !== 'POST') {
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    return
+  }
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    res.statusCode = 503
+    res.end(JSON.stringify({ error: 'Attachment storage is not configured' }))
+    return
+  }
+
+  let body
+  try {
+    body = await readJsonBody(req)
+  } catch {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+    return
+  }
+
+  let rateLimited = false
+  try {
+    const sql = services.getSql()
+    const result = await services.handleBlobUpload({
+      body,
+      request: req,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      onBeforeGenerateToken: async (pathname) => {
+        // The token is minted for the pathname the client asked for, so a
+        // foreign prefix must be refused here — not merely at registration.
+        if (!String(pathname ?? '').startsWith(attachmentPrefix(userId))) {
+          throw new Error('Attachment pathname is outside the caller prefix')
+        }
+        const allowed = await services.allowRequest(sql, userId, 'attachment-upload', {
+          limit: ATTACHMENT_UPLOADS_PER_MINUTE,
+          windowMs: 60_000,
+        })
+        if (!allowed) {
+          rateLimited = true
+          throw new Error('Too many attachment uploads')
+        }
+        return {
+          addRandomSuffix: true,
+          maximumSizeInBytes: MAX_OUTBOUND_ATTACHMENT_BYTES,
+          tokenPayload: JSON.stringify({ userId }),
+        }
+      },
+    })
+    res.statusCode = 200
+    res.end(JSON.stringify(result))
+  } catch (err) {
+    if (rateLimited) {
+      res.statusCode = 429
+      res.end(JSON.stringify({ error: 'Too many attachment uploads, slow down' }))
+      return
+    }
+    console.error('attachment upload token failed:', err)
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Failed to authorize attachment upload' }))
+  }
+}
+
+// POST /api/send?resource=attachment — records a client upload that finished.
+// head() is the authority on what actually landed: a client that lies about
+// its size or content type cannot widen the row beyond the stored blob, and a
+// pathname outside the caller's prefix is not theirs to claim.
+async function registerUploadedAttachment(req, res, userId, services) {
+  let body
+  try {
+    body = await readJsonBody(req)
+  } catch {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+    return
+  }
+
+  const blobUrl = parseBlobUrl(body?.url)
+  if (!blobUrl) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'A Blob storage url is required' }))
+    return
+  }
+
+  let blob
+  try {
+    blob = await services.headBlob(blobUrl)
+  } catch (err) {
+    console.error('attachment head failed:', err.message)
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: 'Uploaded attachment not found' }))
+    return
+  }
+
+  if (!String(blob?.pathname ?? '').startsWith(attachmentPrefix(userId))) {
+    res.statusCode = 403
+    res.end(JSON.stringify({ error: 'Attachment does not belong to this account' }))
+    return
+  }
+  const sizeBytes = Number(blob?.size)
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Uploaded attachment has no readable size' }))
+    return
+  }
+  if (sizeBytes > MAX_OUTBOUND_ATTACHMENT_BYTES) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Attachments exceed the allowed size' }))
+    return
+  }
+
+  // The filename is display-only metadata that also becomes the provider
+  // attachment name, so strip path separators and control characters rather
+  // than trusting whatever the picker reported.
+  const filename = sanitizeAttachmentFilename(body?.filename ?? blob?.pathname)
+
+  try {
+    const sql = services.getSql()
+    const [row] = await sql`
+      INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
+      VALUES (${userId}, ${filename}, ${blob?.contentType ?? null}, ${sizeBytes}, ${blobUrl})
+      RETURNING id, filename, content_type, size_bytes
+    `
+    res.statusCode = 201
+    res.end(JSON.stringify({ attachment: row }))
+  } catch (err) {
+    if (isUndefinedOutboundAttachmentsTable(err)) {
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'Attachment uploads are not available yet' }))
+      return
+    }
+    throw err
+  }
+}
+
+// DELETE /api/send?resource=attachment&id=... — drops an upload the user
+// removed from the composer before sending.
+async function deleteUploadedAttachment(req, res, userId, services) {
+  const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+  if (!id || !UUID_RE.test(id)) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'A valid attachment id is required' }))
+    return
+  }
+
+  try {
+    const sql = services.getSql()
+    const [row] = await sql`
+      DELETE FROM outbound_attachments oa
+      WHERE oa.id = ${id}::uuid AND oa.user_id = ${userId}
+      RETURNING oa.blob_url,
+                NOT EXISTS (
+                  SELECT 1 FROM attachments a WHERE a.blob_url = oa.blob_url
+                ) AS "blobUnreferenced"
+    `
+    if (!row) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Attachment not found' }))
+      return
+    }
+    // Best effort: the row is already gone, and a stranded blob is the
+    // orphan sweep's problem rather than a failed removal for the user.
+    if (row.blobUnreferenced) {
+      try {
+        await services.deleteBlob(row.blob_url)
+      } catch (err) {
+        console.error('failed to delete attachment blob:', err.message)
+      }
+    }
+    res.statusCode = 204
+    res.end()
+  } catch (err) {
+    if (isUndefinedOutboundAttachmentsTable(err)) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Attachment not found' }))
+      return
+    }
+    throw err
+  }
+}
+
+async function handleAttachment(req, res, userId, services) {
+  if (req.method === 'POST') {
+    await registerUploadedAttachment(req, res, userId, services)
+    return
+  }
+  if (req.method === 'DELETE') {
+    await deleteUploadedAttachment(req, res, userId, services)
+    return
+  }
+  res.statusCode = 405
+  res.end(JSON.stringify({ error: 'Method not allowed' }))
+}
+
 export function createHandler(overrides = {}) {
   const services = createServices({
     createResend: (key) => new Resend(key),
     readBlob: (url) => get(url, { access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN }),
+    headBlob: (url) => head(url, { token: process.env.BLOB_READ_WRITE_TOKEN }),
+    deleteBlob: (url) => del(url, { token: process.env.BLOB_READ_WRITE_TOKEN }),
+    handleBlobUpload: handleUpload,
     ...overrides,
   })
   return async function handler(req, res) {
@@ -1282,6 +1629,14 @@ export function createHandler(overrides = {}) {
       }
       if (resource === 'follow-up') {
         await handleFollowUp(req, res, userId, services)
+        return
+      }
+      if (resource === 'upload-token') {
+        await handleAttachmentUploadToken(req, res, userId, services)
+        return
+      }
+      if (resource === 'attachment') {
+        await handleAttachment(req, res, userId, services)
         return
       }
       await handleSend(req, res, userId, services)

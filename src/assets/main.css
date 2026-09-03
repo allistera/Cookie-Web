@@ -3004,6 +3004,24 @@ button.ni-attachment:hover {
   color: var(--text-primary);
 }
 
+/* The real control is the adjacent button; the input only opens the picker. */
+.composer-attach-input {
+  display: none;
+}
+
+.composer-attach-btn,
+.ni-reply-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composer-attach-btn[disabled],
+.ni-reply-attach-btn[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .composer-attachment-remove .material-symbols-outlined {
   font-size: 16px;
 }

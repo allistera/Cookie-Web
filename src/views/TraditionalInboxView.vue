@@ -539,6 +539,8 @@ const isReplyAll = ref(false)
 // and the text/plain part.
 const replyHtml = ref('')
 const replyTextPlain = ref('')
+const replyAttachments = ref([])
+const replyAttachInputRef = ref(null)
 const replyFollowUpAt = ref(null)
 const isSendingReply = ref(false)
 const replyEditorRef = ref(null)
@@ -635,10 +637,19 @@ function closeReader() {
 watch(
   () => store.openEmailId,
   (id) => {
+    // Navigating away is not discarding: save what was typed, then start the
+    // next email with a clean slate and a fresh draft row.
+    if (pendingReplyDraft.value) {
+      store.flushReplyDraft(pendingReplyDraft.value)
+      pendingReplyDraft.value = null
+    }
+    store.replyDraftId = null
     isReplyOpen.value = false
     isReplyAll.value = false
     replyHtml.value = ''
     replyTextPlain.value = ''
+    // Attachments picked for the abandoned reply live on in its saved draft.
+    replyAttachments.value = []
     replyFollowUpAt.value = null
     replyFollowUpOpen.value = false
     readerFollowUpOpen.value = false
@@ -741,6 +752,7 @@ async function clearOpenEmailFollowUp() {
 }
 
 function replyToOpenEmail() {
+  if (!isReplyOpen.value) store.replySessionId += 1
   isReplyAll.value = false
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
@@ -748,6 +760,7 @@ function replyToOpenEmail() {
 
 // Switching modes keeps any text already typed; only the recipient set changes.
 function replyAllToOpenEmail() {
+  if (!isReplyOpen.value) store.replySessionId += 1
   isReplyAll.value = true
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
@@ -801,6 +814,65 @@ function discardReply() {
   replyTextPlain.value = ''
   replyFollowUpAt.value = null
   replyFollowUpOpen.value = false
+  // Discard is explicit: unlike navigating away, it should leave no saved
+  // draft behind. consumeReplyDraft() also cancels any queued autosave, so
+  // nothing re-creates the row a moment later.
+  pendingReplyDraft.value = null
+  store.discardDraft(store.consumeReplyDraft())
+  // Files picked for a reply that is being thrown away have no other owner,
+  // so reclaim their bytes now instead of leaving them to the orphan sweep.
+  const abandoned = replyAttachments.value
+  replyAttachments.value = []
+  for (const attachment of abandoned) {
+    store.discardUploadedAttachment(attachment.id).catch(() => {})
+  }
+}
+
+// The reply box keeps its own local state, so its draft payload is assembled
+// here rather than read off the store like the composer's.
+function replyDraftPayload() {
+  const email = openEmail.value
+  return {
+    to: replyTo.value,
+    subject: email ? `Re: ${email.subject}` : '',
+    text: replyTextPlain.value,
+    html: replyHtml.value,
+    replyToMessageId: email?.id ?? null,
+    followUpAt: replyFollowUpAt.value,
+    attachments: replyAttachments.value,
+  }
+}
+
+function onReplyAttachFiles(event) {
+  const input = event.target
+  const session = store.replySessionId
+  store
+    .uploadAttachmentFiles(input.files, replyAttachments.value.length)
+    .then((uploaded) => {
+      if (!uploaded.length) return
+      // Switching emails mid-upload must not attach the file to the reply
+      // that happens to be open when it finishes.
+      if (!isReplyOpen.value || session !== store.replySessionId) {
+        store.discardUploads(uploaded)
+        return
+      }
+      replyAttachments.value = [...replyAttachments.value, ...uploaded]
+    })
+    .catch(() => {})
+  input.value = ''
+}
+
+function removeReplyAttachment(id) {
+  replyAttachments.value = replyAttachments.value.filter((attachment) => attachment.id !== id)
+  store.discardUploadedAttachment(id).catch(() => {})
+}
+
+function formatReplyAttachmentSize(bytes) {
+  const size = Number(bytes)
+  if (!Number.isFinite(size) || size < 0) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function selectReplyFollowUp(choice) {
@@ -826,14 +898,43 @@ function generateReplyDraft() {
   store.composerHtml = replyHtml.value
   store.composerTextArea = replyTextPlain.value
   store.composerFollowUpAt = replyFollowUpAt.value
+  store.composerAttachments = replyAttachments.value
+  // The composer now owns this draft row and keeps autosaving into it.
+  store.composerDraftId = store.consumeReplyDraft()
+  pendingReplyDraft.value = null
+  // Handed to the composer, so discardReply() must not reclaim them.
+  replyAttachments.value = []
   discardReply()
   store.openComposer()
   store.openAiDraft()
 }
 
+// Held so the draft can still be flushed after navigation has already moved
+// openEmailId on: rebuilding the payload at that point would file the reply
+// against whichever email was opened next.
+const pendingReplyDraft = ref(null)
+
+watch(
+  () => [
+    replyTextPlain.value,
+    replyHtml.value,
+    replyFollowUpAt.value,
+    replyAttachments.value.map((attachment) => attachment.id).join(','),
+  ],
+  () => {
+    if (!isReplyOpen.value) return
+    pendingReplyDraft.value = replyDraftPayload()
+    store.scheduleReplyDraftSave(pendingReplyDraft.value)
+  },
+)
+
 async function sendReply() {
   if (isSendingReply.value) return
   const email = openEmail.value
+  // Taken before the request so a queued autosave cannot re-create the row
+  // while the mail is in flight; deleted only once the send succeeds.
+  const replyDraftId = store.consumeReplyDraft()
+  pendingReplyDraft.value = null
   isSendingReply.value = true
   try {
     const result = await store.sendMail({
@@ -845,7 +946,12 @@ async function sendReply() {
       html: sanitizeEmailHtml(replyHtml.value),
       replyToMessageId: email.id,
       followUpAt: replyFollowUpAt.value,
+      attachments: replyAttachments.value,
     })
+    // The send consumed them; clear before discardReply() so its cleanup
+    // doesn't delete attachments that just went out.
+    replyAttachments.value = []
+    await store.discardDraft(replyDraftId)
     discardReply()
     store.notify(
       result?.followUpScheduled === false
@@ -856,6 +962,8 @@ async function sendReply() {
   } catch (error) {
     console.error('Failed to send reply:', error)
     store.notify('Failed to send reply. Please try again.', 'error')
+    // Nothing went out, so the draft is still the only copy of this reply.
+    store.replyDraftId = replyDraftId
   } finally {
     isSendingReply.value = false
   }
@@ -1467,14 +1575,63 @@ onUnmounted(() => {
               @update:text="replyTextPlain = $event"
               @generate="generateReplyDraft"
             />
+            <div
+              v-if="replyAttachments.length"
+              class="composer-attachments"
+              aria-label="Attachments"
+            >
+              <div
+                v-for="attachment in replyAttachments"
+                :key="attachment.id"
+                class="composer-attachment-chip"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">attach_file</span>
+                <span class="composer-attachment-name">
+                  {{ attachment.filename || 'Attachment' }}
+                </span>
+                <span v-if="attachment.size_bytes != null" class="composer-attachment-size">
+                  {{ formatReplyAttachmentSize(attachment.size_bytes) }}
+                </span>
+                <button
+                  type="button"
+                  class="composer-attachment-remove"
+                  :aria-label="`Remove ${attachment.filename || 'attachment'}`"
+                  @click="removeReplyAttachment(attachment.id)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                </button>
+              </div>
+            </div>
             <div class="ni-reply-footer">
               <button
                 class="btn btn-primary"
-                :disabled="isSendingReply || !replyTextPlain.trim()"
+                :disabled="
+                  isSendingReply || store.pendingAttachmentUploads > 0 || !replyTextPlain.trim()
+                "
                 :aria-busy="isSendingReply"
                 @click="sendReply"
               >
                 {{ isSendingReply ? 'Sending…' : 'Send' }}
+              </button>
+              <input
+                ref="replyAttachInputRef"
+                type="file"
+                class="composer-attach-input"
+                multiple
+                tabindex="-1"
+                aria-hidden="true"
+                @change="onReplyAttachFiles"
+              />
+              <button
+                type="button"
+                class="btn btn-text ni-reply-attach-btn"
+                :disabled="store.pendingAttachmentUploads > 0"
+                :aria-busy="store.pendingAttachmentUploads > 0"
+                title="Attach files"
+                @click="replyAttachInputRef?.click()"
+              >
+                <span class="material-symbols-outlined">attach_file</span>
+                <span>{{ store.pendingAttachmentUploads > 0 ? 'Uploading…' : 'Attach' }}</span>
               </button>
               <div class="ni-schedule-wrap ni-schedule-wrap-upward">
                 <button

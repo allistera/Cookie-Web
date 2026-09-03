@@ -33,9 +33,24 @@ const contactSuggestions = computed(() => {
 })
 
 const composerToValid = computed(() => recipientsValid(store.composerTo))
+// An upload still in flight has no attachment id yet, so sending now would
+// quietly drop the file the user is watching upload.
 const isSendDisabled = computed(
-  () => store.isSendingEmail || !composerToValid.value || !store.composerTextArea.trim(),
+  () =>
+    store.isSendingEmail ||
+    store.pendingAttachmentUploads > 0 ||
+    !composerToValid.value ||
+    !store.composerTextArea.trim(),
 )
+
+const attachInputRef = ref(null)
+
+function onAttachFiles(event) {
+  const input = event.target
+  store.attachComposerFiles(input.files)
+  // Clear the input so picking the same file twice in a row still fires.
+  input.value = ''
+}
 
 const scheduleSendOpen = ref(false)
 const scheduleSendOptions = computed(() => (scheduleSendOpen.value ? scheduleChoices() : []))
@@ -142,8 +157,39 @@ function onDocumentClick(event) {
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
-onUnmounted(() => document.removeEventListener('click', onDocumentClick))
+// Autosave: every composer field feeds the same debounced save. Attachments
+// are watched too — adding or removing one changes the draft just as much as
+// typing does.
+watch(
+  () => [
+    store.composerTo,
+    store.composerSubject,
+    store.composerTextArea,
+    store.composerHtml,
+    store.composerFollowUpAt,
+    store.composerAttachments.map((attachment) => attachment.id).join(','),
+  ],
+  () => {
+    if (store.isComposerActive) store.scheduleComposerDraftSave()
+  },
+)
+
+// A closing tab never runs the pending debounce, and 'hidden' is the last
+// event a mobile browser reliably delivers before backgrounding the page.
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden' && store.isComposerActive) {
+    store.flushComposerDraft()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 </script>
 
 <template>
@@ -211,7 +257,7 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
         <div
           v-if="store.composerAttachments.length"
           class="composer-attachments"
-          aria-label="Forwarded attachments"
+          aria-label="Attachments"
         >
           <div
             v-for="attachment in store.composerAttachments"
@@ -308,6 +354,26 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
             />
           </div>
         </div>
+        <input
+          ref="attachInputRef"
+          type="file"
+          class="composer-attach-input"
+          multiple
+          tabindex="-1"
+          aria-hidden="true"
+          @change="onAttachFiles"
+        />
+        <button
+          type="button"
+          class="btn btn-text composer-attach-btn"
+          :disabled="store.pendingAttachmentUploads > 0"
+          :aria-busy="store.pendingAttachmentUploads > 0"
+          title="Attach files"
+          @click="attachInputRef?.click()"
+        >
+          <span class="material-symbols-outlined">attach_file</span>
+          <span>{{ store.pendingAttachmentUploads > 0 ? 'Uploading…' : 'Attach' }}</span>
+        </button>
         <div class="ni-schedule-wrap ni-schedule-wrap-upward">
           <button
             type="button"
