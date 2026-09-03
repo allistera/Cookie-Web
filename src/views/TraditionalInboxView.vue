@@ -674,9 +674,17 @@ const openIndex = computed(() => flatEmails.value.indexOf(openEmail.value))
 // removed email was last); the reader only closes when the list is now empty.
 function removeOpenEmail(remove) {
   if (!openEmail.value) return
+  const email = openEmail.value
   const index = openIndex.value
-  remove(openEmail.value)
+  remove(email)
   const remaining = flatEmails.value
+  // Some lists keep the row (Starred, labels and search all show spam):
+  // then the reader simply stays on it, without the read-marking a fresh
+  // open would do.
+  if (remaining.some((candidate) => candidate.id === email.id)) {
+    store.openEmailId = email.id
+    return
+  }
   const next = remaining[index] ?? remaining[remaining.length - 1]
   if (next) {
     openReader(next)
@@ -690,7 +698,7 @@ function archiveOpenEmail() {
 // Report spam / Not spam for the open email. Spam leaves the inbox for the
 // Spam folder (and vice versa), so the reader advances like Done does. In
 // lists that show spam regardless (Starred, labels, search) the email stays
-// put and the reader simply reopens it with its new state.
+// put and the reader stays on it.
 function toggleOpenEmailSpam() {
   removeOpenEmail((email) => store.setSpam(email, !email.isSpam))
 }

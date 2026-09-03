@@ -96,8 +96,13 @@ const pendingBodyFetches = new Map()
 // the second. Each map holds the tail of that message's update chain.
 const pendingStarUpdates = new Map()
 const pendingUnreadUpdates = new Map()
-// Spam verdict PATCHes, serialized per message like stars and read state.
+// Spam verdict PATCHes, serialized per message like stars and read state,
+// and the latest setSpam action per message so a failed earlier request
+// knows not to roll back a newer choice (the verdict value alone can't tell:
+// spam → not spam → spam ends on the same value it started from).
 const pendingSpamUpdates = new Map()
+const latestSpamAction = new Map()
+let spamActionSeq = 0
 
 // @param {Map<string, Promise<unknown>>} pending
 // @param {string} id
@@ -115,21 +120,28 @@ function serializePerMessage(pending, id, run) {
   return chained
 }
 
+// Every folder loader maps rows into its own objects, so the same message in
+// Starred, a label, search results and the inbox is a different object in
+// each list. Membership is therefore by id, and each list's own copy is
+// what gets put back on Undo.
 function captureListPositions(email, lists) {
-  return lists.map((list) => ({ list, index: list.indexOf(email) }))
+  return lists.map((list) => {
+    const index = list.findIndex((item) => item.id === email.id)
+    return { list, index, item: index > -1 ? list[index] : null }
+  })
 }
 
 function removeFromCapturedLists(email, positions) {
   for (const { list } of positions) {
-    const index = list.indexOf(email)
+    const index = list.findIndex((item) => item.id === email.id)
     if (index > -1) list.splice(index, 1)
   }
 }
 
 function restoreCapturedLists(email, positions) {
-  for (const { list, index } of positions) {
-    if (index > -1 && !list.includes(email)) {
-      list.splice(Math.min(index, list.length), 0, email)
+  for (const { list, index, item } of positions) {
+    if (index > -1 && !list.some((candidate) => candidate.id === email.id)) {
+      list.splice(Math.min(index, list.length), 0, item ?? email)
     }
   }
 }
@@ -151,9 +163,23 @@ function syncFolderMembership(list, email, belongs) {
 // `persist` lets an action route its PATCHes through a per-message queue
 // (see serializePerMessage) so rapid opposite actions reach the server in
 // click order; it defaults to a plain updateMessage.
+// `isCurrent` says whether the email still reflects this action when its
+// request fails; a later action on the same message (rapid toggles) has
+// already moved the state on, and rolling back would overwrite that choice.
 function reversibleMessageUpdate(
   store,
-  { email, apply, restore, changes, undoChanges, message, errorMessage, shouldNotify, persist },
+  {
+    email,
+    apply,
+    restore,
+    changes,
+    undoChanges,
+    message,
+    errorMessage,
+    shouldNotify,
+    persist,
+    isCurrent = () => true,
+  },
 ) {
   const send = persist ?? ((next) => store.updateMessage(email.id, next))
   let undoRequested = false
@@ -164,7 +190,7 @@ function reversibleMessageUpdate(
     .then(() => true)
     .catch((error) => {
       console.error(errorMessage, error)
-      if (!undoRequested) {
+      if (!undoRequested && isCurrent()) {
         restore()
         if (toastId !== null) store.dismissToast(toastId)
         store.notify(errorMessage, 'error')
@@ -1756,6 +1782,8 @@ export const useInboxStore = defineStore('inbox', {
       if (!email || email.isSpam === spam) return null
       const wasSpam = email.isSpam
       const snoozed = isSnoozedAt(email.scheduledFor)
+      const seq = ++spamActionSeq
+      latestSpamAction.set(email.id, seq)
       // During a search traditionalEmails holds results from every folder
       // (search includes spam), so it is neither the inbox nor a list the
       // email should leave. Archived mail is outside both Spam and Snoozed,
@@ -1784,6 +1812,7 @@ export const useInboxStore = defineStore('inbox', {
         if (applied) return
         applied = true
         email.isSpam = spam
+        for (const { item } of positions) if (item) item.isSpam = spam
         removeFromCapturedLists(email, positions)
         if (destination && !destination.includes(email)) destination.unshift(email)
         if (this.openEmailId === email.id) this.openEmailId = null
@@ -1798,6 +1827,7 @@ export const useInboxStore = defineStore('inbox', {
         if (!applied) return
         applied = false
         email.isSpam = wasSpam
+        for (const { item } of positions) if (item) item.isSpam = wasSpam
         if (destination) {
           const index = destination.indexOf(email)
           if (index > -1) destination.splice(index, 1)
@@ -1826,6 +1856,7 @@ export const useInboxStore = defineStore('inbox', {
           serializePerMessage(pendingSpamUpdates, email.id, () =>
             this.updateMessage(email.id, next),
           ),
+        isCurrent: () => latestSpamAction.get(email.id) === seq,
       })
       if (undoActions) undoActions.push(undo)
       return undo

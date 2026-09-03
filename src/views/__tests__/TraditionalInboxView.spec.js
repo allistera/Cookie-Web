@@ -1227,6 +1227,25 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(store.openEmailId).toBe('today-2')
   })
 
+  it('keeps the reader on the row in Starred, without marking it read again', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    vi.spyOn(store, 'loadStarredEmails').mockResolvedValue()
+    store.starredEmails = [{ ...makeEmail('star-1', Date.now() - HOUR), starred: true }]
+    store.isStarredLoaded = true
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    store.starredEmails[0].unread = true
+    const setUnread = vi.spyOn(store, 'setUnread')
+
+    await wrapper.find('.ni-reader-topbar [title="Report spam"]').trigger('click')
+
+    expect(store.openEmailId).toBe('star-1')
+    expect(store.starredEmails[0].isSpam).toBe(true)
+    expect(store.starredEmails[0].unread).toBe(true)
+    expect(setUnread).not.toHaveBeenCalled()
+    expect(wrapper.find('.ni-reader-topbar [title="Not spam"]').exists()).toBe(true)
+  })
+
   it('offers Not spam with the report_off icon in the Spam folder', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'spam' } })
     vi.spyOn(store, 'loadSpamEmails').mockResolvedValue()
