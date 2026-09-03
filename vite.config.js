@@ -1276,6 +1276,23 @@ function localApiPlugin(mode) {
         return json(res, { items })
       }
       const body = await readBody(req)
+      // POST /task-items/reorder: the whole visible order, numbered 1..n.
+      if (segments[1] === 'reorder') {
+        if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+        const ids = Array.isArray(body.ids) ? body.ids : null
+        if (!ids?.length || !ids.every(isTaskUuid)) {
+          return json(res, { error: 'ids must be a list of task ids' }, 400)
+        }
+        const updated = []
+        ids.forEach((id, index) => {
+          const item = state.taskItems.find((row) => row.id === id)
+          if (!item) return
+          item.position = index + 1
+          updated.push({ id: item.id, position: item.position })
+        })
+        return json(res, { items: updated })
+      }
+      if (segments[1]) return json(res, { error: 'Not Found' }, 404)
       if (req.method === 'POST') {
         const content = cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
         if (!content) return json(res, { error: 'Task content is required' }, 400)
@@ -1320,23 +1337,8 @@ function localApiPlugin(mode) {
         const hasProject = Object.hasOwn(body, 'projectId')
         const hasDueDate = Object.hasOwn(body, 'dueDate')
         const hasCompleted = Object.hasOwn(body, 'completed')
-        const hasPosition = Object.hasOwn(body, 'position')
-        if (
-          !hasContent &&
-          !hasDescription &&
-          !hasProject &&
-          !hasDueDate &&
-          !hasCompleted &&
-          !hasPosition
-        ) {
+        if (!hasContent && !hasDescription && !hasProject && !hasDueDate && !hasCompleted) {
           return json(res, { error: 'At least one change is required' }, 400)
-        }
-        if (hasPosition) {
-          // Number.isFinite does not coerce, so a numeric string is refused too.
-          if (!Number.isFinite(body.position)) {
-            return json(res, { error: 'position must be a finite number' }, 400)
-          }
-          item.position = body.position
         }
 
         if (hasContent) {

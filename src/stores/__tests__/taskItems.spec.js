@@ -399,44 +399,73 @@ describe('re-arranging tasks', () => {
     { id: 'c', content: 'C', position: 3, completedAt: null },
   ]
 
-  it('re-sorts the list at once and sends the new position', async () => {
+  it('re-sorts the list at once and sends the whole order', async () => {
     store.items = rows()
-    stubFetch(async () => ({
-      ok: true,
-      json: async () => ({ item: { id: 'c', content: 'C', position: 0.5, completedAt: null } }),
-    }))
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
 
-    const pending = store.reorderItem('c', 0.5)
+    const pending = store.reorderItems(['c', 'a', 'b'])
     expect(store.items.map((row) => row.id)).toEqual(['c', 'a', 'b'])
-    await pending
+    await expect(pending).resolves.toBe(true)
 
-    const [, options] = fetch.mock.calls[0]
-    expect(options.method).toBe('PATCH')
-    expect(JSON.parse(options.body)).toEqual({ id: 'c', position: 0.5 })
-    expect(store.items.map((row) => row.id)).toEqual(['c', 'a', 'b'])
+    const [requestUrl, options] = fetch.mock.calls[0]
+    expect(requestUrl).toContain('/task-items/reorder')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({ ids: ['c', 'a', 'b'] })
+    expect(store.items.map((row) => row.position)).toEqual([1, 2, 3])
   })
 
-  it('puts the row back and surfaces the server message when refused', async () => {
+  it('puts the order back and surfaces the server message when refused', async () => {
     store.items = rows()
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     stubFetch(async () => ({
       ok: false,
       status: 400,
-      json: async () => ({ error: 'position must be a finite number' }),
+      json: async () => ({ error: 'ids must not repeat' }),
     }))
 
-    await store.reorderItem('c', 0.5)
+    await expect(store.reorderItems(['c', 'a', 'b'])).resolves.toBe(false)
 
     expect(store.items.map((row) => row.id)).toEqual(['a', 'b', 'c'])
-    expect(store.items[2].position).toBe(3)
-    expect(notify).toHaveBeenCalledWith('position must be a finite number', 'error')
+    expect(store.items.map((row) => row.position)).toEqual([1, 2, 3])
+    expect(notify).toHaveBeenCalledWith('ids must not repeat', 'error')
   })
 
-  it('does nothing for a task that is not loaded', async () => {
+  // Two quick drags: the second order must reach the server after the
+  // first, and an older failure must not undo the newer order.
+  it('sends orders one at a time and lets the newest win', async () => {
     store.items = rows()
-    stubFetch(async () => ({ ok: true, json: async () => ({ item: {} }) }))
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    let failFirst
+    const first = new Promise((resolve) => {
+      failFirst = resolve
+    })
+    stubFetch(
+      vi
+        .fn()
+        .mockImplementationOnce(() => first)
+        .mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+    )
 
-    expect(await store.reorderItem('zzz', 1)).toBeNull()
+    const firstDrag = store.reorderItems(['c', 'a', 'b'])
+    const secondDrag = store.reorderItems(['b', 'c', 'a'])
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    failFirst({ ok: false, status: 500, json: async () => ({}) })
+    await expect(firstDrag).resolves.toBe(false)
+    await expect(secondDrag).resolves.toBe(true)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ ids: ['b', 'c', 'a'] })
+    expect(store.items.map((row) => row.id)).toEqual(['b', 'c', 'a'])
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('does nothing with an empty order', async () => {
+    store.items = rows()
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    expect(await store.reorderItems([])).toBe(false)
     expect(fetch).not.toHaveBeenCalled()
   })
 })

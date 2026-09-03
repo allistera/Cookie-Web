@@ -457,6 +457,21 @@ describe('dropping a task from the list', () => {
     expect(setDueDate).toHaveBeenCalledWith('t1', localToday())
   })
 
+  // The My Projects label is the root target for project re-parenting; a
+  // task has nowhere to go there, so it must not silently land in the Inbox.
+  it('ignores a task dropped on the My Projects label', async () => {
+    const moveItem = vi.spyOn(useTaskItemsStore(), 'moveItem').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+    const label = wrapper.get('.tasks-projects-label')
+    const dataTransfer = taskTransfer('t1')
+
+    await label.trigger('dragover', { dataTransfer })
+    expect(label.classes()).not.toContain('drop-target')
+    await label.trigger('drop', { dataTransfer })
+
+    expect(moveItem).not.toHaveBeenCalled()
+  })
+
   it('leaves a project drag to the project handlers', async () => {
     const moveItem = vi.spyOn(useTaskItemsStore(), 'moveItem').mockResolvedValue(null)
     const wrapper = mountSidebar()

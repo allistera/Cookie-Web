@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import { localToday } from '../lib/localDate'
-import { neighboursFor, positionBetween } from '../lib/taskOrder'
+import { orderAfterDrop } from '../lib/taskOrder'
 import { priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
@@ -211,16 +211,16 @@ function clearTaskDrag() {
   dropRowId.value = null
 }
 
-// The neighbours come from the full list, not the filtered one: a drop made
-// while searching still lands between the rows it was seen between.
+// The order sent is the full list, not the filtered one: a drop made while
+// searching still lands between the rows it was seen between.
 function onTaskDrop(item) {
   const draggedId = dragTaskId.value
   const place = dropPlace.value
   clearTaskDrag()
-  if (!canReorder.value || !draggedId || draggedId === item.id) return
-  const neighbours = neighboursFor(topLevelItems.value, draggedId, item.id, place)
-  if (!neighbours) return
-  items.reorderItem(draggedId, positionBetween(neighbours.prev, neighbours.next))
+  if (!canReorder.value || !draggedId) return
+  const ids = topLevelItems.value.map((row) => row.id)
+  const order = orderAfterDrop(ids, draggedId, item.id, place)
+  if (order) items.reorderItems(order)
 }
 
 const composing = ref(false)

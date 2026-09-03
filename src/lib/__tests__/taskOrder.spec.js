@@ -1,21 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { compareByPosition, neighboursFor, positionBetween, sortByPosition } from '../taskOrder'
-
-describe('positionBetween', () => {
-  it('halves the gap between two neighbours', () => {
-    expect(positionBetween({ position: 1 }, { position: 2 })).toBe(1.5)
-  })
-
-  it('steps past the last row and before the first', () => {
-    expect(positionBetween({ position: 7 }, undefined)).toBe(8)
-    expect(positionBetween(undefined, { position: 7 })).toBe(6)
-  })
-
-  it('starts an empty list at zero', () => {
-    expect(positionBetween(undefined, undefined)).toBe(0)
-  })
-})
+import { compareByPosition, orderAfterDrop, sortByPosition } from '../taskOrder'
 
 describe('sortByPosition', () => {
   it('orders by position, then creation time, then id, without mutating', () => {
@@ -34,26 +19,17 @@ describe('sortByPosition', () => {
   })
 })
 
-describe('neighboursFor', () => {
-  const order = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+describe('orderAfterDrop', () => {
+  const ids = ['a', 'b', 'c']
 
-  it('excludes the dragged row from the neighbours', () => {
-    expect(neighboursFor(order, 'a', 'c', 'before')).toEqual({
-      prev: { id: 'b' },
-      next: { id: 'c' },
-    })
-    expect(neighboursFor(order, 'c', 'a', 'after')).toEqual({
-      prev: { id: 'a' },
-      next: { id: 'b' },
-    })
+  it('places the dragged id before or after the target', () => {
+    expect(orderAfterDrop(ids, 'c', 'a', 'before')).toEqual(['c', 'a', 'b'])
+    expect(orderAfterDrop(ids, 'a', 'c', 'after')).toEqual(['b', 'c', 'a'])
+    expect(orderAfterDrop(ids, 'a', 'b', 'after')).toEqual(['b', 'a', 'c'])
   })
 
-  it('has no neighbour past either end', () => {
-    expect(neighboursFor(order, 'c', 'a', 'before')).toEqual({ prev: undefined, next: { id: 'a' } })
-    expect(neighboursFor(order, 'a', 'c', 'after')).toEqual({ prev: { id: 'c' }, next: undefined })
-  })
-
-  it('returns null when the target is not in the list', () => {
-    expect(neighboursFor(order, 'a', 'zzz', 'after')).toBe(null)
+  it('returns null for a drop onto itself or an unknown target', () => {
+    expect(orderAfterDrop(ids, 'a', 'a', 'before')).toBe(null)
+    expect(orderAfterDrop(ids, 'a', 'zzz', 'after')).toBe(null)
   })
 })

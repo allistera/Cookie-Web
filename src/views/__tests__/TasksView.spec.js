@@ -332,9 +332,9 @@ describe('dragging rows', () => {
 
   // jsdom reports every row at 0×0, so any positive pointer is "below the
   // middle": dropping there means after the row.
-  it('drops a row after another with a position past it', async () => {
+  it('drops a row after another and sends the whole new order', async () => {
     const items = threeTasks()
-    const reorder = vi.spyOn(items, 'reorderItem').mockResolvedValue(null)
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
     const wrapper = mountView()
     await flushPromises()
     const rows = wrapper.findAll('.task-row')
@@ -345,13 +345,13 @@ describe('dragging rows', () => {
     expect(rows[2].classes()).toContain('drop-after')
     await rows[2].trigger('drop')
 
-    expect(reorder).toHaveBeenCalledWith('t1', 4)
+    expect(reorder).toHaveBeenCalledWith(['t2', 't3', 't1'])
     expect(rows[2].classes()).not.toContain('drop-after')
   })
 
-  it('drops a row before another, halfway between it and the row above', async () => {
+  it('drops a row before another', async () => {
     const items = threeTasks()
-    const reorder = vi.spyOn(items, 'reorderItem').mockResolvedValue(null)
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
     const wrapper = mountView()
     await flushPromises()
     const rows = wrapper.findAll('.task-row')
@@ -362,12 +362,12 @@ describe('dragging rows', () => {
     expect(rows[1].classes()).toContain('drop-before')
     await rows[1].trigger('drop')
 
-    expect(reorder).toHaveBeenCalledWith('t3', 1.5)
+    expect(reorder).toHaveBeenCalledWith(['t1', 't3', 't2'])
   })
 
   it('ignores a drop onto the row being dragged', async () => {
     const items = threeTasks()
-    const reorder = vi.spyOn(items, 'reorderItem').mockResolvedValue(null)
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
     const wrapper = mountView()
     await flushPromises()
     const row = wrapper.get('.task-row')
@@ -387,7 +387,7 @@ describe('dragging rows', () => {
     await router.push('/tasks?project=today')
     const items = threeTasks()
     items.loadedProject = 'today'
-    const reorder = vi.spyOn(items, 'reorderItem').mockResolvedValue(null)
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
     const wrapper = mountView()
     await flushPromises()
     const rows = wrapper.findAll('.task-row')

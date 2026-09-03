@@ -128,10 +128,12 @@ function isTaskDrag(event) {
   return Array.from(event.dataTransfer?.types ?? []).includes(TASK_DRAG_TYPE)
 }
 
-// `target` is 'inbox', 'today' or a project id. Returns whether the event
-// was a task drag at all, so the project handlers can stand aside.
+// `target` is 'inbox', 'today' or a project id; null is the My Projects
+// label, which is a root target for project re-parenting only — a task has
+// nowhere to go there. Returns whether the event was handled as a task drag,
+// so the project handlers can stand aside.
 function onTaskDragOver(target, event) {
-  if (!isTaskDrag(event)) return false
+  if (target === null || !isTaskDrag(event)) return false
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   taskDropTarget.value = target
@@ -143,6 +145,7 @@ function onTaskDragLeave(target) {
 }
 
 function onTaskDrop(target, event) {
+  if (target === null) return isTaskDrag(event)
   if (!isTaskDrag(event)) return false
   taskDropTarget.value = null
   const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
