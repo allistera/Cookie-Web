@@ -906,7 +906,8 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
 
   expect(response.ok()).toBe(true)
   await expect(row).toHaveCount(0)
-  await expect(reader.locator('.ni-reader-subject')).toContainText('Soccer Snacks')
+  // The Priority tab is showing, so Done advances to the next priority email.
+  await expect(reader.locator('.ni-reader-subject')).toContainText('guided tour')
 
   await page.goto('/inbox?filter=done')
   await expect(page.locator('.ni-row', { hasText: subject })).toBeVisible()
@@ -1064,17 +1065,18 @@ test('Reader scheduling offers Tomorrow and Next Week, then removes the email un
   await scheduleMenu.getByRole('menuitem', { name: /Tomorrow/ }).click()
   await expect(page.locator('.toast', { hasText: 'Scheduled for Tomorrow.' })).toBeVisible()
   await expect(row).toHaveCount(0)
-  // Scheduling follows the same triage flow as Done: the next email opens.
-  await expect(reader.locator('.ni-reader-subject')).toContainText('Soccer Snacks')
+  // Scheduling follows the same triage flow as Done: the next email in the
+  // Priority tab opens.
+  await expect(reader.locator('.ni-reader-subject')).toContainText('guided tour')
 
-  const coachRow = page.locator('.ni-row', { hasText: 'Coach Mike' })
+  const tourRow = page.locator('.ni-row', { hasText: 'guided tour' })
   await reader.locator('[title="Star"]').click()
   await expect(reader).toHaveCount(0)
-  await expect(coachRow).toHaveCount(0)
+  await expect(tourRow).toHaveCount(0)
 
   await page.locator('.nav-item', { hasText: 'Starred' }).click()
   await expect(page).toHaveURL(/filter=starred/)
-  await expect(page.locator('.ni-row', { hasText: 'Coach Mike' })).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'guided tour' })).toBeVisible()
 })
 
 test('A due scheduled email appears at the top in the conditional Due Today group', async ({
@@ -1717,7 +1719,9 @@ test('The installed app icon is badged with the live unread inbox count', async 
 test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) => {
   await page.goto('/inbox')
 
-  // The Daily Bites newsletter lives in the collapsed "Last seven days" group.
+  // The Daily Bites newsletter is unlabelled, so it sits under the Other
+  // tab, in the collapsed "Last seven days" group.
+  await page.locator('.ni-tab', { hasText: 'Other' }).click()
   await page.locator('.ni-group-header', { hasText: 'Last seven days' }).click()
   await page.locator('.ni-row', { hasText: 'Daily Bites' }).click()
 
@@ -1736,6 +1740,7 @@ test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) =
   await expect(page.locator('.ni-row', { hasText: 'Daily Bites' })).toHaveCount(0)
 
   // A regular email shows no Unsubscribe control.
+  await page.locator('.ni-tab', { hasText: 'Priority' }).click()
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   await expect(reader).toBeVisible()
   await expect(reader.locator('[title="Unsubscribe"]')).toHaveCount(0)
@@ -2321,7 +2326,7 @@ test('Inbox tabs open on Priority, narrow by label, and Other holds the rest', a
   await page.goto('/inbox')
 
   const tabs = page.locator('.ni-tabs .ni-tab')
-  await expect(tabs.first()).toHaveText(/^Priority\s*1$/)
+  await expect(tabs.first()).toHaveText(/^Priority\s*2$/)
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
   await expect(tabs.last()).toHaveText(/^Other\s*\d+$/)
   const priorityRow = page.locator('.ni-row', { hasText: 'City Construction' })
