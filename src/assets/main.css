@@ -991,6 +991,60 @@ body {
   font-size: 20px;
 }
 
+/* Inbox label tabs: All | <label>… | Other, the name in text colour with a
+   muted count beside it; the active tab takes the accent purple. */
+.ni-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ni-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.ni-tab:hover {
+  background: var(--bg-hover);
+}
+
+.ni-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ni-tab.active {
+  color: var(--text-purple);
+}
+
+[data-theme='dark'] .ni-tab.active {
+  color: var(--text-blue);
+}
+
+.ni-tab-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* Email list */
 .ni-list {
   display: flex;

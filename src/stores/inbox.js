@@ -18,6 +18,10 @@ import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
+
+// Inbox tab ids: 'all', 'other', or a label tab. The prefix keeps a label
+// named "All" or "Other" from colliding with the fixed tabs.
+export const inboxTabForLabel = (name) => `label:${name}`
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
@@ -490,6 +494,10 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
+    // Which inbox tab is showing: 'all', 'other' (mail carrying none of the
+    // palette labels), or 'label:<name>'. Lives here rather than in the view
+    // so the choice survives a trip to another section and back.
+    inboxTab: 'all',
     rules: [], // tag rules from /api/labels?resource=rules (settings Rules manager)
 
     // Chat state
@@ -981,6 +989,9 @@ export const useInboxStore = defineStore('inbox', {
     loadMoreStarredEmails() {
       return this.loadMoreFolder('starred')
     },
+    setInboxTab(tab) {
+      this.inboxTab = tab
+    },
     loadLabelEmails(name) {
       const label = String(name ?? '').trim()
       if (!label) return
@@ -1157,6 +1168,9 @@ export const useInboxStore = defineStore('inbox', {
         const { label: updatedLabel } = await response.json()
         Object.assign(label, updatedLabel)
         this.labels.sort((a, b) => a.name.localeCompare(b.name))
+        if (this.inboxTab === inboxTabForLabel(previousName)) {
+          this.inboxTab = inboxTabForLabel(updatedLabel.name)
+        }
 
         for (const list of [
           this.traditionalEmails,

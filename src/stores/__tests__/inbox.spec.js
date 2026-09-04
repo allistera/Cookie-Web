@@ -2113,6 +2113,7 @@ describe('Inbox Store', () => {
     store.labels = [label]
     store.traditionalEmails = [{ id: 'mail-1', labels: [{ name: 'Finance', color: '#2f9e44' }] }]
     store.sentEmails = [{ id: 'mail-2', labels: [{ name: 'Finance', color: '#2f9e44' }] }]
+    store.inboxTab = 'label:Finance'
 
     await expect(store.renameLabel(label, '  Money  ')).resolves.toBe(true)
 
@@ -2130,6 +2131,7 @@ describe('Inbox Store', () => {
     })
     expect(store.traditionalEmails[0].labels[0].name).toBe('Money')
     expect(store.sentEmails[0].labels[0].name).toBe('Money')
+    expect(store.inboxTab).toBe('label:Money')
     expect(store.toasts.at(-1)?.message).toBe('Label renamed.')
   })
 
