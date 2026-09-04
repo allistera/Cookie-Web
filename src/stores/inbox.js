@@ -490,6 +490,10 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
+    // Which inbox tab is showing: 'all', 'other' (mail carrying none of the
+    // palette labels), or 'label:<name>'. Lives here rather than in the view
+    // so the choice survives a trip to another section and back.
+    inboxTab: 'all',
     rules: [], // tag rules from /api/labels?resource=rules (settings Rules manager)
 
     // Chat state
@@ -980,6 +984,9 @@ export const useInboxStore = defineStore('inbox', {
     },
     loadMoreStarredEmails() {
       return this.loadMoreFolder('starred')
+    },
+    setInboxTab(tab) {
+      this.inboxTab = tab
     },
     loadLabelEmails(name) {
       const label = String(name ?? '').trim()

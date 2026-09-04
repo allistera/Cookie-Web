@@ -2316,3 +2316,37 @@ test('The Tasks column fills its panel rather than collapsing to its content', a
   const { view, panel } = await boxes()
   expect(view.width).toBe(Math.min(900, panel.width))
 })
+
+test('Inbox label tabs narrow the list to one label, and Other to unlabelled mail', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+
+  const tabs = page.locator('.ni-tabs .ni-tab')
+  await expect(tabs.first()).toHaveText(/^All\s*\d+$/)
+  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
+  await expect(tabs.last()).toHaveText(/^Other\s*\d+$/)
+
+  await page.locator('.ni-tab', { hasText: 'Home' }).click()
+  const homeRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(homeRow).toBeVisible()
+  const rows = page.locator('.ni-row')
+  const homeRows = page.locator('.ni-row', {
+    has: page.locator('.ni-label-pill', { hasText: 'Home' }),
+  })
+  await expect(rows).toHaveCount(await homeRows.count())
+
+  await page.locator('.ni-tab', { hasText: 'Other' }).click()
+  await expect(homeRow).toHaveCount(0)
+  await expect(page.locator('.ni-row .ni-label-pill')).toHaveCount(0)
+
+  // The choice survives leaving the inbox and coming back.
+  await page.locator('.ni-tab', { hasText: 'Home' }).click()
+  await page.locator('.nav-item', { hasText: 'Starred' }).click()
+  await expect(page.locator('.ni-tabs')).toHaveCount(0)
+  await page.locator('.nav-item', { hasText: 'Inbox' }).first().click()
+  await expect(page.locator('.ni-tab', { hasText: 'Home' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+})

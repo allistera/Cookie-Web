@@ -2012,3 +2012,111 @@ describe('opening an email from the route', () => {
     expect(store.traditionalEmails[0].unread).toBe(false)
   })
 })
+
+describe('TraditionalInboxView label tabs', () => {
+  let store
+
+  function tabTexts(wrapper) {
+    return wrapper
+      .findAll('.ni-tab')
+      .map((tab) => `${tab.find('.ni-tab-name').text()} ${tab.find('.ni-tab-count').text()}`)
+  }
+
+  function clickTab(wrapper, name) {
+    return wrapper
+      .findAll('.ni-tab')
+      .find((tab) => tab.find('.ni-tab-name').text() === name)
+      .trigger('click')
+  }
+
+  function rowSubjects(wrapper) {
+    return wrapper.findAll('.ni-row').map((row) => row.find('.ni-subject-text').text())
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    store.labels = [
+      { id: 'l-team', name: 'Team', color: '#2383e2', kind: 'user' },
+      { id: 'l-docs', name: 'Docs', color: '#8e4ec6', kind: 'user' },
+      { id: 'l-ai', name: 'AI Generated', color: '#7c3aed', kind: 'system' },
+    ]
+    const team = makeEmail('team-1', Date.now() - HOUR)
+    team.labels = [{ name: 'Team', color: '#2383e2' }]
+    const both = makeEmail('both-1', Date.now() - 2 * HOUR)
+    both.labels = [
+      { name: 'Team', color: '#2383e2' },
+      { name: 'Docs', color: '#8e4ec6' },
+    ]
+    const plain = makeEmail('plain-1', Date.now() - 3 * HOUR)
+    const system = makeEmail('system-1', Date.now() - 4 * HOUR)
+    system.labels = [{ name: 'AI Generated', color: '#7c3aed' }]
+    store.traditionalEmails = [team, both, plain, system]
+  })
+
+  it('lists All, each palette label and Other, each with its loaded count', () => {
+    const wrapper = mountView()
+
+    expect(tabTexts(wrapper)).toEqual(['All 4', 'Docs 1', 'Team 2', 'Other 2'])
+    const all = wrapper.find('.ni-tab')
+    expect(all.classes()).toContain('active')
+    expect(all.attributes('aria-selected')).toBe('true')
+    expect(rowSubjects(wrapper)).toHaveLength(4)
+  })
+
+  it('a label tab narrows the list to the emails carrying that label', async () => {
+    const wrapper = mountView()
+
+    await clickTab(wrapper, 'Team')
+
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
+    const team = wrapper.findAll('.ni-tab').find((tab) => tab.text().includes('Team'))
+    expect(team.attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('.ni-tab').attributes('aria-selected')).toBe('false')
+    expect(store.inboxTab).toBe('label:Team')
+  })
+
+  it('Other collects mail carrying none of the palette labels', async () => {
+    const wrapper = mountView()
+
+    await clickTab(wrapper, 'Other')
+
+    expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
+  })
+
+  it('an empty label tab explains itself rather than showing Inbox Zero', async () => {
+    store.labels.push({ id: 'l-empty', name: 'Finance', color: '#2f9e44', kind: 'user' })
+    const wrapper = mountView()
+
+    await clickTab(wrapper, 'Finance')
+
+    expect(wrapper.findAll('.ni-row')).toHaveLength(0)
+    expect(wrapper.find('.ni-empty').text()).toBe('No emails labelled Finance.')
+    expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
+  })
+
+  it('stays hidden in filtered views and when there are no labels', async () => {
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    let wrapper = mountView()
+    expect(wrapper.find('.ni-tabs').exists()).toBe(false)
+    wrapper.unmount()
+
+    await router.replace({ path: '/inbox' })
+    store.labels = []
+    wrapper = mountView()
+    expect(wrapper.find('.ni-tabs').exists()).toBe(false)
+    expect(rowSubjects(wrapper)).toHaveLength(4)
+  })
+
+  it('falls back to All once the selected label is deleted', async () => {
+    store.inboxTab = 'label:Team'
+    const wrapper = mountView()
+    expect(rowSubjects(wrapper)).toHaveLength(2)
+
+    store.labels = store.labels.filter((label) => label.name !== 'Team')
+    await nextTick()
+
+    expect(rowSubjects(wrapper)).toHaveLength(4)
+    expect(wrapper.find('.ni-tab').classes()).toContain('active')
+  })
+})

@@ -54,8 +54,63 @@ watch(
   { immediate: true },
 )
 
-const filteredEmails = computed(() => {
+// --- Inbox tabs (All | <each palette label> | Other) ---
+// The plain inbox partitions its loaded rows by label, client-side, so the
+// counts describe what is on screen (and grow with Load More) rather than
+// the whole mailbox. 'Other' collects mail carrying none of the palette
+// labels. Tab ids carry a 'label:' prefix so a label named "All" or "Other"
+// can't collide with the fixed tabs.
+const ALL_TAB = 'all'
+const OTHER_TAB = 'other'
+const labelTabId = (name) => `label:${name}`
+const emailHasLabel = (email, name) => (email.labels || []).some((label) => label.name === name)
+
+// The inbox list before any tab narrows it: starred rows are hidden
+// client-side so starring moves mail out of Inbox immediately.
+const inboxEmails = computed(() => {
   const emails = store.traditionalEmails
+  return store.activeSearchQuery
+    ? emails
+    : emails.filter(
+        (e) => !e.starred || (e.scheduledFor && new Date(e.scheduledFor).getTime() <= Date.now()),
+      )
+})
+
+const showInboxTabs = computed(
+  () => !activeFilter.value && !store.activeSearchQuery && store.allLabels.length > 0,
+)
+
+const inboxTabs = computed(() => {
+  const emails = inboxEmails.value
+  const labels = store.allLabels
+  return [
+    { id: ALL_TAB, name: 'All', count: emails.length },
+    ...labels.map((label) => ({
+      id: labelTabId(label.name),
+      name: label.name,
+      count: emails.filter((e) => emailHasLabel(e, label.name)).length,
+    })),
+    {
+      id: OTHER_TAB,
+      name: 'Other',
+      count: emails.filter((e) => !labels.some((label) => emailHasLabel(e, label.name))).length,
+    },
+  ]
+})
+
+// The chosen tab, falling back to All once the label it named is deleted.
+const activeTab = computed(() => {
+  if (!showInboxTabs.value) return ALL_TAB
+  return inboxTabs.value.some((tab) => tab.id === store.inboxTab) ? store.inboxTab : ALL_TAB
+})
+
+function emailInTab(email, tabId) {
+  if (tabId === ALL_TAB) return true
+  if (tabId === OTHER_TAB) return !store.allLabels.some((label) => emailHasLabel(email, label.name))
+  return (email.labels || []).some((label) => labelTabId(label.name) === tabId)
+}
+
+const filteredEmails = computed(() => {
   switch (activeFilter.value) {
     case 'starred':
       return store.starredEmails
@@ -70,12 +125,7 @@ const filteredEmails = computed(() => {
     case 'done':
       return store.doneEmails
     default:
-      return store.activeSearchQuery
-        ? emails
-        : emails.filter(
-            (e) =>
-              !e.starred || (e.scheduledFor && new Date(e.scheduledFor).getTime() <= Date.now()),
-          )
+      return inboxEmails.value.filter((e) => emailInTab(e, activeTab.value))
   }
 })
 
@@ -104,10 +154,18 @@ const showInboxZero = computed(
   () =>
     !activeFilter.value &&
     !store.activeSearchQuery &&
-    !filteredEmails.value.length &&
+    !inboxEmails.value.length &&
     !store.hasMoreEmails &&
     !store.isRefreshing,
 )
+
+// A label tab with nothing under it says so, instead of an empty list (or
+// a misleading Inbox Zero while other tabs still hold mail).
+const tabEmptyText = computed(() => {
+  if (activeTab.value === ALL_TAB || filteredEmails.value.length || showInboxZero.value) return ''
+  const tab = inboxTabs.value.find((item) => item.id === activeTab.value)
+  return tab.id === OTHER_TAB ? 'No unlabelled emails.' : `No emails labelled ${tab.name}.`
+})
 
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
@@ -1146,6 +1204,22 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Label tabs: partition the inbox by palette label -->
+    <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox labels">
+      <button
+        v-for="tab in inboxTabs"
+        :key="tab.id"
+        class="ni-tab"
+        :class="{ active: tab.id === activeTab }"
+        role="tab"
+        :aria-selected="tab.id === activeTab ? 'true' : 'false'"
+        @click="store.setInboxTab(tab.id)"
+      >
+        <span class="ni-tab-name">{{ tab.name }}</span>
+        <span class="ni-tab-count">{{ tab.count }}</span>
+      </button>
+    </div>
+
     <!-- Email list -->
     <div class="ni-list">
       <template v-for="group in emailGroups" :key="group.label">
@@ -1198,6 +1272,7 @@ onUnmounted(() => {
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
       </div>
+      <div class="ni-empty" v-if="tabEmptyText">{{ tabEmptyText }}</div>
       <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
         <span class="material-symbols-outlined ni-inbox-zero-icon" aria-hidden="true"
           >task_alt</span
