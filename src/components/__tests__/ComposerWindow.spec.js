@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 import ComposerWindow from '../ComposerWindow.vue'
 import { useInboxStore } from '../../stores/inbox'
@@ -47,5 +48,70 @@ describe('ComposerWindow forwarded attachments', () => {
       expect.objectContaining({ id: 'att-2', filename: 'notes.txt' }),
     ])
     expect(wrapper.text()).not.toContain('plan.pdf')
+  })
+})
+
+// The footer is either the send row with the AI icon at its right edge, or
+// the Cookie AI prompt at full width; never both squeezed together.
+describe('ComposerWindow AI prompt', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  function mountActive() {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    return { store, wrapper: mount(ComposerWindow, { attachTo: document.body }) }
+  }
+
+  it('shows the send row with an AI icon on the right, and no prompt', () => {
+    const { wrapper } = mountActive()
+
+    expect(wrapper.find('.composer-attach-btn').exists()).toBe(true)
+    expect(wrapper.find('.composer-follow-up-btn').exists()).toBe(true)
+    expect(wrapper.get('.composer-ai-toggle').text()).toBe('auto_fix_high')
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('swaps the row for the focused prompt when the icon is pressed, and back on close', async () => {
+    const { wrapper } = mountActive()
+
+    await wrapper.get('.composer-ai-toggle').trigger('click')
+    await nextTick()
+
+    const input = wrapper.get('[aria-label="Describe your message"]')
+    expect(document.activeElement).toBe(input.element)
+    expect(wrapper.find('.composer-attach-btn').exists()).toBe(false)
+    expect(wrapper.find('.composer-send-btn-split').exists()).toBe(false)
+    expect(wrapper.find('.composer-ai-toggle').exists()).toBe(false)
+
+    await wrapper.get('.composer-ai-close').trigger('click')
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
+    expect(wrapper.find('.composer-attach-btn').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('closes the prompt on Escape', async () => {
+    const { wrapper } = mountActive()
+    await wrapper.get('.composer-ai-toggle').trigger('click')
+
+    await wrapper.get('[aria-label="Describe your message"]').trigger('keydown', { key: 'Escape' })
+
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('opens the prompt when the AI panel opens, and drops it when the composer closes', async () => {
+    const { store, wrapper } = mountActive()
+
+    store.isAiDraftActive = true
+    await nextTick()
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(true)
+
+    store.isComposerActive = false
+    await nextTick()
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
+    wrapper.unmount()
   })
 })
