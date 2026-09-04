@@ -461,10 +461,10 @@ describe('re-arranging tasks', () => {
     expect(notify).not.toHaveBeenCalled()
   })
 
-  // Today mixes projects, so its rows keep the position values they had
-  // between them (dealt out in the new order) and the list stays in
-  // due-date order around them.
-  it('deals the rows’ own positions out in Today, keeping due-date order', async () => {
+  // Today mixes projects, so a day re-arranged there is numbered in
+  // todayPosition — Today's own order — and `position`, the projects'
+  // order, is left exactly as it was.
+  it('numbers todayPosition in Today and leaves position untouched', async () => {
     store.items = [
       { id: 'late', content: 'L', dueDate: '2026-09-01', position: 40, completedAt: null },
       { id: 'a', content: 'A', dueDate: '2026-09-03', position: 10, completedAt: null },
@@ -476,7 +476,10 @@ describe('re-arranging tasks', () => {
     await store.reorderItems(['b', 'a'])
 
     expect(store.items.map((row) => row.id)).toEqual(['late', 'b', 'a'])
-    expect(store.items.map((row) => row.position)).toEqual([40, 10, 30])
+    expect(store.items.map((row) => row.position)).toEqual([40, 30, 10])
+    expect(store.items.map((row) => row.todayPosition)).toEqual([undefined, 1, 2])
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ ids: ['b', 'a'], view: 'today' })
   })
 
   it('does nothing with an empty order', async () => {

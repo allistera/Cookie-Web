@@ -1,11 +1,12 @@
 // List order for the Tasks app. Each task carries a `position` (migration
-// 0062); a drop sends the rows in their new order to the server, which deals
-// the position values those rows already hold back out in that order. Sending
-// an order rather than a midpoint between neighbours costs one small request
-// per drop and can never run out of precision, and permuting rather than
-// renumbering means a partial reorder — a day in Today, whose tasks come from
-// many projects — leaves each task where it sat in its own project relative
-// to the rows not involved.
+// 0062) for its project or Inbox list, and a `todayPosition` (0063) for the
+// Today list, which spans every project and so needs an order of its own —
+// re-arranging a day there must not move a task among its siblings in its
+// own project. A drop sends the rows in their new order to the server: a
+// list's rows get the position values they already held dealt back out in
+// that order, a day's rows are numbered afresh in todayPosition. Sending an
+// order rather than a midpoint between neighbours costs one small request
+// per drop and can never run out of precision.
 
 // Position first, then creation time and id as stable tiebreaks, the same
 // order the server lists a project in.
@@ -32,10 +33,15 @@ export function orderAfterDrop(ids, draggedId, targetId, place) {
   return [...rest.slice(0, at), draggedId, ...rest.slice(at)]
 }
 
-// Today's order: due date first, then position.
+// Today's order: due date, then the day's own arrangement (rows never
+// arranged there come after those that were), then position.
 export function compareByDueThenPosition(a, b) {
   const byDue = String(a.dueDate ?? '9999-12-31').localeCompare(String(b.dueDate ?? '9999-12-31'))
-  return byDue || compareByPosition(a, b)
+  if (byDue) return byDue
+  const aToday = a.todayPosition ?? Number.POSITIVE_INFINITY
+  const bToday = b.todayPosition ?? Number.POSITIVE_INFINITY
+  if (aToday !== bToday) return aToday < bToday ? -1 : 1
+  return compareByPosition(a, b)
 }
 
 export function sortForList(items, loadedProject) {

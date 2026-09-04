@@ -104,6 +104,16 @@ describe('sortForList', () => {
     ])
   })
 
+  it("puts a day's own arrangement before position, and unarranged rows last", () => {
+    const day = [
+      { id: 'never', dueDate: '2026-09-01', position: 1 },
+      { id: 'second', dueDate: '2026-09-01', position: 2, todayPosition: 2 },
+      { id: 'first', dueDate: '2026-09-01', position: 3, todayPosition: 1 },
+    ]
+    expect(sortForList(day, 'today').map((row) => row.id)).toEqual(['first', 'second', 'never'])
+    expect(sortForList(day, 'p1').map((row) => row.id)).toEqual(['never', 'second', 'first'])
+  })
+
   it('orders a project by position alone', () => {
     expect(sortForList(items, 'p1').map((row) => row.id)).toEqual([
       'undated',

@@ -1273,8 +1273,15 @@ function localApiPlugin(mode) {
           // Project and Inbox lists come back in arranged order (position,
           // migration 0062); Today orders by due date first.
           .sort((a, b) => {
-            const byDue = today ? String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? '')) : 0
-            return byDue || (a.position ?? 0) - (b.position ?? 0)
+            if (today) {
+              const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
+              if (byDue) return byDue
+              // Today's own arrangement (migration 0063); never-arranged last.
+              const at = a.todayPosition ?? Number.POSITIVE_INFINITY
+              const bt = b.todayPosition ?? Number.POSITIVE_INFINITY
+              if (at !== bt) return at < bt ? -1 : 1
+            }
+            return (a.position ?? 0) - (b.position ?? 0)
           })
         return json(res, { items })
       }
@@ -1288,6 +1295,13 @@ function localApiPlugin(mode) {
           return json(res, { error: 'ids must be a list of task ids' }, 400)
         }
         const rows = ids.map((id) => state.taskItems.find((row) => row.id === id)).filter(Boolean)
+        if (body.view === 'today') {
+          const updated = rows.map((row, index) => {
+            row.todayPosition = index + 1
+            return { id: row.id, todayPosition: row.todayPosition }
+          })
+          return json(res, { items: updated })
+        }
         const slots = rows.map((row) => row.position ?? 0).sort((a, b) => a - b)
         for (let i = 1; i < slots.length; i += 1) {
           if (slots[i] <= slots[i - 1]) slots[i] = slots[i - 1] + 0.001
