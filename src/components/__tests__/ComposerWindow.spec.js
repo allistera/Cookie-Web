@@ -92,13 +92,29 @@ describe('ComposerWindow AI prompt', () => {
     wrapper.unmount()
   })
 
-  it('closes the prompt on Escape', async () => {
-    const { wrapper } = mountActive()
+  // Escape must stop at the prompt: the window's own Escape closes the
+  // whole composer, draft and all.
+  it('closes the prompt on Escape, and only the prompt', async () => {
+    const { store, wrapper } = mountActive()
     await wrapper.get('.composer-ai-toggle').trigger('click')
 
     await wrapper.get('[aria-label="Describe your message"]').trigger('keydown', { key: 'Escape' })
 
     expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
+    expect(store.isComposerActive).toBe(true)
+    wrapper.unmount()
+  })
+
+  // The window is lazily loaded, so a reply drafted from the inbox can have
+  // the AI panel open before it ever mounts.
+  it('shows the prompt when mounted with the AI panel already open', async () => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.isAiDraftActive = true
+    const wrapper = mount(ComposerWindow, { attachTo: document.body })
+    await nextTick()
+
+    expect(wrapper.find('.composer-ai-inline').exists()).toBe(true)
     wrapper.unmount()
   })
 

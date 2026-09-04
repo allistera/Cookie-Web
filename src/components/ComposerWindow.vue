@@ -70,13 +70,15 @@ function closeAiPrompt() {
 
 // The editor's own Generate control opens the AI panel with the draft as
 // the instruction; the prompt comes up with it so that instruction can be
-// read and changed. A closed composer starts its next message on the plain
-// footer.
+// read and changed. Immediate, because the panel can already be open when
+// this lazily-loaded window first mounts (a reply drafted from the inbox).
+// A closed composer starts its next message on the plain footer.
 watch(
   () => store.isAiDraftActive,
   (active) => {
     if (active) openAiPrompt()
   },
+  { immediate: true },
 )
 watch(
   () => store.isComposerActive,
@@ -366,7 +368,7 @@ onUnmounted(() => {
           placeholder="Describe your message"
           aria-label="Describe your message"
           @keydown.enter.prevent="store.requestAiDraft()"
-          @keydown.escape="closeAiPrompt"
+          @keydown.escape.stop="closeAiPrompt"
         />
         <button
           type="button"
