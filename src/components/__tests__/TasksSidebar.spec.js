@@ -457,6 +457,21 @@ describe('dropping a task from the list', () => {
     expect(setDueDate).toHaveBeenCalledWith('t1', localToday())
   })
 
+  // A divider has no date to set; Today refuses it in the air and on landing.
+  it('refuses a divider dropped on Today', async () => {
+    const setDueDate = vi.spyOn(useTaskItemsStore(), 'setDueDate').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+    const today = wrapper.findAll('.tasks-views-nav .nav-item')[1]
+    const dataTransfer = taskTransfer('d1')
+    dataTransfer.types.push('application/x-cookie-divider')
+
+    await today.trigger('dragover', { dataTransfer })
+    expect(today.classes()).not.toContain('drop-target')
+    await today.trigger('drop', { dataTransfer })
+
+    expect(setDueDate).not.toHaveBeenCalled()
+  })
+
   // The My Projects label is the root target for project re-parenting; a
   // task has nowhere to go there, so it must not silently land in the Inbox.
   it('ignores a task dropped on the My Projects label', async () => {

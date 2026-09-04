@@ -606,6 +606,196 @@ describe('deleting a task from the list', () => {
   })
 })
 
+// A divider is a rule between rows. The line under each row grows a plus on
+// hover that adds one there; the divider's own delete sits on its midpoint.
+describe('dividers', () => {
+  function seedTwo() {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', position: 1, projectId: 'p2', completedAt: null },
+      { id: 'b', content: 'Two', position: 2, projectId: 'p2', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    return items
+  }
+
+  function seedWithDivider() {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', position: 1, projectId: 'p2', completedAt: null },
+      { id: 'd', kind: 'divider', content: '', position: 2, projectId: 'p2', completedAt: null },
+      { id: 'b', content: 'Two', position: 3, projectId: 'p2', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    return items
+  }
+
+  it('offers a plus on the line under every row that adds a divider there', async () => {
+    const items = seedTwo()
+    const add = vi.spyOn(items, 'addDivider').mockResolvedValue(null)
+    const wrapper = mountView()
+    await flushPromises()
+
+    const inserts = wrapper.findAll('.task-insert')
+    expect(inserts).toHaveLength(2)
+    const plus = inserts[0].get('.task-insert-btn')
+    expect(plus.text()).toBe('add')
+    expect(plus.attributes('aria-label')).toBe('Add divider after One')
+    await plus.trigger('click')
+
+    expect(add).toHaveBeenCalledWith({ projectId: 'p2', afterId: 'a' })
+  })
+
+  it('adds an Inbox divider with no project', async () => {
+    await router.push('/tasks?project=inbox')
+    const items = seedTwo()
+    items.loadedProject = 'inbox'
+    const add = vi.spyOn(items, 'addDivider').mockResolvedValue(null)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.task-insert-btn')[1].trigger('click')
+
+    expect(add).toHaveBeenCalledWith({ projectId: null, afterId: 'b' })
+  })
+
+  // Two rules in a row say nothing, so neither side of a divider offers one.
+  it('offers no plus beside a divider', async () => {
+    seedWithDivider()
+    const wrapper = mountView()
+    await flushPromises()
+
+    const inserts = wrapper.findAll('.task-insert')
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].get('.task-insert-btn').attributes('aria-label')).toBe(
+      'Add divider after Two',
+    )
+  })
+
+  it('ignores a second click while a divider is still being added', async () => {
+    const items = seedTwo()
+    let finish
+    const add = vi
+      .spyOn(items, 'addDivider')
+      .mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const wrapper = mountView()
+    await flushPromises()
+
+    const plus = wrapper.get('.task-insert-btn')
+    await plus.trigger('click')
+    expect(plus.attributes('disabled')).toBeDefined()
+    await plus.trigger('click')
+    expect(add).toHaveBeenCalledTimes(1)
+
+    finish(null)
+    await flushPromises()
+    expect(plus.attributes('disabled')).toBeUndefined()
+  })
+
+  // Two rules in a row say nothing, so a divider will not land beside one.
+  it('refuses to drop a divider beside another divider', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', position: 1, projectId: 'p2', completedAt: null },
+      { id: 'd1', kind: 'divider', content: '', position: 2, projectId: 'p2', completedAt: null },
+      { id: 'b', content: 'Two', position: 3, projectId: 'p2', completedAt: null },
+      { id: 'd2', kind: 'divider', content: '', position: 4, projectId: 'p2', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    const rows = wrapper.findAll('.task-row')
+    const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
+
+    await rows[3].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
+    // After Two would put d2 straight after... Two, which is fine; before
+    // Two is straight after d1, which is not. jsdom rows are 0×0, so a
+    // negative pointer is "before".
+    await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
+    expect(rows[2].classes()).not.toContain('drop-before')
+    await rows[2].trigger('drop')
+    expect(reorder).not.toHaveBeenCalled()
+
+    // A drop ends the drag, so each try starts it afresh.
+    // Onto the other divider is refused on either side.
+    await rows[3].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
+    await rows[1].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+    expect(rows[1].classes()).not.toContain('drop-after')
+
+    // Before One is beside nothing but One.
+    await rows[0].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
+    expect(rows[0].classes()).toContain('drop-before')
+    await rows[0].trigger('drop')
+    expect(reorder).toHaveBeenCalledWith(['d2', 'a', 'd1', 'b'])
+  })
+
+  it('draws a divider as a rule with a grip and a delete, and no circle or title', async () => {
+    seedWithDivider()
+    const wrapper = mountView()
+    await flushPromises()
+
+    const row = wrapper.findAll('.task-row')[1]
+    expect(row.classes()).toContain('task-divider')
+    expect(row.find('.divider-line').exists()).toBe(true)
+    expect(row.find('.task-check').exists()).toBe(false)
+    expect(row.find('.task-open').exists()).toBe(false)
+    expect(row.get('.task-grip').attributes('aria-label')).toBe('Drag divider')
+    expect(row.get('.divider-delete').text()).toBe('delete')
+  })
+
+  it('deletes a divider without asking', async () => {
+    const items = seedWithDivider()
+    const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+    // The spy is shared with earlier tests in this file, so its calls are
+    // cleared before counting them.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    confirm.mockClear()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.divider-delete').trigger('click')
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(remove).toHaveBeenCalledWith('d')
+  })
+
+  it('marks a dragged divider so the sidebar can refuse it for Today', async () => {
+    seedWithDivider()
+    const wrapper = mountView()
+    await flushPromises()
+    const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
+
+    await wrapper.findAll('.task-row')[1].get('.task-grip').trigger('dragstart', {
+      dataTransfer: transfer,
+    })
+
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 'd')
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-divider', 'd')
+  })
+
+  it('offers no plus in Today or while searching', async () => {
+    await router.push('/tasks?project=today')
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', dueDate: localToday(), position: 1, completedAt: null },
+    ]
+    items.loadedProject = 'today'
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('.task-insert').exists()).toBe(false)
+
+    await router.push('/tasks?project=p2')
+    await flushPromises()
+    items.items = [{ id: 'a', content: 'One', position: 1, completedAt: null }]
+    items.loadedProject = 'p2'
+    await flushPromises()
+    expect(wrapper.find('.task-insert').exists()).toBe(true)
+    await wrapper.get('.task-search').setValue('One')
+    expect(wrapper.find('.task-insert').exists()).toBe(false)
+  })
+})
+
 describe('searching tasks', () => {
   function seedItems() {
     const items = useTaskItemsStore()

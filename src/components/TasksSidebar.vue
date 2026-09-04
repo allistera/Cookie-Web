@@ -122,10 +122,17 @@ function onDragEnd() {
 // to make it due today. Only the type is readable while dragging; the id
 // comes out on drop.
 const TASK_DRAG_TYPE = 'application/x-cookie-task'
+// A divider carries this type as well: it has no date to set, so Today
+// refuses it while it is still in the air.
+const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
 const taskDropTarget = ref(null)
 
 function isTaskDrag(event) {
   return Array.from(event.dataTransfer?.types ?? []).includes(TASK_DRAG_TYPE)
+}
+
+function isDividerDrag(event) {
+  return Array.from(event.dataTransfer?.types ?? []).includes(DIVIDER_DRAG_TYPE)
 }
 
 // `target` is 'inbox', 'today' or a project id; null is the My Projects
@@ -134,6 +141,7 @@ function isTaskDrag(event) {
 // so the project handlers can stand aside.
 function onTaskDragOver(target, event) {
   if (target === null || !isTaskDrag(event)) return false
+  if (target === 'today' && isDividerDrag(event)) return true
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   taskDropTarget.value = target
@@ -150,8 +158,9 @@ function onTaskDrop(target, event) {
   taskDropTarget.value = null
   const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
   if (!id) return true
-  if (target === 'today') taskItems.setDueDate(id, localToday())
-  else taskItems.moveItem(id, target === 'inbox' ? null : target)
+  if (target === 'today') {
+    if (!isDividerDrag(event)) taskItems.setDueDate(id, localToday())
+  } else taskItems.moveItem(id, target === 'inbox' ? null : target)
   return true
 }
 

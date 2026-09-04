@@ -216,6 +216,74 @@ describe('task items store', () => {
 
       expect(total).toBe(0)
     })
+
+    it('does not count dividers as tasks', async () => {
+      stubFetch(async () => ({
+        ok: true,
+        json: async () => ({ items: [{ kind: 'task' }, { kind: 'divider' }, {}] }),
+      }))
+
+      expect(await store.countForProjects(['p1'])).toBe(2)
+    })
+  })
+})
+
+// A divider is a row of kind 'divider'. The server puts it last; the store
+// then re-arranges the list to carry it up under the row it was asked for.
+describe('adding a divider', () => {
+  const DIVIDER = { id: 'd1', kind: 'divider', projectId: 'p1', parentId: null, content: '' }
+
+  it('creates it in the project and re-arranges it under the given row', async () => {
+    store.loadedProject = 'p1'
+    store.items = [
+      { ...ITEM, id: 'a', position: 1 },
+      { ...ITEM, id: 'b', position: 2 },
+    ]
+    stubFetch(async (url) => ({
+      ok: true,
+      json: async () =>
+        url.includes('/reorder') ? { items: [] } : { item: { ...DIVIDER, position: 3 } },
+    }))
+
+    await store.addDivider({ projectId: 'p1', afterId: 'a' })
+
+    const [, create] = fetch.mock.calls[0]
+    expect(JSON.parse(create.body)).toEqual({ kind: 'divider', projectId: 'p1' })
+    const [reorderUrl, reorder] = fetch.mock.calls[1]
+    expect(reorderUrl).toContain('/task-items/reorder')
+    expect(JSON.parse(reorder.body)).toEqual({ ids: ['a', 'd1', 'b'] })
+    expect(store.items.map((row) => row.id)).toEqual(['a', 'd1', 'b'])
+  })
+
+  it('sends null for an Inbox divider', async () => {
+    store.loadedProject = 'inbox'
+    store.items = [{ ...ITEM, id: 'a', projectId: null, position: 1 }]
+    stubFetch(async (url) => ({
+      ok: true,
+      json: async () =>
+        url.includes('/reorder')
+          ? { items: [] }
+          : { item: { ...DIVIDER, projectId: null, position: 2 } },
+    }))
+
+    await store.addDivider({ projectId: null, afterId: 'a' })
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ kind: 'divider', projectId: null })
+    expect(store.items.map((row) => row.id)).toEqual(['a', 'd1'])
+  })
+
+  it('surfaces the server message when the divider is refused', async () => {
+    store.loadedProject = 'p1'
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'Project not found' }),
+    }))
+
+    expect(await store.addDivider({ projectId: 'p1', afterId: 'a' })).toBeNull()
+    expect(notify).toHaveBeenCalledWith('Project not found', 'error')
+    expect(store.items).toEqual([])
   })
 })
 

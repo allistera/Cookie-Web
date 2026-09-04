@@ -495,7 +495,7 @@ function localApiPlugin(mode) {
     let taskResults = []
     if ((scope === 'all' || scope === 'tasks') && Object.keys(filters).length === 0) {
       taskResults = state.taskItems
-        .filter((item) => !item.parentId && !item.completedAt)
+        .filter((item) => item.kind !== 'divider' && !item.parentId && !item.completedAt)
         .filter((item) => {
           const subtaskTitles = state.taskItems
             .filter((row) => row.parentId === item.id)
@@ -1314,8 +1314,20 @@ function localApiPlugin(mode) {
       }
       if (segments[1]) return json(res, { error: 'Not Found' }, 404)
       if (req.method === 'POST') {
-        const content = cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
-        if (!content) return json(res, { error: 'Task content is required' }, 400)
+        // A divider (kind: 'divider', migration 0064) has no content and
+        // is never a sub-task; it lands last like any new row.
+        const kind = body.kind ?? 'task'
+        if (kind !== 'task' && kind !== 'divider') {
+          return json(res, { error: 'kind must be "task" or "divider"' }, 400)
+        }
+        const content =
+          kind === 'divider' ? '' : cleanTaskText(body.content, TASK_MAX_CONTENT_LENGTH)
+        if (kind === 'task' && !content) {
+          return json(res, { error: 'Task content is required' }, 400)
+        }
+        if (kind === 'divider' && (body.parentId ?? null) !== null) {
+          return json(res, { error: 'A divider cannot be a sub-task' }, 400)
+        }
 
         // A sub-task lives in its parent's project; any projectId in the
         // body is ignored, mirroring the real handler.
@@ -1335,6 +1347,7 @@ function localApiPlugin(mode) {
 
         const item = {
           id: randomUUID(),
+          kind,
           projectId,
           parentId,
           content,

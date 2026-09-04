@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
-import { dealPositions, sortForList } from '../lib/taskOrder'
+import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
 
 // Re-arranging sends the whole order, so the requests must reach the server
@@ -109,7 +109,11 @@ export const useTaskItemsStore = defineStore('taskItems', {
           this.request('GET', { params: `?project=${encodeURIComponent(id)}&completed=1` }),
         ),
       )
-      return results.reduce((total, { items = [] }) => total + items.length, 0)
+      // Dividers are rows too, but nobody counts them as tasks.
+      return results.reduce(
+        (total, { items = [] }) => total + items.filter((row) => row.kind !== 'divider').length,
+        0,
+      )
     },
 
     // Whether a task belongs in the list currently on screen. Add Task creates
@@ -138,6 +142,26 @@ export const useTaskItemsStore = defineStore('taskItems', {
       } catch (error) {
         console.error('Failed to create task:', error)
         this.notify(error.userMessage || 'Failed to create the task.', 'error')
+        return null
+      }
+    },
+
+    // A divider is a rule between rows (kind: 'divider'), added from the line
+    // under `afterId`. The server puts every new row last, so once it is
+    // back the list is re-arranged to carry it up to where it was asked for;
+    // a failed re-arrange leaves it at the bottom rather than losing it.
+    async addDivider({ projectId = null, afterId }) {
+      try {
+        const { item } = await this.request('POST', { body: { kind: 'divider', projectId } })
+        if (!this.belongsToLoadedList(item)) return item
+        this.items.push(item)
+        const ids = this.items.filter((row) => !row.parentId).map((row) => row.id)
+        const order = orderAfterDrop(ids, item.id, afterId, 'after')
+        if (order) await this.reorderItems(order)
+        return item
+      } catch (error) {
+        console.error('Failed to add divider:', error)
+        this.notify(error.userMessage || 'Failed to add the divider.', 'error')
         return null
       }
     },

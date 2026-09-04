@@ -49,14 +49,49 @@ const openTaskId = computed(() => {
 
 // Deleting cascades to any sub-tasks and there is no undo endpoint, so it
 // confirms first and names what it is about to remove — the same bargain the
-// detail panel's delete makes.
+// detail panel's delete makes. A divider holds nothing, so it just goes.
 async function removeItem(item) {
-  if (!confirm(`Delete "${item.content}"?`)) return
+  if (!isDivider(item) && !confirm(`Delete "${item.content}"?`)) return
   await items.deleteItem(item.id)
+}
+
+// --- Dividers ---
+// A rule between rows to group them (kind: 'divider'). The line under each
+// row grows a plus when the pointer rests on it; the plus adds a divider
+// there. Today spans every project, so it has no list to put one in, and a
+// search shows rows out of context, so neither offers the plus.
+function isDivider(item) {
+  return item.kind === 'divider'
+}
+
+const canAddDividers = computed(() => !isToday.value && !trimmedQuery.value)
+// One at a time: a second click while the first is still on its way would
+// put two rules side by side.
+const addingDivider = ref(false)
+
+// No plus on either side of a divider: two rules in a row say nothing.
+function offersDividerAfter(index) {
+  if (!canAddDividers.value) return false
+  const next = visibleItems.value[index + 1]
+  return !isDivider(visibleItems.value[index]) && !(next && isDivider(next))
+}
+
+async function addDividerAfter(item) {
+  if (addingDivider.value) return
+  addingDivider.value = true
+  try {
+    await items.addDivider({ projectId: isInbox.value ? null : project.value, afterId: item.id })
+  } finally {
+    addingDivider.value = false
+  }
 }
 
 function open(id) {
   router.push({ path: '/tasks', query: { ...route.query, task: id } })
+}
+
+function labelOf(item) {
+  return isDivider(item) ? 'divider' : item.content
 }
 
 const DUE_MONTHS = [
@@ -180,6 +215,9 @@ const visibleItems = computed(() => {
 // back from this MIME type. Today is ordered by due date, so there a row can
 // only be re-arranged among the rows due the same day.
 const TASK_DRAG_TYPE = 'application/x-cookie-task'
+// A divider carries a second type so the sidebar's Today, which sets a due
+// date, can refuse it before it lands.
+const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
 const dragTaskId = ref(null)
 const dropRowId = ref(null)
 const dropPlace = ref('after')
@@ -205,17 +243,33 @@ function onTaskDragStart(item, event) {
   dragTaskId.value = item.id
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData(TASK_DRAG_TYPE, item.id)
+  if (isDivider(item)) event.dataTransfer.setData(DIVIDER_DRAG_TYPE, item.id)
   event.dataTransfer.setData('text/plain', item.id)
+}
+
+// A divider is not dropped beside another: two rules in a row say nothing.
+function dividerWouldTouch(item, place) {
+  if (!isDivider(draggedItem.value)) return false
+  if (isDivider(item)) return true
+  const list = topLevelItems.value
+  const index = list.indexOf(item)
+  const neighbour = place === 'before' ? list[index - 1] : list[index + 1]
+  return Boolean(neighbour) && neighbour.id !== draggedItem.value.id && isDivider(neighbour)
 }
 
 // The upper half of a row means "before it", the lower half "after".
 function onTaskDragOver(item, event) {
   if (!canDropOn(item)) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  const place = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  if (dividerWouldTouch(item, place)) {
+    if (dropRowId.value === item.id) dropRowId.value = null
+    return
+  }
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
-  const rect = event.currentTarget.getBoundingClientRect()
   dropRowId.value = item.id
-  dropPlace.value = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  dropPlace.value = place
 }
 
 function onTaskDragLeave(item) {
@@ -227,10 +281,11 @@ function clearTaskDrag() {
   dropRowId.value = null
 }
 
+// A drop counts only on the row the last dragover accepted.
 function onTaskDrop(item) {
   const draggedId = dragTaskId.value
   const place = dropPlace.value
-  const allowed = canDropOn(item)
+  const allowed = dropRowId.value === item.id && canDropOn(item) && !dividerWouldTouch(item, place)
   const ids = allowed ? reorderGroup().map((row) => row.id) : []
   clearTaskDrag()
   if (!allowed) return
@@ -317,60 +372,92 @@ async function submitDraft() {
       No tasks match "{{ trimmedQuery }}"
     </p>
     <ul v-else class="task-rows">
-      <li
-        v-for="item in visibleItems"
-        :key="item.id"
-        class="task-row"
-        :class="{
-          dragging: dragTaskId === item.id,
-          'drop-before': dropRowId === item.id && dropPlace === 'before',
-          'drop-after': dropRowId === item.id && dropPlace === 'after',
-        }"
-        @dragover="onTaskDragOver(item, $event)"
-        @dragleave="onTaskDragLeave(item)"
-        @drop.prevent="onTaskDrop(item)"
-      >
-        <!-- The grip is the drag source, not the row: text in the title can
-           still be selected, and the affordance says what dragging does. -->
-        <button
-          class="task-grip"
-          type="button"
-          draggable="true"
-          title="Drag to re-arrange or move"
-          :aria-label="`Drag ${item.content}`"
-          @dragstart="onTaskDragStart(item, $event)"
-          @dragend="clearTaskDrag"
-          @click.prevent
+      <template v-for="(item, index) in visibleItems" :key="item.id">
+        <li
+          class="task-row"
+          :class="{
+            'task-divider': isDivider(item),
+            dragging: dragTaskId === item.id,
+            'drop-before': dropRowId === item.id && dropPlace === 'before',
+            'drop-after': dropRowId === item.id && dropPlace === 'after',
+          }"
+          @dragover="onTaskDragOver(item, $event)"
+          @dragleave="onTaskDragLeave(item)"
+          @drop.prevent="onTaskDrop(item)"
         >
-          <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
-        </button>
-        <!-- The circle takes the priority's colour, the way Todoist's list
-           does, so an urgent task stands out without another chip. -->
-        <button
-          class="task-check"
-          :class="`priority-${priorityOf(item)}`"
-          type="button"
-          :aria-label="`Complete ${item.content}`"
-          @click="items.setCompleted(item.id, true)"
-        ></button>
-        <button class="task-open" type="button" @click="open(item.id)">
-          <span class="task-content">{{ item.content }}</span>
-          <span v-if="item.description" class="task-description">{{ item.description }}</span>
-          <span v-if="showsDue(item)" class="task-due" :class="{ overdue: isOverdue(item) }">
-            {{ formatDue(item.dueDate) }}
-          </span>
-          <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
-        </button>
-        <button
-          class="task-delete"
-          type="button"
-          title="Delete task"
-          :aria-label="`Delete ${item.content}`"
-          @click="removeItem(item)"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">delete</span>
-        </button>
-      </li>
+          <!-- The grip is the drag source, not the row: text in the title can
+             still be selected, and the affordance says what dragging does. -->
+          <button
+            class="task-grip"
+            type="button"
+            draggable="true"
+            title="Drag to re-arrange or move"
+            :aria-label="`Drag ${labelOf(item)}`"
+            @dragstart="onTaskDragStart(item, $event)"
+            @dragend="clearTaskDrag"
+            @click.prevent
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
+          </button>
+          <template v-if="isDivider(item)">
+            <!-- A rule with its delete in the middle, shown when the pointer
+               rests on it. Nothing to confirm: the divider holds nothing. -->
+            <span class="divider-line" aria-hidden="true"></span>
+            <button
+              class="divider-delete"
+              type="button"
+              title="Delete divider"
+              aria-label="Delete divider"
+              @click="removeItem(item)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            </button>
+          </template>
+          <template v-else>
+            <!-- The circle takes the priority's colour, the way Todoist's list
+               does, so an urgent task stands out without another chip. -->
+            <button
+              class="task-check"
+              :class="`priority-${priorityOf(item)}`"
+              type="button"
+              :aria-label="`Complete ${item.content}`"
+              @click="items.setCompleted(item.id, true)"
+            ></button>
+            <button class="task-open" type="button" @click="open(item.id)">
+              <span class="task-content">{{ item.content }}</span>
+              <span v-if="item.description" class="task-description">{{ item.description }}</span>
+              <span v-if="showsDue(item)" class="task-due" :class="{ overdue: isOverdue(item) }">
+                {{ formatDue(item.dueDate) }}
+              </span>
+              <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
+            </button>
+            <button
+              class="task-delete"
+              type="button"
+              title="Delete task"
+              :aria-label="`Delete ${item.content}`"
+              @click="removeItem(item)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            </button>
+          </template>
+        </li>
+        <!-- A zero-height row straddling the line under the one above: the
+           plus appears while the pointer is on the line, and adds a divider
+           there. -->
+        <li v-if="offersDividerAfter(index)" class="task-insert">
+          <button
+            class="task-insert-btn"
+            type="button"
+            title="Add divider"
+            :aria-label="`Add divider after ${labelOf(item)}`"
+            :disabled="addingDivider"
+            @click="addDividerAfter(item)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+          </button>
+        </li>
+      </template>
     </ul>
 
     <!-- A task added while a query is active would match nothing and vanish
@@ -503,6 +590,7 @@ async function submitDraft() {
 }
 
 .task-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -512,6 +600,120 @@ async function submitDraft() {
 
 .task-row.dragging {
   opacity: 0.5;
+}
+
+/* A divider: the grip, then a rule where a task's circle and title would be,
+   with the delete sitting on the rule's midpoint. */
+.task-row.task-divider {
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: none;
+}
+
+.divider-line {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-secondary);
+  opacity: 0.5;
+  transition: opacity var(--transition-fast) ease;
+}
+
+.task-divider:hover .divider-line {
+  opacity: 1;
+}
+
+.divider-delete {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast) ease;
+}
+
+.task-divider:hover .divider-delete,
+.divider-delete:focus-visible {
+  opacity: 1;
+}
+
+.divider-delete:hover {
+  color: var(--text-primary);
+}
+
+.divider-delete .material-symbols-outlined {
+  font-size: 16px;
+}
+
+/* The line under a row, made hoverable: a 14px band straddling the border
+   above it (the negative margins pull it over the neighbouring rows, and
+   the z-index paints it above them). On the band the line darkens and a
+   plus appears at its midpoint. */
+.task-insert {
+  position: relative;
+  z-index: 1;
+  height: 14px;
+  margin: -7px 0;
+}
+
+.task-insert::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 2px;
+  background: var(--accent-color, #4f7c6b);
+  opacity: 0;
+  transition: opacity var(--transition-fast) ease;
+}
+
+.task-insert-btn {
+  position: absolute;
+  /* Above the line, which is drawn after it. */
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  padding: 1px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent-color, #4f7c6b);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast) ease;
+}
+
+/* Keyboard focus reveals it too — but only focus-visible, or the plus would
+   stay lit after a click, which leaves the button focused. */
+.task-insert:hover::after,
+.task-insert:hover .task-insert-btn,
+.task-insert:has(.task-insert-btn:focus-visible)::after,
+.task-insert-btn:focus-visible {
+  opacity: 1;
+}
+
+.task-insert-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+@media (hover: none) {
+  /* Without a pointer to rest on the line, the plus has to be visible. */
+  .task-insert-btn,
+  .divider-delete {
+    opacity: 1;
+  }
 }
 
 /* Sits in the gutter left of the row (the view's side padding), revealed on
