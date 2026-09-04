@@ -3370,6 +3370,31 @@ button.ni-attachment:hover {
   color: var(--text-secondary);
 }
 
+/* The AI icon at the footer's right edge; pressing it swaps the whole row
+   for the prompt above. */
+.composer-ai-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.composer-ai-toggle:hover {
+  background-color: var(--bg-hover);
+}
+
+.composer-ai-toggle .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.composer-ai-close {
+  margin-left: 4px;
+}
+
 .composer-ai-inline-input {
   flex: 1 1 auto;
   min-width: 0;

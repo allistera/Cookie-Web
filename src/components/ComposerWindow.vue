@@ -52,6 +52,41 @@ function onAttachFiles(event) {
   input.value = ''
 }
 
+// The footer is one row: the send actions and their neighbours, or — once
+// the AI icon at its right edge is pressed — the Cookie AI prompt alone at
+// full width. The two never share the row, so neither is squeezed.
+const aiPromptOpen = ref(false)
+const aiPromptRef = ref(null)
+
+async function openAiPrompt() {
+  aiPromptOpen.value = true
+  await nextTick()
+  aiPromptRef.value?.focus()
+}
+
+function closeAiPrompt() {
+  aiPromptOpen.value = false
+}
+
+// The editor's own Generate control opens the AI panel with the draft as
+// the instruction; the prompt comes up with it so that instruction can be
+// read and changed. Immediate, because the panel can already be open when
+// this lazily-loaded window first mounts (a reply drafted from the inbox).
+// A closed composer starts its next message on the plain footer.
+watch(
+  () => store.isAiDraftActive,
+  (active) => {
+    if (active) openAiPrompt()
+  },
+  { immediate: true },
+)
+watch(
+  () => store.isComposerActive,
+  (active) => {
+    if (!active) closeAiPrompt()
+  },
+)
+
 const scheduleSendOpen = ref(false)
 const scheduleSendOptions = computed(() => (scheduleSendOpen.value ? scheduleChoices() : []))
 const followUpOpen = ref(false)
@@ -323,93 +358,118 @@ onUnmounted(() => {
       </aside>
     </div>
     <div class="composer-footer">
-      <div class="composer-send-actions">
-        <div class="composer-send-split">
-          <button
-            class="btn btn-primary composer-send-btn composer-send-btn-split"
-            :disabled="isSendDisabled"
-            :aria-busy="store.isSendingEmail"
-            @click="store.sendEmail"
-          >
-            {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
-          </button>
-          <div class="ni-schedule-wrap ni-schedule-wrap-upward">
-            <button
-              type="button"
-              class="btn btn-primary composer-schedule-caret"
-              :disabled="isSendDisabled"
-              aria-haspopup="menu"
-              :aria-expanded="scheduleSendOpen"
-              title="Schedule send"
-              @click="scheduleSendOpen = !scheduleSendOpen"
-            >
-              <span class="material-symbols-outlined">expand_less</span>
-            </button>
-            <ScheduleMenu
-              v-if="scheduleSendOpen"
-              :choices="scheduleSendOptions"
-              submit-label="Schedule"
-              custom-label="Custom send time"
-              @select="selectScheduleSend"
-            />
-          </div>
-        </div>
+      <div v-if="aiPromptOpen" class="composer-ai-inline">
+        <span class="material-symbols-outlined gemini-color" aria-hidden="true">auto_fix_high</span>
         <input
-          ref="attachInputRef"
-          type="file"
-          class="composer-attach-input"
-          multiple
-          tabindex="-1"
-          aria-hidden="true"
-          @change="onAttachFiles"
-        />
-        <button
-          type="button"
-          class="btn btn-text composer-attach-btn"
-          :disabled="store.pendingAttachmentUploads > 0"
-          :aria-busy="store.pendingAttachmentUploads > 0"
-          title="Attach files"
-          @click="attachInputRef?.click()"
-        >
-          <span class="material-symbols-outlined">attach_file</span>
-          <span>{{ store.pendingAttachmentUploads > 0 ? 'Uploading…' : 'Attach' }}</span>
-        </button>
-        <div class="ni-schedule-wrap ni-schedule-wrap-upward">
-          <button
-            type="button"
-            class="btn btn-text composer-follow-up-btn"
-            :class="{ active: store.composerFollowUpAt }"
-            aria-haspopup="menu"
-            :aria-expanded="followUpOpen"
-            :title="
-              store.composerFollowUpAt ? 'Change follow-up reminder' : 'Remind me if no reply'
-            "
-            @click="followUpOpen = !followUpOpen"
-          >
-            <span class="material-symbols-outlined">notification_add</span>
-            <span>{{ followUpLabel }}</span>
-          </button>
-          <ScheduleMenu
-            v-if="followUpOpen"
-            :choices="followUpOptions"
-            submit-label="Remind me"
-            custom-label="Custom follow-up time"
-            :clear-label="store.composerFollowUpAt ? 'Clear reminder' : ''"
-            @select="selectFollowUp"
-            @clear="clearFollowUp"
-          />
-        </div>
-      </div>
-      <div class="composer-ai-inline">
-        <span class="material-symbols-outlined">auto_fix_high</span>
-        <input
+          ref="aiPromptRef"
           v-model="store.composerAiInstruction"
           class="composer-ai-inline-input"
           maxlength="1000"
           placeholder="Describe your message"
-          @keydown.enter.prevent="store.requestAiDraft"
+          aria-label="Describe your message"
+          @keydown.enter.prevent="store.requestAiDraft()"
+          @keydown.escape.stop="closeAiPrompt"
         />
+        <button
+          type="button"
+          class="composer-icon-btn composer-ai-close"
+          title="Back to send options"
+          aria-label="Close Cookie AI prompt"
+          @click="closeAiPrompt"
+        >
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
+      <template v-else>
+        <div class="composer-send-actions">
+          <div class="composer-send-split">
+            <button
+              class="btn btn-primary composer-send-btn composer-send-btn-split"
+              :disabled="isSendDisabled"
+              :aria-busy="store.isSendingEmail"
+              @click="store.sendEmail"
+            >
+              {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
+            </button>
+            <div class="ni-schedule-wrap ni-schedule-wrap-upward">
+              <button
+                type="button"
+                class="btn btn-primary composer-schedule-caret"
+                :disabled="isSendDisabled"
+                aria-haspopup="menu"
+                :aria-expanded="scheduleSendOpen"
+                title="Schedule send"
+                @click="scheduleSendOpen = !scheduleSendOpen"
+              >
+                <span class="material-symbols-outlined">expand_less</span>
+              </button>
+              <ScheduleMenu
+                v-if="scheduleSendOpen"
+                :choices="scheduleSendOptions"
+                submit-label="Schedule"
+                custom-label="Custom send time"
+                @select="selectScheduleSend"
+              />
+            </div>
+          </div>
+          <input
+            ref="attachInputRef"
+            type="file"
+            class="composer-attach-input"
+            multiple
+            tabindex="-1"
+            aria-hidden="true"
+            @change="onAttachFiles"
+          />
+          <button
+            type="button"
+            class="btn btn-text composer-attach-btn"
+            :disabled="store.pendingAttachmentUploads > 0"
+            :aria-busy="store.pendingAttachmentUploads > 0"
+            title="Attach files"
+            @click="attachInputRef?.click()"
+          >
+            <span class="material-symbols-outlined">attach_file</span>
+            <span>{{ store.pendingAttachmentUploads > 0 ? 'Uploading…' : 'Attach' }}</span>
+          </button>
+          <div class="ni-schedule-wrap ni-schedule-wrap-upward">
+            <button
+              type="button"
+              class="btn btn-text composer-follow-up-btn"
+              :class="{ active: store.composerFollowUpAt }"
+              aria-haspopup="menu"
+              :aria-expanded="followUpOpen"
+              :title="
+                store.composerFollowUpAt ? 'Change follow-up reminder' : 'Remind me if no reply'
+              "
+              @click="followUpOpen = !followUpOpen"
+            >
+              <span class="material-symbols-outlined">notification_add</span>
+              <span>{{ followUpLabel }}</span>
+            </button>
+            <ScheduleMenu
+              v-if="followUpOpen"
+              :choices="followUpOptions"
+              submit-label="Remind me"
+              custom-label="Custom follow-up time"
+              :clear-label="store.composerFollowUpAt ? 'Clear reminder' : ''"
+              @select="selectFollowUp"
+              @clear="clearFollowUp"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          class="composer-ai-toggle"
+          title="Write with Cookie AI"
+          aria-label="Write with Cookie AI"
+          @click="openAiPrompt"
+        >
+          <span class="material-symbols-outlined gemini-color" aria-hidden="true"
+            >auto_fix_high</span
+          >
+        </button>
+      </template>
     </div>
   </div>
 </template>
