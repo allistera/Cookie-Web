@@ -44,6 +44,7 @@ const rows = [
     // Matches api/_fixtures/messages.js: fixture-1 (index 0) carries an HTML
     // body, so the reader shows a spinner during the on-demand fetch. All other
     // fixture rows are text-only (has_html false) and render instantly.
+    priority: 'high',
     has_html: true,
     has_attachments: true,
     labels: [{ name: 'Home', color: '#e5484d' }],
@@ -288,6 +289,7 @@ export function fixtureEmails() {
     id: `fixture-${index + 1}`,
     has_html: false,
     has_ai_summary: false,
+    priority: 'normal',
     ...row,
     sent_at: new Date(now - ageMs).toISOString(),
   }))
@@ -299,6 +301,7 @@ export function fixtureSentEmails() {
     id: `fixture-sent-${index + 1}`,
     has_html: false,
     has_ai_summary: false,
+    priority: 'normal',
     is_unread: false,
     is_starred: false,
     is_sent: true,

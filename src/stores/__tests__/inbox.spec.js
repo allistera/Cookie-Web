@@ -493,6 +493,7 @@ describe('Inbox Store', () => {
         address: 'updates@cityconstruction.com',
         isSent: false,
         isSpam: false,
+        isPriority: false,
         isArchived: false,
         to: null,
         recipients: { to: [], cc: [] },
@@ -2801,6 +2802,7 @@ describe('Inbox Store', () => {
         id: 'archived-1',
         unread: false,
         isSpam: false,
+        isPriority: false,
         isArchived: true,
         scheduledFor: future,
       }

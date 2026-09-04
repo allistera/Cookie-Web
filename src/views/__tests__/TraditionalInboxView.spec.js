@@ -2013,7 +2013,7 @@ describe('opening an email from the route', () => {
   })
 })
 
-describe('TraditionalInboxView label tabs', () => {
+describe('TraditionalInboxView inbox tabs', () => {
   let store
 
   function tabTexts(wrapper) {
@@ -2039,10 +2039,12 @@ describe('TraditionalInboxView label tabs', () => {
     store.labels = [
       { id: 'l-team', name: 'Team', color: '#2383e2', kind: 'user' },
       { id: 'l-docs', name: 'Docs', color: '#8e4ec6', kind: 'user' },
+      { id: 'l-finance', name: 'Finance', color: '#2f9e44', kind: 'user' },
       { id: 'l-ai', name: 'AI Generated', color: '#7c3aed', kind: 'system' },
     ]
     const team = makeEmail('team-1', Date.now() - HOUR)
     team.labels = [{ name: 'Team', color: '#2383e2' }]
+    team.isPriority = true
     const both = makeEmail('both-1', Date.now() - 2 * HOUR)
     both.labels = [
       { name: 'Team', color: '#2383e2' },
@@ -2054,14 +2056,14 @@ describe('TraditionalInboxView label tabs', () => {
     store.traditionalEmails = [team, both, plain, system]
   })
 
-  it('lists All, each palette label and Other, each with its loaded count', () => {
+  it('lists Priority, the labels with mail and Other, hiding empty tabs', () => {
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['All 4', 'Docs 1', 'Team 2', 'Other 2'])
-    const all = wrapper.find('.ni-tab')
-    expect(all.classes()).toContain('active')
-    expect(all.attributes('aria-selected')).toBe('true')
-    expect(rowSubjects(wrapper)).toHaveLength(4)
+    expect(tabTexts(wrapper)).toEqual(['Priority 1', 'Docs 1', 'Team 2', 'Other 2'])
+    const priority = wrapper.find('.ni-tab')
+    expect(priority.classes()).toContain('active')
+    expect(priority.attributes('aria-selected')).toBe('true')
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
   })
 
   it('a label tab narrows the list to the emails carrying that label', async () => {
@@ -2076,7 +2078,7 @@ describe('TraditionalInboxView label tabs', () => {
     expect(store.inboxTab).toBe('label:Team')
   })
 
-  it('Other collects mail carrying none of the palette labels', async () => {
+  it('Other collects mail that is neither priority nor labelled', async () => {
     const wrapper = mountView()
 
     await clickTab(wrapper, 'Other')
@@ -2084,18 +2086,7 @@ describe('TraditionalInboxView label tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
   })
 
-  it('an empty label tab explains itself rather than showing Inbox Zero', async () => {
-    store.labels.push({ id: 'l-empty', name: 'Finance', color: '#2f9e44', kind: 'user' })
-    const wrapper = mountView()
-
-    await clickTab(wrapper, 'Finance')
-
-    expect(wrapper.findAll('.ni-row')).toHaveLength(0)
-    expect(wrapper.find('.ni-empty').text()).toBe('No emails labelled Finance.')
-    expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
-  })
-
-  it('stays hidden in filtered views and when there are no labels', async () => {
+  it('shows no bar in filtered views or when only one tab would be offered', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'starred' } })
     let wrapper = mountView()
     expect(wrapper.find('.ni-tabs').exists()).toBe(false)
@@ -2103,24 +2094,25 @@ describe('TraditionalInboxView label tabs', () => {
 
     await router.replace({ path: '/inbox' })
     store.labels = []
+    store.traditionalEmails[0].isPriority = false
     wrapper = mountView()
     expect(wrapper.find('.ni-tabs').exists()).toBe(false)
     expect(rowSubjects(wrapper)).toHaveLength(4)
   })
 
-  it('widens to All when a linked email sits outside the saved tab', async () => {
+  it('moves to a tab holding a linked email that sits outside the saved tab', async () => {
     store.inboxTab = 'label:Docs'
     await router.replace({ path: '/inbox', query: { open: 'plain-1' } })
     const wrapper = mountView()
     await nextTick()
 
-    expect(store.inboxTab).toBe('all')
+    expect(store.inboxTab).toBe('other')
     expect(store.openEmailId).toBe('plain-1')
     expect(wrapper.find('.ni-reader').exists()).toBe(true)
-    expect(rowSubjects(wrapper)).toHaveLength(4)
+    expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
   })
 
-  it('falls back to All once the selected label is deleted', async () => {
+  it('falls back to the first tab once the selected label is deleted', async () => {
     store.inboxTab = 'label:Team'
     const wrapper = mountView()
     expect(rowSubjects(wrapper)).toHaveLength(2)
@@ -2128,7 +2120,8 @@ describe('TraditionalInboxView label tabs', () => {
     store.labels = store.labels.filter((label) => label.name !== 'Team')
     await nextTick()
 
-    expect(rowSubjects(wrapper)).toHaveLength(4)
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
+    expect(wrapper.find('.ni-tab').text()).toContain('Priority')
     expect(wrapper.find('.ni-tab').classes()).toContain('active')
   })
 })
