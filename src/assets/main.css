@@ -991,58 +991,62 @@ body {
   font-size: 20px;
 }
 
-/* Inbox label tabs: All | <label>… | Other, the name in text colour with a
-   muted count beside it; the active tab takes the accent purple. */
+/* Inbox tabs: Priority | <label>… | Other. Large regular-weight names
+   with a smaller muted count beside each; the active name turns
+   periwinkle. No underline, no border: whitespace does the separating. */
 .ni-tabs {
+  --ni-tab-name: #3a3a3a;
+  --ni-tab-count: #b0b0b0;
+  --ni-tab-active: #9aafe7;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 16px 8px;
+  align-items: baseline;
+  gap: 26px;
+  padding: 2px 24px 18px;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid var(--border-color);
+}
+
+[data-theme='dark'] .ni-tabs {
+  --ni-tab-name: var(--text-primary);
+  --ni-tab-count: var(--text-secondary);
+  --ni-tab-active: var(--text-blue);
 }
 
 .ni-tab {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 9px;
+  padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: none;
   font-family: inherit;
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ni-tab-name);
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    color var(--transition-fast),
-    background-color var(--transition-fast);
+  transition: color var(--transition-fast);
 }
 
 .ni-tab:hover {
-  background: var(--bg-hover);
+  color: var(--ni-tab-active);
 }
 
 .ni-tab:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: 4px;
 }
 
 .ni-tab.active {
-  color: var(--text-purple);
-}
-
-[data-theme='dark'] .ni-tab.active {
-  color: var(--text-blue);
+  color: var(--ni-tab-active);
 }
 
 .ni-tab-count {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ni-tab-count);
 }
 
 /* Email list */
@@ -1644,8 +1648,16 @@ body {
   color: #f2c94c;
 }
 
+/* The open row: a lavender tint with a periwinkle bar down its left edge. */
 .ni-row.selected {
+  border-radius: 0;
+  background: #f6f5ff;
+  box-shadow: inset 4px 0 0 #a786e2;
+}
+
+[data-theme='dark'] .ni-row.selected {
   background: var(--bg-hover);
+  box-shadow: inset 4px 0 0 var(--text-blue);
 }
 
 /* Reading panel */

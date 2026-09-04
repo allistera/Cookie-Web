@@ -57,14 +57,22 @@ watch(
 // --- Inbox tabs (Priority | <each palette label> | Other) ---
 // The plain inbox partitions its loaded rows client-side, so the counts
 // describe what is on screen (and grow with Load More) rather than the
-// whole mailbox. Priority holds mail the ingest classifier rated high;
-// Other collects the rest that carries none of the palette labels. A tab
-// with nothing under it stays hidden, so the bar is empty only when the
-// inbox is. Tab ids: 'priority', 'other', or inboxTabForLabel(name).
+// whole mailbox. Priority is always offered: it holds mail the ingest
+// classifier rated high plus anything due now (a scheduled email whose time
+// has come, or a follow-up reminder). Other collects the rest that carries
+// none of the palette labels. A label tab with nothing under it stays
+// hidden. Tab ids: 'priority', 'other', or inboxTabForLabel(name).
 const PRIORITY_TAB = 'priority'
 const OTHER_TAB = 'other'
 const labelTabId = inboxTabForLabel
 const emailHasLabel = (email, name) => (email.labels || []).some((label) => label.name === name)
+
+// Whether the email is asking for attention now: the Due Today group and
+// the Priority tab share this test.
+function isDueNow(email, now = Date.now()) {
+  const scheduledFor = email.scheduledFor ? new Date(email.scheduledFor).getTime() : null
+  return Boolean((scheduledFor && scheduledFor <= now) || email.followUpAt)
+}
 
 // The inbox list before any tab narrows it: starred rows are hidden
 // client-side so starring moves mail out of Inbox immediately.
@@ -78,9 +86,10 @@ const inboxEmails = computed(() => {
 })
 
 function emailInTab(email, tabId) {
-  if (tabId === PRIORITY_TAB) return Boolean(email.isPriority)
+  const priority = Boolean(email.isPriority) || isDueNow(email)
+  if (tabId === PRIORITY_TAB) return priority
   if (tabId === OTHER_TAB) {
-    return !email.isPriority && !store.allLabels.some((label) => emailHasLabel(email, label.name))
+    return !priority && !store.allLabels.some((label) => emailHasLabel(email, label.name))
   }
   return (email.labels || []).some((label) => labelTabId(label.name) === tabId)
 }
@@ -93,20 +102,22 @@ const inboxTabs = computed(() => {
     { id: OTHER_TAB, name: 'Other' },
   ]
     .map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))
-    .filter((tab) => tab.count > 0)
+    .filter((tab) => tab.id === PRIORITY_TAB || tab.count > 0)
 })
 
 const showInboxTabs = computed(
-  () => !activeFilter.value && !store.activeSearchQuery && inboxTabs.value.length > 0,
+  () => !activeFilter.value && !store.activeSearchQuery && inboxEmails.value.length > 0,
 )
 
-// The chosen tab, or the first on offer once the chosen one has emptied or
-// its label was deleted. Null while the bar is hidden, when nothing narrows.
+// The chosen tab while it is still offered (Priority always is, even
+// empty, so a deliberate click on it sticks). Otherwise, before any choice
+// or once the chosen label emptied or was deleted, the first tab holding
+// mail. Null while the bar is hidden, when nothing narrows.
 const activeTab = computed(() => {
   if (!showInboxTabs.value) return null
-  return inboxTabs.value.some((tab) => tab.id === store.inboxTab)
-    ? store.inboxTab
-    : inboxTabs.value[0].id
+  const tabs = inboxTabs.value
+  if (tabs.some((tab) => tab.id === store.inboxTab)) return store.inboxTab
+  return (tabs.find((tab) => tab.count > 0) ?? tabs[0]).id
 })
 
 const filteredEmails = computed(() => {
@@ -158,6 +169,12 @@ const showInboxZero = computed(
     !inboxEmails.value.length &&
     !store.hasMoreEmails &&
     !store.isRefreshing,
+)
+
+// Priority is the one tab offered while empty, so it says so instead of
+// showing a blank list.
+const showPriorityEmpty = computed(
+  () => activeTab.value === PRIORITY_TAB && !filteredEmails.value.length && !showInboxZero.value,
 )
 
 const showLoadMore = computed(() => {
@@ -264,12 +281,7 @@ const emailGroups = computed(() => {
   const lastSevenDays = []
   const earlier = []
   for (const email of filteredEmails.value) {
-    const scheduledFor = email.scheduledFor ? new Date(email.scheduledFor).getTime() : null
-    if (
-      !activeFilter.value &&
-      !store.activeSearchQuery &&
-      ((scheduledFor && scheduledFor <= now) || email.followUpAt)
-    ) {
+    if (!activeFilter.value && !store.activeSearchQuery && isDueNow(email, now)) {
       dueToday.push(email)
       continue
     }
@@ -1270,6 +1282,9 @@ onUnmounted(() => {
       </template>
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
+      </div>
+      <div class="ni-empty" v-if="showPriorityEmpty">
+        No priority emails. High-priority and due emails land here.
       </div>
       <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
         <span class="material-symbols-outlined ni-inbox-zero-icon" aria-hidden="true"
