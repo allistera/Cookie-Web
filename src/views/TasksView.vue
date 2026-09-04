@@ -65,6 +65,9 @@ function isDivider(item) {
 }
 
 const canAddDividers = computed(() => !isToday.value && !trimmedQuery.value)
+// One at a time: a second click while the first is still on its way would
+// put two rules side by side.
+const addingDivider = ref(false)
 
 // No plus on either side of a divider: two rules in a row say nothing.
 function offersDividerAfter(index) {
@@ -73,8 +76,14 @@ function offersDividerAfter(index) {
   return !isDivider(visibleItems.value[index]) && !(next && isDivider(next))
 }
 
-function addDividerAfter(item) {
-  items.addDivider({ projectId: isInbox.value ? null : project.value, afterId: item.id })
+async function addDividerAfter(item) {
+  if (addingDivider.value) return
+  addingDivider.value = true
+  try {
+    await items.addDivider({ projectId: isInbox.value ? null : project.value, afterId: item.id })
+  } finally {
+    addingDivider.value = false
+  }
 }
 
 function open(id) {
@@ -238,14 +247,29 @@ function onTaskDragStart(item, event) {
   event.dataTransfer.setData('text/plain', item.id)
 }
 
+// A divider is not dropped beside another: two rules in a row say nothing.
+function dividerWouldTouch(item, place) {
+  if (!isDivider(draggedItem.value)) return false
+  if (isDivider(item)) return true
+  const list = topLevelItems.value
+  const index = list.indexOf(item)
+  const neighbour = place === 'before' ? list[index - 1] : list[index + 1]
+  return Boolean(neighbour) && neighbour.id !== draggedItem.value.id && isDivider(neighbour)
+}
+
 // The upper half of a row means "before it", the lower half "after".
 function onTaskDragOver(item, event) {
   if (!canDropOn(item)) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  const place = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  if (dividerWouldTouch(item, place)) {
+    if (dropRowId.value === item.id) dropRowId.value = null
+    return
+  }
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
-  const rect = event.currentTarget.getBoundingClientRect()
   dropRowId.value = item.id
-  dropPlace.value = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  dropPlace.value = place
 }
 
 function onTaskDragLeave(item) {
@@ -257,10 +281,11 @@ function clearTaskDrag() {
   dropRowId.value = null
 }
 
+// A drop counts only on the row the last dragover accepted.
 function onTaskDrop(item) {
   const draggedId = dragTaskId.value
   const place = dropPlace.value
-  const allowed = canDropOn(item)
+  const allowed = dropRowId.value === item.id && canDropOn(item) && !dividerWouldTouch(item, place)
   const ids = allowed ? reorderGroup().map((row) => row.id) : []
   clearTaskDrag()
   if (!allowed) return
@@ -426,6 +451,7 @@ async function submitDraft() {
             type="button"
             title="Add divider"
             :aria-label="`Add divider after ${labelOf(item)}`"
+            :disabled="addingDivider"
             @click="addDividerAfter(item)"
           >
             <span class="material-symbols-outlined" aria-hidden="true">add</span>

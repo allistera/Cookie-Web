@@ -672,6 +672,62 @@ describe('dividers', () => {
     )
   })
 
+  it('ignores a second click while a divider is still being added', async () => {
+    const items = seedTwo()
+    let finish
+    const add = vi
+      .spyOn(items, 'addDivider')
+      .mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const wrapper = mountView()
+    await flushPromises()
+
+    const plus = wrapper.get('.task-insert-btn')
+    await plus.trigger('click')
+    expect(plus.attributes('disabled')).toBeDefined()
+    await plus.trigger('click')
+    expect(add).toHaveBeenCalledTimes(1)
+
+    finish(null)
+    await flushPromises()
+    expect(plus.attributes('disabled')).toBeUndefined()
+  })
+
+  // Two rules in a row say nothing, so a divider will not land beside one.
+  it('refuses to drop a divider beside another divider', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', position: 1, projectId: 'p2', completedAt: null },
+      { id: 'd1', kind: 'divider', content: '', position: 2, projectId: 'p2', completedAt: null },
+      { id: 'b', content: 'Two', position: 3, projectId: 'p2', completedAt: null },
+      { id: 'd2', kind: 'divider', content: '', position: 4, projectId: 'p2', completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    const rows = wrapper.findAll('.task-row')
+    const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
+
+    await rows[3].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
+    // After Two would put d2 straight after... Two, which is fine; before
+    // Two is straight after d1, which is not. jsdom rows are 0×0, so a
+    // negative pointer is "before".
+    await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
+    expect(rows[2].classes()).not.toContain('drop-before')
+    await rows[2].trigger('drop')
+    expect(reorder).not.toHaveBeenCalled()
+
+    // Onto the other divider is refused on either side.
+    await rows[1].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+    expect(rows[1].classes()).not.toContain('drop-after')
+
+    // Before One is beside nothing but One.
+    await rows[0].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
+    expect(rows[0].classes()).toContain('drop-before')
+    await rows[0].trigger('drop')
+    expect(reorder).toHaveBeenCalledWith(['d2', 'a', 'd1', 'b'])
+  })
+
   it('draws a divider as a rule with a grip and a delete, and no circle or title', async () => {
     seedWithDivider()
     const wrapper = mountView()
