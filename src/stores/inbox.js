@@ -18,6 +18,10 @@ import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
+
+// Inbox tab ids: 'all', 'other', or a label tab. The prefix keeps a label
+// named "All" or "Other" from colliding with the fixed tabs.
+export const inboxTabForLabel = (name) => `label:${name}`
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
@@ -1164,6 +1168,9 @@ export const useInboxStore = defineStore('inbox', {
         const { label: updatedLabel } = await response.json()
         Object.assign(label, updatedLabel)
         this.labels.sort((a, b) => a.name.localeCompare(b.name))
+        if (this.inboxTab === inboxTabForLabel(previousName)) {
+          this.inboxTab = inboxTabForLabel(updatedLabel.name)
+        }
 
         for (const list of [
           this.traditionalEmails,

@@ -2108,6 +2108,18 @@ describe('TraditionalInboxView label tabs', () => {
     expect(rowSubjects(wrapper)).toHaveLength(4)
   })
 
+  it('widens to All when a linked email sits outside the saved tab', async () => {
+    store.inboxTab = 'label:Docs'
+    await router.replace({ path: '/inbox', query: { open: 'plain-1' } })
+    const wrapper = mountView()
+    await nextTick()
+
+    expect(store.inboxTab).toBe('all')
+    expect(store.openEmailId).toBe('plain-1')
+    expect(wrapper.find('.ni-reader').exists()).toBe(true)
+    expect(rowSubjects(wrapper)).toHaveLength(4)
+  })
+
   it('falls back to All once the selected label is deleted', async () => {
     store.inboxTab = 'label:Team'
     const wrapper = mountView()

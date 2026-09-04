@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useInboxStore, formatEmailDate } from '../stores/inbox'
+import { useInboxStore, formatEmailDate, inboxTabForLabel } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
@@ -58,11 +58,10 @@ watch(
 // The plain inbox partitions its loaded rows by label, client-side, so the
 // counts describe what is on screen (and grow with Load More) rather than
 // the whole mailbox. 'Other' collects mail carrying none of the palette
-// labels. Tab ids carry a 'label:' prefix so a label named "All" or "Other"
-// can't collide with the fixed tabs.
+// labels. Tab ids: 'all', 'other', or inboxTabForLabel(name).
 const ALL_TAB = 'all'
 const OTHER_TAB = 'other'
-const labelTabId = (name) => `label:${name}`
+const labelTabId = inboxTabForLabel
 const emailHasLabel = (email, name) => (email.labels || []).some((label) => label.name === name)
 
 // The inbox list before any tab narrows it: starred rows are hidden
@@ -504,6 +503,9 @@ watch(
     }
     if (!email || openedFromRoute === id) return
     openedFromRoute = id
+    // A linked email outside the saved tab would be closed again as soon as
+    // the list settles, so widen to All first.
+    if (showInboxTabs.value && !emailInTab(email, activeTab.value)) store.setInboxTab(ALL_TAB)
     store.openReader(email)
   },
   { immediate: true },
