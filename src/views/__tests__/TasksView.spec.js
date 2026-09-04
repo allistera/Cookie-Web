@@ -717,7 +717,9 @@ describe('dividers', () => {
     await rows[2].trigger('drop')
     expect(reorder).not.toHaveBeenCalled()
 
+    // A drop ends the drag, so each try starts it afresh.
     // Onto the other divider is refused on either side.
+    await rows[3].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
     await rows[1].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
     expect(rows[1].classes()).not.toContain('drop-after')
 
