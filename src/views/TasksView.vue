@@ -174,16 +174,32 @@ const visibleItems = computed(() => {
 })
 
 // --- Drag and drop ---
-// A row can be dragged onto another row to re-arrange the list, or out to
-// the sidebar (Inbox, Today, or a project) — TasksSidebar handles those
-// drops, reading the id back from this MIME type. Re-arranging is for the
-// project and Inbox lists only: Today is ordered by due date, so a position
-// there would mean nothing.
+// A row is dragged by the grip that appears at its left edge. Dropped on
+// another row it re-arranges the list; dropped on the sidebar (Inbox, Today,
+// or a project) it moves — TasksSidebar handles those drops, reading the id
+// back from this MIME type. Today is ordered by due date, so there a row can
+// only be re-arranged among the rows due the same day.
 const TASK_DRAG_TYPE = 'application/x-cookie-task'
 const dragTaskId = ref(null)
 const dropRowId = ref(null)
 const dropPlace = ref('after')
-const canReorder = computed(() => !isToday.value)
+const draggedItem = computed(() =>
+  dragTaskId.value ? items.itemById(dragTaskId.value) : undefined,
+)
+
+function canDropOn(item) {
+  if (!draggedItem.value || draggedItem.value.id === item.id) return false
+  return !isToday.value || draggedItem.value.dueDate === item.dueDate
+}
+
+// The rows a drop re-arranges: the whole list, or in Today the dragged
+// row's day. The full list rather than the filtered one, so a drop made
+// while searching still lands between the rows it was seen between.
+function reorderGroup() {
+  if (!isToday.value) return topLevelItems.value
+  const { dueDate } = draggedItem.value
+  return topLevelItems.value.filter((row) => row.dueDate === dueDate)
+}
 
 function onTaskDragStart(item, event) {
   dragTaskId.value = item.id
@@ -194,7 +210,7 @@ function onTaskDragStart(item, event) {
 
 // The upper half of a row means "before it", the lower half "after".
 function onTaskDragOver(item, event) {
-  if (!canReorder.value || !dragTaskId.value || dragTaskId.value === item.id) return
+  if (!canDropOn(item)) return
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   const rect = event.currentTarget.getBoundingClientRect()
@@ -211,14 +227,13 @@ function clearTaskDrag() {
   dropRowId.value = null
 }
 
-// The order sent is the full list, not the filtered one: a drop made while
-// searching still lands between the rows it was seen between.
 function onTaskDrop(item) {
   const draggedId = dragTaskId.value
   const place = dropPlace.value
+  const allowed = canDropOn(item)
+  const ids = allowed ? reorderGroup().map((row) => row.id) : []
   clearTaskDrag()
-  if (!canReorder.value || !draggedId) return
-  const ids = topLevelItems.value.map((row) => row.id)
+  if (!allowed) return
   const order = orderAfterDrop(ids, draggedId, item.id, place)
   if (order) items.reorderItems(order)
 }
@@ -311,13 +326,24 @@ async function submitDraft() {
           'drop-before': dropRowId === item.id && dropPlace === 'before',
           'drop-after': dropRowId === item.id && dropPlace === 'after',
         }"
-        draggable="true"
-        @dragstart="onTaskDragStart(item, $event)"
         @dragover="onTaskDragOver(item, $event)"
         @dragleave="onTaskDragLeave(item)"
         @drop.prevent="onTaskDrop(item)"
-        @dragend="clearTaskDrag"
       >
+        <!-- The grip is the drag source, not the row: text in the title can
+           still be selected, and the affordance says what dragging does. -->
+        <button
+          class="task-grip"
+          type="button"
+          draggable="true"
+          title="Drag to re-arrange or move"
+          :aria-label="`Drag ${item.content}`"
+          @dragstart="onTaskDragStart(item, $event)"
+          @dragend="clearTaskDrag"
+          @click.prevent
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
+        </button>
         <!-- The circle takes the priority's colour, the way Todoist's list
            does, so an urgent task stands out without another chip. -->
         <button
@@ -486,6 +512,43 @@ async function submitDraft() {
 
 .task-row.dragging {
   opacity: 0.5;
+}
+
+/* Sits in the gutter left of the row (the view's side padding), revealed on
+   hover like the delete control, and always present for keyboard and touch.
+   The margins cancel its width and the row gap so the circle stays put. */
+.task-grip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: 20px;
+  margin: 1px -8px 0 -24px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--transition-fast) ease;
+}
+
+.task-row:hover .task-grip,
+.task-grip:focus-visible {
+  opacity: 1;
+}
+
+.task-grip:active {
+  cursor: grabbing;
+}
+
+.task-grip .material-symbols-outlined {
+  font-size: 18px;
+}
+
+@media (hover: none) {
+  .task-grip {
+    opacity: 1;
+  }
 }
 
 /* The insertion line: drawn inside the row's edge so it never shifts layout

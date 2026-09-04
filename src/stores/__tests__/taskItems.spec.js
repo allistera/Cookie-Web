@@ -461,6 +461,24 @@ describe('re-arranging tasks', () => {
     expect(notify).not.toHaveBeenCalled()
   })
 
+  // Today mixes projects, so its rows keep the position values they had
+  // between them (dealt out in the new order) and the list stays in
+  // due-date order around them.
+  it('deals the rows’ own positions out in Today, keeping due-date order', async () => {
+    store.items = [
+      { id: 'late', content: 'L', dueDate: '2026-09-01', position: 40, completedAt: null },
+      { id: 'a', content: 'A', dueDate: '2026-09-03', position: 10, completedAt: null },
+      { id: 'b', content: 'B', dueDate: '2026-09-03', position: 30, completedAt: null },
+    ]
+    store.loadedProject = 'today'
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    await store.reorderItems(['b', 'a'])
+
+    expect(store.items.map((row) => row.id)).toEqual(['late', 'b', 'a'])
+    expect(store.items.map((row) => row.position)).toEqual([40, 10, 30])
+  })
+
   it('does nothing with an empty order', async () => {
     store.items = rows()
     stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))

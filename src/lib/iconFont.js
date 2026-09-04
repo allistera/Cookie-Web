@@ -24,6 +24,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'description',
   'done_all',
   'draft',
+  'drag_indicator',
   'draw',
   'drive_file_move',
   'edit',

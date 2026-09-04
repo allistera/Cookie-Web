@@ -1986,8 +1986,13 @@ test('Tasks: rows drag to re-arrange, and onto Today or a project', async ({ pag
 
   // Dropped on the upper half of First, Third lands before it — and the
   // order is the server's, not just the screen's.
+  // The grip at the row's edge is the drag source; it shows on hover, which
+  // dragTo does before pressing.
   const rows = page.locator('.task-row')
-  await rows.nth(2).dragTo(rows.nth(0), { targetPosition: { x: 40, y: 3 } })
+  await rows
+    .nth(2)
+    .locator('.task-grip')
+    .dragTo(rows.nth(0), { targetPosition: { x: 40, y: 3 } })
   await expect(page.locator('.task-content')).toHaveText(['Third', 'First', 'Second'])
   await page.reload()
   await expect(page.locator('.task-content')).toHaveText(['Third', 'First', 'Second'])
@@ -1996,6 +2001,7 @@ test('Tasks: rows drag to re-arrange, and onto Today or a project', async ({ pag
   const sidebar = page.locator('.tasks-sidebar')
   await page
     .locator('.task-row', { hasText: 'Second' })
+    .locator('.task-grip')
     .dragTo(sidebar.locator('.nav-item', { hasText: 'Today' }))
   await sidebar.locator('.nav-item', { hasText: 'Today' }).click()
   await expect(page.locator('.task-content')).toHaveText(['Second'])
@@ -2008,6 +2014,7 @@ test('Tasks: rows drag to re-arrange, and onto Today or a project', async ({ pag
   await expect(page.locator('.task-content')).toHaveText(['Third', 'First', 'Second'])
   await page
     .locator('.task-row', { hasText: 'First' })
+    .locator('.task-grip')
     .dragTo(sidebar.locator('.project-item', { hasText: 'Work' }))
   await expect(page.locator('.task-content')).toHaveText(['Third', 'Second'])
   await sidebar.locator('.project-item', { hasText: 'Work' }).click()
@@ -2261,12 +2268,18 @@ test('The Tasks column fills its panel rather than collapsing to its content', a
   await page.goto('/tasks')
   await expect(page.locator('.tasks-title')).toBeVisible()
 
-  const view = await page.locator('.tasks-view').boundingBox()
-  const panel = await page.locator('.main-content').boundingBox()
+  // The sidebar slides in after first paint, so the panel's box settles a
+  // moment after the title shows; a one-shot measurement occasionally lands
+  // mid-animation with the whole sidebar width as skew. Poll until centred.
+  const boxes = async () => {
+    const view = await page.locator('.tasks-view').boundingBox()
+    const panel = await page.locator('.main-content').boundingBox()
+    const leftGap = view.x - panel.x
+    const rightGap = panel.x + panel.width - (view.x + view.width)
+    return { view, panel, skew: Math.abs(leftGap - rightGap) }
+  }
+  await expect.poll(async () => (await boxes()).skew).toBeLessThanOrEqual(1)
 
+  const { view, panel } = await boxes()
   expect(view.width).toBe(Math.min(900, panel.width))
-
-  const leftGap = view.x - panel.x
-  const rightGap = panel.x + panel.width - (view.x + view.width)
-  expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1)
 })
