@@ -1271,24 +1271,44 @@ function localApiPlugin(mode) {
           // its "done/total" progress; only completed top-level tasks hide.
           .filter((item) => includeCompleted || item.completedAt === null || item.parentId !== null)
           // Project and Inbox lists come back in arranged order (position,
-          // migration 0062); Today keeps its due-date order.
-          .sort((a, b) => (today ? 0 : (a.position ?? 0) - (b.position ?? 0)))
+          // migration 0062); Today orders by due date first.
+          .sort((a, b) => {
+            if (today) {
+              const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
+              if (byDue) return byDue
+              // Today's own arrangement (migration 0063); never-arranged last.
+              const at = a.todayPosition ?? Number.POSITIVE_INFINITY
+              const bt = b.todayPosition ?? Number.POSITIVE_INFINITY
+              if (at !== bt) return at < bt ? -1 : 1
+            }
+            return (a.position ?? 0) - (b.position ?? 0)
+          })
         return json(res, { items })
       }
       const body = await readBody(req)
-      // POST /task-items/reorder: the whole visible order, numbered 1..n.
+      // POST /task-items/reorder: rows in their new order; their existing
+      // positions are dealt back out in that order, as the Worker does.
       if (segments[1] === 'reorder') {
         if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
         const ids = Array.isArray(body.ids) ? body.ids : null
         if (!ids?.length || !ids.every(isTaskUuid)) {
           return json(res, { error: 'ids must be a list of task ids' }, 400)
         }
-        const updated = []
-        ids.forEach((id, index) => {
-          const item = state.taskItems.find((row) => row.id === id)
-          if (!item) return
-          item.position = index + 1
-          updated.push({ id: item.id, position: item.position })
+        const rows = ids.map((id) => state.taskItems.find((row) => row.id === id)).filter(Boolean)
+        if (body.view === 'today') {
+          const updated = rows.map((row, index) => {
+            row.todayPosition = index + 1
+            return { id: row.id, todayPosition: row.todayPosition }
+          })
+          return json(res, { items: updated })
+        }
+        const slots = rows.map((row) => row.position ?? 0).sort((a, b) => a - b)
+        for (let i = 1; i < slots.length; i += 1) {
+          if (slots[i] <= slots[i - 1]) slots[i] = slots[i - 1] + 0.001
+        }
+        const updated = rows.map((row, index) => {
+          row.position = slots[index]
+          return { id: row.id, position: row.position }
         })
         return json(res, { items: updated })
       }

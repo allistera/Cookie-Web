@@ -316,18 +316,25 @@ describe('dragging rows', () => {
     return items
   }
 
-  it('marks every row draggable and names the task for the sidebar', async () => {
+  it('drags by a grip at the row edge and names the task for the sidebar', async () => {
     threeTasks()
     const wrapper = mountView()
     await flushPromises()
     const transfer = dataTransfer()
 
     const row = wrapper.get('.task-row')
-    expect(row.attributes('draggable')).toBe('true')
-    await row.trigger('dragstart', { dataTransfer: transfer })
+    expect(row.attributes('draggable')).toBeUndefined()
+    const grip = row.get('.task-grip')
+    expect(grip.attributes('draggable')).toBe('true')
+    expect(grip.text()).toBe('drag_indicator')
+    expect(grip.attributes('aria-label')).toBe('Drag One')
+    await grip.trigger('dragstart', { dataTransfer: transfer })
 
     expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 't1')
     expect(row.classes()).toContain('dragging')
+
+    await grip.trigger('dragend')
+    expect(row.classes()).not.toContain('dragging')
   })
 
   // jsdom reports every row at 0×0, so any positive pointer is "below the
@@ -340,7 +347,7 @@ describe('dragging rows', () => {
     const rows = wrapper.findAll('.task-row')
     const transfer = dataTransfer()
 
-    await rows[0].trigger('dragstart', { dataTransfer: transfer })
+    await rows[0].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
     await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
     expect(rows[2].classes()).toContain('drop-after')
     await rows[2].trigger('drop')
@@ -357,7 +364,7 @@ describe('dragging rows', () => {
     const rows = wrapper.findAll('.task-row')
     const transfer = dataTransfer()
 
-    await rows[2].trigger('dragstart', { dataTransfer: transfer })
+    await rows[2].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
     await rows[1].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
     expect(rows[1].classes()).toContain('drop-before')
     await rows[1].trigger('drop')
@@ -373,7 +380,7 @@ describe('dragging rows', () => {
     const row = wrapper.get('.task-row')
     const transfer = dataTransfer()
 
-    await row.trigger('dragstart', { dataTransfer: transfer })
+    await row.get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
     await row.trigger('dragover', { dataTransfer: transfer, clientY: 10 })
     await row.trigger('drop')
 
@@ -381,25 +388,55 @@ describe('dragging rows', () => {
     expect(reorder).not.toHaveBeenCalled()
   })
 
-  // Today is ordered by due date, so a hand-picked position there would
-  // mean nothing; rows can still be dragged out to the sidebar.
-  it('does not re-arrange the Today list', async () => {
-    await router.push('/tasks?project=today')
-    const items = threeTasks()
-    items.loadedProject = 'today'
-    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
-    const wrapper = mountView()
-    await flushPromises()
-    const rows = wrapper.findAll('.task-row')
-    const transfer = dataTransfer()
+  // Today is ordered by due date, so a row there can be re-arranged among
+  // the rows due the same day — and only those are sent — but not across
+  // days, where the drop would visibly do nothing.
+  describe('in Today', () => {
+    function todayTasks() {
+      const items = useTaskItemsStore()
+      items.items = [
+        { id: 'y1', content: 'Late one', dueDate: '2026-09-01', position: 1, completedAt: null },
+        { id: 'y2', content: 'Late two', dueDate: '2026-09-01', position: 2, completedAt: null },
+        { id: 'd1', content: 'Due today', dueDate: '2026-09-03', position: 3, completedAt: null },
+      ]
+      items.loadedProject = 'today'
+      return items
+    }
 
-    await rows[0].trigger('dragstart', { dataTransfer: transfer })
-    expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 't1')
-    await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
-    expect(rows[2].classes()).not.toContain('drop-after')
-    await rows[2].trigger('drop')
+    it('re-arranges within a day and sends only that day', async () => {
+      await router.push('/tasks?project=today')
+      const items = todayTasks()
+      const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+      const wrapper = mountView()
+      await flushPromises()
+      const rows = wrapper.findAll('.task-row')
+      const transfer = dataTransfer()
 
-    expect(reorder).not.toHaveBeenCalled()
+      await rows[1].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
+      await rows[0].trigger('dragover', { dataTransfer: transfer, clientY: -10 })
+      expect(rows[0].classes()).toContain('drop-before')
+      await rows[0].trigger('drop')
+
+      expect(reorder).toHaveBeenCalledWith(['y2', 'y1'])
+    })
+
+    it('refuses a drop on a row due another day', async () => {
+      await router.push('/tasks?project=today')
+      const items = todayTasks()
+      const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+      const wrapper = mountView()
+      await flushPromises()
+      const rows = wrapper.findAll('.task-row')
+      const transfer = dataTransfer()
+
+      await rows[0].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
+      expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 'y1')
+      await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+      expect(rows[2].classes()).not.toContain('drop-after')
+      await rows[2].trigger('drop')
+
+      expect(reorder).not.toHaveBeenCalled()
+    })
   })
 })
 

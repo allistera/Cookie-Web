@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
-import { sortByPosition } from '../lib/taskOrder'
+import { dealPositions, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
 
 // Re-arranging sends the whole order, so the requests must reach the server
@@ -207,23 +207,30 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return this.patchItem(id, { projectId }, { projectId }, 'Failed to move the task.')
     },
 
-    // Drag-and-drop re-arranging: `ids` is the whole visible top-level order
-    // (lib/taskOrder's orderAfterDrop). The list is re-sorted at once, and
-    // the server numbers the rows 1..n in one statement. Requests go out one
-    // at a time so two quick drags cannot land out of order, and a reply or
-    // failure from an older drag never overwrites a newer one's order.
+    // Drag-and-drop re-arranging: `ids` are the rows of one list (or, in
+    // Today, of one day) in their new order — lib/taskOrder's orderAfterDrop.
+    // A list's rows get their existing positions dealt back out in that
+    // order; a day's rows are numbered afresh in todayPosition, Today's own
+    // order, so the projects they live in are untouched. Applied locally at
+    // once and on the server in one statement. Requests go out one at a time
+    // so two quick drags cannot land out of order, and a reply or failure
+    // from an older drag never overwrites a newer one's order.
     async reorderItems(ids) {
       if (!ids?.length) return false
       const seq = ++reorderSeq
-      const previous = new Map(this.items.map((row) => [row.id, row.position]))
-      const byId = new Map(this.items.map((row) => [row.id, row]))
-      ids.forEach((id, index) => {
-        const item = byId.get(id)
-        if (item) item.position = index + 1
-      })
-      this.items = sortByPosition(this.items)
+      const today = this.loadedProject === 'today'
+      const key = today ? 'todayPosition' : 'position'
+      const previous = new Map(this.items.map((row) => [row.id, row[key]]))
+      const next = today
+        ? new Map(ids.map((id, index) => [id, index + 1]))
+        : dealPositions(this.items, ids)
+      for (const row of this.items) {
+        if (next.has(row.id)) row[key] = next.get(row.id)
+      }
+      this.items = sortForList(this.items, this.loadedProject)
 
-      const send = () => this.request('POST', { params: '/reorder', body: { ids } })
+      const body = today ? { ids, view: 'today' } : { ids }
+      const send = () => this.request('POST', { params: '/reorder', body })
       reorderQueue = reorderQueue.catch(() => {}).then(send)
       try {
         await reorderQueue
@@ -232,9 +239,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
         if (seq !== reorderSeq) return false
         console.error('Failed to re-arrange tasks:', error)
         for (const row of this.items) {
-          if (previous.has(row.id)) row.position = previous.get(row.id)
+          if (previous.has(row.id)) row[key] = previous.get(row.id)
         }
-        this.items = sortByPosition(this.items)
+        this.items = sortForList(this.items, this.loadedProject)
         this.notify(error.userMessage || 'Failed to re-arrange the tasks.', 'error')
         return false
       }

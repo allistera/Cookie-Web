@@ -461,6 +461,27 @@ describe('re-arranging tasks', () => {
     expect(notify).not.toHaveBeenCalled()
   })
 
+  // Today mixes projects, so a day re-arranged there is numbered in
+  // todayPosition — Today's own order — and `position`, the projects'
+  // order, is left exactly as it was.
+  it('numbers todayPosition in Today and leaves position untouched', async () => {
+    store.items = [
+      { id: 'late', content: 'L', dueDate: '2026-09-01', position: 40, completedAt: null },
+      { id: 'a', content: 'A', dueDate: '2026-09-03', position: 10, completedAt: null },
+      { id: 'b', content: 'B', dueDate: '2026-09-03', position: 30, completedAt: null },
+    ]
+    store.loadedProject = 'today'
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    await store.reorderItems(['b', 'a'])
+
+    expect(store.items.map((row) => row.id)).toEqual(['late', 'b', 'a'])
+    expect(store.items.map((row) => row.position)).toEqual([40, 30, 10])
+    expect(store.items.map((row) => row.todayPosition)).toEqual([undefined, 1, 2])
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ ids: ['b', 'a'], view: 'today' })
+  })
+
   it('does nothing with an empty order', async () => {
     store.items = rows()
     stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))

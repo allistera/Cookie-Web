@@ -1058,11 +1058,11 @@ describe('TraditionalInboxView multi-select', () => {
       .trigger('click')
 
     const choices = wrapper.findAll('.ni-schedule-menu [role="menuitem"]')
+    // scheduleChoices drops a preset that names the same day as another
+    // (on a Friday "This weekend" is "Tomorrow"), so the expected list is
+    // whatever today's presets are, plus the picker.
     expect(choices.map((choice) => choice.text())).toEqual([
-      expect.stringContaining('Later today'),
-      expect.stringContaining('Tomorrow'),
-      expect.stringContaining('This weekend'),
-      expect.stringContaining('Next Week'),
+      ...scheduleChoices().map(({ label }) => expect.stringContaining(label)),
       expect.stringContaining('Pick date & time'),
     ])
   })
@@ -1285,11 +1285,11 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
     await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
     const choices = wrapper.findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
+    // scheduleChoices drops a preset that names the same day as another
+    // (on a Friday "This weekend" is "Tomorrow"), so the expected list is
+    // whatever today's presets are, plus the picker.
     expect(choices.map((choice) => choice.text())).toEqual([
-      expect.stringContaining('Later today'),
-      expect.stringContaining('Tomorrow'),
-      expect.stringContaining('This weekend'),
-      expect.stringContaining('Next Week'),
+      ...scheduleChoices().map(({ label }) => expect.stringContaining(label)),
       expect.stringContaining('Pick date & time'),
     ])
     await choices[1].trigger('click')
