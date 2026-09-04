@@ -250,6 +250,8 @@ describe('TraditionalInboxView day accordion', () => {
     const due = makeEmail('due-1', Date.now() - 5 * DAY)
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()
     store.traditionalEmails.unshift(due)
+    // Due mail lands in the Priority tab, so give it a Today row to sit above.
+    store.traditionalEmails[1].isPriority = true
 
     const wrapper = mountView()
     const headers = wrapper.findAll('.ni-group-header').map((header) => header.text())
@@ -2086,13 +2088,35 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
   })
 
-  it('still shows a lone tab, so the list always says what it holds', () => {
+  it('always offers Priority, opening on the first tab with mail until it is picked', async () => {
     store.labels = []
     store.traditionalEmails[0].isPriority = false
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Other 4'])
+    expect(tabTexts(wrapper)).toEqual(['Priority 0', 'Other 4'])
+    expect(wrapper.findAll('.ni-tab')[1].classes()).toContain('active')
     expect(rowSubjects(wrapper)).toHaveLength(4)
+
+    await clickTab(wrapper, 'Priority')
+    expect(wrapper.find('.ni-tab').classes()).toContain('active')
+    expect(rowSubjects(wrapper)).toHaveLength(0)
+    expect(wrapper.find('.ni-empty').text()).toContain('No priority emails')
+    expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
+  })
+
+  it('puts scheduled emails that are due, and follow-ups, under Priority', () => {
+    const due = makeEmail('due-1', Date.now() - 3 * DAY)
+    due.scheduledFor = new Date(Date.now() - 60 * 1000).toISOString()
+    const followUp = makeEmail('follow-1', Date.now() - 2 * DAY)
+    followUp.followUpAt = new Date(Date.now() + DAY).toISOString()
+    const later = makeEmail('later-1', Date.now() - DAY)
+    later.scheduledFor = new Date(Date.now() + DAY).toISOString()
+    store.traditionalEmails.push(due, followUp, later)
+    const wrapper = mountView()
+
+    expect(tabTexts(wrapper)).toEqual(['Priority 3', 'Docs 1', 'Team 2', 'Other 3'])
+    expect(rowSubjects(wrapper)).toEqual(['Subject due-1', 'Subject follow-1', 'Subject team-1'])
+    expect(wrapper.find('.ni-group-header').text()).toContain('Due Today')
   })
 
   it('shows no bar in filtered views or with an empty inbox', async () => {

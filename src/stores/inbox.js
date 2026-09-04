@@ -497,11 +497,12 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
-    // Which inbox tab is showing: 'priority' (mail the classifier rated
-    // high), 'other' (the rest carrying none of the palette labels), or
-    // 'label:<name>'. Lives here rather than in the view so the choice
-    // survives a trip to another section and back.
-    inboxTab: 'priority',
+    // The inbox tab the user picked: 'priority' (high-rated and due mail),
+    // 'other' (the rest carrying none of the palette labels), or
+    // 'label:<name>'. Null until they pick one, when the view opens on the
+    // first tab holding mail. Lives here rather than in the view so the
+    // choice survives a trip to another section and back.
+    inboxTab: null,
     rules: [], // tag rules from /api/labels?resource=rules (settings Rules manager)
 
     // Chat state
