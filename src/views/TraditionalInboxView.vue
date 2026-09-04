@@ -85,13 +85,17 @@ const inboxEmails = computed(() => {
       )
 })
 
+// Due mail belongs to Priority alone, whatever labels it carries; a label
+// tab never shows a Due Today group. High-rated mail still sits under its
+// labels too.
 function emailInTab(email, tabId) {
-  const priority = Boolean(email.isPriority) || isDueNow(email)
+  const due = isDueNow(email)
+  const priority = Boolean(email.isPriority) || due
   if (tabId === PRIORITY_TAB) return priority
   if (tabId === OTHER_TAB) {
     return !priority && !store.allLabels.some((label) => emailHasLabel(email, label.name))
   }
-  return (email.labels || []).some((label) => labelTabId(label.name) === tabId)
+  return !due && (email.labels || []).some((label) => labelTabId(label.name) === tabId)
 }
 
 const inboxTabs = computed(() => {

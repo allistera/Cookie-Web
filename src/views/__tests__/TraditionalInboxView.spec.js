@@ -2104,9 +2104,10 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
   })
 
-  it('puts scheduled emails that are due, and follow-ups, under Priority', () => {
+  it('puts scheduled emails that are due, and follow-ups, under Priority alone', async () => {
     const due = makeEmail('due-1', Date.now() - 3 * DAY)
     due.scheduledFor = new Date(Date.now() - 60 * 1000).toISOString()
+    due.labels = [{ name: 'Team', color: '#2383e2' }]
     const followUp = makeEmail('follow-1', Date.now() - 2 * DAY)
     followUp.followUpAt = new Date(Date.now() + DAY).toISOString()
     const later = makeEmail('later-1', Date.now() - DAY)
@@ -2117,6 +2118,14 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(tabTexts(wrapper)).toEqual(['Priority 3', 'Docs 1', 'Team 2', 'Other 3'])
     expect(rowSubjects(wrapper)).toEqual(['Subject due-1', 'Subject follow-1', 'Subject team-1'])
     expect(wrapper.find('.ni-group-header').text()).toContain('Due Today')
+
+    // The due email carries the Team label, yet Team shows neither it nor a
+    // Due Today group.
+    await clickTab(wrapper, 'Team')
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
+    expect(wrapper.findAll('.ni-group-header').map((h) => h.text())).not.toContainEqual(
+      expect.stringContaining('Due Today'),
+    )
   })
 
   it('shows no bar in filtered views or with an empty inbox', async () => {
