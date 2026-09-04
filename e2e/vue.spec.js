@@ -2021,6 +2021,39 @@ test('Tasks: rows drag to re-arrange, and onto Today or a project', async ({ pag
   await expect(page.locator('.task-content')).toHaveText(['First'])
 })
 
+test('Tasks: a divider is added from the line under a row and deleted from its middle', async ({
+  page,
+}) => {
+  await page.goto('/tasks?project=inbox')
+  for (const name of ['First', 'Second']) {
+    await page.locator('.add-task-btn').click()
+    await page.locator('.add-task-row input').fill(name)
+    await page.locator('.add-task-row input').press('Enter')
+  }
+  await expect(page.locator('.task-content')).toHaveText(['First', 'Second'])
+
+  // The plus lives on the line under First; resting the pointer there shows
+  // it. The divider lands between the two, and the server keeps it there.
+  const line = page.locator('.task-insert').first()
+  await line.hover()
+  await line.locator('.task-insert-btn').click()
+  const rows = page.locator('.task-rows > .task-row')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(1)).toHaveClass(/task-divider/)
+  await page.reload()
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(1)).toHaveClass(/task-divider/)
+
+  // Deleted from its midpoint, with nothing to confirm.
+  const divider = page.locator('.task-divider')
+  await divider.hover()
+  await divider.locator('.divider-delete').click()
+  await expect(rows).toHaveCount(2)
+  await page.reload()
+  await expect(page.locator('.task-content')).toHaveText(['First', 'Second'])
+  await expect(page.locator('.task-divider')).toHaveCount(0)
+})
+
 test('Tasks: a task opens in the panel, takes a date, and the link survives a reload', async ({
   page,
 }) => {
