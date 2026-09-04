@@ -59,9 +59,8 @@ watch(
 // describe what is on screen (and grow with Load More) rather than the
 // whole mailbox. Priority holds mail the ingest classifier rated high;
 // Other collects the rest that carries none of the palette labels. A tab
-// with nothing under it stays hidden, and the bar only appears once there
-// are two tabs to choose between. Tab ids: 'priority', 'other', or
-// inboxTabForLabel(name).
+// with nothing under it stays hidden, so the bar is empty only when the
+// inbox is. Tab ids: 'priority', 'other', or inboxTabForLabel(name).
 const PRIORITY_TAB = 'priority'
 const OTHER_TAB = 'other'
 const labelTabId = inboxTabForLabel
@@ -98,7 +97,7 @@ const inboxTabs = computed(() => {
 })
 
 const showInboxTabs = computed(
-  () => !activeFilter.value && !store.activeSearchQuery && inboxTabs.value.length > 1,
+  () => !activeFilter.value && !store.activeSearchQuery && inboxTabs.value.length > 0,
 )
 
 // The chosen tab, or the first on offer once the chosen one has emptied or

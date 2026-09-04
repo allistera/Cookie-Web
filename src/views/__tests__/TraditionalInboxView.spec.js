@@ -2086,18 +2086,25 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
   })
 
-  it('shows no bar in filtered views or when only one tab would be offered', async () => {
+  it('still shows a lone tab, so the list always says what it holds', () => {
+    store.labels = []
+    store.traditionalEmails[0].isPriority = false
+    const wrapper = mountView()
+
+    expect(tabTexts(wrapper)).toEqual(['Other 4'])
+    expect(rowSubjects(wrapper)).toHaveLength(4)
+  })
+
+  it('shows no bar in filtered views or with an empty inbox', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'starred' } })
     let wrapper = mountView()
     expect(wrapper.find('.ni-tabs').exists()).toBe(false)
     wrapper.unmount()
 
     await router.replace({ path: '/inbox' })
-    store.labels = []
-    store.traditionalEmails[0].isPriority = false
+    store.traditionalEmails = []
     wrapper = mountView()
     expect(wrapper.find('.ni-tabs').exists()).toBe(false)
-    expect(rowSubjects(wrapper)).toHaveLength(4)
   })
 
   it('moves to a tab holding a linked email that sits outside the saved tab', async () => {
