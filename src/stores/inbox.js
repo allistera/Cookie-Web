@@ -19,7 +19,7 @@ import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 
-// Inbox tab ids: 'all', 'other', or a label tab. The prefix keeps a label
+// Inbox tab ids: 'priority', 'other', or a label tab. The prefix keeps a label
 // named "All" or "Other" from colliding with the fixed tabs.
 export const inboxTabForLabel = (name) => `label:${name}`
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
@@ -400,6 +400,9 @@ export function mapEmailRow(message) {
     // Drives the reader's Report spam / Not spam toggle wherever the row is
     // listed (Starred, labels and search include spam; the inbox does not).
     isSpam: message.spam_verdict === 'spam',
+    // The ingest classifier's low/normal/high rating, reduced to the one
+    // question the inbox asks: does this belong in the Priority tab?
+    isPriority: message.priority === 'high',
     // Starred, label and search lists span Done, and the Spam and Snoozed
     // folders exclude it, so count adjustments need to know.
     isArchived: Boolean(message.is_archived),
@@ -494,10 +497,11 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
-    // Which inbox tab is showing: 'all', 'other' (mail carrying none of the
-    // palette labels), or 'label:<name>'. Lives here rather than in the view
-    // so the choice survives a trip to another section and back.
-    inboxTab: 'all',
+    // Which inbox tab is showing: 'priority' (mail the classifier rated
+    // high), 'other' (the rest carrying none of the palette labels), or
+    // 'label:<name>'. Lives here rather than in the view so the choice
+    // survives a trip to another section and back.
+    inboxTab: 'priority',
     rules: [], // tag rules from /api/labels?resource=rules (settings Rules manager)
 
     // Chat state

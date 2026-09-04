@@ -2317,19 +2317,19 @@ test('The Tasks column fills its panel rather than collapsing to its content', a
   expect(view.width).toBe(Math.min(900, panel.width))
 })
 
-test('Inbox label tabs narrow the list to one label, and Other to unlabelled mail', async ({
-  page,
-}) => {
+test('Inbox tabs open on Priority, narrow by label, and Other holds the rest', async ({ page }) => {
   await page.goto('/inbox')
 
   const tabs = page.locator('.ni-tabs .ni-tab')
-  await expect(tabs.first()).toHaveText(/^All\s*\d+$/)
+  await expect(tabs.first()).toHaveText(/^Priority\s*1$/)
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
   await expect(tabs.last()).toHaveText(/^Other\s*\d+$/)
+  const priorityRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await expect(priorityRow).toBeVisible()
 
   await page.locator('.ni-tab', { hasText: 'Home' }).click()
-  const homeRow = page.locator('.ni-row', { hasText: 'City Construction' })
-  await expect(homeRow).toBeVisible()
+  await expect(priorityRow).toBeVisible()
   const rows = page.locator('.ni-row')
   const homeRows = page.locator('.ni-row', {
     has: page.locator('.ni-label-pill', { hasText: 'Home' }),
@@ -2337,7 +2337,7 @@ test('Inbox label tabs narrow the list to one label, and Other to unlabelled mai
   await expect(rows).toHaveCount(await homeRows.count())
 
   await page.locator('.ni-tab', { hasText: 'Other' }).click()
-  await expect(homeRow).toHaveCount(0)
+  await expect(priorityRow).toHaveCount(0)
   await expect(page.locator('.ni-row .ni-label-pill')).toHaveCount(0)
 
   // The choice survives leaving the inbox and coming back.

@@ -54,12 +54,15 @@ watch(
   { immediate: true },
 )
 
-// --- Inbox tabs (All | <each palette label> | Other) ---
-// The plain inbox partitions its loaded rows by label, client-side, so the
-// counts describe what is on screen (and grow with Load More) rather than
-// the whole mailbox. 'Other' collects mail carrying none of the palette
-// labels. Tab ids: 'all', 'other', or inboxTabForLabel(name).
-const ALL_TAB = 'all'
+// --- Inbox tabs (Priority | <each palette label> | Other) ---
+// The plain inbox partitions its loaded rows client-side, so the counts
+// describe what is on screen (and grow with Load More) rather than the
+// whole mailbox. Priority holds mail the ingest classifier rated high;
+// Other collects the rest that carries none of the palette labels. A tab
+// with nothing under it stays hidden, and the bar only appears once there
+// are two tabs to choose between. Tab ids: 'priority', 'other', or
+// inboxTabForLabel(name).
+const PRIORITY_TAB = 'priority'
 const OTHER_TAB = 'other'
 const labelTabId = inboxTabForLabel
 const emailHasLabel = (email, name) => (email.labels || []).some((label) => label.name === name)
@@ -75,39 +78,37 @@ const inboxEmails = computed(() => {
       )
 })
 
-const showInboxTabs = computed(
-  () => !activeFilter.value && !store.activeSearchQuery && store.allLabels.length > 0,
-)
+function emailInTab(email, tabId) {
+  if (tabId === PRIORITY_TAB) return Boolean(email.isPriority)
+  if (tabId === OTHER_TAB) {
+    return !email.isPriority && !store.allLabels.some((label) => emailHasLabel(email, label.name))
+  }
+  return (email.labels || []).some((label) => labelTabId(label.name) === tabId)
+}
 
 const inboxTabs = computed(() => {
   const emails = inboxEmails.value
-  const labels = store.allLabels
   return [
-    { id: ALL_TAB, name: 'All', count: emails.length },
-    ...labels.map((label) => ({
-      id: labelTabId(label.name),
-      name: label.name,
-      count: emails.filter((e) => emailHasLabel(e, label.name)).length,
-    })),
-    {
-      id: OTHER_TAB,
-      name: 'Other',
-      count: emails.filter((e) => !labels.some((label) => emailHasLabel(e, label.name))).length,
-    },
+    { id: PRIORITY_TAB, name: 'Priority' },
+    ...store.allLabels.map((label) => ({ id: labelTabId(label.name), name: label.name })),
+    { id: OTHER_TAB, name: 'Other' },
   ]
+    .map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))
+    .filter((tab) => tab.count > 0)
 })
 
-// The chosen tab, falling back to All once the label it named is deleted.
+const showInboxTabs = computed(
+  () => !activeFilter.value && !store.activeSearchQuery && inboxTabs.value.length > 1,
+)
+
+// The chosen tab, or the first on offer once the chosen one has emptied or
+// its label was deleted. Null while the bar is hidden, when nothing narrows.
 const activeTab = computed(() => {
-  if (!showInboxTabs.value) return ALL_TAB
-  return inboxTabs.value.some((tab) => tab.id === store.inboxTab) ? store.inboxTab : ALL_TAB
+  if (!showInboxTabs.value) return null
+  return inboxTabs.value.some((tab) => tab.id === store.inboxTab)
+    ? store.inboxTab
+    : inboxTabs.value[0].id
 })
-
-function emailInTab(email, tabId) {
-  if (tabId === ALL_TAB) return true
-  if (tabId === OTHER_TAB) return !store.allLabels.some((label) => emailHasLabel(email, label.name))
-  return (email.labels || []).some((label) => labelTabId(label.name) === tabId)
-}
 
 const filteredEmails = computed(() => {
   switch (activeFilter.value) {
@@ -124,7 +125,9 @@ const filteredEmails = computed(() => {
     case 'done':
       return store.doneEmails
     default:
-      return inboxEmails.value.filter((e) => emailInTab(e, activeTab.value))
+      return activeTab.value
+        ? inboxEmails.value.filter((e) => emailInTab(e, activeTab.value))
+        : inboxEmails.value
   }
 })
 
@@ -157,14 +160,6 @@ const showInboxZero = computed(
     !store.hasMoreEmails &&
     !store.isRefreshing,
 )
-
-// A label tab with nothing under it says so, instead of an empty list (or
-// a misleading Inbox Zero while other tabs still hold mail).
-const tabEmptyText = computed(() => {
-  if (activeTab.value === ALL_TAB || filteredEmails.value.length || showInboxZero.value) return ''
-  const tab = inboxTabs.value.find((item) => item.id === activeTab.value)
-  return tab.id === OTHER_TAB ? 'No unlabelled emails.' : `No emails labelled ${tab.name}.`
-})
 
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
@@ -504,8 +499,11 @@ watch(
     if (!email || openedFromRoute === id) return
     openedFromRoute = id
     // A linked email outside the saved tab would be closed again as soon as
-    // the list settles, so widen to All first.
-    if (showInboxTabs.value && !emailInTab(email, activeTab.value)) store.setInboxTab(ALL_TAB)
+    // the list settles, so move to a tab that holds it first.
+    if (activeTab.value && !emailInTab(email, activeTab.value)) {
+      const home = inboxTabs.value.find((tab) => emailInTab(email, tab.id))
+      if (home) store.setInboxTab(home.id)
+    }
     store.openReader(email)
   },
   { immediate: true },
@@ -1207,7 +1205,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Label tabs: partition the inbox by palette label -->
-    <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox labels">
+    <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox tabs">
       <button
         v-for="tab in inboxTabs"
         :key="tab.id"
@@ -1274,7 +1272,6 @@ onUnmounted(() => {
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
       </div>
-      <div class="ni-empty" v-if="tabEmptyText">{{ tabEmptyText }}</div>
       <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
         <span class="material-symbols-outlined ni-inbox-zero-icon" aria-hidden="true"
           >task_alt</span
