@@ -1,48 +1,99 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { useInboxStore } from '../stores/inbox'
+import { settingsSections } from '../lib/settingsSections'
+import { getStoredTheme, resolveTheme, setTheme } from '../lib/theme'
+import { useInboxStore, inboxTabForLabel, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
+import { useTaskItemsStore } from '../stores/taskItems'
+import { useDocumentsStore } from '../stores/documents'
+import { scheduleChoices } from '../utils/schedule'
 
-// Command registry for the Cmd+K palette. Commands are declarative:
-// { id, title, icon, keyHint?, comingSoon?, run() }. Email-context commands
-// only appear while an email is open in the reading panel; keyHints are
-// display-only (no global single-key shortcuts).
+// Snooze presets offered as palette entries. Filtered against the live
+// choices, so a day that scheduleChoices drops as a duplicate is not listed.
+const SNOOZE_PRESETS = ['tomorrow', 'next-week']
+
+// Command registry for the '/' palette. Commands are declarative:
+// { id, title, icon, keyHint?, comingSoon?, visible?, iconColor?, run() }.
+// Email-context commands only appear while an email is open in the reading
+// panel. keyHint names a real single-key shortcut bound elsewhere in the app.
 export function useCommands() {
   const store = useInboxStore()
+  const tasks = useTaskItemsStore()
+  const documents = useDocumentsStore()
   const router = useRouter()
   const route = useRoute()
 
+  // Views own their dialogs, so a command raised from elsewhere first goes to
+  // the route and only then raises the request; the target view consumes a
+  // request that was pending when it mounted.
+  async function goThen(target, isThere, request) {
+    if (!isThere) await router.push(target)
+    request()
+  }
+
+  function inboxTabCommand(id, name, iconColor) {
+    return {
+      id: `tab-${id}`,
+      title: `Switch to ${name} tab`,
+      icon: 'tab',
+      iconColor,
+      run: () => {
+        store.setInboxTab(id)
+        if (route.name !== 'traditional-inbox' || Object.keys(route.query).length) {
+          router.push('/inbox')
+        }
+      },
+    }
+  }
+
   const commands = computed(() => {
     const email = store.openEmail
+    const onInbox = route.name === 'traditional-inbox'
+    const isDark = resolveTheme(getStoredTheme()) === 'dark'
+    const snoozes = scheduleChoices().filter((choice) => SNOOZE_PRESETS.includes(choice.id))
     const list = [
-      {
-        id: 'calendar-create-event',
-        title: 'Create Event',
-        icon: 'add',
-        visible: route.name === 'calendar',
-        run: () => store.requestCalendarNewEvent(),
-      },
       {
         id: 'mark-done',
         title: 'Mark Done',
         icon: 'check_box',
-        keyHint: 'E',
+        keyHint: 'D',
         visible: !!email,
         run: () => store.archiveEmail(email),
       },
       {
-        id: 'snooze',
-        title: 'Snooze',
-        icon: 'schedule',
-        keyHint: 'H',
+        id: 'reply',
+        title: 'Reply',
+        icon: 'reply',
         visible: !!email,
-        comingSoon: true,
+        run: () => goThen('/inbox', onInbox, () => store.requestReaderAction('reply')),
       },
+      {
+        id: 'reply-all',
+        title: 'Reply All',
+        icon: 'reply_all',
+        visible: !!email,
+        run: () => goThen('/inbox', onInbox, () => store.requestReaderAction('reply-all')),
+      },
+      {
+        id: 'forward',
+        title: 'Forward',
+        icon: 'forward',
+        visible: !!email,
+        run: () => goThen('/inbox', onInbox, () => store.requestReaderAction('forward')),
+      },
+      ...snoozes.map((choice) => ({
+        id: `snooze-${choice.id}`,
+        title: `Snooze until ${choice.label.toLowerCase()}`,
+        icon: 'schedule',
+        visible: !!email,
+        // Through the reader so the panel advances to the next email as it
+        // does for the Snooze menu.
+        run: () => goThen('/inbox', onInbox, () => store.requestReaderAction('snooze', choice)),
+      })),
       {
         id: 'star',
         title: email?.starred ? 'Unstar' : 'Star',
         icon: 'star',
-        keyHint: 'S',
         visible: !!email,
         run: () => store.toggleStar(email),
       },
@@ -50,18 +101,20 @@ export function useCommands() {
         id: 'move',
         title: 'Move to…',
         icon: 'drive_file_move',
-        keyHint: 'V',
         visible: !!email,
         comingSoon: true,
       },
-      {
-        id: 'label',
-        title: 'Add Label…',
-        icon: 'sell',
-        keyHint: 'L',
-        visible: !!email,
-        comingSoon: true,
-      },
+      ...store.allLabels.map((label) => {
+        const applied = (email?.labels || []).some((item) => item.name === label.name)
+        return {
+          id: `label-${label.name}`,
+          title: applied ? `Remove label ${label.name}` : `Label as ${label.name}`,
+          icon: 'sell',
+          iconColor: label.color,
+          visible: !!email,
+          run: () => store.toggleMessageLabel(email, label),
+        }
+      }),
       {
         id: 'toggle-read',
         title: email?.unread ? 'Mark Read' : 'Mark Unread',
@@ -73,8 +126,57 @@ export function useCommands() {
         id: 'compose',
         title: 'Compose',
         icon: 'edit_square',
-        keyHint: 'C',
         run: () => store.openComposer(),
+      },
+      {
+        id: 'calendar-create-event',
+        title: 'Create Event',
+        icon: 'add',
+        run: () =>
+          goThen({ name: 'calendar' }, route.name === 'calendar', () =>
+            store.requestCalendarNewEvent(),
+          ),
+      },
+      {
+        id: 'new-document',
+        title: 'New Document',
+        icon: 'note_add',
+        run: () =>
+          goThen({ name: 'documents' }, route.name === 'documents', () =>
+            documents.openNewDocumentDialog(),
+          ),
+      },
+      {
+        id: 'new-task',
+        title: 'New Task',
+        icon: 'add_task',
+        // Today has no compose row, so a new task lands in the tasks Inbox.
+        run: () =>
+          goThen(
+            { name: 'tasks', query: { project: 'inbox' } },
+            route.name === 'tasks' && route.query.project && route.query.project !== 'today',
+            () => tasks.requestNewTask(),
+          ),
+      },
+      {
+        id: 'theme-dark',
+        title: 'Switch to dark theme',
+        icon: 'dark_mode',
+        visible: !isDark,
+        run: () => setTheme('dark'),
+      },
+      {
+        id: 'theme-light',
+        title: 'Switch to light theme',
+        icon: 'light_mode',
+        visible: isDark,
+        run: () => setTheme('light'),
+      },
+      {
+        id: 'go-ai-today',
+        title: 'Go to AI Today',
+        icon: 'auto_awesome',
+        run: () => router.push({ name: 'ai-inbox' }),
       },
       {
         id: 'go-inbox',
@@ -95,6 +197,12 @@ export function useCommands() {
         run: () => router.push({ name: 'documents' }),
       },
       {
+        id: 'go-tasks',
+        title: 'Go to Tasks',
+        icon: 'task_alt',
+        run: () => router.push({ name: 'tasks' }),
+      },
+      {
         id: 'go-starred',
         title: 'Go to Starred',
         icon: 'star',
@@ -111,6 +219,12 @@ export function useCommands() {
         title: 'Go to Scheduled',
         icon: 'upcoming',
         run: () => router.push({ path: '/scheduled' }),
+      },
+      {
+        id: 'go-drafts',
+        title: 'Go to Drafts',
+        icon: 'draft',
+        run: () => router.push({ name: 'drafts' }),
       },
       {
         id: 'go-done',
@@ -137,12 +251,23 @@ export function useCommands() {
         iconColor: label.color,
         run: () => router.push({ path: '/inbox', query: { filter: 'label', label: label.name } }),
       })),
+      inboxTabCommand(PRIORITY_TAB, 'Priority'),
+      ...store.allLabels.map((label) =>
+        inboxTabCommand(inboxTabForLabel(label.name), label.name, label.color),
+      ),
+      inboxTabCommand(OTHER_TAB, 'Other'),
       {
         id: 'open-settings',
         title: 'Open Settings',
         icon: 'settings',
         run: () => router.push({ name: 'settings', params: { section: 'account' } }),
       },
+      ...settingsSections.map((section) => ({
+        id: `settings-${section.id}`,
+        title: `Settings: ${section.label}`,
+        icon: section.icon,
+        run: () => router.push({ name: 'settings', params: { section: section.id } }),
+      })),
     ]
     return list.filter((c) => c.visible !== false)
   })

@@ -132,6 +132,8 @@ watch(
   },
 )
 
+// Opens the palette and, on first use, mounts it (it is lazy-loaded, so its
+// own '/' listener does not exist until this has run once).
 function onCommandPaletteKeydown(event) {
   const target = event.target instanceof HTMLElement ? event.target : null
   const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)

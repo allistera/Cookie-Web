@@ -1518,18 +1518,9 @@ test("Command palette opens with '/', filters and navigates to Starred", async (
   await expect(page.locator('.ni-row').first()).toContainText("Homeowner's Insurance")
 })
 
-test("The '/' command palette offers Create Event only on the Calendar route", async ({ page }) => {
+test("The '/' command palette Create Event opens the dialog from any route", async ({ page }) => {
   await freezeCalendarClock(page)
   await page.goto('/inbox')
-  await page.keyboard.press('/')
-  await expect(page.locator('.cp-panel')).toBeVisible()
-  await expect(page.locator('.cp-item', { hasText: 'Create Event' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
-
-  await page.getByRole('button', { name: 'Switch Cookie app' }).hover()
-  await page.getByRole('menuitem', { name: 'Calendar' }).click()
-  await expect(page).toHaveURL(/\/calendar$/)
-
   await page.keyboard.press('/')
   const panel = page.locator('.cp-panel')
   await expect(panel).toBeVisible()
@@ -1538,6 +1529,7 @@ test("The '/' command palette offers Create Event only on the Calendar route", a
 
   await createEvent.click()
   await expect(panel).toBeHidden()
+  await expect(page).toHaveURL(/\/calendar$/)
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
   const aiInput = dialog.getByRole('textbox', { name: 'Describe your event' })
@@ -1556,7 +1548,7 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
   await page.keyboard.press('/')
   const firstItem = page.locator('.cp-item').first()
   await expect(firstItem).toContainText('Mark Done')
-  await expect(firstItem.locator('.cp-keycap')).toHaveText('E')
+  await expect(firstItem.locator('.cp-keycap')).toHaveText('D')
   await page.keyboard.press('Enter')
 
   await expect(page.locator('.cp-panel')).toBeHidden()
@@ -1626,6 +1618,38 @@ test('Drafts folder sits under Sent only while a draft exists', async ({ page })
   await page.locator('.drafts-discard').click()
   await expect(page.locator('.drafts-row')).toHaveCount(0)
   await expect(draftsItem).toHaveCount(0)
+})
+
+test('Command palette Reply opens the inline reply box', async ({ page }) => {
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+
+  await page.keyboard.press('/')
+  const panel = page.locator('.cp-panel')
+  await expect(panel).toBeVisible()
+  await page.keyboard.type('reply')
+  await expect(panel.locator('.cp-item').first()).toContainText('Reply')
+  await page.keyboard.press('Enter')
+
+  await expect(panel).toBeHidden()
+  await expect(reader.locator('.ni-reply-box')).toBeVisible()
+})
+
+test('Command palette Snooze until tomorrow schedules the open email', async ({ page }) => {
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await expect(page.locator('.ni-reader')).toBeVisible()
+
+  await page.keyboard.press('/')
+  await expect(page.locator('.cp-panel')).toBeVisible()
+  await page.keyboard.type('snooze until tomorrow')
+  await page.keyboard.press('Enter')
+
+  await expect(page.locator('.cp-panel')).toBeHidden()
+  await expect(page.locator('.toast', { hasText: 'Scheduled for Tomorrow.' })).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
 })
 
 test('Escape closes the palette but keeps the reading panel open', async ({ page }) => {

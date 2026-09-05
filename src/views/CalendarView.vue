@@ -699,12 +699,18 @@ watch([showNewEvent, eventCreationMode], ([open, mode]) => {
 // counter instead of calling into the view directly.
 watch(
   () => store.calendarNewEventRequestId,
-  () => {
-    const draft = store.calendarNewEventDraft
-    store.calendarNewEventDraft = null
-    openNewEvent(draft)
-  },
+  () => consumeNewEventRequest(),
 )
+
+// A request raised before this view mounted (the palette on another route)
+// is still pending, so the mount path opens it once calendars have loaded.
+function consumeNewEventRequest() {
+  if (!store.calendarNewEventPending) return
+  const draft = store.calendarNewEventDraft
+  store.calendarNewEventPending = false
+  store.calendarNewEventDraft = null
+  openNewEvent(draft)
+}
 
 function beginDrag(event, date, hourHeight, view) {
   if (event.button !== 0) return
@@ -757,11 +763,7 @@ onMounted(async () => {
     now.value = new Date()
   }, 60_000)
   await Promise.all([loadVisibleCalendars(), loadEvents()])
-  if (store.calendarNewEventDraft) {
-    const draft = store.calendarNewEventDraft
-    store.calendarNewEventDraft = null
-    openNewEvent(draft)
-  }
+  consumeNewEventRequest()
 })
 onUnmounted(() => {
   clearInterval(nowTimer)
