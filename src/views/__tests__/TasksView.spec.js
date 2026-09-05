@@ -245,6 +245,27 @@ describe('TasksView', () => {
     expect(wrapper.get('.task-due').text()).toBe('1 Sep')
   })
 
+  it('shows a due time and labels on the task row', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      {
+        id: 'a',
+        content: 'Call plumber',
+        description: null,
+        dueDate: '2026-09-01',
+        dueTime: '15:00',
+        labels: ['home', 'calls'],
+        projectId: 'p2',
+      },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.task-due').text()).toBe('1 Sep · 3:00 PM')
+    expect(wrapper.findAll('.task-label').map((label) => label.text())).toEqual(['@home', '@calls'])
+  })
+
   // The completion circle carries the priority's colour, the way Todoist's
   // list does. P4 (and a row from before the column existed) stays plain.
   it('colours the completion circle by priority', async () => {
@@ -524,6 +545,25 @@ describe('the Today view', () => {
     await flushPromises()
 
     expect(wrapper.find('.task-due').exists()).toBe(false)
+  })
+
+  it('still shows the time for a row due today', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      {
+        id: 'a',
+        content: 'Today at three',
+        description: null,
+        dueDate: localToday(),
+        dueTime: '15:00',
+        projectId: 'p2',
+      },
+    ]
+    items.loadedProject = 'today'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.task-due').text()).toBe('3:00 PM')
   })
 })
 

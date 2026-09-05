@@ -130,6 +130,19 @@ function formatDue(dueDate) {
   return `${Number(day)} ${DUE_MONTHS[Number(month) - 1]}`
 }
 
+function formatTime(dueTime) {
+  const [hourText, minute] = dueTime.split(':')
+  const hour = Number(hourText)
+  return `${hour % 12 || 12}:${minute} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
+function formatDueLine(item) {
+  const parts = []
+  if (showsDue(item)) parts.push(formatDue(item.dueDate))
+  if (item.dueTime) parts.push(formatTime(item.dueTime))
+  return parts.join(' · ')
+}
+
 onMounted(() => {
   projects.loadProjects()
   items.loadItems(project.value)
@@ -451,8 +464,17 @@ async function submitDraft() {
             <button class="task-open" type="button" @click="open(item.id)">
               <span class="task-content">{{ item.content }}</span>
               <span v-if="item.description" class="task-description">{{ item.description }}</span>
-              <span v-if="showsDue(item)" class="task-due" :class="{ overdue: isOverdue(item) }">
-                {{ formatDue(item.dueDate) }}
+              <span
+                v-if="showsDue(item) || item.dueTime"
+                class="task-due"
+                :class="{ overdue: isOverdue(item) }"
+              >
+                {{ formatDueLine(item) }}
+              </span>
+              <span v-if="item.labels?.length" class="task-labels" aria-label="Labels">
+                <span v-for="label in item.labels" :key="label" class="task-label">
+                  @{{ label }}
+                </span>
               </span>
               <span
                 v-if="item.recurrence"
@@ -860,6 +882,21 @@ async function submitDraft() {
   margin-top: 4px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.task-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.task-label {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .task-check {

@@ -229,3 +229,11 @@ The production database moved from Neon to Supabase in July 2026. [`supabase-cut
 constraint requiring a due date and task kind whenever recurrence is set.
 Existing tasks remain non-recurring. Apply this migration before deploying
 Cookie-Worker's updated task API, then deploy Cookie-Web.
+
+## Natural-language task metadata
+
+`0067_task_items_time_and_labels.sql` adds nullable `due_time` and `time_zone`
+columns plus a non-null `labels` text array. A due time must have both a due
+date and time zone; dividers cannot carry times or labels. Existing tasks keep
+no due time and an empty label list. Apply this migration before deploying the
+task API that reads and writes these fields.

@@ -3,152 +3,173 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AddTaskDialog from '../AddTaskDialog.vue'
+import { useProjectsStore } from '../../stores/projects'
 import { useTaskItemsStore } from '../../stores/taskItems'
 
 let items
+let projects
 
 function mountDialog() {
   return mount(AddTaskDialog, { attachTo: document.body })
 }
 
+function parsedTask(overrides = {}) {
+  return {
+    content: 'Call plumber',
+    description: null,
+    projectId: 'p1',
+    dueDate: '2026-09-11',
+    dueTime: '15:00',
+    timeZone: 'Europe/London',
+    priority: 1,
+    recurrence: null,
+    labels: ['home'],
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({ ok: true, json: async () => ({ item: {} }) })),
-  )
   items = useTaskItemsStore()
+  projects = useProjectsStore()
+  projects.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+  projects.isLoaded = true
   vi.spyOn(items, 'notify').mockImplementation(() => {})
 })
 
-describe('AddTaskDialog', () => {
-  it('focuses the title field on open', async () => {
+describe('AddTaskDialog natural-language quick add', () => {
+  it('opens on the focused AI textbox and shows the default Inbox destination', async () => {
     const wrapper = mountDialog()
     await flushPromises()
 
-    expect(document.activeElement).toBe(wrapper.get('.add-task-dialog-input').element)
-    wrapper.unmount()
-  })
-
-  // The dialog says where the task lands, so nobody has to guess.
-  it('says the task goes to the Inbox', async () => {
-    const wrapper = mountDialog()
-    await flushPromises()
-
+    expect(wrapper.get('[aria-label="Describe your task"]').element).toBe(document.activeElement)
     expect(wrapper.text()).toContain('Inbox')
+    expect(wrapper.text()).toContain('p1–p4')
     wrapper.unmount()
   })
 
-  it('creates the task in the Inbox and closes', async () => {
+  it('parses and creates all fields in one gesture', async () => {
+    const interpret = vi.spyOn(items, 'interpretItem').mockResolvedValue(parsedTask())
     const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
     const wrapper = mountDialog()
+
+    await wrapper
+      .get('[aria-label="Describe your task"]')
+      .setValue('Call plumber Friday 3pm p1 #Work @home')
+    await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    await wrapper.get('.add-task-dialog-input').setValue('Buy milk')
-    await wrapper.get('.add-task-dialog-form').trigger('submit')
-    await flushPromises()
-
-    expect(create).toHaveBeenCalledWith({ content: 'Buy milk', projectId: null })
+    expect(interpret).toHaveBeenCalledWith('Call plumber Friday 3pm p1 #Work @home')
+    expect(create).toHaveBeenCalledWith({
+      content: 'Call plumber',
+      projectId: 'p1',
+      dueDate: '2026-09-11',
+      dueTime: '15:00',
+      timeZone: 'Europe/London',
+      priority: 1,
+      labels: ['home'],
+    })
     expect(wrapper.emitted('close')).toBeTruthy()
     wrapper.unmount()
   })
 
-  it('trims the title before sending it', async () => {
-    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+  it('parses into the editable full form when Advanced is clicked', async () => {
+    vi.spyOn(items, 'interpretItem').mockResolvedValue(
+      parsedTask({ recurrence: 'every friday', description: 'Ask about the boiler' }),
+    )
+    const create = vi.spyOn(items, 'createItem')
     const wrapper = mountDialog()
-    await flushPromises()
 
-    await wrapper.get('.add-task-dialog-input').setValue('   Buy milk   ')
-    await wrapper.get('.add-task-dialog-form').trigger('submit')
-    await flushPromises()
-
-    expect(create).toHaveBeenCalledWith({ content: 'Buy milk', projectId: null })
-    wrapper.unmount()
-  })
-
-  it('does nothing on an empty title', async () => {
-    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
-    const wrapper = mountDialog()
-    await flushPromises()
-
-    await wrapper.get('.add-task-dialog-form').trigger('submit')
+    await wrapper
+      .get('[aria-label="Describe your task"]')
+      .setValue('Call plumber Friday 3pm p1 #Work @home')
+    await wrapper.get('button.add-task-advanced').trigger('click')
     await flushPromises()
 
     expect(create).not.toHaveBeenCalled()
-    expect(wrapper.emitted('close')).toBeFalsy()
+    expect(wrapper.get('[aria-label="Task name"]').element.value).toBe('Call plumber')
+    expect(wrapper.get('[aria-label="Description"]').element.value).toBe('Ask about the boiler')
+    expect(wrapper.get('[aria-label="Project"]').element.value).toBe('p1')
+    expect(wrapper.get('[aria-label="Due date"]').element.value).toBe('2026-09-11')
+    expect(wrapper.get('[aria-label="Due time"]').element.value).toBe('15:00')
+    expect(wrapper.get('[aria-label="Priority"]').element.value).toBe('1')
+    expect(wrapper.get('[aria-label="Labels"]').element.value).toBe('@home')
+    expect(wrapper.get('.task-repeat input').element.value).toBe('every friday')
     wrapper.unmount()
   })
 
-  // A failed create keeps the words the person typed rather than binning them.
-  it('stays open with the title intact when the create fails', async () => {
-    vi.spyOn(items, 'createItem').mockResolvedValue(null)
+  it('keeps the raw text editable when interpretation fails on Advanced', async () => {
+    vi.spyOn(items, 'interpretItem').mockRejectedValue({ userMessage: 'Try a clearer date' })
     const wrapper = mountDialog()
+
+    await wrapper.get('[aria-label="Describe your task"]').setValue('Call plumber sometime')
+    await wrapper.get('button.add-task-advanced').trigger('click')
     await flushPromises()
 
-    await wrapper.get('.add-task-dialog-input').setValue('Buy milk')
-    await wrapper.get('.add-task-dialog-form').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.emitted('close')).toBeFalsy()
-    expect(wrapper.get('.add-task-dialog-input').element.value).toBe('Buy milk')
+    expect(wrapper.get('[aria-label="Task name"]').element.value).toBe('Call plumber sometime')
+    expect(wrapper.get('[role="alert"]').text()).toContain('Try a clearer date')
     wrapper.unmount()
   })
 
-  // Enter would otherwise submit a second time while the first is in flight.
-  it('submits once when submitted twice quickly', async () => {
+  it('keeps parsed metadata and asks for a title when the input only has metadata', async () => {
+    vi.spyOn(items, 'interpretItem').mockResolvedValue(parsedTask({ content: '' }))
+    const create = vi.spyOn(items, 'createItem')
+    const wrapper = mountDialog()
+
+    await wrapper.get('[aria-label="Describe your task"]').setValue('Friday 3pm p1 #Work @home')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(create).not.toHaveBeenCalled()
+    expect(wrapper.get('[aria-label="Due time"]').element.value).toBe('15:00')
+    expect(wrapper.get('[role="alert"]').text()).toContain('Add a task name')
+    wrapper.unmount()
+  })
+
+  it('does nothing for empty input', async () => {
+    const interpret = vi.spyOn(items, 'interpretItem')
+    const create = vi.spyOn(items, 'createItem')
+    const wrapper = mountDialog()
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(interpret).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('submits once when submitted twice while interpretation is pending', async () => {
     let release
-    const create = vi
-      .spyOn(items, 'createItem')
+    const interpret = vi
+      .spyOn(items, 'interpretItem')
       .mockReturnValue(new Promise((resolve) => (release = resolve)))
+    vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
     const wrapper = mountDialog()
+
+    await wrapper.get('[aria-label="Describe your task"]').setValue('Buy milk Friday')
+    wrapper.get('form').trigger('submit')
+    wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    await wrapper.get('.add-task-dialog-input').setValue('Buy milk')
-    wrapper.get('.add-task-dialog-form').trigger('submit')
-    wrapper.get('.add-task-dialog-form').trigger('submit')
+    expect(interpret).toHaveBeenCalledTimes(1)
+    release(parsedTask({ content: 'Buy milk' }))
     await flushPromises()
-
-    expect(create).toHaveBeenCalledTimes(1)
-    release({ id: 't1' })
     wrapper.unmount()
   })
 
-  it('closes on Escape', async () => {
-    const wrapper = mountDialog()
-    await flushPromises()
-
+  it('closes on Escape and a backdrop click, but not a click inside', async () => {
+    const escapeWrapper = mountDialog()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
+    expect(escapeWrapper.emitted('close')).toBeTruthy()
+    escapeWrapper.unmount()
 
-    expect(wrapper.emitted('close')).toBeTruthy()
-    wrapper.unmount()
+    const clickWrapper = mountDialog()
+    await clickWrapper.get('.add-task-dialog').trigger('click')
+    expect(clickWrapper.emitted('close')).toBeFalsy()
+    await clickWrapper.get('.add-task-dialog-backdrop').trigger('click')
+    expect(clickWrapper.emitted('close')).toBeTruthy()
+    clickWrapper.unmount()
   })
-
-  it('closes on a backdrop click but not on a click inside', async () => {
-    const wrapper = mountDialog()
-    await flushPromises()
-
-    await wrapper.get('.add-task-dialog').trigger('click')
-    expect(wrapper.emitted('close')).toBeFalsy()
-
-    await wrapper.get('.add-task-dialog-backdrop').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
-    wrapper.unmount()
-  })
-})
-
-it('creates a task with a repeat schedule', async () => {
-  const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
-  const wrapper = mountDialog()
-  await wrapper.get('.add-task-dialog-input').setValue('Water plants')
-  await wrapper.get('.task-repeat input').setValue('every 3 days')
-  await wrapper.get('form').trigger('submit')
-  await flushPromises()
-  expect(create).toHaveBeenCalledWith({
-    content: 'Water plants',
-    projectId: null,
-    recurrence: 'every 3 days',
-  })
-  expect(wrapper.emitted('close')).toBeTruthy()
-  wrapper.unmount()
 })
