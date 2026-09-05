@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useDocumentsStore } from '../stores/documents'
@@ -7,6 +7,12 @@ import { useDocumentsStore } from '../stores/documents'
 const store = useDocumentsStore()
 const router = useRouter()
 const isCreating = ref(false)
+// The "AI document" option swaps itself for a Cookie AI prompt, like the
+// composer footer does; Enter generates, Escape or the close button returns
+// to the option list.
+const aiPromptOpen = ref(false)
+const aiInstruction = ref('')
+const aiPromptRef = ref(null)
 
 onMounted(() => {
   store.loadTemplates()
@@ -19,6 +25,23 @@ function onKeydown(event) {
   if (event.key === 'Escape' && !isCreating.value) store.closeNewDocumentDialog()
 }
 
+async function openAiPrompt() {
+  aiPromptOpen.value = true
+  await nextTick()
+  aiPromptRef.value?.focus()
+}
+
+function closeAiPrompt() {
+  if (isCreating.value) return
+  aiPromptOpen.value = false
+}
+
+function openCreated(document) {
+  if (!document) return
+  store.closeNewDocumentDialog()
+  router.push(`/documents/${document.id}`)
+}
+
 async function createDocument(templateId = null) {
   if (isCreating.value) return
   isCreating.value = true
@@ -27,9 +50,19 @@ async function createDocument(templateId = null) {
     templateId,
   })
   isCreating.value = false
-  if (!document) return
-  store.closeNewDocumentDialog()
-  router.push(`/documents/${document.id}`)
+  openCreated(document)
+}
+
+async function createAiDocument() {
+  const instruction = aiInstruction.value.trim()
+  if (!instruction || isCreating.value) return
+  isCreating.value = true
+  const document = await store.createAiDocument({
+    folderId: store.newDocumentFolderId,
+    instruction,
+  })
+  isCreating.value = false
+  openCreated(document)
 }
 </script>
 
@@ -44,7 +77,7 @@ async function createDocument(templateId = null) {
       <header class="new-document-dialog-header">
         <div>
           <h2 id="new-document-title">New document</h2>
-          <p>Start blank or use a template.</p>
+          <p>Start blank, ask Cookie AI, or use a template.</p>
         </div>
         <button
           type="button"
@@ -70,6 +103,48 @@ async function createDocument(templateId = null) {
           <span>
             <strong>Blank document</strong>
             <small>Start with an empty page</small>
+          </span>
+        </button>
+
+        <div v-if="aiPromptOpen" class="new-document-ai-prompt">
+          <span class="material-symbols-outlined gemini-color" aria-hidden="true"
+            >auto_fix_high</span
+          >
+          <input
+            ref="aiPromptRef"
+            v-model="aiInstruction"
+            class="new-document-ai-input"
+            maxlength="1000"
+            :placeholder="isCreating ? 'Writing your document…' : 'Describe your document'"
+            aria-label="Describe your document"
+            :disabled="isCreating"
+            @keydown.enter.prevent="createAiDocument"
+            @keydown.escape.stop="closeAiPrompt"
+          />
+          <button
+            type="button"
+            class="ni-action-btn new-document-ai-close"
+            title="Back to document options"
+            aria-label="Close Cookie AI prompt"
+            :disabled="isCreating"
+            @click="closeAiPrompt"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
+        </div>
+        <button
+          v-else
+          type="button"
+          class="new-document-option new-document-ai-option"
+          :disabled="isCreating"
+          @click="openAiPrompt"
+        >
+          <span class="new-document-option-icon" aria-hidden="true">
+            <span class="material-symbols-outlined gemini-color">auto_fix_high</span>
+          </span>
+          <span>
+            <strong>AI document</strong>
+            <small>Describe it and Cookie AI writes the first draft</small>
           </span>
         </button>
 
@@ -216,6 +291,43 @@ async function createDocument(templateId = null) {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Mirrors the composer footer's Cookie AI prompt (.composer-ai-inline). */
+.new-document-ai-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+
+.new-document-ai-prompt > .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.new-document-ai-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.new-document-ai-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.new-document-ai-input:disabled {
+  cursor: wait;
+}
+
+.new-document-ai-close {
+  margin-left: 4px;
 }
 
 .new-document-option small,

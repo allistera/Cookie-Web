@@ -54,6 +54,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   against. Stored server-side in `users.prefs` rather than the browser, since
   the Worker reads them overnight.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
+- AI Document: the New document dialog's "AI document" option turns a prompt into
+  a titled, block-formatted page (via `cookie-web-ai`'s `POST /document`).
 - Per-label auto-tag controls and conservative spam classification.
 - Outbound delivery through Resend with stored sent copies.
 - Best-effort sent-mail read receipts using opaque tracking tokens.

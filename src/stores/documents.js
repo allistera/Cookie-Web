@@ -4,7 +4,7 @@ import { jsonRequest } from '../lib/jsonRequest'
 import { scheduleContentSave, flushPendingSave, discardPendingSave } from '../lib/documentSaves'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
-import { TASKS_API_URL } from '../lib/apiWorkers'
+import { AI_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import {
   formatDailyMonthFolder,
   formatDailyNoteTitle,
@@ -177,6 +177,35 @@ export const useDocumentsStore = defineStore('documents', {
         this.notify('Failed to create the document.', 'error')
         return null
       }
+    },
+
+    // "AI document" in the new-document dialog: the ai Worker turns the
+    // prompt into a title plus Editor.js blocks, and the row is then created
+    // and filled the same way openTodayNote seeds a daily note (create, then
+    // PATCH blocks) — POST /documents only takes content from a template.
+    async createAiDocument({ folderId = null, instruction }) {
+      let generated
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        ;({ document: generated } = await jsonRequest(`${AI_API_URL}/document`, {
+          method: 'POST',
+          headers,
+          body: { instruction },
+        }))
+      } catch (error) {
+        console.error('AI document failed:', error)
+        this.notify('AI document failed. Please try again.', 'error')
+        return null
+      }
+      const document = await this.createDocument({ folderId, title: generated.title })
+      if (!document) return null
+      try {
+        await this.request('PATCH', { body: { id: document.id, blocks: generated.blocks } })
+      } catch (error) {
+        console.error('Failed to fill the AI document:', error)
+        this.notify('The document was created but its content could not be saved.', 'error')
+      }
+      return document
     },
 
     async loadTemplates({ force = false } = {}) {
