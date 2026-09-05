@@ -337,6 +337,10 @@ function blankCondition() {
 function blankRuleDraft() {
   return {
     name: '',
+    // 'conditions' (subject/body/from/to matching) or 'ai' (a plain-language
+    // prompt Cookie AI judges each new message against).
+    kind: 'conditions',
+    prompt: '',
     action: 'apply_label',
     label_id: '',
     match_type: 'all',
@@ -368,10 +372,14 @@ function resetRuleDraft() {
 
 function editRule(rule) {
   ruleDraft.name = rule.name || ''
+  ruleDraft.kind = rule.kind === 'ai' ? 'ai' : 'conditions'
+  ruleDraft.prompt = rule.prompt || ''
   ruleDraft.action = rule.action || 'apply_label'
   ruleDraft.label_id = rule.label_id || ''
   ruleDraft.match_type = rule.match_type
-  ruleDraft.conditions = rule.conditions.map((condition) => ({ ...condition }))
+  ruleDraft.conditions = rule.conditions.length
+    ? rule.conditions.map((condition) => ({ ...condition }))
+    : [blankCondition()]
   editingRuleId.value = rule.id
   ruleError.value = ''
   nextTick(() =>
@@ -387,21 +395,31 @@ async function submitRule() {
     ruleError.value = 'Choose a label to apply.'
     return
   }
-  const conditions = ruleDraft.conditions
-    .map((condition) => ({ ...condition, value: condition.value.trim() }))
-    .filter((condition) => condition.value)
-  if (conditions.length === 0) {
-    ruleError.value = 'Add at least one condition with a value.'
-    return
+  const payload = {
+    name: ruleDraft.name.trim() || null,
+    kind: ruleDraft.kind,
+    action: ruleDraft.action,
+  }
+  if (ruleDraft.kind === 'ai') {
+    const prompt = ruleDraft.prompt.trim()
+    if (!prompt) {
+      ruleError.value = 'Describe the mail this rule should catch.'
+      return
+    }
+    payload.prompt = prompt
+  } else {
+    const conditions = ruleDraft.conditions
+      .map((condition) => ({ ...condition, value: condition.value.trim() }))
+      .filter((condition) => condition.value)
+    if (conditions.length === 0) {
+      ruleError.value = 'Add at least one condition with a value.'
+      return
+    }
+    payload.match_type = ruleDraft.match_type
+    payload.conditions = conditions
   }
 
   isSavingRule.value = true
-  const payload = {
-    name: ruleDraft.name.trim() || null,
-    action: ruleDraft.action,
-    match_type: ruleDraft.match_type,
-    conditions,
-  }
   // label_id is omitted entirely for mark_done: the API treats the key's
   // mere presence (even null) as "set this label", so switching a rule to
   // mark_done must drop the key rather than null it out.
@@ -865,7 +883,9 @@ function toggleRuleEnabled(rule) {
             <h3 class="settings-section-title">Email rules</h3>
             <p class="settings-section-hint">
               Automatically apply a tag or mark mail done when new mail matches conditions on
-              subject, body, from, or to. Rules run when mail arrives, before AI auto-tagging.
+              subject, body, from, or to — or describe the mail in plain language and let Cookie AI
+              decide. Condition rules run the moment mail arrives; AI rules run with AI
+              auto-tagging.
             </p>
 
             <div class="rule-list" v-if="store.rules.length">
@@ -891,7 +911,15 @@ function toggleRuleEnabled(rule) {
                   >
                     {{ labelName(rule.label_id) }}
                   </span>
-                  <span class="rule-row-summary">
+                  <span v-if="rule.kind === 'ai'" class="rule-row-summary rule-row-summary-ai">
+                    <span
+                      class="material-symbols-outlined gemini-color rule-row-ai-icon"
+                      aria-hidden="true"
+                      >auto_fix_high</span
+                    >
+                    Cookie AI: "{{ rule.prompt }}"
+                  </span>
+                  <span v-else class="rule-row-summary">
                     {{ rule.match_type === 'any' ? 'Any of' : 'All of' }}:
                     {{
                       rule.conditions
@@ -939,9 +967,37 @@ function toggleRuleEnabled(rule) {
                 placeholder="Rule name (optional)"
               />
 
+              <label class="settings-row rule-kind-row">
+                <span>Rule type</span>
+                <select class="settings-select" v-model="ruleDraft.kind" aria-label="Rule type">
+                  <option value="conditions">Conditions</option>
+                  <option value="ai">Cookie AI prompt</option>
+                </select>
+              </label>
+
+              <label v-if="ruleDraft.kind === 'ai'" class="rule-prompt-field">
+                <span class="rule-prompt-label">
+                  <span
+                    class="material-symbols-outlined gemini-color rule-row-ai-icon"
+                    aria-hidden="true"
+                    >auto_fix_high</span
+                  >
+                  Describe the mail this rule should catch
+                </span>
+                <textarea
+                  v-model="ruleDraft.prompt"
+                  class="label-input rule-prompt-input"
+                  rows="3"
+                  maxlength="500"
+                  placeholder="e.g. Receipts and order confirmations from online shops"
+                  aria-label="AI prompt"
+                ></textarea>
+              </label>
+
               <div
-                class="rule-condition-row"
                 v-for="(condition, index) in ruleDraft.conditions"
+                v-else
+                class="rule-condition-row"
                 :key="index"
               >
                 <select class="settings-select" v-model="condition.field">
@@ -975,6 +1031,7 @@ function toggleRuleEnabled(rule) {
                 </button>
               </div>
               <button
+                v-if="ruleDraft.kind === 'conditions'"
                 type="button"
                 class="btn btn-secondary rule-add-condition-btn"
                 @click="addRuleCondition"
@@ -983,7 +1040,7 @@ function toggleRuleEnabled(rule) {
               </button>
 
               <div class="rule-create-fields">
-                <label class="settings-row">
+                <label v-if="ruleDraft.kind === 'conditions'" class="settings-row">
                   <span>Match</span>
                   <select class="settings-select" v-model="ruleDraft.match_type">
                     <option value="all">All conditions</option>

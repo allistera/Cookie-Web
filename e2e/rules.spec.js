@@ -98,3 +98,37 @@ test('A tag rule can be switched to Mark done, disabled, and deleted', async ({ 
     reopened.locator('.settings-section-hint', { hasText: 'No rules yet' }),
   ).toBeVisible()
 })
+
+test('Settings Rules creates a Cookie AI rule from a plain-language prompt', async ({ page }) => {
+  await page.goto('/')
+  const modal = await openRulesSettings(page)
+
+  await modal.locator('.rule-editor-form > .label-input').fill('Shop receipts')
+  await modal.getByLabel('Rule type').selectOption('ai')
+  // The prompt replaces the condition rows and their match selector.
+  await expect(modal.locator('.rule-condition-row')).toHaveCount(0)
+  await expect(modal.getByLabel('Match')).toHaveCount(0)
+  await modal.getByLabel('AI prompt').fill('Receipts and order confirmations from online shops')
+  await modal.getByLabel('Apply label').selectOption({ label: 'Finance' })
+  await modal.getByRole('button', { name: 'Add rule' }).click()
+
+  const rule = modal.locator('.rule-row', { hasText: 'Shop receipts' })
+  await expect(rule.locator('.ni-label-pill')).toHaveText('Finance')
+  await expect(rule.locator('.rule-row-summary')).toContainText(
+    'Cookie AI: "Receipts and order confirmations from online shops"',
+  )
+
+  // Editing brings the prompt back into the form rather than empty conditions.
+  await rule.getByTitle('Edit Shop receipts').click()
+  await expect(modal.getByLabel('Rule type')).toHaveValue('ai')
+  await expect(modal.getByLabel('AI prompt')).toHaveValue(
+    'Receipts and order confirmations from online shops',
+  )
+  await modal.getByRole('button', { name: 'Cancel' }).click()
+
+  await page.reload()
+  const reopened = await openRulesSettings(page)
+  await expect(
+    reopened.locator('.rule-row', { hasText: 'Shop receipts' }).locator('.rule-row-summary'),
+  ).toContainText('Cookie AI:')
+})

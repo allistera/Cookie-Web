@@ -1552,14 +1552,20 @@ function localApiPlugin(mode) {
       if (req.method === 'GET') return json(res, { rules: state.rules })
       const body = await readBody(req)
       if (req.method === 'POST') {
+        const kind = body.kind === 'ai' ? 'ai' : 'conditions'
         const rule = {
           id: `stub-rule-${randomUUID()}`,
           name: body.name ?? null,
           label_id: body.action === 'mark_done' ? null : (body.label_id ?? null),
           action: body.action || 'apply_label',
+          kind,
+          prompt: kind === 'ai' ? (body.prompt ?? null) : null,
           match_type: body.match_type || 'all',
           enabled: true,
-          conditions: body.conditions.map((condition, i) => ({ ...condition, position: i })),
+          conditions:
+            kind === 'ai'
+              ? []
+              : body.conditions.map((condition, i) => ({ ...condition, position: i })),
         }
         state.rules.push(rule)
         return json(res, { rule }, 201)
@@ -1574,9 +1580,19 @@ function localApiPlugin(mode) {
         // body.id repeats the rule's own id, so spreading it changes nothing.
         const rule = { ...state.rules[index], ...body }
         // Matches the real handler: mark_done drops any label the rule carried,
-        // and conditions are renumbered whenever they are replaced.
+        // an AI rule keeps a prompt and no conditions (and vice versa), and
+        // conditions are renumbered whenever they are replaced.
         if (rule.action === 'mark_done') rule.label_id = null
-        rule.conditions = rule.conditions.map((condition, i) => ({ ...condition, position: i }))
+        if (rule.kind === 'ai') {
+          rule.conditions = []
+        } else {
+          rule.kind = 'conditions'
+          rule.prompt = null
+          rule.conditions = (rule.conditions ?? []).map((condition, i) => ({
+            ...condition,
+            position: i,
+          }))
+        }
         state.rules[index] = rule
         return json(res, { rule })
       }

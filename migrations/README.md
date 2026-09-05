@@ -58,6 +58,8 @@ or serverless instances cannot multiply the configured allowance.
 
 `0029_label_rules.sql` adds `label_rules` and `label_rule_conditions` for deterministic, user-defined tagging (subject/body/from/to conditions, matched with `contains`/`equals`/`starts_with`/`ends_with`, combined with `all`/`any`). Cookie-Worker evaluates enabled rules inside the same transaction that stores an inbound message and writes matches to `message_labels` with `source = 'rule'` and the new `rule_id` provenance column. Unlike AI auto-tagging, rule matching is synchronous and has no recovery cron because it never leaves the message's own storage transaction.
 
+`0068_ai_label_rules.sql` adds `kind` (`conditions`/`ai`) and `prompt` to `label_rules`. A `kind = 'ai'` rule is defined by a plain-language prompt instead of conditions; Cookie-Worker's `mail-app-ingest` hands enabled prompts to the same classification call that auto-tags by label description and applies the rule's action above the shared 0.7 confidence bar, writing labels with `source = 'ai'` and `rule_id` provenance. Apply `0068` before deploying the `cookie-web-labels` and `mail-app-ingest` Workers that read the new columns.
+
 Apply `0029` before deploying Cookie-Worker code that reads `label_rules`.
 
 `0030_rule_actions.sql` adds `label_rules.action` (`apply_label` or `mark_done`) and makes `label_id` nullable, so a rule can mark matching mail done (`is_archived`/`is_unread`, the same state the "Marked done" archive flow sets) instead of only applying a label. A CHECK keeps `label_id` required for `apply_label` and null for `mark_done`.
