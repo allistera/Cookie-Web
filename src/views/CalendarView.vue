@@ -702,6 +702,22 @@ watch(
   () => consumeNewEventRequest(),
 )
 
+// Palette navigation for this view. Immediate so a request raised just
+// before the view mounted is honoured on arrival.
+watch(
+  () => store.calendarActionRequest,
+  (request) => {
+    if (!request) return
+    store.calendarActionRequest = null
+    const { action } = request
+    if (action === 'today') goToday()
+    else if (action === 'previous') navigate(-1)
+    else if (action === 'next') navigate(1)
+    else if (action.startsWith('view:')) setView(action.slice('view:'.length))
+  },
+  { immediate: true },
+)
+
 // A request raised before this view mounted (the palette on another route)
 // is still pending, so the mount path opens it once calendars have loaded.
 function consumeNewEventRequest() {

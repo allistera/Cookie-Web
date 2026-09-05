@@ -9,6 +9,7 @@ const {
   writableCalendars,
   subscribedCalendars,
   loadCalendars: fetchCalendars,
+  syncCalendar,
 } = useCalendars(
   (init) => store.authHeaders(init),
   (message, kind) => store.notify(message, kind),
@@ -178,24 +179,8 @@ async function syncCalendarNow(calendar) {
   syncingCalendarId.value = calendar.id
   clearError()
   try {
-    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    const response = await fetch(CALENDARS_ENDPOINT, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ action: 'sync', id: calendar.id }),
-    })
-    const body = await response.json().catch(() => ({}))
-    const errorMessage = body.subscriptionError || body.error || null
-    const index = calendars.value.findIndex((item) => item.id === calendar.id)
-    if (index !== -1) {
-      calendars.value[index] = {
-        ...calendars.value[index],
-        subscriptionSyncedAt:
-          body.subscriptionSyncedAt ?? calendars.value[index].subscriptionSyncedAt,
-        subscriptionError: errorMessage,
-      }
-    }
-    if (!response.ok) {
+    const { ok, errorMessage } = await syncCalendar(calendar.id)
+    if (!ok) {
       operationError.value = `Sync failed: ${errorMessage || 'unknown error'}`
       errorCalendarId.value = calendar.id
       store.notify(operationError.value, 'error')

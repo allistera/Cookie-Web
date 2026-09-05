@@ -55,7 +55,30 @@ export function useCalendars(authHeaders, notify) {
     return inFlight
   }
 
-  return { calendars, writableCalendars, subscribedCalendars, loadCalendars }
+  // Pulls a subscribed calendar's feed now. Updates the shared row with the
+  // outcome and returns it, leaving any UI state to the caller.
+  async function syncCalendar(id) {
+    const headers = await authHeaders({ 'Content-Type': 'application/json' })
+    const response = await fetch(CALENDARS_ENDPOINT, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'sync', id }),
+    })
+    const body = await response.json().catch(() => ({}))
+    const errorMessage = body.subscriptionError || body.error || null
+    const index = calendars.value.findIndex((item) => item.id === id)
+    if (index !== -1) {
+      calendars.value[index] = {
+        ...calendars.value[index],
+        subscriptionSyncedAt:
+          body.subscriptionSyncedAt ?? calendars.value[index].subscriptionSyncedAt,
+        subscriptionError: errorMessage,
+      }
+    }
+    return { ok: response.ok, errorMessage }
+  }
+
+  return { calendars, writableCalendars, subscribedCalendars, loadCalendars, syncCalendar }
 }
 
 // Test-only: this module's state is a real singleton (by design — see the

@@ -54,6 +54,33 @@ describe('useCalendars', () => {
     expect(notify).toHaveBeenCalledWith('Failed to load calendars.', 'error')
   })
 
+  it('syncCalendar posts the sync and writes the outcome onto the shared row', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ subscriptionError: 'feed offline' }),
+      }),
+    )
+
+    const { calendars, syncCalendar } = useCalendars(authHeaders, notify)
+    calendars.value = [{ id: 'hol', name: 'Holidays', subscriptionSyncedAt: 'before' }]
+    const result = await syncCalendar('hol')
+
+    expect(fetch).toHaveBeenCalledWith(CALENDARS_ENDPOINT, {
+      method: 'POST',
+      headers: {},
+      body: JSON.stringify({ action: 'sync', id: 'hol' }),
+    })
+    expect(result).toEqual({ ok: false, errorMessage: 'feed offline' })
+    expect(calendars.value[0]).toEqual({
+      id: 'hol',
+      name: 'Holidays',
+      subscriptionSyncedAt: 'before',
+      subscriptionError: 'feed offline',
+    })
+  })
+
   it('shares one calendars list across every caller', () => {
     const first = useCalendars(authHeaders, notify)
     const second = useCalendars(authHeaders, notify)

@@ -64,6 +64,18 @@ async function showNewFolder(parentId) {
   newFolderInput.value?.focus()
 }
 
+// The palette's "New Folder" lands here; immediate so a request raised just
+// before this sidebar mounted (palette on another app) still opens the row.
+watch(
+  () => store.viewActionRequest,
+  (request) => {
+    if (request?.action !== 'new-folder') return
+    store.viewActionRequest = null
+    showNewFolder(null)
+  },
+  { immediate: true },
+)
+
 async function submitNewFolder() {
   // Enter submits and unmounts the input, which fires blur; the second call
   // must be a no-op or every Enter would create the folder twice.

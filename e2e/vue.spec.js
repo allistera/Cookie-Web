@@ -1652,6 +1652,68 @@ test('Command palette Snooze until tomorrow schedules the open email', async ({ 
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toHaveCount(0)
 })
 
+async function runPaletteCommand(page, text) {
+  await page.keyboard.press('/')
+  await expect(page.locator('.cp-panel')).toBeVisible()
+  await page.keyboard.type(text)
+  await expect(page.locator('.cp-item').first()).toContainText(text, { ignoreCase: true })
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.cp-panel')).toBeHidden()
+}
+
+test('Command palette drives the calendar view, period and Today', async ({ page }) => {
+  await freezeCalendarClock(page)
+  await page.goto('/calendar')
+  await expect(
+    page.getByRole('heading', { name: 'Friday, July 24, 2026', exact: true }),
+  ).toHaveCount(2)
+
+  await runPaletteCommand(page, 'Calendar: Week view')
+  await expect(page.getByRole('heading', { name: 'Jul 20 – 26, 2026' })).toBeVisible()
+
+  await runPaletteCommand(page, 'Calendar: Next period')
+  await expect(page.getByRole('heading', { name: 'Jul 27 – Aug 2, 2026' })).toBeVisible()
+
+  await runPaletteCommand(page, 'Calendar: Go to Today')
+  await expect(page.getByRole('heading', { name: 'Jul 20 – 26, 2026' })).toBeVisible()
+})
+
+test('Command palette New Project and Add Divider work on the Tasks app', async ({ page }) => {
+  await page.goto('/tasks?project=inbox')
+  await page.locator('.add-task-btn').click()
+  await page.locator('.add-task-row input').fill('First')
+  await page.locator('.add-task-row input').press('Enter')
+  await expect(page.locator('.task-content')).toHaveText(['First'])
+
+  await runPaletteCommand(page, 'Add Divider')
+  const rows = page.locator('.task-rows > .task-row')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(1)).toHaveClass(/task-divider/)
+
+  await runPaletteCommand(page, 'New Project')
+  const input = page.locator('.tasks-sidebar .new-project-row input')
+  await expect(input).toBeFocused()
+  await input.fill('Roof')
+  await input.press('Enter')
+  await expect(page.locator('.tasks-sidebar .project-item', { hasText: 'Roof' })).toBeVisible()
+})
+
+test('Command palette New Folder opens the folder row after switching to Documents', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+
+  await runPaletteCommand(page, 'New Folder')
+  await expect(page).toHaveURL(/\/documents$/)
+  const input = page.locator('.documents-sidebar').getByLabel('New folder name')
+  await expect(input).toBeFocused()
+  await input.fill('Reading list')
+  await input.press('Enter')
+  await expect(
+    page.locator('.documents-sidebar .folder-item', { hasText: 'Reading list' }),
+  ).toBeVisible()
+})
+
 test('Escape closes the palette but keeps the reading panel open', async ({ page }) => {
   await page.goto('/inbox')
 
