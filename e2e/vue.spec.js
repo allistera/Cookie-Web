@@ -2282,6 +2282,39 @@ test('Tasks: Add Task creates in the Inbox from wherever you are', async ({ page
   await expect(page.locator('.task-content')).toHaveText('Buy milk')
 })
 
+test('Tasks: natural-language quick add parses into Advanced and saves every field', async ({
+  page,
+}) => {
+  await page.goto('/tasks?project=inbox')
+
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Work')
+  await sidebar.locator('.new-project-row input').press('Enter')
+
+  await sidebar.locator('.compose-btn').click()
+  const dialog = page.locator('.add-task-dialog')
+  await dialog
+    .getByRole('textbox', { name: 'Describe your task' })
+    .fill('Call plumber Friday 3pm p1 #Work @home')
+  await dialog.getByRole('button', { name: 'Advanced' }).click()
+
+  await expect(dialog.getByRole('textbox', { name: 'Task name' })).toHaveValue('Call plumber')
+  await expect(dialog.getByRole('combobox', { name: 'Project' })).toHaveValue(/.+/)
+  await expect(dialog.getByLabel('Due date')).not.toHaveValue('')
+  await expect(dialog.getByLabel('Due time')).toHaveValue('15:00')
+  await expect(dialog.getByRole('combobox', { name: 'Priority' })).toHaveValue('1')
+  await expect(dialog.getByRole('textbox', { name: 'Labels' })).toHaveValue('@home')
+
+  await dialog.getByRole('button', { name: 'Add task' }).click()
+  await expect(dialog).toHaveCount(0)
+  await sidebar.locator('.project-item', { hasText: 'Work' }).click()
+
+  await expect(page.locator('.task-content')).toHaveText('Call plumber')
+  await expect(page.locator('.task-due')).toContainText('3:00 PM')
+  await expect(page.locator('.task-label')).toHaveText('@home')
+})
+
 test('Tasks: the Add Task dialog closes on Escape without creating anything', async ({ page }) => {
   await page.goto('/tasks')
 

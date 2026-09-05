@@ -389,6 +389,69 @@ describe('TaskDetailPanel', () => {
     expect(wrapper.find('.task-panel-date-clear').exists()).toBe(false)
   })
 
+  it('shows and updates the task due time in its stored time zone', async () => {
+    seed([
+      {
+        ...ITEMS[1],
+        dueDate: '2026-09-11',
+        dueTime: '15:00',
+        timeZone: 'Europe/London',
+      },
+    ])
+    const setDueTime = vi.spyOn(items, 'setDueTime').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-time-input').element.value).toBe('15:00')
+    expect(wrapper.text()).toContain('Europe/London')
+    await wrapper.get('.task-panel-time-input').setValue('16:30')
+    await flushPromises()
+
+    expect(setDueTime).toHaveBeenCalledWith('b', '16:30', 'Europe/London')
+  })
+
+  it('disables due time until the task has a due date', async () => {
+    seed()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-time-input').attributes('disabled')).toBeDefined()
+  })
+
+  it('clears a due time as null', async () => {
+    seed([
+      {
+        ...ITEMS[1],
+        dueDate: '2026-09-11',
+        dueTime: '15:00',
+        timeZone: 'Europe/London',
+      },
+    ])
+    const setDueTime = vi.spyOn(items, 'setDueTime').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-time-input').setValue('')
+    await flushPromises()
+
+    expect(setDueTime).toHaveBeenCalledWith('b', null, null)
+  })
+
+  it('shows and saves labels from the detail panel', async () => {
+    seed([{ ...ITEMS[1], labels: ['home', 'errands'] }])
+    const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const input = wrapper.get('.task-panel-labels-input')
+    expect(input.element.value).toBe('@home @errands')
+    await input.setValue('@Home, @calls')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(setLabels).toHaveBeenCalledWith('b', ['Home', 'calls'])
+  })
+
   // Priority is Todoist's four levels: 1 the most urgent, 4 the default.
   it('shows the default priority for a task that has none', async () => {
     seed()

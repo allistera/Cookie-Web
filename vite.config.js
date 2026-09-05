@@ -1286,6 +1286,71 @@ function localApiPlugin(mode) {
         return json(res, { items })
       }
       const body = await readBody(req)
+      // The browser suite cannot call OpenAI. This fixture keeps the same
+      // route and response contract while deterministically handling the
+      // shortcuts and date phrase used by the end-to-end quick-add flow.
+      if (segments[1] === 'interpret') {
+        if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+        const input = String(body.text ?? '').trim()
+        if (!input) return json(res, { error: 'Describe a task' }, 400)
+
+        const priorityToken = input.match(/(?:^|\s)p([1-4])(?=\s|$)/i)
+        const projectToken = input.match(/(?:^|\s)#(?:"([^"]+)"|([^\s]+))(?=\s|$)/)
+        const labels = [
+          ...new Set(
+            [...input.matchAll(/(?:^|\s)@([^\s]+)(?=\s|$)/g)].map((match) =>
+              match[1].toLowerCase(),
+            ),
+          ),
+        ]
+        const projectName = projectToken?.[1] ?? projectToken?.[2] ?? null
+        const project = projectName
+          ? state.projects.find((row) => row.name.toLowerCase() === projectName.toLowerCase())
+          : null
+        if (projectName && !project) {
+          return json(
+            res,
+            { error: 'Project not found. Choose an existing project in Advanced.' },
+            400,
+          )
+        }
+
+        const timeMatch = input.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i)
+        let dueTime = null
+        if (timeMatch) {
+          let hour = Number(timeMatch[1]) % 12
+          if (timeMatch[3].toLowerCase() === 'pm') hour += 12
+          dueTime = `${String(hour).padStart(2, '0')}:${timeMatch[2] ?? '00'}`
+        }
+        let dueDate = null
+        if (/\bfriday\b/i.test(input)) {
+          const next = new Date()
+          const days = (5 - next.getUTCDay() + 7) % 7
+          next.setUTCDate(next.getUTCDate() + days)
+          dueDate = next.toISOString().slice(0, 10)
+        } else if (dueTime) {
+          dueDate = new Date().toISOString().slice(0, 10)
+        }
+        const content = input
+          .replace(/(^|\s)(p[1-4]|#(?:"[^"]+"|[^\s]+)|@[^\s]+)(?=\s|$)/gi, '$1')
+          .replace(/\bfriday\b/gi, '')
+          .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+        return json(res, {
+          draft: {
+            content,
+            description: null,
+            projectId: project?.id ?? null,
+            dueDate,
+            dueTime,
+            timeZone: dueTime ? body.timeZone : null,
+            priority: priorityToken ? Number(priorityToken[1]) : 4,
+            recurrence: null,
+            labels,
+          },
+        })
+      }
       // POST /task-items/reorder: rows in their new order; their existing
       // positions are dealt back out in that order, as the Worker does.
       if (segments[1] === 'reorder') {
@@ -1353,6 +1418,11 @@ function localApiPlugin(mode) {
           content,
           description: body.description ?? null,
           dueDate: hasDue ? String(body.dueDate) : null,
+          dueTime: body.dueTime ?? null,
+          timeZone: body.dueTime ? (body.timeZone ?? null) : null,
+          labels: Array.isArray(body.labels) ? [...new Set(body.labels)] : [],
+          priority: body.priority ?? 4,
+          recurrence: body.recurrence ?? null,
           // New rows go last, as the column default does.
           position: Date.now() / 1000 + state.taskItems.length,
           completedAt: null,
@@ -1369,8 +1439,22 @@ function localApiPlugin(mode) {
         const hasDescription = Object.hasOwn(body, 'description')
         const hasProject = Object.hasOwn(body, 'projectId')
         const hasDueDate = Object.hasOwn(body, 'dueDate')
+        const hasTime = Object.hasOwn(body, 'dueTime') || Object.hasOwn(body, 'timeZone')
+        const hasLabels = Object.hasOwn(body, 'labels')
+        const hasPriority = Object.hasOwn(body, 'priority')
+        const hasRecurrence = Object.hasOwn(body, 'recurrence')
         const hasCompleted = Object.hasOwn(body, 'completed')
-        if (!hasContent && !hasDescription && !hasProject && !hasDueDate && !hasCompleted) {
+        if (
+          !hasContent &&
+          !hasDescription &&
+          !hasProject &&
+          !hasDueDate &&
+          !hasTime &&
+          !hasLabels &&
+          !hasPriority &&
+          !hasRecurrence &&
+          !hasCompleted
+        ) {
           return json(res, { error: 'At least one change is required' }, 400)
         }
 
@@ -1393,7 +1477,19 @@ function localApiPlugin(mode) {
             return json(res, { error: 'dueDate must be a YYYY-MM-DD date' }, 400)
           }
           item.dueDate = clears ? null : String(body.dueDate)
+          if (clears) {
+            item.dueTime = null
+            item.timeZone = null
+            item.recurrence = null
+          }
         }
+        if (hasTime) {
+          item.dueTime = body.dueTime ?? null
+          item.timeZone = item.dueTime ? (body.timeZone ?? item.timeZone ?? null) : null
+        }
+        if (hasLabels) item.labels = Array.isArray(body.labels) ? [...new Set(body.labels)] : []
+        if (hasPriority) item.priority = body.priority ?? 4
+        if (hasRecurrence) item.recurrence = body.recurrence || null
         // Completion stamps a time; it never deletes, matching the real handler.
         if (hasCompleted) {
           item.completedAt = body.completed ? new Date().toISOString() : null

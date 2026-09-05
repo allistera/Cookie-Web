@@ -127,10 +127,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     // A sub-task sends only its parent — the server derives the project from
     // the parent row, so the two can never disagree.
-    async createItem({ content, projectId = null, parentId = null, recurrence }) {
+    async createItem({ content, projectId = null, parentId = null, recurrence, ...fields }) {
       try {
         const body = parentId === null ? { content, projectId } : { content, parentId }
         if (recurrence?.trim()) Object.assign(body, { recurrence, today: localToday() })
+        for (const key of ['description', 'dueDate', 'dueTime', 'timeZone', 'priority', 'labels']) {
+          if (fields[key] !== undefined) body[key] = fields[key]
+        }
         const { item } = await this.request('POST', { body })
         if (this.belongsToLoadedList(item)) this.items.push(item)
         return item
@@ -139,6 +142,23 @@ export const useTaskItemsStore = defineStore('taskItems', {
         this.notify(error.userMessage || 'Failed to create the task.', 'error')
         return null
       }
+    },
+
+    async interpretItem(text) {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      const { draft } = await this.request('POST', {
+        params: '/interpret',
+        body: { text, timeZone },
+      })
+      return draft
+    },
+
+    setDueTime(id, dueTime, timeZone) {
+      return this.patchItem(id, {}, { dueTime, timeZone }, 'Failed to set the time.')
+    },
+
+    setLabels(id, labels) {
+      return this.patchItem(id, {}, { labels }, 'Failed to save task labels.')
     },
 
     // A divider is a rule between rows (kind: 'divider'), added from the line

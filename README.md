@@ -175,8 +175,30 @@ states are preserved. This does not create separate tasks or a completion histor
 
 Clear Repeat and save to stop repetition while keeping the current date;
 clearing the due date also stops repetition. Unsupported phrases are rejected.
-Repeat is a separate field; task titles are not parsed for schedules.
+Repeat remains a separate field in the inline task editor and detail panel.
+The sidebar's Add Task dialog can also parse it from natural-language quick add.
 
 Apply `migrations/0066_task_items_recurrence.sql` before deploying the updated
 `cookie-web-tasks` Worker, then deploy the web client. No background job or new
 dependency is needed.
+
+### Natural-language task quick add
+
+The sidebar's **Add Task** button opens a natural-language textbox. A request
+such as `Call plumber Friday 3pm p1 #Work @home` resolves the task title, local
+due date and time, priority, existing project, and labels in one submit.
+`p1`–`p4`, `#Project`, and `@label` are parsed exactly before the remaining
+text is sent to the AI interpreter. Project matching is case-insensitive and
+never creates a project; an unknown or duplicate project name is returned for
+correction.
+
+Choose **Advanced** to parse the text without creating the task, then review or
+edit the full form. A request containing only scheduling metadata opens this
+form and asks for a task name while keeping the parsed fields. Due times are
+stored with the browser's IANA time zone, so the original local time remains
+explicit.
+
+Apply `migrations/0067_task_items_time_and_labels.sql` before deploying the
+updated `cookie-web-tasks` Worker, then deploy the web client. The Worker uses
+the existing `OPENAI_API_KEY` and rate-limits interpretation to 10 requests per
+user per minute.

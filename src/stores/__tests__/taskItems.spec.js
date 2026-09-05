@@ -43,6 +43,44 @@ describe('task items store', () => {
     expect(store.items).toHaveLength(1)
   })
 
+  it('forwards parsed scheduling metadata when creating', async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: ITEM }) }))
+
+    await store.createItem({
+      content: 'Call plumber',
+      projectId: 'p1',
+      dueDate: '2026-09-11',
+      dueTime: '15:00',
+      timeZone: 'Europe/London',
+      priority: 1,
+      labels: ['home'],
+    })
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      content: 'Call plumber',
+      projectId: 'p1',
+      dueDate: '2026-09-11',
+      dueTime: '15:00',
+      timeZone: 'Europe/London',
+      priority: 1,
+      labels: ['home'],
+    })
+  })
+
+  it('asks the interpretation endpoint using the browser time zone', async () => {
+    const draft = { content: 'Call plumber', dueDate: '2026-09-11' }
+    stubFetch(async () => ({ ok: true, json: async () => ({ draft }) }))
+
+    await expect(store.interpretItem('Call plumber Friday')).resolves.toEqual(draft)
+
+    const [requestUrl, options] = fetch.mock.calls[0]
+    expect(requestUrl).toContain('/task-items/interpret')
+    expect(JSON.parse(options.body)).toEqual({
+      text: 'Call plumber Friday',
+      timeZone: expect.any(String),
+    })
+  })
+
   // Completing hides the task from the list without deleting it.
   it('drops a completed task from the visible list', async () => {
     store.items = [{ ...ITEM }]

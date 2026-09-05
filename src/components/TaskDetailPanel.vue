@@ -113,6 +113,41 @@ function onDateChange(event) {
   items.setDueDate(props.taskId, value || null)
 }
 
+const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+function onTimeChange(event) {
+  const value = String(event.target.value ?? '')
+  items.setDueTime(
+    props.taskId,
+    value || null,
+    value ? item.value?.timeZone || localTimeZone : null,
+  )
+}
+
+const labelsDraft = ref('')
+const savingLabels = ref(false)
+watch(
+  () => [props.taskId, item.value?.labels],
+  () => {
+    labelsDraft.value = (item.value?.labels ?? []).map((label) => `@${label}`).join(' ')
+  },
+  { immediate: true },
+)
+
+async function saveLabels() {
+  if (savingLabels.value) return
+  const labels = labelsDraft.value
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((label) => label.replace(/^@/, ''))
+  savingLabels.value = true
+  try {
+    await items.setLabels(props.taskId, labels)
+  } finally {
+    savingLabels.value = false
+  }
+}
+
 // Priority is a custom menu rather than a <select>: a native select cannot
 // carry the coloured flag beside each level, and the flag is what makes the
 // levels legible at a glance. It behaves as a listbox — one button that opens
@@ -402,6 +437,34 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 <span class="material-symbols-outlined" aria-hidden="true">close</span>
               </button>
             </div>
+          </div>
+
+          <div class="task-panel-field">
+            <h3>Time</h3>
+            <input
+              class="task-panel-time-input"
+              type="time"
+              aria-label="Due time"
+              :value="item?.dueTime ?? ''"
+              :disabled="!item?.dueDate"
+              @change="onTimeChange($event)"
+            />
+            <p v-if="item?.dueTime" class="task-panel-time-zone">
+              {{ item.timeZone || localTimeZone }}
+            </p>
+          </div>
+
+          <div class="task-panel-field">
+            <h3>Labels</h3>
+            <input
+              v-model="labelsDraft"
+              class="task-panel-labels-input"
+              aria-label="Labels"
+              placeholder="@home @errands"
+              :disabled="savingLabels"
+              @keydown.enter.prevent="$event.target.blur()"
+              @blur="saveLabels"
+            />
           </div>
 
           <form class="task-panel-field" @submit.prevent="saveRecurrence">
@@ -797,8 +860,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   gap: 6px;
 }
 
-.task-panel-date-input {
+.task-panel-date-input,
+.task-panel-time-input,
+.task-panel-labels-input {
   flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   min-width: 0;
   font: inherit;
   font-size: 14px;
@@ -807,6 +874,16 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 4px 6px;
+}
+
+.task-panel-time-input:disabled {
+  opacity: 0.55;
+}
+
+.task-panel-time-zone {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .task-panel-date-clear {
