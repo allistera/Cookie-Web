@@ -1,12 +1,7 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  useInboxStore,
-  inboxTabForLabel,
-  PRIORITY_TAB,
-  OTHER_TAB,
-} from '../stores/inbox'
+import { useInboxStore, inboxTabForLabel, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
