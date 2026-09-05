@@ -633,6 +633,9 @@ export const useInboxStore = defineStore('inbox', {
     calendarNewEventRequestId: 0,
     calendarNewEventPending: false,
     calendarNewEventDraft: null,
+    // Calendar view action asked for by the command palette ('today',
+    // 'previous', 'next' or 'view:<mode>'); CalendarView consumes it.
+    calendarActionRequest: null,
     // Reading-panel action asked for by the command palette ('reply',
     // 'reply-all', 'forward' or 'snooze' with a schedule choice).
     // TraditionalInboxView owns the reply box, the forward draft and the
@@ -751,6 +754,10 @@ export const useInboxStore = defineStore('inbox', {
       this.calendarNewEventDraft = draft
       this.calendarNewEventPending = true
       this.calendarNewEventRequestId++
+    },
+
+    requestCalendarAction(action) {
+      this.calendarActionRequest = { id: (this.calendarActionRequest?.id ?? 0) + 1, action }
     },
 
     requestReaderAction(action, payload = null) {

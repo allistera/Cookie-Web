@@ -52,6 +52,18 @@ async function showNewProject(parentId) {
   newProjectInput.value?.focus()
 }
 
+// The palette's "New Project" lands here; immediate so a request raised just
+// before this sidebar mounted (palette on another app) still opens the row.
+watch(
+  () => taskItems.viewActionRequest,
+  (request) => {
+    if (request?.action !== 'new-project') return
+    taskItems.viewActionRequest = null
+    showNewProject(null)
+  },
+  { immediate: true },
+)
+
 async function submitNewProject() {
   // Enter submits and unmounts the input, which fires blur; the second call
   // must be a no-op or every Enter would create the project twice.

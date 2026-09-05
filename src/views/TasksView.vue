@@ -304,14 +304,26 @@ async function startCompose() {
   draftInput.value?.focus()
 }
 
-// Today has no compose row (a new task needs a home), so the palette sends
-// the person to the Inbox first; by the time this fires the project is set.
+// Today has no compose row or dividers (a new task needs a home), so the
+// palette sends the person to the Inbox first; by the time this fires the
+// project is set.
 watch(
-  () => items.newTaskRequestId,
-  () => {
-    if (!items.newTaskPending) return
-    items.newTaskPending = false
-    if (!isToday.value) startCompose()
+  () => items.viewActionRequest,
+  (request) => {
+    const action = request?.action
+    if (action !== 'new-task' && action !== 'add-divider') return
+    items.viewActionRequest = null
+    if (action === 'new-task') {
+      if (!isToday.value) startCompose()
+      return
+    }
+    // A divider goes under the last row; two in a row would say nothing.
+    const last = visibleItems.value.at(-1)
+    if (!canAddDividers.value || !last || isDivider(last)) {
+      items.notify('Add a task first, then a divider can go under it.')
+      return
+    }
+    addDividerAfter(last)
   },
   { immediate: true },
 )

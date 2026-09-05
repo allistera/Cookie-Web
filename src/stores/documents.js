@@ -49,6 +49,10 @@ export const useDocumentsStore = defineStore('documents', {
     saveConflict: false,
     newDocumentDialogOpen: false,
     newDocumentFolderId: null,
+    // Action asked for by the command palette: 'new-folder' (the sidebar
+    // owns the inline folder row) or 'export-markdown' / 'export-pdf' (the
+    // editor owns the open document's blocks). The owner consumes it.
+    viewActionRequest: null,
     // Search: unlike email's searchEmails (which overwrites the flat inbox
     // list), search results live in their own array — DocumentsSidebar
     // builds its persistent folder tree from `documents` continuously while
@@ -291,6 +295,10 @@ export const useDocumentsStore = defineStore('documents', {
         this.notify('Failed to save the daily note default.', 'error')
         return false
       }
+    },
+
+    requestViewAction(action) {
+      this.viewActionRequest = { id: (this.viewActionRequest?.id ?? 0) + 1, action }
     },
 
     openNewDocumentDialog(folderId = null) {

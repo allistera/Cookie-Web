@@ -108,8 +108,116 @@ describe('useCommands', () => {
     const tasks = useTaskItemsStore()
     await byId['new-task'].run()
     expect(push).toHaveBeenCalledWith({ name: 'tasks', query: { project: 'inbox' } })
-    expect(tasks.newTaskRequestId).toBe(1)
-    expect(tasks.newTaskPending).toBe(true)
+    expect(tasks.viewActionRequest).toMatchObject({ id: 1, action: 'new-task' })
+
+    await byId['new-project'].run()
+    expect(push).toHaveBeenCalledWith({ name: 'tasks' })
+    expect(tasks.viewActionRequest).toMatchObject({ id: 2, action: 'new-project' })
+
+    await byId['new-folder'].run()
+    expect(documents.viewActionRequest).toMatchObject({ id: 1, action: 'new-folder' })
+  })
+
+  it('offers calendar navigation only on the Calendar route', async () => {
+    const elsewhere = await setupCommands()
+    expect(elsewhere.commands.value.map((c) => c.id)).not.toContain('calendar-today')
+
+    const { commands } = await setupCommands('calendar')
+    const byId = Object.fromEntries(commands.value.map((c) => [c.id, c]))
+    expect(byId['calendar-view-week'].title).toBe('Calendar: Week view')
+
+    byId['calendar-today'].run()
+    expect(store.calendarActionRequest).toMatchObject({ id: 1, action: 'today' })
+    byId['calendar-view-week'].run()
+    expect(store.calendarActionRequest).toMatchObject({ id: 2, action: 'view:week' })
+    byId['calendar-next'].run()
+    expect(store.calendarActionRequest.action).toBe('next')
+    byId['calendar-previous'].run()
+    expect(store.calendarActionRequest.action).toBe('previous')
+  })
+
+  it('Sync Calendars Now syncs every subscribed calendar and reports the outcome', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (!options.method) {
+        return {
+          ok: true,
+          json: async () => ({
+            calendars: [
+              { id: 'work', name: 'Work' },
+              { id: 'hol', name: 'Holidays', subscriptionUrl: 'https://x/cal.ics' },
+              { id: 'team', name: 'Team', subscriptionUrl: 'https://y/cal.ics' },
+            ],
+          }),
+        }
+      }
+      const { id } = JSON.parse(options.body)
+      if (id === 'team') return { ok: false, json: async () => ({ error: 'feed offline' }) }
+      return { ok: true, json: async () => ({ subscriptionSyncedAt: '2026-09-05T10:00:00Z' }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { commands } = await setupCommands()
+    await commands.value.find((c) => c.id === 'calendar-sync').run()
+
+    const syncIds = fetchMock.mock.calls
+      .filter(([, options]) => options?.method === 'POST')
+      .map(([, options]) => JSON.parse(options.body).id)
+    expect(syncIds.sort()).toEqual(['hol', 'team'])
+    expect(store.toasts.map((t) => t.message)).toEqual([
+      'Sync failed for Team: feed offline',
+      'Calendars synced.',
+    ])
+  })
+
+  it('offers document exports only while a document is open', async () => {
+    const elsewhere = await setupCommands('documents')
+    expect(elsewhere.commands.value.map((c) => c.id)).not.toContain('export-pdf')
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/documents/:id?', name: 'documents', component: { template: '<div />' } }],
+    })
+    await router.push('/documents/doc-1')
+    await router.isReady()
+    let commands
+    mount(
+      defineComponent({
+        setup() {
+          ;({ commands } = useCommands())
+          return () => null
+        },
+      }),
+      { global: { plugins: [router] } },
+    )
+    const documents = useDocumentsStore()
+    commands.value.find((c) => c.id === 'export-pdf').run()
+    expect(documents.viewActionRequest).toMatchObject({ action: 'export-pdf' })
+    commands.value.find((c) => c.id === 'export-markdown').run()
+    expect(documents.viewActionRequest).toMatchObject({ action: 'export-markdown' })
+  })
+
+  it('Add Divider is offered on a task list but not on Today', async () => {
+    const today = await setupCommands('tasks')
+    expect(today.commands.value.map((c) => c.id)).not.toContain('add-divider')
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/tasks', name: 'tasks', component: { template: '<div />' } }],
+    })
+    await router.push({ name: 'tasks', query: { project: 'inbox' } })
+    await router.isReady()
+    let commands
+    mount(
+      defineComponent({
+        setup() {
+          ;({ commands } = useCommands())
+          return () => null
+        },
+      }),
+      { global: { plugins: [router] } },
+    )
+    commands.value.find((c) => c.id === 'add-divider').run()
+    expect(useTaskItemsStore().viewActionRequest).toMatchObject({ action: 'add-divider' })
   })
 
   it('offers a theme switch to the opposite of the resolved theme', async () => {

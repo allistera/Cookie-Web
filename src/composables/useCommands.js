@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { settingsSections } from '../lib/settingsSections'
 import { getStoredTheme, resolveTheme, setTheme } from '../lib/theme'
+import { useCalendars } from './useCalendars'
 import { useInboxStore, inboxTabForLabel, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useDocumentsStore } from '../stores/documents'
@@ -22,6 +23,35 @@ export function useCommands() {
   const documents = useDocumentsStore()
   const router = useRouter()
   const route = useRoute()
+  const { subscribedCalendars, loadCalendars, syncCalendar } = useCalendars(
+    (init) => store.authHeaders(init),
+    (message, kind) => store.notify(message, kind),
+  )
+
+  // Pulls every subscribed feed; each failure is reported by name.
+  async function syncSubscribedCalendars() {
+    await loadCalendars()
+    const targets = subscribedCalendars.value
+    if (!targets.length) {
+      store.notify('No subscribed calendars to sync.')
+      return
+    }
+    const results = await Promise.all(
+      targets.map((calendar) =>
+        syncCalendar(calendar.id)
+          .then((result) => ({ calendar, ...result }))
+          .catch((error) => {
+            console.error('Failed to sync calendar:', error)
+            return { calendar, ok: false, errorMessage: null }
+          }),
+      ),
+    )
+    const failed = results.filter((result) => !result.ok)
+    for (const { calendar, errorMessage } of failed) {
+      store.notify(`Sync failed for ${calendar.name}: ${errorMessage || 'unknown error'}`, 'error')
+    }
+    if (failed.length < results.length) store.notify('Calendars synced.', 'success')
+  }
 
   // Views own their dialogs, so a command raised from elsewhere first goes to
   // the route and only then raises the request; the target view consumes a
@@ -50,6 +80,10 @@ export function useCommands() {
     const email = store.openEmail
     const onInbox = route.name === 'traditional-inbox'
     const isDark = resolveTheme(getStoredTheme()) === 'dark'
+    const onCalendar = route.name === 'calendar'
+    const onTasks = route.name === 'tasks'
+    const onTaskList = onTasks && !!route.query.project && route.query.project !== 'today'
+    const documentOpen = route.name === 'documents' && !!route.params.id
     const snoozes = scheduleChoices().filter((choice) => SNOOZE_PRESETS.includes(choice.id))
     const list = [
       {
@@ -132,10 +166,41 @@ export function useCommands() {
         id: 'calendar-create-event',
         title: 'Create Event',
         icon: 'add',
-        run: () =>
-          goThen({ name: 'calendar' }, route.name === 'calendar', () =>
-            store.requestCalendarNewEvent(),
-          ),
+        run: () => goThen({ name: 'calendar' }, onCalendar, () => store.requestCalendarNewEvent()),
+      },
+      {
+        id: 'calendar-today',
+        title: 'Calendar: Go to Today',
+        icon: 'today',
+        visible: onCalendar,
+        run: () => store.requestCalendarAction('today'),
+      },
+      ...['day', 'week', 'month'].map((mode) => ({
+        id: `calendar-view-${mode}`,
+        title: `Calendar: ${mode[0].toUpperCase()}${mode.slice(1)} view`,
+        icon: 'calendar_month',
+        visible: onCalendar,
+        run: () => store.requestCalendarAction(`view:${mode}`),
+      })),
+      {
+        id: 'calendar-previous',
+        title: 'Calendar: Previous period',
+        icon: 'arrow_back',
+        visible: onCalendar,
+        run: () => store.requestCalendarAction('previous'),
+      },
+      {
+        id: 'calendar-next',
+        title: 'Calendar: Next period',
+        icon: 'arrow_forward',
+        visible: onCalendar,
+        run: () => store.requestCalendarAction('next'),
+      },
+      {
+        id: 'calendar-sync',
+        title: 'Sync Calendars Now',
+        icon: 'sync',
+        run: syncSubscribedCalendars,
       },
       {
         id: 'new-document',
@@ -147,16 +212,59 @@ export function useCommands() {
           ),
       },
       {
+        id: 'open-daily-note',
+        title: "Open Today's Daily Note",
+        icon: 'today',
+        run: async () => {
+          const doc = await documents.openTodayNote()
+          if (doc) router.push(`/documents/${doc.id}`)
+        },
+      },
+      {
+        id: 'new-folder',
+        title: 'New Folder',
+        icon: 'create_new_folder',
+        run: () =>
+          goThen({ name: 'documents' }, route.name === 'documents', () =>
+            documents.requestViewAction('new-folder'),
+          ),
+      },
+      {
+        id: 'export-markdown',
+        title: 'Export Document to Markdown',
+        icon: 'download',
+        visible: documentOpen,
+        run: () => documents.requestViewAction('export-markdown'),
+      },
+      {
+        id: 'export-pdf',
+        title: 'Export Document to PDF',
+        icon: 'picture_as_pdf',
+        visible: documentOpen,
+        run: () => documents.requestViewAction('export-pdf'),
+      },
+      {
         id: 'new-task',
         title: 'New Task',
         icon: 'add_task',
         // Today has no compose row, so a new task lands in the tasks Inbox.
         run: () =>
-          goThen(
-            { name: 'tasks', query: { project: 'inbox' } },
-            route.name === 'tasks' && route.query.project && route.query.project !== 'today',
-            () => tasks.requestNewTask(),
+          goThen({ name: 'tasks', query: { project: 'inbox' } }, onTaskList, () =>
+            tasks.requestViewAction('new-task'),
           ),
+      },
+      {
+        id: 'new-project',
+        title: 'New Project',
+        icon: 'create_new_folder',
+        run: () => goThen({ name: 'tasks' }, onTasks, () => tasks.requestViewAction('new-project')),
+      },
+      {
+        id: 'add-divider',
+        title: 'Add Divider',
+        icon: 'horizontal_rule',
+        visible: onTaskList,
+        run: () => tasks.requestViewAction('add-divider'),
       },
       {
         id: 'theme-dark',

@@ -25,10 +25,11 @@ export const useTaskItemsStore = defineStore('taskItems', {
     loadedProject: null,
     isLoading: false,
     loadSeq: 0,
-    // Raised by the command palette's "New task"; TasksView owns the compose
-    // row, so it consumes the request (on mount too, if raised elsewhere).
-    newTaskRequestId: 0,
-    newTaskPending: false,
+    // Action asked for by the command palette: 'new-task' and 'add-divider'
+    // (TasksView owns the list) or 'new-project' (TasksSidebar owns the
+    // inline project row). The owner consumes it, on mount too if it was
+    // raised from another app.
+    viewActionRequest: null,
   }),
 
   getters: {
@@ -45,9 +46,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return buildAuthHeaders(extra)
     },
 
-    requestNewTask() {
-      this.newTaskPending = true
-      this.newTaskRequestId++
+    requestViewAction(action) {
+      this.viewActionRequest = { id: (this.viewActionRequest?.id ?? 0) + 1, action }
     },
 
     notify(message, kind = 'info') {

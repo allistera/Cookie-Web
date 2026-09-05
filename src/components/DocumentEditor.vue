@@ -9,6 +9,7 @@ import Delimiter from '@editorjs/delimiter'
 import ImageTool from '@editorjs/image'
 import DragDrop from 'editorjs-drag-drop'
 
+import { useDocumentsStore } from '../stores/documents'
 import { useInboxStore } from '../stores/inbox'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { formatInsertedDate } from '../lib/documentDates'
@@ -85,6 +86,7 @@ const props = defineProps({
 const emit = defineEmits(['save', 'dirty'])
 
 const inbox = useInboxStore()
+const documents = useDocumentsStore()
 const holder = ref(null)
 const titleEl = ref(null)
 const tags = ref([])
@@ -378,6 +380,20 @@ async function exportToMarkdown() {
     inbox.notify('Failed to export to Markdown', 'error')
   }
 }
+
+// Export commands from the palette; the editor is the only place that can
+// read the open document's blocks.
+watch(
+  () => documents.viewActionRequest,
+  (request) => {
+    const exporters = { 'export-markdown': exportToMarkdown, 'export-pdf': exportToPDF }
+    const run = exporters[request?.action]
+    if (!run) return
+    documents.viewActionRequest = null
+    run()
+  },
+  { immediate: true },
+)
 
 async function exportToPDF() {
   try {
