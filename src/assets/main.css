@@ -1983,11 +1983,36 @@ body {
   white-space: pre-wrap;
 }
 
-.ni-thread-history {
+/* The reader's conversation: collapsed cards for the other messages of the
+   thread around the open email's card, oldest first. */
+.ni-thread-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ni-thread-toggle-all {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ni-thread-toggle-all:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ni-conversation {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 16px;
 }
 
 .ni-thread-message {
@@ -2000,10 +2025,6 @@ body {
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.ni-thread-message.expanded {
-  background: var(--bg-card);
 }
 
 .ni-thread-message-summary {
@@ -2032,22 +2053,20 @@ body {
   color: var(--text-secondary);
 }
 
-.ni-thread-message-snippet,
-.ni-thread-message-body {
+.ni-thread-message-snippet {
   margin: 6px 0 0;
+  overflow: hidden;
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.5;
-}
-
-.ni-thread-message-snippet {
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ni-thread-message-body {
-  white-space: pre-wrap;
+.ni-thread-message-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
 .ni-attachments {

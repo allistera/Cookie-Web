@@ -21,6 +21,34 @@ const HOSTILE_HTML = `
     <p><a href="javascript:alert('xss')">Do not click</a></p>
   </div>`
 
+// The City Construction conversation: an earlier check-in, then the design
+// update (fixture-1) the inbox row opens. The reader expands the earlier
+// message through GET /messages?id=fixture-1-earlier, like any other message.
+function fixtureConversation() {
+  return [
+    {
+      id: 'fixture-1-earlier',
+      from_name: 'City Construction',
+      from_address: 'updates@cityconstruction.com',
+      snippet: 'Quick check-in before we finalize the kitchen floor plan design.',
+      body_text:
+        'Hi Allister, quick check-in before we finalize the kitchen floor plan design — any thoughts on the window placement we discussed?',
+      sent_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+      is_sent: false,
+    },
+    {
+      id: 'fixture-1',
+      from_name: 'City Construction',
+      from_address: 'updates@cityconstruction.com',
+      snippet: 'Hi Allister, here is the updated design bringing more natural light...',
+      body_text:
+        'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
+      sent_at: new Date(Date.now() - 0.5 * 60 * 60 * 1000).toISOString(),
+      is_sent: false,
+    },
+  ]
+}
+
 export function fixtureMessageBody(id) {
   if (id === 'fixture-1') {
     return {
@@ -29,28 +57,7 @@ export function fixtureMessageBody(id) {
       body_text:
         'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
       unsubscribe: null,
-      thread: [
-        {
-          id: 'fixture-1-earlier',
-          from_name: 'City Construction',
-          from_address: 'updates@cityconstruction.com',
-          snippet: 'Quick check-in before we finalize the kitchen floor plan design.',
-          body_text:
-            'Hi Allister, quick check-in before we finalize the kitchen floor plan design — any thoughts on the window placement we discussed?',
-          sent_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
-          is_sent: false,
-        },
-        {
-          id,
-          from_name: 'City Construction',
-          from_address: 'updates@cityconstruction.com',
-          snippet: 'Hi Allister, here is the updated design bringing more natural light...',
-          body_text:
-            'Hi Allister, here is the updated design bringing more natural light into the kitchen.',
-          sent_at: new Date(Date.now() - 0.5 * 60 * 60 * 1000).toISOString(),
-          is_sent: false,
-        },
-      ],
+      thread: fixtureConversation(),
       attachments: [
         {
           id: 'fixture-1-attachment-1',
@@ -76,6 +83,17 @@ export function fixtureMessageBody(id) {
         mailto: { address: 'unsubscribe@dailybites.example', subject: null },
       },
       thread: [],
+      attachments: [],
+    }
+  }
+  const earlier = fixtureConversation().find((message) => message.id === id)
+  if (earlier) {
+    return {
+      id,
+      body_html: null,
+      body_text: earlier.body_text,
+      unsubscribe: null,
+      thread: fixtureConversation(),
       attachments: [],
     }
   }

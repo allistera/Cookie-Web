@@ -999,34 +999,40 @@ test('Reader restores a saved AI summary and offers to regenerate it', async ({ 
   await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
 })
 
-test('Reader shows earlier thread messages as expandable conversation history', async ({
-  page,
-}) => {
+test('Reader shows the whole conversation with the earlier message collapsed', async ({ page }) => {
   await page.goto('/inbox')
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   await row.click()
 
   const reader = page.locator('.ni-reader')
-  const history = reader.locator('.ni-thread-history')
-  await expect(history).toBeVisible()
+  await expect(reader.locator('.ni-thread-toolbar')).toContainText('2 messages')
+  const conversation = reader.locator('.ni-conversation')
+  const cards = conversation.locator('> *')
+  await expect(cards).toHaveCount(2)
 
-  const earlierMessage = history.locator('.ni-thread-message')
-  await expect(earlierMessage).toHaveCount(1)
-  await expect(earlierMessage).toContainText('City Construction')
-  await expect(earlierMessage).toContainText(
+  // Oldest first: the collapsed check-in, then the open design update.
+  const earlier = cards.nth(0)
+  await expect(earlier).toHaveClass(/ni-thread-message/)
+  await expect(earlier).toContainText('City Construction')
+  await expect(earlier).toContainText(
     'Quick check-in before we finalize the kitchen floor plan design.',
   )
-  await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
+  await expect(earlier).not.toContainText('window placement')
+  await expect(cards.nth(1)).toHaveClass(/ni-email-card/)
 
-  await earlierMessage.click()
-  await expect(earlierMessage).toHaveClass(/expanded/)
-  await expect(earlierMessage.locator('.ni-thread-message-body')).toContainText(
-    'any thoughts on the window placement we discussed',
-  )
+  await earlier.click()
+  const opened = conversation.locator('.ni-thread-message-open')
+  await expect(opened).toContainText('any thoughts on the window placement we discussed')
+  await expect(reader.locator('.ni-thread-toggle-all')).toHaveText('Collapse all')
 
-  await earlierMessage.click()
-  await expect(earlierMessage).not.toHaveClass(/expanded/)
-  await expect(earlierMessage.locator('.ni-thread-message-body')).toHaveCount(0)
+  await opened.getByRole('button', { name: 'Collapse message' }).click()
+  await expect(conversation.locator('.ni-thread-message-open')).toHaveCount(0)
+  await expect(cards.nth(0)).toHaveClass(/ni-thread-message/)
+
+  await reader.locator('.ni-thread-toggle-all').click()
+  await expect(conversation.locator('.ni-thread-message-open')).toHaveCount(1)
+  await reader.locator('.ni-thread-toggle-all').click()
+  await expect(conversation.locator('.ni-thread-message-open')).toHaveCount(0)
 })
 
 test('Attachments show in the reader and download when clicked', async ({ page }) => {
