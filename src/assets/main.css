@@ -4475,12 +4475,46 @@ button.ni-attachment:hover {
   gap: 16px;
 }
 
-.rule-create-fields .settings-row {
+.rule-create-fields .settings-row,
+.rule-kind-row {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
   padding: 0;
   border-bottom: 0;
+}
+
+/* An AI rule's matcher: a plain-language prompt instead of condition rows. */
+.rule-prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-prompt-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.rule-prompt-input {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
+}
+
+.rule-row-summary-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rule-row-ai-icon {
+  flex-shrink: 0;
+  font-size: 15px;
 }
 
 @media (max-width: 760px) {

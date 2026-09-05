@@ -543,6 +543,7 @@ describe('SettingsView', () => {
       body: JSON.stringify({
         id: 'r1',
         name: 'Bills',
+        kind: 'conditions',
         action: 'mark_done',
         match_type: 'all',
         conditions: [{ id: 'c1', field: 'subject', operator: 'contains', value: 'invoice' }],
@@ -601,12 +602,76 @@ describe('SettingsView', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'Newsletters',
+        kind: 'conditions',
         action: 'apply_label',
         match_type: 'all',
         conditions: [{ field: 'from', operator: 'contains', value: 'news@' }],
         label_id: 'l2',
       }),
     })
+  })
+
+  it('creates a Cookie AI rule from a plain-language prompt', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        rule: {
+          id: 'r2',
+          name: 'Receipts',
+          kind: 'ai',
+          prompt: 'Receipts and order confirmations from online shops',
+          action: 'apply_label',
+          label_id: 'l2',
+          match_type: 'all',
+          enabled: true,
+          conditions: [],
+        },
+      }),
+    })
+
+    await wrapper.find('.rule-editor-form > input.label-input').setValue('Receipts')
+    await wrapper.find('[aria-label="Rule type"]').setValue('ai')
+    expect(wrapper.find('.rule-condition-row').exists()).toBe(false)
+    await wrapper
+      .find('[aria-label="AI prompt"]')
+      .setValue('Receipts and order confirmations from online shops')
+    await wrapper.findAll('.rule-create-fields select')[1].setValue('l2')
+    await wrapper.find('.rule-editor-form').trigger('submit')
+
+    await vi.waitFor(() => expect(store.rules).toHaveLength(2))
+
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Receipts',
+        kind: 'ai',
+        action: 'apply_label',
+        prompt: 'Receipts and order confirmations from online shops',
+        label_id: 'l2',
+      }),
+    })
+    const row = wrapper.findAll('.rule-row').find((node) => node.text().includes('Receipts'))
+    expect(row.find('.rule-row-summary').text()).toContain(
+      'Cookie AI: "Receipts and order confirmations from online shops"',
+    )
+  })
+
+  it('refuses to save an AI rule with an empty prompt', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    const calls = fetch.mock.calls.length
+
+    await wrapper.find('[aria-label="Rule type"]').setValue('ai')
+    await wrapper.findAll('.rule-create-fields select')[1].setValue('l2')
+    await wrapper.find('.rule-editor-form').trigger('submit')
+
+    expect(wrapper.find('.snippet-error').text()).toBe('Describe the mail this rule should catch.')
+    expect(fetch.mock.calls).toHaveLength(calls)
   })
 
   it('creates a mark_done rule without a label', async () => {
@@ -642,6 +707,7 @@ describe('SettingsView', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'Spam',
+        kind: 'conditions',
         action: 'mark_done',
         match_type: 'all',
         conditions: [{ field: 'from', operator: 'contains', value: 'noreply@' }],
