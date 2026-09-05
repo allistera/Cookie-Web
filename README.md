@@ -156,3 +156,27 @@ Run a narrower browser test with `--project=chromium` or a specific file path wh
 Pushes to `main` run CI and trigger the linked Vercel production deployment. Migration changes also trigger the database migration workflow.
 
 Search reindexing and drift repair run from the Cookie-Worker repository (`search-reindex.yml` and `search-drift-repair.yml`). Cloudflare Worker deployment and email-routing operations are documented in the Cookie-Worker runbook.
+
+### Recurring tasks
+
+Use **Repeat** in Add Task or the task detail panel. Supported schedules include
+`every Monday`, `every 2nd Tuesday` (the second Tuesday of each month),
+`every last Friday`, `every 3 days`, and `every 2 weeks`. `daily` and `weekly`
+are also accepted. Day/week intervals accept 1–365; monthly ordinal weekdays
+accept `1st` through `5th` and `last`. A fifth weekday skips months without one.
+
+The first occurrence is on or after the task's due date, or today in the
+browser's local calendar if no date is set. Intervals start on that date.
+Completing a recurring task keeps the same task open and advances its due date
+to the next occurrence after both its current due date and the local completion
+date. Overdue intervals retain their original cadence and skip missed dates.
+Future occurrences leave Today but remain in their project. Subtask completion
+states are preserved. This does not create separate tasks or a completion history.
+
+Clear Repeat and save to stop repetition while keeping the current date;
+clearing the due date also stops repetition. Unsupported phrases are rejected.
+Repeat is a separate field; task titles are not parsed for schedules.
+
+Apply `migrations/0066_task_items_recurrence.sql` before deploying the updated
+`cookie-web-tasks` Worker, then deploy the web client. No background job or new
+dependency is needed.

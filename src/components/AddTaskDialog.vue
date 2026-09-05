@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
+import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const emit = defineEmits(['close'])
@@ -8,6 +9,7 @@ const emit = defineEmits(['close'])
 const items = useTaskItemsStore()
 
 const title = ref('')
+const recurrence = ref('')
 const titleInput = ref(null)
 const isSaving = ref(false)
 
@@ -23,7 +25,9 @@ async function submit() {
 
   isSaving.value = true
   try {
-    const created = await items.createItem({ content, projectId: null })
+    const task = { content, projectId: null }
+    if (recurrence.value.trim()) task.recurrence = recurrence.value.trim()
+    const created = await items.createItem(task)
     // A failed create has already notified; keep the dialog and the words the
     // person typed rather than binning them.
     if (created) emit('close')
@@ -54,6 +58,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           placeholder="Task name"
           aria-label="Task name"
         />
+
+        <div class="add-task-dialog-repeat">
+          <TaskRepeatInput v-model="recurrence" :disabled="isSaving" />
+        </div>
 
         <footer class="add-task-dialog-footer">
           <span class="add-task-dialog-target">
@@ -113,6 +121,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 .add-task-dialog-input:focus {
   outline: none;
+}
+
+.add-task-dialog-repeat {
+  padding: 0 20px 16px;
 }
 
 .add-task-dialog-footer {

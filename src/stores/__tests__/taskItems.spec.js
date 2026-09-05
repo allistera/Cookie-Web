@@ -674,3 +674,60 @@ it('keeps the newest project response and loading state when requests finish out
   await old
   expect(store.items[0].content).toBe('Newest')
 })
+
+describe('recurring tasks', () => {
+  const recurring = { ...ITEM, recurrence: 'every 3 days', dueDate: '2026-09-05' }
+
+  it('sends the schedule and local date when creating', async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: recurring }) }))
+    await store.createItem({ content: 'Water plants', recurrence: 'every 3 days' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({
+      recurrence: 'every 3 days',
+      today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    })
+  })
+
+  it('keeps a rescheduled task open in its project and guards duplicate clicks', async () => {
+    store.loadedProject = 'p1'
+    store.items = [{ ...recurring }]
+    let resolve
+    vi.spyOn(store, 'request').mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+    const completion = store.setCompleted('t1', true)
+    await store.setCompleted('t1', true)
+    expect(store.request).toHaveBeenCalledTimes(1)
+    expect(store.request).toHaveBeenCalledWith('PATCH', {
+      body: {
+        id: 't1',
+        completed: true,
+        expectedDueDate: '2026-09-05',
+        today: expect.any(String),
+      },
+    })
+    expect(store.items[0].completedAt).toBeNull()
+    resolve({ item: { ...recurring, dueDate: '2026-09-08' } })
+    await completion
+    expect(store.items[0].dueDate).toBe('2026-09-08')
+    expect(store.completingIds).toEqual([])
+  })
+
+  it('removes the next future occurrence from Today', async () => {
+    store.loadedProject = 'today'
+    store.items = [{ ...recurring }]
+    vi.spyOn(store, 'request').mockResolvedValue({ item: { ...recurring, dueDate: '9999-01-01' } })
+    await store.setCompleted('t1', true)
+    expect(store.items).toEqual([])
+  })
+
+  it('preserves the occurrence on failure and lets the user retry', async () => {
+    store.items = [{ ...recurring }]
+    vi.spyOn(store, 'request').mockRejectedValue(new Error('Offline'))
+    await store.setCompleted('t1', true)
+    expect(store.items[0]).toEqual(recurring)
+    expect(store.completingIds).toEqual([])
+  })
+})

@@ -444,6 +444,7 @@ async function submitDraft() {
               class="task-check"
               :class="`priority-${priorityOf(item)}`"
               type="button"
+              :disabled="items.completingIds.includes(item.id)"
               :aria-label="`Complete ${item.content}`"
               @click="items.setCompleted(item.id, true)"
             ></button>
@@ -452,6 +453,13 @@ async function submitDraft() {
               <span v-if="item.description" class="task-description">{{ item.description }}</span>
               <span v-if="showsDue(item)" class="task-due" :class="{ overdue: isOverdue(item) }">
                 {{ formatDue(item.dueDate) }}
+              </span>
+              <span
+                v-if="item.recurrence"
+                class="task-home"
+                :aria-label="`Repeats ${item.recurrence}`"
+              >
+                ↻ {{ item.recurrence }}
               </span>
               <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
             </button>

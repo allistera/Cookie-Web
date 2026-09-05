@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
@@ -16,6 +17,25 @@ const items = useTaskItemsStore()
 const projects = useProjectsStore()
 
 const item = computed(() => items.itemById(props.taskId))
+const recurrenceDraft = ref('')
+const savingRecurrence = ref(false)
+watch(
+  () => [props.taskId, item.value?.recurrence],
+  () => {
+    recurrenceDraft.value = item.value?.recurrence ?? ''
+  },
+  { immediate: true },
+)
+async function saveRecurrence() {
+  if (savingRecurrence.value) return
+  savingRecurrence.value = true
+  try {
+    const updated = await items.setRecurrence(props.taskId, recurrenceDraft.value.trim() || null)
+    if (updated && !item.value) close()
+  } finally {
+    savingRecurrence.value = false
+  }
+}
 
 // A task with no project is in the Inbox — the same rule the sidebar encodes.
 const projectName = computed(() => {
@@ -151,9 +171,13 @@ function onPanelClick(event) {
 
 // Completing takes the task out of the visible list, so the panel would be
 // left pointing at something that is no longer there.
+const completing = ref(false)
 async function complete() {
-  await items.setCompleted(props.taskId, true)
-  close()
+  if (completing.value) return
+  completing.value = true
+  const updated = await items.setCompleted(props.taskId, true)
+  if (updated) close()
+  else completing.value = false
 }
 
 // Deleting takes any sub-tasks with it via ON DELETE CASCADE and there is no
@@ -180,7 +204,14 @@ function close() {
 watch(
   () => [items.isLoading, items.loadedProject, item.value],
   () => {
-    if (items.isLoading || items.loadedProject === null || item.value) return
+    if (
+      completing.value ||
+      savingRecurrence.value ||
+      items.isLoading ||
+      items.loadedProject === null ||
+      item.value
+    )
+      return
     items.notify('That task no longer exists.', 'error')
     close()
   },
@@ -246,6 +277,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             <button
               class="task-panel-check"
               type="button"
+              :disabled="items.completingIds.includes(taskId)"
               :aria-label="`Complete ${item?.content ?? 'task'}`"
               @click="complete()"
             ></button>
@@ -371,6 +403,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </button>
             </div>
           </div>
+
+          <form class="task-panel-field" @submit.prevent="saveRecurrence">
+            <TaskRepeatInput v-model="recurrenceDraft" :disabled="savingRecurrence" />
+            <button class="task-panel-repeat-save" type="submit" :disabled="savingRecurrence">
+              Save repeat
+            </button>
+          </form>
 
           <div class="task-panel-field">
             <h3 id="task-panel-priority-label">Priority</h3>
@@ -531,6 +570,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   padding: 20px;
   border-left: 1px solid var(--border-color);
   background: var(--bg-app);
+  overflow-y: auto;
 }
 
 .task-panel-heading {
@@ -721,6 +761,18 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   border-top: 1px solid var(--border-color);
 }
 
+.task-panel-repeat-save {
+  margin-top: 8px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-dialog);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .task-panel-field h3 {
   margin: 0 0 8px;
   font-size: 13px;
@@ -868,5 +920,29 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 .priority-flag.priority-3 {
   color: #246fe0;
+}
+@media (max-width: 600px) {
+  .task-panel-backdrop {
+    padding: 16px;
+  }
+
+  .task-panel-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .task-panel-main {
+    flex: none;
+    padding: 16px;
+    overflow: visible;
+  }
+
+  .task-panel-rail {
+    width: auto;
+    padding: 16px;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    overflow: visible;
+  }
 }
 </style>

@@ -136,3 +136,19 @@ describe('AddTaskDialog', () => {
     wrapper.unmount()
   })
 })
+
+it('creates a task with a repeat schedule', async () => {
+  const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+  const wrapper = mountDialog()
+  await wrapper.get('.add-task-dialog-input').setValue('Water plants')
+  await wrapper.get('.task-repeat input').setValue('every 3 days')
+  await wrapper.get('form').trigger('submit')
+  await flushPromises()
+  expect(create).toHaveBeenCalledWith({
+    content: 'Water plants',
+    projectId: null,
+    recurrence: 'every 3 days',
+  })
+  expect(wrapper.emitted('close')).toBeTruthy()
+  wrapper.unmount()
+})

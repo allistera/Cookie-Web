@@ -20,6 +20,7 @@ let reorderSeq = 0
 export const useTaskItemsStore = defineStore('taskItems', {
   state: () => ({
     items: [],
+    completingIds: [],
     // Which project the loaded items belong to ('inbox' or a project id), so
     // navigating between projects refetches rather than showing the last one.
     loadedProject: null,
@@ -126,9 +127,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     // A sub-task sends only its parent — the server derives the project from
     // the parent row, so the two can never disagree.
-    async createItem({ content, projectId = null, parentId = null }) {
+    async createItem({ content, projectId = null, parentId = null, recurrence }) {
       try {
         const body = parentId === null ? { content, projectId } : { content, parentId }
+        if (recurrence?.trim()) Object.assign(body, { recurrence, today: localToday() })
         const { item } = await this.request('POST', { body })
         if (this.belongsToLoadedList(item)) this.items.push(item)
         return item
@@ -184,7 +186,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
           Object.hasOwn(body, 'projectId') &&
           this.loadedProject !== null &&
           !this.belongsToLoadedList(updated)
-        if (!updated.parentId && (updated.completedAt || moved)) {
+        const rescheduled =
+          (body.completed === true || Object.hasOwn(body, 'recurrence')) &&
+          updated.recurrence &&
+          this.loadedProject === 'today' &&
+          !this.belongsToLoadedList(updated)
+        if (!updated.parentId && (updated.completedAt || moved || rescheduled)) {
           this.items = this.items.filter((row) => row.id !== id)
         }
         if (Object.hasOwn(body, 'projectId') && this.loadedProject) {
@@ -212,6 +219,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // real error worth surfacing.
     setDueDate(id, dueDate) {
       return this.patchItem(id, { dueDate }, { dueDate }, 'Failed to set the date.')
+    },
+
+    setRecurrence(id, recurrence) {
+      return this.patchItem(
+        id,
+        {},
+        { recurrence, today: localToday() },
+        'Failed to set the repeat schedule.',
+      )
     },
 
     // `priority` is an integer 1..4 (1 most urgent, 4 the default). The
@@ -267,11 +283,22 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
     },
 
-    setCompleted(id, completed) {
-      // `completed` is a request field; `completedAt` is the item's actual
-      // state, so that's what gets set locally.
-      const completedAt = completed ? new Date().toISOString() : null
-      return this.patchItem(id, { completedAt }, { completed }, 'Failed to update the task.')
+    async setCompleted(id, completed) {
+      if (this.completingIds.includes(id)) return null
+      const item = this.itemById(id)
+      const recurring = completed && item?.recurrence
+      const body = recurring
+        ? { completed, today: localToday(), expectedDueDate: item.dueDate }
+        : { completed }
+      const localPatch = recurring
+        ? {}
+        : { completedAt: completed ? new Date().toISOString() : null }
+      this.completingIds.push(id)
+      try {
+        return await this.patchItem(id, localPatch, body, 'Failed to update the task.')
+      } finally {
+        this.completingIds = this.completingIds.filter((pending) => pending !== id)
+      }
     },
 
     async deleteItem(id) {

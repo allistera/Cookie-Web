@@ -222,3 +222,10 @@ repo), which serves `GET /drafts`, `POST /drafts`, and
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
+
+## Recurring tasks
+
+`0066_task_items_recurrence.sql` adds nullable `task_items.recurrence`, with a
+constraint requiring a due date and task kind whenever recurrence is set.
+Existing tasks remain non-recurring. Apply this migration before deploying
+Cookie-Worker's updated task API, then deploy Cookie-Web.

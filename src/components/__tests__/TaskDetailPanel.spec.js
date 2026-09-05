@@ -586,3 +586,64 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBe('b')
   })
 })
+
+it('edits and removes a repeat schedule', async () => {
+  seed()
+  const save = vi.spyOn(items, 'setRecurrence').mockResolvedValue({ id: 'b' })
+  const wrapper = mountPanel()
+  await wrapper.get('.task-repeat input').setValue('every 2nd Tuesday')
+  await wrapper.get('form.task-panel-field').trigger('submit')
+  await flushPromises()
+  expect(save).toHaveBeenCalledWith('b', 'every 2nd Tuesday')
+  await wrapper.get('.task-repeat input').setValue('')
+  await wrapper.get('form.task-panel-field').trigger('submit')
+  await flushPromises()
+  expect(save).toHaveBeenLastCalledWith('b', null)
+  wrapper.unmount()
+})
+
+it('keeps a rejected repeat draft for correction', async () => {
+  seed()
+  vi.spyOn(items, 'setRecurrence').mockResolvedValue(null)
+  const wrapper = mountPanel()
+  await wrapper.get('.task-repeat input').setValue('every nonsense')
+  await wrapper.get('form.task-panel-field').trigger('submit')
+  await flushPromises()
+  expect(wrapper.get('.task-repeat input').element.value).toBe('every nonsense')
+  wrapper.unmount()
+})
+
+it('closes without a missing-task notification after rescheduling out of Today', async () => {
+  seed([
+    {
+      id: 'b',
+      projectId: null,
+      parentId: null,
+      content: 'Repeat',
+      recurrence: 'every day',
+      dueDate: '2026-09-05',
+    },
+  ])
+  items.loadedProject = 'today'
+  vi.spyOn(items, 'request').mockResolvedValue({
+    item: { ...items.items[0], dueDate: '9999-01-01' },
+  })
+  const wrapper = mountPanel()
+  await wrapper.get('.task-repeat input').setValue('every Monday')
+  await wrapper.get('form.task-panel-field').trigger('submit')
+  await flushPromises()
+  expect(items.items).toEqual([])
+  expect(items.notify).not.toHaveBeenCalled()
+  expect(router.currentRoute.value.query.task).toBeUndefined()
+  wrapper.unmount()
+})
+
+it('stays open when completing fails', async () => {
+  seed()
+  vi.spyOn(items, 'setCompleted').mockResolvedValue(null)
+  const wrapper = mountPanel()
+  await wrapper.get('.task-panel-check').trigger('click')
+  await flushPromises()
+  expect(router.currentRoute.value.query.task).toBe('b')
+  wrapper.unmount()
+})
