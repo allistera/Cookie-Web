@@ -10,6 +10,7 @@ import {
   requestBrowserNotificationPermission,
   saveBrowserNotificationsEnabled,
 } from '../lib/browserNotifications'
+import { settingsSectionGroups, settingsSections } from '../lib/settingsSections'
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { plainTextToHtml } from '../lib/composeHtml'
 import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
@@ -23,39 +24,8 @@ const { user } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
-const sectionGroups = [
-  {
-    label: 'General',
-    sections: [
-      { id: 'account', label: 'Account', icon: 'person' },
-      { id: 'appearance', label: 'Appearance', icon: 'palette' },
-      { id: 'notifications', label: 'Notifications', icon: 'notifications' },
-      { id: 'personalisation', label: 'Personalisation', icon: 'interests' },
-    ],
-  },
-  {
-    label: 'Email',
-    sections: [
-      { id: 'signature', label: 'Signature', icon: 'draw' },
-      { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
-      { id: 'labels', label: 'Labels', icon: 'label' },
-      { id: 'rules', label: 'Rules', icon: 'rule' },
-      { id: 'spam', label: 'Spam', icon: 'report' },
-    ],
-  },
-  {
-    label: 'Calendar',
-    sections: [{ id: 'calendar', label: 'Calendars', icon: 'calendar_month' }],
-  },
-  {
-    label: 'Documents',
-    sections: [
-      { id: 'document-templates', label: 'Templates', icon: 'description' },
-      { id: 'daily-notes', label: 'Time Management', icon: 'today' },
-    ],
-  },
-]
-const sections = sectionGroups.flatMap((group) => group.sections)
+const sectionGroups = settingsSectionGroups
+const sections = settingsSections
 const settingsSearch = ref('')
 const activeSection = computed(() => {
   const requested = String(route.params.section || '')

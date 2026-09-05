@@ -77,7 +77,7 @@ describe('CommandPalette', () => {
     pressSlash()
     await wrapper.vm.$nextTick()
 
-    await wrapper.find('.cp-input').setValue('settings')
+    await wrapper.find('.cp-input').setValue('open settings')
 
     const items = wrapper.findAll('.cp-item')
     expect(items).toHaveLength(1)
@@ -109,7 +109,7 @@ describe('CommandPalette', () => {
     await wrapper.vm.$nextTick()
 
     const input = wrapper.find('.cp-input')
-    await input.setValue('snooze')
+    await input.setValue('move to')
     await input.trigger('keydown', { key: 'Enter' })
 
     expect(store.toasts.some((t) => t.message === 'Coming soon.')).toBe(true)
@@ -142,6 +142,6 @@ describe('CommandPalette', () => {
 
     const first = wrapper.findAll('.cp-item')[0]
     expect(first.text()).toContain('Mark Done')
-    expect(first.find('.cp-keycap').text()).toBe('E')
+    expect(first.find('.cp-keycap').text()).toBe('D')
   })
 })

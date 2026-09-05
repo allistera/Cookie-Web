@@ -22,6 +22,9 @@ import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 
 // Inbox tab ids: 'priority', 'other', or a label tab. The prefix keeps a label
 // named "All" or "Other" from colliding with the fixed tabs.
+// Inbox tab ids. Priority and Other are fixed; every palette label gets one.
+export const PRIORITY_TAB = 'priority'
+export const OTHER_TAB = 'other'
 export const inboxTabForLabel = (name) => `label:${name}`
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
@@ -625,9 +628,16 @@ export const useInboxStore = defineStore('inbox', {
     isCommandPaletteOpen: false,
     // Bumped by the command palette's "Create Event" command; CalendarView
     // watches it to open its New Event dialog without the two views needing
-    // a direct reference to each other.
+    // a direct reference to each other. The pending flag survives a route
+    // change so a request made from another view opens once Calendar mounts.
     calendarNewEventRequestId: 0,
+    calendarNewEventPending: false,
     calendarNewEventDraft: null,
+    // Reading-panel action asked for by the command palette ('reply',
+    // 'reply-all', 'forward' or 'snooze' with a schedule choice).
+    // TraditionalInboxView owns the reply box, the forward draft and the
+    // auto-advance after a snooze, so it consumes the request and clears it.
+    readerActionRequest: null,
   }),
 
   getters: {
@@ -739,7 +749,12 @@ export const useInboxStore = defineStore('inbox', {
   actions: {
     requestCalendarNewEvent(draft = null) {
       this.calendarNewEventDraft = draft
+      this.calendarNewEventPending = true
       this.calendarNewEventRequestId++
+    },
+
+    requestReaderAction(action, payload = null) {
+      this.readerActionRequest = { id: (this.readerActionRequest?.id ?? 0) + 1, action, payload }
     },
 
     // Bearer-token headers for API calls; Auth0 is absent in e2e/fixture mode.

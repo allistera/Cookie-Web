@@ -304,6 +304,18 @@ async function startCompose() {
   draftInput.value?.focus()
 }
 
+// Today has no compose row (a new task needs a home), so the palette sends
+// the person to the Inbox first; by the time this fires the project is set.
+watch(
+  () => items.newTaskRequestId,
+  () => {
+    if (!items.newTaskPending) return
+    items.newTaskPending = false
+    if (!isToday.value) startCompose()
+  },
+  { immediate: true },
+)
+
 async function submitDraft() {
   // Same Enter-then-blur double fire as the title and description edits.
   if (!composing.value) return

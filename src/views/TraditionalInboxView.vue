@@ -1,7 +1,13 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useInboxStore, formatEmailDate, inboxTabForLabel } from '../stores/inbox'
+import {
+  useInboxStore,
+  formatEmailDate,
+  inboxTabForLabel,
+  PRIORITY_TAB,
+  OTHER_TAB,
+} from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
@@ -61,9 +67,7 @@ watch(
 // classifier rated high plus anything due now (a scheduled email whose time
 // has come, or a follow-up reminder). Other collects the rest that carries
 // none of the palette labels. A label tab with nothing under it stays
-// hidden. Tab ids: 'priority', 'other', or inboxTabForLabel(name).
-const PRIORITY_TAB = 'priority'
-const OTHER_TAB = 'other'
+// hidden. Tab ids: PRIORITY_TAB, OTHER_TAB, or inboxTabForLabel(name).
 const labelTabId = inboxTabForLabel
 const emailHasLabel = (email, name) => (email.labels || []).some((label) => label.name === name)
 
@@ -858,6 +862,26 @@ function replyAllToOpenEmail() {
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
 }
+
+// The command palette raises reader actions through the store because the
+// reply box and forward draft live here. Immediate so a request made before
+// this view mounted (palette on another route) is honoured on arrival.
+const readerActions = {
+  reply: replyToOpenEmail,
+  'reply-all': replyAllToOpenEmail,
+  forward: forwardOpenEmail,
+  snooze: scheduleOpenEmail,
+}
+watch(
+  () => store.readerActionRequest,
+  (request) => {
+    if (!request) return
+    store.readerActionRequest = null
+    if (!openEmail.value) return
+    readerActions[request.action]?.(request.payload)
+  },
+  { immediate: true },
+)
 
 function composerHasDraft() {
   // Even a visually blank composer can have focus or an AI draft in flight.

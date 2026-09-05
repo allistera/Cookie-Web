@@ -25,6 +25,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
     loadedProject: null,
     isLoading: false,
     loadSeq: 0,
+    // Raised by the command palette's "New task"; TasksView owns the compose
+    // row, so it consumes the request (on mount too, if raised elsewhere).
+    newTaskRequestId: 0,
+    newTaskPending: false,
   }),
 
   getters: {
@@ -39,6 +43,11 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // failure against a session that will never work again.
     authHeaders(extra = {}) {
       return buildAuthHeaders(extra)
+    },
+
+    requestNewTask() {
+      this.newTaskPending = true
+      this.newTaskRequestId++
     },
 
     notify(message, kind = 'info') {
