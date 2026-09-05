@@ -41,17 +41,12 @@ test('the service worker keeps the shell and recently read mail available offlin
   expect(shellUrls).toContain('/')
   expect(shellUrls).toContain('/inbox')
 
-  const onlineThreadBody = await page.evaluate(async () => {
-    const response = await fetch('/api/messages?resource=thread-body&id=fixture-1')
-    return response.json()
-  })
   const onlineBody = await page.evaluate(async () => {
     const response = await fetch('/api/messages?id=fixture-1')
     return response.json()
   })
   expect(onlineBody.body_text).toContain('updated design')
   expect(onlineBody.thread).toBeInstanceOf(Array)
-  expect(onlineThreadBody).toEqual({ body_text: onlineBody.body_text })
 
   await expect
     .poll(() =>
@@ -60,7 +55,7 @@ test('the service worker keeps the shell and recently read mail available offlin
         return (await cache.keys()).length
       }),
     )
-    .toBe(2)
+    .toBe(1)
 
   await context.setOffline(true)
   try {
@@ -70,12 +65,6 @@ test('the service worker keeps the shell and recently read mail available offlin
     })
     expect(offlineBody.body_text).toBe(onlineBody.body_text)
     expect(offlineBody.thread).toEqual(onlineBody.thread)
-
-    const offlineThreadBody = await page.evaluate(async () => {
-      const response = await fetch('/api/messages?resource=thread-body&id=fixture-1')
-      return response.json()
-    })
-    expect(offlineThreadBody).toEqual(onlineThreadBody)
 
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Inbox', exact: true })).toBeVisible()

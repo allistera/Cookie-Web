@@ -58,11 +58,11 @@ self.addEventListener('fetch', (event) => {
 
   // Message bodies are served by the cookie-web-messages Cloudflare Worker
   // (cross-origin). The e2e/dev Vite middleware serves them same-origin at
-  // /api/messages. Both paths are mail-cache candidates.
-  const mailResource = url.searchParams.get('resource')
+  // /api/messages. Both paths are mail-cache candidates; sibling resources
+  // (?resource=attachment|contacts) are not.
   const isMailCacheRequest =
     url.searchParams.has('id') &&
-    (mailResource === null || mailResource === 'thread-body') &&
+    !url.searchParams.has('resource') &&
     ((url.origin === self.location.origin && url.pathname === '/api/messages') ||
       (url.origin === 'https://messages-api.infinitywave.online' && url.pathname === '/messages'))
   if (isMailCacheRequest) {
