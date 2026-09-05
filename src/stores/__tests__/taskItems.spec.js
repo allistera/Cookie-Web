@@ -419,9 +419,10 @@ describe('moving a task between projects', () => {
   it('drops the task from the project list it was moved out of', async () => {
     store.items = [{ ...ITEM }]
     store.loadedProject = 'p1'
-    stubFetch(async () => ({
+    stubFetch(async (_url, options) => ({
       ok: true,
-      json: async () => ({ item: { ...ITEM, projectId: 'p2' } }),
+      json: async () =>
+        options.method === 'PATCH' ? { item: { ...ITEM, projectId: 'p2' } } : { items: [] },
     }))
 
     await store.moveItem('t1', 'p2')
@@ -433,9 +434,12 @@ describe('moving a task between projects', () => {
     const today = new Date().toISOString().slice(0, 10)
     store.items = [{ ...ITEM, dueDate: today }]
     store.loadedProject = 'today'
-    stubFetch(async () => ({
+    stubFetch(async (_url, options) => ({
       ok: true,
-      json: async () => ({ item: { ...ITEM, dueDate: today, projectId: 'p2' } }),
+      json: async () =>
+        options.method === 'PATCH'
+          ? { item: { ...ITEM, dueDate: today, projectId: 'p2' } }
+          : { items: [{ ...ITEM, dueDate: today, projectId: 'p2' }] },
     }))
 
     await store.moveItem('t1', 'p2')
@@ -646,4 +650,27 @@ describe('creating a task that belongs elsewhere', () => {
 
     expect(store.items).toEqual([])
   })
+})
+
+it('keeps the newest project response and loading state when requests finish out of order', async () => {
+  const pending = []
+  vi.spyOn(store, 'request').mockImplementation(
+    () => new Promise((resolve) => pending.push(resolve)),
+  )
+  const first = store.loadItems('p1')
+  const second = store.loadItems('p2')
+  pending[0]({ items: [{ ...ITEM, projectId: 'p1' }] })
+  await first
+  expect(store.isLoading).toBe(true)
+  pending[1]({ items: [{ ...ITEM, projectId: 'p2' }] })
+  await second
+  expect(store.loadedProject).toBe('p2')
+  expect(store.items[0].projectId).toBe('p2')
+  const old = store.loadItems('p1')
+  const latest = store.loadItems('p2', { force: true })
+  pending[3]({ items: [{ ...ITEM, content: 'Newest' }] })
+  await latest
+  pending[2]({ items: [{ ...ITEM, content: 'Stale' }] })
+  await old
+  expect(store.items[0].content).toBe('Newest')
 })

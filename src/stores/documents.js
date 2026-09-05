@@ -1,4 +1,7 @@
+import { toRaw } from 'vue'
 import { defineStore } from 'pinia'
+import { jsonRequest } from '../lib/jsonRequest'
+import { scheduleContentSave, flushPendingSave, discardPendingSave } from '../lib/documentSaves'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
@@ -10,20 +13,6 @@ import {
 } from '../lib/documentDates'
 import { useInboxStore } from './inbox'
 
-// Autosave: edits wait this long after the last keystroke before the PATCH
-// goes out (paper's cadence). The timer and its pending payload live at
-// module scope so they stay out of reactive state.
-const SAVE_DEBOUNCE_MS = 800
-// A 409 (server has a newer version) re-queues the payload for an automatic
-// retry; this is the backoff between attempts so recovery doesn't depend on
-// the user making another edit. Retries are capped: a hard conflict (e.g. a
-// permanently newer server copy) would otherwise retry forever.
-const SAVE_CONFLICT_RETRY_MS = 3000
-const MAX_CONFLICT_RETRIES = 3
-let saveTimer = null
-let pendingSave = null
-let saveInFlight = null
-let conflictRetries = 0
 const workspaceLoads = new WeakMap()
 
 // Search: mirrors inbox.js's searchAbortController, kept at module scope for
@@ -57,6 +46,7 @@ export const useDocumentsStore = defineStore('documents', {
     isOpenDocLoading: false,
     // null | 'saving' | 'saved' | 'error' — drives the editor's status line.
     saveState: null,
+    saveConflict: false,
     newDocumentDialogOpen: false,
     newDocumentFolderId: null,
     // Search: unlike email's searchEmails (which overwrites the flat inbox
@@ -121,22 +111,12 @@ export const useDocumentsStore = defineStore('documents', {
       const headers = await this.authHeaders(
         body !== undefined ? { 'Content-Type': 'application/json' } : {},
       )
-      const options = { method, headers }
-      if (body !== undefined) options.body = JSON.stringify(body)
-      const response = await fetch(`${TASKS_API_URL}/documents${params}`, options)
-      if (!response.ok) {
-        const error = new Error(
-          `${method} /api/tasks?resource=documents responded ${response.status}`,
-        )
-        error.status = response.status
-        throw error
-      }
-      return response.json()
+      return jsonRequest(`${TASKS_API_URL}/documents${params}`, { method, headers, body })
     },
 
     async loadWorkspace({ force = false } = {}) {
       if (this.isLoaded && !force) return
-      const inFlight = workspaceLoads.get(this)
+      const inFlight = workspaceLoads.get(toRaw(this))
       if (inFlight) return inFlight
       this.isLoading = true
       const load = (async () => {
@@ -150,17 +130,17 @@ export const useDocumentsStore = defineStore('documents', {
           this.notify('Failed to load documents.', 'error')
         } finally {
           this.isLoading = false
-          workspaceLoads.delete(this)
+          workspaceLoads.delete(toRaw(this))
         }
       })()
-      workspaceLoads.set(this, load)
+      workspaceLoads.set(toRaw(this), load)
       return load
     },
 
     // Opening a new document flushes any edit still waiting on the debounce
     // timer so switching documents never drops the tail of the last one.
     async openDocument(id) {
-      await this.flushPendingSave()
+      if (!(await this.flushPendingSave())) return false
       this.openDocId = id
       this.openDoc = null
       this.saveState = null
@@ -431,100 +411,37 @@ export const useDocumentsStore = defineStore('documents', {
       this.saveState = 'saving'
     },
 
-    // Content autosave (title + blocks + tags) from the editor. Local state updates
-    // immediately — the sidebar shows the new title as it is typed — while
-    // the PATCH waits out the debounce.
-    scheduleContentSave(id, { title, blocks, tags }) {
-      const row = this.documents.find((doc) => doc.id === id)
-      if (row && title !== undefined) row.title = title
-      if (row && tags !== undefined) row.tags = tags
-      if (this.openDoc?.id === id) {
-        if (title !== undefined) this.openDoc.title = title
-        if (blocks !== undefined) this.openDoc.blocks = blocks
-        if (tags !== undefined) this.openDoc.tags = tags
-      }
-      const prev = pendingSave?.id === id ? pendingSave : null
-      pendingSave = {
-        id,
-        title: title ?? prev?.title,
-        blocks: blocks ?? prev?.blocks,
-        tags: tags ?? prev?.tags,
-      }
-      // A fresh edit is a fresh chance to converge; restart the retry budget.
-      conflictRetries = 0
-      this.saveState = 'saving'
-      if (saveTimer) clearTimeout(saveTimer)
-      saveTimer = setTimeout(() => this.flushPendingSave(), SAVE_DEBOUNCE_MS)
-    },
+    scheduleContentSave,
+    flushPendingSave,
 
-    async flushPendingSave() {
-      if (saveTimer) {
-        clearTimeout(saveTimer)
-        saveTimer = null
-      }
-
-      // Serialize PATCHes. A slow earlier request must finish before a newer
-      // edit is sent, otherwise the server can commit them out of order.
-      while (saveInFlight || pendingSave) {
-        if (saveInFlight) {
-          await saveInFlight
-          continue
+    async saveConflictAsCopy() {
+      if (!this.openDoc) return null
+      const original = JSON.parse(JSON.stringify(this.openDoc))
+      const copy = await this.createDocument({
+        folderId: original.folder_id,
+        title: `${original.title || 'Untitled'} (copy)`,
+      })
+      if (!copy) return null
+      try {
+        const { document } = await this.request('PATCH', {
+          body: { id: copy.id, blocks: original.blocks, tags: original.tags ?? [] },
+        })
+        Object.assign(copy, document)
+        if (
+          ['title', 'blocks', 'tags'].some(
+            (field) => JSON.stringify(this.openDoc?.[field]) !== JSON.stringify(original[field]),
+          )
+        ) {
+          this.notify('Copy saved. Your newer edits are still open.')
+          return null
         }
-
-        const { id, title, blocks, tags } = pendingSave
-        pendingSave = null
-        const row = this.documents.find((doc) => doc.id === id)
-        const body = { id }
-        if (title !== undefined) body.title = title
-        if (blocks !== undefined) body.blocks = blocks
-        if (tags !== undefined) body.tags = tags
-        const updatedAt =
-          this.openDoc?.id === id ? this.openDoc.updated_at || row?.updated_at : row?.updated_at
-        if (updatedAt) body.updatedAt = updatedAt
-
-        let conflicted = false
-        const operation = (async () => {
-          try {
-            const { document } = await this.request('PATCH', { body })
-            conflictRetries = 0
-            const newerSave = pendingSave?.id === id ? pendingSave : null
-            const update = { ...document }
-            // Do not let the response for an older save overwrite optimistic
-            // local values that are already queued in a newer save.
-            if (newerSave?.title !== undefined) delete update.title
-            if (newerSave?.blocks !== undefined) delete update.blocks
-            if (newerSave?.tags !== undefined) delete update.tags
-            const current = this.documents.find((doc) => doc.id === id)
-            if (current) Object.assign(current, update)
-            if (this.openDoc?.id === id) Object.assign(this.openDoc, update)
-            if (!pendingSave) this.saveState = 'saved'
-          } catch (error) {
-            console.error('Failed to save document:', error)
-            this.saveState = 'error'
-            if (error?.status === 409 && !pendingSave) {
-              pendingSave = { id, title, blocks, tags }
-              conflicted = true
-            }
-          }
-        })()
-        saveInFlight = operation
-        try {
-          await operation
-        } finally {
-          if (saveInFlight === operation) saveInFlight = null
-        }
-        if (conflicted) {
-          // The conflicted payload is re-queued above; arm a retry so it
-          // actually goes out even if the user stops editing. Any newer edit
-          // (scheduleContentSave) replaces this timer with the normal debounce
-          // and resets the budget. The cap stops endless retries against a
-          // hard conflict — the user can still recover by editing again.
-          conflictRetries += 1
-          if (conflictRetries <= MAX_CONFLICT_RETRIES) {
-            saveTimer = setTimeout(() => this.flushPendingSave(), SAVE_CONFLICT_RETRY_MS)
-          }
-          break
-        }
+        discardPendingSave.call(this, original.id)
+        this.saveState = 'saved'
+        this.saveConflict = false
+        return copy
+      } catch {
+        this.notify('Could not save the copy. Your edits are still open.', 'error')
+        return null
       }
     },
 

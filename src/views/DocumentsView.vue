@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import { useDocumentsStore } from '../stores/documents'
@@ -14,10 +14,31 @@ const store = useDocumentsStore()
 const route = useRoute()
 const router = useRouter()
 const editorComponent = ref(null)
+const isCopying = ref(false)
 
 async function flushEditor() {
   await editorComponent.value?.flushPendingBlocks?.()
-  await store.flushPendingSave()
+  return store.flushPendingSave()
+}
+
+function warnBeforeUnload(event) {
+  if (!['saving', 'error'].includes(store.saveState)) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload))
+
+async function saveCopy() {
+  if (isCopying.value) return
+  isCopying.value = true
+  try {
+    await editorComponent.value?.flushPendingBlocks?.()
+    const copy = await store.saveConflictAsCopy()
+    if (copy) await router.push(`/documents/${copy.id}`)
+  } finally {
+    isCopying.value = false
+  }
 }
 
 onBeforeRouteLeave(flushEditor)
@@ -62,7 +83,8 @@ const folderTitles = computed(() => {
 const saveStatusText = computed(() => {
   if (store.saveState === 'saving') return 'Saving…'
   if (store.saveState === 'saved') return 'All changes saved'
-  if (store.saveState === 'error') return 'Save failed — edits kept locally'
+  if (store.saveConflict) return 'Changed elsewhere — save your edits as a copy'
+  if (store.saveState === 'error') return 'Save failed — your edits are still open'
   return ''
 })
 
@@ -97,6 +119,19 @@ function onEditorSave(payload) {
           <span class="material-symbols-outlined">arrow_back</span>
           <span>All documents</span>
         </router-link>
+        <div v-if="store.saveState === 'error'" class="save-actions">
+          <button
+            v-if="!store.saveConflict"
+            type="button"
+            :disabled="isCopying"
+            @click="flushEditor"
+          >
+            Retry save
+          </button>
+          <button type="button" :disabled="isCopying" @click="saveCopy">
+            {{ isCopying ? 'Saving copy…' : 'Save a copy' }}
+          </button>
+        </div>
         <span class="save-status" :class="`save-${store.saveState}`" role="status">
           {{ saveStatusText }}
         </span>
@@ -235,6 +270,8 @@ function onEditorSave(payload) {
 
 .editor-statusbar {
   display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   padding: 10px 24px;
@@ -260,6 +297,28 @@ function onEditorSave(payload) {
 
 .back-link .material-symbols-outlined {
   font-size: 16px;
+}
+
+.save-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.save-actions button {
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.save-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .save-status {

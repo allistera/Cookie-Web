@@ -116,3 +116,22 @@ describe('projects store', () => {
     expect(notify).toHaveBeenCalledWith('Failed to delete the project.', 'error')
   })
 })
+
+it('shares concurrent loads and applies a create after the old snapshot resolves', async () => {
+  let resolveLoad
+  const request = vi.spyOn(store, 'request').mockImplementation((method) =>
+    method === 'GET'
+      ? new Promise((resolve) => {
+          resolveLoad = resolve
+        })
+      : Promise.resolve({ project: { ...PROJECT, id: 'p2' } }),
+  )
+  const first = store.loadProjects()
+  const second = store.loadProjects()
+  const create = store.createProject({ name: 'New' })
+  expect(request).toHaveBeenCalledTimes(1)
+  resolveLoad({ projects: [PROJECT] })
+  await Promise.all([first, second, create])
+  expect(store.projects.map(({ id }) => id)).toEqual(['p1', 'p2'])
+  expect(request).toHaveBeenCalledTimes(2)
+})

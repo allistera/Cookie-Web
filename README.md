@@ -98,24 +98,22 @@ Never commit `.env.local` or use the production database for routine local devel
 
 The main runtime variables are:
 
-| Name                         | Purpose                                                                                                                                                           |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`               | Supabase Postgres connection used by Vercel functions and migrations.                                                                                             |
-| `OPENAI_API_KEY`             | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.                                                                                                 |
-| `OPENAI_COMPOSE_MODEL`       | Optional AI Compose model override.                                                                                                                               |
-| `RESEND_API_KEY`             | Outbound email delivery.                                                                                                                                          |
-| `EMAIL_FROM`                 | Required sender identity for outbound mail (e.g. `Name <addr@domain>`); `/api/send` returns 503 without it.                                                       |
-| `SCHEDULED_SEND_FLUSH_TOKEN` | Bearer secret authorizing `POST /api/send?resource=flush`. Shared with the `scheduled-send-flusher` Cloudflare Worker in Cookie-Worker, which is the only caller. |
-| `PUBLIC_APP_URL`             | Optional public origin used for read-receipt pixels; Vercel's production URL is used when omitted.                                                                |
-| `VITE_AUTH0_DOMAIN`          | Auth0 tenant domain exposed to the browser.                                                                                                                       |
-| `VITE_AUTH0_CLIENT_ID`       | Auth0 SPA client ID exposed to the browser.                                                                                                                       |
-| `VITE_AUTH0_AUDIENCE`        | Auth0 API audience exposed to the browser.                                                                                                                        |
-| `VITE_SUPABASE_URL`          | Supabase project URL used for Realtime.                                                                                                                           |
-| `VITE_SUPABASE_ANON_KEY`     | Supabase publishable key used for content-free Realtime pings.                                                                                                    |
+| Name                     | Purpose                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`           | Supabase Postgres connection used by migrations and local development tooling. |
+| `OPENAI_API_KEY`         | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.              |
+| `OPENAI_COMPOSE_MODEL`   | Optional AI Compose model override.                                            |
+| `VITE_AUTH0_DOMAIN`      | Auth0 tenant domain exposed to the browser.                                    |
+| `VITE_AUTH0_CLIENT_ID`   | Auth0 SPA client ID exposed to the browser.                                    |
+| `VITE_AUTH0_AUDIENCE`    | Auth0 API audience exposed to the browser.                                     |
+| `VITE_SUPABASE_URL`      | Supabase project URL used for Realtime.                                        |
+| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings.                 |
 
 `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those two now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
-Vercel stores production values. GitHub Actions stores only the secrets its migration workflow needs.
+The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Attachment upload authorization and registration remain on Vercel and retain their Blob storage, database, and authentication settings. Set delivery credentials and the flush token on that Worker; deploy its follow-up support before deploying this adapter. Web request IDs survive failed sends and are renewed after successful delivery. Migration `0065_task_subtree_projects.sql` repairs task descendants left in old projects and adds a parent lookup index.
+
+Vercel stores browser build values. GitHub Actions stores only the secrets its migration workflow needs.
 
 ### Auth0 user provisioning
 

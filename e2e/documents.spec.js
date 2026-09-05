@@ -595,3 +595,126 @@ test('The default content for new daily notes can be customized in Settings > Do
   await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
   await expect(page.locator('.daily-note-editor-surface .ce-header').first()).toHaveText('Tasks')
 })
+
+test('A failed autosave keeps the draft open through navigation and can be retried', async ({
+  page,
+}) => {
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('/documents/stub-doc-floor-plan')
+  await expect(page.locator('.document-title')).toHaveText('Floor plan notes')
+  let failSaves = true
+  await page.route('**/documents', async (route) => {
+    if (route.request().method() === 'PATCH' && failSaves) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: '{"error":"Temporarily unavailable"}',
+      })
+    } else {
+      await route.fallback()
+    }
+  })
+  await page.locator('.document-title').fill('Draft that must survive')
+  await expect(page.getByRole('button', { name: 'Retry save' })).toBeVisible()
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).first().click()
+  await expect(page).toHaveURL(/stub-doc-floor-plan$/)
+  await expect(page.locator('.document-title')).toHaveText('Draft that must survive')
+  await page.screenshot({ path: '/tmp/cookie-save-recovery.png' })
+  failSaves = false
+  await page.getByRole('button', { name: 'Retry save' }).click()
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+  await expect(page.locator('.document-title')).toHaveText('Draft that must survive')
+  expect(errors).toEqual([])
+})
+
+test('Multiple spreadsheet blocks load independently and retain their own values', async ({
+  page,
+}, testInfo) => {
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('/documents/stub-doc-scratchpad')
+  const timings = []
+  for (let index = 0; index < 3; index += 1) {
+    const paragraph = page.locator('.codex-editor .ce-paragraph').first()
+    await paragraph.click()
+    await paragraph.press('Home')
+    await paragraph.press('Enter')
+    const empty = page.locator('.codex-editor .ce-paragraph').filter({ hasText: /^$/ }).first()
+    await empty.click()
+    await empty.pressSequentially('/')
+    const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
+    const started = performance.now()
+    await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            [...document.querySelectorAll('.univer-sheet-block')].filter(
+              (element) => element.__univerAPI,
+            ).length,
+        ),
+      )
+      .toBe(index + 1)
+    timings.push(Math.round(performance.now() - started))
+  }
+  const savedTables = page.waitForResponse((response) => {
+    if (
+      !response.url().includes('/documents') ||
+      response.request().method() !== 'PATCH' ||
+      !response.ok()
+    )
+      return false
+    const tables =
+      response
+        .request()
+        .postDataJSON()
+        ?.blocks?.filter((block) => block.type === 'table') ?? []
+    return (
+      tables.length === 3 &&
+      tables.every((block, index) => {
+        const workbook = block.data?.workbook
+        return (
+          workbook?.sheets?.[workbook.sheetOrder?.[0]]?.cellData?.[0]?.[0]?.v ===
+          `Table ${index + 1}`
+        )
+      })
+    )
+  })
+  await page.evaluate(() => {
+    document.querySelectorAll('.univer-sheet-block').forEach((element, index) => {
+      element.__univerAPI
+        .getActiveWorkbook()
+        .getActiveSheet()
+        .getRange('A1')
+        .setValue(`Table ${index + 1}`)
+    })
+  })
+  await savedTables
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.screenshot({ path: '/tmp/cookie-three-tables.png' })
+  await page.reload()
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.univer-sheet-block')].map((element) =>
+          element.__univerAPI
+            ?.getActiveWorkbook()
+            .getActiveSheet()
+            .getRange('A1')
+            .getDisplayValue(),
+        ),
+      ),
+    )
+    .toEqual(['Table 1', 'Table 2', 'Table 3'])
+  await testInfo.attach('spreadsheet-opening-ms', {
+    body: JSON.stringify({
+      server: testInfo.project.use.baseURL,
+      first: timings[0],
+      subsequent: timings.slice(1),
+    }),
+    contentType: 'application/json',
+  })
+  expect(errors).toEqual([])
+})

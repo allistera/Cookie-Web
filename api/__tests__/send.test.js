@@ -1,127 +1,45 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { createHandler } from '../send.js'
 
-import {
-  appendReadReceipt,
-  buildReadReceiptUrl,
-  claimOutboundEmailQuota,
-  parseAttachmentIds,
-  parseRecipients,
-  validateOutboundMessage,
-} from '../send.js'
+import { responseRecorder } from '../_fixtures/sendTestResponse.js'
 
-describe('parseAttachmentIds', () => {
-  const first = '11111111-1111-4111-8111-111111111111'
-  const second = '22222222-2222-4222-8222-222222222222'
-
-  it('accepts a bounded unique UUID list and treats omission as no attachments', () => {
-    expect(parseAttachmentIds(undefined)).toEqual([])
-    expect(parseAttachmentIds([first, second])).toEqual([first, second])
-  })
-
-  it('rejects malformed, duplicate, and oversized attachment id lists', () => {
-    expect(parseAttachmentIds('not-an-array')).toBeNull()
-    expect(parseAttachmentIds(['not-a-uuid'])).toBeNull()
-    expect(parseAttachmentIds([first, first])).toBeNull()
-    expect(
-      parseAttachmentIds(
-        Array.from(
-          { length: 21 },
-          (_, index) => `${String(index).padStart(8, '0')}-1111-4111-8111-111111111111`,
-        ),
-      ),
-    ).toBeNull()
-  })
-})
-
-describe('parseRecipients', () => {
-  it('parses a comma-separated to field into trimmed addresses', () => {
-    expect(parseRecipients('a@b.com, c@d.com')).toEqual(['a@b.com', 'c@d.com'])
-    expect(parseRecipients(' a@b.com ')).toEqual(['a@b.com'])
-    expect(parseRecipients('a@b.com,,c@d.com,')).toEqual(['a@b.com', 'c@d.com'])
-  })
-
-  it('returns an empty list for non-strings or blank input', () => {
-    expect(parseRecipients('')).toEqual([])
-    expect(parseRecipients(undefined)).toEqual([])
-    expect(parseRecipients(null)).toEqual([])
-    expect(parseRecipients(42)).toEqual([])
-  })
-
-  it('rejects recipient fan-out above the application limit', () => {
-    const recipients = Array.from({ length: 21 }, (_, index) => `user${index}@example.com`).join(
-      ',',
-    )
-
-    expect(parseRecipients(recipients)).toEqual([])
-  })
-})
-
-describe('outbound email abuse bounds', () => {
-  const valid = {
-    to: 'recipient@example.com',
-    subject: 'Hello',
-    text: 'Plain text',
-    html: '<p>Plain text</p>',
-  }
-
-  it('accepts a normal bounded message', () => {
-    expect(validateOutboundMessage(valid)).toEqual({
-      recipients: ['recipient@example.com'],
-      bodyHtml: '<p>Plain text</p>',
-    })
-  })
-
-  it('rejects oversized subject, text, HTML, and aggregate content', () => {
-    expect(validateOutboundMessage({ ...valid, subject: 'x'.repeat(999) }).error).toMatch(/size/i)
-    expect(validateOutboundMessage({ ...valid, text: 'x'.repeat(100_001) }).error).toMatch(/size/i)
-    expect(validateOutboundMessage({ ...valid, html: 'x'.repeat(200_001) }).error).toMatch(/size/i)
-    expect(
-      validateOutboundMessage({ ...valid, text: 'x'.repeat(100_000), html: 'y'.repeat(160_000) })
-        .error,
-    ).toMatch(/size/i)
-  })
-
-  it('uses one atomic server-side quota claim scoped to a provisioned user', async () => {
-    let query = ''
-    const values = []
-    const sql = (strings, ...parameters) => {
-      query = strings.join('?')
-      values.push(...parameters)
-      return [{ authorized: true, quota_claimed: true }]
+describe('send compatibility adapter', () => {
+  it('preserves request identity and body while forwarding only the bearer credential', async () => {
+    const body = {
+      to: 'a@example.com',
+      subject: 'Hello',
+      text: 'Hello',
+      requestId: 'retry-1',
+      followUpAt: '2026-09-20T10:00:00Z',
     }
-    const userId = '11111111-1111-4111-8111-111111111111'
-
-    await expect(claimOutboundEmailQuota(sql, userId)).resolves.toEqual({
-      authorized: true,
-      quota_claimed: true,
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ id: 'provider', messageId: 'message', followUpScheduled: true }),
+      )
+    const response = responseRecorder()
+    await createHandler({ fetch })(
+      {
+        method: 'POST',
+        url: '/api/send',
+        headers: { authorization: 'Bearer fixture', cookie: 'private', host: 'attacker.example' },
+        body,
+      },
+      response,
+    )
+    expect(fetch).toHaveBeenCalledWith(
+      'https://send-api.infinitywave.online/send',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        redirect: 'error',
+      }),
+    )
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      id: 'provider',
+      messageId: 'message',
+      followUpScheduled: true,
     })
-    expect(query).toContain('INSERT INTO outbound_email_quotas')
-    expect(query).toContain('ON CONFLICT (user_id) DO UPDATE')
-    expect(query).toContain('outbound_email_quotas.send_count <')
-    expect(values).toEqual([userId, 10, userId])
-  })
-})
-
-describe('read receipt helpers', () => {
-  const token = '11111111-1111-4111-8111-111111111111'
-
-  it('builds an opaque-token Worker URL whenever a public origin is configured', () => {
-    const workerUrl = `https://receipts-api.infinitywave.online/read-receipts?token=${token}`
-    expect(buildReadReceiptUrl(token, { PUBLIC_APP_URL: 'https://mail.example.com/app' })).toBe(
-      workerUrl,
-    )
-    expect(buildReadReceiptUrl(token, { VERCEL_PROJECT_PRODUCTION_URL: 'cookie.vercel.app' })).toBe(
-      workerUrl,
-    )
-  })
-
-  it('adds the pixel to sent HTML and safely creates HTML for plain text', () => {
-    const url = `https://mail.example.com/api/read-receipts?token=${token}`
-    expect(appendReadReceipt('<p>Hello</p>', 'Hello', url)).toContain(
-      `<p>Hello</p><img src="${url}"`,
-    )
-    const fromText = appendReadReceipt(null, '<Hello>\nWorld', url)
-    expect(fromText).toContain('&lt;Hello&gt;<br>World')
-    expect(fromText).not.toContain('<Hello>')
   })
 })

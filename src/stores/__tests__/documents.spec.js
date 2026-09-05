@@ -269,14 +269,15 @@ describe('documents store', () => {
     store.scheduleContentSave('d-1', { title: 'Conflicted' })
     await vi.runAllTimersAsync()
 
-    // Initial attempt plus the three capped automatic conflict retries.
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    // A genuine conflict must retain the original version and draft.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.saveConflict).toBe(true)
     expect(store.saveState).toBe('error')
 
     await store.flushPendingSave()
 
-    expect(fetchMock).toHaveBeenCalledTimes(5)
-    expect(JSON.parse(fetchMock.mock.calls[4][1].body).title).toBe('Conflicted')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).title).toBe('Conflicted')
     expect(store.saveState).toBe('error')
   })
 
@@ -567,5 +568,54 @@ describe('documents store', () => {
     expect(store.openDocId).toBe(null)
     expect(store.openDoc).toBe(null)
     expect(store.documents.map((doc) => doc.id)).toEqual(['d-2'])
+  })
+})
+
+describe('draft recovery', () => {
+  it('blocks navigation after failure and saves the retained draft on retry', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    store.openDoc = { ...structuredClone(DOCS[0]), blocks: [] }
+    store.openDocId = 'd-1'
+    let unavailable = true
+    const fetchMock = stubFetch({
+      PATCH: (_, body) =>
+        unavailable
+          ? fail()
+          : ok({ document: { id: body.id, title: body.title, updated_at: 't1' } }),
+    })
+    store.scheduleContentSave('d-1', { title: 'Keep this draft' })
+    expect(await store.flushPendingSave()).toBe(false)
+    expect(await store.openDocument('d-2')).toBe(false)
+    expect(store.openDoc.title).toBe('Keep this draft')
+    expect(store.openDocId).toBe('d-1')
+    expect(fetchMock.mock.calls.every(([, options]) => options.method === 'PATCH')).toBe(true)
+    unavailable = false
+    expect(await store.flushPendingSave()).toBe(true)
+    expect(store.openDoc.title).toBe('Keep this draft')
+    expect(store.saveState).toBe('saved')
+  })
+
+  it('saves a conflicted draft to a new document without updating the original version', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    store.openDoc = {
+      ...structuredClone(DOCS[0]),
+      blocks: [{ type: 'paragraph', data: { text: 'Local work' } }],
+    }
+    store.scheduleContentSave('d-1', { title: 'Local title' })
+    const requests = []
+    vi.spyOn(store, 'request').mockImplementation(async (method, { body } = {}) => {
+      requests.push({ method, body })
+      if (body.id === 'd-1') throw Object.assign(new Error('Conflict'), { status: 409 })
+      return { document: { id: 'copy-1', title: body.title, updated_at: 't2' } }
+    })
+    await store.flushPendingSave()
+    const copy = await store.saveConflictAsCopy()
+    expect(copy.id).toBe('copy-1')
+    expect(requests.filter(({ body }) => body.id === 'd-1')).toHaveLength(1)
+    expect(requests.at(-1).body.blocks[0].data.text).toBe('Local work')
+    expect(await store.flushPendingSave()).toBe(true)
+    expect(store.saveConflict).toBe(false)
   })
 })

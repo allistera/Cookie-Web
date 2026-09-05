@@ -1003,6 +1003,8 @@ describe('TraditionalInboxView multi-select', () => {
   let store
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-14T12:00:00Z'))
     setActivePinia(createPinia())
     store = useInboxStore()
     store.traditionalEmails = [
@@ -1017,6 +1019,7 @@ describe('TraditionalInboxView multi-select', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -1126,6 +1129,8 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   let store
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-14T12:00:00Z'))
     setActivePinia(createPinia())
     store = useInboxStore()
     store.traditionalEmails = [makeEmail('today-1', Date.now() - HOUR)]
@@ -1136,6 +1141,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })

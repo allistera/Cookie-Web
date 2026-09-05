@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { jsonRequest } from '../lib/jsonRequest'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
@@ -23,6 +24,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // navigating between projects refetches rather than showing the last one.
     loadedProject: null,
     isLoading: false,
+    loadSeq: 0,
   }),
 
   getters: {
@@ -47,28 +49,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const headers = await this.authHeaders(
         body !== undefined ? { 'Content-Type': 'application/json' } : {},
       )
-      const options = { method, headers }
-      if (body !== undefined) options.body = JSON.stringify(body)
-      const response = await fetch(`${TASKS_API_URL}/task-items${params}`, options)
-      if (!response.ok) {
-        const error = new Error(`${method} /task-items responded ${response.status}`)
-        error.status = response.status
-        // The server explains permanent refusals; a parse failure here must
-        // not mask the HTTP error.
-        try {
-          const data = await response.json()
-          const serverMessage = String(data?.error ?? '')
-          if (serverMessage) {
-            error.message = serverMessage
-            error.userMessage = serverMessage
-          }
-        } catch {
-          // Body absent or unparseable: keep the generic HTTP-status message
-          // rather than let a parse failure mask the original error.
-        }
-        throw error
-      }
-      return response.json()
+      return jsonRequest(`${TASKS_API_URL}/task-items${params}`, { method, headers, body })
     },
 
     async loadItems(project, { force = false } = {}) {
@@ -79,6 +60,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // it fails outright. loadedProject is set back to `project` only on
       // success, so a failed load also leaves the store retryable rather
       // than stuck believing it already "loaded" nothing.
+      const seq = ++this.loadSeq
       this.items = []
       this.loadedProject = null
       this.isLoading = true
@@ -89,13 +71,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
         const { items } = await this.request('GET', {
           params: `?project=${encodeURIComponent(project)}${date}`,
         })
+        if (seq !== this.loadSeq) return
         this.items = items
         this.loadedProject = project
       } catch (error) {
+        if (seq !== this.loadSeq) return
         console.error('Failed to load tasks:', error)
         this.notify(error.userMessage || 'Failed to load tasks.', 'error')
       } finally {
-        this.isLoading = false
+        if (seq === this.loadSeq) this.isLoading = false
       }
     },
 
@@ -193,6 +177,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
           !this.belongsToLoadedList(updated)
         if (!updated.parentId && (updated.completedAt || moved)) {
           this.items = this.items.filter((row) => row.id !== id)
+        }
+        if (Object.hasOwn(body, 'projectId') && this.loadedProject) {
+          await this.loadItems(this.loadedProject, { force: true })
         }
         return item
       } catch (error) {

@@ -295,6 +295,7 @@ function mountEditor() {
       if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
     onReady: () => {
+      if (!editor || !holder.value?.isConnected) return
       new DragDrop(editor)
       if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
@@ -698,6 +699,8 @@ async function exportToPDF() {
 }
 
 .document-blocks :deep(.univer-sheet-block) {
+  /* Keep sheet canvas layers beneath the document insertion menu. */
+  isolation: isolate;
   width: 100%;
   margin: 12px 0;
 }

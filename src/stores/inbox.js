@@ -1,3 +1,4 @@
+import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
@@ -2000,25 +2001,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // replyToMessageId (optional) threads the stored sent copy with the
     // message being replied to.
-    async sendMail({ to, subject, text, html, replyToMessageId, followUpAt, attachments = [] }) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const payload = { to, subject, text, html, replyToMessageId, followUpAt }
-      if (attachments.length) payload.attachmentIds = attachments.map(({ id }) => id)
-      const response = await fetch('/api/send', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      })
-      if (!response.ok) {
-        throw new Error(`POST /api/send responded ${response.status}`)
-      }
-      // Refresh the outbox in the background so the new mail shows up; only
-      // once the list has been loaded, and never at the send's expense.
-      if (this.isSentLoaded) {
-        this.loadSentEmails().catch(() => {})
-      }
-      return response.json()
-    },
+    sendMail,
 
     async setMessageFollowUp(email, followUpAt) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })

@@ -2310,12 +2310,14 @@ describe('Inbox Store', () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-access-token',
       },
-      body: JSON.stringify({
-        to: 'someone@example.com',
-        subject: 'Re: Hello',
-        text: 'Hi there',
-        followUpAt: '2026-08-20T09:00:00.000Z',
-      }),
+      body: expect.any(String),
+    })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      to: 'someone@example.com',
+      subject: 'Re: Hello',
+      text: 'Hi there',
+      followUpAt: '2026-08-20T09:00:00.000Z',
+      requestId: expect.any(String),
     })
     expect(result).toEqual({ id: 'msg-1' })
   })

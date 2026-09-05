@@ -1,8 +1,12 @@
+import { toRaw } from 'vue'
 import { defineStore } from 'pinia'
+import { jsonRequest } from '../lib/jsonRequest'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { useInboxStore } from './inbox'
+
+const projectLoads = new WeakMap()
 
 // Cookie-owned projects for the Tasks sidebar. Shaped after stores/documents.js:
 // the same auth headers, the same request helper, and local state updated
@@ -67,46 +71,35 @@ export const useProjectsStore = defineStore('projects', {
       const headers = await this.authHeaders(
         body !== undefined ? { 'Content-Type': 'application/json' } : {},
       )
-      const options = { method, headers }
-      if (body !== undefined) options.body = JSON.stringify(body)
-      const response = await fetch(`${TASKS_API_URL}/projects`, options)
-      if (!response.ok) {
-        const error = new Error(`${method} /projects responded ${response.status}`)
-        error.status = response.status
-        try {
-          const data = await response.json()
-          const serverMessage = String(data?.error ?? '')
-          if (serverMessage) {
-            error.message = serverMessage
-            error.userMessage = serverMessage
-          }
-        } catch {
-          // Body absent or unparseable: keep the generic HTTP-status message
-          // rather than let a parse failure mask the original error.
-        }
-        throw error
-      }
-      return response.json()
+      return jsonRequest(`${TASKS_API_URL}/projects`, { method, headers, body })
     },
 
     async loadProjects({ force = false } = {}) {
       if (this.isLoaded && !force) return
+      const inFlight = projectLoads.get(toRaw(this))
+      if (inFlight) return inFlight
       this.isLoading = true
-      try {
-        const { projects } = await this.request('GET')
-        this.projects = projects
-        this.isLoaded = true
-      } catch (error) {
-        console.error('Failed to load projects:', error)
-        this.notify('Failed to load projects.', 'error')
-      } finally {
-        this.isLoading = false
-      }
+      const load = (async () => {
+        try {
+          const { projects } = await this.request('GET')
+          this.projects = projects
+          this.isLoaded = true
+        } catch (error) {
+          console.error('Failed to load projects:', error)
+          this.notify('Failed to load projects.', 'error')
+        } finally {
+          this.isLoading = false
+          projectLoads.delete(toRaw(this))
+        }
+      })()
+      projectLoads.set(toRaw(this), load)
+      return load
     },
 
     // Created rows come back from the server rather than being guessed at
     // locally, so the id in state is the one that was stored.
     async createProject({ name, parentId = null }) {
+      await projectLoads.get(toRaw(this))
       try {
         const { project } = await this.request('POST', { name, parentId })
         this.projects.push(project)
@@ -119,6 +112,7 @@ export const useProjectsStore = defineStore('projects', {
     },
 
     async patchProject(id, changes, failureMessage) {
+      await projectLoads.get(toRaw(this))
       const project = this.projects.find((row) => row.id === id)
       if (!project) {
         // The sidebar only ever calls this with an id from a row it is
@@ -157,6 +151,7 @@ export const useProjectsStore = defineStore('projects', {
     // The server cascades to sub-projects, so local state has to drop the
     // whole subtree or the sidebar would keep rendering rows that are gone.
     async deleteProject(id) {
+      await projectLoads.get(toRaw(this))
       const doomed = new Set([id, ...this.descendantIds(id)])
       const previous = this.projects
       this.projects = this.projects.filter((project) => !doomed.has(project.id))
