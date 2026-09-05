@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useDocumentsStore } from '../documents'
 import { useInboxStore } from '../../stores/inbox'
-import { TASKS_API_URL } from '../../lib/apiWorkers'
+import { AI_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
 const FOLDERS = [{ id: 'f-1', parent_id: null, title: 'Projects', emoji: '📁' }]
 const DOCS = [
@@ -149,6 +149,44 @@ describe('documents store', () => {
       folderId: 'f-1',
       templateId: 't-1',
     })
+  })
+
+  it('creates an AI document from the generated title and fills its blocks', async () => {
+    const blocks = [{ type: 'paragraph', data: { text: 'Hello' } }]
+    const fetchMock = stubFetch({
+      POST: (url, body) =>
+        String(url).startsWith(AI_API_URL)
+          ? ok({ document: { title: 'Kitchen plan', blocks } })
+          : ok({ document: { id: 'd-ai', folder_id: body.folderId, title: body.title } }),
+      PATCH: () => ok({ document: { id: 'd-ai', updated_at: 't1' } }),
+    })
+
+    const doc = await store.createAiDocument({ folderId: 'f-1', instruction: 'Plan a kitchen' })
+
+    expect(doc.id).toBe('d-ai')
+    expect(store.documents[0].id).toBe('d-ai')
+    expect(fetchMock.mock.calls[0][0]).toBe(`${AI_API_URL}/document`)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ instruction: 'Plan a kitchen' })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      kind: 'document',
+      folderId: 'f-1',
+      title: 'Kitchen plan',
+    })
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ id: 'd-ai', blocks })
+  })
+
+  it('reports a failed AI generation without creating a document', async () => {
+    const fetchMock = stubFetch({ POST: fail })
+
+    const doc = await store.createAiDocument({ folderId: 'f-1', instruction: 'Plan a kitchen' })
+
+    expect(doc).toBeNull()
+    expect(store.documents).toHaveLength(0)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(useInboxStore().notify).toHaveBeenCalledWith(
+      'AI document failed. Please try again.',
+      'error',
+    )
   })
 
   it('creates, updates, and deletes document templates', async () => {
