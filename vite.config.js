@@ -1613,7 +1613,7 @@ function localApiPlugin(mode) {
     return json(res, { labels })
   }
 
-  // cookie-web-messages: /messages[/attachment|thread-body|contacts]
+  // cookie-web-messages: /messages[/attachment|contacts]
   const handleWorkerMessagesApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
@@ -1652,13 +1652,6 @@ function localApiPlugin(mode) {
       res.setHeader('Content-Disposition', 'attachment; filename="Revised-Floor-Plan.pdf"')
       res.end(Buffer.from('JVBERi0xLjQKJSBDb29raWUgZml4dHVyZQo=', 'base64'))
       return
-    }
-    if (sub === 'thread-body') {
-      const { fixtureMessageBody } = await import('./api/_fixtures/messages.js')
-      const id = url.searchParams.get('id')
-      const primary = fixtureMessageBody(id)
-      const earlier = fixtureMessageBody('fixture-1').thread.find((message) => message.id === id)
-      return json(res, { body_text: earlier?.body_text ?? primary.body_text ?? '' })
     }
     if (sub) return json(res, { error: 'Not Found' }, 404)
     if (req.method === 'GET') {
