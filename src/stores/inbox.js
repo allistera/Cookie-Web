@@ -728,12 +728,18 @@ export const useInboxStore = defineStore('inbox', {
     isOpenSummaryLoading(state) {
       return state.summaryLoadingId !== null && state.summaryLoadingId === state.openEmailId
     },
-    // The open email's other conversation messages (oldest first), excluding
-    // itself — empty until the body fetch lands, or when it is the thread's
-    // only message. Drives the reader's collapsed conversation history.
-    openEmailThread(state) {
+    // The open email's whole conversation (oldest first, the open message
+    // included) — empty until the body fetch lands, or when the message is
+    // its thread's only one. Drives the reader's threaded view.
+    openEmailConversation(state) {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
-      return (cached?.thread ?? []).filter((message) => message.id !== state.openEmailId)
+      const thread = cached?.thread ?? []
+      return thread.length > 1 ? thread : []
+    },
+    // A fetched body for any message by id: conversation messages expand from
+    // the same cache the open email fills. Null until fetchMessageBody lands.
+    messageBodyById(state) {
+      return (id) => state.messageBodies.get(id) ?? null
     },
     // The open email's attachment metadata. Private Blob URLs remain server-side;
     // downloadable tells the reader whether it can request a short-lived URL.
@@ -1449,10 +1455,11 @@ export const useInboxStore = defineStore('inbox', {
       // Only flag loading for an actual fetch — cache hits return early in
       // fetchMessageBody so reopening a message never spins.
       this.bodyLoadingId = id
-      // Only an HTML body ever shows the spinner (EmailBody.vue) — a text-only
-      // message renders instantly from the list's own body_text, so there's
-      // nothing to hold up for it.
-      const willShowSpinner = this.openEmail?.hasHtml === true
+      // Only the open email's HTML body ever shows the spinner (EmailBody.vue)
+      // — a text-only message renders instantly from the list's own
+      // body_text, and an expanding conversation message shows its own
+      // loading line, so there's nothing to hold up for either.
+      const willShowSpinner = id === this.openEmailId && this.openEmail?.hasHtml === true
       const startedAt = Date.now()
       try {
         const headers = await this.authHeaders()
@@ -1496,25 +1503,6 @@ export const useInboxStore = defineStore('inbox', {
         // Always clear, whether the fetch succeeded or failed, but only if this
         // call is still the one in flight (a newer open may have superseded it).
         if (this.bodyLoadingId === id) this.bodyLoadingId = null
-      }
-    },
-
-    async fetchThreadMessageBody(message) {
-      if (!message || Object.hasOwn(message, 'body_text')) return message?.body_text ?? null
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(
-          `${MESSAGES_API_URL}/messages/thread-body?id=${encodeURIComponent(message.id)}`,
-          { headers },
-        )
-        if (!response.ok) throw new Error(`GET thread body responded ${response.status}`)
-        const { body_text } = await response.json()
-        message.body_text = body_text ?? ''
-        return message.body_text
-      } catch (error) {
-        console.error('Failed to load thread message body:', error)
-        message.body_text = ''
-        return null
       }
     },
 

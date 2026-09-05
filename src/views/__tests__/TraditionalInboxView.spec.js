@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -697,6 +697,92 @@ describe('TraditionalInboxView reading panel', () => {
 
     expect(store.openEmailId).toBe(null)
     expect(wrapper.find('.ni-reader').exists()).toBe(false)
+  })
+
+  it('renders the whole conversation around the open email, oldest first and collapsed', async () => {
+    store.messageBodies.set('today-1', {
+      html: null,
+      text: 'Body',
+      thread: [
+        { id: 'older', from_name: 'Alice', snippet: 'The first message', sent_at: '2026-01-01' },
+        { id: 'today-1', from_name: 'Sender today-1', snippet: 'Snippet', sent_at: '2026-01-02' },
+        { id: 'newer', from_name: 'Bob', snippet: 'A later reply', sent_at: '2026-01-03' },
+      ],
+      attachments: [],
+    })
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.get('.ni-thread-toolbar').text()).toContain('3 messages')
+    const cards = wrapper.findAll('.ni-conversation > *')
+    expect(cards.map((card) => card.classes().includes('ni-email-card'))).toEqual([
+      false,
+      true,
+      false,
+    ])
+    expect(cards[0].text()).toContain('The first message')
+    expect(cards[2].text()).toContain('A later reply')
+    expect(wrapper.findAll('.ni-thread-message-open')).toHaveLength(0)
+  })
+
+  it('expands a conversation message to its fetched body and collapses it again', async () => {
+    store.messageBodies.set('today-1', {
+      html: null,
+      text: 'Body',
+      thread: [
+        { id: 'older', from_name: 'Alice', snippet: 'The first message', sent_at: '2026-01-01' },
+        { id: 'today-1', from_name: 'Sender today-1', snippet: 'Snippet', sent_at: '2026-01-02' },
+      ],
+      attachments: [],
+    })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'older', body_html: null, body_text: 'The complete first message' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    await wrapper.get('.ni-thread-message').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${MESSAGES_API_URL}/messages?id=older`,
+      expect.anything(),
+    )
+    const opened = wrapper.get('.ni-thread-message-open')
+    expect(opened.text()).toContain('The complete first message')
+    expect(opened.text()).toContain('Alice')
+
+    await opened.get('[aria-label="Collapse message"]').trigger('click')
+    expect(wrapper.find('.ni-thread-message-open').exists()).toBe(false)
+    expect(wrapper.get('.ni-thread-message').text()).toContain('The first message')
+  })
+
+  it('Expand all opens every other message and Collapse all closes them', async () => {
+    store.messageBodies.set('today-1', {
+      html: null,
+      text: 'Body',
+      thread: [
+        { id: 'older', from_name: 'Alice', snippet: 'First', sent_at: '2026-01-01' },
+        { id: 'today-1', from_name: 'Sender today-1', snippet: 'Snippet', sent_at: '2026-01-02' },
+        { id: 'newer', from_name: 'Bob', snippet: 'Later', sent_at: '2026-01-03' },
+      ],
+      attachments: [],
+    })
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const toggleAll = wrapper.get('.ni-thread-toggle-all')
+    expect(toggleAll.text()).toBe('Expand all')
+    await toggleAll.trigger('click')
+
+    expect(wrapper.findAll('.ni-thread-message-open')).toHaveLength(2)
+    expect(toggleAll.text()).toBe('Collapse all')
+
+    await toggleAll.trigger('click')
+    expect(wrapper.findAll('.ni-thread-message-open')).toHaveLength(0)
+    expect(wrapper.findAll('.ni-thread-message')).toHaveLength(2)
   })
 })
 

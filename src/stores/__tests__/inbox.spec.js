@@ -3456,70 +3456,74 @@ describe('Inbox Store', () => {
     expect(store.openEmailCalendarInvite).toEqual(calendarInvite)
   })
 
-  it('fetches an earlier thread body only when requested', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ body_text: 'Earlier complete body' }),
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const store = useInboxStore()
-    const message = { id: 'msg-1', snippet: 'Earlier preview' }
-
-    await store.fetchThreadMessageBody(message)
-    await store.fetchThreadMessageBody(message)
-
-    expect(message.body_text).toBe('Earlier complete body')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages/thread-body?id=msg-1`, {
-      headers: { Authorization: 'Bearer test-access-token' },
-    })
-  })
-
-  it('openEmailThread exposes the conversation history, excluding the open message itself', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          id: 'msg-2',
-          body_html: null,
-          body_text: 'Latest reply',
-          thread: [
-            {
-              id: 'msg-1',
-              from_name: 'Alice',
-              snippet: 'First message',
-              sent_at: '2026-01-01T00:00:00Z',
-            },
-            {
-              id: 'msg-2',
-              from_name: 'Bob',
-              snippet: 'Latest reply',
-              sent_at: '2026-01-02T00:00:00Z',
-            },
-          ],
-        }),
-      }),
-    )
-
-    const store = useInboxStore()
-    store.traditionalEmails = [{ id: 'msg-2', body: 'Latest reply' }]
-    store.openEmailId = 'msg-2'
-    await store.fetchMessageBody('msg-2')
-
-    expect(store.openEmailThread).toEqual([
+  it('openEmailConversation exposes the whole thread, oldest first, once the body fetch lands', async () => {
+    const thread = [
       {
         id: 'msg-1',
         from_name: 'Alice',
         snippet: 'First message',
         sent_at: '2026-01-01T00:00:00Z',
       },
-    ])
+      { id: 'msg-2', from_name: 'Bob', snippet: 'Latest reply', sent_at: '2026-01-02T00:00:00Z' },
+      { id: 'msg-3', from_name: 'Alice', snippet: 'Newer reply', sent_at: '2026-01-03T00:00:00Z' },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'msg-2', body_html: null, body_text: 'Latest reply', thread }),
+      }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'msg-2', body: 'Latest reply' }]
+    store.openEmailId = 'msg-2'
+    expect(store.openEmailConversation).toEqual([])
+
+    await store.fetchMessageBody('msg-2')
+
+    expect(store.openEmailConversation).toEqual(thread)
   })
 
-  it('openEmailThread is empty before the body fetch resolves or when there is no thread', () => {
+  it('openEmailConversation is empty when the open message is alone in its thread', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'msg-1',
+          body_html: null,
+          body_text: 'Only message',
+          thread: [{ id: 'msg-1', from_name: 'Alice', snippet: 'Only message' }],
+        }),
+      }),
+    )
+
     const store = useInboxStore()
-    expect(store.openEmailThread).toEqual([])
+    store.traditionalEmails = [{ id: 'msg-1', body: 'Only message' }]
+    store.openEmailId = 'msg-1'
+    await store.fetchMessageBody('msg-1')
+
+    expect(store.openEmailConversation).toEqual([])
+  })
+
+  it('messageBodyById reads any cached body, not only the open message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'msg-1', body_html: '<p>Hi</p>', body_text: 'Hi' }),
+      }),
+    )
+
+    const store = useInboxStore()
+    store.openEmailId = 'msg-2'
+    expect(store.messageBodyById('msg-1')).toBeNull()
+
+    await store.fetchMessageBody('msg-1')
+
+    expect(store.messageBodyById('msg-1')).toMatchObject({ html: '<p>Hi</p>', text: 'Hi' })
+    expect(store.openEmailHtml).toBeNull()
   })
 
   it("openEmailAttachments exposes the open message's attachments once the body fetch lands", async () => {
