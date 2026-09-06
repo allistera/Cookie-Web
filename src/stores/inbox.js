@@ -2711,6 +2711,31 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    async requestAiReply({ replyToMessageId, to, subject, existingText }) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${AI_API_URL}/compose`, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(25_000),
+        body: JSON.stringify({
+          instruction:
+            'Write a concise, helpful reply to this email in its language. ' +
+            'Use the existing draft as guidance and preserve its meaning. ' +
+            'Keep facts and commitments grounded in the supplied context; ask for missing information when needed. ' +
+            'Return the reply body without a quoted original, signature, or placeholders.',
+          replyToMessageId,
+          to,
+          subject,
+          existingText,
+        }),
+      })
+      if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
+      const { draft } = await response.json()
+      const text = draft.text.trim()
+      if (!text || text.length > 10_000) throw new Error('AI returned an invalid reply')
+      return convertEmojiToEmoticons(text)
+    },
+
     async requestAiDraft({ replyToMessageId = this.composerReplyToMessageId } = {}) {
       const instruction = this.composerAiInstruction.trim()
       if (!instruction || this.isAiDraftLoading) return

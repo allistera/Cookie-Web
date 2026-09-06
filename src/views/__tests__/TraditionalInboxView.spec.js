@@ -8,7 +8,7 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
-import { MESSAGES_API_URL } from '../../lib/apiWorkers'
+import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
 import { scheduleChoices } from '../../utils/schedule'
 import { setAuth0Client } from '../../auth0-client'
 
@@ -60,6 +60,167 @@ afterEach(() => {
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
+
+describe('inline AI reply button', () => {
+  let store
+  let wrapper
+  let finishGeneration
+  let requests
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('reply-1', Date.now() - HOUR)]
+    vi.spyOn(store, 'loadDrafts').mockResolvedValue()
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    requests = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, options) => {
+        if (url === `${AI_API_URL}/compose`) {
+          requests.push(JSON.parse(options.body))
+          return new Promise((resolve) => {
+            finishGeneration = resolve
+          })
+        }
+        return { ok: true, json: async () => ({ message: {} }) }
+      }),
+    )
+    wrapper = mountView({ attachTo: document.body })
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    await wrapper.get('.ni-email-card [title="Reply"]').trigger('click')
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+    vi.restoreAllMocks()
+  })
+
+  async function typeReply(text) {
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.textContent = text
+    await editor.trigger('input')
+  }
+
+  async function clickAi() {
+    await wrapper.get('.ni-reply-ai-btn').trigger('click')
+    await flushPromises()
+  }
+
+  it('inserts an editable response to the current email and schedules autosave without sending', async () => {
+    const save = vi.spyOn(store, 'scheduleReplyDraftSave')
+    await typeReply('Please ask about the price.')
+    await clickAi()
+    expect(requests[0]).toMatchObject({
+      replyToMessageId: 'reply-1',
+      to: 'sender-reply-1@example.com',
+      subject: 'Re: Subject reply-1',
+      existingText: 'Please ask about the price.',
+    })
+    finishGeneration(
+      Response.json({
+        draft: {
+          text: 'Could you confirm the price for <2 items>?',
+          subject: 'Ignore this subject',
+        },
+      }),
+    )
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe(
+      'Could you confirm the price for <2 items>?',
+    )
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Could you confirm the price for <2 items>?',
+        subject: 'Re: Subject reply-1',
+      }),
+    )
+    expect(store.isComposerActive).toBe(false)
+    expect(store.sendMail).not.toHaveBeenCalled()
+  })
+
+  it('shows progress and prevents duplicate requests or sending during generation', async () => {
+    await typeReply('Keep this while waiting.')
+    await clickAi()
+    await clickAi()
+    expect(requests).toHaveLength(1)
+    expect(wrapper.get('.ni-reply-ai-btn').text()).toContain('Generating…')
+    expect(wrapper.get('.ni-reply-ai-btn').attributes('aria-busy')).toBe('true')
+    expect(wrapper.get('.ni-reply-footer .btn-primary').attributes()).toHaveProperty('disabled')
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('Keep this while waiting.')
+    finishGeneration(Response.json({ draft: { text: 'Generated reply' } }))
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-ai-btn').attributes()).not.toHaveProperty('disabled')
+    expect(wrapper.get('.ni-reply-footer .btn-primary').attributes()).not.toHaveProperty('disabled')
+  })
+
+  it.each(['unavailable', 'empty', 'malformed'])(
+    'preserves the current reply when generation is %s',
+    async (failure) => {
+      await typeReply('My current reply')
+      await clickAi()
+      finishGeneration(
+        failure === 'unavailable'
+          ? new Response('', { status: 503 })
+          : Response.json({ draft: { text: failure === 'malformed' ? 123 : ' ' } }),
+      )
+      await flushPromises()
+      expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('My current reply')
+      expect(store.toasts.some((toast) => toast.kind === 'error')).toBe(true)
+      expect(wrapper.get('.ni-reply-ai-btn').attributes()).not.toHaveProperty('disabled')
+    },
+  )
+
+  it('keeps edits made while AI is generating', async () => {
+    await clickAi()
+    await typeReply('I wrote this while waiting.')
+    finishGeneration(Response.json({ draft: { text: 'Late generated reply' } }))
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('I wrote this while waiting.')
+  })
+
+  it('shows the generated response when the editor has focus while waiting', async () => {
+    await clickAi()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.focus()
+    expect(document.activeElement).toBe(editor.element)
+    finishGeneration(Response.json({ draft: { text: 'Visible generated reply' } }))
+    await flushPromises()
+    expect(editor.text()).toBe('Visible generated reply')
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Visible generated reply',
+        html: '<p>Visible generated reply</p>',
+      }),
+    )
+  })
+
+  it.each(['discard', 'navigate'])(
+    'ignores late responses after %s and reopening the same email',
+    async (action) => {
+      await clickAi()
+      if (action === 'discard') {
+        await wrapper
+          .findAll('.ni-reply-footer button')
+          .find((button) => button.text() === 'Discard')
+          .trigger('click')
+      } else {
+        store.closeReader()
+        await flushPromises()
+        store.openReader(store.traditionalEmails[0])
+        await flushPromises()
+      }
+      await wrapper.get('.ni-email-card [title="Reply"]').trigger('click')
+      finishGeneration(Response.json({ draft: { text: 'Late generated reply' } }))
+      await flushPromises()
+      expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('')
+      expect(wrapper.get('.ni-reply-ai-btn').attributes()).not.toHaveProperty('disabled')
+    },
+  )
+})
 
 describe('automatic priority reply drafts', () => {
   let store
