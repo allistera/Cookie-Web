@@ -1219,6 +1219,62 @@ test('Reply slides an inline reply box under the email instead of opening the co
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
 })
 
+for (const width of [1280, 390]) {
+  test(`Reply AI button generates inline, saves, and waits for Send at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 })
+    let releaseGeneration
+    const generation = new Promise((resolve) => {
+      releaseGeneration = resolve
+    })
+    let aiRequest
+    const saved = []
+    let sends = 0
+    await page.route(`${AI_API_URL}/compose`, async (route) => {
+      aiRequest = route.request().postDataJSON()
+      await generation
+      await route.fulfill({
+        json: { draft: { text: 'Could you confirm the updated dimensions and price?' } },
+      })
+    })
+    await page.route(`${DRAFTS_API_URL}/drafts**`, async (route) => {
+      if (['POST', 'PATCH'].includes(route.request().method()))
+        saved.push(route.request().postDataJSON())
+      await route.fallback()
+    })
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/send') sends++
+    })
+    await page.goto('/inbox?open=fixture-1')
+    await page.locator('.ni-email-card [title="Reply"]').click()
+    const reply = page.locator('.ni-reply-box')
+    const editor = reply.locator('.composer-editor')
+    await editor.fill('Ask about the dimensions and price.')
+    await reply.getByRole('button', { name: 'AI', exact: true }).click()
+    await expect(reply.getByRole('button', { name: 'Generating…' })).toBeDisabled()
+    await expect(reply.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    releaseGeneration()
+    await expect(editor).toHaveText('Could you confirm the updated dimensions and price?')
+    expect(aiRequest).toMatchObject({
+      replyToMessageId: 'fixture-1',
+      existingText: 'Ask about the dimensions and price.',
+    })
+    await expect
+      .poll(() => saved.some((draft) => draft.text.includes('updated dimensions and price')))
+      .toBe(true)
+    expect(sends).toBe(0)
+    await expect(reply.getByRole('button', { name: 'AI', exact: true })).toBeEnabled()
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true)
+    await editor.fill('My reviewed reply: could you confirm the price?')
+    await reply.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
+    expect(sends).toBe(1)
+  })
+}
+
 test('Priority reply draft is ready beneath the email, keeps edits on reload, and sends only on click', async ({
   page,
 }) => {

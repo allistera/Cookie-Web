@@ -2255,8 +2255,15 @@ button.ni-attachment:hover {
 
 .ni-reply-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.ni-reply-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .ni-reply-footer .btn:disabled {

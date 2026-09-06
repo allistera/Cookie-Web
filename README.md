@@ -213,6 +213,13 @@ editable **AI draft** beneath the conversation, with **Send** and **Discard**.
 Only clicking Send sends the reply. Edits are saved when switching emails and
 can be resumed after reloading.
 
+The reply toolbar also includes an **AI** button for any email. Click it to
+generate a response directly in the message body, using the email and any
+existing reply text as context. The button shows progress while generating;
+failures preserve your text, and a late response cannot replace edits made
+while waiting or fill a different reply. Generated text stays editable and
+autosaves through the normal draft flow. Click **Send** when ready.
+
 Existing drafts, answered threads, scheduled replies, archived/deleted mail,
 spam, and no-reply senders are skipped. Discarding or sending a generated draft
 does not cause it to be recreated. The background recovery job also picks up

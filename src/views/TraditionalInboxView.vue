@@ -621,6 +621,8 @@ const replyAttachments = ref([])
 const replyAttachInputRef = ref(null)
 const replyFollowUpAt = ref(null)
 const isSendingReply = ref(false)
+const isGeneratingReply = ref(false)
+let replyGenerationSeq = 0
 const replyEditorRef = ref(null)
 const FOLLOW_UP_FMT = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
@@ -731,6 +733,8 @@ watch(
     }
     store.replyDraftId = null
     store.replySessionId += 1
+    replyGenerationSeq += 1
+    isGeneratingReply.value = false
     isReplyOpen.value = false
     isReplyAll.value = false
     isAiReply.value = false
@@ -943,6 +947,8 @@ async function forwardOpenEmail() {
 }
 
 function discardReply() {
+  replyGenerationSeq += 1
+  isGeneratingReply.value = false
   if (store.replyDraftId) handledReplyDrafts.add(store.replyDraftId)
   isReplyOpen.value = false
   isReplyAll.value = false
@@ -1022,6 +1028,43 @@ function selectReplyFollowUp(choice) {
 function clearReplyFollowUp() {
   replyFollowUpAt.value = null
   replyFollowUpOpen.value = false
+}
+
+async function generateInlineReply() {
+  const email = openEmail.value
+  if (!email || !isReplyOpen.value || isSendingReply.value || isGeneratingReply.value) return
+  const request = ++replyGenerationSeq
+  const session = store.replySessionId
+  const originalHtml = replyHtml.value
+  const to = replyTo.value
+  const subject = replySubject.value
+  const isCurrent = () =>
+    request === replyGenerationSeq && session === store.replySessionId && isReplyOpen.value
+  isGeneratingReply.value = true
+  try {
+    const text = await store.requestAiReply({
+      replyToMessageId: email.id,
+      to,
+      subject,
+      existingText: replyTextPlain.value,
+    })
+    if (!isCurrent()) return
+    if (
+      replyHtml.value !== originalHtml ||
+      replyTo.value !== to ||
+      replySubject.value !== subject
+    ) {
+      store.notify('Your reply changed while AI was writing. Click AI to try again.')
+      return
+    }
+    replyHtml.value = plainTextToHtml(text)
+    replyTextPlain.value = text
+    isAiReply.value = true
+  } catch {
+    if (isCurrent()) store.notify('AI could not generate a reply. Please try again.', 'error')
+  } finally {
+    if (request === replyGenerationSeq) isGeneratingReply.value = false
+  }
 }
 
 // The "/generate" command escalates to the composer window prefilled as a
@@ -1104,7 +1147,7 @@ watch(
 )
 
 async function sendReply() {
-  if (isSendingReply.value) return
+  if (isSendingReply.value || isGeneratingReply.value) return
   const email = openEmail.value
   // Taken before the request so a queued autosave cannot re-create the row
   // while the mail is in flight; deleted only once the send succeeds.
@@ -1280,6 +1323,7 @@ onMounted(() => {
   document.addEventListener('click', onDocumentClick)
 })
 onUnmounted(() => {
+  replyGenerationSeq += 1
   if (pendingReplyDraft.value) store.leaveReplyDraft(pendingReplyDraft.value)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('click', onDocumentClick)
@@ -1818,12 +1862,26 @@ onUnmounted(() => {
               <button
                 class="btn btn-primary"
                 :disabled="
-                  isSendingReply || store.pendingAttachmentUploads > 0 || !replyTextPlain.trim()
+                  isSendingReply ||
+                  isGeneratingReply ||
+                  store.pendingAttachmentUploads > 0 ||
+                  !replyTextPlain.trim()
                 "
                 :aria-busy="isSendingReply"
                 @click="sendReply"
               >
                 {{ isSendingReply ? 'Sending…' : 'Send' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-text ni-reply-ai-btn"
+                :disabled="isGeneratingReply || isSendingReply"
+                :aria-busy="isGeneratingReply"
+                title="Generate a reply with AI"
+                @click="generateInlineReply"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+                <span>{{ isGeneratingReply ? 'Generating…' : 'AI' }}</span>
               </button>
               <input
                 ref="replyAttachInputRef"
