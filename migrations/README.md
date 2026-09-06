@@ -248,3 +248,12 @@ state outlives the draft, preventing regeneration after sending or discarding.
 The existing Drafts permissions and RLS remain in force. A trigger sends only
 a content-free inbox refresh signal after an AI draft is first inserted.
 Apply before deploying `mail-app-ingest` and `cookie-web-drafts` in Cookie-Worker.
+
+## Scheduled send retries
+
+Apply `0070_scheduled_send_requests.sql` before deploying the updated
+`cookie-web-send` Worker, then deploy Web. It adds an optional client request id
+and payload hash, unique per owner, so retries of a queued send return the same
+row. Reusing an id with different content returns HTTP 409. Clients without an
+id keep the existing scheduling behavior. Request records follow the scheduled
+row's existing cancellation and retention lifecycle.
