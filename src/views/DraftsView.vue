@@ -24,7 +24,7 @@ function formatUpdatedAt(updatedAt) {
 // A draft's first line stands in for a subject when there isn't one, the way
 // the mail list falls back to a snippet.
 function draftPreview(draft) {
-  const text = String(draft.text ?? '')
+  const text = String(draft.preview ?? draft.text ?? '')
     .replace(/\s+/g, ' ')
     .trim()
   return text.length > 140 ? `${text.slice(0, 140)}…` : text
@@ -64,9 +64,12 @@ async function discard(draft) {
         <button type="button" class="drafts-open" @click="openDraft(draft)">
           <span class="drafts-line">
             <span class="drafts-subject">{{ draft.subject || '(no subject)' }}</span>
-            <span v-if="draft.attachments?.length" class="drafts-attachments">
+            <span
+              v-if="draft.attachmentCount ?? draft.attachments?.length"
+              class="drafts-attachments"
+            >
               <span class="material-symbols-outlined" aria-hidden="true">attach_file</span>
-              {{ draft.attachments.length }}
+              {{ draft.attachmentCount ?? draft.attachments.length }}
             </span>
           </span>
           <span class="drafts-to">{{ draft.to || 'No recipient yet' }}</span>

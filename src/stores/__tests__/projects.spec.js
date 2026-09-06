@@ -135,3 +135,23 @@ it('shares concurrent loads and applies a create after the old snapshot resolves
   expect(store.projects.map(({ id }) => id)).toEqual(['p1', 'p2'])
   expect(request).toHaveBeenCalledTimes(2)
 })
+
+it('serializes project edits so a late full-row response cannot undo the next edit', async () => {
+  store.projects = [{ ...PROJECT }]
+  let finish
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    .mockResolvedValueOnce({ project: { ...PROJECT, name: 'Renamed', parentId: 'p2' } })
+  const rename = store.renameProject('p1', 'Renamed')
+  const move = store.moveProject('p1', 'p2')
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+  finish({ project: { ...PROJECT, name: 'Renamed' } })
+  await Promise.all([rename, move])
+  expect(store.projects[0]).toMatchObject({ name: 'Renamed', parentId: 'p2' })
+})

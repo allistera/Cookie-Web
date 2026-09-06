@@ -4077,3 +4077,64 @@ describe('finding an email by id', () => {
     expect(store.openEmail).toMatchObject({ subject: 'Inbox one' })
   })
 })
+
+describe('draft summaries and retry recovery', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
+  })
+
+  it('fetches the complete draft before opening a summary', async () => {
+    const store = useInboxStore()
+    const full = {
+      id: 'draft-1',
+      to: 'a@example.com',
+      text: 'Full body '.repeat(100),
+      html: '<p>Full</p>',
+      attachments: [{ id: 'attachment-1' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ draft: full }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await store.openDraft({ id: 'draft-1', isSummary: true, preview: 'Full body' })
+    expect(fetchMock.mock.calls[0][0]).toContain('/drafts/draft-1')
+    expect(store.composerTextArea).toBe(full.text)
+    expect(store.composerHtml).toBe(full.html)
+    expect(store.composerAttachments).toEqual(full.attachments)
+  })
+
+  it('keeps the current composer when the full draft cannot be loaded', async () => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.composerTextArea = 'Unsaved edits'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+    expect(await store.openDraft({ id: 'draft-1', isSummary: true })).toBe(false)
+    expect(store.composerTextArea).toBe('Unsaved edits')
+  })
+
+  it('requests summaries when loading the drafts list', async () => {
+    const store = useInboxStore()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ drafts: [] }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await store.loadDrafts()
+    expect(fetchMock.mock.calls[0][0]).toContain('/drafts?view=summary')
+  })
+
+  it('reuses the scheduled request id after an uncertain response', async () => {
+    const store = useInboxStore()
+    store.composerTo = 'a@example.com'
+    store.composerTextArea = 'Body'
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Connection lost'))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ scheduledSend: { id: 'scheduled-1' } }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await store.sendEmailLater('2099-01-01T09:00:00Z', 'later')).toBe(false)
+    expect(await store.sendEmailLater('2099-01-01T09:00:00Z', 'later')).toBe(true)
+    const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+    expect(bodies[0].requestId).toBeTruthy()
+    expect(bodies[1].requestId).toBe(bodies[0].requestId)
+  })
+})

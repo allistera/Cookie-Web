@@ -1,11 +1,5 @@
-/**
- * Escapes plain-text values interpolated into the export HTML. Rich
- * header/paragraph block content stays as-is (Editor.js stores intentional
- * inline markup there); everything else — code, tables, captions, URLs,
- * titles — is plain text and must not be able to inject markup.
- * @param {string} value
- * @returns {string}
- */
+import DOMPurify from 'dompurify'
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -15,124 +9,196 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;')
 }
 
-/**
- * Converts Editor.js blocks to markdown format
- * @param {Array} blocks - Editor.js blocks array
- * @param {string} title - Document title
- * @returns {string} Markdown formatted document
- */
+function inline(value) {
+  return DOMPurify.sanitize(String(value ?? ''), {
+    ALLOWED_TAGS: ['b', 'strong', 'i', 'em', 'u', 's', 'del', 'code', 'a', 'br'],
+    ALLOWED_ATTR: ['href'],
+  })
+}
+
+function itemText(item) {
+  return item?.content ?? item?.text ?? item ?? ''
+}
+function checked(item) {
+  return item?.meta?.checked ?? item?.checked ?? false
+}
+
+function listMarkdown(items, style, depth = 0, start = 1) {
+  return items
+    .map((item, index) => {
+      const prefix =
+        style === 'ordered'
+          ? `${start + index}.`
+          : style === 'checklist'
+            ? `- [${checked(item) ? 'x' : ' '}]`
+            : '-'
+      return (
+        `${'    '.repeat(depth)}${prefix} ${inline(itemText(item))}\n` +
+        listMarkdown(item?.items ?? [], style, depth + 1)
+      )
+    })
+    .join('')
+}
+
+function listHTML(items, style, start = 1) {
+  const tag = style === 'ordered' ? 'ol' : 'ul'
+  return (
+    `<${tag}${tag === 'ol' ? ` start="${start}"` : ''}>` +
+    items
+      .map(
+        (item) =>
+          `<li>${style === 'checklist' ? (checked(item) ? '☑ ' : '☐ ') : ''}${inline(itemText(item))}${item?.items?.length ? listHTML(item.items, style) : ''}</li>`,
+      )
+      .join('') +
+    `</${tag}>`
+  )
+}
+
+function tableSheets(data) {
+  if (!data.workbook) {
+    return [{ name: '', rows: Array.isArray(data.content) ? data.content : [] }]
+  }
+  const { sheets = {}, sheetOrder = Object.keys(sheets) } = data.workbook
+  return sheetOrder.map((id) => {
+    const sheet = sheets[id]
+    if (!sheet) throw new Error('A spreadsheet sheet is missing from the document.')
+    const cells = []
+    for (const [r, row] of Object.entries(sheet.cellData ?? {})) {
+      for (const [c, cell] of Object.entries(row ?? {})) {
+        const value = cell?.v ?? cell?.p?.body?.dataStream?.trimEnd() ?? cell?.f ?? ''
+        if (value !== '') cells.push([Number(r), Number(c), value])
+      }
+    }
+    const height = Math.max(0, ...cells.map(([r]) => r + 1))
+    const width = Math.max(0, ...cells.map(([, c]) => c + 1))
+    if (
+      !Number.isSafeInteger(height * width) ||
+      height * width > 10000 ||
+      cells.some(([r, c]) => r < 0 || c < 0 || !Number.isInteger(r) || !Number.isInteger(c))
+    ) {
+      throw new Error('This spreadsheet is too large to export; reduce its used range first.')
+    }
+    const rows = Array.from({ length: height }, () => Array(width).fill(''))
+    for (const [r, c, value] of cells) rows[r][c] = escapeHtml(value)
+    return { name: sheet.name ?? '', rows }
+  })
+}
+
+function tablesMarkdown(data) {
+  return tableSheets(data)
+    .map(({ name, rows }) => {
+      if (!rows.length) return name ? `### ${escapeHtml(name)}\n\n` : ''
+      const width = Math.max(...rows.map((row) => row.length))
+      const line = (row) =>
+        `| ${Array.from({ length: width }, (_, i) => inline(row[i]).replaceAll('|', '&#124;').replaceAll('\n', '<br>')).join(' | ')} |\n`
+      return (
+        (name ? `### ${escapeHtml(name)}\n\n` : '') +
+        line(rows[0]) +
+        line(Array(width).fill('---')) +
+        rows.slice(1).map(line).join('') +
+        '\n'
+      )
+    })
+    .join('')
+}
+
+function tablesHTML(data) {
+  return tableSheets(data)
+    .map(
+      ({ name, rows }) =>
+        (name ? `<h3>${escapeHtml(name)}</h3>` : '') +
+        '<table>' +
+        rows
+          .map((row) => '<tr>' + row.map((cell) => `<td>${inline(cell)}</td>`).join('') + '</tr>')
+          .join('') +
+        '</table>',
+    )
+    .join('')
+}
+
+function imageURL(data) {
+  const url = data.file?.url || data.url || ''
+  if (!/^(https?:|data:image\/(png|jpeg|webp);base64,)/i.test(url))
+    throw new Error('An image could not be exported.')
+  return url
+}
+
+// Render saved scenes only when exporting; neither the drawing runtime nor
+// the image conversion adds work to ordinary document loading.
+export async function prepareExportBlocks(blocks) {
+  return Promise.all(
+    blocks.map(async (block) => {
+      if (block.type !== 'excalidraw' || block.data.file?.url || block.data.url) return block
+      if (!block.data.elements?.some((element) => !element.isDeleted)) return null
+      const { exportToBlob } = await import('@excalidraw/excalidraw')
+      const blob = await exportToBlob({
+        elements: block.data.elements,
+        files: block.data.files ?? {},
+        appState: { ...block.data.appState, exportBackground: true },
+        mimeType: 'image/png',
+      })
+      const url = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(new Error('Could not render the drawing.'))
+        reader.readAsDataURL(blob)
+      })
+      return { type: 'image', data: { file: { url }, caption: '' } }
+    }),
+  ).then((prepared) => prepared.filter(Boolean))
+}
+
 export function convertBlocksToMarkdown(blocks, title = '') {
-  let markdown = title ? `# ${title}\n\n` : ''
-
-  for (const block of blocks) {
-    switch (block.type) {
-      case 'header': {
-        const level = block.data.level || 1
-        const headerText = block.data.text || ''
-        markdown += `${'#'.repeat(level)} ${headerText}\n\n`
+  let markdown = title ? `# ${escapeHtml(title)}\n\n` : ''
+  for (const { type, data } of blocks) {
+    switch (type) {
+      case 'header':
+        markdown += `${'#'.repeat(Math.min(6, Math.max(1, data.level || 1)))} ${inline(data.text)}\n\n`
         break
-      }
-
-      case 'paragraph': {
-        const paragraphText = block.data.text || ''
-        markdown += `${paragraphText}\n\n`
+      case 'paragraph':
+        markdown += `${inline(data.text)}\n\n`
         break
-      }
-
-      case 'list': {
-        const items = block.data.items || []
-        const style = block.data.style || 'unordered'
-
-        for (const item of items) {
-          if (style === 'ordered') {
-            markdown += `1. ${item}\n`
-          } else if (style === 'checklist') {
-            const checked = item.checked ? '[x]' : '[ ]'
-            markdown += `- ${checked} ${item.text}\n`
-          } else {
-            markdown += `- ${item}\n`
-          }
-        }
-        markdown += '\n'
+      case 'list':
+        markdown += listMarkdown(data.items ?? [], data.style, 0, data.meta?.start ?? 1) + '\n'
         break
-      }
-
       case 'code': {
-        const codeText = block.data.code || ''
-        markdown += '```\n'
-        markdown += `${codeText}\n`
-        markdown += '```\n\n'
+        const runs = String(data.code ?? '').match(/`+/g) ?? []
+        const fence = '`'.repeat(Math.max(3, ...runs.map((run) => run.length + 1)))
+        markdown += `${fence}\n${data.code ?? ''}\n${fence}\n\n`
         break
       }
-
       case 'delimiter':
         markdown += '---\n\n'
         break
-
-      case 'image': {
-        const imageUrl = block.data.file?.url || block.data.url || ''
-        const caption = block.data.caption || ''
-        markdown += `![${caption}](${imageUrl})\n\n`
+      case 'image':
+      case 'excalidraw':
+        markdown += `![${escapeHtml(data.caption).replaceAll(']', '&#93;')}](${imageURL(data).replaceAll(')', '%29')})\n\n`
         break
-      }
-
       case 'table':
-        // Handle table blocks from UniverSheetTool
-        if (block.data.content) {
-          markdown += convertTableToMarkdown(block.data.content)
-        }
+        markdown += tablesMarkdown(data)
         break
-
-      case 'excalidraw': {
-        // For Excalidraw drawings, add a placeholder with the image URL
-        const excalidrawUrl = block.data.file?.url || block.data.url || ''
-        markdown += `*Excalidraw drawing: ${excalidrawUrl}*\n\n`
-        break
-      }
-
       case 'kanban':
-        // For Kanban boards, add a placeholder
-        markdown += `*Kanban board*\n\n`
+        markdown += (data.lanes ?? [])
+          .map(
+            (lane) =>
+              `### ${escapeHtml(lane.title)}\n\n` +
+              (lane.tasks ?? [])
+                .map(
+                  (task) =>
+                    `- **${escapeHtml(task.title)}**${task.description ? `: ${escapeHtml(task.description)}` : ''}\n`,
+                )
+                .join('') +
+              '\n',
+          )
+          .join('')
         break
-
       default:
-        // Skip unknown block types
-        break
+        throw new Error(`The ${type} block cannot be exported.`)
     }
   }
-
   return markdown
 }
 
-/**
- * Converts table content to markdown format
- * @param {Object} tableData - Table data from UniverSheetTool
- * @returns {string} Markdown formatted table
- */
-function convertTableToMarkdown(tableData) {
-  // This is a simplified table conversion
-  // You may need to adapt this based on your actual table data structure
-  let markdown = ''
-
-  if (tableData.rows && Array.isArray(tableData.rows)) {
-    for (const row of tableData.rows) {
-      if (row.cells && Array.isArray(row.cells)) {
-        const cellTexts = row.cells.map((cell) => cell?.value || '')
-        markdown += `| ${cellTexts.join(' | ')} |\n`
-      }
-    }
-    markdown += '\n'
-  }
-
-  return markdown
-}
-
-/**
- * Converts Editor.js blocks to HTML for PDF generation
- * @param {Array} blocks - Editor.js blocks array
- * @param {string} title - Document title
- * @returns {string} HTML formatted document
- */
 export function convertBlocksToHTML(blocks, title = '') {
   let html = `<!DOCTYPE html>
 <html>
@@ -195,135 +261,58 @@ export function convertBlocksToHTML(blocks, title = '') {
       padding: 8px;
       text-align: left;
     }
-    .checklist-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .checklist-checkbox {
-      width: 16px;
-      height: 16px;
-      border: 2px solid #333;
-      border-radius: 2px;
-    }
-    .checklist-checkbox.checked {
-      background: #333;
-    }
   </style>
 </head>
 <body>
   ${title ? `<h1>${escapeHtml(title)}</h1>` : ''}
 `
 
-  for (const block of blocks) {
-    switch (block.type) {
+  for (const { type, data } of blocks) {
+    switch (type) {
       case 'header': {
-        const level = block.data.level || 1
-        const headerText = block.data.text || ''
-        html += `<h${level}>${headerText}</h${level}>`
+        const level = Math.min(6, Math.max(1, data.level || 1))
+        html += `<h${level}>${inline(data.text)}</h${level}>`
         break
       }
-
-      case 'paragraph': {
-        const paragraphText = block.data.text || ''
-        html += `<p>${paragraphText}</p>`
+      case 'paragraph':
+        html += `<p>${inline(data.text)}</p>`
         break
-      }
-
-      case 'list': {
-        const items = block.data.items || []
-        const style = block.data.style || 'unordered'
-        const listTag = style === 'ordered' ? 'ol' : 'ul'
-
-        html += `<${listTag}>`
-        for (const item of items) {
-          if (style === 'checklist') {
-            const checked = item.checked ? 'checked' : ''
-            html += `<li class="checklist-item">
-              <div class="checklist-checkbox ${checked}"></div>
-              <span>${escapeHtml(item.text)}</span>
-            </li>`
-          } else {
-            const itemText = String(item.text || item.content || item)
-            html += `<li>${escapeHtml(itemText)}</li>`
-          }
-        }
-        html += `</${listTag}>`
+      case 'list':
+        html += listHTML(data.items ?? [], data.style, data.meta?.start ?? 1)
         break
-      }
-
-      case 'code': {
-        const codeText = block.data.code || ''
-        html += `<pre><code>${escapeHtml(codeText)}</code></pre>`
+      case 'code':
+        html += `<pre><code>${escapeHtml(data.code)}</code></pre>`
         break
-      }
-
       case 'delimiter':
         html += '<hr>'
         break
-
-      case 'image': {
-        const imageUrl = block.data.file?.url || block.data.url || ''
-        const caption = block.data.caption || ''
-        html += `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(caption)}" />`
-        if (caption) {
-          html += `<p><em>${escapeHtml(caption)}</em></p>`
-        }
+      case 'image':
+      case 'excalidraw':
+        html += `<img src="${escapeHtml(imageURL(data))}" alt="${escapeHtml(data.caption)}">${data.caption ? `<p>${escapeHtml(data.caption)}</p>` : ''}`
         break
-      }
-
       case 'table':
-        if (block.data.content) {
-          html += convertTableToHTML(block.data.content)
-        }
+        html += tablesHTML(data)
         break
-
-      case 'excalidraw': {
-        const excalidrawUrl = block.data.file?.url || block.data.url || ''
-        html += `<p><em>Excalidraw drawing:</em></p>`
-        html += `<img src="${escapeHtml(excalidrawUrl)}" alt="Excalidraw drawing" />`
-        break
-      }
-
       case 'kanban':
-        html += `<p><em>Kanban board</em></p>`
+        html += (data.lanes ?? [])
+          .map(
+            (lane) =>
+              `<h3>${escapeHtml(lane.title)}</h3><ul>` +
+              (lane.tasks ?? [])
+                .map(
+                  (task) =>
+                    `<li><strong>${escapeHtml(task.title)}</strong>${task.description ? `<p>${escapeHtml(task.description)}</p>` : ''}</li>`,
+                )
+                .join('') +
+              '</ul>',
+          )
+          .join('')
         break
-
       default:
-        break
+        throw new Error(`The ${type} block cannot be exported.`)
     }
   }
-
-  html += `
-</body>
-</html>`
-
-  return html
-}
-
-/**
- * Converts table content to HTML format
- * @param {Object} tableData - Table data from UniverSheetTool
- * @returns {string} HTML formatted table
- */
-function convertTableToHTML(tableData) {
-  let html = '<table>'
-
-  if (tableData.rows && Array.isArray(tableData.rows)) {
-    for (const row of tableData.rows) {
-      html += '<tr>'
-      if (row.cells && Array.isArray(row.cells)) {
-        for (const cell of row.cells) {
-          const cellValue = cell?.value || ''
-          html += `<td>${escapeHtml(cellValue)}</td>`
-        }
-      }
-      html += '</tr>'
-    }
-  }
-
-  html += '</table>'
-  return html
+  return html + '</body></html>'
 }
 
 /**

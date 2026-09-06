@@ -7,6 +7,7 @@ import { TASKS_API_URL } from '../lib/apiWorkers'
 import { useInboxStore } from './inbox'
 
 const projectLoads = new WeakMap()
+const projectMutations = new WeakMap()
 
 // Cookie-owned projects for the Tasks sidebar. Shaped after stores/documents.js:
 // the same auth headers, the same request helper, and local state updated
@@ -113,7 +114,7 @@ export const useProjectsStore = defineStore('projects', {
 
     async patchProject(id, changes, failureMessage) {
       await projectLoads.get(toRaw(this))
-      const project = this.projects.find((row) => row.id === id)
+      let project = this.projects.find((row) => row.id === id)
       if (!project) {
         // The sidebar only ever calls this with an id from a row it is
         // currently rendering, so this should be unreachable in practice.
@@ -122,18 +123,30 @@ export const useProjectsStore = defineStore('projects', {
         this.notify(failureMessage, 'error')
         return null
       }
-      const previous = { ...project }
-      Object.assign(project, changes)
-      try {
-        const { project: updated } = await this.request('PATCH', { id, ...changes })
-        Object.assign(project, updated)
-        return project
-      } catch (error) {
-        console.error('Failed to update project:', error)
-        Object.assign(project, previous)
-        this.notify(error.userMessage || failureMessage, 'error')
-        return null
+      const perform = async () => {
+        project = this.projects.find((row) => row.id === id) ?? project
+        const previous = { ...project }
+        Object.assign(project, changes)
+        try {
+          const { project: updated } = await this.request('PATCH', { id, ...changes })
+          project = this.projects.find((row) => row.id === id) ?? project
+          Object.assign(project, updated)
+          return project
+        } catch (error) {
+          console.error('Failed to update project:', error)
+          Object.assign(project, previous)
+          this.notify(error.userMessage || failureMessage, 'error')
+          return null
+        }
       }
+      const queue = projectMutations.get(this) ?? new Map()
+      projectMutations.set(this, queue)
+      const prior = queue.get(id)
+      const pending = prior ? prior.then(perform) : perform()
+      queue.set(id, pending)
+      return pending.finally(() => {
+        if (queue.get(id) === pending) queue.delete(id)
+      })
     },
 
     renameProject(id, name) {

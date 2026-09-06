@@ -769,3 +769,104 @@ describe('recurring tasks', () => {
     expect(store.completingIds).toEqual([])
   })
 })
+
+describe('overlapping task edits', () => {
+  it.each([true, false])('keeps later edits when an earlier write succeeds=%s', async (success) => {
+    store.items = [{ ...ITEM }]
+    let finish
+    const request = vi
+      .spyOn(store, 'request')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finish = success ? resolve : reject
+          }),
+      )
+      .mockResolvedValueOnce({ item: { ...ITEM, content: 'Newest' } })
+    const first = store.renameItem('t1', 'First')
+    const second = store.renameItem('t1', 'Newest')
+    expect(request).toHaveBeenCalledTimes(1)
+    finish(success ? { item: { ...ITEM, content: 'First' } } : new Error('Unavailable'))
+    await Promise.all([first, second])
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(store.items[0].content).toBe('Newest')
+  })
+
+  it('sends the expected occurrence when completing a recurring task', async () => {
+    store.items = [{ ...ITEM, recurrence: 'FREQ=DAILY', dueDate: '2026-09-06' }]
+    const request = vi.spyOn(store, 'request').mockResolvedValue({
+      item: {
+        ...ITEM,
+        recurrence: 'FREQ=DAILY',
+        dueDate: '2026-09-07',
+      },
+    })
+    await store.setCompleted('t1', true)
+    expect(request).toHaveBeenCalledWith('PATCH', {
+      body: {
+        id: 't1',
+        completed: true,
+        expectedDueDate: '2026-09-06',
+        today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      },
+    })
+    expect(store.items[0]).toMatchObject({ completedAt: null, dueDate: '2026-09-07' })
+  })
+
+  it('does not restore a deleted task into another project when deletion fails late', async () => {
+    store.items = [{ ...ITEM }]
+    store.loadedProject = 'p1'
+    let rejectDelete
+    vi.spyOn(store, 'request')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectDelete = reject
+          }),
+      )
+      .mockResolvedValueOnce({ items: [{ ...ITEM, id: 'other', projectId: 'p2' }] })
+    const deletion = store.deleteItem('t1')
+    await store.loadItems('p2')
+    rejectDelete(new Error('Unavailable'))
+    expect(await deletion).toBe(false)
+    expect(store.items.map((row) => row.id)).toEqual(['other'])
+  })
+
+  it('preserves tasks created while a failed deletion was pending', async () => {
+    store.items = [{ ...ITEM }]
+    let rejectDelete
+    vi.spyOn(store, 'request').mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDelete = reject
+        }),
+    )
+    const deletion = store.deleteItem('t1')
+    store.items.push({ ...ITEM, id: 'new' })
+    rejectDelete(new Error('Unavailable'))
+    await deletion
+    expect(store.items.map((row) => row.id)).toEqual(['t1', 'new'])
+  })
+})
+
+it('keeps writes serialized when a list refresh replaces the task object', async () => {
+  store.items = [{ ...ITEM }]
+  let finish
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    .mockResolvedValueOnce({ items: [{ ...ITEM }] })
+    .mockResolvedValueOnce({ item: { ...ITEM, content: 'Latest', priority: 1 } })
+  const rename = store.renameItem('t1', 'Latest')
+  await store.loadItems('p1', { force: true })
+  const priority = store.setPriority('t1', 1)
+  expect(request).toHaveBeenCalledTimes(2)
+  finish({ item: { ...ITEM, content: 'Latest' } })
+  await Promise.all([rename, priority])
+  expect(store.items[0]).toMatchObject({ content: 'Latest', priority: 1 })
+})

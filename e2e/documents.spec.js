@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from './workerFixtures.js'
 
 test('The app switcher opens Documents: tree, editor with autosave, and starring all work', async ({
@@ -349,6 +350,12 @@ test('An Excalidraw drawing can be inserted from the document slash menu and per
   await drawingSaved
   await page.reload()
   await expect(page.getByRole('region', { name: 'Excalidraw drawing, 1 element' })).toBeVisible()
+  const downloadReady = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export to Markdown', exact: true }).click()
+  const download = await downloadReady
+  const markdown = await readFile(await download.path(), 'utf8')
+  expect(markdown).toContain('data:image/png;base64,')
+  expect(markdown).not.toContain('[Excalidraw')
 })
 
 test('A Kanban board can be inserted from the slash menu, edited, and persists', async ({

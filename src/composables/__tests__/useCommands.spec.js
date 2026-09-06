@@ -259,7 +259,7 @@ describe('useCommands', () => {
     expect(byId['mark-done'].keyHint).toBe('D')
     expect(byId['star'].title).toBe('Unstar')
     expect(byId['toggle-read'].title).toBe('Mark Unread')
-    expect(byId['move'].comingSoon).toBe(true)
+    expect(byId['move']).toBeUndefined()
     expect(byId['reply']).toBeTruthy()
     expect(byId['reply-all']).toBeTruthy()
     expect(byId['forward']).toBeTruthy()

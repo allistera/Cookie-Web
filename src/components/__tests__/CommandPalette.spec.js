@@ -48,6 +48,18 @@ describe('CommandPalette', () => {
     expect(items[0].classes()).toContain('selected')
   })
 
+  it('releases the hidden input so the keyboard shortcut can reopen the palette', async () => {
+    pressSlash()
+    await wrapper.vm.$nextTick()
+    const input = wrapper.find('.cp-input')
+    input.element.focus()
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(document.activeElement).not.toBe(input.element)
+    pressSlash(document.activeElement)
+    await wrapper.vm.$nextTick()
+    expect(store.isCommandPaletteOpen).toBe(true)
+  })
+
   it("'/' does not open the palette while typing in an input or textarea", async () => {
     const input = document.createElement('input')
     document.body.appendChild(input)
@@ -100,7 +112,7 @@ describe('CommandPalette', () => {
     expect(store.isCommandPaletteOpen).toBe(false)
   })
 
-  it('Enter on a coming-soon command shows a toast and closes', async () => {
+  it('does not offer an unfinished move command', async () => {
     const email = { id: 'e1', unread: false, starred: false, labels: [] }
     store.traditionalEmails = [email]
     store.openEmailId = email.id
@@ -112,8 +124,8 @@ describe('CommandPalette', () => {
     await input.setValue('move to')
     await input.trigger('keydown', { key: 'Enter' })
 
-    expect(store.toasts.some((t) => t.message === 'Coming soon.')).toBe(true)
-    expect(store.isCommandPaletteOpen).toBe(false)
+    expect(wrapper.find('.cp-no-results').exists()).toBe(true)
+    expect(store.isCommandPaletteOpen).toBe(true)
     // The email itself is untouched.
     expect(store.traditionalEmails).toHaveLength(1)
   })

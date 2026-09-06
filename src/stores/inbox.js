@@ -2328,7 +2328,7 @@ export const useInboxStore = defineStore('inbox', {
       this.isDraftsLoading = true
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${DRAFTS_API_URL}/drafts`, { headers })
+        const response = await fetch(`${DRAFTS_API_URL}/drafts?view=summary`, { headers })
         if (!response.ok) throw new Error(`GET /drafts responded ${response.status}`)
         const { drafts } = await response.json()
         if (seq !== draftsLoadSeq) return
@@ -2603,9 +2603,32 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    // Reopens a saved draft in the composer. Autosave then continues into the
-    // same row rather than forking a second copy.
+    // Shared by the full composer and automatic inline replies. List entries
+    // contain previews; only opening a draft needs its complete content.
+    async loadDraftContent(draft) {
+      if (!draft.isSummary) return draft
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`${DRAFTS_API_URL}/drafts/${encodeURIComponent(draft.id)}`, {
+          headers,
+        })
+        if (!response.ok) throw new Error(`GET draft responded ${response.status}`)
+        return (await response.json()).draft
+      } catch (error) {
+        console.error('Failed to open draft:', error)
+        this.notify('Could not open your draft. Please try again.', 'error')
+        return null
+      }
+    },
+
+    // Reopens a saved draft in the composer, preserving the active session
+    // if another action takes over while its full content is loading.
     async openDraft(draft) {
+      if (draft.isSummary) {
+        const session = this.composerSessionId
+        draft = await this.loadDraftContent(draft)
+        if (!draft || session !== this.composerSessionId) return false
+      }
       // Whatever is in the composer now is a different message: get its last
       // edits to the server before its state is overwritten, and await it so
       // the write cannot land after this draft has taken the composer over.
@@ -2964,19 +2987,7 @@ export const useInboxStore = defineStore('inbox', {
         // A first save still in flight owns the only row for this message.
         const handoff = draftId ? null : this.settleComposerHandoff()
         if (handoff) draftId = await handoff
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const { attachments, ...message } = draft
-        const response = await fetch('/api/send', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            ...message,
-            sendAt,
-            attachmentIds: attachments.map(({ id }) => id),
-          }),
-        })
-        if (!response.ok) throw new Error(`POST /api/send responded ${response.status}`)
-        const { scheduledSend } = await response.json()
+        const { scheduledSend } = await this.sendMail({ ...draft, sendAt })
         if (this.isScheduledSendsLoaded) this.scheduledSends.unshift(scheduledSend)
         this.notify(`Email scheduled for ${label}.`)
         // The scheduled_sends row is now the durable copy of this message.

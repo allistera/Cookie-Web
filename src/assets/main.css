@@ -4985,20 +4985,6 @@ button.ni-attachment:hover {
   color: rgba(255, 255, 255, 0.85);
 }
 
-.cp-item.coming-soon {
-  opacity: 0.5;
-}
-
-.cp-soon-tag {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-
 .cp-no-results {
   padding: 24px 16px;
   text-align: center;

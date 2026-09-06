@@ -20,6 +20,7 @@ import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
 import {
+  prepareExportBlocks,
   convertBlocksToMarkdown,
   convertBlocksToHTML,
   downloadPDF,
@@ -370,14 +371,14 @@ async function exportToMarkdown() {
   try {
     await flushPendingBlocks()
     const title = titleEl.value?.textContent ?? 'Untitled'
-    const blocks = await readBlocks()
+    const blocks = await prepareExportBlocks(await readBlocks())
     const markdown = convertBlocksToMarkdown(blocks, title)
     const filename = sanitizeFilename(title)
     downloadMarkdown(markdown, filename)
     inbox.notify('Document exported to Markdown', 'success')
   } catch (error) {
     console.error('Markdown export failed:', error)
-    inbox.notify('Failed to export to Markdown', 'error')
+    inbox.notify(error.message || 'Failed to export to Markdown', 'error')
   }
 }
 
@@ -399,14 +400,14 @@ async function exportToPDF() {
   try {
     await flushPendingBlocks()
     const title = titleEl.value?.textContent ?? 'Untitled'
-    const blocks = await readBlocks()
+    const blocks = await prepareExportBlocks(await readBlocks())
     const html = convertBlocksToHTML(blocks, title)
     const filename = sanitizeFilename(title)
     await downloadPDF(html, filename)
     inbox.notify('Document exported to PDF', 'success')
   } catch (error) {
     console.error('PDF export failed:', error)
-    inbox.notify('Failed to export to PDF', 'error')
+    inbox.notify(error.message || 'Failed to export to PDF', 'error')
   }
 }
 </script>

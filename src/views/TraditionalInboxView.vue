@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, nextTick, onMounted, onUnmounted, onWatcherCleanup, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore, inboxTabForLabel, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
@@ -1106,10 +1106,10 @@ const pendingReplyDraft = ref(null)
 
 watch(
   () => [store.openEmailId, store.drafts, store.isComposerActive, store.composerDraftId],
-  () => {
+  async () => {
     const id = store.openEmailId
     if (!id || isReplyOpen.value || isSendingReply.value) return
-    const draft = store.drafts.find(
+    let draft = store.drafts.find(
       (entry) =>
         entry.replyToMessageId === id &&
         entry.isAiGenerated &&
@@ -1117,6 +1117,22 @@ watch(
         !(store.isComposerActive && store.composerDraftId === entry.id),
     )
     if (!draft) return
+    if (draft.isSummary) {
+      let cancelled = false
+      onWatcherCleanup(() => {
+        cancelled = true
+      })
+      const session = store.replySessionId
+      draft = await store.loadDraftContent(draft)
+      if (
+        !draft ||
+        cancelled ||
+        session !== store.replySessionId ||
+        isReplyOpen.value ||
+        isSendingReply.value
+      )
+        return
+    }
     store.replySessionId += 1
     store.replyDraftId = draft.id
     savedReplyTo.value = draft.to || null

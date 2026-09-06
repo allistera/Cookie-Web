@@ -22,7 +22,6 @@
     "@editorjs/header": "^2.8.9",
     "@editorjs/image": "^2.10.3",
     "@editorjs/list": "^2.0.9",
-    "@editorjs/table": "^2.4.6",
     "@excalidraw/excalidraw": "^0.18.1",
     "@supabase/realtime-js": "^2.112.4",
     "@univerjs/preset-sheets-conditional-formatting": "^0.25.1",

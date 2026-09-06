@@ -243,6 +243,54 @@ describe('automatic priority reply drafts', () => {
     vi.spyOn(store, 'loadDrafts').mockResolvedValue()
   })
 
+  it('loads an AI draft summary before displaying or autosaving its reply', async () => {
+    store.drafts = [
+      {
+        id: draft.id,
+        replyToMessageId: draft.replyToMessageId,
+        isAiGenerated: true,
+        isSummary: true,
+        preview: 'Thanks',
+      },
+    ]
+    let finish
+    vi.spyOn(store, 'loadDraftContent').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(false)
+    finish(draft)
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe(draft.text)
+    expect(store.replyDraftId).toBe(draft.id)
+    wrapper.unmount()
+  })
+
+  it('ignores a loaded AI draft if the reader changes while it is fetching', async () => {
+    store.drafts = [{ ...draft, isSummary: true }]
+    let finish
+    vi.spyOn(store, 'loadDraftContent').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    store.openEmailId = null
+    await flushPromises()
+    finish(draft)
+    await flushPromises()
+    expect(store.replyDraftId).not.toBe(draft.id)
+    wrapper.unmount()
+  })
+
   it('shows the saved AI reply beneath the email with Send enabled, without sending it', async () => {
     store.drafts = [{ ...draft }]
     const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})

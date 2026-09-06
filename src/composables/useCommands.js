@@ -14,7 +14,7 @@ import { scheduleChoices } from '../utils/schedule'
 const SNOOZE_PRESETS = ['tomorrow', 'next-week']
 
 // Command registry for the '/' palette. Commands are declarative:
-// { id, title, icon, keyHint?, comingSoon?, visible?, iconColor?, run() }.
+// { id, title, icon, keyHint?, visible?, iconColor?, run() }.
 // Email-context commands only appear while an email is open in the reading
 // panel. keyHint names a real single-key shortcut bound elsewhere in the app.
 export function useCommands() {
@@ -130,13 +130,6 @@ export function useCommands() {
         icon: 'star',
         visible: !!email,
         run: () => store.toggleStar(email),
-      },
-      {
-        id: 'move',
-        title: 'Move to…',
-        icon: 'drive_file_move',
-        visible: !!email,
-        comingSoon: true,
       },
       ...store.allLabels.map((label) => {
         const applied = (email?.labels || []).some((item) => item.name === label.name)

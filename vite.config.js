@@ -1766,7 +1766,24 @@ function localApiPlugin(mode) {
     }
 
     if (req.method === 'GET') {
-      if (!id) return json(res, { drafts })
+      if (!id) {
+        if (url.searchParams.get('view') === 'summary') {
+          return json(res, {
+            drafts: drafts.map((draft) => ({
+              id: draft.id,
+              to: draft.to.slice(0, 512),
+              subject: draft.subject,
+              preview: draft.text.slice(0, 141),
+              replyToMessageId: draft.replyToMessageId,
+              updatedAt: draft.updatedAt,
+              isAiGenerated: draft.isAiGenerated ?? false,
+              isSummary: true,
+              attachmentCount: draft.attachments.length,
+            })),
+          })
+        }
+        return json(res, { drafts })
+      }
       const draft = drafts.find((entry) => entry.id === id)
       return draft ? json(res, { draft }) : json(res, { error: 'Draft not found' }, 404)
     }

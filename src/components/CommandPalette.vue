@@ -24,7 +24,9 @@ watch(
     if (!isOpen) return
     query.value = ''
     selectedIndex.value = 0
-    nextTick(() => inputRef.value?.focus())
+    nextTick(() => {
+      if (store.isCommandPaletteOpen) inputRef.value?.focus()
+    })
   },
   { immediate: true },
 )
@@ -33,10 +35,10 @@ function open() {
   store.isCommandPaletteOpen = true
   query.value = ''
   selectedIndex.value = 0
-  nextTick(() => inputRef.value?.focus())
 }
 
 function close() {
+  inputRef.value?.blur()
   store.isCommandPaletteOpen = false
 }
 
@@ -71,11 +73,7 @@ function move(delta) {
 
 function runCommand(cmd) {
   if (!cmd) return
-  if (cmd.comingSoon) {
-    store.notify('Coming soon.')
-  } else {
-    cmd.run()
-  }
+  cmd.run()
   close()
 }
 
@@ -122,7 +120,7 @@ function onInputKeydown(e) {
           v-for="(cmd, index) in visibleCommands"
           :key="cmd.id"
           class="cp-item"
-          :class="{ selected: index === selectedIndex, 'coming-soon': cmd.comingSoon }"
+          :class="{ selected: index === selectedIndex }"
           @mouseenter="selectedIndex = index"
           @click="runCommand(cmd)"
         >
@@ -134,7 +132,6 @@ function onInputKeydown(e) {
             >
           </span>
           <span class="cp-item-title">{{ cmd.title }}</span>
-          <span class="cp-soon-tag" v-if="cmd.comingSoon">Soon</span>
           <span class="cp-keycap" v-if="cmd.keyHint">{{ cmd.keyHint }}</span>
         </div>
         <div class="cp-no-results" v-if="!visibleCommands.length">No matching commands</div>

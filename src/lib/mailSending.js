@@ -18,6 +18,6 @@ export async function sendMail({ attachments = [], ...message }) {
   if (!response.ok) throw new Error(`POST /api/send responded ${response.status}`)
   const result = await response.json()
   requests.delete(key)
-  if (this.isSentLoaded) this.loadSentEmails().catch(() => {})
+  if (!message.sendAt && this.isSentLoaded) this.loadSentEmails().catch(() => {})
   return result
 }

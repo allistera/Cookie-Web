@@ -12,6 +12,7 @@ import { useInboxStore } from './inbox'
 // failed older request not to roll back a newer order.
 let reorderQueue = Promise.resolve()
 let reorderSeq = 0
+const itemMutations = new WeakMap()
 
 // Cookie-owned tasks for the Tasks app. Shaped after stores/projects.js: the
 // same auth headers, the same request helper that surfaces the server's own
@@ -187,43 +188,52 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // stray key on the item forever (Object.assign can add a property but
     // never remove one). `body` is the separate, possibly different, request
     // payload the server expects.
-    async patchItem(id, localPatch, body, failureMessage) {
-      const item = this.items.find((row) => row.id === id)
+    patchItem(id, localPatch, body, failureMessage) {
+      let item = this.items.find((row) => row.id === id)
       if (!item) {
         this.notify(failureMessage, 'error')
-        return null
+        return Promise.resolve(null)
       }
-      const previous = { ...item }
-      Object.assign(item, localPatch)
-      try {
-        const { item: updated } = await this.request('PATCH', { body: { id, ...body } })
-        Object.assign(item, updated)
-        // A completed task leaves the visible list; it is not deleted. A
-        // completed sub-task stays: the panel shows it checked and counts it
-        // into its "done/total" progress. A task moved to another project
-        // (dragged onto it in the sidebar, or via the panel) leaves too.
-        const moved =
-          Object.hasOwn(body, 'projectId') &&
-          this.loadedProject !== null &&
-          !this.belongsToLoadedList(updated)
-        const rescheduled =
-          (body.completed === true || Object.hasOwn(body, 'recurrence')) &&
-          updated.recurrence &&
-          this.loadedProject === 'today' &&
-          !this.belongsToLoadedList(updated)
-        if (!updated.parentId && (updated.completedAt || moved || rescheduled)) {
-          this.items = this.items.filter((row) => row.id !== id)
+      const payload = { ...body }
+      // Serialize edits to the same row; a later edit snapshots the last
+      // confirmed state, so an earlier response or rollback cannot undo it.
+      const perform = async () => {
+        item = this.items.find((row) => row.id === id) ?? item
+        const previous = { ...item }
+        const patch = { ...localPatch }
+        Object.assign(item, patch)
+        try {
+          const { item: updated } = await this.request('PATCH', { body: { id, ...payload } })
+          item = this.items.find((row) => row.id === id) ?? item
+          Object.assign(item, updated)
+          if (this.items.includes(item)) {
+            const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(item)
+            if (!item.parentId && (item.completedAt || outsideList)) {
+              this.items = this.items.filter((row) => row.id !== id)
+            }
+            if (Object.hasOwn(payload, 'projectId') && this.loadedProject) {
+              await this.loadItems(this.loadedProject, { force: true })
+            }
+          }
+          return item
+        } catch (error) {
+          console.error('Failed to update task:', error)
+          for (const key of Object.keys(patch)) {
+            if (Object.hasOwn(previous, key)) item[key] = previous[key]
+            else delete item[key]
+          }
+          this.notify(error.userMessage || failureMessage, 'error')
+          return null
         }
-        if (Object.hasOwn(body, 'projectId') && this.loadedProject) {
-          await this.loadItems(this.loadedProject, { force: true })
-        }
-        return item
-      } catch (error) {
-        console.error('Failed to update task:', error)
-        Object.assign(item, previous)
-        this.notify(error.userMessage || failureMessage, 'error')
-        return null
       }
+      const queue = itemMutations.get(this) ?? new Map()
+      itemMutations.set(this, queue)
+      const prior = queue.get(id)
+      const pending = prior ? prior.then(perform) : perform()
+      queue.set(id, pending)
+      return pending.finally(() => {
+        if (queue.get(id) === pending) queue.delete(id)
+      })
     },
 
     renameItem(id, content) {
@@ -322,14 +332,24 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     async deleteItem(id) {
-      const previous = this.items
+      const index = this.items.findIndex((row) => row.id === id)
+      const removed = this.items[index]
+      const generation = this.loadSeq
+      const project = this.loadedProject
       this.items = this.items.filter((row) => row.id !== id)
       try {
         await this.request('DELETE', { body: { id } })
         return true
       } catch (error) {
         console.error('Failed to delete task:', error)
-        this.items = previous
+        if (
+          removed &&
+          generation === this.loadSeq &&
+          project === this.loadedProject &&
+          !this.items.some((row) => row.id === id)
+        ) {
+          this.items.splice(index, 0, removed)
+        }
         this.notify(error.userMessage || 'Failed to delete the task.', 'error')
         return false
       }
