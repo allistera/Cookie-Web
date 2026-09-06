@@ -873,7 +873,10 @@ export const useInboxStore = defineStore('inbox', {
 
     refreshInbox() {
       if (this.activeSearchQuery) return
-      return this.isInboxLoaded ? this.refreshInboxEmails() : this.loadInboxState({ force: true })
+      return Promise.all([
+        this.isInboxLoaded ? this.refreshInboxEmails() : this.loadInboxState({ force: true }),
+        this.loadDrafts({ silent: true }),
+      ])
     },
 
     async refreshInboxEmails() {
@@ -2357,6 +2360,10 @@ export const useInboxStore = defineStore('inbox', {
         text: draft.text ?? '',
         html: draft.html ?? null,
         replyToMessageId: draft.replyToMessageId ?? null,
+        isAiGenerated:
+          draft.isAiGenerated ??
+          this.drafts.find((entry) => entry.id === draft.id)?.isAiGenerated ??
+          false,
         followUpAt: draft.followUpAt ?? null,
         attachments: (draft.attachments ?? []).map((attachment) => ({ ...attachment })),
         updatedAt: draft.updatedAt ?? new Date().toISOString(),
@@ -2502,6 +2509,22 @@ export const useInboxStore = defineStore('inbox', {
     flushReplyDraft(draft) {
       clearTimeout(replyDraftTimer)
       return this.saveReplyDraft(draft)
+    },
+
+    // Navigation captures the departing draft before the next reader adopts
+    // another row. Drain its autosaves, then persist the last edit to that row.
+    async leaveReplyDraft(draft) {
+      const draftId = this.consumeReplyDraft()
+      const handoff = this.settleReplyHandoff()
+      const saves = replySaveChain
+      try {
+        await saves
+        const savedId = draftId || (handoff ? await handoff : null)
+        await this.persistDraft(savedId, draft)
+      } catch (error) {
+        console.error('Reply draft autosave failed:', error)
+        this.notify('Could not save your reply draft.', 'error')
+      }
     },
 
     // Hands the draft row off to a send: cancels any queued autosave and

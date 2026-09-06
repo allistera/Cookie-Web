@@ -2228,6 +2228,7 @@ button.ni-attachment:hover {
 
 .ni-reply-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-size: 14px;
@@ -2237,6 +2238,12 @@ button.ni-attachment:hover {
 
 .ni-reply-header .material-symbols-outlined {
   font-size: 18px;
+}
+
+.ni-ai-reply-label {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 /* The reply body reuses .composer-editor (the compose window's rich editor);

@@ -12,6 +12,7 @@ import ThreadMessage from '../components/ThreadMessage.vue'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import { plainTextToHtml } from '../lib/composeHtml'
 import { scheduleChoices } from '../utils/schedule'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 
@@ -606,6 +607,11 @@ const isReplyOpen = ref(false)
 // Reply all addresses the sender plus everyone else on the To and Cc lines;
 // the flag decides which recipient set the open reply box sends to.
 const isReplyAll = ref(false)
+const isAiReply = ref(false)
+const savedReplyTo = ref(null)
+const savedReplySubject = ref(null)
+// A refresh must not reopen a draft handed to the composer, sent, or discarded.
+const handledReplyDrafts = new Set()
 // The reply uses the same rich editor as compose: html is what gets sent
 // (sanitized at the send boundary), the plain text mirrors it for validation
 // and the text/plain part.
@@ -667,11 +673,19 @@ const replyRecipients = computed(() => {
     : [{ name: email.sender, address: email.address }]
 })
 
-const replyTo = computed(() =>
-  replyRecipients.value.map((recipient) => recipient.address).join(', '),
+const replyTo = computed(
+  () =>
+    savedReplyTo.value ?? replyRecipients.value.map((recipient) => recipient.address).join(', '),
 )
+const replySubject = computed(() => {
+  if (savedReplySubject.value !== null) return savedReplySubject.value
+  const subject = openEmail.value?.subject || ''
+  return /^re:/i.test(subject) ? subject : `Re: ${subject}`
+})
 
 const replyHeading = computed(() => {
+  if (savedReplyTo.value && savedReplyTo.value !== openEmail.value?.address)
+    return `Reply to ${savedReplyTo.value}`
   const names = replyRecipients.value.map((recipient) => recipient.name || recipient.address)
   return `${isReplyAll.value ? 'Reply all to' : 'Reply to'} ${names.join(', ')}`
 })
@@ -712,12 +726,16 @@ watch(
     // Navigating away is not discarding: save what was typed, then start the
     // next email with a clean slate and a fresh draft row.
     if (pendingReplyDraft.value) {
-      store.flushReplyDraft(pendingReplyDraft.value)
+      store.leaveReplyDraft(pendingReplyDraft.value)
       pendingReplyDraft.value = null
     }
     store.replyDraftId = null
+    store.replySessionId += 1
     isReplyOpen.value = false
     isReplyAll.value = false
+    isAiReply.value = false
+    savedReplyTo.value = null
+    savedReplySubject.value = null
     replyHtml.value = ''
     replyTextPlain.value = ''
     // Attachments picked for the abandoned reply live on in its saved draft.
@@ -729,7 +747,10 @@ watch(
     contentUnsubscribe.value = null
     // Fetch the full body on demand (cached) for any open path, including the
     // command palette.
-    if (id) store.fetchMessageBody(id)
+    if (id) {
+      store.fetchMessageBody(id)
+      store.loadDrafts({ silent: true })
+    }
   },
 )
 
@@ -844,6 +865,7 @@ async function clearOpenEmailFollowUp() {
 }
 
 function replyToOpenEmail() {
+  savedReplyTo.value = null
   if (!isReplyOpen.value) store.replySessionId += 1
   isReplyAll.value = false
   isReplyOpen.value = true
@@ -852,6 +874,7 @@ function replyToOpenEmail() {
 
 // Switching modes keeps any text already typed; only the recipient set changes.
 function replyAllToOpenEmail() {
+  savedReplyTo.value = null
   if (!isReplyOpen.value) store.replySessionId += 1
   isReplyAll.value = true
   isReplyOpen.value = true
@@ -920,8 +943,12 @@ async function forwardOpenEmail() {
 }
 
 function discardReply() {
+  if (store.replyDraftId) handledReplyDrafts.add(store.replyDraftId)
   isReplyOpen.value = false
   isReplyAll.value = false
+  isAiReply.value = false
+  savedReplyTo.value = null
+  savedReplySubject.value = null
   replyHtml.value = ''
   replyTextPlain.value = ''
   replyFollowUpAt.value = null
@@ -946,7 +973,7 @@ function replyDraftPayload() {
   const email = openEmail.value
   return {
     to: replyTo.value,
-    subject: email ? `Re: ${email.subject}` : '',
+    subject: replySubject.value,
     text: replyTextPlain.value,
     html: replyHtml.value,
     replyToMessageId: email?.id ?? null,
@@ -1005,7 +1032,7 @@ function generateReplyDraft() {
   const email = openEmail.value
   if (!email) return
   store.composerTo = replyTo.value
-  store.composerSubject = `Re: ${email.subject}`
+  store.composerSubject = replySubject.value
   store.composerReplyToMessageId = email.id
   store.composerHtml = replyHtml.value
   store.composerTextArea = replyTextPlain.value
@@ -1013,6 +1040,7 @@ function generateReplyDraft() {
   store.composerAttachments = replyAttachments.value
   // The composer now owns this draft row and keeps autosaving into it.
   const replyDraftId = store.consumeReplyDraft()
+  if (replyDraftId) handledReplyDrafts.add(replyDraftId)
   store.composerDraftId = replyDraftId
   pendingReplyDraft.value = null
   // Handed to the composer, so discardReply() must not reclaim them.
@@ -1035,6 +1063,33 @@ function generateReplyDraft() {
 const pendingReplyDraft = ref(null)
 
 watch(
+  () => [store.openEmailId, store.drafts, store.isComposerActive, store.composerDraftId],
+  () => {
+    const id = store.openEmailId
+    if (!id || isReplyOpen.value || isSendingReply.value) return
+    const draft = store.drafts.find(
+      (entry) =>
+        entry.replyToMessageId === id &&
+        entry.isAiGenerated &&
+        !handledReplyDrafts.has(entry.id) &&
+        !(store.isComposerActive && store.composerDraftId === entry.id),
+    )
+    if (!draft) return
+    store.replySessionId += 1
+    store.replyDraftId = draft.id
+    savedReplyTo.value = draft.to || null
+    savedReplySubject.value = draft.subject ?? null
+    replyHtml.value = draft.html ? sanitizeEmailHtml(draft.html) : plainTextToHtml(draft.text)
+    replyTextPlain.value = draft.text || ''
+    replyAttachments.value = draft.attachments || []
+    replyFollowUpAt.value = draft.followUpAt || null
+    isAiReply.value = true
+    isReplyOpen.value = true
+  },
+  { immediate: true },
+)
+
+watch(
   () => [
     replyTextPlain.value,
     replyHtml.value,
@@ -1054,6 +1109,7 @@ async function sendReply() {
   // Taken before the request so a queued autosave cannot re-create the row
   // while the mail is in flight; deleted only once the send succeeds.
   let replyDraftId = store.consumeReplyDraft()
+  if (replyDraftId) handledReplyDrafts.add(replyDraftId)
   pendingReplyDraft.value = null
   isSendingReply.value = true
   try {
@@ -1062,7 +1118,7 @@ async function sendReply() {
     if (handoff) replyDraftId = await handoff
     const result = await store.sendMail({
       to: replyTo.value,
-      subject: `Re: ${email.subject}`,
+      subject: replySubject.value,
       text: replyTextPlain.value,
       // Sanitize the rich body once, here at the send boundary (same as the
       // composer's send path).
@@ -1221,6 +1277,7 @@ onMounted(() => {
   document.addEventListener('click', onDocumentClick)
 })
 onUnmounted(() => {
+  if (pendingReplyDraft.value) store.leaveReplyDraft(pendingReplyDraft.value)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('click', onDocumentClick)
 })
@@ -1715,6 +1772,9 @@ onUnmounted(() => {
                 isReplyAll ? 'reply_all' : 'reply'
               }}</span>
               <span>{{ replyHeading }}</span>
+              <small v-if="isAiReply" class="ni-ai-reply-label"
+                >AI draft · Review before sending</small
+              >
             </div>
             <ComposerEditor
               ref="replyEditorRef"

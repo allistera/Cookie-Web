@@ -2,6 +2,7 @@ import { expect, test } from './workerFixtures.js'
 
 import {
   AI_API_URL,
+  DRAFTS_API_URL,
   EMAILS_API_URL,
   MESSAGES_API_URL,
   TASKS_API_URL,
@@ -1216,6 +1217,61 @@ test('Reply slides an inline reply box under the email instead of opening the co
 
   await expect(reader.locator('.ni-reply-box')).toHaveCount(0)
   await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
+})
+
+test('Priority reply draft is ready beneath the email, keeps edits on reload, and sends only on click', async ({
+  page,
+}) => {
+  let draft = {
+    id: 'auto-priority-draft',
+    replyToMessageId: 'fixture-1',
+    isAiGenerated: true,
+    to: 'updates@cityconstruction.com',
+    subject: 'Re: Revised Floor Plan - Natural Light adjustments',
+    text: 'Thanks for the updated plan. Could you confirm the proposed window dimensions?',
+    html: null,
+    attachments: [],
+    followUpAt: null,
+    updatedAt: new Date().toISOString(),
+  }
+  await page.route(`${DRAFTS_API_URL}/drafts**`, async (route) => {
+    const request = route.request()
+    if (request.method() === 'DELETE') {
+      draft = null
+      return route.fulfill({ status: 204 })
+    }
+    if (request.method() === 'PATCH') {
+      draft = { ...draft, ...request.postDataJSON() }
+      return route.fulfill({ json: { draft: { id: draft.id, updatedAt: draft.updatedAt } } })
+    }
+    return route.fulfill({ json: { drafts: draft ? [draft] : [] } })
+  })
+  let sends = 0
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/send') sends++
+  })
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const reply = page.locator('.ni-reply-box')
+  await expect(reply).toContainText('AI draft')
+  await expect(reply.locator('.composer-editor')).toContainText(
+    'Could you confirm the proposed window dimensions?',
+  )
+  await expect(reply.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+  expect(sends).toBe(0)
+  await reply
+    .locator('.composer-editor')
+    .fill('Thanks. Could you confirm the dimensions and estimated cost?')
+  await expect.poll(() => draft.text).toContain('dimensions and estimated cost')
+  await page.reload()
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await expect(reply.locator('.composer-editor')).toContainText('dimensions and estimated cost')
+  expect(sends).toBe(0)
+  await reply.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
+  await expect(reply).toHaveCount(0)
+  await expect.poll(() => draft).toBe(null)
+  expect(sends).toBe(1)
 })
 
 test('Forward opens a quoted draft with the original attachment', async ({ page }) => {
