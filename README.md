@@ -204,3 +204,22 @@ Apply `migrations/0067_task_items_time_and_labels.sql` before deploying the
 updated `cookie-web-tasks` Worker, then deploy the web client. The Worker uses
 the existing `OPENAI_API_KEY` and rate-limits interpretation to 10 requests per
 user per minute.
+
+### Automatic priority replies
+
+When Cookie classifies an incoming email as high priority, it prepares a reply
+using the existing AI key and saves it in Drafts. Open the email to see the
+editable **AI draft** beneath the conversation, with **Send** and **Discard**.
+Only clicking Send sends the reply. Edits are saved when switching emails and
+can be resumed after reloading.
+
+Existing drafts, answered threads, scheduled replies, archived/deleted mail,
+spam, and no-reply senders are skipped. Discarding or sending a generated draft
+does not cause it to be recreated. The background recovery job also picks up
+unanswered priority mail from the last 30 days, three emails every 15 minutes,
+with at most three generation attempts per email.
+
+Apply `migrations/0069_priority_reply_drafts.sql` before deploying Cookie-Worker's
+`mail-app-ingest` and `cookie-web-drafts`. Initial draft creation emits the
+existing content-free inbox refresh signal, allowing an open reader to show
+the draft as soon as it becomes available.

@@ -239,3 +239,12 @@ columns plus a non-null `labels` text array. A due time must have both a due
 date and time zone; dividers cannot carry times or labels. Existing tasks keep
 no due time and an empty label list. Apply this migration before deploying the
 task API that reads and writes these fields.
+
+## Automatic priority reply drafts
+
+`0069_priority_reply_drafts.sql` adds independent reply-draft status, attempts,
+and a lease timestamp to `message_ai`, plus `drafts.is_ai_generated`. Terminal
+state outlives the draft, preventing regeneration after sending or discarding.
+The existing Drafts permissions and RLS remain in force. A trigger sends only
+a content-free inbox refresh signal after an AI draft is first inserted.
+Apply before deploying `mail-app-ingest` and `cookie-web-drafts` in Cookie-Worker.

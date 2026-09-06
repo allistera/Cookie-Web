@@ -61,6 +61,164 @@ afterEach(() => {
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+describe('automatic priority reply drafts', () => {
+  let store
+  const draft = {
+    id: 'priority-draft',
+    replyToMessageId: 'priority-1',
+    isAiGenerated: true,
+    to: 'sender-priority-1@example.com',
+    subject: 'Re: Subject priority-1',
+    text: 'Thanks for the plan. Which section should I review first?',
+    html: null,
+    attachments: [],
+    followUpAt: null,
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    store.traditionalEmails = [{ ...makeEmail('priority-1', Date.now() - HOUR), isPriority: true }]
+    vi.spyOn(store, 'loadDrafts').mockResolvedValue()
+  })
+
+  it('shows the saved AI reply beneath the email with Send enabled, without sending it', async () => {
+    store.drafts = [{ ...draft }]
+    const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+    expect(wrapper.get('.ni-reply-box').text()).toContain('AI draft')
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe(draft.text)
+    expect(wrapper.get('.ni-reply-footer .btn-primary').attributes('disabled')).toBeUndefined()
+    expect(store.replyDraftId).toBe('priority-draft')
+    expect(send).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('opens a generated draft arriving after the reader, and keeps the user’s edits on refresh', async () => {
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    store.drafts = [{ ...draft }]
+    await flushPromises()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>My edited reply</p>'
+    await editor.trigger('input')
+    store.drafts = [{ ...draft, text: 'Older server snapshot' }]
+    await flushPromises()
+    expect(editor.text()).toBe('My edited reply')
+    wrapper.unmount()
+  })
+
+  it('does not replace a reply the user has already started', async () => {
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    await wrapper.get('.ni-email-card [title="Reply"]').trigger('click')
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>Already writing</p>'
+    await editor.trigger('input')
+    store.drafts = [{ ...draft }]
+    await flushPromises()
+    expect(editor.text()).toBe('Already writing')
+    expect(store.replyDraftId).not.toBe('priority-draft')
+    wrapper.unmount()
+  })
+
+  it('sends only after clicking Send and removes the saved AI draft', async () => {
+    store.drafts = [{ ...draft }]
+    const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: draft.to,
+        text: draft.text,
+        replyToMessageId: 'priority-1',
+      }),
+    )
+    expect(store.drafts).toEqual([])
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('saves edits to the original draft when switching to another priority email', async () => {
+    store.drafts = [{ ...draft }, { ...draft, id: 'second-draft', replyToMessageId: 'priority-2' }]
+    store.traditionalEmails.push({
+      ...makeEmail('priority-2', Date.now() - HOUR),
+      isPriority: true,
+    })
+    const persist = vi.spyOn(store, 'persistDraft').mockImplementation(async (id, payload) => {
+      store.rememberDraft({ ...payload, id })
+      return id
+    })
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>My reply to the first email</p>'
+    await editor.trigger('input')
+    store.openReader(store.traditionalEmails[1])
+    await flushPromises()
+    expect(persist).toHaveBeenCalledWith(
+      'priority-draft',
+      expect.objectContaining({
+        text: 'My reply to the first email',
+        replyToMessageId: 'priority-1',
+      }),
+    )
+    expect(store.replyDraftId).toBe('second-draft')
+    expect(store.drafts.find((entry) => entry.id === 'priority-draft').text).toBe(
+      'My reply to the first email',
+    )
+    wrapper.unmount()
+  })
+
+  it('reopens the latest unsent reply after a failed send and navigation', async () => {
+    store.drafts = [{ ...draft }]
+    vi.spyOn(store, 'sendMail').mockRejectedValue(new Error('Delivery failed'))
+    vi.spyOn(store, 'persistDraft').mockImplementation(async (id, payload) => {
+      store.rememberDraft({ ...payload, id })
+      return id
+    })
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>My latest unsent reply</p>'
+    await editor.trigger('input')
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    store.closeReader()
+    await flushPromises()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('My latest unsent reply')
+    expect(store.replyDraftId).toBe('priority-draft')
+    wrapper.unmount()
+  })
+
+  it('keeps the recipient and subject changed in the full composer when reopening the AI draft', async () => {
+    store.drafts = [{ ...draft, to: 'other@example.com', subject: 'Updated plan' }]
+    const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-header').text()).toContain('other@example.com')
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'other@example.com', subject: 'Updated plan' }),
+    )
+    wrapper.unmount()
+  })
+})
+
 function makeEmail(id, sentAt) {
   return {
     id,
