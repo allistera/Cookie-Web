@@ -1057,8 +1057,7 @@ async function generateInlineReply() {
       store.notify('Your reply changed while AI was writing. Click AI to try again.')
       return
     }
-    replyHtml.value = plainTextToHtml(text)
-    replyTextPlain.value = text
+    replyEditorRef.value.replaceContent(plainTextToHtml(text))
     isAiReply.value = true
   } catch {
     if (isCurrent()) store.notify('AI could not generate a reply. Please try again.', 'error')

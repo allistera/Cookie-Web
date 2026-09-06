@@ -86,7 +86,7 @@ describe('inline AI reply button', () => {
         return { ok: true, json: async () => ({ message: {} }) }
       }),
     )
-    wrapper = mountView()
+    wrapper = mountView({ attachTo: document.body })
     store.openReader(store.traditionalEmails[0])
     await flushPromises()
     await wrapper.get('.ni-email-card [title="Reply"]').trigger('click')
@@ -178,6 +178,24 @@ describe('inline AI reply button', () => {
     finishGeneration(Response.json({ draft: { text: 'Late generated reply' } }))
     await flushPromises()
     expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('I wrote this while waiting.')
+  })
+
+  it('shows the generated response when the editor has focus while waiting', async () => {
+    await clickAi()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.focus()
+    expect(document.activeElement).toBe(editor.element)
+    finishGeneration(Response.json({ draft: { text: 'Visible generated reply' } }))
+    await flushPromises()
+    expect(editor.text()).toBe('Visible generated reply')
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Visible generated reply',
+        html: '<p>Visible generated reply</p>',
+      }),
+    )
   })
 
   it.each(['discard', 'navigate'])(

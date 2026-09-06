@@ -238,6 +238,15 @@ function emitUpdate() {
   emit('update:text', editorRef.value.innerText ?? editorRef.value.textContent)
 }
 
+// Explicit insertions update the visible editor and both models together,
+// including when it is focused. Callers must protect intervening user edits.
+function replaceContent(html) {
+  if (!editorRef.value) return
+  editorRef.value.innerHTML = sanitizeEmailHtml(html)
+  menuOpen.value = false
+  emitUpdate()
+}
+
 const DANGEROUS_HTML_RE = /<script|on\w+=|javascript:/i
 
 function onInput() {
@@ -308,7 +317,7 @@ onMounted(() => {
   }
 })
 
-defineExpose({ focus: () => editorRef.value?.focus(), insertText })
+defineExpose({ focus: () => editorRef.value?.focus(), insertText, replaceContent })
 </script>
 
 <template>

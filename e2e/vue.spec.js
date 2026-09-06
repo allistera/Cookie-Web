@@ -1254,6 +1254,7 @@ for (const width of [1280, 390]) {
     await reply.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(reply.getByRole('button', { name: 'Generating…' })).toBeDisabled()
     await expect(reply.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    await editor.focus()
     releaseGeneration()
     await expect(editor).toHaveText('Could you confirm the updated dimensions and price?')
     expect(aiRequest).toMatchObject({
