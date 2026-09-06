@@ -1142,7 +1142,10 @@ async function sendReply() {
     console.error('Failed to send reply:', error)
     store.notify('Failed to send reply. Please try again.', 'error')
     // Nothing went out, so the draft is still the only copy of this reply.
+    handledReplyDrafts.delete(replyDraftId)
     store.replyDraftId = replyDraftId
+    pendingReplyDraft.value = replyDraftPayload()
+    store.scheduleReplyDraftSave(pendingReplyDraft.value)
   } finally {
     isSendingReply.value = false
   }

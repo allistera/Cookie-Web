@@ -179,6 +179,30 @@ describe('automatic priority reply drafts', () => {
     wrapper.unmount()
   })
 
+  it('reopens the latest unsent reply after a failed send and navigation', async () => {
+    store.drafts = [{ ...draft }]
+    vi.spyOn(store, 'sendMail').mockRejectedValue(new Error('Delivery failed'))
+    vi.spyOn(store, 'persistDraft').mockImplementation(async (id, payload) => {
+      store.rememberDraft({ ...payload, id })
+      return id
+    })
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>My latest unsent reply</p>'
+    await editor.trigger('input')
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    store.closeReader()
+    await flushPromises()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('My latest unsent reply')
+    expect(store.replyDraftId).toBe('priority-draft')
+    wrapper.unmount()
+  })
+
   it('keeps the recipient and subject changed in the full composer when reopening the AI draft', async () => {
     store.drafts = [{ ...draft, to: 'other@example.com', subject: 'Updated plan' }]
     const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
