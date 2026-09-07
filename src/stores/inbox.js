@@ -399,7 +399,7 @@ export function mapEmailRow(message) {
     // endpoint). Lets the reader show a spinner during the on-demand body fetch
     // instead of flashing the plain-text fallback before the iframe swaps in.
     hasHtml: Boolean(message.has_html),
-    // List endpoints expose only summary presence, never the generated text.
+    // List endpoints expose only fresh thread-summary presence, never its text.
     hasAiSummary: Boolean(message.has_ai_summary),
     hasAttachments: Boolean(message.has_attachments),
     // The AI classifier's verdict, or the user's own report (see setSpam).
@@ -625,9 +625,9 @@ export const useInboxStore = defineStore('inbox', {
     // cached so reopening the same message doesn't refetch.
     messageBodies: new Map(),
 
-    // AI summaries are cached per selected message after the owned body API
-    // hydrates a saved result or the user generates/regenerates one.
-    messageSummaries: new Map(),
+    // Live one-line summaries are cached by thread id. message_ai summaries
+    // remain per-message enrichment and are intentionally separate.
+    threadSummaries: new Map(),
     summaryLoadingId: null,
 
     // Id of the message with an unsubscribe request in flight (null when idle).
@@ -732,7 +732,8 @@ export const useInboxStore = defineStore('inbox', {
       return Boolean(state.openEmailId && state.messageBodies.has(state.openEmailId))
     },
     openEmailSummary(state) {
-      return state.openEmailId ? (state.messageSummaries.get(state.openEmailId) ?? null) : null
+      const body = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return body?.threadId ? (state.threadSummaries.get(body.threadId) ?? null) : null
     },
     isOpenSummaryLoading(state) {
       return state.summaryLoadingId !== null && state.summaryLoadingId === state.openEmailId
@@ -1448,7 +1449,7 @@ export const useInboxStore = defineStore('inbox', {
     openReader(email) {
       this.setUnread(email, false)
       this.openEmailId = email.id
-      this.fetchMessageBody(email.id)
+      this.fetchMessageBody(email.id).then(() => this.ensureThreadSummary(email))
     },
 
     // Opens an email row surfaced by the combined /search results page (see
@@ -1511,8 +1512,16 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
         const payload = await response.json()
-        const { body_html, body_text, unsubscribe, summary, thread, attachments, calendar_invite } =
-          payload
+        const {
+          body_html,
+          body_text,
+          unsubscribe,
+          thread_summary,
+          thread_latest_message_id,
+          thread,
+          attachments,
+          calendar_invite,
+        } = payload
         const body = {
           html: body_html ?? null,
           text: body_text ?? null,
@@ -1520,9 +1529,12 @@ export const useInboxStore = defineStore('inbox', {
           thread: Array.isArray(thread) ? thread : [],
           attachments: Array.isArray(attachments) ? attachments : [],
         }
-        if (payload.thread_id && [true, false].includes(payload.thread_muted)) {
+        if (payload.thread_id) {
           body.threadId = payload.thread_id
-          body.threadMuted = payload.thread_muted
+          body.threadLatestMessageId = thread_latest_message_id ?? null
+          if ([true, false].includes(payload.thread_muted)) {
+            body.threadMuted = payload.thread_muted
+          }
         }
         // Keep backwards compatibility with older API responses that omit the
         // field while preserving an explicit null from the new API.
@@ -1536,9 +1548,15 @@ export const useInboxStore = defineStore('inbox', {
           }
         }
         cacheSet(this.messageBodies, id, body, MAX_CACHED_MESSAGE_BODIES)
-        const summaryText = String(summary ?? '').trim()
-        if (summaryText) {
-          cacheSet(this.messageSummaries, id, summaryText, MAX_CACHED_SUMMARIES)
+        const summaryText = String(thread_summary ?? '')
+          .replace(/\s+/g, ' ')
+          .trim()
+        if (body.threadId) {
+          if (summaryText) {
+            cacheSet(this.threadSummaries, body.threadId, summaryText, MAX_CACHED_SUMMARIES)
+          } else {
+            this.threadSummaries.delete(body.threadId)
+          }
         }
         return body
       } catch (error) {
@@ -1594,27 +1612,63 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    async ensureThreadSummary(email) {
+      if (!email?.id) return null
+      const body = this.messageBodies.get(email.id)
+      if (!body?.threadId || !body.threadLatestMessageId) return null
+      if (!Array.isArray(body.thread) || body.thread.length < 2) return null
+      if (this.threadSummaries.has(body.threadId)) return this.threadSummaries.get(body.threadId)
+      return this.summarizeEmail(email)
+    },
+
     async summarizeEmail(email) {
       if (!email || this.summaryLoadingId) return null
       const id = email.id
+      const body = this.messageBodies.get(id)
+      if (!body?.threadId || !body.threadLatestMessageId) return null
       this.summaryLoadingId = id
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${AI_API_URL}/summarize`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ id }),
-        })
-        if (!response.ok) {
-          throw new Error(`POST /summarize responded ${response.status}`)
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const response = await fetch(`${AI_API_URL}/summarize`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ id }),
+          })
+          if (response.status === 409 && attempt === 0) {
+            this.messageBodies.delete(id)
+            await this.fetchMessageBody(id)
+            if (this.openEmailId !== id) return null
+            continue
+          }
+          if (!response.ok) {
+            throw new Error(`POST /summarize responded ${response.status}`)
+          }
+          const { summary, threadId, latestMessageId } = await response.json()
+          const normalized = String(summary ?? '')
+            .replace(/\s+/g, ' ')
+            .trim()
+          if (!normalized) {
+            throw new Error('POST /summarize returned an invalid summary')
+          }
+          const currentBody = this.messageBodies.get(id)
+          if (
+            currentBody?.threadId !== threadId ||
+            currentBody.threadLatestMessageId !== latestMessageId
+          ) {
+            if (attempt === 0) {
+              this.messageBodies.delete(id)
+              await this.fetchMessageBody(id)
+              if (this.openEmailId !== id) return null
+              continue
+            }
+            return null
+          }
+          cacheSet(this.threadSummaries, threadId, normalized, MAX_CACHED_SUMMARIES)
+          email.hasAiSummary = true
+          return normalized
         }
-        const { summary } = await response.json()
-        const normalized = String(summary ?? '').trim()
-        if (!normalized) {
-          throw new Error('POST /summarize returned an invalid summary')
-        }
-        cacheSet(this.messageSummaries, id, normalized, MAX_CACHED_SUMMARIES)
-        return normalized
+        return null
       } catch (error) {
         console.error('AI summarization failed:', error)
         this.notify('AI summarization failed. Please try again.', 'error')
@@ -1622,6 +1676,15 @@ export const useInboxStore = defineStore('inbox', {
       } finally {
         if (this.summaryLoadingId === id) this.summaryLoadingId = null
       }
+    },
+
+    async refreshOpenThread() {
+      const id = this.openEmailId
+      if (!id) return null
+      this.messageBodies.delete(id)
+      await this.fetchMessageBody(id)
+      if (this.openEmailId !== id) return null
+      return this.ensureThreadSummary(this.openEmail)
     },
 
     closeReader() {

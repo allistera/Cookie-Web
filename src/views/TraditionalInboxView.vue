@@ -166,8 +166,10 @@ const headerIconStyle = computed(() => {
 
 const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '')
 
-const emailHasAiSummary = (email) =>
-  Boolean(email.hasAiSummary || store.messageSummaries.get(email.id))
+const emailHasAiSummary = (email) => {
+  const threadId = store.messageBodies.get(email.id)?.threadId
+  return Boolean(email.hasAiSummary || (threadId && store.threadSummaries.get(threadId)))
+}
 
 const showInboxZero = computed(
   () =>
@@ -601,10 +603,6 @@ const unsubscribeLabel = computed(() => {
 })
 const openEmailSummary = computed(() => store.openEmailSummary)
 const isSummarizing = computed(() => store.isOpenSummaryLoading)
-const summarizeLabel = computed(() => {
-  if (isSummarizing.value) return 'Summarizing…'
-  return openEmailSummary.value ? 'Regenerate Summary' : 'Summarize'
-})
 const isReplyOpen = ref(false)
 // Reply all addresses the sender plus everyone else on the To and Cc lines;
 // the flag decides which recipient set the open reply box sends to.
@@ -754,7 +752,7 @@ watch(
     // Fetch the full body on demand (cached) for any open path, including the
     // command palette.
     if (id) {
-      store.fetchMessageBody(id)
+      store.fetchMessageBody(id).then(() => store.ensureThreadSummary(store.openEmail))
       store.loadDrafts({ silent: true })
     }
   },
@@ -817,10 +815,6 @@ function unsubscribeFromContent() {
 
 function setContentUnsubscribe(target) {
   contentUnsubscribe.value = target
-}
-
-function summarizeOpenEmail() {
-  store.summarizeEmail(openEmail.value)
 }
 
 function addOpenEmailToCalendar() {
@@ -1524,19 +1518,7 @@ onUnmounted(() => {
     <Transition name="ni-slide">
       <div class="ni-reader" v-if="openEmail">
         <div class="ni-reader-topbar">
-          <div class="ni-reader-nav">
-            <button
-              class="ni-summarize-btn"
-              :title="summarizeLabel"
-              :disabled="isSummarizing"
-              :aria-busy="isSummarizing"
-              @click="summarizeOpenEmail"
-            >
-              <span v-if="isSummarizing" class="ni-summary-spinner" aria-hidden="true"></span>
-              <span v-else class="material-symbols-outlined">auto_awesome</span>
-              <span>{{ summarizeLabel }}</span>
-            </button>
-          </div>
+          <div class="ni-reader-nav"></div>
           <div class="ni-reader-nav">
             <button
               class="ni-reader-btn"
@@ -1700,10 +1682,20 @@ onUnmounted(() => {
         </h2>
 
         <div
-          class="ni-reader-labels"
-          :class="{ 'ni-reader-labels-summary': openEmailSummary }"
-          v-if="openEmail.labels?.length"
+          v-if="isSummarizing || openEmailSummary"
+          class="ni-thread-summary"
+          role="status"
+          aria-live="polite"
+          :title="openEmailSummary || 'Summarizing thread'"
         >
+          <span v-if="isSummarizing" class="ni-summary-spinner" aria-hidden="true"></span>
+          <span v-else class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+          <span class="ni-thread-summary-text">{{
+            openEmailSummary || 'Summarizing thread…'
+          }}</span>
+        </div>
+
+        <div class="ni-reader-labels" v-if="openEmail.labels?.length">
           <span
             v-for="label in openEmail.labels"
             :key="label.name"
@@ -1734,14 +1726,6 @@ onUnmounted(() => {
             Add to calendar
           </button>
         </section>
-
-        <div v-if="openEmailSummary" class="ni-summary-box" role="status" aria-live="polite">
-          <div class="ni-summary-heading">
-            <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
-            <span>AI summary</span>
-          </div>
-          <p>{{ openEmailSummary }}</p>
-        </div>
 
         <div v-if="conversation.length" class="ni-thread-toolbar">
           <span>{{ conversation.length }} messages</span>

@@ -1254,18 +1254,26 @@ describe('Inbox Store', () => {
     expect(email.labels).toEqual([])
   })
 
-  it('summarizes an email thread and caches the result for the open message', async () => {
+  it('summarizes an email thread and caches the result for its current version', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ summary: 'The contractor confirmed the Tuesday delivery.' }),
+        json: async () => ({
+          summary: 'The contractor confirmed the Tuesday delivery.',
+          threadId: 'thread-1',
+          latestMessageId: '11111111-1111-1111-1111-111111111111',
+        }),
       }),
     )
     const store = useInboxStore()
     const email = { id: '11111111-1111-1111-1111-111111111111', unread: false }
     store.traditionalEmails = [email]
     store.openEmailId = email.id
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: email.id,
+    })
 
     await store.summarizeEmail(email)
 
@@ -1278,7 +1286,103 @@ describe('Inbox Store', () => {
       body: JSON.stringify({ id: email.id }),
     })
     expect(store.openEmailSummary).toBe('The contractor confirmed the Tuesday delivery.')
+    expect(store.threadSummaries.get('thread-1')).toBe(
+      'The contractor confirmed the Tuesday delivery.',
+    )
+    expect(email.hasAiSummary).toBe(true)
     expect(store.isOpenSummaryLoading).toBe(false)
+  })
+
+  it('refetches and regenerates an open thread when its latest message changes', async () => {
+    const email = { id: '11111111-1111-1111-1111-111111111111', unread: false }
+    const oldBody = {
+      threadId: 'thread-1',
+      threadLatestMessageId: email.id,
+      thread: [{ id: email.id }],
+    }
+    const newLatestId = '22222222-2222-2222-2222-222222222222'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: email.id,
+          thread_id: 'thread-1',
+          thread_latest_message_id: newLatestId,
+          thread_summary: null,
+          thread: [{ id: email.id }, { id: newLatestId }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          summary: 'The contractor added a Friday delivery update.',
+          threadId: 'thread-1',
+          latestMessageId: newLatestId,
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.traditionalEmails = [email]
+    store.openEmailId = email.id
+    store.messageBodies.set(email.id, oldBody)
+    store.threadSummaries.set('thread-1', 'The contractor confirmed Tuesday.')
+
+    await store.refreshOpenThread()
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `${MESSAGES_API_URL}/messages?id=${email.id}`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `${AI_API_URL}/summarize`,
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ id: email.id }) }),
+    )
+    expect(store.messageBodies.get(email.id).threadLatestMessageId).toBe(newLatestId)
+    expect(store.threadSummaries.get('thread-1')).toBe(
+      'The contractor added a Friday delivery update.',
+    )
+  })
+
+  it('refetches and retries once when mail arrives during summary generation', async () => {
+    const email = { id: '11111111-1111-1111-1111-111111111111', unread: false }
+    const newLatestId = '22222222-2222-2222-2222-222222222222'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 409 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: email.id,
+          thread_id: 'thread-1',
+          thread_latest_message_id: newLatestId,
+          thread_summary: null,
+          thread: [{ id: email.id }, { id: newLatestId }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          summary: 'The latest reply moves delivery to Friday.',
+          threadId: 'thread-1',
+          latestMessageId: newLatestId,
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.traditionalEmails = [email]
+    store.openEmailId = email.id
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: email.id,
+    })
+
+    await store.summarizeEmail(email)
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(store.messageBodies.get(email.id).threadLatestMessageId).toBe(newLatestId)
+    expect(store.openEmailSummary).toBe('The latest reply moves delivery to Friday.')
+    expect(store.toasts).toHaveLength(0)
   })
 
   it('refreshes the sent list after sending mail once it has been loaded', async () => {
@@ -3380,7 +3484,9 @@ describe('Inbox Store', () => {
         id: '11111111-1111-1111-1111-111111111111',
         body_html: '<p>Hello</p>',
         body_text: 'Hello',
-        summary: 'The saved project update.',
+        thread_id: 'thread-1',
+        thread_latest_message_id: '11111111-1111-1111-1111-111111111111',
+        thread_summary: 'The saved project update.',
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -3394,6 +3500,8 @@ describe('Inbox Store', () => {
       unsubscribe: null,
       thread: [],
       attachments: [],
+      threadId: 'thread-1',
+      threadLatestMessageId: '11111111-1111-1111-1111-111111111111',
     })
     store.traditionalEmails = [{ id: '11111111-1111-1111-1111-111111111111' }]
     store.openEmailId = '11111111-1111-1111-1111-111111111111'
@@ -3411,6 +3519,8 @@ describe('Inbox Store', () => {
       unsubscribe: null,
       thread: [],
       attachments: [],
+      threadId: 'thread-1',
+      threadLatestMessageId: '11111111-1111-1111-1111-111111111111',
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

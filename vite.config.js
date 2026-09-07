@@ -35,6 +35,11 @@ function cleanTaskText(value, max) {
 // E2E mode (and dev without DATABASE_URL) answers from fixtures; otherwise the
 // real Vercel handler runs against Postgres.
 function localApiPlugin(mode) {
+  const fixtureThreadId = (messageId) =>
+    String(messageId ?? '').startsWith('fixture-1')
+      ? 'fixture-thread-1'
+      : `fixture-thread-${messageId}`
+
   // Fixture mutations are scoped by a same-origin cookie so separate browser
   // contexts (including parallel Playwright projects) never leak state.
   const stubMailboxState = new Map()
@@ -152,7 +157,7 @@ function localApiPlugin(mode) {
       ...email,
       is_starred: stars.get(email.id) ?? email.is_starred,
       labels: messageLabels.get(email.id) ?? email.labels,
-      has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+      has_ai_summary: email.has_ai_summary || summaries.has(fixtureThreadId(email.id)),
       follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
     })
     const inbox = fixtureEmails().map((email) => ({
@@ -490,7 +495,7 @@ function localApiPlugin(mode) {
       }).map((email) => ({
         type: 'email',
         ...email,
-        has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+        has_ai_summary: email.has_ai_summary || summaries.has(fixtureThreadId(email.id)),
         follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
       }))
     }
@@ -583,7 +588,7 @@ function localApiPlugin(mode) {
       archived,
     }).map((email) => ({
       ...email,
-      has_ai_summary: email.has_ai_summary || summaries.has(email.id),
+      has_ai_summary: email.has_ai_summary || summaries.has(fixtureThreadId(email.id)),
       follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
     }))
     res.setHeader('Content-Type', 'application/json')
@@ -637,13 +642,17 @@ function localApiPlugin(mode) {
     }
     if (url.pathname === '/summarize') {
       const summary =
-        'City Construction shared a revised kitchen floor plan designed to bring in more natural light.\n\n• Review the updated room dimensions and full plan.\n• Reply if any layout changes are needed.'
+        'City Construction shared a revised kitchen plan and needs approval for the updated room dimensions.'
       const { summaries } = fixtureMailboxState(req, res)
-      summaries.set(body.id, summary)
+      const threadId = fixtureThreadId(body.id)
+      const latestMessageId = String(body.id).startsWith('fixture-1') ? 'fixture-1' : body.id
+      summaries.set(threadId, summary)
       res.end(
         JSON.stringify({
           summary,
-          messageCount: 1,
+          threadId,
+          latestMessageId,
+          messageCount: String(body.id).startsWith('fixture-1') ? 2 : 1,
           model: 'fixture',
         }),
       )
@@ -1730,7 +1739,15 @@ function localApiPlugin(mode) {
       const { summaries } = fixtureMailboxState(req, res)
       const body = fixtureMessageBody(id)
       const thread = body.thread.map(({ body_text: _bodyText, ...message }) => message)
-      return json(res, { ...body, thread, summary: summaries.get(id) ?? null })
+      const threadId = fixtureThreadId(id)
+      const latestMessageId = thread.at(-1)?.id ?? id
+      return json(res, {
+        ...body,
+        thread,
+        thread_id: threadId,
+        thread_latest_message_id: latestMessageId,
+        thread_summary: summaries.get(threadId) ?? null,
+      })
     }
     if (req.method === 'POST') {
       const body = await readBody(req)

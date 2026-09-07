@@ -46,6 +46,7 @@ describe('useRealtimeInbox', () => {
     setActivePinia(createPinia())
     store = useInboxStore()
     vi.spyOn(store, 'refreshInbox').mockResolvedValue(undefined)
+    vi.spyOn(store, 'refreshOpenThread').mockResolvedValue(undefined)
     vi.spyOn(store, 'authHeaders').mockResolvedValue({})
     vi.useFakeTimers()
     scope = effectScope()
@@ -299,6 +300,20 @@ describe('useRealtimeInbox', () => {
     vi.advanceTimersByTime(2000)
 
     expect(store.refreshInbox).not.toHaveBeenCalled()
+  })
+
+  it('refreshes an open thread while search results remain stable', () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    store.openEmailId = 'message-1'
+    store.activeSearchQuery = 'kitchen'
+    mount(client)
+
+    client.ping({ op: 'INSERT' })
+    vi.advanceTimersByTime(1500)
+
+    expect(store.refreshInbox).not.toHaveBeenCalled()
+    expect(store.refreshOpenThread).toHaveBeenCalledTimes(1)
   })
 
   it('refreshes once when the channel reaches SUBSCRIBED after being disconnected', () => {

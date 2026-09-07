@@ -1695,42 +1695,6 @@ body {
   margin-bottom: 20px;
 }
 
-/* AI thread-summary action in the reader top bar */
-.ni-summarize-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--gemini-purple) 48%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--gemini-purple) 11%, var(--bg-card));
-  color: color-mix(in srgb, var(--gemini-purple) 82%, var(--text-primary));
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    background-color var(--transition-fast),
-    box-shadow var(--transition-fast),
-    opacity var(--transition-fast);
-}
-
-.ni-summarize-btn .material-symbols-outlined {
-  font-size: 18px;
-}
-
-.ni-summarize-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--gemini-purple) 18%, var(--bg-card));
-  box-shadow: 0 4px 12px rgba(132, 76, 210, 0.16);
-}
-
-.ni-summarize-btn:disabled {
-  cursor: wait;
-  opacity: 0.72;
-}
-
 .ni-summary-spinner {
   width: 16px;
   height: 16px;
@@ -1857,10 +1821,6 @@ body {
   margin-bottom: 22px;
 }
 
-.ni-reader-labels-summary {
-  margin-bottom: 12px;
-}
-
 .ni-label-pill {
   display: inline-flex;
   align-items: center;
@@ -1945,42 +1905,31 @@ body {
   flex-shrink: 0;
 }
 
-.ni-summary-box {
-  margin-bottom: 22px;
-  padding: 17px 19px;
-  border: 1px solid color-mix(in srgb, var(--gemini-purple) 42%, transparent);
-  border-radius: 10px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--gemini-purple) 15%, var(--bg-card)),
-    color-mix(in srgb, var(--gemini-purple) 7%, var(--bg-card))
-  );
-  box-shadow:
-    0 12px 30px rgba(122, 67, 190, 0.2),
-    0 3px 9px rgba(122, 67, 190, 0.13);
-  color: var(--text-primary);
-}
-
-.ni-summary-heading {
+.ni-thread-summary {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 9px;
+  gap: 8px;
+  min-width: 0;
+  margin: -2px 0 14px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--gemini-purple) 30%, var(--border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gemini-purple) 8%, var(--bg-card));
   color: color-mix(in srgb, var(--gemini-purple) 78%, var(--text-primary));
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
-.ni-summary-heading .material-symbols-outlined {
-  font-size: 18px;
+.ni-thread-summary > .material-symbols-outlined {
+  flex-shrink: 0;
+  font-size: 17px;
 }
 
-.ni-summary-box p {
-  margin: 0;
-  font-size: 14.5px;
-  line-height: 1.65;
-  white-space: pre-wrap;
+.ni-thread-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The reader's conversation: collapsed cards for the other messages of the
@@ -2130,7 +2079,7 @@ button.ni-attachment:hover {
 .ni-reader-subject,
 .ni-reader-labels,
 .ni-calendar-suggestion,
-.ni-summary-box,
+.ni-thread-summary,
 .ni-reader-footer {
   flex-shrink: 0;
 }
@@ -4850,7 +4799,6 @@ button.ni-attachment:hover {
     font-size: 22px;
   }
 
-  .ni-summary-box,
   .ni-email-card {
     padding: 16px;
   }

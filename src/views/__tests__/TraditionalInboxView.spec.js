@@ -1872,7 +1872,7 @@ describe('TraditionalInboxView AI summary', () => {
     vi.restoreAllMocks()
   })
 
-  it('disables Summarize while loading and shows the result below the labels', async () => {
+  it('automatically shows a one-line live thread summary beneath the subject', async () => {
     let resolveSummary
     vi.stubGlobal(
       'fetch',
@@ -1882,47 +1882,80 @@ describe('TraditionalInboxView AI summary', () => {
         }),
       ),
     )
+    const email = store.traditionalEmails[0]
+    const body = {
+      threadId: 'thread-1',
+      threadLatestMessageId: email.id,
+      thread: [
+        {
+          id: 'earlier',
+          from_name: 'Contractor',
+          from_address: 'contractor@example.com',
+          snippet: 'Earlier update',
+          sent_at: new Date(Date.now() - 2 * HOUR).toISOString(),
+        },
+        { id: email.id },
+      ],
+    }
+    store.messageBodies.set(email.id, body)
+    store.fetchMessageBody.mockResolvedValue(body)
     wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
-    const button = wrapper.find('.ni-reader-topbar [title="Summarize"]')
-    expect(button.text()).toContain('Summarize')
-    await button.trigger('click')
-
     await vi.waitFor(() => expect(store.isOpenSummaryLoading).toBe(true))
-    expect(button.attributes()).toHaveProperty('disabled')
-    expect(button.attributes('aria-busy')).toBe('true')
-    expect(button.text()).toContain('Summarizing…')
-    expect(button.find('.ni-summary-spinner').exists()).toBe(true)
+    const summary = wrapper.find('.ni-reader-subject + .ni-thread-summary')
+    expect(summary.text()).toContain('Summarizing thread…')
+    expect(summary.find('.ni-summary-spinner').exists()).toBe(true)
+    expect(wrapper.find('.ni-summarize-btn').exists()).toBe(false)
 
     resolveSummary({
       ok: true,
-      json: async () => ({ summary: 'The contractor confirmed the Tuesday delivery.' }),
+      json: async () => ({
+        summary: 'The contractor confirmed the Tuesday delivery.\nNo reply is needed.',
+        threadId: 'thread-1',
+        latestMessageId: email.id,
+      }),
     })
     await vi.waitFor(() => expect(store.isOpenSummaryLoading).toBe(false))
 
-    const summary = wrapper.find('.ni-reader-labels + .ni-summary-box')
     expect(summary.exists()).toBe(true)
-    expect(summary.text()).toContain('AI summary')
-    expect(summary.text()).toContain('The contractor confirmed the Tuesday delivery.')
-    expect(button.text()).toContain('Regenerate Summary')
-    expect(button.attributes('title')).toBe('Regenerate Summary')
+    expect(summary.find('.ni-thread-summary-text').text()).toBe(
+      'The contractor confirmed the Tuesday delivery. No reply is needed.',
+    )
     expect(wrapper.find('.ni-reader-subject .ni-ai-generated-icon').text()).toBe('auto_awesome')
     expect(wrapper.find('.ni-row .ni-ai-generated-icon').text()).toBe('auto_awesome')
   })
 
-  it('shows a saved summary and offers to regenerate it when the reader opens', async () => {
+  it('restores a fresh saved thread summary without requesting it again', async () => {
     const email = store.traditionalEmails[0]
-    store.messageSummaries.set(email.id, 'A previously saved summary.')
+    const body = {
+      threadId: 'thread-1',
+      threadLatestMessageId: email.id,
+      thread: [
+        {
+          id: 'earlier',
+          from_name: 'Contractor',
+          from_address: 'contractor@example.com',
+          snippet: 'Earlier update',
+          sent_at: new Date(Date.now() - 2 * HOUR).toISOString(),
+        },
+        { id: email.id },
+      ],
+    }
+    store.messageBodies.set(email.id, body)
+    store.threadSummaries.set('thread-1', 'A previously saved summary.')
+    store.fetchMessageBody.mockResolvedValue(body)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ drafts: [] }) }),
+    )
     wrapper = mountView()
 
     await wrapper.find('.ni-row').trigger('click')
 
-    const summary = wrapper.find('.ni-summary-box')
-    const button = wrapper.find('.ni-summarize-btn')
+    const summary = wrapper.find('.ni-thread-summary')
     expect(summary.text()).toContain('A previously saved summary.')
-    expect(button.text()).toContain('Regenerate Summary')
-    expect(button.attributes('title')).toBe('Regenerate Summary')
+    expect(fetch.mock.calls.some(([url]) => url === `${AI_API_URL}/summarize`)).toBe(false)
   })
 })
 

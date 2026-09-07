@@ -99,7 +99,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   }
 
   function refreshNow() {
-    if (!client() || !isAuthenticated.value || !store.userId || store.activeSearchQuery) return
+    if (!client() || !isAuthenticated.value || !store.userId) return
     if (debounceTimer) {
       clearTimeout(debounceTimer)
       debounceTimer = null
@@ -113,7 +113,10 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     const version = lifecycleVersion
     const notificationEventIds = [...pendingNotificationEventIds]
     pendingNotificationEventIds.clear()
-    const storeRefresh = Promise.resolve(store.refreshInbox())
+    const storeRefresh = Promise.all([
+      store.activeSearchQuery ? Promise.resolve() : Promise.resolve(store.refreshInbox()),
+      Promise.resolve(store.refreshOpenThread()),
+    ])
     const refresh = notificationEventIds.length
       ? storeRefresh.then(() =>
           Promise.all(
@@ -136,7 +139,6 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   }
 
   function scheduleRefresh() {
-    if (store.activeSearchQuery) return
     // Background tabs throttle timers aggressively. If Realtime delivered the
     // ping before suspension, refresh immediately so the unread count (and tab
     // title badge) can update without waiting on the visible-tab debounce.

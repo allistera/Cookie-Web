@@ -920,7 +920,7 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
   await expect(page.locator('.ni-row', { hasText: subject })).toBeVisible()
 })
 
-test('Reader Summarize shows a loading indicator and renders the AI thread summary', async ({
+test('Reader automatically shows a loading indicator and renders a one-line thread summary', async ({
   page,
 }) => {
   let releaseSummary
@@ -941,8 +941,9 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        summary:
-          'City Construction shared a revised plan.\n\n• Review the updated room dimensions.\n• Reply with any layout changes.',
+        summary: 'City Construction shared a revised plan and needs approval for the dimensions.',
+        threadId: 'fixture-thread-1',
+        latestMessageId: 'fixture-1',
       }),
     })
   })
@@ -952,29 +953,21 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   await expect(cityRow.locator('.ni-ai-generated-icon')).toHaveCount(0)
   await cityRow.click()
   const reader = page.locator('.ni-reader')
-  const summarize = reader.locator('.ni-summarize-btn')
-
-  // Summaries are strictly user-initiated: opening the reader must not fire
-  // a summary request or render a summary box.
-  expect(summaryRequestCount).toBe(0)
-  await expect(reader.locator('.ni-summary-box')).toHaveCount(0)
-  await expect(summarize).toHaveText(/Summarize/)
-  await summarize.click()
   await requestStarted
 
   expect(summaryRequestCount).toBe(1)
   expect(requestBody).toEqual({ id: 'fixture-1' })
-  await expect(summarize).toBeDisabled()
-  await expect(summarize).toHaveText(/Summarizing…/)
-  await expect(summarize.locator('.ni-summary-spinner')).toBeVisible()
+  const summary = reader.locator('.ni-reader-subject + .ni-thread-summary')
+  await expect(summary).toContainText('Summarizing thread…')
+  await expect(summary.locator('.ni-summary-spinner')).toBeVisible()
+  await expect(reader.locator('.ni-summarize-btn')).toHaveCount(0)
 
   releaseSummary()
-  const summary = reader.locator('.ni-reader-labels + .ni-summary-box')
   await expect(summary).toBeVisible()
-  await expect(summary).toContainText('AI summary')
-  await expect(summary).toContainText('City Construction shared a revised plan.')
-  await expect(summarize).toBeEnabled()
-  await expect(summarize).toHaveText(/Regenerate Summary/)
+  await expect(summary).toContainText(
+    'City Construction shared a revised plan and needs approval for the dimensions.',
+  )
+  await expect(summary.locator('.ni-thread-summary-text')).toHaveCSS('white-space', 'nowrap')
   await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText(
     'auto_awesome',
   )
@@ -983,27 +976,25 @@ test('Reader Summarize shows a loading indicator and renders the AI thread summa
   await expect(cityRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
 })
 
-test('Reader restores a saved AI summary and offers to regenerate it', async ({ page }) => {
+test('Reader restores a fresh saved thread summary without regenerating it', async ({ page }) => {
   await page.goto('/inbox')
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   await row.click()
 
   let reader = page.locator('.ni-reader')
-  await reader.locator('.ni-summarize-btn').click()
-  await expect(reader.locator('.ni-summary-box')).toContainText(
-    'City Construction shared a revised kitchen floor plan',
+  await expect(reader.locator('.ni-thread-summary')).toContainText(
+    'City Construction shared a revised kitchen plan',
   )
-  await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
 
   await page.reload()
   await expect(row.locator('.ni-subject .ni-ai-generated-icon')).toHaveText('auto_awesome')
   await row.click()
   reader = page.locator('.ni-reader')
 
-  await expect(reader.locator('.ni-summary-box')).toContainText(
-    'City Construction shared a revised kitchen floor plan',
+  await expect(reader.locator('.ni-thread-summary')).toContainText(
+    'City Construction shared a revised kitchen plan',
   )
-  await expect(reader.locator('.ni-summarize-btn')).toHaveText(/Regenerate Summary/)
+  await expect(reader.locator('.ni-summarize-btn')).toHaveCount(0)
 })
 
 test('Reader shows the whole conversation with the earlier message collapsed', async ({ page }) => {
