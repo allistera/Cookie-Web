@@ -8,6 +8,7 @@ export const settingsSectionGroups = [
       { id: 'appearance', label: 'Appearance', icon: 'palette' },
       { id: 'notifications', label: 'Notifications', icon: 'notifications' },
       { id: 'personalisation', label: 'Personalisation', icon: 'interests' },
+      { id: 'ai-today', label: 'AI Today', icon: 'auto_awesome' },
     ],
   },
   {

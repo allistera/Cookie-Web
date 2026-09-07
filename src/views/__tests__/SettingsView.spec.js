@@ -109,6 +109,21 @@ describe('SettingsView', () => {
             }
           }
           if (String(url).includes('/tasks/interests')) return { interests: [] }
+          if (String(url).includes('/tasks/enrichment-settings')) {
+            return {
+              enrichmentSettings: {
+                model: 'gpt-5-nano',
+                schedule: {
+                  enabled: true,
+                  days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+                  startHour: 9,
+                  endHour: 19,
+                  intervalHours: 1,
+                  timezone: 'Europe/London',
+                },
+              },
+            }
+          }
           if (String(url).includes('/emails/spam-retention')) {
             return { spamRetentionDays: 30, defaultDays: 30, minDays: 1, maxDays: 365 }
           }
@@ -288,12 +303,13 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(13)
+    expect(navItems).toHaveLength(14)
     for (const [i, name] of [
       'Account',
       'Appearance',
       'Notifications',
       'Personalisation',
+      'AI Today',
       'Signature',
       'Snippets',
       'Labels',

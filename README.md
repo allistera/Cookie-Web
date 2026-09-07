@@ -47,12 +47,14 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   visible priority groups; Noise is summarized by category without archiving or
   deleting anything. The `data-enricher` Worker produces these records and
   Cookie-Web's browser SPA reads them directly from the `cookie-web-tasks`
-  Cloudflare Worker (Cookie-Worker repo), not this app's own API. Refresh
-  rebuilds triage and news on demand; the trigger URL/token for that now live
-  in `cookie-web-tasks`'s own Cloudflare config, not Cookie-Web's.
+  Cloudflare Worker (Cookie-Worker repo), not this app's own API.
 - Settings → Personalisation edits the topics the news round-up is ranked
   against. Stored server-side in `users.prefs` rather than the browser, since
-  the Worker reads them overnight.
+  the Worker reads them on its schedule with no browser open.
+- Settings → AI Today edits the data-enricher model and its Europe/London
+  schedule. It defaults to GPT-5 nano every day, hourly from 09:00 through
+  19:00 inclusive; the hourly Cloudflare trigger skips AI work outside the
+  stored slots.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
 - AI Document: the New document dialog's "AI document" option turns a prompt into
   a titled, block-formatted page (via `cookie-web-ai`'s `POST /document`).

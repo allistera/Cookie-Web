@@ -1221,7 +1221,7 @@ function localApiPlugin(mode) {
     }
   }
 
-  // cookie-web-tasks: /documents and /tasks[/refresh|interests|daily-note-seed|image-upload]
+  // cookie-web-tasks: /documents and task resources used by the browser.
   const handleWorkerTasksApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
@@ -1561,6 +1561,24 @@ function localApiPlugin(mode) {
         state.interests = Array.isArray(body.interests) ? body.interests : []
       }
       return json(res, { interests: state.interests })
+    }
+    if (sub === 'enrichment-settings') {
+      state.enrichmentSettings ??= {
+        model: 'gpt-5-nano',
+        schedule: {
+          enabled: true,
+          days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+          startHour: 9,
+          endHour: 19,
+          intervalHours: 1,
+          timezone: 'Europe/London',
+        },
+      }
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        state.enrichmentSettings = body.enrichmentSettings
+      }
+      return json(res, { enrichmentSettings: state.enrichmentSettings })
     }
     if (sub === 'daily-note-seed') {
       state.dailyNoteSeed ??= []

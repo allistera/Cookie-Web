@@ -193,13 +193,9 @@ function newsLink(item) {
   return safeHref(item.url)
 }
 
-// How stale the gathered set is, from the most recent of: a task's
-// gathered_at, or the digest's/news's created_at. Refresh only ever rebuilds
-// the digest and news (tasks come from the Tasks app/email gathering,
-// untouched by it), so anchoring this to tasks alone left the status text - the one
-// visible sign a refresh did anything - stuck on the last overnight run even
-// after a successful rebuild. `now` is only re-read on mount and on refresh;
-// this is a dashboard glanced at, not a live clock.
+// How stale the gathered set is, from the most recent of a task's gathered_at
+// or the digest/news created_at. `now` is read when the dashboard mounts; this
+// is a dashboard glanced at, not a live clock.
 const now = ref(Date.now())
 
 const gatheredAt = computed(() => {
@@ -220,28 +216,6 @@ const statusTime = computed(() => {
   if (hours < 24) return `Updated ${hours}h ago`
   return `Updated ${Math.floor(hours / 24)}d ago`
 })
-
-const isRefreshing = ref(false)
-
-// Rebuild triage first so refreshing surfaces mail that arrived since the
-// overnight run, then re-read. A deployment without the enricher wired up
-// still gets the plain re-read rather than an error.
-async function refresh() {
-  if (isRefreshing.value) return
-  isRefreshing.value = true
-  try {
-    await store.rebuildDigest()
-  } catch {
-    store.notify('Could not rebuild the digest; showing the latest stored one.', 'error')
-  }
-  try {
-    await store.loadTasks({ force: true })
-    now.value = Date.now()
-    store.notify('AI Today updated.')
-  } finally {
-    isRefreshing.value = false
-  }
-}
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
@@ -272,18 +246,7 @@ onUnmounted(() => {
           to work through.
         </template>
       </h1>
-      <div
-        class="ai-update-status"
-        role="button"
-        tabindex="0"
-        @click="refresh"
-        @keydown.enter="refresh"
-      >
-        <span class="status-time">{{ statusTime }}</span>
-        <span class="material-symbols-outlined refresh-icon" :class="{ refreshing: isRefreshing }">
-          sync
-        </span>
-      </div>
+      <span class="status-time">{{ statusTime }}</span>
     </div>
 
     <div class="ai-cards-container">
@@ -474,7 +437,7 @@ onUnmounted(() => {
         </div>
 
         <p v-else class="topic-empty" data-testid="news-empty">
-          No news yet. The overnight run gathers GitHub, Product Hunt and UK headlines — add topics
+          No news yet. The scheduled run gathers GitHub, Product Hunt and UK headlines — add topics
           under Settings → Personalisation to have the first two picked for you.
         </p>
       </section>
@@ -483,42 +446,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.ai-update-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.status-time {
   font-size: 12px;
   color: var(--text-secondary);
-  cursor: pointer;
   width: fit-content;
   padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color var(--transition-fast);
-}
-
-.ai-update-status:hover {
-  background-color: var(--bg-hover);
-}
-
-.refresh-icon {
-  font-size: 14px;
-}
-
-/* The fetch has no fixed duration, so spin until it resolves. */
-.refreshing {
-  animation: refresh-spin 0.6s linear infinite;
-}
-
-@keyframes refresh-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .refreshing {
-    animation: none;
-  }
 }
 
 .news-link {

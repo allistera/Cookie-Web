@@ -334,8 +334,9 @@ describe('useCommands', () => {
     const { commands, push } = await setupCommands()
     const sections = commands.value.filter((c) => c.id.startsWith('settings-'))
     expect(sections.map((c) => c.title)).toContain('Settings: Appearance')
-    expect(sections).toHaveLength(13)
+    expect(sections).toHaveLength(14)
     expect(sections.map((c) => c.title)).toContain('Settings: Auto Archive')
+    expect(sections.map((c) => c.title)).toContain('Settings: AI Today')
 
     sections.find((c) => c.id === 'settings-rules').run()
     expect(push).toHaveBeenCalledWith({ name: 'settings', params: { section: 'rules' } })

@@ -300,6 +300,7 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
 
   // Staleness comes from the newest gathered_at, not a hardcoded string.
   await expect(page.locator('.status-time')).toHaveText('Updated 3h ago')
+  await expect(page.locator('.ai-update-status')).toHaveCount(0)
 
   // One list, ordered as the API returned it, with a bold title and description.
   const todos = page.getByTestId('task-rows')
@@ -383,6 +384,35 @@ test('Settings Personalisation pane adds and removes news topics', async ({ page
   })
 })
 
+test('Settings AI Today pane changes the enrichment model and schedule', async ({ page }) => {
+  const saved = []
+  await page.route(`${TASKS_API_URL}/tasks/enrichment-settings`, async (route) => {
+    if (route.request().method() === 'PUT') saved.push(route.request().postDataJSON())
+    await route.fallback()
+  })
+
+  await page.goto('/settings/ai-today')
+  const pane = page.getByTestId('ai-today-settings-section')
+  await expect(pane).toContainText('Europe/London')
+  await expect(pane.getByLabel('AI Today model')).toHaveValue('gpt-5-nano')
+  await expect(pane.getByLabel('Schedule start time')).toHaveValue('9')
+  await expect(pane.getByLabel('Schedule end time')).toHaveValue('19')
+
+  await pane.getByLabel('AI Today model').selectOption('gpt-4.1-nano')
+  await pane.getByLabel('Schedule interval').selectOption('3')
+  await pane.getByRole('button', { name: 'Save' }).click()
+
+  await expect(page.locator('.toast', { hasText: 'AI Today settings saved.' })).toBeVisible()
+  expect(saved.at(-1).enrichmentSettings).toMatchObject({
+    model: 'gpt-4.1-nano',
+    schedule: { startHour: 9, endHour: 19, intervalHours: 3 },
+  })
+
+  await page.reload()
+  await expect(pane.getByLabel('AI Today model')).toHaveValue('gpt-4.1-nano')
+  await expect(pane.getByLabel('Schedule interval')).toHaveValue('3')
+})
+
 test('Settings Spam pane changes how long spam is kept, and the change survives a reload', async ({
   page,
 }) => {
@@ -411,30 +441,6 @@ test('Settings Spam pane changes how long spam is kept, and the change survives 
 
   await page.reload()
   await expect(page.getByTestId('spam-section').locator('input[type="number"]')).toHaveValue('14')
-})
-
-test('The AI Today refresh control rebuilds the digest, then re-reads it', async ({ page }) => {
-  const calls = []
-  await page.route(`${TASKS_API_URL}/tasks**`, async (route) => {
-    const url = route.request().url()
-    if (route.request().method() === 'POST' && url.includes('/tasks/refresh')) {
-      calls.push('rebuild')
-      await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
-      return
-    }
-    if (route.request().method() === 'GET') calls.push('read')
-    await route.fallback()
-  })
-
-  await page.goto('/')
-  await expect(page.locator('.status-time')).toHaveText('Updated 3h ago')
-  calls.length = 0
-
-  await page.locator('.ai-update-status').click()
-
-  // Rebuild first, then re-read, so fresh triage lands in the same click.
-  await expect.poll(() => calls).toEqual(['rebuild', 'read'])
-  await expect(page.getByTestId('topic-sections').locator('.topic-title')).toHaveCount(2)
 })
 
 test('AI Inbox: a triage row links through to its own email', async ({ page }) => {

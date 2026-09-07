@@ -19,6 +19,7 @@ import ComposerEditor from '../components/ComposerEditor.vue'
 import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
 import DailyNoteSettings from '../components/DailyNoteSettings.vue'
 import AutoArchiveSettings from '../components/AutoArchiveSettings.vue'
+import AiTodaySettings from '../components/AiTodaySettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -66,7 +67,7 @@ const interestDraft = ref('')
 const interestError = ref('')
 const isSavingInterests = ref(false)
 
-// Every edit writes the whole list straight through, so the overnight run can
+// Every edit writes the whole list straight through, so a scheduled run can
 // never use a list the user believes they changed.
 async function persistInterests(next) {
   interestError.value = ''
@@ -689,6 +690,7 @@ function toggleRuleEnabled(rule) {
 
           <!-- Labels -->
           <AutoArchiveSettings v-if="activeSection === 'auto-archive'" />
+          <AiTodaySettings v-if="activeSection === 'ai-today'" />
 
           <!-- Personalisation -->
           <section

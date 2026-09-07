@@ -633,7 +633,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(rowsOf(wrapper)).toHaveLength(1)
   })
 
-  it('reports how stale the gathered set is and re-reads past the cache', async () => {
+  it('reports how stale the gathered set is without presenting a manual refresh control', () => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
     store.tasks = [
       {
@@ -644,86 +644,10 @@ describe('AIInboxView (AI Today)', () => {
         gathered_at: twoHoursAgo,
       },
     ]
-    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
-    const rebuildDigest = vi.spyOn(store, 'rebuildDigest').mockResolvedValue(true)
-
     const wrapper = mountView()
     expect(wrapper.get('.status-time').text()).toBe('Updated 2h ago')
-
-    await wrapper.get('.ai-update-status').trigger('click')
-    await flushPromises()
-
-    // Rebuild first so the re-read picks up mail that arrived since the cron.
-    expect(rebuildDigest).toHaveBeenCalled()
-    expect(loadTasks).toHaveBeenCalledWith({ force: true })
-    expect(rebuildDigest.mock.invocationCallOrder[0]).toBeLessThan(
-      loadTasks.mock.invocationCallOrder.at(-1),
-    )
-  })
-
-  it('moves the status text forward on a successful refresh even when no task changed', async () => {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-    store.tasks = [
-      {
-        id: 'task-1',
-        source: 'task',
-        content: 'Renew car insurance',
-        url: null,
-        gathered_at: twoHoursAgo,
-      },
-    ]
-    vi.spyOn(store, 'rebuildDigest').mockResolvedValue(true)
-    // Refresh only ever rebuilds the digest/news - the task itself (and its
-    // gathered_at) is untouched, same as a real refresh where nothing new
-    // was gathered from the Tasks app/email since the overnight run.
-    vi.spyOn(store, 'loadTasks').mockImplementation(async () => {
-      store.digest = { ...DIGEST(), created_at: new Date().toISOString() }
-    })
-    const notify = vi.spyOn(store, 'notify')
-
-    const wrapper = mountView()
-    expect(wrapper.get('.status-time').text()).toBe('Updated 2h ago')
-
-    await wrapper.get('.ai-update-status').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.get('.status-time').text()).toBe('Updated just now')
-    expect(notify).toHaveBeenCalledWith('AI Today updated.')
-  })
-
-  it('still re-reads when the digest rebuild fails', async () => {
-    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
-    vi.spyOn(store, 'rebuildDigest').mockRejectedValue(new Error('boom'))
-    const notify = vi.spyOn(store, 'notify')
-
-    const wrapper = mountView()
-    await wrapper.get('.ai-update-status').trigger('click')
-    await flushPromises()
-
-    expect(notify).toHaveBeenCalledWith(
-      'Could not rebuild the digest; showing the latest stored one.',
-      'error',
-    )
-    expect(loadTasks).toHaveBeenCalledWith({ force: true })
-  })
-
-  it('does not fire a second refresh while one is in flight', async () => {
-    let release
-    vi.spyOn(store, 'rebuildDigest').mockReturnValue(
-      new Promise((resolve) => {
-        release = resolve
-      }),
-    )
-    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
-
-    const wrapper = mountView()
-    await wrapper.get('.ai-update-status').trigger('click')
-    await wrapper.get('.ai-update-status').trigger('click')
-    expect(store.rebuildDigest).toHaveBeenCalledTimes(1)
-
-    release(true)
-    await flushPromises()
-    expect(loadTasks).toHaveBeenCalledWith({ force: true })
+    expect(wrapper.find('.ai-update-status').exists()).toBe(false)
+    expect(wrapper.find('.refresh-icon').exists()).toBe(false)
   })
 
   it('falls back when no task carries a gathered_at', () => {

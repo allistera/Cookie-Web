@@ -1,6 +1,7 @@
 import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
 import { parseAutoArchive } from '../lib/autoArchive'
+import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
@@ -589,6 +590,10 @@ export const useInboxStore = defineStore('inbox', {
     // Worker reads them overnight with no browser running.
     interests: [],
     interestsLoaded: false,
+
+    // Model and UK-local schedule for the server-side data enricher.
+    enrichmentSettings: parseEnrichmentSettings(defaultEnrichmentSettings),
+    enrichmentSettingsLoaded: false,
 
     // How many days spam is kept before the ingest cron deletes it. Stored
     // server-side (users.prefs) for the same reason as interests: the sweep
@@ -2223,6 +2228,30 @@ export const useInboxStore = defineStore('inbox', {
       return this.interests
     },
 
+    async loadEnrichmentSettings() {
+      if (this.enrichmentSettingsLoaded) return
+      const headers = await this.authHeaders()
+      const response = await fetch(`${TASKS_API_URL}/tasks/enrichment-settings`, { headers })
+      if (!response.ok) throw new Error(`GET enrichment settings responded ${response.status}`)
+      const saved = parseEnrichmentSettings(await response.json())
+      if (this.enrichmentSettingsLoaded) return
+      this.enrichmentSettings = saved
+      this.enrichmentSettingsLoaded = true
+    },
+
+    async saveEnrichmentSettings(enrichmentSettings) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${TASKS_API_URL}/tasks/enrichment-settings`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ enrichmentSettings }),
+      })
+      if (!response.ok) throw new Error(`PUT enrichment settings responded ${response.status}`)
+      this.enrichmentSettings = parseEnrichmentSettings(await response.json())
+      this.enrichmentSettingsLoaded = true
+      return this.enrichmentSettings
+    },
+
     async loadAutoArchive() {
       if (this.autoArchiveLoaded) return
       const headers = await this.authHeaders()
@@ -2284,20 +2313,6 @@ export const useInboxStore = defineStore('inbox', {
         this.spamRetentionBounds = { defaultDays, minDays, maxDays }
       }
       this.spamRetentionLoaded = true
-    },
-
-    // Asks the enricher to rebuild AI Today's triage now, then re-reads it.
-    // Resolves to false when the deployment has no enricher wired up (501), so
-    // the caller can fall back to a plain re-read instead of showing an error.
-    // Throws on a real failure.
-    async rebuildDigest() {
-      const headers = await this.authHeaders()
-      const response = await fetch(`${TASKS_API_URL}/tasks/refresh`, { method: 'POST', headers })
-      if (response.status === 501) return false
-      if (!response.ok) {
-        throw new Error(`POST /api/tasks?resource=refresh responded ${response.status}`)
-      }
-      return true
     },
 
     // Marks one digest item's message read (no-op if already read), updating
