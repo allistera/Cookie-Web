@@ -40,6 +40,13 @@ AI failure state is recoverable and never changes the mail-forwarding outcome. O
 
 ## Browser notification events
 
+`0071_thread_muting.sql` adds persistent conversation muting on `threads.is_muted`.
+Muted replies still refresh the inbox but do not create browser notification events.
+The messages Worker exposes `mute_thread` / `unmute_thread` actions and removes pending
+alerts on mute; the notifications Worker also checks mute status when claiming an alert.
+Apply this migration before deploying `cookie-web-messages` and `cookie-web-notifications`,
+then deploy Cookie-Web for the reader's Mute thread / Unmute thread control.
+
 `0016_browser_notification_events.sql` adds short-lived, opaque event tokens for opt-in browser notifications. Realtime broadcasts only the token; an authenticated Vercel function leases and resolves its owned message before the browser can display sender and subject. The table is server-only, old unclaimed events are pruned after 24 hours, and all notification failures remain isolated from inbound message ingestion.
 
 ## Read receipts
