@@ -74,7 +74,11 @@ function localApiPlugin(mode) {
     const segments = url.pathname.split('/').filter(Boolean)
     const isState = segments.length === 2 && segments[1] === 'state'
     const isSpamRetention = segments.length === 2 && segments[1] === 'spam-retention'
-    if (segments[0] !== 'emails' || (segments.length > 1 && !isState && !isSpamRetention)) {
+    const isAutoArchive = segments.length === 2 && segments[1] === 'auto-archive'
+    if (
+      segments[0] !== 'emails' ||
+      (segments.length > 1 && !isState && !isSpamRetention && !isAutoArchive)
+    ) {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ error: 'Not Found' }))
@@ -83,6 +87,38 @@ function localApiPlugin(mode) {
     const folder = url.searchParams.get('folder') || 'inbox'
     const labelName = (url.searchParams.get('label') || '').trim()
     const state = fixtureMailboxState(req, res)
+    if (isAutoArchive) {
+      res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        const flags = body?.autoArchive
+        if (
+          !flags ||
+          !['marketing', 'coldPitches', 'socialNoise'].every((key) =>
+            [true, false].includes(flags[key]),
+          )
+        ) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Invalid auto archive settings' }))
+          return
+        }
+        state.autoArchive = flags
+      } else if (req.method !== 'GET') {
+        res.statusCode = 405
+        res.end(JSON.stringify({ error: 'Method not allowed' }))
+        return
+      }
+      res.end(
+        JSON.stringify({
+          autoArchive: state.autoArchive ?? {
+            marketing: false,
+            coldPitches: false,
+            socialNoise: false,
+          },
+        }),
+      )
+      return
+    }
     // GET/PUT /emails/spam-retention: how long spam is kept, stored per
     // fixture session like the Worker stores it in users.prefs.
     if (isSpamRetention) {

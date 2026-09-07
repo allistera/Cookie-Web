@@ -167,7 +167,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(12)
+    expect(navItems).toHaveLength(13)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -177,6 +177,7 @@ describe('SettingsView', () => {
       'Snippets',
       'Labels',
       'Rules',
+      'Auto Archive',
       'Spam',
       'Calendars',
       'Templates',

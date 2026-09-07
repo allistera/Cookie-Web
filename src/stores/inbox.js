@@ -1,5 +1,6 @@
 import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
+import { parseAutoArchive } from '../lib/autoArchive'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
@@ -595,6 +596,8 @@ export const useInboxStore = defineStore('inbox', {
     spamRetentionDays: 30,
     spamRetentionBounds: { defaultDays: 30, minDays: 1, maxDays: 365 },
     spamRetentionLoaded: false,
+    autoArchive: { marketing: false, coldPitches: false, socialNoise: false },
+    autoArchiveLoaded: false,
 
     // Toast notifications
     toasts: [],
@@ -2197,6 +2200,29 @@ export const useInboxStore = defineStore('inbox', {
       this.interests = saved.interests
       this.interestsLoaded = true
       return this.interests
+    },
+
+    async loadAutoArchive() {
+      if (this.autoArchiveLoaded) return
+      const headers = await this.authHeaders()
+      const response = await fetch(`${EMAILS_API_URL}/emails/auto-archive`, { headers })
+      if (!response.ok) throw new Error(`GET auto archive responded ${response.status}`)
+      const saved = parseAutoArchive(await response.json())
+      if (this.autoArchiveLoaded) return
+      this.autoArchive = saved
+      this.autoArchiveLoaded = true
+    },
+
+    async saveAutoArchive(autoArchive) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${EMAILS_API_URL}/emails/auto-archive`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ autoArchive }),
+      })
+      if (!response.ok) throw new Error(`PUT auto archive responded ${response.status}`)
+      this.autoArchive = parseAutoArchive(await response.json())
+      this.autoArchiveLoaded = true
     },
 
     async loadSpamRetention() {

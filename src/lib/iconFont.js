@@ -5,6 +5,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'add',
   'add_reaction',
   'add_task',
+  'archive',
   'arrow_back',
   'arrow_forward',
   'attach_file',

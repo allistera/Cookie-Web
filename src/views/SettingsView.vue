@@ -18,6 +18,7 @@ import CalendarSettings from '../components/CalendarSettings.vue'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
 import DailyNoteSettings from '../components/DailyNoteSettings.vue'
+import AutoArchiveSettings from '../components/AutoArchiveSettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -647,6 +648,8 @@ function toggleRuleEnabled(rule) {
           </section>
 
           <!-- Labels -->
+          <AutoArchiveSettings v-if="activeSection === 'auto-archive'" />
+
           <!-- Personalisation -->
           <section
             v-if="activeSection === 'spam'"
