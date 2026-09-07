@@ -61,6 +61,56 @@ afterEach(() => {
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+describe('reader thread muting', () => {
+  let store
+  let wrapper
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    store.traditionalEmails = [makeEmail('mute-1', Date.now() - HOUR)]
+    store.messageBodies.set('mute-1', {
+      threadId: 'thread-1',
+      threadMuted: false,
+      thread: [],
+      attachments: [],
+    })
+    wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+    vi.restoreAllMocks()
+  })
+
+  it('offers accessible mute and unmute actions for the open conversation', async () => {
+    const toggle = vi.spyOn(store, 'setThreadMuted').mockResolvedValue()
+    const mute = wrapper.get('[aria-label="Mute thread"]')
+    expect(mute.attributes('aria-pressed')).toBe('false')
+    await mute.trigger('click')
+    expect(toggle).toHaveBeenCalledWith('mute-1', true)
+
+    store.messageBodies.get('mute-1').threadMuted = true
+    await nextTick()
+    const unmute = wrapper.get('[aria-label="Unmute thread"]')
+    expect(unmute.attributes('aria-pressed')).toBe('true')
+    await unmute.trigger('click')
+    expect(toggle).toHaveBeenLastCalledWith('mute-1', false)
+  })
+
+  it('disables the action until thread metadata is loaded and while saving', async () => {
+    store.mutingThreadIds.add('thread-1')
+    await nextTick()
+    expect(wrapper.get('[aria-label="Mute thread"]').element.disabled).toBe(true)
+    store.mutingThreadIds.clear()
+    store.messageBodies.delete('mute-1')
+    await nextTick()
+    expect(wrapper.get('[aria-label="Mute thread"]').element.disabled).toBe(true)
+  })
+})
+
 describe('inline AI reply button', () => {
   let store
   let wrapper

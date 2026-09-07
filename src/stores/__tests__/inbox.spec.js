@@ -24,6 +24,75 @@ describe('Inbox Store', () => {
     vi.restoreAllMocks()
   })
 
+  describe('Thread muting', () => {
+    it.each([true, false])(
+      'updates every cached message in the same thread to muted=%s',
+      async (muted) => {
+        const store = useInboxStore()
+        store.messageBodies.set('first', { threadId: 'thread-1', threadMuted: !muted })
+        store.messageBodies.set('reply', { threadId: 'thread-1', threadMuted: !muted })
+        store.messageBodies.set('other', { threadId: 'thread-2', threadMuted: !muted })
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ thread: { id: 'thread-1', is_muted: muted } }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        await store.setThreadMuted('reply', muted)
+
+        expect(fetchMock).toHaveBeenCalledWith(
+          `${MESSAGES_API_URL}/messages`,
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ id: 'reply', action: muted ? 'mute_thread' : 'unmute_thread' }),
+          }),
+        )
+        expect(store.messageBodies.get('first').threadMuted).toBe(muted)
+        expect(store.messageBodies.get('reply').threadMuted).toBe(muted)
+        expect(store.messageBodies.get('other').threadMuted).toBe(!muted)
+        expect(store.mutingThreadIds.size).toBe(0)
+      },
+    )
+
+    it('keeps the existing mute status and reports a failed save', async () => {
+      const store = useInboxStore()
+      store.messageBodies.set('first', { threadId: 'thread-1', threadMuted: false })
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const notify = vi.spyOn(store, 'notify')
+      await store.setThreadMuted('first', true)
+      expect(store.messageBodies.get('first').threadMuted).toBe(false)
+      expect(store.mutingThreadIds.size).toBe(0)
+      expect(notify).toHaveBeenCalledWith(expect.stringContaining('Could not change'), 'error')
+    })
+
+    it('ignores repeat toggles while the thread is being saved', async () => {
+      const store = useInboxStore()
+      store.messageBodies.set('first', { threadId: 'thread-1', threadMuted: false })
+      store.mutingThreadIds.add('thread-1')
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      await store.setThreadMuted('first', true)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('loads persisted mute status when a message is opened in a fresh session', async () => {
+      const store = useInboxStore()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ thread_id: 'thread-1', thread_muted: true, body_text: 'Reply' }),
+        }),
+      )
+      await store.fetchMessageBody('fresh')
+      expect(store.messageBodies.get('fresh')).toMatchObject({
+        threadId: 'thread-1',
+        threadMuted: true,
+      })
+    })
+  })
+
   describe('Draft autosave', () => {
     const DRAFT_ID = 'draft-1'
 

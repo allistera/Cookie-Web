@@ -609,6 +609,7 @@ export const useInboxStore = defineStore('inbox', {
     // real fetch is about to run (not on a cache hit) and cleared when it
     // settles.
     bodyLoadingId: null,
+    mutingThreadIds: new Set(),
 
     // Full message bodies fetched on demand (GET /api/messages), keyed by
     // message id. body_html is untrusted, sender-controlled HTML and is kept
@@ -1407,6 +1408,35 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
+    async setThreadMuted(id, muted) {
+      const body = this.messageBodies.get(id)
+      if (!body?.threadId || this.mutingThreadIds.has(body.threadId)) return
+      const threadId = body.threadId
+      this.mutingThreadIds.add(threadId)
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ id, action: muted ? 'mute_thread' : 'unmute_thread' }),
+        })
+        if (!response.ok) throw new Error(`Thread mute responded ${response.status}`)
+        const { thread } = await response.json()
+        if (thread?.id !== threadId || ![true, false].includes(thread.is_muted)) {
+          throw new Error('Invalid thread mute response')
+        }
+        for (const cached of this.messageBodies.values()) {
+          if (cached.threadId === threadId) cached.threadMuted = thread.is_muted
+        }
+        this.notify(thread.is_muted ? 'Thread muted. Replies will be silent.' : 'Thread unmuted.')
+      } catch (error) {
+        console.error('Failed to update thread mute:', error)
+        this.notify('Could not change thread notifications. Please try again.', 'error')
+      } finally {
+        this.mutingThreadIds.delete(threadId)
+      }
+    },
+
     openReader(email) {
       this.setUnread(email, false)
       this.openEmailId = email.id
@@ -1481,6 +1511,10 @@ export const useInboxStore = defineStore('inbox', {
           unsubscribe: unsubscribe ?? null,
           thread: Array.isArray(thread) ? thread : [],
           attachments: Array.isArray(attachments) ? attachments : [],
+        }
+        if (payload.thread_id && [true, false].includes(payload.thread_muted)) {
+          body.threadId = payload.thread_id
+          body.threadMuted = payload.thread_muted
         }
         // Keep backwards compatibility with older API responses that omit the
         // field while preserving an explicit null from the new API.

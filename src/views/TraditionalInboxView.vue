@@ -19,6 +19,8 @@ import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/cal
 const store = useInboxStore()
 const route = useRoute()
 const router = useRouter()
+const threadMuteBody = computed(() => store.messageBodies.get(store.openEmailId))
+const threadMutePending = computed(() => store.mutingThreadIds.has(threadMuteBody.value?.threadId))
 
 // --- Filtered views (?filter=starred|snoozed|sent|done|label&label=<name>) ---
 // Starred, label, Sent, Spam, Snoozed, and the hidden Done mailbox have
@@ -1536,6 +1538,20 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="ni-reader-nav">
+            <button
+              class="ni-reader-btn"
+              :class="{ active: threadMuteBody?.threadMuted }"
+              :title="threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'"
+              :aria-label="threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'"
+              :aria-pressed="Boolean(threadMuteBody?.threadMuted)"
+              :disabled="!threadMuteBody?.threadId || threadMutePending"
+              :aria-busy="threadMutePending"
+              @click="store.setThreadMuted(openEmail.id, !threadMuteBody.threadMuted)"
+            >
+              <span class="material-symbols-outlined">{{
+                threadMuteBody?.threadMuted ? 'notifications_off' : 'notifications'
+              }}</span>
+            </button>
             <button
               class="ni-reader-btn"
               :class="{ starred: openEmail.starred }"

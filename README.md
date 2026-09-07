@@ -61,6 +61,9 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Best-effort sent-mail read receipts using opaque tracking tokens.
 - Supabase Realtime pings for inbox refreshes.
 - Opt-in browser notifications for new mail while Cookie is open in a background tab.
+- Mute or unmute a conversation from the reader's notification button. Muted
+  replies still arrive and update the inbox, but do not raise browser notifications;
+  muting persists across sessions and clears queued alerts for that thread.
 
 See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.md) for the detailed AI design and [Cookie Documentation](https://allistera.github.io/Cookie-Docs/) for the deployed system guide.
 

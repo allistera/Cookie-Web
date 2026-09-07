@@ -59,6 +59,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'notification_add',
   'notifications',
   'notifications_active',
+  'notifications_off',
   'open_in_new',
   'palette',
   'person',
