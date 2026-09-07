@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useInboxStore } from '../stores/inbox'
@@ -353,10 +353,43 @@ const ruleDraft = reactive(blankRuleDraft())
 const isSavingRule = ref(false)
 const editingRuleId = ref(null)
 const ruleError = ref('')
+const ruleInstruction = ref('')
+const isGeneratingRule = ref(false)
+const ruleDraftReady = ref(false)
+const ruleGenerationError = ref('')
+let ruleGenerationVersion = 0
+onBeforeUnmount(() => {
+  ruleGenerationVersion++
+})
+
+async function generateRuleDraft() {
+  if (isGeneratingRule.value || !ruleInstruction.value.trim()) return
+  const version = ++ruleGenerationVersion
+  isGeneratingRule.value = true
+  ruleGenerationError.value = ''
+  try {
+    const draft = await store.requestAiRuleDraft(ruleInstruction.value)
+    if (version !== ruleGenerationVersion) return
+    Object.assign(ruleDraft, blankRuleDraft(), draft, {
+      label_id: draft.label_id || '',
+      prompt: draft.prompt || '',
+    })
+    ruleDraftReady.value = true
+    ruleError.value = ''
+    await nextTick()
+    document.querySelector('.rule-editor-form > input')?.focus()
+  } catch (error) {
+    if (version === ruleGenerationVersion)
+      ruleGenerationError.value = error.message || 'AI rule generation failed. Please try again.'
+  } finally {
+    if (version === ruleGenerationVersion) isGeneratingRule.value = false
+  }
+}
 
 const userLabels = computed(() => store.labels.filter((label) => label.kind === 'user'))
 
 function addRuleCondition() {
+  if (ruleDraft.conditions.length >= 10) return
   ruleDraft.conditions.push(blankCondition())
 }
 
@@ -366,12 +399,19 @@ function removeRuleCondition(index) {
 }
 
 function resetRuleDraft() {
+  ruleGenerationVersion++
+  isGeneratingRule.value = false
+  ruleDraftReady.value = false
+  ruleInstruction.value = ''
+  ruleGenerationError.value = ''
   Object.assign(ruleDraft, blankRuleDraft())
   editingRuleId.value = null
   ruleError.value = ''
 }
 
 function editRule(rule) {
+  resetRuleDraft()
+  ruleDraftReady.value = true
   ruleDraft.name = rule.name || ''
   ruleDraft.kind = rule.kind === 'ai' ? 'ai' : 'conditions'
   ruleDraft.prompt = rule.prompt || ''
@@ -391,7 +431,7 @@ function editRule(rule) {
 }
 
 async function submitRule() {
-  if (isSavingRule.value) return
+  if (isSavingRule.value || !ruleDraftReady.value) return
   if (ruleDraft.action === 'apply_label' && !ruleDraft.label_id) {
     ruleError.value = 'Choose a label to apply.'
     return
@@ -962,21 +1002,72 @@ function toggleRuleEnabled(rule) {
             </div>
             <p v-else class="settings-section-hint">No rules yet — create your first below.</p>
 
-            <form class="rule-editor-form" @submit.prevent="submitRule">
+            <form
+              v-if="!ruleDraftReady"
+              class="rule-generator-form"
+              @submit.prevent="generateRuleDraft"
+            >
+              <label class="rule-prompt-field">
+                <span class="rule-prompt-label">Describe your filter</span>
+                <textarea
+                  v-model="ruleInstruction"
+                  class="label-input rule-prompt-input"
+                  rows="3"
+                  maxlength="1000"
+                  aria-label="Describe your filter"
+                  placeholder="e.g. Tag emails from billing@zoom.us as Finance"
+                  :disabled="isGeneratingRule"
+                ></textarea>
+              </label>
+              <p class="settings-section-hint">
+                Describe which incoming emails to match and what to do with them. Cookie will
+                prepare a rule for you to review — nothing is saved yet.
+              </p>
+              <p v-if="ruleGenerationError" class="snippet-error" role="alert">
+                {{ ruleGenerationError }}
+              </p>
+              <div class="label-create-actions">
+                <button
+                  v-if="isGeneratingRule"
+                  type="button"
+                  class="btn btn-secondary"
+                  @click="resetRuleDraft"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  :disabled="isGeneratingRule || !ruleInstruction.trim()"
+                >
+                  {{ isGeneratingRule ? 'Generating…' : 'Generate Rule' }}
+                </button>
+              </div>
+            </form>
+
+            <form v-else class="rule-editor-form" @submit.prevent="submitRule">
+              <p class="settings-section-hint">
+                {{
+                  editingRuleId
+                    ? 'Edit your rule below.'
+                    : 'Review your generated rule and correct anything before creating it.'
+                }}
+              </p>
               <input
                 v-model="ruleDraft.name"
+                aria-label="Rule name"
                 class="label-input"
                 maxlength="100"
                 placeholder="Rule name (optional)"
               />
 
-              <label class="settings-row rule-kind-row">
-                <span>Rule type</span>
-                <select class="settings-select" v-model="ruleDraft.kind" aria-label="Rule type">
-                  <option value="conditions">Conditions</option>
-                  <option value="ai">Cookie AI prompt</option>
-                </select>
-              </label>
+              <p class="settings-section-hint">
+                {{
+                  ruleDraft.kind === 'ai'
+                    ? 'AI matching: Cookie judges new mail against the description below during AI auto-tagging.'
+                    : 'Exact matching: these conditions run as new mail arrives.'
+                }}
+              </p>
 
               <label v-if="ruleDraft.kind === 'ai'" class="rule-prompt-field">
                 <span class="rule-prompt-label">
@@ -1003,12 +1094,20 @@ function toggleRuleEnabled(rule) {
                 class="rule-condition-row"
                 :key="index"
               >
-                <select class="settings-select" v-model="condition.field">
+                <select
+                  class="settings-select"
+                  v-model="condition.field"
+                  :aria-label="`Condition ${index + 1} field`"
+                >
                   <option v-for="field in RULE_FIELDS" :key="field.value" :value="field.value">
                     {{ field.label }}
                   </option>
                 </select>
-                <select class="settings-select" v-model="condition.operator">
+                <select
+                  class="settings-select"
+                  v-model="condition.operator"
+                  :aria-label="`Condition ${index + 1} operator`"
+                >
                   <option
                     v-for="operator in RULE_OPERATORS"
                     :key="operator.value"
@@ -1019,6 +1118,7 @@ function toggleRuleEnabled(rule) {
                 </select>
                 <input
                   v-model="condition.value"
+                  :aria-label="`Condition ${index + 1} value`"
                   class="label-input"
                   maxlength="200"
                   placeholder="Value"
@@ -1037,6 +1137,7 @@ function toggleRuleEnabled(rule) {
                 v-if="ruleDraft.kind === 'conditions'"
                 type="button"
                 class="btn btn-secondary rule-add-condition-btn"
+                :disabled="ruleDraft.conditions.length >= 10"
                 @click="addRuleCondition"
               >
                 + Add condition
@@ -1069,17 +1170,29 @@ function toggleRuleEnabled(rule) {
               </div>
 
               <p v-if="ruleError" class="snippet-error" role="alert">{{ ruleError }}</p>
+              <p v-if="ruleDraft.action === 'mark_done'" class="settings-section-hint">
+                Matching mail will be archived and marked read. It remains available in Done.
+              </p>
               <div class="label-create-actions">
                 <button
-                  v-if="editingRuleId"
                   type="button"
                   class="btn btn-secondary"
+                  :disabled="isSavingRule"
                   @click="resetRuleDraft"
                 >
                   Cancel
                 </button>
+                <button
+                  v-if="!editingRuleId"
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="isSavingRule"
+                  @click="ruleDraftReady = false"
+                >
+                  Back to description
+                </button>
                 <button type="submit" class="btn btn-primary" :disabled="isSavingRule">
-                  {{ editingRuleId ? 'Save rule' : 'Add rule' }}
+                  {{ editingRuleId ? 'Save rule' : 'Create Rule' }}
                 </button>
               </div>
             </form>

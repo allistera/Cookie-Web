@@ -4462,7 +4462,8 @@ button.ni-attachment:hover {
   flex-shrink: 0;
 }
 
-.rule-editor-form {
+.rule-editor-form,
+.rule-generator-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -4489,8 +4490,7 @@ button.ni-attachment:hover {
   gap: 16px;
 }
 
-.rule-create-fields .settings-row,
-.rule-kind-row {
+.rule-create-fields .settings-row {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;

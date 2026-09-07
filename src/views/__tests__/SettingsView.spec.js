@@ -8,7 +8,7 @@ import SettingsView from '../SettingsView.vue'
 import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
-import { EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import { AI_API_URL, EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
 // useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
@@ -162,6 +162,127 @@ describe('SettingsView', () => {
   async function openRulesPane(wrapper) {
     await openPane(wrapper, 'rules')
   }
+
+  async function generateRule(wrapper, changes = {}) {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        draft: {
+          name: 'Generated rule',
+          kind: 'conditions',
+          prompt: null,
+          action: 'apply_label',
+          label_id: 'l1',
+          match_type: 'all',
+          conditions: [{ field: 'subject', operator: 'contains', value: 'invoice' }],
+          ...changes,
+        },
+      }),
+    })
+    await wrapper.get('[aria-label="Describe your filter"]').setValue('Tag invoices Finance')
+    await wrapper.get('.rule-generator-form').trigger('submit')
+    await flushPromises()
+  }
+
+  it('generates an editable draft without creating a rule', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    expect(wrapper.find('.rule-editor-form').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Rule type"]').exists()).toBe(false)
+    await generateRule(wrapper)
+    expect(fetch).toHaveBeenLastCalledWith(`${AI_API_URL}/rule-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction: 'Tag invoices Finance' }),
+    })
+    expect(store.rules).toHaveLength(1)
+    expect(wrapper.get('.rule-editor-form > input').element.value).toBe('Generated rule')
+    expect(wrapper.get('.rule-condition-row input').element.value).toBe('invoice')
+    await wrapper.get('.rule-editor-form > input').setValue('Corrected name')
+    expect(store.rules).toHaveLength(1)
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Cancel')
+      .trigger('click')
+    expect(wrapper.find('.rule-editor-form').exists()).toBe(false)
+    expect(store.rules).toHaveLength(1)
+  })
+
+  it('keeps the description and allows retry after generation fails', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ error: 'Rules cannot forward mail.' }),
+    })
+    await wrapper.get('[aria-label="Describe your filter"]').setValue('Forward mail')
+    await wrapper.get('.rule-generator-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('Rules cannot forward mail.')
+    expect(wrapper.get('[aria-label="Describe your filter"]').element.value).toBe('Forward mail')
+    expect(wrapper.find('.rule-editor-form').exists()).toBe(false)
+    await generateRule(wrapper)
+    expect(wrapper.find('.rule-editor-form').exists()).toBe(true)
+  })
+
+  it.each(['cancel', 'edit'])('ignores a late generation response after %s', async (action) => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    let finish
+    const pending = new Promise((resolve) => {
+      finish = resolve
+    })
+    fetch.mockReturnValueOnce(pending)
+    await wrapper.get('[aria-label="Describe your filter"]').setValue('Tag bills')
+    await wrapper.get('.rule-generator-form').trigger('submit')
+    await flushPromises()
+    const calls = fetch.mock.calls.length
+    expect(wrapper.get('.rule-generator-form button[type="submit"]').element.disabled).toBe(true)
+    await wrapper.get('.rule-generator-form').trigger('submit')
+    expect(fetch.mock.calls).toHaveLength(calls)
+    if (action === 'edit') await wrapper.get('[title="Edit Bills"]').trigger('click')
+    else
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Cancel')
+        .trigger('click')
+    finish({
+      ok: true,
+      json: async () => ({
+        draft: { name: 'Late result', kind: 'ai', prompt: 'Bills', conditions: [] },
+      }),
+    })
+    await flushPromises()
+    expect(wrapper.find('.rule-editor-form').exists()).toBe(action === 'edit')
+    expect(wrapper.element.querySelector('[aria-label="Rule name"]')?.value).toBe(
+      action === 'edit' ? 'Bills' : undefined,
+    )
+    expect(store.rules).toHaveLength(1)
+  })
+
+  it('requires a tag selection when the generated tag is unresolved', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    await generateRule(wrapper, { label_id: null })
+    const calls = fetch.mock.calls.length
+    await wrapper.get('.rule-editor-form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toBe('Choose a label to apply.')
+    expect(fetch.mock.calls).toHaveLength(calls)
+  })
+
+  it('preserves a corrected draft if saving fails', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    await generateRule(wrapper)
+    await wrapper.get('[aria-label="Rule name"]').setValue('My correction')
+    fetch.mockResolvedValueOnce({ ok: false, status: 500 })
+    await wrapper.get('.rule-editor-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('Failed to save the rule.')
+    expect(wrapper.get('[aria-label="Rule name"]').element.value).toBe('My correction')
+    expect(store.rules).toHaveLength(1)
+  })
 
   it('renders as a full page with grouped navigation and the Account pane', async () => {
     const wrapper = await openView()
@@ -573,6 +694,7 @@ describe('SettingsView', () => {
   it('creates a rule from the form and resets it', async () => {
     const wrapper = await openView()
     await openRulesPane(wrapper)
+    await generateRule(wrapper)
 
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -615,6 +737,7 @@ describe('SettingsView', () => {
   it('creates a Cookie AI rule from a plain-language prompt', async () => {
     const wrapper = await openView()
     await openRulesPane(wrapper)
+    await generateRule(wrapper, { kind: 'ai', prompt: 'Shop receipts', conditions: [] })
 
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -635,7 +758,6 @@ describe('SettingsView', () => {
     })
 
     await wrapper.find('.rule-editor-form > input.label-input').setValue('Receipts')
-    await wrapper.find('[aria-label="Rule type"]').setValue('ai')
     expect(wrapper.find('.rule-condition-row').exists()).toBe(false)
     await wrapper
       .find('[aria-label="AI prompt"]')
@@ -665,9 +787,10 @@ describe('SettingsView', () => {
   it('refuses to save an AI rule with an empty prompt', async () => {
     const wrapper = await openView()
     await openRulesPane(wrapper)
+    await generateRule(wrapper, { kind: 'ai', prompt: 'Shop receipts', conditions: [] })
     const calls = fetch.mock.calls.length
 
-    await wrapper.find('[aria-label="Rule type"]').setValue('ai')
+    await wrapper.get('[aria-label="AI prompt"]').setValue('')
     await wrapper.findAll('.rule-create-fields select')[1].setValue('l2')
     await wrapper.find('.rule-editor-form').trigger('submit')
 
@@ -678,6 +801,7 @@ describe('SettingsView', () => {
   it('creates a mark_done rule without a label', async () => {
     const wrapper = await openView()
     await openRulesPane(wrapper)
+    await generateRule(wrapper)
 
     fetch.mockResolvedValueOnce({
       ok: true,

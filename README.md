@@ -57,6 +57,15 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - AI Document: the New document dialog's "AI document" option turns a prompt into
   a titled, block-formatted page (via `cookie-web-ai`'s `POST /document`).
 - Per-label auto-tag controls and conservative spam classification.
+- Settings → Rules starts with a plain-English description and **Generate Rule**.
+  Review and edit the suggested name, matching details, action and tag, then select
+  **Create Rule** to save it. Generation never activates a rule or changes mail.
+  Cookie uses exact conditions when appropriate or an editable AI matching prompt
+  for semantic requests. Existing rules remain editable. Supported actions are
+  applying an existing user tag or marking mail done (archive and mark read).
+  Unsupported requests explain the limitation; missing tags must be selected before
+  saving. The authenticated `cookie-web-ai` `POST /rule-draft` endpoint shares the
+  existing AI quota and compose model; deploy that Worker before the frontend.
 - Outbound delivery through Resend with stored sent copies.
 - Best-effort sent-mail read receipts using opaque tracking tokens.
 - Supabase Realtime pings for inbox refreshes.

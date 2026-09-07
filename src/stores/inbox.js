@@ -2107,6 +2107,27 @@ export const useInboxStore = defineStore('inbox', {
       this.snippets = saveStoredSnippets(snippets)
     },
 
+    // Returns an unsaved suggestion. Only createRule/updateRule persist rules.
+    async requestAiRuleDraft(instruction) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${AI_API_URL}/rule-draft`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ instruction: instruction.trim() }),
+      })
+      const data = await response.json()
+      if (!response.ok)
+        throw new Error(data.error || 'AI rule generation failed. Please try again.')
+      if (
+        !data.draft ||
+        !['conditions', 'ai'].includes(data.draft.kind) ||
+        !Array.isArray(data.draft.conditions)
+      ) {
+        throw new Error('AI returned an invalid rule. Please try again.')
+      }
+      return data.draft
+    },
+
     async requestAiSnippet(instruction) {
       const prompt = instruction.trim()
       if (!prompt) return null
