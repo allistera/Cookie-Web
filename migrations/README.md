@@ -264,3 +264,13 @@ and payload hash, unique per owner, so retries of a queued send return the same
 row. Reusing an id with different content returns HTTP 409. Clients without an
 id keep the existing scheduling behavior. Request records follow the scheduled
 row's existing cancellation and retention lifecycle.
+
+## Live thread summaries
+
+`0072_thread_summaries.sql` stores a one-line summary on `threads`, separately
+from the per-message enrichment in `message_ai.summary`. The accompanying
+message and AI Workers compare `ai_summary_message_id` with the newest live
+message, so a reply immediately makes an old summary stale and the Web reader
+regenerates it after the existing Realtime inbox refresh. Apply this migration
+before deploying `cookie-web-ai`, `cookie-web-emails`, `cookie-web-messages`,
+`cookie-web-search`, and Cookie-Web.
