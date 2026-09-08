@@ -436,6 +436,17 @@ function deleteSelected() {
 // Applies a label to every selected email. Unlike toggleTag (which toggles),
 // bulk-label always adds because the selection may be a mix.
 const bulkLabelOpen = ref(false)
+const bulkCategoryOpen = ref(false)
+
+function toggleBulkLabelMenu() {
+  bulkCategoryOpen.value = false
+  bulkLabelOpen.value = !bulkLabelOpen.value
+}
+
+function toggleBulkCategoryMenu() {
+  bulkLabelOpen.value = false
+  bulkCategoryOpen.value = !bulkCategoryOpen.value
+}
 
 function labelSelected(label) {
   const emails = [...selectedEmails.value]
@@ -448,11 +459,39 @@ function labelSelected(label) {
   store.notify(`Label "${label.name}" applied.`)
 }
 
+async function categorySelected(category) {
+  const emails = [...selectedEmails.value]
+  bulkCategoryOpen.value = false
+  const results = await Promise.all(
+    emails.map((email) => store.setMessageCategory(email, category)),
+  )
+  clearSelection()
+  const changed = results.filter(Boolean).length
+  if (changed) {
+    store.notify(
+      category
+        ? `Category "${category.name}" applied to ${changed} ${changed === 1 ? 'email' : 'emails'}.`
+        : `Category cleared from ${changed} ${changed === 1 ? 'email' : 'emails'}.`,
+    )
+  }
+}
+
 const bulkScheduleOpen = ref(false)
 const readerScheduleOpen = ref(false)
 const readerFollowUpOpen = ref(false)
 const replyFollowUpOpen = ref(false)
 const readerTagOpen = ref(false)
+const readerCategoryOpen = ref(false)
+
+function toggleReaderTagMenu() {
+  readerCategoryOpen.value = false
+  readerTagOpen.value = !readerTagOpen.value
+}
+
+function toggleReaderCategoryMenu() {
+  readerTagOpen.value = false
+  readerCategoryOpen.value = !readerCategoryOpen.value
+}
 // Depends on the menus' open flags so the presets recompute from the current
 // clock each time a menu opens — with no reactive deps this cached its
 // "Later today"/"Tomorrow" dates once at mount for the whole session.
@@ -473,6 +512,11 @@ function isLabelApplied(label) {
 
 function toggleTag(label) {
   store.toggleMessageLabel(openEmail.value, label)
+}
+
+function chooseOpenCategory(category) {
+  readerCategoryOpen.value = false
+  store.setMessageCategory(openEmail.value, category)
 }
 
 async function scheduleSelected(choice) {
@@ -1306,12 +1350,14 @@ function onDocumentClick(e) {
   if (!e.target.closest('.ni-schedule-wrap')) {
     bulkScheduleOpen.value = false
     bulkLabelOpen.value = false
+    bulkCategoryOpen.value = false
     readerScheduleOpen.value = false
     readerFollowUpOpen.value = false
     replyFollowUpOpen.value = false
   }
   if (!e.target.closest('.ni-tag-wrap')) {
     readerTagOpen.value = false
+    readerCategoryOpen.value = false
   }
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run.
@@ -1489,7 +1535,7 @@ onUnmounted(() => {
             class="ni-bulk-pill"
             aria-haspopup="menu"
             :aria-expanded="bulkLabelOpen"
-            @click="bulkLabelOpen = !bulkLabelOpen"
+            @click="toggleBulkLabelMenu"
           >
             <span class="material-symbols-outlined">sell</span>
             <span>Label</span>
@@ -1505,6 +1551,35 @@ onUnmounted(() => {
               <span>{{ label.name }}</span>
             </button>
             <span v-if="!store.allLabels.length" class="ni-schedule-menu-empty">No labels yet</span>
+          </div>
+        </div>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            class="ni-bulk-pill"
+            aria-haspopup="menu"
+            :aria-expanded="bulkCategoryOpen"
+            @click="toggleBulkCategoryMenu"
+          >
+            <span class="material-symbols-outlined">folder</span>
+            <span>Category</span>
+          </button>
+          <div v-if="bulkCategoryOpen" class="ni-schedule-menu" role="menu">
+            <button role="menuitem" @click="categorySelected(null)">
+              <span class="material-symbols-outlined ni-menu-leading-icon">close</span>
+              <span>No category</span>
+            </button>
+            <button
+              v-for="category in store.allCategories"
+              :key="category.id"
+              role="menuitem"
+              @click="categorySelected(category)"
+            >
+              <span class="ni-label-dot" :style="{ background: category.color }"></span>
+              <span>{{ category.name }}</span>
+            </button>
+            <span v-if="!store.allCategories.length" class="ni-schedule-menu-empty">
+              Create categories in Settings
+            </span>
           </div>
         </div>
         <button class="ni-bulk-pill ni-bulk-pill--danger" @click="deleteSelected">
@@ -1612,11 +1687,62 @@ onUnmounted(() => {
             <div class="ni-tag-wrap">
               <button
                 class="ni-reader-btn"
+                title="Category"
+                aria-label="Set category"
+                aria-haspopup="menu"
+                :aria-expanded="readerCategoryOpen"
+                @click="toggleReaderCategoryMenu"
+              >
+                <span class="material-symbols-outlined">folder</span>
+              </button>
+              <div v-if="readerCategoryOpen" class="ni-tag-menu" role="menu">
+                <button
+                  role="menuitemradio"
+                  :aria-checked="!openEmail.category"
+                  class="ni-tag-item"
+                  :class="{ applied: !openEmail.category }"
+                  @click="chooseOpenCategory(null)"
+                >
+                  <span class="material-symbols-outlined ni-menu-leading-icon">close</span>
+                  <span class="ni-tag-name">No category</span>
+                  <span
+                    v-if="!openEmail.category"
+                    class="material-symbols-outlined ni-tag-check"
+                    aria-hidden="true"
+                    >check</span
+                  >
+                </button>
+                <button
+                  v-for="category in store.allCategories"
+                  :key="category.id"
+                  role="menuitemradio"
+                  :aria-checked="openEmail.category?.id === category.id"
+                  class="ni-tag-item"
+                  :class="{ applied: openEmail.category?.id === category.id }"
+                  @click="chooseOpenCategory(category)"
+                >
+                  <span class="ni-tag-dot" :style="{ backgroundColor: category.color }"></span>
+                  <span class="ni-tag-name">{{ category.name }}</span>
+                  <span
+                    v-if="openEmail.category?.id === category.id"
+                    class="material-symbols-outlined ni-tag-check"
+                    aria-hidden="true"
+                    >check</span
+                  >
+                </button>
+                <p v-if="!store.allCategories.length" class="ni-tag-empty">
+                  No categories yet. Create them in Settings → Categories.
+                </p>
+              </div>
+            </div>
+            <div class="ni-tag-wrap">
+              <button
+                class="ni-reader-btn"
                 title="Tag"
                 aria-label="Add tags"
                 aria-haspopup="menu"
                 :aria-expanded="readerTagOpen"
-                @click="readerTagOpen = !readerTagOpen"
+                @click="toggleReaderTagMenu"
               >
                 <span class="material-symbols-outlined">sell</span>
               </button>
@@ -1695,7 +1821,17 @@ onUnmounted(() => {
           }}</span>
         </div>
 
-        <div class="ni-reader-labels" v-if="openEmail.labels?.length">
+        <div class="ni-reader-labels" v-if="openEmail.category || openEmail.labels?.length">
+          <span
+            v-if="openEmail.category"
+            class="ni-category-pill"
+            :style="{
+              color: openEmail.category.color,
+              backgroundColor: openEmail.category.color + '1f',
+            }"
+          >
+            {{ openEmail.category.name }}
+          </span>
           <span
             v-for="label in openEmail.labels"
             :key="label.name"

@@ -581,6 +581,7 @@ describe('Inbox Store', () => {
         hasAiSummary: true,
         hasAttachments: false,
         labels: [],
+        category: null,
       },
     ])
     expect(store.unreadInboxCount).toBe(1)
@@ -4224,6 +4225,53 @@ describe('finding an email by id', () => {
     store.openEmailId = 'a'
 
     expect(store.openEmail).toMatchObject({ subject: 'Inbox one' })
+  })
+})
+
+describe('email Categories', () => {
+  it('maps the one category returned by list and search endpoints', () => {
+    const category = { id: 'c1', name: 'Projects', color: '#1a73e8' }
+    const mapped = mapEmailRow({ id: 'm1', sent_at: '2026-09-08T09:00:00Z', category })
+    expect(mapped.category).toEqual(category)
+  })
+
+  it('replaces the category on every loaded copy of a message', async () => {
+    const store = useInboxStore()
+    const category = { id: 'c2', name: 'Clients', color: '#7048e8' }
+    store.traditionalEmails = [{ id: 'm1', category: null }]
+    store.starredEmails = [{ id: 'm1', category: null }]
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ category }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await store.setMessageCategory(store.traditionalEmails[0], category)).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-access-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id: 'm1', action: 'set_category', category_id: 'c2' }),
+    })
+    expect(store.traditionalEmails[0].category).toEqual(category)
+    expect(store.starredEmails[0].category).toEqual(category)
+  })
+
+  it('clears loaded message assignments when a Category is deleted', async () => {
+    const store = useInboxStore()
+    const category = { id: 'c1', name: 'Projects', color: '#1a73e8' }
+    store.categories = [category]
+    store.traditionalEmails = [{ id: 'm1', category }]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }),
+    )
+
+    expect(await store.deleteCategory('c1')).toBe(true)
+    expect(store.categories).toEqual([])
+    expect(store.traditionalEmails[0].category).toBeNull()
   })
 })
 

@@ -413,6 +413,7 @@ export function mapEmailRow(message) {
     // folders exclude it, so count adjustments need to know.
     isArchived: Boolean(message.is_archived),
     labels: message.labels || [],
+    category: message.category ?? null,
   }
 }
 
@@ -503,6 +504,7 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
+    categories: [], // user-defined single-value email categories
     // The inbox tab the user picked: 'priority' (high-rated and due mail),
     // 'other' (the rest carrying none of the palette labels), or
     // 'label:<name>'. Null until they pick one, when the view opens on the
@@ -661,6 +663,9 @@ export const useInboxStore = defineStore('inbox', {
       return state.labels
         .filter((label) => label.kind !== 'system')
         .sort((a, b) => a.name.localeCompare(b.name))
+    },
+    allCategories(state) {
+      return [...state.categories].sort((a, b) => a.name.localeCompare(b.name))
     },
     // Drives the sidebar's Drafts folder, which only renders once there is
     // something in it. Kept current by autosave (rememberDraft) and discard
@@ -1113,6 +1118,153 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         console.error('Failed to load labels:', error)
         this.notify('Failed to load labels.', 'error')
+      }
+    },
+
+    async loadCategories() {
+      try {
+        const headers = await this.authHeaders()
+        const response = await fetch(`${LABELS_API_URL}/categories`, { headers })
+        if (!response.ok) {
+          throw new Error(`GET /categories responded ${response.status}`)
+        }
+        const { categories } = await response.json()
+        this.categories = categories
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+        this.notify('Failed to load categories.', 'error')
+      }
+    },
+
+    async setMessageCategory(email, category) {
+      if (!email) return false
+      const categoryId = category?.id ?? null
+      if ((email.category?.id ?? null) === categoryId) return true
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ id: email.id, action: 'set_category', category_id: categoryId }),
+        })
+        if (!response.ok) throw new Error(`POST /messages responded ${response.status}`)
+        const { category: assignedCategory } = await response.json()
+        for (const list of [
+          this.traditionalEmails,
+          this.starredEmails,
+          this.labelEmails,
+          this.sentEmails,
+          this.spamEmails,
+          this.snoozedEmails,
+          this.doneEmails,
+        ]) {
+          const cached = list.find((item) => item.id === email.id)
+          if (cached) cached.category = assignedCategory ?? null
+        }
+        email.category = assignedCategory ?? null
+        return true
+      } catch (error) {
+        console.error('Failed to update message category:', error)
+        this.notify('Failed to update category.', 'error')
+        return false
+      }
+    },
+
+    async createCategory({ name, color, description }) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${LABELS_API_URL}/categories`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ name, color, description }),
+        })
+        if (response.status === 409) {
+          this.notify('A category with that name already exists.', 'error')
+          return false
+        }
+        if (!response.ok) throw new Error(`POST /categories responded ${response.status}`)
+        const { category } = await response.json()
+        this.categories = [...this.categories, category].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        )
+        this.notify('Category created.')
+        return true
+      } catch (error) {
+        console.error('Failed to create category:', error)
+        this.notify('Failed to create category.', 'error')
+        return false
+      }
+    },
+
+    async deleteCategory(id) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${LABELS_API_URL}/categories`, {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ id }),
+        })
+        if (!response.ok) throw new Error(`DELETE /categories responded ${response.status}`)
+        this.categories = this.categories.filter((category) => category.id !== id)
+        for (const list of [
+          this.traditionalEmails,
+          this.starredEmails,
+          this.labelEmails,
+          this.sentEmails,
+          this.spamEmails,
+          this.snoozedEmails,
+          this.doneEmails,
+        ]) {
+          for (const email of list) {
+            if (email.category?.id === id) email.category = null
+          }
+        }
+        this.notify('Category deleted.')
+        return true
+      } catch (error) {
+        console.error('Failed to delete category:', error)
+        this.notify('Failed to delete category.', 'error')
+        return false
+      }
+    },
+
+    async renameCategory(category, name) {
+      const nextName = name.trim()
+      if (!nextName || nextName === category.name) return nextName === category.name
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${LABELS_API_URL}/categories`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: category.id, name: nextName }),
+        })
+        if (response.status === 409) {
+          this.notify('A category with that name already exists.', 'error')
+          return false
+        }
+        if (!response.ok) throw new Error(`PATCH /categories responded ${response.status}`)
+        const { category: updatedCategory } = await response.json()
+        Object.assign(category, updatedCategory)
+        this.categories.sort((a, b) => a.name.localeCompare(b.name))
+        for (const list of [
+          this.traditionalEmails,
+          this.starredEmails,
+          this.labelEmails,
+          this.sentEmails,
+          this.spamEmails,
+          this.snoozedEmails,
+          this.doneEmails,
+        ]) {
+          for (const email of list) {
+            if (email.category?.id === category.id) Object.assign(email.category, updatedCategory)
+          }
+        }
+        this.notify('Category renamed.')
+        return true
+      } catch (error) {
+        console.error('Failed to rename category:', error)
+        this.notify('Failed to rename category.', 'error')
+        return false
       }
     },
 

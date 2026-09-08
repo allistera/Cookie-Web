@@ -56,9 +56,11 @@ function localApiPlugin(mode) {
         summaries: new Map(),
         stars: new Map(),
         messageLabels: new Map(),
+        messageCategories: new Map(),
         calendarEvents: null,
         calendars: null,
         labels: null,
+        categories: null,
         rules: [],
         scheduledSends: [],
         followUps: new Map(),
@@ -149,7 +151,8 @@ function localApiPlugin(mode) {
       )
       return
     }
-    const { schedules, archived, summaries, stars, messageLabels, followUps } = state
+    const { schedules, archived, summaries, stars, messageLabels, messageCategories, followUps } =
+      state
     const now = Date.now()
     // Stars and labels changed through the messages Worker fixture override
     // the static row, so a list reflects what the test just did to it.
@@ -157,6 +160,9 @@ function localApiPlugin(mode) {
       ...email,
       is_starred: stars.get(email.id) ?? email.is_starred,
       labels: messageLabels.get(email.id) ?? email.labels,
+      category: messageCategories.has(email.id)
+        ? messageCategories.get(email.id)
+        : (email.category ?? null),
       has_ai_summary: email.has_ai_summary || summaries.has(fixtureThreadId(email.id)),
       follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
     })
@@ -928,6 +934,28 @@ function localApiPlugin(mode) {
     return state.labels
   }
 
+  const ensureStubCategories = (state) => {
+    if (!state.categories) {
+      state.categories = [
+        {
+          id: 'stub-category-1',
+          name: 'Projects',
+          color: '#1a73e8',
+          description: 'Active project mail',
+          message_count: 1,
+        },
+        {
+          id: 'stub-category-2',
+          name: 'Personal',
+          color: '#7048e8',
+          description: null,
+          message_count: 0,
+        },
+      ]
+    }
+    return state.categories
+  }
+
   // GET/POST/PATCH/DELETE /documents — mirrors the wire shape of
   // cookie-web-tasks's documents.js (folders + documents lists without blocks;
   // a single fetch by id carries blocks).
@@ -1605,12 +1633,51 @@ function localApiPlugin(mode) {
     return json(res, fixtureTasksPayload())
   }
 
-  // cookie-web-labels: /labels and /labels/rules
+  // cookie-web-labels: /labels, /labels/rules and /categories
   const handleWorkerLabelsApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
-    if (segments[0] !== 'labels') return json(res, { error: 'Not Found' }, 404)
     const state = fixtureMailboxState(req, res)
+    if (segments[0] === 'categories' && segments.length === 1) {
+      const categories = ensureStubCategories(state)
+      if (req.method === 'GET') return json(res, { categories })
+      const body = await readBody(req)
+      if (req.method === 'POST') {
+        const category = {
+          id: `stub-category-${randomUUID()}`,
+          name: body.name,
+          color: body.color,
+          description: body.description || null,
+          message_count: 0,
+        }
+        categories.push(category)
+        return json(res, { category }, 201)
+      }
+      const category = categories.find((item) => item.id === body.id)
+      if (!category) return json(res, { error: 'Category not found' }, 404)
+      if (req.method === 'PATCH') {
+        if (Object.hasOwn(body, 'name')) category.name = body.name
+        if (Object.hasOwn(body, 'color')) category.color = body.color
+        if (Object.hasOwn(body, 'description')) category.description = body.description || null
+        for (const assigned of state.messageCategories.values()) {
+          if (assigned?.id === category.id) Object.assign(assigned, category)
+        }
+        return json(res, { category })
+      }
+      if (req.method === 'DELETE') {
+        state.categories = categories.filter((item) => item.id !== body.id)
+        const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+        for (const email of fixtureEmails()) {
+          const assigned = state.messageCategories.has(email.id)
+            ? state.messageCategories.get(email.id)
+            : email.category
+          if (assigned?.id === body.id) state.messageCategories.set(email.id, null)
+        }
+        return json(res, { ok: true })
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
+    if (segments[0] !== 'labels') return json(res, { error: 'Not Found' }, 404)
     if (segments[1] === 'rules') {
       if (req.method === 'GET') return json(res, { rules: state.rules })
       const body = await readBody(req)
@@ -1771,6 +1838,15 @@ function localApiPlugin(mode) {
         current.sort((a, b) => a.name.localeCompare(b.name))
         state.messageLabels.set(body.id, current)
         return json(res, { labels: current })
+      }
+      if (body.action === 'set_category') {
+        const state = fixtureMailboxState(req, res)
+        const categories = ensureStubCategories(state)
+        const category = body.category_id
+          ? (categories.find((item) => item.id === body.category_id) ?? null)
+          : null
+        state.messageCategories.set(body.id, category)
+        return json(res, { category })
       }
       return json(res, { ok: true })
     }

@@ -47,6 +47,7 @@ const rows = [
     priority: 'high',
     has_html: true,
     has_attachments: true,
+    category: { id: 'stub-category-1', name: 'Projects', color: '#1a73e8' },
     labels: [{ name: 'Home', color: '#e5484d' }],
   },
   {

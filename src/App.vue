@@ -253,6 +253,9 @@ watch(
       // Load the full label palette so the sidebar lists every defined label,
       // not only ones on loaded emails (and without needing settings opened).
       store.loadLabels()
+      // Categories are another user-defined palette used by the reader, but
+      // each message can carry only one.
+      store.loadCategories()
       // The sidebar's Drafts and Scheduled folders only render once something
       // is in them, so both counts have to be known before either is opened.
       store.loadDrafts({ silent: true })

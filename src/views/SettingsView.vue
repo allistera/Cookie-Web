@@ -20,6 +20,7 @@ import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue
 import DailyNoteSettings from '../components/DailyNoteSettings.vue'
 import AutoArchiveSettings from '../components/AutoArchiveSettings.vue'
 import AiTodaySettings from '../components/AiTodaySettings.vue'
+import CategorySettings from '../components/CategorySettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -58,6 +59,7 @@ watch(
 )
 
 store.loadLabels()
+store.loadCategories()
 store.loadRules()
 store.loadInterests()
 store.loadSpamRetention()
@@ -907,6 +909,8 @@ function toggleRuleEnabled(rule) {
               </div>
             </form>
           </section>
+
+          <CategorySettings v-if="activeSection === 'categories'" />
 
           <!-- Calendar -->
           <section v-if="activeSection === 'calendar'" class="settings-section">

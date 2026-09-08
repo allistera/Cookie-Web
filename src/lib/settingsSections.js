@@ -17,6 +17,7 @@ export const settingsSectionGroups = [
       { id: 'signature', label: 'Signature', icon: 'draw' },
       { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
       { id: 'labels', label: 'Labels', icon: 'label' },
+      { id: 'categories', label: 'Categories', icon: 'folder' },
       { id: 'rules', label: 'Rules', icon: 'rule' },
       { id: 'auto-archive', label: 'Auto Archive', icon: 'archive' },
       { id: 'spam', label: 'Spam', icon: 'report' },

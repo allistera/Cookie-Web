@@ -1615,6 +1615,22 @@ test('Settings Labels pane lists, creates and renames labels', async ({ page }) 
   await expect(modal.locator('.ni-label-pill', { hasText: labelName })).toHaveCount(0)
 })
 
+test('Settings Categories pane lists, creates and renames categories', async ({ page }) => {
+  await page.goto('/settings/categories')
+  const settings = page.locator('.settings-page')
+  await expect(settings.locator('.ni-category-pill', { hasText: 'Projects' })).toBeVisible()
+
+  await settings.locator('input[placeholder="Category name"]').fill('Clients')
+  await settings.locator('.category-settings .btn-primary').click()
+  await expect(settings.locator('.ni-category-pill', { hasText: 'Clients' })).toBeVisible()
+
+  await settings.getByTitle('Rename Clients').click()
+  const rename = settings.getByLabel('Rename Clients')
+  await rename.fill('Customers')
+  await rename.press('Enter')
+  await expect(settings.locator('.ni-category-pill', { hasText: 'Customers' })).toBeVisible()
+})
+
 test("Command palette opens with '/', filters and navigates to Starred", async ({ page }) => {
   await page.goto('/inbox')
 
@@ -2127,6 +2143,23 @@ test('Tags can be added to and removed from an email in the reader', async ({ pa
   await expect(reader).toBeVisible()
 
   expect(pageErrors).toEqual([])
+})
+
+test('A reader email can have one Category which can be replaced or cleared', async ({ page }) => {
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'Revised Floor Plan' }).click()
+  const reader = page.locator('.ni-reader')
+
+  await expect(reader.locator('.ni-category-pill', { hasText: 'Projects' })).toBeVisible()
+  await reader.getByRole('button', { name: 'Set category' }).click()
+  const menu = reader.locator('.ni-tag-menu', { hasText: 'No category' })
+  await menu.getByRole('menuitemradio', { name: 'Personal' }).click()
+  await expect(reader.locator('.ni-category-pill', { hasText: 'Personal' })).toBeVisible()
+  await expect(reader.locator('.ni-category-pill', { hasText: 'Projects' })).toHaveCount(0)
+
+  await reader.getByRole('button', { name: 'Set category' }).click()
+  await menu.getByRole('menuitemradio', { name: 'No category' }).click()
+  await expect(reader.locator('.ni-category-pill')).toHaveCount(0)
 })
 
 test('Tasks projects nest, collapse, and survive a reload', async ({ page }) => {

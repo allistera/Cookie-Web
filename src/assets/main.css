@@ -1836,6 +1836,29 @@ body {
   font-size: 12px;
 }
 
+.ni-category-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ni-category-pill-sm {
+  padding: 1px 7px;
+  font-size: 12px;
+}
+
+.ni-menu-leading-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 17px;
+}
+
 .ni-calendar-suggestion {
   display: flex;
   align-items: center;

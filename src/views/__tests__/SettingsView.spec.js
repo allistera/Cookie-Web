@@ -42,6 +42,16 @@ const FIXTURE_LABELS = [
   },
 ]
 
+const FIXTURE_CATEGORIES = [
+  {
+    id: 'c1',
+    name: 'Projects',
+    color: '#1a73e8',
+    description: 'Active work',
+    message_count: 2,
+  },
+]
+
 const FIXTURE_RULES = [
   {
     id: 'r1',
@@ -108,6 +118,9 @@ describe('SettingsView', () => {
               })),
             }
           }
+          if (url === `${LABELS_API_URL}/categories`) {
+            return { categories: FIXTURE_CATEGORIES.map((category) => ({ ...category })) }
+          }
           if (String(url).includes('/tasks/interests')) return { interests: [] }
           if (String(url).includes('/tasks/enrichment-settings')) {
             return {
@@ -161,6 +174,7 @@ describe('SettingsView', () => {
     const wrapper = mountView()
     await vi.waitFor(() => expect(store.labels).toHaveLength(2))
     await vi.waitFor(() => expect(store.rules).toHaveLength(1))
+    await vi.waitFor(() => expect(store.categories).toHaveLength(1))
     await wrapper.vm.$nextTick()
     return wrapper
   }
@@ -303,7 +317,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(14)
+    expect(navItems).toHaveLength(15)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -313,6 +327,7 @@ describe('SettingsView', () => {
       'Signature',
       'Snippets',
       'Labels',
+      'Categories',
       'Rules',
       'Auto Archive',
       'Spam',
@@ -643,6 +658,53 @@ describe('SettingsView', () => {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'l1' }),
+    })
+  })
+
+  it('lists, creates and renames single-value Categories', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'categories')
+
+    expect(wrapper.find('.ni-category-pill').text()).toBe('Projects')
+    expect(wrapper.find('.label-description').text()).toBe('Active work')
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        category: {
+          id: 'c2',
+          name: 'Clients',
+          color: '#1a73e8',
+          description: null,
+          message_count: 0,
+        },
+      }),
+    })
+    await wrapper.find('input[placeholder="Category name"]').setValue('Clients')
+    await wrapper.find('.category-settings .label-create-form').trigger('submit')
+    await vi.waitFor(() => expect(store.categories).toHaveLength(2))
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        category: { ...FIXTURE_CATEGORIES[0], name: 'Building projects' },
+      }),
+    })
+    await wrapper.get('[title="Rename Projects"]').trigger('click')
+    const rename = wrapper.get('[aria-label="Rename Projects"]')
+    await rename.setValue('Building projects')
+    await rename.trigger('keydown', { key: 'Enter' })
+    await vi.waitFor(() =>
+      expect(store.categories.find((category) => category.id === 'c1')?.name).toBe(
+        'Building projects',
+      ),
+    )
+
+    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/categories`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'c1', name: 'Building projects' }),
     })
   })
 
