@@ -661,7 +661,7 @@ describe('SettingsView', () => {
     })
   })
 
-  it('lists, creates and renames single-value Categories', async () => {
+  it('lists, creates and edits single-value Categories', async () => {
     const wrapper = await openView()
     await openPane(wrapper, 'categories')
 
@@ -688,13 +688,20 @@ describe('SettingsView', () => {
     fetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        category: { ...FIXTURE_CATEGORIES[0], name: 'Building projects' },
+        category: {
+          ...FIXTURE_CATEGORIES[0],
+          name: 'Building projects',
+          description: 'Current construction work',
+        },
       }),
     })
-    await wrapper.get('[title="Rename Projects"]').trigger('click')
-    const rename = wrapper.get('[aria-label="Rename Projects"]')
-    await rename.setValue('Building projects')
-    await rename.trigger('keydown', { key: 'Enter' })
+    await wrapper.get('[title="Edit Projects"]').trigger('click')
+    const name = wrapper.get('[aria-label="Edit name for Projects"]')
+    const description = wrapper.get('[aria-label="Edit description for Projects"]')
+    expect(description.element.value).toBe('Active work')
+    await name.setValue('Building projects')
+    await description.setValue('Current construction work')
+    await description.trigger('keydown', { key: 'Enter' })
     await vi.waitFor(() =>
       expect(store.categories.find((category) => category.id === 'c1')?.name).toBe(
         'Building projects',
@@ -704,8 +711,13 @@ describe('SettingsView', () => {
     expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/categories`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'c1', name: 'Building projects' }),
+      body: JSON.stringify({
+        id: 'c1',
+        name: 'Building projects',
+        description: 'Current construction work',
+      }),
     })
+    expect(wrapper.find('.label-description').text()).toBe('Current construction work')
   })
 
   it('lists rules with their target label and condition summary', async () => {

@@ -19,7 +19,8 @@ const draft = reactive({ name: '', description: '', color: CATEGORY_PALETTE[3] }
 const isSaving = ref(false)
 const editingId = ref(null)
 const editedName = ref('')
-const isRenaming = ref(false)
+const editedDescription = ref('')
+const isUpdating = ref(false)
 
 async function createCategory() {
   if (!draft.name.trim() || isSaving.value) return
@@ -37,28 +38,31 @@ async function createCategory() {
   isSaving.value = false
 }
 
-function startRename(category) {
+function startEdit(category) {
   editingId.value = category.id
   editedName.value = category.name
-  nextTick(() => document.querySelector('.category-rename-input')?.focus())
+  editedDescription.value = category.description || ''
+  nextTick(() => document.querySelector('.category-edit-name')?.focus())
 }
 
-function cancelRename() {
+function cancelEdit() {
   editingId.value = null
   editedName.value = ''
+  editedDescription.value = ''
 }
 
-async function saveRename(category) {
+async function saveEdit(category) {
   const name = editedName.value.trim()
-  if (!name || isRenaming.value) return
-  if (name === category.name) {
-    cancelRename()
+  const description = editedDescription.value.trim()
+  if (!name || isUpdating.value) return
+  if (name === category.name && description === (category.description || '')) {
+    cancelEdit()
     return
   }
-  isRenaming.value = true
-  const renamed = await store.renameCategory(category, name)
-  isRenaming.value = false
-  if (renamed) cancelRename()
+  isUpdating.value = true
+  const updated = await store.updateCategory(category, { name, description })
+  isUpdating.value = false
+  if (updated) cancelEdit()
 }
 </script>
 
@@ -80,12 +84,12 @@ async function saveRename(category) {
         <input
           v-if="editingId === category.id"
           v-model="editedName"
-          class="label-input category-rename-input"
+          class="label-input category-edit-name"
           maxlength="50"
-          :aria-label="`Rename ${category.name}`"
-          :disabled="isRenaming"
-          @keydown.enter.prevent="saveRename(category)"
-          @keydown.esc.prevent="cancelRename"
+          :aria-label="`Edit name for ${category.name}`"
+          :disabled="isUpdating"
+          @keydown.enter.prevent="saveEdit(category)"
+          @keydown.esc.prevent="cancelEdit"
         />
         <span
           v-else
@@ -94,22 +98,33 @@ async function saveRename(category) {
         >
           {{ category.name }}
         </span>
-        <span class="label-description">{{ category.description || '—' }}</span>
+        <input
+          v-if="editingId === category.id"
+          v-model="editedDescription"
+          class="label-input category-edit-description"
+          maxlength="200"
+          placeholder="Description (optional)"
+          :aria-label="`Edit description for ${category.name}`"
+          :disabled="isUpdating"
+          @keydown.enter.prevent="saveEdit(category)"
+          @keydown.esc.prevent="cancelEdit"
+        />
+        <span v-else class="label-description">{{ category.description || '—' }}</span>
         <div class="label-row-actions">
           <template v-if="editingId === category.id">
             <button
               class="ni-action-btn"
               :title="`Save ${category.name}`"
-              :disabled="!editedName.trim() || isRenaming"
-              @click="saveRename(category)"
+              :disabled="!editedName.trim() || isUpdating"
+              @click="saveEdit(category)"
             >
               <span class="material-symbols-outlined">check</span>
             </button>
             <button
               class="ni-action-btn"
-              :title="`Cancel renaming ${category.name}`"
-              :disabled="isRenaming"
-              @click="cancelRename"
+              :title="`Cancel editing ${category.name}`"
+              :disabled="isUpdating"
+              @click="cancelEdit"
             >
               <span class="material-symbols-outlined">close</span>
             </button>
@@ -117,8 +132,8 @@ async function saveRename(category) {
           <template v-else>
             <button
               class="ni-action-btn"
-              :title="`Rename ${category.name}`"
-              @click="startRename(category)"
+              :title="`Edit ${category.name}`"
+              @click="startEdit(category)"
             >
               <span class="material-symbols-outlined">edit</span>
             </button>
@@ -208,12 +223,14 @@ async function saveRename(category) {
 
 @media (max-width: 720px) {
   .category-table {
-    overflow-x: auto;
+    overflow-x: visible;
   }
 
   .category-table-head,
   .category-table-row {
-    min-width: 520px;
+    grid-template-columns: minmax(88px, 0.8fr) minmax(112px, 1.2fr) 68px;
+    gap: 8px;
+    min-width: 0;
   }
 }
 </style>

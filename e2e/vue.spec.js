@@ -1615,7 +1615,7 @@ test('Settings Labels pane lists, creates and renames labels', async ({ page }) 
   await expect(modal.locator('.ni-label-pill', { hasText: labelName })).toHaveCount(0)
 })
 
-test('Settings Categories pane lists, creates and renames categories', async ({ page }) => {
+test('Settings Categories pane lists, creates and edits categories', async ({ page }) => {
   await page.goto('/settings/categories')
   const settings = page.locator('.settings-page')
   await expect(settings.locator('.ni-category-pill', { hasText: 'Projects' })).toBeVisible()
@@ -1624,11 +1624,16 @@ test('Settings Categories pane lists, creates and renames categories', async ({ 
   await settings.locator('.category-settings .btn-primary').click()
   await expect(settings.locator('.ni-category-pill', { hasText: 'Clients' })).toBeVisible()
 
-  await settings.getByTitle('Rename Clients').click()
-  const rename = settings.getByLabel('Rename Clients')
-  await rename.fill('Customers')
-  await rename.press('Enter')
+  await settings.getByTitle('Edit Clients').click()
+  const name = settings.getByLabel('Edit name for Clients')
+  const description = settings.getByLabel('Edit description for Clients')
+  await name.fill('Customers')
+  await description.fill('People we work with')
+  await description.press('Enter')
   await expect(settings.locator('.ni-category-pill', { hasText: 'Customers' })).toBeVisible()
+  await expect(
+    settings.locator('.label-description', { hasText: 'People we work with' }),
+  ).toBeVisible()
 })
 
 test("Command palette opens with '/', filters and navigates to Starred", async ({ page }) => {

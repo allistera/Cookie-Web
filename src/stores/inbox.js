@@ -1228,15 +1228,22 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async renameCategory(category, name) {
+    async updateCategory(category, { name, description }) {
       const nextName = name.trim()
-      if (!nextName || nextName === category.name) return nextName === category.name
+      const nextDescription = description.trim()
+      if (!nextName) return false
+      if (nextName === category.name && nextDescription === (category.description || ''))
+        return true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         const response = await fetch(`${LABELS_API_URL}/categories`, {
           method: 'PATCH',
           headers,
-          body: JSON.stringify({ id: category.id, name: nextName }),
+          body: JSON.stringify({
+            id: category.id,
+            name: nextName,
+            description: nextDescription,
+          }),
         })
         if (response.status === 409) {
           this.notify('A category with that name already exists.', 'error')
@@ -1259,11 +1266,11 @@ export const useInboxStore = defineStore('inbox', {
             if (email.category?.id === category.id) Object.assign(email.category, updatedCategory)
           }
         }
-        this.notify('Category renamed.')
+        this.notify('Category updated.')
         return true
       } catch (error) {
-        console.error('Failed to rename category:', error)
-        this.notify('Failed to rename category.', 'error')
+        console.error('Failed to update category:', error)
+        this.notify('Failed to update category.', 'error')
         return false
       }
     },
