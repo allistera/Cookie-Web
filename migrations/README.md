@@ -274,3 +274,12 @@ message, so a reply immediately makes an old summary stale and the Web reader
 regenerates it after the existing Realtime inbox refresh. Apply this migration
 before deploying `cookie-web-ai`, `cookie-web-emails`, `cookie-web-messages`,
 `cookie-web-search`, and Cookie-Web.
+
+## Email categories
+
+`0073_email_categories.sql` adds user-defined Category records and a nullable
+`messages.category_id` foreign key. A message can therefore belong to at most
+one Category; deleting a Category clears it from affected messages. Categories
+remain separate from many-to-many Labels and from Auto Archive's built-in AI
+classifications. Apply this migration before deploying `cookie-web-labels`,
+`cookie-web-emails`, `cookie-web-messages`, `cookie-web-search`, and Cookie-Web.
