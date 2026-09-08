@@ -315,18 +315,18 @@ describe('useCommands', () => {
   })
 
   it('switches inbox tabs, returning to the plain inbox when filtered', async () => {
-    store.labels = [{ id: 'l1', name: 'Home', color: '#f00', kind: 'user' }]
+    store.categories = [{ id: 'c1', name: 'Home', color: '#f00' }]
 
     const { commands, push } = await setupCommands('calendar')
     const tabs = commands.value.filter((c) => c.id.startsWith('tab-'))
     expect(tabs.map((c) => c.title)).toEqual([
-      'Switch to Priority tab',
+      'Switch to Important tab',
       'Switch to Home tab',
       'Switch to Other tab',
     ])
 
     tabs[1].run()
-    expect(store.inboxTab).toBe('label:Home')
+    expect(store.inboxTab).toBe('category:c1')
     expect(push).toHaveBeenCalledWith('/inbox')
   })
 

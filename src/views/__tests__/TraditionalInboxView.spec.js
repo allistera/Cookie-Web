@@ -667,7 +667,7 @@ describe('TraditionalInboxView day accordion', () => {
     const due = makeEmail('due-1', Date.now() - 5 * DAY)
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()
     store.traditionalEmails.unshift(due)
-    // Due mail lands in the Priority tab, so give it a Today row to sit above.
+    // Due mail lands in the Important tab, so give it a Today row to sit above.
     store.traditionalEmails[1].isPriority = true
 
     const wrapper = mountView()
@@ -2580,54 +2580,50 @@ describe('TraditionalInboxView inbox tabs', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     store = useInboxStore()
-    store.labels = [
-      { id: 'l-team', name: 'Team', color: '#2383e2', kind: 'user' },
-      { id: 'l-docs', name: 'Docs', color: '#8e4ec6', kind: 'user' },
-      { id: 'l-finance', name: 'Finance', color: '#2f9e44', kind: 'user' },
-      { id: 'l-ai', name: 'AI Generated', color: '#7c3aed', kind: 'system' },
+    store.categories = [
+      { id: 'c-team', name: 'Team', color: '#2383e2' },
+      { id: 'c-docs', name: 'Docs', color: '#8e4ec6' },
+      { id: 'c-finance', name: 'Finance', color: '#2f9e44' },
     ]
     const team = makeEmail('team-1', Date.now() - HOUR)
-    team.labels = [{ name: 'Team', color: '#2383e2' }]
+    team.category = store.categories[0]
     team.isPriority = true
     const both = makeEmail('both-1', Date.now() - 2 * HOUR)
-    both.labels = [
-      { name: 'Team', color: '#2383e2' },
-      { name: 'Docs', color: '#8e4ec6' },
-    ]
+    both.category = store.categories[1]
     const plain = makeEmail('plain-1', Date.now() - 3 * HOUR)
     const system = makeEmail('system-1', Date.now() - 4 * HOUR)
     system.labels = [{ name: 'AI Generated', color: '#7c3aed' }]
     store.traditionalEmails = [team, both, plain, system]
   })
 
-  it('lists Priority, the labels with mail and Other, hiding empty tabs', () => {
+  it('lists Important first, then categories with mail and Other, hiding empty tabs', () => {
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Priority 1', 'Docs 1', 'Team 2', 'Other 2'])
+    expect(tabTexts(wrapper)).toEqual(['Important 1', 'Docs 1', 'Team 1', 'Other 2'])
     expect(wrapper.findAll('.ni-tabs, .ni-header').map((element) => element.classes()[0])).toEqual([
       'ni-tabs',
       'ni-header',
     ])
     expect(wrapper.find('.ni-header').classes()).toContain('ni-header-after-tabs')
-    const priority = wrapper.find('.ni-tab')
-    expect(priority.classes()).toContain('active')
-    expect(priority.attributes('aria-selected')).toBe('true')
+    const important = wrapper.find('.ni-tab')
+    expect(important.classes()).toContain('active')
+    expect(important.attributes('aria-selected')).toBe('true')
     expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
   })
 
-  it('a label tab narrows the list to the emails carrying that label', async () => {
+  it('a category tab narrows the list to emails assigned to that category', async () => {
     const wrapper = mountView()
 
     await clickTab(wrapper, 'Team')
 
-    expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
     const team = wrapper.findAll('.ni-tab').find((tab) => tab.text().includes('Team'))
     expect(team.attributes('aria-selected')).toBe('true')
     expect(wrapper.find('.ni-tab').attributes('aria-selected')).toBe('false')
-    expect(store.inboxTab).toBe('label:Team')
+    expect(store.inboxTab).toBe('category:c-team')
   })
 
-  it('Other collects mail that is neither priority nor labelled', async () => {
+  it('Other collects mail that is neither important nor categorised', async () => {
     const wrapper = mountView()
 
     await clickTab(wrapper, 'Other')
@@ -2635,26 +2631,26 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
   })
 
-  it('always offers Priority, opening on the first tab with mail until it is picked', async () => {
-    store.labels = []
+  it('always offers Important first, opening on the first tab with mail until it is picked', async () => {
+    store.categories = []
     store.traditionalEmails[0].isPriority = false
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Priority 0', 'Other 4'])
+    expect(tabTexts(wrapper)).toEqual(['Important 0', 'Other 4'])
     expect(wrapper.findAll('.ni-tab')[1].classes()).toContain('active')
     expect(rowSubjects(wrapper)).toHaveLength(4)
 
-    await clickTab(wrapper, 'Priority')
+    await clickTab(wrapper, 'Important')
     expect(wrapper.find('.ni-tab').classes()).toContain('active')
     expect(rowSubjects(wrapper)).toHaveLength(0)
-    expect(wrapper.find('.ni-empty').text()).toContain('No priority emails')
+    expect(wrapper.find('.ni-empty').text()).toContain('No important emails')
     expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
   })
 
-  it('puts scheduled emails that are due, and follow-ups, under Priority alone', async () => {
+  it('puts scheduled emails that are due, and follow-ups, under Important alone', async () => {
     const due = makeEmail('due-1', Date.now() - 3 * DAY)
     due.scheduledFor = new Date(Date.now() - 60 * 1000).toISOString()
-    due.labels = [{ name: 'Team', color: '#2383e2' }]
+    due.category = store.categories[0]
     const followUp = makeEmail('follow-1', Date.now() - 2 * DAY)
     followUp.followUpAt = new Date(Date.now() + DAY).toISOString()
     const later = makeEmail('later-1', Date.now() - DAY)
@@ -2662,14 +2658,14 @@ describe('TraditionalInboxView inbox tabs', () => {
     store.traditionalEmails.push(due, followUp, later)
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Priority 3', 'Docs 1', 'Team 2', 'Other 3'])
+    expect(tabTexts(wrapper)).toEqual(['Important 3', 'Docs 1', 'Team 1', 'Other 3'])
     expect(rowSubjects(wrapper)).toEqual(['Subject due-1', 'Subject follow-1', 'Subject team-1'])
     expect(wrapper.find('.ni-group-header').text()).toContain('Due Today')
 
-    // The due email carries the Team label, yet Team shows neither it nor a
+    // The due email carries the Team category, yet Team shows neither it nor a
     // Due Today group.
     await clickTab(wrapper, 'Team')
-    expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
     expect(wrapper.findAll('.ni-group-header').map((h) => h.text())).not.toContainEqual(
       expect.stringContaining('Due Today'),
     )
@@ -2688,7 +2684,7 @@ describe('TraditionalInboxView inbox tabs', () => {
   })
 
   it('moves to a tab holding a linked email that sits outside the saved tab', async () => {
-    store.inboxTab = 'label:Docs'
+    store.inboxTab = 'category:c-docs'
     await router.replace({ path: '/inbox', query: { open: 'plain-1' } })
     const wrapper = mountView()
     await nextTick()
@@ -2699,16 +2695,28 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
   })
 
-  it('falls back to the first tab once the selected label is deleted', async () => {
-    store.inboxTab = 'label:Team'
+  it('keeps the selected category active when its name changes', async () => {
+    store.inboxTab = 'category:c-team'
     const wrapper = mountView()
-    expect(rowSubjects(wrapper)).toHaveLength(2)
 
-    store.labels = store.labels.filter((label) => label.name !== 'Team')
+    store.categories[0].name = 'People'
+    await nextTick()
+
+    expect(store.inboxTab).toBe('category:c-team')
+    expect(wrapper.find('.ni-tab.active').text()).toContain('People')
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
+  })
+
+  it('falls back to the first tab once the selected category is deleted', async () => {
+    store.inboxTab = 'category:c-team'
+    const wrapper = mountView()
+    expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
+
+    store.categories = store.categories.filter((category) => category.id !== 'c-team')
     await nextTick()
 
     expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
-    expect(wrapper.find('.ni-tab').text()).toContain('Priority')
+    expect(wrapper.find('.ni-tab').text()).toContain('Important')
     expect(wrapper.find('.ni-tab').classes()).toContain('active')
   })
 })

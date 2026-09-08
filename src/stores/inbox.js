@@ -22,12 +22,11 @@ import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 
-// Inbox tab ids: 'priority', 'other', or a label tab. The prefix keeps a label
-// named "All" or "Other" from colliding with the fixed tabs.
-// Inbox tab ids. Priority and Other are fixed; every palette label gets one.
+// Inbox tab ids. Important and Other are fixed; every category gets one.
+// Category ids are stable across renames and cannot collide with fixed tabs.
 export const PRIORITY_TAB = 'priority'
 export const OTHER_TAB = 'other'
-export const inboxTabForLabel = (name) => `label:${name}`
+export const inboxTabForCategory = (id) => `category:${id}`
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
@@ -407,7 +406,7 @@ export function mapEmailRow(message) {
     // listed (Starred, labels and search include spam; the inbox does not).
     isSpam: message.spam_verdict === 'spam',
     // The ingest classifier's low/normal/high rating, reduced to the one
-    // question the inbox asks: does this belong in the Priority tab?
+    // question the inbox asks: does this belong in the Important tab?
     isPriority: message.priority === 'high',
     // Starred, label and search lists span Done, and the Spam and Snoozed
     // folders exclude it, so count adjustments need to know.
@@ -506,8 +505,8 @@ export const useInboxStore = defineStore('inbox', {
     labels: [], // full palette from /api/labels (settings Labels manager)
     categories: [], // user-defined single-value email categories
     // The inbox tab the user picked: 'priority' (high-rated and due mail),
-    // 'other' (the rest carrying none of the palette labels), or
-    // 'label:<name>'. Null until they pick one, when the view opens on the
+    // 'other' (the rest with no configured category), or 'category:<id>'.
+    // Null until they pick one, when the view opens on the
     // first tab holding mail. Lives here rather than in the view so the
     // choice survives a trip to another section and back.
     inboxTab: null,
@@ -1374,10 +1373,6 @@ export const useInboxStore = defineStore('inbox', {
         const { label: updatedLabel } = await response.json()
         Object.assign(label, updatedLabel)
         this.labels.sort((a, b) => a.name.localeCompare(b.name))
-        if (this.inboxTab === inboxTabForLabel(previousName)) {
-          this.inboxTab = inboxTabForLabel(updatedLabel.name)
-        }
-
         for (const list of [
           this.traditionalEmails,
           this.starredEmails,

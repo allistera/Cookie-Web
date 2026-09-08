@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, onWatcherCleanup, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useInboxStore, inboxTabForLabel, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
+import { useInboxStore, inboxTabForCategory, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
@@ -59,19 +59,18 @@ watch(
   { immediate: true },
 )
 
-// --- Inbox tabs (Priority | <each palette label> | Other) ---
+// --- Inbox tabs (Important | <each assigned category> | Other) ---
 // The plain inbox partitions its loaded rows client-side, so the counts
 // describe what is on screen (and grow with Load More) rather than the
-// whole mailbox. Priority is always offered: it holds mail the ingest
+// whole mailbox. Important is always offered first: it holds mail the ingest
 // classifier rated high plus anything due now (a scheduled email whose time
 // has come, or a follow-up reminder). Other collects the rest that carries
-// none of the palette labels. A label tab with nothing under it stays
-// hidden. Tab ids: PRIORITY_TAB, OTHER_TAB, or inboxTabForLabel(name).
-const labelTabId = inboxTabForLabel
-const emailHasLabel = (email, name) => (email.labels || []).some((label) => label.name === name)
+// no configured category. A category tab with nothing under it stays hidden.
+// Tab ids: PRIORITY_TAB, OTHER_TAB, or inboxTabForCategory(id).
+const categoryTabId = inboxTabForCategory
 
 // Whether the email is asking for attention now: the Due Today group and
-// the Priority tab share this test.
+// the Important tab share this test.
 function isDueNow(email, now = Date.now()) {
   const scheduledFor = email.scheduledFor ? new Date(email.scheduledFor).getTime() : null
   return Boolean((scheduledFor && scheduledFor <= now) || email.followUpAt)
@@ -88,24 +87,27 @@ const inboxEmails = computed(() => {
       )
 })
 
-// Due mail belongs to Priority alone, whatever labels it carries; a label
-// tab never shows a Due Today group. High-rated mail still sits under its
-// labels too.
+// Due mail belongs to Important alone, whatever category it carries; a
+// category tab never shows a Due Today group. High-rated mail still sits
+// under its category too.
 function emailInTab(email, tabId) {
   const due = isDueNow(email)
   const priority = Boolean(email.isPriority) || due
   if (tabId === PRIORITY_TAB) return priority
   if (tabId === OTHER_TAB) {
-    return !priority && !store.allLabels.some((label) => emailHasLabel(email, label.name))
+    return !priority && !store.allCategories.some((category) => email.category?.id === category.id)
   }
-  return !due && (email.labels || []).some((label) => labelTabId(label.name) === tabId)
+  return !due && categoryTabId(email.category?.id) === tabId
 }
 
 const inboxTabs = computed(() => {
   const emails = inboxEmails.value
   return [
-    { id: PRIORITY_TAB, name: 'Priority' },
-    ...store.allLabels.map((label) => ({ id: labelTabId(label.name), name: label.name })),
+    { id: PRIORITY_TAB, name: 'Important' },
+    ...store.allCategories.map((category) => ({
+      id: categoryTabId(category.id),
+      name: category.name,
+    })),
     { id: OTHER_TAB, name: 'Other' },
   ]
     .map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))
@@ -116,7 +118,7 @@ const showInboxTabs = computed(
   () => !activeFilter.value && !store.activeSearchQuery && inboxEmails.value.length > 0,
 )
 
-// The chosen tab while it is still offered (Priority always is, even
+// The chosen tab while it is still offered (Important always is, even
 // empty, so a deliberate click on it sticks). Otherwise, before any choice
 // or once the chosen label emptied or was deleted, the first tab holding
 // mail. Null while the bar is hidden, when nothing narrows.
@@ -180,7 +182,7 @@ const showInboxZero = computed(
     !store.isRefreshing,
 )
 
-// Priority is the one tab offered while empty, so it says so instead of
+// Important is the one tab offered while empty, so it says so instead of
 // showing a blank list.
 const showPriorityEmpty = computed(
   () => activeTab.value === PRIORITY_TAB && !filteredEmails.value.length && !showInboxZero.value,
@@ -1389,7 +1391,7 @@ onUnmounted(() => {
 
 <template>
   <div class="view-panel active" id="traditionalInboxView">
-    <!-- Label tabs: partition the inbox by palette label -->
+    <!-- Category tabs: partition the inbox by its single-value category -->
     <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox tabs">
       <button
         v-for="tab in inboxTabs"
@@ -1468,7 +1470,7 @@ onUnmounted(() => {
         {{ emptyText }}
       </div>
       <div class="ni-empty" v-if="showPriorityEmpty">
-        No priority emails. High-priority and due emails land here.
+        No important emails. High-priority and due emails land here.
       </div>
       <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
         <span class="material-symbols-outlined ni-inbox-zero-icon" aria-hidden="true"

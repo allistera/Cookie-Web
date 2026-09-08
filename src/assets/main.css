@@ -996,7 +996,7 @@ body {
   font-size: 20px;
 }
 
-/* Inbox tabs: Priority | <label>… | Other. Large regular-weight names
+/* Inbox tabs: Important | <category>… | Other. Large regular-weight names
    with a smaller muted count beside each; the active name turns
    periwinkle. No underline, no border: whitespace does the separating. */
 .ni-tabs {

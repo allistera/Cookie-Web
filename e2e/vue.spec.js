@@ -913,7 +913,7 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
 
   expect(response.ok()).toBe(true)
   await expect(row).toHaveCount(0)
-  // The Priority tab is showing, so Done advances to the next priority email.
+  // The Important tab is showing, so Done advances to the next important email.
   await expect(reader.locator('.ni-reader-subject')).toContainText('guided tour')
 
   await page.goto('/inbox?filter=done')
@@ -1070,7 +1070,7 @@ test('Reader scheduling offers Tomorrow and Next Week, then removes the email un
   await expect(page.locator('.toast', { hasText: 'Scheduled for Tomorrow.' })).toBeVisible()
   await expect(row).toHaveCount(0)
   // Scheduling follows the same triage flow as Done: the next email in the
-  // Priority tab opens.
+  // Important tab opens.
   await expect(reader.locator('.ni-reader-subject')).toContainText('guided tour')
 
   const tourRow = page.locator('.ni-row', { hasText: 'guided tour' })
@@ -1273,7 +1273,7 @@ for (const width of [1280, 390]) {
   })
 }
 
-test('Priority reply draft is ready beneath the email, keeps edits on reload, and sends only on click', async ({
+test('Important reply draft is ready beneath the email, keeps edits on reload, and sends only on click', async ({
   page,
 }) => {
   let draft = {
@@ -1942,7 +1942,7 @@ test('The installed app icon is badged with the live unread inbox count', async 
 test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) => {
   await page.goto('/inbox')
 
-  // The Daily Bites newsletter is unlabelled, so it sits under the Other
+  // The Daily Bites newsletter is uncategorised, so it sits under the Other
   // tab, in the collapsed "Last seven days" group.
   await page.locator('.ni-tab', { hasText: 'Other' }).click()
   await page.locator('.ni-group-header', { hasText: 'Last seven days' }).click()
@@ -1963,7 +1963,7 @@ test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) =
   await expect(page.locator('.ni-row', { hasText: 'Daily Bites' })).toHaveCount(0)
 
   // A regular email shows no Unsubscribe control.
-  await page.locator('.ni-tab', { hasText: 'Priority' }).click()
+  await page.locator('.ni-tab', { hasText: 'Important' }).click()
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   await expect(reader).toBeVisible()
   await expect(reader.locator('[title="Unsubscribe"]')).toHaveCount(0)
@@ -2595,35 +2595,37 @@ test('The Tasks column fills its panel rather than collapsing to its content', a
   expect(view.width).toBe(Math.min(900, panel.width))
 })
 
-test('Inbox tabs open on Priority, narrow by label, and Other holds the rest', async ({ page }) => {
+test('Inbox tabs open on Important, narrow by category, and Other holds the rest', async ({
+  page,
+}) => {
   await page.goto('/inbox')
 
   const tabs = page.locator('.ni-tabs .ni-tab')
-  await expect(tabs.first()).toHaveText(/^Priority\s*2$/)
+  await expect(tabs.first()).toHaveText(/^Important\s*2$/)
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
   await expect(tabs.last()).toHaveText(/^Other\s*\d+$/)
   const priorityRow = page.locator('.ni-row', { hasText: 'City Construction' })
   await expect(page.locator('.ni-row')).toHaveCount(1)
   await expect(priorityRow).toBeVisible()
 
-  await page.locator('.ni-tab', { hasText: 'Home' }).click()
+  await page.locator('.ni-tab', { hasText: 'Projects' }).click()
   await expect(priorityRow).toBeVisible()
   const rows = page.locator('.ni-row')
-  const homeRows = page.locator('.ni-row', {
-    has: page.locator('.ni-label-pill', { hasText: 'Home' }),
+  const projectRows = page.locator('.ni-row', {
+    has: page.locator('.ni-category-pill', { hasText: 'Projects' }),
   })
-  await expect(rows).toHaveCount(await homeRows.count())
+  await expect(rows).toHaveCount(await projectRows.count())
 
   await page.locator('.ni-tab', { hasText: 'Other' }).click()
   await expect(priorityRow).toHaveCount(0)
-  await expect(page.locator('.ni-row .ni-label-pill')).toHaveCount(0)
+  await expect(page.locator('.ni-row .ni-category-pill')).toHaveCount(0)
 
   // The choice survives leaving the inbox and coming back.
-  await page.locator('.ni-tab', { hasText: 'Home' }).click()
+  await page.locator('.ni-tab', { hasText: 'Projects' }).click()
   await page.locator('.nav-item', { hasText: 'Starred' }).click()
   await expect(page.locator('.ni-tabs')).toHaveCount(0)
   await page.locator('.nav-item', { hasText: 'Inbox' }).first().click()
-  await expect(page.locator('.ni-tab', { hasText: 'Home' })).toHaveAttribute(
+  await expect(page.locator('.ni-tab', { hasText: 'Projects' })).toHaveAttribute(
     'aria-selected',
     'true',
   )
