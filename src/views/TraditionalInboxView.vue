@@ -1389,16 +1389,6 @@ onUnmounted(() => {
 
 <template>
   <div class="view-panel active" id="traditionalInboxView">
-    <!-- Header -->
-    <div class="ni-header">
-      <div class="ni-title">
-        <span class="material-symbols-outlined ni-title-icon" :style="headerIconStyle">{{
-          headerIcon
-        }}</span>
-        <h1>{{ headerTitle }}</h1>
-      </div>
-    </div>
-
     <!-- Label tabs: partition the inbox by palette label -->
     <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox tabs">
       <button
@@ -1413,6 +1403,16 @@ onUnmounted(() => {
         <span class="ni-tab-name">{{ tab.name }}</span>
         <span class="ni-tab-count">{{ tab.count }}</span>
       </button>
+    </div>
+
+    <!-- Header -->
+    <div class="ni-header" :class="{ 'ni-header-after-tabs': showInboxTabs }">
+      <div class="ni-title">
+        <span class="material-symbols-outlined ni-title-icon" :style="headerIconStyle">{{
+          headerIcon
+        }}</span>
+        <h1>{{ headerTitle }}</h1>
+      </div>
     </div>
 
     <!-- Email list -->

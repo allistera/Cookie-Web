@@ -2604,6 +2604,11 @@ describe('TraditionalInboxView inbox tabs', () => {
     const wrapper = mountView()
 
     expect(tabTexts(wrapper)).toEqual(['Priority 1', 'Docs 1', 'Team 2', 'Other 2'])
+    expect(wrapper.findAll('.ni-tabs, .ni-header').map((element) => element.classes()[0])).toEqual([
+      'ni-tabs',
+      'ni-header',
+    ])
+    expect(wrapper.find('.ni-header').classes()).toContain('ni-header-after-tabs')
     const priority = wrapper.find('.ni-tab')
     expect(priority.classes()).toContain('active')
     expect(priority.attributes('aria-selected')).toBe('true')

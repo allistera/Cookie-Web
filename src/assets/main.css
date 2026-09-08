@@ -940,6 +940,11 @@ body {
   padding: 20px 24px 12px;
 }
 
+.ni-header.ni-header-after-tabs {
+  padding-top: 2px;
+  padding-bottom: 18px;
+}
+
 .ni-title {
   display: flex;
   align-items: center;
@@ -1001,7 +1006,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: 26px;
-  padding: 2px 24px 18px;
+  padding: 20px 24px 12px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -4784,6 +4789,14 @@ button.ni-attachment:hover {
 
 @media (max-width: 600px) {
   .ni-header {
+    padding: 16px 12px 8px;
+  }
+
+  .ni-header.ni-header-after-tabs {
+    padding: 2px 12px 12px;
+  }
+
+  .ni-tabs {
     padding: 16px 12px 8px;
   }
 
