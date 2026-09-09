@@ -330,6 +330,22 @@ describe('useCommands', () => {
     expect(push).toHaveBeenCalledWith('/inbox')
   })
 
+  it('offers one Important command when a category has the same name', async () => {
+    store.categories = [
+      { id: 'c-important', name: ' important ', color: '#f00' },
+      { id: 'c-home', name: 'Home', color: '#0f0' },
+    ]
+    const { commands } = await setupCommands()
+    const tabs = commands.value.filter((c) => c.id.startsWith('tab-'))
+    expect(tabs.map((c) => c.title)).toEqual([
+      'Switch to Important tab',
+      'Switch to Home tab',
+      'Switch to Other tab',
+    ])
+    tabs[0].run()
+    expect(store.inboxTab).toBe('priority')
+  })
+
   it('opens each settings section directly', async () => {
     const { commands, push } = await setupCommands()
     const sections = commands.value.filter((c) => c.id.startsWith('settings-'))

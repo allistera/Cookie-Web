@@ -1,7 +1,13 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, onWatcherCleanup, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useInboxStore, inboxTabForCategory, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
+import {
+  useInboxStore,
+  inboxTabForCategory,
+  isImportantCategory,
+  PRIORITY_TAB,
+  OTHER_TAB,
+} from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
@@ -65,7 +71,8 @@ watch(
 // whole mailbox. Important is always offered first: it holds mail the ingest
 // classifier rated high plus anything due now (a scheduled email whose time
 // has come, or a follow-up reminder). Other collects the rest that carries
-// no configured category. A category tab with nothing under it stays hidden.
+// no configured category. Categories named Important share the fixed tab.
+// A category tab with nothing under it stays hidden.
 // Tab ids: PRIORITY_TAB, OTHER_TAB, or inboxTabForCategory(id).
 const categoryTabId = inboxTabForCategory
 
@@ -92,7 +99,12 @@ const inboxEmails = computed(() => {
 // under its category too.
 function emailInTab(email, tabId) {
   const due = isDueNow(email)
-  const priority = Boolean(email.isPriority) || due
+  const priority =
+    Boolean(email.isPriority) ||
+    due ||
+    store.allCategories.some(
+      (category) => category.id === email.category?.id && isImportantCategory(category),
+    )
   if (tabId === PRIORITY_TAB) return priority
   if (tabId === OTHER_TAB) {
     return !priority && !store.allCategories.some((category) => email.category?.id === category.id)
@@ -104,10 +116,12 @@ const inboxTabs = computed(() => {
   const emails = inboxEmails.value
   return [
     { id: PRIORITY_TAB, name: 'Important' },
-    ...store.allCategories.map((category) => ({
-      id: categoryTabId(category.id),
-      name: category.name,
-    })),
+    ...store.allCategories
+      .filter((category) => !isImportantCategory(category))
+      .map((category) => ({
+        id: categoryTabId(category.id),
+        name: category.name,
+      })),
     { id: OTHER_TAB, name: 'Other' },
   ]
     .map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))

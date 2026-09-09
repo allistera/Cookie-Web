@@ -22,11 +22,13 @@ import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 
-// Inbox tab ids. Important and Other are fixed; every category gets one.
+// Inbox tab ids. Important and Other are fixed; other categories get their own.
 // Category ids are stable across renames and cannot collide with fixed tabs.
 export const PRIORITY_TAB = 'priority'
 export const OTHER_TAB = 'other'
 export const inboxTabForCategory = (id) => `category:${id}`
+export const isImportantCategory = (category) =>
+  category?.name?.trim().toLowerCase() === 'important'
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { getStoredSignature, saveStoredSignature } from '../lib/signature'
 import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'

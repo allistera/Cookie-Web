@@ -4,7 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { settingsSections } from '../lib/settingsSections'
 import { getStoredTheme, resolveTheme, setTheme } from '../lib/theme'
 import { useCalendars } from './useCalendars'
-import { useInboxStore, inboxTabForCategory, PRIORITY_TAB, OTHER_TAB } from '../stores/inbox'
+import {
+  useInboxStore,
+  inboxTabForCategory,
+  isImportantCategory,
+  PRIORITY_TAB,
+  OTHER_TAB,
+} from '../stores/inbox'
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useDocumentsStore } from '../stores/documents'
 import { scheduleChoices } from '../utils/schedule'
@@ -353,9 +359,11 @@ export function useCommands() {
         run: () => router.push({ path: '/inbox', query: { filter: 'label', label: label.name } }),
       })),
       inboxTabCommand(PRIORITY_TAB, 'Important'),
-      ...store.allCategories.map((category) =>
-        inboxTabCommand(inboxTabForCategory(category.id), category.name, category.color),
-      ),
+      ...store.allCategories
+        .filter((category) => !isImportantCategory(category))
+        .map((category) =>
+          inboxTabCommand(inboxTabForCategory(category.id), category.name, category.color),
+        ),
       inboxTabCommand(OTHER_TAB, 'Other'),
       {
         id: 'open-settings',

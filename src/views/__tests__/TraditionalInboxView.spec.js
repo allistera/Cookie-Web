@@ -2611,6 +2611,27 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
   })
 
+  it.each(['Important', ' important '])(
+    'combines the %s category with priority mail without duplicate tabs or counts',
+    async (name) => {
+      const category = { id: 'c-important', name, color: '#2383e2' }
+      store.categories.push(category)
+      store.traditionalEmails[0].category = category
+      store.traditionalEmails[1].category = category
+      store.inboxTab = 'category:c-important'
+      const wrapper = mountView()
+
+      expect(tabTexts(wrapper)).toEqual(['Important 2', 'Other 2'])
+      expect(wrapper.find('.ni-tab.active .ni-tab-name').text()).toBe('Important')
+      expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
+
+      await clickTab(wrapper, 'Other')
+      expect(rowSubjects(wrapper)).toEqual(['Subject plain-1', 'Subject system-1'])
+      await clickTab(wrapper, 'Important')
+      expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
+    },
+  )
+
   it('a category tab narrows the list to emails assigned to that category', async () => {
     const wrapper = mountView()
 
