@@ -79,9 +79,7 @@ function isDivider(item) {
   return item.kind === 'divider'
 }
 
-const canAddDividers = computed(
-  () => taskLayout.value === 'list' && !isToday.value && !trimmedQuery.value,
-)
+const canAddDividers = computed(() => taskLayout.value === 'list' && !isToday.value)
 // One at a time: a second click while the first is still on its way would
 // put two rules side by side.
 const addingDivider = ref(false)
@@ -166,9 +164,6 @@ onMounted(() => {
 })
 
 watch(project, (next) => {
-  // A query naming a task in the old project would silently keep filtering
-  // once the new project's rows arrive, hiding them for no visible reason.
-  searchQuery.value = ''
   items.loadItems(next)
 })
 
@@ -198,45 +193,7 @@ const descriptionRows = computed(() =>
 // still loads them so the panel can resolve them from the same list.
 const topLevelItems = computed(() => items.items.filter((item) => !item.parentId))
 
-const searchQuery = ref('')
-const trimmedQuery = computed(() => searchQuery.value.trim())
-
-function matchesQuery(item, query) {
-  return (
-    item.content.toLowerCase().includes(query) ||
-    (item.description ?? '').toLowerCase().includes(query)
-  )
-}
-
-// A match can be a sub-task nested more than one level deep, so each match is
-// walked up to its top-level ancestor through a map rather than the tree
-// itself — the flat list has no child pointers. The hop count is capped at
-// the list length as a guard against a dangling parentId or an accidental
-// cycle, either of which would otherwise loop forever.
-function rootOf(item, byId) {
-  let current = item
-  let hops = 0
-  while (current.parentId && hops < items.items.length) {
-    const parent = byId.get(current.parentId)
-    if (!parent) break
-    current = parent
-    hops += 1
-  }
-  return current
-}
-
-const visibleItems = computed(() => {
-  const query = trimmedQuery.value.toLowerCase()
-  if (!query) return topLevelItems.value
-
-  const byId = new Map(items.items.map((item) => [item.id, item]))
-  const matchingRootIds = new Set()
-  for (const item of items.items) {
-    if (matchesQuery(item, query)) matchingRootIds.add(rootOf(item, byId).id)
-  }
-
-  return topLevelItems.value.filter((item) => matchingRootIds.has(item.id))
-})
+const visibleItems = topLevelItems
 
 const taskGroups = computed(() => {
   if (taskLayout.value === 'list') return [{ id: 'list', items: visibleItems.value }]
@@ -285,8 +242,7 @@ function canDropOn(item) {
 }
 
 // The rows a drop re-arranges: the whole list, or in Today the dragged
-// row's day. The full list rather than the filtered one, so a drop made
-// while searching still lands between the rows it was seen between.
+// row's day.
 function reorderGroup() {
   if (!isToday.value) return topLevelItems.value
   const { dueDate } = draggedItem.value
@@ -441,23 +397,10 @@ async function submitDraft() {
       {{ current?.description || 'Add a description' }}
     </p>
 
-    <input
-      v-if="items.items.length"
-      v-model="searchQuery"
-      type="search"
-      class="task-search"
-      placeholder="Search tasks"
-      aria-label="Search tasks"
-      @keydown.escape="searchQuery = ''"
-    />
-
     <!-- The store clears items.items before a switch goes out, so this only
        ever shows while genuinely waiting on the newly-selected project —
        never the previous project's rows. -->
     <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
-    <p v-else-if="trimmedQuery && !visibleItems.length" class="tasks-empty">
-      No tasks match "{{ trimmedQuery }}"
-    </p>
     <div v-else :class="{ 'task-board': taskLayout === 'board' }">
       <section
         v-for="group in taskGroups"
@@ -580,13 +523,7 @@ async function submitDraft() {
       </section>
     </div>
 
-    <!-- A task added while a query is active would match nothing and vanish
-       the instant it appears, so the composer waits for the query to clear. -->
-    <form
-      v-if="composing && !isToday && !trimmedQuery"
-      class="add-task-row"
-      @submit.prevent="submitDraft"
-    >
+    <form v-if="composing && !isToday" class="add-task-row" @submit.prevent="submitDraft">
       <input
         ref="draftInput"
         v-model="draft"
@@ -597,12 +534,7 @@ async function submitDraft() {
         @blur="submitDraft"
       />
     </form>
-    <button
-      v-else-if="!isToday && !trimmedQuery"
-      class="add-task-btn"
-      type="button"
-      @click="startCompose"
-    >
+    <button v-else-if="!isToday" class="add-task-btn" type="button" @click="startCompose">
       <span aria-hidden="true">+</span>
       <span>Add task</span>
     </button>
@@ -735,18 +667,6 @@ async function submitDraft() {
   font-size: 14px;
   resize: none;
   field-sizing: content;
-}
-
-.task-search {
-  display: block;
-  width: 100%;
-  margin: 0 0 12px;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 4px 8px;
 }
 
 .tasks-loading,

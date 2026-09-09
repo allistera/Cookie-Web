@@ -1426,8 +1426,15 @@ test('Search: task names, descriptions and sub-task titles match, and open the p
   await page.locator('.add-subtask-row input').press('Enter')
   await expect(page.locator('.subtask-row')).toHaveCount(1)
 
-  // A name match under the Tasks tab.
-  await page.goto('/search?q=hallway&scope=tasks')
+  // Search task names from the main header, then narrow to the Tasks tab.
+  await page.goto('/tasks?project=inbox')
+  await expect(page.getByRole('searchbox', { name: 'Search tasks' })).toHaveCount(0)
+  await page.locator('.search-input').fill('hallway')
+  await page.locator('.search-input').press('Enter')
+  await expect(
+    page.locator('.search-result-task', { hasText: 'Repaint the hallway' }),
+  ).toBeVisible()
+  await page.locator('.search-results-tab', { hasText: 'Tasks' }).click()
   await expect(page.locator('.search-results-tab.active')).toHaveText('Tasks')
   await expect(
     page.locator('.search-result-task', { hasText: 'Repaint the hallway' }),
