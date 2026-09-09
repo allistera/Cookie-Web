@@ -34,8 +34,8 @@ const count = computed(() => Number(props.layout === 'board') + Number(props.gro
       <div class="display-layouts" role="group" aria-label="Task view">
         <button
           v-for="option in [
-            { value: 'list', name: 'List', icon: 'view_list' },
-            { value: 'board', name: 'Board', icon: 'view_column' },
+            { value: 'list', name: 'List' },
+            { value: 'board', name: 'Board' },
           ]"
           :key="option.value"
           type="button"
