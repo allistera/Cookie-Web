@@ -80,7 +80,6 @@ const count = computed(() => Number(props.layout === 'board') + Number(props.gro
 <style scoped>
 .task-display {
   position: relative;
-  margin-bottom: 16px;
 }
 .display-trigger {
   display: inline-flex;
@@ -105,7 +104,7 @@ const count = computed(() => Number(props.layout === 'board') + Number(props.gro
   position: fixed;
   inset: auto;
   top: anchor(bottom);
-  left: anchor(left);
+  right: anchor(right);
   position-anchor: --task-display;
   position-try-fallbacks: flip-inline, flip-block;
   margin: 6px 0 0;
@@ -189,7 +188,7 @@ const count = computed(() => Number(props.layout === 'board') + Number(props.gro
 }
 @supports not (top: anchor(bottom)) {
   .display-popover {
-    inset: 100px auto auto 24px;
+    inset: 100px 24px auto auto;
   }
 }
 </style>

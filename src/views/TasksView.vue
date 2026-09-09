@@ -394,23 +394,25 @@ async function submitDraft() {
 
 <template>
   <div class="view-panel active tasks-view" :class="{ 'tasks-board-view': taskLayout === 'board' }">
-    <TaskDisplay
-      :layout="taskLayout"
-      :grouping="grouping"
-      @layout="setLayout"
-      @grouping="setGrouping"
-      @reset="resetDisplay"
-    />
-    <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
-      <span>My Projects</span>
-      <template v-for="ancestor in ancestors" :key="ancestor.id">
+    <div class="tasks-header">
+      <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
+        <span>My Projects</span>
+        <template v-for="ancestor in ancestors" :key="ancestor.id">
+          <span aria-hidden="true">/</span>
+          <router-link :to="{ path: '/tasks', query: { project: ancestor.id } }">
+            {{ ancestor.name }}
+          </router-link>
+        </template>
         <span aria-hidden="true">/</span>
-        <router-link :to="{ path: '/tasks', query: { project: ancestor.id } }">
-          {{ ancestor.name }}
-        </router-link>
-      </template>
-      <span aria-hidden="true">/</span>
-    </nav>
+      </nav>
+      <TaskDisplay
+        :layout="taskLayout"
+        :grouping="grouping"
+        @layout="setLayout"
+        @grouping="setGrouping"
+        @reset="resetDisplay"
+      />
+    </div>
 
     <input
       v-if="titleEdit.editing.value"
@@ -664,7 +666,19 @@ async function submitDraft() {
   }
 }
 
+.tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tasks-header .task-display {
+  flex-shrink: 0;
+  margin-left: auto;
+}
 .tasks-breadcrumb {
+  min-width: 0;
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 6px;
