@@ -35,6 +35,46 @@ beforeEach(async () => {
 })
 
 describe('TasksView', () => {
+  it('switches between priority and label boards while keeping task actions available', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'Urgent task', priority: 1, labels: ['Work', 'Calls'] },
+      { id: 'b', content: 'Unlabelled task', priority: 4, labels: [] },
+      { id: 'd', kind: 'divider', content: '' },
+      { id: 'child', parentId: 'a', content: 'Child task', priority: 2 },
+    ]
+    await wrapper.get('[aria-label="Task view"]').setValue('board')
+    await flushPromises()
+    expect(wrapper.findAll('.task-column')).toHaveLength(4)
+    expect(wrapper.findAll('.task-column')[0].text()).toContain('Urgent task')
+    expect(wrapper.findAll('.task-column')[3].text()).toContain('Unlabelled task')
+    expect(wrapper.find('.task-divider').exists()).toBe(false)
+    expect(wrapper.find('.task-board').text()).not.toContain('Child task')
+    await wrapper.get('[aria-label="Group tasks by"]').setValue('labels')
+    await flushPromises()
+    expect(wrapper.findAll('.task-column-title').map((node) => node.text())).toEqual([
+      'Calls 1',
+      'Work 1',
+      'No label 1',
+    ])
+    const complete = vi.spyOn(items, 'setCompleted').mockResolvedValue(null)
+    await wrapper.get('[aria-label="Complete Urgent task"]').trigger('click')
+    expect(complete).toHaveBeenCalledWith('a', true)
+    await wrapper.get('.task-open').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toMatchObject({
+      layout: 'board',
+      group: 'labels',
+      task: 'a',
+    })
+    await wrapper.get('[aria-label="Task view"]').setValue('list')
+    await flushPromises()
+    expect(wrapper.find('.task-board').exists()).toBe(false)
+    expect(wrapper.find('.task-divider').exists()).toBe(true)
+  })
+
   it('shows the ancestor chain and the project name', async () => {
     const wrapper = mountView()
     await flushPromises()

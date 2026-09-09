@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import { localToday } from '../lib/localDate'
 import { orderAfterDrop } from '../lib/taskOrder'
-import { priorityOf } from '../lib/taskPriority'
+import { PRIORITIES, priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -14,6 +14,14 @@ const route = useRoute()
 const router = useRouter()
 const projects = useProjectsStore()
 const items = useTaskItemsStore()
+const taskLayout = computed(() => (route.query.layout === 'board' ? 'board' : 'list'))
+const grouping = computed(() => (route.query.group === 'labels' ? 'labels' : 'priority'))
+function setLayout(event) {
+  router.replace({ query: { ...route.query, layout: event.target.value } })
+}
+function setGrouping(event) {
+  router.replace({ query: { ...route.query, group: event.target.value } })
+}
 
 // 'inbox' is a filter, not a project id — the Inbox is the tasks that belong
 // to no project, so there is no row to look up.
@@ -64,7 +72,9 @@ function isDivider(item) {
   return item.kind === 'divider'
 }
 
-const canAddDividers = computed(() => !isToday.value && !trimmedQuery.value)
+const canAddDividers = computed(
+  () => taskLayout.value === 'list' && !isToday.value && !trimmedQuery.value,
+)
 // One at a time: a second click while the first is still on its way would
 // put two rules side by side.
 const addingDivider = ref(false)
@@ -221,6 +231,29 @@ const visibleItems = computed(() => {
   return topLevelItems.value.filter((item) => matchingRootIds.has(item.id))
 })
 
+const taskGroups = computed(() => {
+  if (taskLayout.value === 'list') return [{ id: 'list', items: visibleItems.value }]
+  const tasks = visibleItems.value.filter((item) => !isDivider(item))
+  if (grouping.value === 'priority') {
+    return PRIORITIES.map((priority) => ({
+      id: priority.value,
+      name: priority.label,
+      items: tasks.filter((item) => priorityOf(item) === priority.value),
+    }))
+  }
+  const labels = [...new Set(tasks.flatMap((item) => item.labels ?? []))].sort((a, b) =>
+    a.localeCompare(b),
+  )
+  return [
+    ...labels.map((label) => ({
+      id: `label:${label}`,
+      name: label,
+      items: tasks.filter((item) => item.labels?.includes(label)),
+    })),
+    { id: 'unlabelled', name: 'No label', items: tasks.filter((item) => !item.labels?.length) },
+  ]
+})
+
 // --- Drag and drop ---
 // A row is dragged by the grip that appears at its left edge. Dropped on
 // another row it re-arranges the list; dropped on the sidebar (Inbox, Today,
@@ -239,6 +272,7 @@ const draggedItem = computed(() =>
 )
 
 function canDropOn(item) {
+  if (taskLayout.value === 'board') return false
   if (!draggedItem.value || draggedItem.value.id === item.id) return false
   return !isToday.value || draggedItem.value.dueDate === item.dueDate
 }
@@ -352,7 +386,7 @@ async function submitDraft() {
 </script>
 
 <template>
-  <div class="view-panel active tasks-view">
+  <div class="view-panel active tasks-view" :class="{ 'tasks-board-view': taskLayout === 'board' }">
     <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
       <span>My Projects</span>
       <template v-for="ancestor in ancestors" :key="ancestor.id">
@@ -375,6 +409,22 @@ async function submitDraft() {
       @blur="titleEdit.submit"
     />
     <h1 v-else class="tasks-title" @click="titleEdit.start">{{ title }}</h1>
+    <div class="task-view-controls">
+      <label
+        >View
+        <select aria-label="Task view" :value="taskLayout" @change="setLayout">
+          <option value="list">List</option>
+          <option value="board">Board</option>
+        </select></label
+      >
+      <label v-if="taskLayout === 'board'"
+        >Group by
+        <select aria-label="Group tasks by" :value="grouping" @change="setGrouping">
+          <option value="priority">Priority</option>
+          <option value="labels">Labels</option>
+        </select></label
+      >
+    </div>
 
     <textarea
       v-if="descriptionEdit.editing.value"
@@ -408,111 +458,127 @@ async function submitDraft() {
     <p v-else-if="trimmedQuery && !visibleItems.length" class="tasks-empty">
       No tasks match "{{ trimmedQuery }}"
     </p>
-    <ul v-else class="task-rows">
-      <template v-for="(item, index) in visibleItems" :key="item.id">
-        <li
-          class="task-row"
-          :class="{
-            'task-divider': isDivider(item),
-            dragging: dragTaskId === item.id,
-            'drop-before': dropRowId === item.id && dropPlace === 'before',
-            'drop-after': dropRowId === item.id && dropPlace === 'after',
-          }"
-          @dragover="onTaskDragOver(item, $event)"
-          @dragleave="onTaskDragLeave(item)"
-          @drop.prevent="onTaskDrop(item)"
-        >
-          <!-- The grip is the drag source, not the row: text in the title can
+    <div v-else :class="{ 'task-board': taskLayout === 'board' }">
+      <section
+        v-for="group in taskGroups"
+        :key="group.id"
+        :class="{ 'task-column': taskLayout === 'board' }"
+        :aria-label="group.name"
+      >
+        <h2 v-if="taskLayout === 'board'" class="task-column-title">
+          {{ group.name }} <span>{{ group.items.length }}</span>
+        </h2>
+        <p v-if="taskLayout === 'board' && !group.items.length" class="tasks-empty">No tasks</p>
+        <ul class="task-rows">
+          <template v-for="(item, index) in group.items" :key="item.id">
+            <li
+              class="task-row"
+              :class="{
+                'task-divider': isDivider(item),
+                dragging: dragTaskId === item.id,
+                'drop-before': dropRowId === item.id && dropPlace === 'before',
+                'drop-after': dropRowId === item.id && dropPlace === 'after',
+              }"
+              @dragover="onTaskDragOver(item, $event)"
+              @dragleave="onTaskDragLeave(item)"
+              @drop.prevent="onTaskDrop(item)"
+            >
+              <!-- The grip is the drag source, not the row: text in the title can
              still be selected, and the affordance says what dragging does. -->
-          <button
-            class="task-grip"
-            type="button"
-            draggable="true"
-            title="Drag to re-arrange or move"
-            :aria-label="`Drag ${labelOf(item)}`"
-            @dragstart="onTaskDragStart(item, $event)"
-            @dragend="clearTaskDrag"
-            @click.prevent
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
-          </button>
-          <template v-if="isDivider(item)">
-            <!-- A rule with its delete in the middle, shown when the pointer
+              <button
+                v-if="taskLayout === 'list'"
+                class="task-grip"
+                type="button"
+                draggable="true"
+                title="Drag to re-arrange or move"
+                :aria-label="`Drag ${labelOf(item)}`"
+                @dragstart="onTaskDragStart(item, $event)"
+                @dragend="clearTaskDrag"
+                @click.prevent
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
+              </button>
+              <template v-if="isDivider(item)">
+                <!-- A rule with its delete in the middle, shown when the pointer
                rests on it. Nothing to confirm: the divider holds nothing. -->
-            <span class="divider-line" aria-hidden="true"></span>
-            <button
-              class="divider-delete"
-              type="button"
-              title="Delete divider"
-              aria-label="Delete divider"
-              @click="removeItem(item)"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
-            </button>
-          </template>
-          <template v-else>
-            <!-- The circle takes the priority's colour, the way Todoist's list
+                <span class="divider-line" aria-hidden="true"></span>
+                <button
+                  class="divider-delete"
+                  type="button"
+                  title="Delete divider"
+                  aria-label="Delete divider"
+                  @click="removeItem(item)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                </button>
+              </template>
+              <template v-else>
+                <!-- The circle takes the priority's colour, the way Todoist's list
                does, so an urgent task stands out without another chip. -->
-            <button
-              class="task-check"
-              :class="`priority-${priorityOf(item)}`"
-              type="button"
-              :disabled="items.completingIds.includes(item.id)"
-              :aria-label="`Complete ${item.content}`"
-              @click="items.setCompleted(item.id, true)"
-            ></button>
-            <button class="task-open" type="button" @click="open(item.id)">
-              <span class="task-content">{{ item.content }}</span>
-              <span v-if="item.description" class="task-description">{{ item.description }}</span>
-              <span
-                v-if="showsDue(item) || item.dueTime"
-                class="task-due"
-                :class="{ overdue: isOverdue(item) }"
-              >
-                {{ formatDueLine(item) }}
-              </span>
-              <span v-if="item.labels?.length" class="task-labels" aria-label="Labels">
-                <span v-for="label in item.labels" :key="label" class="task-label">
-                  @{{ label }}
-                </span>
-              </span>
-              <span
-                v-if="item.recurrence"
-                class="task-home"
-                :aria-label="`Repeats ${item.recurrence}`"
-              >
-                ↻ {{ item.recurrence }}
-              </span>
-              <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
-            </button>
-            <button
-              class="task-delete"
-              type="button"
-              title="Delete task"
-              :aria-label="`Delete ${item.content}`"
-              @click="removeItem(item)"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
-            </button>
-          </template>
-        </li>
-        <!-- A zero-height row straddling the line under the one above: the
+                <button
+                  class="task-check"
+                  :class="`priority-${priorityOf(item)}`"
+                  type="button"
+                  :disabled="items.completingIds.includes(item.id)"
+                  :aria-label="`Complete ${item.content}`"
+                  @click="items.setCompleted(item.id, true)"
+                ></button>
+                <button class="task-open" type="button" @click="open(item.id)">
+                  <span class="task-content">{{ item.content }}</span>
+                  <span v-if="item.description" class="task-description">{{
+                    item.description
+                  }}</span>
+                  <span
+                    v-if="showsDue(item) || item.dueTime"
+                    class="task-due"
+                    :class="{ overdue: isOverdue(item) }"
+                  >
+                    {{ formatDueLine(item) }}
+                  </span>
+                  <span v-if="item.labels?.length" class="task-labels" aria-label="Labels">
+                    <span v-for="label in item.labels" :key="label" class="task-label">
+                      @{{ label }}
+                    </span>
+                  </span>
+                  <span
+                    v-if="item.recurrence"
+                    class="task-home"
+                    :aria-label="`Repeats ${item.recurrence}`"
+                  >
+                    ↻ {{ item.recurrence }}
+                  </span>
+                  <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
+                </button>
+                <button
+                  class="task-delete"
+                  type="button"
+                  title="Delete task"
+                  :aria-label="`Delete ${item.content}`"
+                  @click="removeItem(item)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                </button>
+              </template>
+            </li>
+            <!-- A zero-height row straddling the line under the one above: the
            plus appears while the pointer is on the line, and adds a divider
            there. -->
-        <li v-if="offersDividerAfter(index)" class="task-insert">
-          <button
-            class="task-insert-btn"
-            type="button"
-            title="Add divider"
-            :aria-label="`Add divider after ${labelOf(item)}`"
-            :disabled="addingDivider"
-            @click="addDividerAfter(item)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">add</span>
-          </button>
-        </li>
-      </template>
-    </ul>
+            <li v-if="offersDividerAfter(index)" class="task-insert">
+              <button
+                class="task-insert-btn"
+                type="button"
+                title="Add divider"
+                :aria-label="`Add divider after ${labelOf(item)}`"
+                :disabled="addingDivider"
+                @click="addDividerAfter(item)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">add</span>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </section>
+    </div>
 
     <!-- A task added while a query is active would match nothing and vanish
        the instant it appears, so the composer waits for the query to clear. -->
@@ -556,6 +622,69 @@ async function submitDraft() {
   max-width: 900px;
   margin: 0 auto;
   padding: 32px 24px;
+}
+
+.tasks-board-view {
+  max-width: 1400px;
+  min-width: 0;
+}
+.task-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 16px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.task-view-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task-view-controls select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.task-board {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+}
+.task-column {
+  flex: 1 0 240px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+.task-column-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.task-column-title span {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.task-column .task-row {
+  padding: 12px 0;
+  gap: 8px;
+}
+.task-column .task-content {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .task-column {
+    flex-basis: 210px;
+  }
 }
 
 .tasks-breadcrumb {
