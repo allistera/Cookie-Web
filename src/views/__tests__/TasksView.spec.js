@@ -45,7 +45,7 @@ describe('TasksView', () => {
       { id: 'd', kind: 'divider', content: '' },
       { id: 'child', parentId: 'a', content: 'Child task', priority: 2 },
     ]
-    await wrapper.get('[aria-label="Task view"]').setValue('board')
+    await wrapper.get('.display-layouts button:last-child').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('.task-column')).toHaveLength(4)
     expect(wrapper.findAll('.task-column')[0].text()).toContain('Urgent task')
@@ -69,7 +69,7 @@ describe('TasksView', () => {
       group: 'labels',
       task: 'a',
     })
-    await wrapper.get('[aria-label="Task view"]').setValue('list')
+    await wrapper.get('.display-layouts button:first-child').trigger('click')
     await flushPromises()
     expect(wrapper.find('.task-board').exists()).toBe(false)
     expect(wrapper.find('.task-divider').exists()).toBe(true)

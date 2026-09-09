@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
+import TaskDisplay from '../components/TaskDisplay.vue'
 import { localToday } from '../lib/localDate'
 import { orderAfterDrop } from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
@@ -16,11 +17,17 @@ const projects = useProjectsStore()
 const items = useTaskItemsStore()
 const taskLayout = computed(() => (route.query.layout === 'board' ? 'board' : 'list'))
 const grouping = computed(() => (route.query.group === 'labels' ? 'labels' : 'priority'))
-function setLayout(event) {
-  router.replace({ query: { ...route.query, layout: event.target.value } })
+function setLayout(layout) {
+  router.replace({ query: { ...route.query, layout } })
 }
-function setGrouping(event) {
-  router.replace({ query: { ...route.query, group: event.target.value } })
+function setGrouping(group) {
+  router.replace({ query: { ...route.query, group } })
+}
+function resetDisplay() {
+  const query = { ...route.query }
+  delete query.layout
+  delete query.group
+  router.replace({ query })
 }
 
 // 'inbox' is a filter, not a project id — the Inbox is the tasks that belong
@@ -387,6 +394,13 @@ async function submitDraft() {
 
 <template>
   <div class="view-panel active tasks-view" :class="{ 'tasks-board-view': taskLayout === 'board' }">
+    <TaskDisplay
+      :layout="taskLayout"
+      :grouping="grouping"
+      @layout="setLayout"
+      @grouping="setGrouping"
+      @reset="resetDisplay"
+    />
     <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
       <span>My Projects</span>
       <template v-for="ancestor in ancestors" :key="ancestor.id">
@@ -409,22 +423,6 @@ async function submitDraft() {
       @blur="titleEdit.submit"
     />
     <h1 v-else class="tasks-title" @click="titleEdit.start">{{ title }}</h1>
-    <div class="task-view-controls">
-      <label
-        >View
-        <select aria-label="Task view" :value="taskLayout" @change="setLayout">
-          <option value="list">List</option>
-          <option value="board">Board</option>
-        </select></label
-      >
-      <label v-if="taskLayout === 'board'"
-        >Group by
-        <select aria-label="Group tasks by" :value="grouping" @change="setGrouping">
-          <option value="priority">Priority</option>
-          <option value="labels">Labels</option>
-        </select></label
-      >
-    </div>
 
     <textarea
       v-if="descriptionEdit.editing.value"
@@ -627,27 +625,6 @@ async function submitDraft() {
 .tasks-board-view {
   max-width: 1400px;
   min-width: 0;
-}
-.task-view-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin: 16px 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-.task-view-controls label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.task-view-controls select {
-  font: inherit;
-  color: var(--text-primary);
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 6px 10px;
 }
 .task-board {
   display: flex;
