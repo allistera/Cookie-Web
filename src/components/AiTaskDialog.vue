@@ -99,8 +99,8 @@ onBeforeUnmount(() => {
 }
 .ai-task-dialog::backdrop {
   background: rgb(30 35 45 / 18%);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 .ai-task-prompt {
   display: flex;
