@@ -165,14 +165,11 @@ const filteredEmails = computed(() => {
 })
 
 const headerTitle = computed(() => {
-  if (!activeFilter.value) return 'Inbox'
   if (activeFilter.value === 'label') return route.query.label
-  return FILTER_META[activeFilter.value].title
+  return FILTER_META[activeFilter.value]?.title
 })
 
-const headerIcon = computed(() =>
-  activeFilter.value ? FILTER_META[activeFilter.value].icon : 'inbox',
-)
+const headerIcon = computed(() => FILTER_META[activeFilter.value]?.icon)
 
 const headerIconStyle = computed(() => {
   if (activeFilter.value !== 'label') return undefined
@@ -1422,7 +1419,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Header -->
-    <div class="ni-header" :class="{ 'ni-header-after-tabs': showInboxTabs }">
+    <div v-if="activeFilter" class="ni-header">
       <div class="ni-title">
         <span class="material-symbols-outlined ni-title-icon" :style="headerIconStyle">{{
           headerIcon

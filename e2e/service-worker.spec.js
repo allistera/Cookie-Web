@@ -33,7 +33,7 @@ test('the service worker keeps the shell and recently read mail available offlin
   // Reload once under worker control so the route and its module graph become
   // the cached application shell.
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Inbox', exact: true })).toBeVisible()
+  await expect(page.locator('#traditionalInboxView')).toBeVisible()
   const shellUrls = await page.evaluate(async () => {
     const cache = await caches.open('cookie-shell-v1')
     return (await cache.keys()).map((request) => new URL(request.url).pathname)
@@ -67,7 +67,7 @@ test('the service worker keeps the shell and recently read mail available offlin
     expect(offlineBody.thread).toEqual(onlineBody.thread)
 
     await page.reload()
-    await expect(page.getByRole('heading', { name: 'Inbox', exact: true })).toBeVisible()
+    await expect(page.locator('#traditionalInboxView')).toBeVisible()
   } finally {
     await context.setOffline(false)
   }

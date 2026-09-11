@@ -799,8 +799,7 @@ test('A sent-message follow-up reminder persists across reload and can be cleare
 test('Clicking an inbox email slides in the reading panel', async ({ page }) => {
   await page.goto('/inbox')
 
-  // Header no longer has display/settings/refresh icon buttons
-  await expect(page.locator('.ni-header .ni-icon-btn')).toHaveCount(0)
+  await expect(page.locator('.ni-header')).toHaveCount(0)
 
   const cityRow = page.locator('.ni-row', { hasText: 'City Construction' })
   await expect(cityRow.locator('.ni-subject .ni-ai-generated-icon')).toHaveCount(0)
@@ -828,7 +827,7 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   // Clicking outside the panel also closes it
   await cityRow.click()
   await expect(page.locator('.ni-reader')).toBeVisible()
-  await page.locator('.ni-title h1').click()
+  await page.locator('.ni-tabs').click({ position: { x: 2, y: 2 } })
   await expect(page.locator('.ni-reader')).toHaveCount(0)
 })
 
@@ -892,6 +891,10 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
     link.addEventListener('click', (event) => event.preventDefault(), { once: true }),
   )
   await emailLink.click()
+  // A prevented cross-frame navigation can leave Chromium focus on the top-level
+  // body under parallel load. Put focus on the link explicitly so this test
+  // exercises the iframe-to-document shortcut boundary deterministically.
+  await emailLink.focus()
   await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('IFRAME')
 
   const [response] = await Promise.all([

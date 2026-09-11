@@ -1031,7 +1031,7 @@ describe('TraditionalInboxView filtered views', () => {
     await router.replace({ path: '/inbox', query: { filter: 'bogus' } })
     const wrapper = mountView()
 
-    expect(wrapper.find('.ni-header h1').text()).toBe('Inbox')
+    expect(wrapper.find('.ni-header').exists()).toBe(false)
     expect(wrapper.findAll('.ni-row')).toHaveLength(2)
   })
 })
@@ -2600,11 +2600,8 @@ describe('TraditionalInboxView inbox tabs', () => {
     const wrapper = mountView()
 
     expect(tabTexts(wrapper)).toEqual(['Important 1', 'Docs 1', 'Team 1', 'Other 2'])
-    expect(wrapper.findAll('.ni-tabs, .ni-header').map((element) => element.classes()[0])).toEqual([
-      'ni-tabs',
-      'ni-header',
-    ])
-    expect(wrapper.find('.ni-header').classes()).toContain('ni-header-after-tabs')
+    expect(wrapper.find('.ni-tabs').exists()).toBe(true)
+    expect(wrapper.find('.ni-header').exists()).toBe(false)
     const important = wrapper.find('.ni-tab')
     expect(important.classes()).toContain('active')
     expect(important.attributes('aria-selected')).toBe('true')
