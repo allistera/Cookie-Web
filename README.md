@@ -1,5 +1,11 @@
 # Cookie-Web
 
+Header search uses the same hybrid ranking after a typing pause and on Enter.
+Mail search includes archived messages by default; use `in:inbox`, `in:sent`,
+or `in:done` to restrict folders. Deleted messages remain excluded. Quote a
+term or phrase for exact keyword matching, using `mode=keyword` in a search
+URL when you want keyword-only results.
+
 Cookie is a private, AI-assisted email application. The Vue frontend and authenticated Vercel functions provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail.
 
 The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).

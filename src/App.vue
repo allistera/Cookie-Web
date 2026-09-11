@@ -167,13 +167,13 @@ function handleLogout() {
 // dedicated /search results page, which keeps q/scope/page in the URL so
 // results stay shareable and back-button friendly (see
 // views/SearchResultsView.vue). Behavior mirrors the two per-app boxes this
-// replaces: minimum 2 characters, type-ahead is debounced and stays on the
-// keyword index (mode=keyword), Enter searches immediately with the full
-// semantic/hybrid index. The old dropdown's "ask the assistant" affordance
+// replaces: minimum 2 characters, type-ahead is debounced and Enter searches
+// immediately. Both use the same semantic/hybrid index so submitting a query
+// does not silently change its ranking. The old dropdown's "ask the assistant" affordance
 // now lives on the results page itself (its "Ask the assistant about" action
 // calls store.askAssistant, same as before).
 const searchInputVal = ref('')
-const AUTO_SEARCH_DELAY_MS = 400
+const AUTO_SEARCH_DELAY_MS = 600
 const SEARCH_MIN_CHARS = 2
 let autoSearchTimer
 
@@ -193,9 +193,7 @@ function navigateToSearch(q, mode) {
     : router.push({ name: 'search', query })
 }
 
-// Enter searches immediately with the full semantic/hybrid index; typing
-// searches after a short pause using the keyword-only index (see the
-// debounce watcher below).
+// Enter searches immediately; typing uses the same mode after a short pause.
 function handleSearchEnter() {
   cancelScheduledSearch()
   const q = searchInputVal.value.trim()
@@ -217,9 +215,10 @@ function clearSearch() {
 // no-ops whenever the value already matches the route).
 watch(
   () => [route.name, route.query.q],
-  ([name, q]) => {
+  ([name, q], previous) => {
     if (name !== 'search') {
-      searchInputVal.value = ''
+      // Initial route resolution must not erase text already being typed.
+      if (previous?.[0] === 'search') searchInputVal.value = ''
       return
     }
     const value = Array.isArray(q) ? q[0] : q
@@ -238,7 +237,7 @@ watch(searchInputVal, (value) => {
   if (route.name === 'search' && route.query.q === query) return
 
   autoSearchTimer = window.setTimeout(() => {
-    navigateToSearch(query, 'keyword')
+    navigateToSearch(query)
   }, AUTO_SEARCH_DELAY_MS)
 })
 

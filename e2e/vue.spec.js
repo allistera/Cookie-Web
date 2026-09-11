@@ -1355,9 +1355,7 @@ test('Forward opens a quoted draft with the original attachment', async ({ page 
   await expect(composer.locator('.composer-attachment-chip')).toHaveCount(0)
 })
 
-test('Header search debounces to /search with mode=keyword; Enter searches without it', async ({
-  page,
-}) => {
+test('Header search uses hybrid mode for both debounced typing and Enter', async ({ page }) => {
   await page.goto('/')
 
   const searchInput = page.locator('.search-input')
@@ -1367,10 +1365,9 @@ test('Header search debounces to /search with mode=keyword; Enter searches witho
   await expect(page.locator('.ni-row').first()).toContainText('Zoom Video')
   let params = new URL(page.url()).searchParams
   expect(params.get('q')).toBe('zoom')
-  expect(params.get('mode')).toBe('keyword')
+  expect(params.get('mode')).toBeNull()
 
-  // Enter re-navigates immediately (no debounce wait needed) and drops
-  // mode=keyword for the full semantic/hybrid index.
+  // Enter re-navigates immediately using the same ranking mode.
   await searchInput.fill('city')
   await searchInput.press('Enter')
   await expect(page.locator('.ni-row').first()).toContainText('City Construction')
