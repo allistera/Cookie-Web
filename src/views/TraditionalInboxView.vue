@@ -1834,17 +1834,7 @@ onUnmounted(() => {
           }}</span>
         </div>
 
-        <div class="ni-reader-labels" v-if="openEmail.category || openEmail.labels?.length">
-          <span
-            v-if="openEmail.category"
-            class="ni-category-pill"
-            :style="{
-              color: openEmail.category.color,
-              backgroundColor: openEmail.category.color + '1f',
-            }"
-          >
-            {{ openEmail.category.name }}
-          </span>
+        <div class="ni-reader-labels" v-if="openEmail.labels?.length">
           <span
             v-for="label in openEmail.labels"
             :key="label.name"

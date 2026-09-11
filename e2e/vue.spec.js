@@ -2165,15 +2165,27 @@ test('A reader email can have one Category which can be replaced or cleared', as
   await page.locator('.ni-row', { hasText: 'Revised Floor Plan' }).click()
   const reader = page.locator('.ni-reader')
 
-  await expect(reader.locator('.ni-category-pill', { hasText: 'Projects' })).toBeVisible()
+  await expect(reader.locator('.ni-category-pill')).toHaveCount(0)
   await reader.getByRole('button', { name: 'Set category' }).click()
   const menu = reader.locator('.ni-tag-menu', { hasText: 'No category' })
+  await expect(menu.getByRole('menuitemradio', { name: 'Projects' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
   await menu.getByRole('menuitemradio', { name: 'Personal' }).click()
-  await expect(reader.locator('.ni-category-pill', { hasText: 'Personal' })).toBeVisible()
-  await expect(reader.locator('.ni-category-pill', { hasText: 'Projects' })).toHaveCount(0)
+  await expect(reader.locator('.ni-category-pill')).toHaveCount(0)
 
   await reader.getByRole('button', { name: 'Set category' }).click()
+  await expect(menu.getByRole('menuitemradio', { name: 'Personal' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
   await menu.getByRole('menuitemradio', { name: 'No category' }).click()
+  await reader.getByRole('button', { name: 'Set category' }).click()
+  await expect(menu.getByRole('menuitemradio', { name: 'No category' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
   await expect(reader.locator('.ni-category-pill')).toHaveCount(0)
 })
 
@@ -2620,11 +2632,7 @@ test('Inbox tabs open on Important, narrow by category, and Other holds the rest
 
   await page.locator('.ni-tab', { hasText: 'Projects' }).click()
   await expect(priorityRow).toBeVisible()
-  const rows = page.locator('.ni-row')
-  const projectRows = page.locator('.ni-row', {
-    has: page.locator('.ni-category-pill', { hasText: 'Projects' }),
-  })
-  await expect(rows).toHaveCount(await projectRows.count())
+  await expect(page.locator('.ni-row .ni-category-pill')).toHaveCount(0)
 
   await page.locator('.ni-tab', { hasText: 'Other' }).click()
   await expect(priorityRow).toHaveCount(0)

@@ -62,13 +62,6 @@ function followUpTitle(followUpAt) {
     </div>
     <div class="ni-row-labels">
       <span
-        v-if="email.category"
-        class="ni-category-pill ni-category-pill-sm"
-        :style="{ color: email.category.color, backgroundColor: email.category.color + '1f' }"
-      >
-        {{ email.category.name }}
-      </span>
-      <span
         v-for="label in email.labels"
         :key="label.name"
         class="ni-label-pill ni-label-pill-sm"
