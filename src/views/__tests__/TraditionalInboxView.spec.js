@@ -1678,8 +1678,9 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
     const inboxZero = wrapper.find('.ni-inbox-zero')
     expect(inboxZero.attributes('role')).toBe('status')
-    expect(inboxZero.text()).toContain('Welcome to Inbox Zero')
-    expect(inboxZero.find('.ni-inbox-zero-icon').text()).toBe('task_alt')
+    const image = inboxZero.find('img')
+    expect(image.attributes('src')).toContain('inbox-zero.png')
+    expect(image.attributes('alt')).toBe('Congratulations! Inbox Zero. You did it!')
   })
 
   it('the reader topbar offers Star, Done and Reschedule with no Delete or Archive', async () => {

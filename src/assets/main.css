@@ -4770,16 +4770,11 @@ button.ni-attachment:hover {
   color: var(--text-primary);
 }
 
-.ni-inbox-zero-icon {
-  color: #4cb782;
-  font-size: 84px;
-  font-variation-settings: 'FILL' 1;
-}
-
-.ni-inbox-zero h2 {
-  font-size: clamp(24px, 3vw, 32px);
-  font-weight: 700;
-  line-height: 1.2;
+.ni-inbox-zero-image {
+  display: block;
+  width: 100%;
+  max-width: 960px;
+  height: auto;
 }
 
 @media (max-width: 600px) {
@@ -4798,14 +4793,6 @@ button.ni-attachment:hover {
   .ni-inbox-zero {
     gap: 12px;
     padding-inline: 8px;
-  }
-
-  .ni-inbox-zero-icon {
-    font-size: 72px;
-  }
-
-  .ni-inbox-zero h2 {
-    font-size: 20px;
   }
 
   .ni-reader {

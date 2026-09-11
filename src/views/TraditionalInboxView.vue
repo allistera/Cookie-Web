@@ -9,6 +9,7 @@ import {
   OTHER_TAB,
 } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
+import inboxZeroImage from '../assets/inbox-zero.png'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
@@ -1484,10 +1485,13 @@ onUnmounted(() => {
         No important emails. High-priority and due emails land here.
       </div>
       <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
-        <span class="material-symbols-outlined ni-inbox-zero-icon" aria-hidden="true"
-          >task_alt</span
-        >
-        <h2>Welcome to Inbox Zero</h2>
+        <img
+          class="ni-inbox-zero-image"
+          :src="inboxZeroImage"
+          alt="Congratulations! Inbox Zero. You did it!"
+          width="1672"
+          height="941"
+        />
       </div>
       <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
         {{ isLoadingMore ? 'Loading…' : 'Load more' }}
