@@ -145,6 +145,17 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
     },
 
+    async generateItem(text) {
+      const { item, subtasks } = await this.request('POST', {
+        params: '/generate',
+        body: { text, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' },
+      })
+      if (this.belongsToLoadedList(item)) {
+        this.items.push(item, ...subtasks)
+      }
+      return item
+    },
+
     async interpretItem(text) {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
       const { draft } = await this.request('POST', {

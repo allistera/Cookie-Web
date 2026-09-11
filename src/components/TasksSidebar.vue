@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddTaskDialog from './AddTaskDialog.vue'
+import AiTaskDialog from './AiTaskDialog.vue'
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
 import { localToday } from '../lib/localDate'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
@@ -14,6 +15,12 @@ const EXPANDED_KEY = 'cookie-tasks-expanded-projects'
 // Add Task is reachable from any Tasks view, so its dialog lives here beside
 // the button rather than in whichever view happens to be on screen.
 const addingTask = ref(false)
+const addingAiTask = ref(false)
+
+async function showGeneratedTask(item) {
+  addingAiTask.value = false
+  await router.push({ path: '/tasks', query: { project: 'inbox', task: item.id } })
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -226,6 +233,12 @@ async function removeProject(project) {
       <span>Add Task</span>
     </button>
 
+    <button class="compose-btn ai-task-button" type="button" @click="addingAiTask = true">
+      <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+      <span>AI Task</span>
+    </button>
+    <AiTaskDialog v-if="addingAiTask" @close="addingAiTask = false" @created="showGeneratedTask" />
+
     <AddTaskDialog v-if="addingTask" @close="addingTask = false" />
 
     <!-- Inbox is a rule, not a project: it names the tasks that belong to no
@@ -368,6 +381,9 @@ async function removeProject(project) {
 </template>
 
 <style scoped>
+.ai-task-button {
+  margin-bottom: 12px;
+}
 /* Long project names truncate so a badge never overflows the sidebar. */
 .tasks-sidebar .nav-text {
   flex: 1;

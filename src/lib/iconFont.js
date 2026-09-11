@@ -8,6 +8,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'archive',
   'arrow_back',
   'arrow_forward',
+  'arrow_upward',
   'attach_file',
   'auto_awesome',
   'auto_fix_high',

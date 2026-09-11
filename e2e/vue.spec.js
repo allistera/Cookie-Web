@@ -2438,7 +2438,7 @@ test('Tasks: Add Task creates in the Inbox from wherever you are', async ({ page
   await sidebar.locator('.project-item', { hasText: 'Roof' }).click()
   await expect(page.locator('.tasks-title')).toHaveText('Roof')
 
-  await sidebar.locator('.compose-btn').click()
+  await sidebar.getByRole('button', { name: 'Add Task', exact: true }).click()
   await expect(page.locator('.add-task-dialog')).toBeVisible()
   await page.locator('.add-task-dialog-input').fill('Buy milk')
   await page.locator('.add-task-dialog-input').press('Enter')
@@ -2465,7 +2465,7 @@ test('Tasks: natural-language quick add parses into Advanced and saves every fie
   await sidebar.locator('.new-project-row input').fill('Work')
   await sidebar.locator('.new-project-row input').press('Enter')
 
-  await sidebar.locator('.compose-btn').click()
+  await sidebar.getByRole('button', { name: 'Add Task', exact: true }).click()
   const dialog = page.locator('.add-task-dialog')
   await dialog
     .getByRole('textbox', { name: 'Describe your task' })
@@ -2491,7 +2491,7 @@ test('Tasks: natural-language quick add parses into Advanced and saves every fie
 test('Tasks: the Add Task dialog closes on Escape without creating anything', async ({ page }) => {
   await page.goto('/tasks')
 
-  await page.locator('.tasks-sidebar .compose-btn').click()
+  await page.getByRole('button', { name: 'Add Task', exact: true }).click()
   await page.locator('.add-task-dialog-input').fill('Never mind')
   await page.keyboard.press('Escape')
 

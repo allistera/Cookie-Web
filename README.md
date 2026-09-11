@@ -258,3 +258,12 @@ Apply `migrations/0069_priority_reply_drafts.sql` before deploying Cookie-Worker
 `mail-app-ingest` and `cookie-web-drafts`. Initial draft creation emits the
 existing content-free inbox refresh signal, allowing an open reader to show
 the draft as soon as it becomes available.
+
+### AI Task
+
+In Tasks, select **AI Task** below **Add Task**. Describe an idea such as
+“Plan day trip to London” and press Enter or the submit arrow. Cookie generates
+a title, description, and useful subtasks, saves them in Inbox, and opens the
+new task. The centered prompt blurs the background, supports Escape to close,
+and keeps your text if generation fails. The Tasks Worker must provide
+`POST /task-items/generate`; it uses the existing server-side AI credentials.
