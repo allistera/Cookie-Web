@@ -899,6 +899,44 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 
+  it.each([false, true])(
+    'shows a spinner until the label fetch completes (has emails: %s)',
+    async (hasEmails) => {
+      store.loadLabelEmails.mockRestore()
+      let completeFetch
+      vi.spyOn(store, 'fetchEmailPage').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            completeFetch = resolve
+          }),
+      )
+      await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Home' } })
+      const wrapper = mountView()
+      expect(wrapper.get('[role="status"][aria-label="Loading emails"] .spinner').exists()).toBe(
+        true,
+      )
+      expect(wrapper.text()).not.toContain('No emails with this label.')
+      completeFetch({
+        emails: hasEmails
+          ? [
+              {
+                id: 'label-loaded',
+                subject: 'Loaded label email',
+                from_address: 'sender@example.com',
+                sent_at: new Date().toISOString(),
+              },
+            ]
+          : [],
+        nextCursor: null,
+      })
+      await flushPromises()
+      expect(wrapper.find('[aria-label="Loading emails"]').exists()).toBe(false)
+      expect(wrapper.text().includes('No emails with this label.')).toBe(!hasEmails)
+      expect(wrapper.findAll('.ni-row')).toHaveLength(hasEmails ? 1 : 0)
+      wrapper.unmount()
+    },
+  )
+
   it('filter=label shows only emails carrying that label', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Home' } })
     const wrapper = mountView()

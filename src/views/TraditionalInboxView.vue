@@ -1480,7 +1480,15 @@ onUnmounted(() => {
           @toggle-unread="toggleUnread"
         />
       </template>
-      <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
+      <div
+        v-if="activeFilter === 'label' && store.isLabelRefreshing && !filteredEmails.length"
+        class="ni-empty ni-label-loading"
+        role="status"
+        aria-label="Loading emails"
+      >
+        <div class="spinner" aria-hidden="true"></div>
+      </div>
+      <div class="ni-empty" v-else-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
       </div>
       <div class="ni-empty" v-if="showTabEmpty">
@@ -2113,3 +2121,10 @@ onUnmounted(() => {
     </Transition>
   </div>
 </template>
+
+<style scoped>
+.ni-label-loading {
+  display: flex;
+  justify-content: center;
+}
+</style>
