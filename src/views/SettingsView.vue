@@ -71,16 +71,22 @@ const isSavingInterests = ref(false)
 
 // Every edit writes the whole list straight through, so a scheduled run can
 // never use a list the user believes they changed.
-async function persistInterests(next) {
+async function persistInterests(next, personaliseGithub = store.personaliseGithub) {
   interestError.value = ''
   isSavingInterests.value = true
   try {
-    await store.saveInterests(next)
+    await store.saveInterests(next, personaliseGithub)
   } catch {
     interestError.value = 'Could not save. Try again.'
   } finally {
     isSavingInterests.value = false
   }
+}
+
+async function toggleGithubPersonalisation(event) {
+  const checkbox = event.target
+  await persistInterests(store.interests, checkbox.checked)
+  checkbox.checked = store.personaliseGithub
 }
 
 async function addInterest() {
@@ -745,9 +751,21 @@ function toggleRuleEnabled(rule) {
           >
             <h3 class="settings-section-title">AI Today interests</h3>
             <p class="settings-section-hint">
-              Topics AI Today ranks your daily news against — GitHub projects and Product Hunt
-              launches are picked to match these. UK headlines are never filtered. Leave the list
-              empty to see the day's top items unpersonalised.
+              Topics used to personalise Product Hunt launches and, optionally, GitHub repositories.
+              UK headlines are never filtered.
+            </p>
+            <label class="settings-section-hint">
+              <input
+                type="checkbox"
+                :checked="store.personaliseGithub"
+                :disabled="!store.interestsLoaded || isSavingInterests"
+                @change="toggleGithubPersonalisation"
+              />
+              Personalise GitHub repositories
+            </label>
+            <p class="settings-section-hint">
+              Off by default: show all repositories from the daily top GitHub feed. Changes apply
+              when AI Today next refreshes.
             </p>
 
             <ul v-if="store.interests.length" class="interest-chips" data-testid="interest-chips">

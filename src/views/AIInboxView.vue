@@ -438,7 +438,7 @@ onUnmounted(() => {
 
         <p v-else class="topic-empty" data-testid="news-empty">
           No news yet. The scheduled run gathers GitHub, Product Hunt and UK headlines — add topics
-          under Settings → Personalisation to have the first two picked for you.
+          under Settings → Personalisation to personalise Product Hunt and optionally GitHub.
         </p>
       </section>
     </div>

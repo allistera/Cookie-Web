@@ -267,3 +267,5 @@ a title, description, and useful subtasks, saves them in Inbox, and opens the
 new task. The centered prompt blurs the background, supports Escape to close,
 and keeps your text if generation fails. The Tasks Worker must provide
 `POST /task-items/generate`; it uses the existing server-side AI credentials.
+
+GitHub news shows all repositories returned by the daily top-repository feed by default. Enable **Settings → Personalisation → Personalise GitHub repositories** to rank and select repositories against your interests on the next AI Today refresh; Product Hunt continues to use your interests independently.

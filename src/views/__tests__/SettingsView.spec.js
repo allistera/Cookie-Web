@@ -971,6 +971,27 @@ describe('SettingsView', () => {
       expect(chips.map((c) => c.text())).toEqual(['Cloudflare Workers', 'Postgres'])
     })
 
+    it('defaults GitHub personalisation off and saves an opt-in', async () => {
+      store.interestsLoaded = true
+      store.interests = ['Rust']
+      const save = vi.spyOn(store, 'saveInterests').mockImplementation(async (_, enabled) => {
+        store.personaliseGithub = enabled
+        return store.interests
+      })
+      const wrapper = await openView()
+      await openPersonalisationPane(wrapper)
+      const checkbox = wrapper.get('[data-testid="personalisation-section"] input[type="checkbox"]')
+      expect(checkbox.element.checked).toBe(false)
+      await checkbox.setValue(true)
+      await flushPromises()
+      expect(save).toHaveBeenCalledWith(['Rust'], true)
+      expect(checkbox.element.checked).toBe(true)
+      save.mockRejectedValue(new Error('offline'))
+      await checkbox.setValue(false)
+      await flushPromises()
+      expect(checkbox.element.checked).toBe(true)
+    })
+
     it('adds a topic and persists the whole list', async () => {
       store.interests = ['Postgres']
       store.interestsLoaded = true
@@ -982,7 +1003,7 @@ describe('SettingsView', () => {
       await wrapper.get('.interest-add').trigger('submit')
       await flushPromises()
 
-      expect(saveInterests).toHaveBeenCalledWith(['Postgres', 'Vue'])
+      expect(saveInterests).toHaveBeenCalledWith(['Postgres', 'Vue'], false)
     })
 
     it('refuses a duplicate without calling the API', async () => {
@@ -1010,7 +1031,7 @@ describe('SettingsView', () => {
       await wrapper.get('.interest-chip .interest-remove').trigger('click')
       await flushPromises()
 
-      expect(saveInterests).toHaveBeenCalledWith(['Postgres'])
+      expect(saveInterests).toHaveBeenCalledWith(['Postgres'], false)
     })
 
     it('reports a failed save', async () => {

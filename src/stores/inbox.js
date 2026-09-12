@@ -593,6 +593,7 @@ export const useInboxStore = defineStore('inbox', {
     // Worker reads them overnight with no browser running.
     interests: [],
     interestsLoaded: false,
+    personaliseGithub: false,
 
     // Model and UK-local schedule for the server-side data enricher.
     enrichmentSettings: parseEnrichmentSettings(defaultEnrichmentSettings),
@@ -2420,8 +2421,9 @@ export const useInboxStore = defineStore('inbox', {
         const headers = await this.authHeaders()
         const response = await fetch(`${TASKS_API_URL}/tasks/interests`, { headers })
         if (!response.ok) throw new Error(`GET interests responded ${response.status}`)
-        const { interests } = await response.json()
+        const { interests, personaliseGithub } = await response.json()
         this.interests = interests
+        this.personaliseGithub = personaliseGithub === true
         this.interestsLoaded = true
       } catch (error) {
         console.error('Failed to load interests:', error)
@@ -2431,18 +2433,19 @@ export const useInboxStore = defineStore('inbox', {
     // Replaces the stored personalisation topics. Throws on failure so the
     // settings pane can report it; the server's normalized list wins, so the
     // in-memory copy matches what the enricher will actually read.
-    async saveInterests(interests) {
+    async saveInterests(interests, personaliseGithub = this.personaliseGithub) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch(`${TASKS_API_URL}/tasks/interests`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({ interests }),
+        body: JSON.stringify({ interests, personaliseGithub }),
       })
       if (!response.ok) {
         throw new Error(`PUT interests responded ${response.status}`)
       }
       const saved = await response.json()
       this.interests = saved.interests
+      this.personaliseGithub = saved.personaliseGithub === true
       this.interestsLoaded = true
       return this.interests
     },

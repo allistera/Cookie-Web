@@ -381,6 +381,7 @@ test('Settings Personalisation pane adds and removes news topics', async ({ page
   await expect(page.getByTestId('interest-chips').locator('.interest-chip')).toHaveCount(4)
   expect(saved.at(-1)).toEqual({
     interests: ['Cloudflare Workers', 'Vue', 'self-hosting', 'Postgres'],
+    personaliseGithub: false,
   })
 })
 
