@@ -2739,3 +2739,33 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(wrapper.find('.ni-tab').classes()).toContain('active')
   })
 })
+
+describe('reader recipient tooltip', () => {
+  it.each([false, true])('shows full To addresses for isSent=%s', async (isSent) => {
+    setActivePinia(createPinia())
+    const store = useInboxStore()
+    const email = {
+      ...makeEmail('recipient-tooltip', Date.now() - HOUR),
+      isSent,
+      recipients: {
+        to: [
+          { name: 'Billing', address: 'billing@example.com' },
+          { name: 'Accounts', address: 'accounts@example.com' },
+        ],
+        cc: [{ name: 'Other', address: 'other@example.com' }],
+      },
+    }
+    store.traditionalEmails = [email]
+    store.messageBodies.set(email.id, { thread: [], attachments: [] })
+    const wrapper = mountView()
+    try {
+      store.openReader(email)
+      await flushPromises()
+      expect(wrapper.get('.ni-email-to').attributes('title')).toBe(
+        'billing@example.com, accounts@example.com',
+      )
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})

@@ -692,6 +692,13 @@ const replyFollowUpLabel = computed(() =>
   replyFollowUpAt.value ? FOLLOW_UP_FMT.format(new Date(replyFollowUpAt.value)) : 'Remind me',
 )
 
+const openEmailRecipientAddresses = computed(() =>
+  (openEmail.value?.recipients?.to ?? [])
+    .map((recipient) => recipient.address)
+    .filter(Boolean)
+    .join(', '),
+)
+
 const { user } = useAuth()
 
 // Everyone a reply-all goes to: the sender first, then the To and Cc lists,
@@ -1886,7 +1893,7 @@ onUnmounted(() => {
                     <span class="ni-email-sender">{{ openEmail.sender }}</span>
                     <span class="ni-email-address">{{ openEmail.address }}</span>
                   </div>
-                  <div class="ni-email-to">
+                  <div class="ni-email-to" :title="openEmailRecipientAddresses">
                     {{ openEmail.isSent ? `To ${openEmail.to ?? openEmail.address}` : 'To me' }}
                     <span class="material-symbols-outlined">unfold_more</span>
                   </div>
