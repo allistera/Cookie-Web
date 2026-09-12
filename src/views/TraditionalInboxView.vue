@@ -1417,7 +1417,7 @@ onUnmounted(() => {
         @click="store.setInboxTab(tab.id)"
       >
         <span class="ni-tab-name">{{ tab.name }}</span>
-        <span class="ni-tab-count">{{ tab.count }}</span>
+        <span v-if="tab.count > 0" class="ni-tab-count">{{ tab.count }}</span>
       </button>
     </div>
 

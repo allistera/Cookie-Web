@@ -2600,9 +2600,12 @@ describe('TraditionalInboxView inbox tabs', () => {
   let store
 
   function tabTexts(wrapper) {
-    return wrapper
-      .findAll('.ni-tab')
-      .map((tab) => `${tab.find('.ni-tab-name').text()} ${tab.find('.ni-tab-count').text()}`)
+    return wrapper.findAll('.ni-tab').map((tab) => {
+      const count = tab.find('.ni-tab-count')
+      return [tab.find('.ni-tab-name').text(), count.exists() ? count.text() : '']
+        .filter(Boolean)
+        .join(' ')
+    })
   }
 
   function clickTab(wrapper, name) {
@@ -2638,7 +2641,7 @@ describe('TraditionalInboxView inbox tabs', () => {
   it('lists Important first, then all categories and Other, including empty tabs', () => {
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Important 1', 'Docs 1', 'Finance 0', 'Team 1', 'Other 2'])
+    expect(tabTexts(wrapper)).toEqual(['Important 1', 'Docs 1', 'Finance', 'Team 1', 'Other 2'])
     expect(wrapper.find('.ni-tabs').exists()).toBe(true)
     expect(wrapper.find('.ni-header').exists()).toBe(false)
     const important = wrapper.find('.ni-tab')
@@ -2657,7 +2660,7 @@ describe('TraditionalInboxView inbox tabs', () => {
       store.inboxTab = 'category:c-important'
       const wrapper = mountView()
 
-      expect(tabTexts(wrapper)).toEqual(['Important 2', 'Docs 0', 'Finance 0', 'Team 0', 'Other 2'])
+      expect(tabTexts(wrapper)).toEqual(['Important 2', 'Docs', 'Finance', 'Team', 'Other 2'])
       expect(wrapper.find('.ni-tab.active .ni-tab-name').text()).toBe('Important')
       expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
 
@@ -2691,7 +2694,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     )
     await nextTick()
     expect(wrapper.get('.ni-tab.active .ni-tab-name').text()).toBe('Team')
-    expect(wrapper.get('.ni-tab.active .ni-tab-count').text()).toBe('0')
+    expect(wrapper.find('.ni-tab.active .ni-tab-count').exists()).toBe(false)
     expect(wrapper.get('.ni-empty').text()).toBe('No emails in this category.')
     wrapper.unmount()
   })
@@ -2709,7 +2712,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     store.traditionalEmails[0].isPriority = false
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Important 0', 'Other 4'])
+    expect(tabTexts(wrapper)).toEqual(['Important', 'Other 4'])
     expect(wrapper.findAll('.ni-tab')[1].classes()).toContain('active')
     expect(rowSubjects(wrapper)).toHaveLength(4)
 
@@ -2731,7 +2734,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     store.traditionalEmails.push(due, followUp, later)
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Important 3', 'Docs 1', 'Finance 0', 'Team 1', 'Other 3'])
+    expect(tabTexts(wrapper)).toEqual(['Important 3', 'Docs 1', 'Finance', 'Team 1', 'Other 3'])
     expect(rowSubjects(wrapper)).toEqual(['Subject due-1', 'Subject follow-1', 'Subject team-1'])
     expect(wrapper.find('.ni-group-header').text()).toContain('Due Today')
 
@@ -2753,7 +2756,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     await router.replace({ path: '/inbox' })
     store.traditionalEmails = []
     wrapper = mountView()
-    expect(tabTexts(wrapper)).toEqual(['Important 0', 'Docs 0', 'Finance 0', 'Team 0', 'Other 0'])
+    expect(tabTexts(wrapper)).toEqual(['Important', 'Docs', 'Finance', 'Team', 'Other'])
   })
 
   it('moves to a tab holding a linked email that sits outside the saved tab', async () => {
