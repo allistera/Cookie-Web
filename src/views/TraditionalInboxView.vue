@@ -73,7 +73,7 @@ watch(
 // classifier rated high plus anything due now (a scheduled email whose time
 // has come, or a follow-up reminder). Other collects the rest that carries
 // no configured category. Categories named Important share the fixed tab.
-// A category tab with nothing under it stays hidden.
+// Keep every category visible, including categories with no loaded mail.
 // Tab ids: PRIORITY_TAB, OTHER_TAB, or inboxTabForCategory(id).
 const categoryTabId = inboxTabForCategory
 
@@ -124,18 +124,14 @@ const inboxTabs = computed(() => {
         name: category.name,
       })),
     { id: OTHER_TAB, name: 'Other' },
-  ]
-    .map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))
-    .filter((tab) => tab.id === PRIORITY_TAB || tab.count > 0)
+  ].map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))
 })
 
-const showInboxTabs = computed(
-  () => !activeFilter.value && !store.activeSearchQuery && inboxEmails.value.length > 0,
-)
+const showInboxTabs = computed(() => !activeFilter.value && !store.activeSearchQuery)
 
 // The chosen tab while it is still offered (Important always is, even
 // empty, so a deliberate click on it sticks). Otherwise, before any choice
-// or once the chosen label emptied or was deleted, the first tab holding
+// or once the chosen category was deleted, the first tab holding
 // mail. Null while the bar is hidden, when nothing narrows.
 const activeTab = computed(() => {
   if (!showInboxTabs.value) return null
@@ -194,10 +190,9 @@ const showInboxZero = computed(
     !store.isRefreshing,
 )
 
-// Important is the one tab offered while empty, so it says so instead of
-// showing a blank list.
-const showPriorityEmpty = computed(
-  () => activeTab.value === PRIORITY_TAB && !filteredEmails.value.length && !showInboxZero.value,
+// Explain an empty selected tab while preserving the whole-inbox celebration.
+const showTabEmpty = computed(
+  () => Boolean(activeTab.value) && !filteredEmails.value.length && !showInboxZero.value,
 )
 
 const showLoadMore = computed(() => {
@@ -1488,8 +1483,12 @@ onUnmounted(() => {
       <div class="ni-empty" v-if="activeFilter && !filteredEmails.length">
         {{ emptyText }}
       </div>
-      <div class="ni-empty" v-if="showPriorityEmpty">
-        No important emails. High-priority and due emails land here.
+      <div class="ni-empty" v-if="showTabEmpty">
+        {{
+          activeTab === PRIORITY_TAB
+            ? 'No important emails. High-priority and due emails land here.'
+            : 'No emails in this category.'
+        }}
       </div>
       <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
         <img

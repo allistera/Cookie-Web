@@ -2597,10 +2597,10 @@ describe('TraditionalInboxView inbox tabs', () => {
     store.traditionalEmails = [team, both, plain, system]
   })
 
-  it('lists Important first, then categories with mail and Other, hiding empty tabs', () => {
+  it('lists Important first, then all categories and Other, including empty tabs', () => {
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Important 1', 'Docs 1', 'Team 1', 'Other 2'])
+    expect(tabTexts(wrapper)).toEqual(['Important 1', 'Docs 1', 'Finance 0', 'Team 1', 'Other 2'])
     expect(wrapper.find('.ni-tabs').exists()).toBe(true)
     expect(wrapper.find('.ni-header').exists()).toBe(false)
     const important = wrapper.find('.ni-tab')
@@ -2619,7 +2619,7 @@ describe('TraditionalInboxView inbox tabs', () => {
       store.inboxTab = 'category:c-important'
       const wrapper = mountView()
 
-      expect(tabTexts(wrapper)).toEqual(['Important 2', 'Other 2'])
+      expect(tabTexts(wrapper)).toEqual(['Important 2', 'Docs 0', 'Finance 0', 'Team 0', 'Other 2'])
       expect(wrapper.find('.ni-tab.active .ni-tab-name').text()).toBe('Important')
       expect(rowSubjects(wrapper)).toEqual(['Subject team-1', 'Subject both-1'])
 
@@ -2640,6 +2640,22 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(team.attributes('aria-selected')).toBe('true')
     expect(wrapper.find('.ni-tab').attributes('aria-selected')).toBe('false')
     expect(store.inboxTab).toBe('category:c-team')
+  })
+
+  it('keeps an empty category selectable and selected when its last email leaves', async () => {
+    const wrapper = mountView()
+    await clickTab(wrapper, 'Finance')
+    expect(wrapper.get('.ni-tab.active .ni-tab-name').text()).toBe('Finance')
+    expect(wrapper.get('.ni-empty').text()).toBe('No emails in this category.')
+    await clickTab(wrapper, 'Team')
+    store.traditionalEmails = store.traditionalEmails.filter(
+      (email) => email.category?.id !== 'c-team',
+    )
+    await nextTick()
+    expect(wrapper.get('.ni-tab.active .ni-tab-name').text()).toBe('Team')
+    expect(wrapper.get('.ni-tab.active .ni-tab-count').text()).toBe('0')
+    expect(wrapper.get('.ni-empty').text()).toBe('No emails in this category.')
+    wrapper.unmount()
   })
 
   it('Other collects mail that is neither important nor categorised', async () => {
@@ -2677,7 +2693,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     store.traditionalEmails.push(due, followUp, later)
     const wrapper = mountView()
 
-    expect(tabTexts(wrapper)).toEqual(['Important 3', 'Docs 1', 'Team 1', 'Other 3'])
+    expect(tabTexts(wrapper)).toEqual(['Important 3', 'Docs 1', 'Finance 0', 'Team 1', 'Other 3'])
     expect(rowSubjects(wrapper)).toEqual(['Subject due-1', 'Subject follow-1', 'Subject team-1'])
     expect(wrapper.find('.ni-group-header').text()).toContain('Due Today')
 
@@ -2690,7 +2706,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     )
   })
 
-  it('shows no bar in filtered views or with an empty inbox', async () => {
+  it('hides tabs in filtered views but keeps all tabs with an empty inbox', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'starred' } })
     let wrapper = mountView()
     expect(wrapper.find('.ni-tabs').exists()).toBe(false)
@@ -2699,7 +2715,7 @@ describe('TraditionalInboxView inbox tabs', () => {
     await router.replace({ path: '/inbox' })
     store.traditionalEmails = []
     wrapper = mountView()
-    expect(wrapper.find('.ni-tabs').exists()).toBe(false)
+    expect(tabTexts(wrapper)).toEqual(['Important 0', 'Docs 0', 'Finance 0', 'Team 0', 'Other 0'])
   })
 
   it('moves to a tab holding a linked email that sits outside the saved tab', async () => {
