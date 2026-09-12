@@ -193,34 +193,9 @@ function newsLink(item) {
   return safeHref(item.url)
 }
 
-// How stale the gathered set is, from the most recent of a task's gathered_at
-// or the digest/news created_at. `now` is read when the dashboard mounts; this
-// is a dashboard glanced at, not a live clock.
-const now = ref(Date.now())
-
-const gatheredAt = computed(() => {
-  const stamps = [
-    ...store.tasks.map((t) => Date.parse(t.gathered_at)),
-    Date.parse(store.digest?.created_at),
-    Date.parse(store.news?.created_at),
-  ].filter((ms) => Number.isFinite(ms))
-  return stamps.length ? Math.max(...stamps) : null
-})
-
-const statusTime = computed(() => {
-  if (gatheredAt.value === null) return 'Not gathered yet'
-  const minutes = Math.floor((now.value - gatheredAt.value) / 60_000)
-  if (minutes < 1) return 'Updated just now'
-  if (minutes < 60) return `Updated ${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `Updated ${hours}h ago`
-  return `Updated ${Math.floor(hours / 24)}d ago`
-})
-
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
   await store.loadTasks()
-  now.value = Date.now()
 })
 
 onUnmounted(() => {
@@ -246,7 +221,6 @@ onUnmounted(() => {
           to work through.
         </template>
       </h1>
-      <span class="status-time">{{ statusTime }}</span>
     </div>
 
     <div class="ai-cards-container">
@@ -446,13 +420,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.status-time {
-  font-size: 12px;
-  color: var(--text-secondary);
-  width: fit-content;
-  padding: 4px 8px;
-}
-
 .news-link {
   font-weight: 600;
   color: var(--text-primary);

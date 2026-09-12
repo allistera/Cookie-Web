@@ -633,7 +633,7 @@ describe('AIInboxView (AI Today)', () => {
     expect(rowsOf(wrapper)).toHaveLength(1)
   })
 
-  it('reports how stale the gathered set is without presenting a manual refresh control', () => {
+  it('omits the update timestamp and manual refresh control', () => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
     store.tasks = [
       {
@@ -645,14 +645,14 @@ describe('AIInboxView (AI Today)', () => {
       },
     ]
     const wrapper = mountView()
-    expect(wrapper.get('.status-time').text()).toBe('Updated 2h ago')
+    expect(wrapper.find('.status-time').exists()).toBe(false)
     expect(wrapper.find('.ai-update-status').exists()).toBe(false)
     expect(wrapper.find('.refresh-icon').exists()).toBe(false)
   })
 
-  it('falls back when no task carries a gathered_at', () => {
+  it('omits the status when no task carries a gathered_at', () => {
     store.tasks = [{ id: 'task-1', source: 'task', content: 'Book dentist', url: null }]
-    expect(mountView().get('.status-time').text()).toBe('Not gathered yet')
+    expect(mountView().find('.status-time').exists()).toBe(false)
   })
 })
 

@@ -298,8 +298,8 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
   // Sidebar labels this view "AI Today".
   await expect(page.locator('.nav-item', { hasText: 'AI Today' })).toBeVisible()
 
-  // Staleness comes from the newest gathered_at, not a hardcoded string.
-  await expect(page.locator('.status-time')).toHaveText('Updated 3h ago')
+  // The dashboard does not display an update timestamp.
+  await expect(page.locator('.status-time')).toHaveCount(0)
   await expect(page.locator('.ai-update-status')).toHaveCount(0)
 
   // One list, ordered as the API returned it, with a bold title and description.
