@@ -9,6 +9,8 @@ const input = ref(null)
 const text = ref('')
 const saving = ref(false)
 const error = ref('')
+const showHint = ref(true)
+let hintTimeout
 let previousFocus
 
 function close() {
@@ -34,8 +36,12 @@ onMounted(() => {
   previousFocus = document.activeElement
   dialog.value.showModal()
   input.value.focus()
+  hintTimeout = setTimeout(() => {
+    showHint.value = false
+  }, 5000)
 })
 onBeforeUnmount(() => {
+  clearTimeout(hintTimeout)
   dialog.value?.close()
   previousFocus?.focus?.()
 })
@@ -58,7 +64,7 @@ onBeforeUnmount(() => {
             ref="input"
             v-model="text"
             aria-label="Describe your task"
-            aria-describedby="ai-task-status"
+            :aria-describedby="saving || showHint ? 'ai-task-status' : undefined"
             placeholder="Plan day trip to London"
             maxlength="1000"
             autocomplete="off"
@@ -73,7 +79,7 @@ onBeforeUnmount(() => {
             <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </div>
-        <p id="ai-task-status" class="ai-task-status" role="status">
+        <p v-if="saving || showHint" id="ai-task-status" class="ai-task-status" role="status">
           {{
             saving
               ? 'Creating your task and subtasks…'
