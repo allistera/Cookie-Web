@@ -53,7 +53,7 @@ onBeforeUnmount(() => {
     >
       <form class="ai-task-form" @submit.prevent="submit">
         <div class="ai-task-prompt">
-          <span class="material-symbols-outlined" aria-hidden="true">search</span>
+          <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
           <input
             ref="input"
             v-model="text"
@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 23px;
+  font-size: 15px;
 }
 .ai-task-prompt:focus-within {
   outline: 2px solid var(--accent);
@@ -172,9 +172,6 @@ onBeforeUnmount(() => {
   .ai-task-prompt {
     gap: 8px;
     padding: 14px;
-  }
-  .ai-task-prompt input {
-    font-size: 17px;
   }
   .ai-task-prompt > span {
     font-size: 24px;
