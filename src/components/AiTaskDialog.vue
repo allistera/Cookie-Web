@@ -94,7 +94,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .ai-task-dialog {
-  width: min(1000px, calc(100vw - 40px));
+  width: min(760px, calc(100vw - 40px));
   max-width: none;
   margin: auto;
   padding: 0;
@@ -111,14 +111,14 @@ onBeforeUnmount(() => {
 .ai-task-prompt {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 18px 24px;
+  gap: 12px;
+  padding: 12px 18px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-dialog) 88%, #a9c1ed);
   box-shadow: 0 12px 50px rgb(0 0 0 / 12%);
 }
 .ai-task-prompt > span {
-  font-size: 30px;
+  font-size: 24px;
   color: var(--text-secondary);
 }
 .ai-task-prompt input {
@@ -143,8 +143,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
   width: fit-content;
   max-width: 100%;
   box-sizing: border-box;
-  margin: 14px auto 0;
+  margin: 10px auto 0;
   padding: 8px 14px;
   border-radius: 12px;
   background: var(--bg-dialog);
@@ -177,7 +177,7 @@ onBeforeUnmount(() => {
 @media (max-width: 600px) {
   .ai-task-prompt {
     gap: 8px;
-    padding: 14px;
+    padding: 10px 12px;
   }
   .ai-task-prompt > span {
     font-size: 24px;
