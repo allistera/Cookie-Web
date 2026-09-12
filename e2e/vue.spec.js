@@ -2089,9 +2089,8 @@ test('Marking the last email Done shows the Inbox Zero success state', async ({ 
 
   const inboxZero = page.locator('.ni-inbox-zero')
   await expect(inboxZero).toBeVisible()
-  const image = inboxZero.getByRole('img', { name: 'Congratulations! Inbox Zero. You did it!' })
-  await expect(image).toBeVisible()
-  await expect(image).toHaveJSProperty('naturalWidth', 1672)
+  await expect(inboxZero).toHaveText('No emails in your inbox.')
+  await expect(inboxZero.locator('img')).toHaveCount(0)
 })
 
 test('Sidebar links open the filtered views', async ({ page }) => {

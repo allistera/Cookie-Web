@@ -9,7 +9,6 @@ import {
   OTHER_TAB,
 } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
-import inboxZeroImage from '../assets/inbox-zero.png'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
@@ -190,7 +189,7 @@ const showInboxZero = computed(
     !store.isRefreshing,
 )
 
-// Explain an empty selected tab while preserving the whole-inbox celebration.
+// Explain an empty selected tab while preserving the whole-inbox empty message.
 const showTabEmpty = computed(
   () => Boolean(activeTab.value) && !filteredEmails.value.length && !showInboxZero.value,
 )
@@ -1498,14 +1497,8 @@ onUnmounted(() => {
             : 'No emails in this category.'
         }}
       </div>
-      <div class="ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
-        <img
-          class="ni-inbox-zero-image"
-          :src="inboxZeroImage"
-          alt="Congratulations! Inbox Zero. You did it!"
-          width="1672"
-          height="941"
-        />
+      <div class="ni-empty ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
+        No emails in your inbox.
       </div>
       <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
         {{ isLoadingMore ? 'Loading…' : 'Load more' }}

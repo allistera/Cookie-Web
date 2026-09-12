@@ -1708,7 +1708,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
   })
 
-  it('welcomes the user to Inbox Zero after the last email is marked Done', async () => {
+  it('shows an empty inbox message after the last email is marked Done', async () => {
     const wrapper = mountView()
 
     expect(wrapper.find('.ni-inbox-zero').exists()).toBe(false)
@@ -1716,9 +1716,8 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
 
     const inboxZero = wrapper.find('.ni-inbox-zero')
     expect(inboxZero.attributes('role')).toBe('status')
-    const image = inboxZero.find('img')
-    expect(image.attributes('src')).toContain('inbox-zero.png')
-    expect(image.attributes('alt')).toBe('Congratulations! Inbox Zero. You did it!')
+    expect(inboxZero.text()).toBe('No emails in your inbox.')
+    expect(inboxZero.find('img').exists()).toBe(false)
   })
 
   it('the reader topbar offers Star, Done and Reschedule with no Delete or Archive', async () => {

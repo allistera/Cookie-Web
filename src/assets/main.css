@@ -4757,26 +4757,6 @@ button.ni-attachment:hover {
   font-size: 14px;
 }
 
-.ni-inbox-zero {
-  display: flex;
-  flex: 1;
-  min-height: min(420px, calc(100vh - 220px));
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 48px 24px;
-  text-align: center;
-  color: var(--text-primary);
-}
-
-.ni-inbox-zero-image {
-  display: block;
-  width: 100%;
-  max-width: 960px;
-  height: auto;
-}
-
 @media (max-width: 600px) {
   .ni-header {
     padding: 16px 12px 8px;
@@ -4788,11 +4768,6 @@ button.ni-attachment:hover {
 
   .ni-list {
     padding-inline: 4px;
-  }
-
-  .ni-inbox-zero {
-    gap: 12px;
-    padding-inline: 8px;
   }
 
   .ni-reader {
