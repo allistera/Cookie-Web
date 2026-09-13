@@ -415,23 +415,25 @@ async function exportToPDF() {
 
 <template>
   <div class="document-editor" :class="{ compact }">
-    <EmojiPicker
-      v-if="!compact"
-      class="document-icon-picker"
-      label="Change document icon"
-      :emoji="doc.emoji || '🔹'"
-      @select="emit('save', { id: doc.id, emoji: $event })"
-    />
-    <h1
-      ref="titleEl"
-      class="document-title"
-      contenteditable="true"
-      spellcheck="false"
-      data-placeholder="Untitled"
-      aria-label="Document title"
-      @input="onTitleInput"
-      @keydown.enter.prevent="onTitleEnter"
-    ></h1>
+    <div class="document-title-row">
+      <h1
+        ref="titleEl"
+        class="document-title"
+        contenteditable="true"
+        spellcheck="false"
+        data-placeholder="Untitled"
+        aria-label="Document title"
+        @input="onTitleInput"
+        @keydown.enter.prevent="onTitleEnter"
+      ></h1>
+      <EmojiPicker
+        v-if="!compact"
+        class="document-icon-picker"
+        label="Change document icon"
+        :emoji="doc.emoji || '🔹'"
+        @select="emit('save', { id: doc.id, emoji: $event })"
+      />
+    </div>
     <div v-if="!compact" class="document-tags" aria-label="Document tags">
       <button
         v-for="tag in tags"
@@ -493,9 +495,16 @@ async function exportToPDF() {
   padding: 40px 24px 120px;
 }
 
+.document-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 720px;
+  margin: 0 auto 12px;
+}
+
 .document-icon-picker {
-  width: fit-content;
-  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .document-icon-picker :deep(.composer-emoji-btn) {
@@ -506,19 +515,21 @@ async function exportToPDF() {
 .document-icon-picker :deep(.composer-emoji-popover) {
   top: calc(100% + 8px);
   bottom: auto;
+  left: auto;
+  right: 0;
   width: min(320px, calc(100vw - 64px));
 }
 
 .document-title {
-  max-width: 720px;
-  margin-right: auto;
-  margin-left: auto;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin: 0;
   font-size: 32px;
   font-weight: 700;
   line-height: 1.2;
   color: var(--text-primary);
   outline: none;
-  margin-bottom: 12px;
 }
 
 .document-title:empty::before {

@@ -272,4 +272,4 @@ GitHub news shows all repositories returned by the daily top-repository feed by 
 
 ### Document icons
 
-Open a document and click its icon above the title to choose an emoji. Icons autosave with other edits and appear in the sidebar and document list. If saving fails, the selection stays open for **Retry save** or **Save a copy**.
+Open a document and click its icon to the right of the title to choose an emoji. Icons autosave with other edits and appear in the sidebar and document list. If saving fails, the selection stays open for **Retry save** or **Save a copy**.

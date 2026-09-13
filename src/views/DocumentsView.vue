@@ -306,6 +306,8 @@ function onEditorSave(payload) {
 
 .editor-save-navigation {
   display: flex;
+  flex: 1;
+  justify-content: space-between;
   align-items: center;
   gap: 6px;
   min-width: 0;

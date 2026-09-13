@@ -104,6 +104,13 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(saveNavigation.getByRole('status')).toHaveText('All changes saved')
   await expect(saveNavigation.getByRole('status')).toHaveAttribute('title', 'All changes saved')
   await expect(saveNavigation.locator('.save-ai-icon')).toBeVisible()
+  const statusPosition = await saveNavigation.getByRole('status').boundingBox()
+  const headerPosition = await saveNavigation.boundingBox()
+  expect(statusPosition.x + statusPosition.width).toBeCloseTo(
+    headerPosition.x + headerPosition.width,
+    0,
+  )
+
   await expect(saveNavigation.getByText('All documents', { exact: true })).toHaveCount(0)
 
   // The sidebar picked the title up live, and it survives a reload (the
@@ -737,6 +744,14 @@ test('Document icons autosave alongside title edits and survive reload', async (
   await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
   const icon = page.getByRole('button', { name: 'Change document icon' })
   await expect(icon).toBeVisible()
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    const titlePosition = await page.locator('.document-title').boundingBox()
+    const iconPosition = await icon.boundingBox()
+    expect(iconPosition.x).toBeGreaterThanOrEqual(titlePosition.x + titlePosition.width)
+    expect(iconPosition.x + iconPosition.width).toBeLessThanOrEqual(width)
+  }
+
   await page.locator('.document-title').fill('Rocket notes')
   await icon.click()
   await page.getByRole('searchbox', { name: 'Search emoji' }).fill('rocket')
