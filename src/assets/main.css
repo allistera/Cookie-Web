@@ -1930,7 +1930,7 @@ body {
 
 .ni-thread-summary {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-width: 0;
   margin: -2px 0 14px;
@@ -1950,9 +1950,8 @@ body {
 
 .ni-thread-summary-text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* The reader's conversation: collapsed cards for the other messages of the

@@ -924,7 +924,7 @@ test("Pressing 'd' after opening an email link marks it Done", async ({ page }) 
   await expect(page.locator('.ni-row', { hasText: subject })).toBeVisible()
 })
 
-test('Reader automatically shows a loading indicator and renders a one-line thread summary', async ({
+test('Reader automatically shows a loading indicator and wraps the full thread summary', async ({
   page,
 }) => {
   let releaseSummary
@@ -971,7 +971,27 @@ test('Reader automatically shows a loading indicator and renders a one-line thre
   await expect(summary).toContainText(
     'City Construction shared a revised plan and needs approval for the dimensions.',
   )
-  await expect(summary.locator('.ni-thread-summary-text')).toHaveCSS('white-space', 'nowrap')
+  const summaryText = summary.locator('.ni-thread-summary-text')
+  await expect(summaryText).toHaveCSS('white-space', 'pre-wrap')
+  const lineCounts = []
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    const layout = await summaryText.evaluate((element) => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      return {
+        lineCount: range.getClientRects().length,
+        width: element.clientWidth,
+        contentWidth: element.scrollWidth,
+        visibleHeight: element.clientHeight,
+        contentHeight: element.scrollHeight,
+      }
+    })
+    expect(layout.contentWidth).toBeLessThanOrEqual(layout.width)
+    expect(layout.contentHeight).toBeLessThanOrEqual(layout.visibleHeight)
+    lineCounts.push(layout.lineCount)
+  }
+  expect(lineCounts[1]).toBeGreaterThan(1)
   await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveText(
     'auto_awesome',
   )
