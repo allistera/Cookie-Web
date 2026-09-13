@@ -99,6 +99,10 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   // carries the date — the status line alone can show a pre-date "saved".
   await datePatch
   await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  const saveNavigation = page.locator('.editor-save-navigation')
+  await expect(saveNavigation.getByRole('link', { name: 'Back to all documents' })).toBeVisible()
+  await expect(saveNavigation.getByRole('status')).toHaveText('All changes saved')
+  await expect(saveNavigation.getByText('All documents', { exact: true })).toHaveCount(0)
 
   // The sidebar picked the title up live, and it survives a reload (the
   // fixture backend persists per browser session).

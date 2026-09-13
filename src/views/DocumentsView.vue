@@ -115,10 +115,14 @@ function onEditorSave(payload) {
     <!-- Editor -->
     <template v-if="route.params.id">
       <div class="editor-statusbar">
-        <router-link to="/documents" class="back-link">
-          <span class="material-symbols-outlined">arrow_back</span>
-          <span>All documents</span>
-        </router-link>
+        <div class="editor-save-navigation">
+          <router-link to="/documents" class="back-link" aria-label="Back to all documents">
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+          </router-link>
+          <span class="save-status" :class="`save-${store.saveState}`" role="status">
+            {{ saveStatusText }}
+          </span>
+        </div>
         <div v-if="store.saveState === 'error'" class="save-actions">
           <button
             v-if="!store.saveConflict"
@@ -132,9 +136,6 @@ function onEditorSave(payload) {
             {{ isCopying ? 'Saving copy…' : 'Save a copy' }}
           </button>
         </div>
-        <span class="save-status" :class="`save-${store.saveState}`" role="status">
-          {{ saveStatusText }}
-        </span>
       </div>
       <div v-if="store.isOpenDocLoading" class="documents-loading">
         <div class="spinner"></div>
@@ -280,6 +281,13 @@ function onEditorSave(payload) {
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-color);
   z-index: 5;
+}
+
+.editor-save-navigation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .back-link {
