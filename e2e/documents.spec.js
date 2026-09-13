@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from './workerFixtures.js'
+import { AI_API_URL } from '../src/lib/apiWorkers.js'
 
 test('The app switcher opens Documents: tree, editor with autosave, and starring all work', async ({
   page,
@@ -807,7 +808,7 @@ test('Document AI slides out on the right and closes with keyboard or button', a
     await expect(panel.getByRole('log', { name: 'AI conversation' })).toBeVisible()
     const composer = panel.getByRole('textbox', { name: 'Message document AI' })
     await expect(composer).toBeVisible()
-    await expect(panel.getByRole('button', { name: 'Send message' })).toBeDisabled()
+    // Sending is available once a message is entered.
 
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(panel.getByRole('button', { name: 'Close document AI' })).toBeFocused()
@@ -826,4 +827,174 @@ test('Document AI slides out on the right and closes with keyboard or button', a
     await panel.getByRole('button', { name: 'Close document AI' }).click()
     await expect(panel).toHaveCount(0)
   }
+})
+
+test('Document AI sends the latest draft, previews edits and applies them through autosave', async ({
+  page,
+}) => {
+  let sent
+  await page.route(`${AI_API_URL}/document-chat`, async (route) => {
+    sent = route.request().postDataJSON()
+    await route.fulfill({
+      json: {
+        reply: 'I made the opening clearer.',
+        model: 'gpt-5.6-sol',
+        proposal: {
+          title: 'Clear notes',
+          blocks: [{ type: 'paragraph', data: { text: 'A clearer opening.' } }],
+          preview: 'A clearer opening.',
+        },
+      },
+    })
+  })
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await page.locator('.document-title').fill('Latest title')
+  await page.locator('.codex-editor .ce-paragraph').first().fill('My latest unsaved thought.')
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  await panel.getByRole('textbox', { name: 'Message document AI' }).fill('Make the opening clearer')
+  await panel.getByRole('button', { name: 'Send message' }).click()
+  await expect(panel.getByText('I made the opening clearer.')).toBeVisible()
+  expect(sent.instruction).toBe('Make the opening clearer')
+  expect(sent.document.title).toBe('Latest title')
+  expect(JSON.stringify(sent.document.blocks)).toContain('My latest unsaved thought.')
+  await expect(page.locator('.document-title')).toHaveText('Latest title')
+  await panel.getByText('Preview changes').click()
+  await expect(panel.locator('pre')).toHaveText('A clearer opening.')
+  await panel.getByRole('button', { name: 'Apply changes' }).click()
+  await expect(page.locator('.document-title')).toHaveText('Clear notes')
+  await expect(page.locator('.codex-editor .ce-paragraph').first()).toHaveText('A clearer opening.')
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+  await expect(page.locator('.document-title')).toHaveText('Clear notes')
+  await expect(page.locator('.codex-editor .ce-paragraph').first()).toHaveText('A clearer opening.')
+})
+
+test('Document AI refuses to overwrite edits made after requesting a suggestion', async ({
+  page,
+}) => {
+  await page.route(`${AI_API_URL}/document-chat`, (route) =>
+    route.fulfill({
+      json: {
+        reply: 'Suggestion ready',
+        model: 'gpt-5.6-sol',
+        proposal: {
+          title: 'Old suggestion',
+          blocks: [{ type: 'paragraph', data: { text: 'Old suggestion' } }],
+          preview: 'Old suggestion',
+        },
+      },
+    }),
+  )
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  await panel.getByRole('textbox', { name: 'Message document AI' }).fill('Rewrite')
+  await panel.getByRole('button', { name: 'Send message' }).click()
+  await expect(panel.getByText('Suggestion ready')).toBeVisible()
+  await page.locator('.document-title').fill('My newer title')
+  await panel.getByRole('button', { name: 'Apply changes' }).click()
+  await expect(panel.getByRole('alert')).toContainText('document changed')
+  await expect(page.locator('.document-title')).toHaveText('My newer title')
+})
+
+test('Document AI supports no document, follow-up context and retry after failure', async ({
+  page,
+}) => {
+  const requests = []
+  await page.route(`${AI_API_URL}/document-chat`, async (route) => {
+    requests.push(route.request().postDataJSON())
+    if (requests.length === 1)
+      return route.fulfill({ status: 502, json: { error: 'Please try again' } })
+    return route.fulfill({
+      json: { reply: 'Here is an answer.', proposal: null, model: 'gpt-5.6-sol' },
+    })
+  })
+  await page.goto('/documents')
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  const input = panel.getByRole('textbox', { name: 'Message document AI' })
+  await input.fill('Explain how to write meeting notes')
+  await input.press('Enter')
+  await expect(panel.getByRole('alert')).toHaveText('Please try again')
+  await expect(input).toHaveValue('Explain how to write meeting notes')
+  await input.press('Enter')
+  await expect(panel.getByText('Here is an answer.')).toBeVisible()
+  expect(requests[1].document).toBeNull()
+  await input.fill('Make that shorter')
+  await input.press('Enter')
+  await expect(panel.getByText('Here is an answer.')).toHaveCount(2)
+  expect(requests[2].history).toEqual([
+    { role: 'user', content: 'Explain how to write meeting notes' },
+    { role: 'assistant', content: 'Here is an answer.' },
+  ])
+})
+
+test('Document AI can create a new document without an attached draft', async ({ page }) => {
+  const sent = []
+  await page.route(`${AI_API_URL}/document-chat`, (route) => {
+    sent.push(route.request().postDataJSON())
+    return route.fulfill({
+      json: {
+        reply: 'Here is a new memo.',
+        model: 'gpt-5.6-sol',
+        proposal: {
+          title: 'AI memo',
+          blocks: [{ type: 'paragraph', data: { text: 'New memo content.' } }],
+          preview: 'New memo content.',
+        },
+      },
+    })
+  })
+  await page.goto('/documents')
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  await panel.getByRole('textbox', { name: 'Message document AI' }).fill('Create a memo')
+  await panel.getByRole('button', { name: 'Send message' }).click()
+  await expect(panel.getByText('Here is a new memo.')).toBeVisible()
+  await panel.getByRole('textbox', { name: 'Message document AI' }).fill('Make that shorter')
+  await panel.getByRole('button', { name: 'Send message' }).click()
+  await expect(panel.getByText('Here is a new memo.')).toHaveCount(2)
+  expect(sent[1].history[1].content).toContain('New memo content.')
+  expect(sent[1].history[1].content).toContain('Proposed, not yet applied')
+  await panel.getByRole('button', { name: 'Create document', exact: true }).last().click()
+  await expect(page.locator('.document-title')).toHaveText('AI memo')
+  await expect(page.locator('.codex-editor .ce-paragraph').first()).toHaveText('New memo content.')
+  await page.reload()
+  await expect(page.locator('.codex-editor .ce-paragraph').first()).toHaveText('New memo content.')
+})
+
+test('Navigating away cancels Document AI without adding its reply to another document', async ({
+  page,
+}) => {
+  let release
+  let started
+  const requested = new Promise((resolve) => {
+    started = resolve
+  })
+  const held = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route(`${AI_API_URL}/document-chat`, async (route) => {
+    started()
+    await held
+    await route.fulfill({
+      json: { reply: 'Old document reply', proposal: null, model: 'gpt-5.6-sol' },
+    })
+  })
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  await page.getByRole('textbox', { name: 'Message document AI' }).fill('Review this')
+  await page.getByRole('button', { name: 'Send message' }).click()
+  await requested
+  await page.getByRole('link', { name: 'Back to all documents', exact: true }).click()
+  release()
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  await expect(panel.getByRole('log')).not.toContainText('Old document reply')
+  await expect(panel.getByRole('textbox')).toBeEmpty()
+  await expect(panel.getByText('No document attached')).toBeVisible()
 })

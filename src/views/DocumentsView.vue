@@ -13,6 +13,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useDocumentsStore } from '../stores/documents'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
 import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
+import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
 
 // The dashboard only needs document metadata. Keep Editor.js and its tools out
 // of that route payload until a specific document is actually opened.
@@ -25,6 +26,149 @@ const editorComponent = ref(null)
 const isCopying = ref(false)
 const aiPanelOpen = ref(false)
 const aiDraft = ref('')
+const aiMessages = ref([])
+const aiBusy = ref(false)
+const aiError = ref('')
+const aiConversation = ref(null)
+const editorRevision = ref(0)
+let aiController = null
+let aiRequestSerial = 0
+
+function resetAiChat() {
+  aiRequestSerial++
+  aiController?.abort()
+  aiController = null
+  aiBusy.value = false
+  aiMessages.value = []
+  aiError.value = ''
+}
+onBeforeUnmount(resetAiChat)
+
+async function scrollAiChat() {
+  await nextTick()
+  aiConversation.value?.scrollTo({ top: aiConversation.value.scrollHeight })
+}
+
+async function currentAiDocument() {
+  const id = route.params.id
+  if (!id) return null
+  if (store.isOpenDocLoading || !editorComponent.value || store.openDoc?.id !== id) {
+    throw new Error('Wait for the document to finish loading.')
+  }
+  const snapshot = await editorComponent.value.snapshot()
+  return { id, ...JSON.parse(JSON.stringify(snapshot)) }
+}
+
+async function sendAiMessage() {
+  const instruction = aiDraft.value.trim()
+  if (!instruction || aiBusy.value) return
+  aiBusy.value = true
+  aiError.value = ''
+  const serial = ++aiRequestSerial
+  aiController = new AbortController()
+  try {
+    const document = await currentAiDocument()
+    if (serial !== aiRequestSerial) return
+    const history = aiMessages.value.slice(-12).map(({ role, content, proposal, applied }) => ({
+      role,
+      content: proposal
+        ? `${content}\n${applied ? 'Applied' : 'Proposed, not yet applied'} document: ${proposal.title}\n${proposal.preview}`.slice(
+            0,
+            16000,
+          )
+        : content,
+    }))
+    const userMessage = { role: 'user', content: instruction }
+    aiMessages.value.push(userMessage)
+    void scrollAiChat()
+    const result = await requestDocumentChat(store, {
+      instruction,
+      document,
+      history,
+      signal: aiController.signal,
+    })
+    if (serial !== aiRequestSerial) return
+    aiMessages.value.push({
+      role: 'assistant',
+      content: result.reply,
+      model: result.model,
+      proposal: result.proposal,
+      base: documentContentKey(document),
+      documentId: document?.id ?? null,
+      applied: false,
+    })
+    aiDraft.value = ''
+    void scrollAiChat()
+  } catch (error) {
+    if (serial !== aiRequestSerial) return
+    if (aiMessages.value.at(-1)?.role === 'user') aiMessages.value.pop()
+    aiError.value =
+      error.name === 'TimeoutError'
+        ? 'AI took too long to respond. Your message is still here; try again.'
+        : error.message || 'AI request failed. Please try again.'
+  } finally {
+    if (serial === aiRequestSerial) {
+      aiBusy.value = false
+      aiController = null
+    }
+  }
+}
+
+function onAiEnter(event) {
+  if (event.isComposing || event.shiftKey) return
+  event.preventDefault()
+  void sendAiMessage()
+}
+
+async function applyAiProposal(message) {
+  if (aiBusy.value || message.applied) return
+  aiBusy.value = true
+  aiError.value = ''
+  const serial = aiRequestSerial
+  try {
+    const current = await currentAiDocument()
+    if (serial !== aiRequestSerial) return
+    if (
+      (current?.id ?? null) !== message.documentId ||
+      documentContentKey(current) !== message.base
+    ) {
+      throw new Error(
+        'The document changed since this suggestion. Ask AI again using the latest draft.',
+      )
+    }
+    let id = current?.id
+    if (id) {
+      if (!(await store.flushPendingSave()))
+        throw new Error('Save your current changes before applying this suggestion.')
+      const latest = await currentAiDocument()
+      if (serial !== aiRequestSerial) return
+      if (documentContentKey(latest) !== message.base)
+        throw new Error('The document changed. Ask AI again using the latest draft.')
+    } else {
+      const created = await store.createDocument({ title: message.proposal.title })
+      if (!created) throw new Error('Could not create the document.')
+      id = created.id
+    }
+    store.scheduleContentSave(id, {
+      title: message.proposal.title,
+      blocks: message.proposal.blocks,
+    })
+    if (current) editorRevision.value++
+    message.applied = true
+    const saved = await store.flushPendingSave()
+    if (!current) await router.push(`/documents/${id}`)
+    if (!saved)
+      throw new Error(
+        'The changes are in your draft, but saving failed. Use Retry save in the document header.',
+      )
+  } catch (error) {
+    if (serial === aiRequestSerial)
+      aiError.value = error.message || 'Could not apply these changes.'
+  } finally {
+    if (serial === aiRequestSerial) aiBusy.value = false
+  }
+}
+
 const aiButton = ref(null)
 const aiCloseButton = ref(null)
 
@@ -84,6 +228,7 @@ watch(
     if (route.name !== 'documents') return
     aiPanelOpen.value = false
     aiDraft.value = ''
+    resetAiChat()
     store.openDocument(id || null)
   },
   { immediate: true },
@@ -207,6 +352,7 @@ function onEditorSave(payload) {
       <div v-else-if="store.openDoc" class="editor-with-sidebar">
         <DocumentEditor
           ref="editorComponent"
+          :key="`${route.params.id}:${editorRevision}`"
           class="editor-column"
           :doc="store.openDoc"
           :is-daily-note="Boolean(store.openDocDailyDate)"
@@ -223,7 +369,7 @@ function onEditorSave(payload) {
 
     <Transition name="document-ai-slide">
       <aside
-        v-if="aiPanelOpen && route.params.id"
+        v-if="aiPanelOpen"
         id="document-ai-panel"
         class="document-ai-panel"
         aria-label="Document AI"
@@ -241,14 +387,52 @@ function onEditorSave(payload) {
         </header>
         <div class="document-ai-context">
           <span class="material-symbols-outlined" aria-hidden="true">description</span>
-          <span>{{ store.openDoc?.title || 'Untitled' }}</span>
+          <span>{{
+            route.params.id ? store.openDoc?.title || 'Untitled' : 'No document attached'
+          }}</span>
         </div>
-        <div class="document-ai-conversation" role="log" aria-label="AI conversation">
-          <div class="document-ai-welcome">
+        <div
+          ref="aiConversation"
+          class="document-ai-conversation"
+          role="log"
+          aria-label="AI conversation"
+          aria-live="polite"
+        >
+          <div v-if="!aiMessages.length" class="document-ai-welcome">
             <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
             <h3>A space for your ideas</h3>
-            <p>Questions, drafts, and AI responses will appear here.</p>
+            <p>Ask a question or describe the changes you want to make.</p>
           </div>
+          <article
+            v-for="(message, index) in aiMessages"
+            :key="index"
+            class="document-ai-message"
+            :class="`message-${message.role}`"
+          >
+            <strong>{{ message.role === 'user' ? 'You' : 'AI' }}</strong>
+            <p>{{ message.content }}</p>
+            <template v-if="message.proposal">
+              <details>
+                <summary>Preview changes</summary>
+                <h3>{{ message.proposal.title }}</h3>
+                <pre>{{ message.proposal.preview }}</pre>
+              </details>
+              <button
+                type="button"
+                :disabled="aiBusy || message.applied"
+                @click="applyAiProposal(message)"
+              >
+                {{
+                  message.applied
+                    ? 'Applied'
+                    : message.documentId
+                      ? 'Apply changes'
+                      : 'Create document'
+                }}
+              </button>
+            </template>
+          </article>
+          <p v-if="aiBusy" class="document-ai-thinking" role="status">Working on your request…</p>
         </div>
         <div class="document-ai-composer">
           <div class="document-ai-input-wrap">
@@ -256,24 +440,27 @@ function onEditorSave(payload) {
               v-model="aiDraft"
               aria-label="Message document AI"
               aria-describedby="document-ai-availability"
+              :disabled="aiBusy"
+              maxlength="8000"
+              @keydown.enter="onAiEnter"
               placeholder="Ask about this document…"
               rows="3"
             ></textarea>
             <div class="document-ai-composer-actions">
-              <span>Document context</span>
+              <span>{{ route.params.id ? 'Current document included' : 'New conversation' }}</span>
               <button
                 type="button"
                 aria-label="Send message"
-                disabled
-                title="AI chat is not connected yet"
+                :disabled="aiBusy || !aiDraft.trim()"
+                title="Send message"
+                @click="sendAiMessage"
               >
                 <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
               </button>
             </div>
           </div>
-          <p id="document-ai-availability">
-            AI chat is not connected yet. You can draft a message here.
-          </p>
+          <p v-if="aiError" class="document-ai-error" role="alert">{{ aiError }}</p>
+          <p id="document-ai-availability">Enter to send · Shift+Enter for a new line</p>
         </div>
       </aside>
     </Transition>
@@ -292,6 +479,18 @@ function onEditorSave(payload) {
           </p>
         </div>
         <div class="documents-header-actions">
+          <button
+            ref="aiButton"
+            type="button"
+            class="document-ai-open"
+            aria-label="Open document AI"
+            :aria-expanded="aiPanelOpen"
+            aria-controls="document-ai-panel"
+            @click="toggleAiPanel"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+            AI
+          </button>
           <router-link v-if="activeTag" to="/documents" class="clear-tag-filter">
             Clear tag
           </router-link>
@@ -509,6 +708,7 @@ function onEditorSave(payload) {
 
 .filter-toggle,
 .clear-tag-filter,
+.document-ai-open,
 .new-doc-button {
   display: inline-flex;
   align-items: center;
@@ -526,6 +726,7 @@ function onEditorSave(payload) {
 }
 
 .filter-toggle .material-symbols-outlined,
+.document-ai-open .material-symbols-outlined,
 .new-doc-button .material-symbols-outlined {
   font-size: 16px;
 }
@@ -773,8 +974,57 @@ function onEditorSave(payload) {
   border-radius: 8px;
   background: var(--gemini-purple);
   color: white;
+  cursor: pointer;
+}
+.document-ai-composer-actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.document-ai-message {
+  padding: 12px;
+  margin: 0 0 12px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.document-ai-message.message-user {
+  margin-left: 24px;
+  background: color-mix(in srgb, var(--gemini-purple) 10%, var(--bg-card));
+}
+.document-ai-message p,
+.document-ai-message pre {
+  white-space: pre-wrap;
+  font: inherit;
+  line-height: 1.6;
+}
+.document-ai-message p {
+  margin: 6px 0;
+}
+.document-ai-message details {
+  margin: 12px 0;
+}
+.document-ai-message summary {
+  cursor: pointer;
+}
+.document-ai-message button {
+  padding: 6px 10px;
+  background: var(--gemini-purple);
+  color: white;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.document-ai-message button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.document-ai-thinking {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.document-ai-error {
+  color: #d15c4e;
 }
 .document-ai-composer > p {
   margin: 8px 0 0;
