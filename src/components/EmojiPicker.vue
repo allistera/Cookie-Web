@@ -8,6 +8,8 @@ import { filterEmoji, getRecentEmoji, rememberRecentEmoji } from '../lib/emoji'
 // agnostic of where the text ends up.
 defineProps({
   disabled: { type: Boolean, default: false },
+  label: { type: String, default: 'Insert emoji' },
+  emoji: { type: String, default: '' },
 })
 const emit = defineEmits(['select'])
 
@@ -62,14 +64,15 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
     <button
       type="button"
       class="composer-icon-btn composer-emoji-btn"
-      title="Insert emoji"
-      aria-label="Insert emoji"
+      :title="label"
+      :aria-label="label"
       aria-haspopup="dialog"
       :aria-expanded="open"
       :disabled="disabled"
       @click="toggle"
     >
-      <span class="material-symbols-outlined">add_reaction</span>
+      <span v-if="emoji" aria-hidden="true">{{ emoji }}</span>
+      <span v-else class="material-symbols-outlined" aria-hidden="true">add_reaction</span>
     </button>
     <div v-if="open" class="composer-emoji-popover" role="dialog" aria-label="Emoji picker">
       <input

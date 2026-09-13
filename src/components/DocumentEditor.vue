@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import EmojiPicker from './EmojiPicker.vue'
 import EditorJS from '@editorjs/editorjs'
 import Header from '@editorjs/header'
 import List from '@editorjs/list'
@@ -414,6 +415,13 @@ async function exportToPDF() {
 
 <template>
   <div class="document-editor" :class="{ compact }">
+    <EmojiPicker
+      v-if="!compact"
+      class="document-icon-picker"
+      label="Change document icon"
+      :emoji="doc.emoji || '🔹'"
+      @select="emit('save', { id: doc.id, emoji: $event })"
+    />
     <h1
       ref="titleEl"
       class="document-title"
@@ -483,6 +491,22 @@ async function exportToPDF() {
   box-sizing: border-box;
   margin: 0 auto;
   padding: 40px 24px 120px;
+}
+
+.document-icon-picker {
+  width: fit-content;
+  margin-bottom: 8px;
+}
+
+.document-icon-picker :deep(.composer-emoji-btn) {
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.document-icon-picker :deep(.composer-emoji-popover) {
+  top: calc(100% + 8px);
+  bottom: auto;
+  width: min(320px, calc(100vw - 64px));
 }
 
 .document-title {

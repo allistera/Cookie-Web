@@ -729,3 +729,48 @@ test('Multiple spreadsheet blocks load independently and retain their own values
   })
   expect(errors).toEqual([])
 })
+
+test('Document icons autosave alongside title edits and survive reload', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  const icon = page.getByRole('button', { name: 'Change document icon' })
+  await expect(icon).toBeVisible()
+  await page.locator('.document-title').fill('Rocket notes')
+  await icon.click()
+  await page.getByRole('searchbox', { name: 'Search emoji' }).fill('rocket')
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' &&
+      response.url().includes('/documents') &&
+      (response.request().postData() || '').includes('🚀'),
+  )
+  await page.getByRole('button', { name: 'rocket', exact: true }).click()
+  await saved
+  await expect(icon).toHaveText('🚀')
+  await expect(
+    page.locator('.documents-sidebar .doc-item', { hasText: 'Rocket notes' }).locator('.doc-emoji'),
+  ).toHaveText('🚀')
+  await page.reload()
+  await expect(page.locator('.document-title')).toHaveText('Rocket notes')
+  await expect(icon).toHaveText('🚀')
+})
+
+test('A failed document icon save keeps the selection available for retry', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await page.route('**/documents', async (route) => {
+    if (route.request().method() === 'PATCH') return route.fulfill({ status: 500, body: '{}' })
+    return route.fallback()
+  })
+  const icon = page.getByRole('button', { name: 'Change document icon' })
+  await icon.click()
+  await page.getByRole('searchbox', { name: 'Search emoji' }).fill('rocket')
+  await page.getByRole('button', { name: 'rocket', exact: true }).click()
+  await expect(page.locator('.save-status')).toContainText('Save failed')
+  await expect(icon).toHaveText('🚀')
+  await page.unroute('**/documents')
+  await page.getByRole('button', { name: 'Retry save', exact: true }).click()
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+  await expect(icon).toHaveText('🚀')
+})

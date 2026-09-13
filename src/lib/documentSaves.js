@@ -2,7 +2,7 @@ import { toRaw } from 'vue'
 // One queue per store/session. Failed payloads remain owned by this queue until
 // acknowledged or explicitly saved as a copy; navigation cannot discard them.
 const queues = new WeakMap()
-const CONTENT_FIELDS = ['title', 'blocks', 'tags']
+const CONTENT_FIELDS = ['title', 'blocks', 'tags', 'emoji']
 function queueFor(store) {
   store = toRaw(store)
   if (!queues.has(store)) queues.set(store, { pending: new Map(), timer: null, inFlight: null })
@@ -19,6 +19,7 @@ export function scheduleContentSave(id, patch) {
   if (row) {
     if (content.title !== undefined) row.title = content.title
     if (content.tags !== undefined) row.tags = content.tags
+    if (content.emoji !== undefined) row.emoji = content.emoji
   }
   if (this.openDoc?.id === id) Object.assign(this.openDoc, content)
   this.saveState = 'saving'

@@ -461,11 +461,16 @@ export const useDocumentsStore = defineStore('documents', {
       if (!copy) return null
       try {
         const { document } = await this.request('PATCH', {
-          body: { id: copy.id, blocks: original.blocks, tags: original.tags ?? [] },
+          body: {
+            id: copy.id,
+            blocks: original.blocks,
+            tags: original.tags ?? [],
+            emoji: original.emoji,
+          },
         })
         Object.assign(copy, document)
         if (
-          ['title', 'blocks', 'tags'].some(
+          ['title', 'blocks', 'tags', 'emoji'].some(
             (field) => JSON.stringify(this.openDoc?.[field]) !== JSON.stringify(original[field]),
           )
         ) {
