@@ -119,8 +119,29 @@ function onEditorSave(payload) {
           <router-link to="/documents" class="back-link" aria-label="Back to all documents">
             <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </router-link>
-          <span class="save-status" :class="`save-${store.saveState}`" role="status">
-            {{ saveStatusText }}
+          <span
+            class="save-status"
+            :class="`save-${store.saveState}`"
+            :title="saveStatusText"
+            role="status"
+          >
+            <svg
+              v-if="store.saveState === 'saved'"
+              class="save-ai-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7L12 3Z" />
+              <path d="M20 2v4M18 4h4M4 18v4M2 20h4" />
+            </svg>
+            <span :class="{ 'saved-status-text': store.saveState === 'saved' }">{{
+              saveStatusText
+            }}</span>
           </span>
         </div>
         <div v-if="store.saveState === 'error'" class="save-actions">
@@ -330,8 +351,27 @@ function onEditorSave(payload) {
 }
 
 .save-status {
+  display: inline-flex;
+  align-items: center;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.save-ai-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--gemini-purple);
+}
+
+.saved-status-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .save-status.save-error {

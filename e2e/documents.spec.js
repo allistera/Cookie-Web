@@ -102,6 +102,8 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   const saveNavigation = page.locator('.editor-save-navigation')
   await expect(saveNavigation.getByRole('link', { name: 'Back to all documents' })).toBeVisible()
   await expect(saveNavigation.getByRole('status')).toHaveText('All changes saved')
+  await expect(saveNavigation.getByRole('status')).toHaveAttribute('title', 'All changes saved')
+  await expect(saveNavigation.locator('.save-ai-icon')).toBeVisible()
   await expect(saveNavigation.getByText('All documents', { exact: true })).toHaveCount(0)
 
   // The sidebar picked the title up live, and it survives a reload (the
