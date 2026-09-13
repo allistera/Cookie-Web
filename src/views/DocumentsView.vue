@@ -1,5 +1,13 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import { useDocumentsStore } from '../stores/documents'
@@ -15,6 +23,30 @@ const route = useRoute()
 const router = useRouter()
 const editorComponent = ref(null)
 const isCopying = ref(false)
+const aiPanelOpen = ref(false)
+const aiButton = ref(null)
+const aiCloseButton = ref(null)
+
+async function toggleAiPanel() {
+  if (aiPanelOpen.value) return closeAiPanel()
+  aiPanelOpen.value = true
+  await nextTick()
+  aiCloseButton.value?.focus()
+}
+
+function closeAiPanel() {
+  aiPanelOpen.value = false
+  aiButton.value?.focus()
+}
+
+function onAiEscape(event) {
+  if (event.key === 'Escape' && !event.defaultPrevented && aiPanelOpen.value) {
+    event.preventDefault()
+    closeAiPanel()
+  }
+}
+onMounted(() => window.addEventListener('keydown', onAiEscape))
+onBeforeUnmount(() => window.removeEventListener('keydown', onAiEscape))
 
 async function flushEditor() {
   await editorComponent.value?.flushPendingBlocks?.()
@@ -49,6 +81,7 @@ watch(
   () => route.params.id,
   (id) => {
     if (route.name !== 'documents') return
+    aiPanelOpen.value = false
     store.openDocument(id || null)
   },
   { immediate: true },
@@ -119,30 +152,38 @@ function onEditorSave(payload) {
           <router-link to="/documents" class="back-link" aria-label="Back to all documents">
             <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </router-link>
-          <span
-            class="save-status"
-            :class="`save-${store.saveState}`"
-            :title="saveStatusText || 'AI'"
-            :aria-label="saveStatusText || 'AI'"
-            role="status"
-          >
-            <svg
-              class="save-ai-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+          <div class="save-status" :class="`save-${store.saveState}`">
+            <button
+              ref="aiButton"
+              type="button"
+              class="document-ai-toggle"
+              aria-label="Open document AI"
+              title="Open document AI"
+              :aria-expanded="aiPanelOpen"
+              aria-controls="document-ai-panel"
+              @click="toggleAiPanel"
             >
-              <path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7L12 3Z" />
-              <path d="M20 2v4M18 4h4M4 18v4M2 20h4" />
-            </svg>
-            <span :class="{ 'saved-status-text': store.saveState === 'saved' }">{{
-              saveStatusText
-            }}</span>
-          </span>
+              <svg
+                class="save-ai-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7L12 3Z" />
+                <path d="M20 2v4M18 4h4M4 18v4M2 20h4" />
+              </svg>
+            </button>
+            <span
+              role="status"
+              :title="saveStatusText"
+              :class="{ 'saved-status-text': store.saveState === 'saved' }"
+              >{{ saveStatusText }}</span
+            >
+          </div>
         </div>
         <div v-if="store.saveState === 'error'" class="save-actions">
           <button
@@ -178,8 +219,30 @@ function onEditorSave(payload) {
       </div>
     </template>
 
+    <Transition name="document-ai-slide">
+      <aside
+        v-if="aiPanelOpen && route.params.id"
+        id="document-ai-panel"
+        class="document-ai-panel"
+        aria-label="Document AI"
+      >
+        <header class="document-ai-panel-header">
+          <h2>AI</h2>
+          <button
+            ref="aiCloseButton"
+            type="button"
+            aria-label="Close document AI"
+            @click="closeAiPanel"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
+        </header>
+        <p class="document-ai-context">{{ store.openDoc?.title || 'Untitled' }}</p>
+      </aside>
+    </Transition>
+
     <!-- Dashboard -->
-    <template v-else>
+    <template v-if="!route.params.id">
       <header class="documents-header">
         <div>
           <h1>{{ activeTag ? `#${activeTag}` : 'Documents' }}</h1>
@@ -542,5 +605,66 @@ function onEditorSave(payload) {
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
+}
+.document-ai-toggle,
+.document-ai-panel-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.document-ai-toggle:hover,
+.document-ai-toggle[aria-expanded='true'],
+.document-ai-panel-header button:hover {
+  background: var(--bg-hover);
+}
+.document-ai-panel {
+  position: fixed;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 100vw);
+  box-sizing: border-box;
+  z-index: 1000;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-left: 1px solid var(--border-color);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 8%);
+  overflow-y: auto;
+}
+.document-ai-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+.document-ai-panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.document-ai-context {
+  margin: 16px 20px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.document-ai-slide-enter-active,
+.document-ai-slide-leave-active {
+  transition: transform 200ms ease;
+}
+.document-ai-slide-enter-from,
+.document-ai-slide-leave-to {
+  transform: translateX(100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .document-ai-slide-enter-active,
+  .document-ai-slide-leave-active {
+    transition: none;
+  }
 }
 </style>

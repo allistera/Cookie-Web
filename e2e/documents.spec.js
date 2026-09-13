@@ -104,7 +104,9 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(saveNavigation.getByRole('status')).toHaveText('All changes saved')
   await expect(saveNavigation.getByRole('status')).toHaveAttribute('title', 'All changes saved')
   await expect(saveNavigation.locator('.save-ai-icon')).toBeVisible()
-  const statusPosition = await saveNavigation.getByRole('status').boundingBox()
+  const statusPosition = await saveNavigation
+    .getByRole('button', { name: 'Open document AI' })
+    .boundingBox()
   const backPosition = await saveNavigation.getByRole('link').boundingBox()
   expect(statusPosition.x).toBeGreaterThanOrEqual(backPosition.x + backPosition.width)
   expect(statusPosition.x - backPosition.x - backPosition.width).toBeLessThan(12)
@@ -791,4 +793,30 @@ test('A failed document icon save keeps the selection available for retry', asyn
   await expect(page.locator('.save-status')).toHaveText('All changes saved')
   await page.reload()
   await expect(icon).toHaveText('🚀')
+})
+
+test('Document AI slides out on the right and closes with keyboard or button', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  const toggle = page.getByRole('button', { name: 'Open document AI' })
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await toggle.click()
+    await expect(panel).toBeVisible()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(panel.getByRole('button', { name: 'Close document AI' })).toBeFocused()
+    await expect
+      .poll(async () => {
+        const bounds = await panel.boundingBox()
+        return Math.round(bounds.x + bounds.width)
+      })
+      .toBe(width)
+    await page.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await expect(toggle).toBeFocused()
+    await toggle.click()
+    await panel.getByRole('button', { name: 'Close document AI' }).click()
+    await expect(panel).toHaveCount(0)
+  }
 })
