@@ -416,6 +416,13 @@ async function exportToPDF() {
 <template>
   <div class="document-editor" :class="{ compact }">
     <div class="document-title-row">
+      <EmojiPicker
+        v-if="!compact"
+        class="document-icon-picker"
+        label="Change document icon"
+        :emoji="doc.emoji || '🔹'"
+        @select="emit('save', { id: doc.id, emoji: $event })"
+      />
       <h1
         ref="titleEl"
         class="document-title"
@@ -426,13 +433,6 @@ async function exportToPDF() {
         @input="onTitleInput"
         @keydown.enter.prevent="onTitleEnter"
       ></h1>
-      <EmojiPicker
-        v-if="!compact"
-        class="document-icon-picker"
-        label="Change document icon"
-        :emoji="doc.emoji || '🔹'"
-        @select="emit('save', { id: doc.id, emoji: $event })"
-      />
     </div>
     <div v-if="!compact" class="document-tags" aria-label="Document tags">
       <button
@@ -508,6 +508,7 @@ async function exportToPDF() {
 }
 
 .document-icon-picker :deep(.composer-emoji-btn) {
+  padding: 0;
   font-size: 32px;
   line-height: 1.2;
 }
@@ -515,8 +516,8 @@ async function exportToPDF() {
 .document-icon-picker :deep(.composer-emoji-popover) {
   top: calc(100% + 8px);
   bottom: auto;
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
   width: min(320px, calc(100vw - 64px));
 }
 

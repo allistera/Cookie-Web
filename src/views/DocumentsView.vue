@@ -122,11 +122,11 @@ function onEditorSave(payload) {
           <span
             class="save-status"
             :class="`save-${store.saveState}`"
-            :title="saveStatusText"
+            :title="saveStatusText || 'AI'"
+            :aria-label="saveStatusText || 'AI'"
             role="status"
           >
             <svg
-              v-if="store.saveState === 'saved'"
               class="save-ai-icon"
               viewBox="0 0 24 24"
               fill="none"
@@ -307,7 +307,7 @@ function onEditorSave(payload) {
 .editor-save-navigation {
   display: flex;
   flex: 1;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -355,6 +355,7 @@ function onEditorSave(payload) {
 .save-status {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--text-secondary);
 }

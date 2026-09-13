@@ -105,12 +105,9 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(saveNavigation.getByRole('status')).toHaveAttribute('title', 'All changes saved')
   await expect(saveNavigation.locator('.save-ai-icon')).toBeVisible()
   const statusPosition = await saveNavigation.getByRole('status').boundingBox()
-  const headerPosition = await saveNavigation.boundingBox()
-  expect(statusPosition.x + statusPosition.width).toBeCloseTo(
-    headerPosition.x + headerPosition.width,
-    0,
-  )
-
+  const backPosition = await saveNavigation.getByRole('link').boundingBox()
+  expect(statusPosition.x).toBeGreaterThanOrEqual(backPosition.x + backPosition.width)
+  expect(statusPosition.x - backPosition.x - backPosition.width).toBeLessThan(12)
   await expect(saveNavigation.getByText('All documents', { exact: true })).toHaveCount(0)
 
   // The sidebar picked the title up live, and it survives a reload (the
@@ -744,11 +741,14 @@ test('Document icons autosave alongside title edits and survive reload', async (
   await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
   const icon = page.getByRole('button', { name: 'Change document icon' })
   await expect(icon).toBeVisible()
+  await expect(page.locator('.save-ai-icon')).toBeVisible()
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 })
     const titlePosition = await page.locator('.document-title').boundingBox()
     const iconPosition = await icon.boundingBox()
-    expect(iconPosition.x).toBeGreaterThanOrEqual(titlePosition.x + titlePosition.width)
+    expect(iconPosition.x + iconPosition.width).toBeLessThanOrEqual(titlePosition.x)
+    expect(titlePosition.x - iconPosition.x - iconPosition.width).toBeLessThanOrEqual(12)
+    expect(iconPosition.y).toBeCloseTo(titlePosition.y, 0)
     expect(iconPosition.x + iconPosition.width).toBeLessThanOrEqual(width)
   }
 
@@ -768,6 +768,7 @@ test('Document icons autosave alongside title edits and survive reload', async (
     page.locator('.documents-sidebar .doc-item', { hasText: 'Rocket notes' }).locator('.doc-emoji'),
   ).toHaveText('🚀')
   await page.reload()
+  await expect(page.locator('.save-ai-icon')).toBeVisible()
   await expect(page.locator('.document-title')).toHaveText('Rocket notes')
   await expect(icon).toHaveText('🚀')
 })
