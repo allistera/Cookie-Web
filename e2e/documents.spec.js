@@ -804,6 +804,11 @@ test('Document AI slides out on the right and closes with keyboard or button', a
     await page.setViewportSize({ width, height: 900 })
     await toggle.click()
     await expect(panel).toBeVisible()
+    await expect(panel.getByRole('log', { name: 'AI conversation' })).toBeVisible()
+    const composer = panel.getByRole('textbox', { name: 'Message document AI' })
+    await expect(composer).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Send message' })).toBeDisabled()
+
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(panel.getByRole('button', { name: 'Close document AI' })).toBeFocused()
     await expect
@@ -812,10 +817,12 @@ test('Document AI slides out on the right and closes with keyboard or button', a
         return Math.round(bounds.x + bounds.width)
       })
       .toBe(width)
+    await composer.fill('Summarise this document')
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
     await expect(toggle).toBeFocused()
     await toggle.click()
+    await expect(composer).toHaveValue('Summarise this document')
     await panel.getByRole('button', { name: 'Close document AI' }).click()
     await expect(panel).toHaveCount(0)
   }

@@ -24,6 +24,7 @@ const router = useRouter()
 const editorComponent = ref(null)
 const isCopying = ref(false)
 const aiPanelOpen = ref(false)
+const aiDraft = ref('')
 const aiButton = ref(null)
 const aiCloseButton = ref(null)
 
@@ -82,6 +83,7 @@ watch(
   (id) => {
     if (route.name !== 'documents') return
     aiPanelOpen.value = false
+    aiDraft.value = ''
     store.openDocument(id || null)
   },
   { immediate: true },
@@ -227,7 +229,7 @@ function onEditorSave(payload) {
         aria-label="Document AI"
       >
         <header class="document-ai-panel-header">
-          <h2>AI</h2>
+          <h2>Document AI</h2>
           <button
             ref="aiCloseButton"
             type="button"
@@ -237,7 +239,42 @@ function onEditorSave(payload) {
             <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </header>
-        <p class="document-ai-context">{{ store.openDoc?.title || 'Untitled' }}</p>
+        <div class="document-ai-context">
+          <span class="material-symbols-outlined" aria-hidden="true">description</span>
+          <span>{{ store.openDoc?.title || 'Untitled' }}</span>
+        </div>
+        <div class="document-ai-conversation" role="log" aria-label="AI conversation">
+          <div class="document-ai-welcome">
+            <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+            <h3>A space for your ideas</h3>
+            <p>Questions, drafts, and AI responses will appear here.</p>
+          </div>
+        </div>
+        <div class="document-ai-composer">
+          <div class="document-ai-input-wrap">
+            <textarea
+              v-model="aiDraft"
+              aria-label="Message document AI"
+              aria-describedby="document-ai-availability"
+              placeholder="Ask about this document…"
+              rows="3"
+            ></textarea>
+            <div class="document-ai-composer-actions">
+              <span>Document context</span>
+              <button
+                type="button"
+                aria-label="Send message"
+                disabled
+                title="AI chat is not connected yet"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
+              </button>
+            </div>
+          </div>
+          <p id="document-ai-availability">
+            AI chat is not connected yet. You can draft a message here.
+          </p>
+        </div>
       </aside>
     </Transition>
 
@@ -624,6 +661,8 @@ function onEditorSave(payload) {
   background: var(--bg-hover);
 }
 .document-ai-panel {
+  display: flex;
+  flex-direction: column;
   position: fixed;
   top: 64px;
   right: 0;
@@ -635,9 +674,10 @@ function onEditorSave(payload) {
   color: var(--text-primary);
   border-left: 1px solid var(--border-color);
   box-shadow: -8px 0 24px rgb(0 0 0 / 8%);
-  overflow-y: auto;
+  overflow: hidden;
 }
 .document-ai-panel-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -649,9 +689,98 @@ function onEditorSave(payload) {
   font-size: 18px;
 }
 .document-ai-context {
-  margin: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin: 12px 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   color: var(--text-secondary);
-  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.document-ai-context > span:last-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.document-ai-context .material-symbols-outlined {
+  font-size: 16px;
+}
+.document-ai-conversation {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 20px;
+}
+.document-ai-welcome {
+  margin-top: 24px;
+  text-align: center;
+}
+.document-ai-welcome > span {
+  color: var(--gemini-purple);
+  font-size: 32px;
+}
+.document-ai-welcome h3 {
+  margin: 12px 0 8px;
+  font-size: 16px;
+}
+.document-ai-welcome p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.document-ai-composer {
+  flex-shrink: 0;
+  padding: 12px 16px 16px;
+}
+.document-ai-input-wrap {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  padding: 12px;
+}
+.document-ai-input-wrap:focus-within {
+  border-color: var(--gemini-purple);
+}
+.document-ai-input-wrap textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.document-ai-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.document-ai-composer-actions button {
+  display: inline-flex;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gemini-purple);
+  color: white;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.document-ai-composer > p {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 .document-ai-slide-enter-active,
 .document-ai-slide-leave-active {

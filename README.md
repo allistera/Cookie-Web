@@ -274,4 +274,4 @@ GitHub news shows all repositories returned by the daily top-repository feed by 
 
 Open a document and click its icon to the left of the title to choose an emoji. Icons autosave with other edits and appear in the sidebar and document list. If saving fails, the selection stays open for **Retry save** or **Save a copy**.
 
-The AI button beside the document back arrow opens a panel on the right. Close it with the close button or Escape; the panel shows the current document title.
+The AI button beside the document back arrow opens a panel on the right. Close it with the close button or Escape; the chat layout shows the document context, a scrollable conversation area, and a message composer. Drafts stay while the panel is closed and reset when switching documents. Sending is disabled until a document-chat backend is connected.
