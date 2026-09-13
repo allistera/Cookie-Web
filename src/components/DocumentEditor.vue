@@ -90,6 +90,7 @@ const emit = defineEmits(['save', 'dirty'])
 const inbox = useInboxStore()
 const documents = useDocumentsStore()
 const holder = ref(null)
+const editorReady = ref(false)
 const titleEl = ref(null)
 const tags = ref([])
 const tagDraft = ref('')
@@ -262,6 +263,7 @@ async function snapshot() {
 defineExpose({ flushPendingBlocks, snapshot })
 
 function mountEditor() {
+  editorReady.value = false
   // The title is contenteditable, so it is filled imperatively — a template
   // text binding would re-render on the store's own save echo and throw the
   // caret back to the start mid-typing.
@@ -300,6 +302,7 @@ function mountEditor() {
     },
     onReady: () => {
       if (!editor || !holder.value?.isConnected) return
+      editorReady.value = true
       new DragDrop(editor)
       if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
@@ -482,7 +485,7 @@ async function exportToPDF() {
         <span>Export PDF</span>
       </button>
     </div>
-    <div ref="holder" class="document-blocks"></div>
+    <div ref="holder" class="document-blocks" :inert="!editorReady" :aria-busy="!editorReady"></div>
   </div>
 </template>
 

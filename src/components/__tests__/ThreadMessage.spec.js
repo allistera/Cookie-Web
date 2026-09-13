@@ -68,7 +68,9 @@ describe('ThreadMessage', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe(`${MESSAGES_API_URL}/messages?id=msg-1`)
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `${MESSAGES_API_URL}/messages?id=msg-1&calendar=deferred`,
+    )
     expect(wrapper.text()).toContain('The whole message')
     expect(wrapper.text()).toContain('alice@example.com')
     expect(wrapper.get('.ni-attachment').text()).toContain('plan.pdf')

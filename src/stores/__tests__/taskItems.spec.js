@@ -589,7 +589,7 @@ describe('re-arranging tasks', () => {
     expect(store.items.map((row) => row.position)).toEqual([40, 30, 10])
     expect(store.items.map((row) => row.todayPosition)).toEqual([undefined, 1, 2])
     const [, options] = fetch.mock.calls[0]
-    expect(JSON.parse(options.body)).toEqual({ ids: ['b', 'a'], view: 'today' })
+    expect(JSON.parse(options.body)).toEqual({ ids: ['b', 'a'], view: 'today', paged: true })
   })
 
   it('does nothing with an empty order', async () => {

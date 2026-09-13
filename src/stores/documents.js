@@ -14,6 +14,9 @@ import {
 import { useInboxStore } from './inbox'
 
 const workspaceLoads = new WeakMap()
+const pageLoads = new WeakMap()
+export const documentPageKey = (scope = {}) =>
+  JSON.stringify([scope.folder ?? null, Boolean(scope.starred), scope.tag || null])
 
 // Search: mirrors inbox.js's searchAbortController, kept at module scope for
 // the same reason (an AbortController isn't reactive state).
@@ -35,6 +38,10 @@ export const useDocumentsStore = defineStore('documents', {
   state: () => ({
     folders: [],
     documents: [],
+    pages: {},
+    workspaceVersion: null,
+    workspacePaged: false,
+    workspaceTags: [],
     templates: [],
     templatesLoaded: false,
     templatesLoading: false,
@@ -74,6 +81,7 @@ export const useDocumentsStore = defineStore('documents', {
       return state.documents.filter((doc) => doc.starred)
     },
     documentTags(state) {
+      if (state.workspacePaged) return state.workspaceTags
       const counts = new Map()
       for (const document of state.documents) {
         for (const tag of document.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1)
@@ -125,9 +133,41 @@ export const useDocumentsStore = defineStore('documents', {
       this.isLoading = true
       const load = (async () => {
         try {
-          const { folders, documents } = await this.request('GET')
-          this.folders = folders
-          this.documents = documents
+          const version = this.workspaceVersion
+            ? `&version=${encodeURIComponent(this.workspaceVersion)}`
+            : ''
+          const metadata = await this.request('GET', { params: `?view=meta${version}` })
+          if (metadata.unchanged) {
+            await Promise.all(
+              Object.entries(this.pages)
+                .filter(([, page]) => !page.loaded)
+                .map(([key]) => {
+                  const [folder, starred, tag] = JSON.parse(key)
+                  return this.loadDocumentPage({ folder, starred, tag })
+                }),
+            )
+            return
+          }
+          this.folders = metadata.folders
+          if (Array.isArray(metadata.documents)) {
+            // Older Workers and local fixtures still return the full workspace.
+            this.workspacePaged = false
+            this.workspaceVersion = null
+            this.pages = {}
+            this.documents = metadata.documents
+          } else {
+            this.workspacePaged = true
+            this.workspaceVersion = metadata.version
+            this.workspaceTags = metadata.tags ?? []
+            this.pages = {}
+            pageLoads.delete(toRaw(this))
+            this.documents = []
+            await Promise.all([
+              this.loadDocumentPage(),
+              this.loadDocumentPage({ folder: 'root' }),
+              this.loadDocumentPage({ starred: true }),
+            ])
+          }
           this.isLoaded = true
         } catch (error) {
           console.error('Failed to load documents:', error)
@@ -141,8 +181,89 @@ export const useDocumentsStore = defineStore('documents', {
       return load
     },
 
+    pageFor(scope = {}) {
+      return this.pages[documentPageKey(scope)]
+    },
+
+    documentsForPage(scope = {}) {
+      const ids = this.pageFor(scope)?.ids
+      if (!ids) return this.documents
+      const byId = new Map(this.documents.map((doc) => [doc.id, doc]))
+      return ids.map((id) => byId.get(id)).filter(Boolean)
+    },
+
+    async loadDocumentPage(scope = {}, { more = false, force = false } = {}) {
+      if (!this.workspacePaged) return
+      const key = documentPageKey(scope)
+      const old = this.pages[key]
+      if (old?.loaded && !more && !force) return
+      if (more && !old?.nextCursor) return
+      const pending = pageLoads.get(toRaw(this)) ?? new Map()
+      pageLoads.set(toRaw(this), pending)
+      if (pending.has(key)) return pending.get(key)
+      const version = this.workspaceVersion
+      this.pages[key] ??= { ids: [], nextCursor: null, loaded: false, loading: false }
+      const page = this.pages[key]
+      page.loading = true
+      const params = new URLSearchParams({ view: 'page' })
+      if (scope.folder) params.set('folder', scope.folder)
+      if (scope.starred) params.set('starred', '1')
+      if (scope.tag) params.set('tag', scope.tag)
+      if (more) params.set('before', old.nextCursor)
+      const request = (async () => {
+        try {
+          const { documents, nextCursor } = await this.request('GET', { params: `?${params}` })
+          if (version !== this.workspaceVersion || this.pages[key] !== page) return
+          const byId = new Map(this.documents.map((doc) => [doc.id, doc]))
+          for (const doc of documents) byId.set(doc.id, doc)
+          this.documents = [...byId.values()]
+          page.ids = [...new Set([...(more ? page.ids : []), ...documents.map((doc) => doc.id)])]
+          page.nextCursor = nextCursor ?? null
+          page.loaded = true
+        } catch (error) {
+          this.notify(error.userMessage || 'Failed to load documents.', 'error')
+        } finally {
+          page.loading = false
+          pending.delete(key)
+        }
+      })()
+      pending.set(key, request)
+      return request
+    },
+
     // Opening a new document flushes any edit still waiting on the debounce
     // timer so switching documents never drops the tail of the last one.
+    syncDocumentPages(document, previous = null) {
+      if (!this.workspacePaged) return
+      const counts = new Map(this.workspaceTags.map(({ name, count }) => [name, count]))
+      for (const tag of previous?.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) - 1)
+      for (const tag of document?.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      this.workspaceTags = [...counts]
+        .filter(([, count]) => count > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, count]) => ({ name, count }))
+      const id = document?.id ?? previous?.id
+      for (const [key, page] of Object.entries(this.pages)) {
+        const [folder, starred, tag] = JSON.parse(key)
+        page.ids = page.ids.filter((existing) => existing !== id)
+        if (
+          document &&
+          (!folder || (folder === 'root' ? !document.folder_id : document.folder_id === folder)) &&
+          (!starred || document.starred) &&
+          (!tag || document.tags?.includes(tag))
+        ) {
+          page.ids.unshift(id)
+          const byId = new Map(this.documents.map((row) => [row.id, row]))
+          page.ids.sort(
+            (a, b) =>
+              String(byId.get(b)?.updated_at ?? '').localeCompare(
+                String(byId.get(a)?.updated_at ?? ''),
+              ) || b.localeCompare(a),
+          )
+        }
+      }
+    },
+
     async openDocument(id) {
       if (!(await this.flushPendingSave())) return false
       this.openDocId = id
@@ -171,6 +292,7 @@ export const useDocumentsStore = defineStore('documents', {
           body,
         })
         this.documents.unshift(document)
+        this.syncDocumentPages(document)
         return document
       } catch (error) {
         console.error('Failed to create document:', error)
@@ -389,6 +511,7 @@ export const useDocumentsStore = defineStore('documents', {
       const year = await this.findOrCreateFolder(formatDailyYearFolder(now), daily.id)
       if (!year) return null
       const month = await this.findOrCreateFolder(formatDailyMonthFolder(now), year.id)
+      await this.loadDocumentPage({ folder: month.id })
       if (!month) return null
 
       const existing = this.documents.find((d) => d.folder_id === month.id && d.title === title)
@@ -421,6 +544,7 @@ export const useDocumentsStore = defineStore('documents', {
       try {
         const { document } = await this.request('PATCH', { body: { id, ...patch } })
         Object.assign(row, document)
+        this.syncDocumentPages(row, before)
         if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
       } catch (error) {
         console.error('Failed to update document:', error)
@@ -490,6 +614,10 @@ export const useDocumentsStore = defineStore('documents', {
     async deleteDocument(id) {
       try {
         await this.request('DELETE', { body: { kind: 'document', id } })
+        this.syncDocumentPages(
+          null,
+          this.documents.find((doc) => doc.id === id),
+        )
         this.documents = this.documents.filter((doc) => doc.id !== id)
         if (this.openDocId === id) {
           this.openDocId = null

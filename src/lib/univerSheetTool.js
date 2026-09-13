@@ -1,3 +1,5 @@
+import { basicTableEditor, supportsBasicTable } from './basicTableEditor'
+import { deferEditorMount, editorPreview } from './deferredEditor'
 import { contentGridToWorkbookData } from './univerTableData'
 import { buildUniverTheme } from './univerTheme'
 
@@ -111,12 +113,33 @@ export class UniverSheetTool {
     // typing into the next document block). Same fix as kanbanBlockTool.js.
     this.wrapper.addEventListener('keydown', (event) => event.stopPropagation())
 
-    const loading = document.createElement('div')
-    loading.className = 'univer-sheet-block__loading'
-    loading.textContent = 'Loading table…'
-    this.wrapper.append(loading)
+    if (supportsBasicTable(this.data)) {
+      this.wrapper.append(
+        basicTableEditor(
+          this.data,
+          (data) => {
+            this.data = data
+            this.config.onChange?.()
+          },
+          (preview) => {
+            void this.mountUniver(preview)
+          },
+        ),
+      )
+      return this.wrapper
+    }
 
-    this.mountUniver(loading)
+    const sheet = this.data.workbook?.sheets?.[this.data.workbook?.sheetOrder?.[0]]
+    const lines =
+      this.data.content?.slice(0, 4).map((row) => row.slice(0, 4).join(' · ')) ??
+      Array.from({ length: 4 }, (_, row) =>
+        Array.from({ length: 4 }, (_, col) => sheet?.cellData?.[row]?.[col]?.v ?? '').join(' · '),
+      )
+    const loading = editorPreview('Table', lines)
+    this.wrapper.append(loading)
+    this.cancelDeferredMount = deferEditorMount(this.wrapper, loading, (preview) =>
+      this.mountUniver(preview),
+    )
     return this.wrapper
   }
 
@@ -263,6 +286,7 @@ export class UniverSheetTool {
   }
 
   destroy() {
+    this.cancelDeferredMount?.()
     if (this.changeFrame !== null) cancelAnimationFrame(this.changeFrame)
     this.changeFrame = null
     this.themeObserver?.disconnect()

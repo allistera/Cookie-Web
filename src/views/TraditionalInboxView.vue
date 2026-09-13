@@ -13,6 +13,7 @@ import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
 import EmailRow from '../components/EmailRow.vue'
+import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
@@ -316,6 +317,17 @@ const emailGroups = computed(() => {
   if (earlier.length) groups.push(group('Earlier', earlier))
   return groups
 })
+
+const mailList = ref(null)
+const virtualMailRows = computed(() =>
+  emailGroups.value.flatMap((group) => [
+    { key: `group:${group.label}`, kind: 'group', group },
+    ...(isGroupOpen(group.label)
+      ? group.emails.map((email) => ({ key: `email:${email.id}`, kind: 'email', email }))
+      : []),
+  ]),
+)
+const estimateMailRow = (row) => (row.kind === 'group' ? 56 : 40)
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 
@@ -811,6 +823,7 @@ watch(
     // Fetch the full body on demand (cached) for any open path, including the
     // command palette.
     if (id) {
+      nextTick(() => mailList.value?.scrollToKey(`email:${id}`))
       store.fetchMessageBody(id).then(() => store.ensureThreadSummary(store.openEmail))
       store.loadDrafts({ silent: true })
     }
@@ -1431,28 +1444,34 @@ onUnmounted(() => {
     </div>
 
     <!-- Email list -->
-    <div class="ni-list">
-      <template v-for="group in emailGroups" :key="group.label">
+    <VirtualList
+      ref="mailList"
+      class="ni-list"
+      :items="virtualMailRows"
+      :estimate="estimateMailRow"
+    >
+      <template #default="{ item: row }">
         <button
+          v-if="row.kind === 'group'"
           class="ni-group-header"
-          :class="{ collapsed: !isGroupOpen(group.label) }"
-          :aria-expanded="isGroupOpen(group.label)"
-          @click="toggleGroup(group.label)"
+          :class="{ collapsed: !isGroupOpen(row.group.label) }"
+          :aria-expanded="isGroupOpen(row.group.label)"
+          @click="toggleGroup(row.group.label)"
         >
           <span class="material-symbols-outlined ni-group-chevron">expand_more</span>
-          <span>{{ group.label }}</span>
+          <span>{{ row.group.label }}</span>
           <!-- Hovering (or focusing) the badge reveals a tooltip button that
                marks the whole day read. role=button spans: a real <button>
                may not nest inside the group-header button. -->
-          <span class="ni-group-count-wrap" v-if="groupUnreadCounts[group.label]">
-            <span class="ni-group-count">{{ groupUnreadCounts[group.label] }}</span>
+          <span class="ni-group-count-wrap" v-if="groupUnreadCounts[row.group.label]">
+            <span class="ni-group-count">{{ groupUnreadCounts[row.group.label] }}</span>
             <span
               class="ni-group-mark-read"
               role="button"
               tabindex="0"
-              :aria-label="`Mark ${group.label} emails as read`"
-              @click.stop="markGroupRead(group)"
-              @keydown.enter.stop.prevent="markGroupRead(group)"
+              :aria-label="`Mark ${row.group.label} emails as read`"
+              @click.stop="markGroupRead(row.group)"
+              @keydown.enter.stop.prevent="markGroupRead(row.group)"
             >
               <span class="material-symbols-outlined">mark_email_read</span>
               Mark Read
@@ -1463,14 +1482,13 @@ onUnmounted(() => {
              arrows would get a new identity on every parent render and
              defeat EmailRow's props-equality re-render skip. -->
         <EmailRow
-          v-for="email in isGroupOpen(group.label) ? group.emails : []"
-          :key="email.id"
-          :email="email"
-          :sender="rowSender(email)"
-          :read-receipt-title="email.isSent ? readReceiptTitle(email) : ''"
-          :checked="isSelected(email)"
-          :open="openEmail === email"
-          :has-ai-summary="emailHasAiSummary(email)"
+          v-else
+          :email="row.email"
+          :sender="rowSender(row.email)"
+          :read-receipt-title="row.email.isSent ? readReceiptTitle(row.email) : ''"
+          :checked="isSelected(row.email)"
+          :open="openEmail === row.email"
+          :has-ai-summary="emailHasAiSummary(row.email)"
           :show-done="activeFilter !== 'done'"
           @open="openReader"
           @toggle-select="toggleSelect"
@@ -1479,48 +1497,55 @@ onUnmounted(() => {
           @toggle-unread="toggleUnread"
         />
       </template>
-      <div
-        v-if="activeFilter === 'label' && store.isLabelRefreshing && !filteredEmails.length"
-        class="ni-empty ni-label-loading"
-        role="status"
-        aria-label="Loading emails"
-      >
-        <div class="spinner" aria-hidden="true"></div>
-      </div>
-      <div class="ni-empty" v-else-if="activeFilter && !filteredEmails.length">
-        {{ emptyText }}
-      </div>
-      <div class="ni-empty" v-if="showTabEmpty">
-        {{
-          activeTab === PRIORITY_TAB
-            ? 'No important emails. High-priority and due emails land here.'
-            : 'No emails in this category.'
-        }}
-      </div>
-      <div class="ni-empty ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
-        No emails in your inbox.
-      </div>
-      <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
-        {{ isLoadingMore ? 'Loading…' : 'Load more' }}
-      </button>
-      <div v-if="showDonePager" class="ni-pager">
-        <button
-          class="ni-load-more ni-pager-btn"
-          :disabled="store.donePageIndex === 0 || store.isDoneRefreshing"
-          @click="store.prevDonePage()"
+      <template #footer>
+        <div
+          v-if="activeFilter === 'label' && store.isLabelRefreshing && !filteredEmails.length"
+          class="ni-empty ni-label-loading"
+          role="status"
+          aria-label="Loading emails"
         >
-          ‹ Newer
-        </button>
-        <span class="ni-pager-page">Page {{ store.donePageIndex + 1 }}</span>
+          <div class="spinner" aria-hidden="true"></div>
+        </div>
+        <div class="ni-empty" v-else-if="activeFilter && !filteredEmails.length">
+          {{ emptyText }}
+        </div>
+        <div class="ni-empty" v-if="showTabEmpty">
+          {{
+            activeTab === PRIORITY_TAB
+              ? 'No important emails. High-priority and due emails land here.'
+              : 'No emails in this category.'
+          }}
+        </div>
+        <div class="ni-empty ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
+          No emails in your inbox.
+        </div>
         <button
-          class="ni-load-more ni-pager-btn"
-          :disabled="!store.doneHasNext || store.isDoneRefreshing"
-          @click="store.nextDonePage()"
+          v-if="showLoadMore"
+          class="ni-load-more"
+          :disabled="isLoadingMore"
+          @click="loadMore"
         >
-          Older ›
+          {{ isLoadingMore ? 'Loading…' : 'Load more' }}
         </button>
-      </div>
-    </div>
+        <div v-if="showDonePager" class="ni-pager">
+          <button
+            class="ni-load-more ni-pager-btn"
+            :disabled="store.donePageIndex === 0 || store.isDoneRefreshing"
+            @click="store.prevDonePage()"
+          >
+            ‹ Newer
+          </button>
+          <span class="ni-pager-page">Page {{ store.donePageIndex + 1 }}</span>
+          <button
+            class="ni-load-more ni-pager-btn"
+            :disabled="!store.doneHasNext || store.isDoneRefreshing"
+            @click="store.nextDonePage()"
+          >
+            Older ›
+          </button>
+        </div>
+      </template>
+    </VirtualList>
 
     <!-- Bulk action bar: floats over the list while any row is checked -->
     <Transition name="ni-bulk">

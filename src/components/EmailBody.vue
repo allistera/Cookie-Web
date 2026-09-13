@@ -1,5 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+
+import { startTiming } from '../lib/performance'
 
 import { BRIDGE_SOURCE, RESIZE_INTERVAL_MS } from '../lib/emailBodyBridgeConstants'
 import { hasBlockedRemoteImages, sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
@@ -30,6 +32,26 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['keydown', 'unsubscribe-link'])
+const finishReaderTiming = startTiming('reader-ready')
+let paintFrame
+let paintDisposed = false
+function recordBodyPaint() {
+  if (paintDisposed || !globalThis.requestAnimationFrame) return
+  cancelAnimationFrame(paintFrame)
+  paintFrame = requestAnimationFrame(() => {
+    paintFrame = requestAnimationFrame(finishReaderTiming)
+  })
+}
+watch(
+  () => props.bodyResolved,
+  async (resolved) => {
+    if (resolved && !props.html) {
+      await nextTick()
+      recordBodyPaint()
+    }
+  },
+  { immediate: true },
+)
 
 // Hard cap on the iframe height so a hostile email can't force a multi-million
 // pixel frame; taller bodies scroll inside the frame.
@@ -83,11 +105,22 @@ watch(
   { immediate: true },
 )
 
-// Show a spinner only while an HTML body is still being fetched: the message is
-// known to have HTML, the fetch is in flight, and no usable sanitized HTML has
-// arrived yet. Once the fetch settles (html present → iframe; html empty/absent
-// → text fallback) the spinner never lingers.
-const showSpinner = computed(() => !hasHtml.value && props.hasHtmlBody && props.loading)
+// Reserve the reader while loading, but only show an indicator for slower
+// requests. Never delay publishing content to make an indicator visible.
+const waitingForBody = computed(() => !hasHtml.value && props.hasHtmlBody && props.loading)
+const showSpinner = ref(false)
+watch(
+  waitingForBody,
+  (waiting, _, onCleanup) => {
+    showSpinner.value = false
+    if (!waiting) return
+    const timer = setTimeout(() => {
+      showSpinner.value = true
+    }, 150)
+    onCleanup(() => clearTimeout(timer))
+  },
+  { immediate: true },
+)
 
 const paragraphs = computed(() => (props.text || '').split('\n\n'))
 
@@ -203,6 +236,8 @@ onMounted(() => {
   })
 })
 onBeforeUnmount(() => {
+  paintDisposed = true
+  if (paintFrame !== undefined) cancelAnimationFrame(paintFrame)
   window.removeEventListener('message', onFrameMessage)
   themeObserver?.disconnect()
   themeObserver = null
@@ -228,10 +263,11 @@ onBeforeUnmount(() => {
     :data-bridge-token="frameToken"
     :data-bridge-generation="frameGeneration"
     :srcdoc="srcdoc"
+    @load="recordBodyPaint"
     :style="{ height: frameHeight + 'px' }"
   />
-  <div v-else-if="showSpinner" class="ni-email-loading" role="status" aria-label="Loading email">
-    <div class="spinner ni-email-spinner"></div>
+  <div v-else-if="waitingForBody" class="ni-email-loading" role="status" aria-label="Loading email">
+    <div v-if="showSpinner" class="spinner ni-email-spinner"></div>
   </div>
   <div v-else class="ni-email-body">
     <p v-for="(paragraph, i) in paragraphs" :key="i">{{ paragraph }}</p>

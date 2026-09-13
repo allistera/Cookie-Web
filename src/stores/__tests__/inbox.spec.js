@@ -499,6 +499,8 @@ describe('Inbox Store', () => {
       })
       vi.spyOn(store, 'persistDraft').mockImplementation(() => saved)
       const save = store.saveComposerDraft()
+      // Let the queued autosave start before handing off its in-flight row.
+      await vi.waitFor(() => expect(store.persistDraft).toHaveBeenCalled())
       const later = store.sendEmailLater('2026-09-04T09:00:00Z', 'tomorrow')
       await Promise.resolve()
       expect(calls).toEqual([])
@@ -1331,9 +1333,13 @@ describe('Inbox Store', () => {
 
     await store.refreshOpenThread()
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, `${MESSAGES_API_URL}/messages?id=${email.id}`, {
-      headers: { Authorization: 'Bearer test-access-token' },
-    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `${MESSAGES_API_URL}/messages?id=${email.id}&calendar=deferred`,
+      {
+        headers: { Authorization: 'Bearer test-access-token' },
+      },
+    )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       `${AI_API_URL}/summarize`,
@@ -3506,7 +3512,7 @@ describe('Inbox Store', () => {
     store.openEmailId = '11111111-1111-1111-1111-111111111111'
     expect(store.openEmailSummary).toBe('The saved project update.')
     expect(fetchMock).toHaveBeenCalledWith(
-      `${MESSAGES_API_URL}/messages?id=11111111-1111-1111-1111-111111111111`,
+      `${MESSAGES_API_URL}/messages?id=11111111-1111-1111-1111-111111111111&calendar=deferred`,
       { headers: { Authorization: 'Bearer test-access-token' } },
     )
 
@@ -3945,7 +3951,7 @@ describe('Inbox Store', () => {
     expect(store.isOpenBodyLoading).toBe(false)
   })
 
-  it('holds an HTML-body reveal open for a minimum duration so the spinner is perceivable', async () => {
+  it('reveals an HTML body as soon as the fetch completes', async () => {
     vi.useFakeTimers()
     try {
       vi.stubGlobal(
@@ -3960,13 +3966,8 @@ describe('Inbox Store', () => {
       store.openEmailId = 'msg-1'
 
       const promise = store.fetchMessageBody('msg-1')
-      // The mocked fetch/json resolve instantly, but the reveal must still be
-      // held back — otherwise a fast response never shows the spinner at all.
       await vi.advanceTimersByTimeAsync(0)
-      expect(store.messageBodies.has('msg-1')).toBe(false)
-      expect(store.isOpenBodyLoading).toBe(true)
-
-      await vi.advanceTimersByTimeAsync(200)
+      expect(store.messageBodies.has('msg-1')).toBe(true)
       await promise
 
       expect(store.messageBodies.get('msg-1')).toMatchObject({ html: '<p>hi</p>' })
@@ -4013,9 +4014,12 @@ describe('Inbox Store', () => {
 
     store.openReader(email)
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(`${MESSAGES_API_URL}/messages?id=msg-9`, {
-        headers: { Authorization: 'Bearer test-access-token' },
-      }),
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${MESSAGES_API_URL}/messages?id=msg-9&calendar=deferred`,
+        {
+          headers: { Authorization: 'Bearer test-access-token' },
+        },
+      ),
     )
     await vi.waitFor(() => expect(store.openEmailHtml).toBe('<b>hi</b>'))
   })

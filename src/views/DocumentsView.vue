@@ -153,10 +153,10 @@ async function applyAiProposal(message) {
       title: message.proposal.title,
       blocks: message.proposal.blocks,
     })
-    if (current) editorRevision.value++
+    if (current && serial === aiRequestSerial) editorRevision.value++
     message.applied = true
     const saved = await store.flushPendingSave()
-    if (!current) await router.push(`/documents/${id}`)
+    if (!current && serial === aiRequestSerial) await router.push(`/documents/${id}`)
     if (!saved)
       throw new Error(
         'The changes are in your draft, but saving failed. Use Retry save in the document header.',
@@ -244,12 +244,37 @@ const activeTag = computed(() => {
   const value = Array.isArray(route.query.tag) ? route.query.tag[0] : route.query.tag
   return String(value ?? '')
 })
+const dashboardOffset = ref(0)
+const dashboardScope = computed(() => ({ starred: starredOnly.value, tag: activeTag.value }))
+watch(
+  () => [starredOnly.value, activeTag.value, store.workspaceVersion],
+  () => {
+    dashboardOffset.value = 0
+    void store.loadDocumentPage(dashboardScope.value)
+  },
+  { immediate: true },
+)
+const dashboardPage = computed(() => store.pageFor(dashboardScope.value))
+async function nextDashboardPage() {
+  if (dashboardOffset.value + 100 >= (dashboardPage.value?.ids.length ?? 0)) {
+    await store.loadDocumentPage(dashboardScope.value, { more: true })
+  }
+  if (dashboardOffset.value + 100 < (dashboardPage.value?.ids.length ?? 0))
+    dashboardOffset.value += 100
+}
+
 // A search in the header replaces the dashboard list with its results (the
 // sidebar's folder tree is unaffected — see stores/documents.js's
 // searchResults comment); star/tag filters still apply on top of whichever
 // list is showing.
 const dashboardDocs = computed(() => {
-  let documents = store.activeSearchQuery ? store.searchResults : store.documents
+  let documents = store.activeSearchQuery
+    ? store.searchResults
+    : store.workspacePaged
+      ? store
+          .documentsForPage(dashboardScope.value)
+          .slice(dashboardOffset.value, dashboardOffset.value + 100)
+      : store.documents
   if (starredOnly.value) documents = documents.filter((doc) => doc.starred)
   if (activeTag.value) documents = documents.filter((doc) => doc.tags?.includes(activeTag.value))
   return documents
@@ -567,6 +592,23 @@ function onEditorSave(payload) {
           </tr>
         </tbody>
       </table>
+      <div v-if="store.workspacePaged && !store.activeSearchQuery" class="document-pagination">
+        <button
+          v-if="dashboardOffset > 0"
+          class="btn btn-secondary"
+          @click="dashboardOffset -= 100"
+        >
+          Newer documents
+        </button>
+        <button
+          v-if="dashboardPage?.nextCursor || dashboardOffset + 100 < dashboardPage?.ids.length"
+          class="btn btn-secondary"
+          :disabled="dashboardPage?.loading"
+          @click="nextDashboardPage"
+        >
+          Older documents
+        </button>
+      </div>
     </template>
     <NewDocumentDialog v-if="store.newDocumentDialogOpen" />
   </div>

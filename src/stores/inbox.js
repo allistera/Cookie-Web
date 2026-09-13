@@ -1,3 +1,4 @@
+import { startTiming } from '../lib/performance'
 import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
 import { parseAutoArchive } from '../lib/autoArchive'
@@ -41,12 +42,6 @@ let sendCountdownTimer = null
 let searchAbortController = null
 let askAbortController = null
 let askSeq = 0
-
-// A body fetch that resolves faster than this would otherwise flash straight
-// from click to rendered content with no visible feedback at all — hold the
-// reveal open at least this long so the reader's loading spinner is always
-// perceivable, not just on a slow connection.
-const MIN_BODY_LOADING_MS = 200
 
 // AI compose should draft the message body only. The personal signature is
 // boilerplate the user pre-configured (and we prefill it into fresh drafts), so
@@ -99,6 +94,7 @@ function pushCapped(array, item, maxSize) {
 // promises don't belong in reactive state; entries remove themselves on
 // settle, so the map only ever holds requests that are actually in flight.
 const pendingBodyFetches = new Map()
+const pendingInviteFetches = new Map()
 
 // Serializes toggleStar/setUnread's PATCH requests per message id so two
 // rapid toggles reach the server in click order instead of racing - without
@@ -1637,7 +1633,11 @@ export const useInboxStore = defineStore('inbox', {
     // retry. Never throws — the reader falls back to the list's body_text.
     async fetchMessageBody(id) {
       if (!id) return null
-      if (this.messageBodies.has(id)) return this.messageBodies.get(id)
+      if (this.messageBodies.has(id)) {
+        const cached = this.messageBodies.get(id)
+        if (cached.calendarInvitePending) void this.fetchCalendarInvite(id, cached)
+        return cached
+      }
       // Both openReader and the view's openEmailId watcher request the body in
       // the same tick, and the cache only fills on resolve — share the
       // in-flight request instead of fetching the heaviest payload twice.
@@ -1654,17 +1654,15 @@ export const useInboxStore = defineStore('inbox', {
       // Only flag loading for an actual fetch — cache hits return early in
       // fetchMessageBody so reopening a message never spins.
       this.bodyLoadingId = id
-      // Only the open email's HTML body ever shows the spinner (EmailBody.vue)
-      // — a text-only message renders instantly from the list's own
-      // body_text, and an expanding conversation message shows its own
-      // loading line, so there's nothing to hold up for either.
-      const willShowSpinner = id === this.openEmailId && this.openEmail?.hasHtml === true
-      const startedAt = Date.now()
+      const completeTiming = startTiming('message-body')
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${MESSAGES_API_URL}/messages?id=${encodeURIComponent(id)}`, {
-          headers,
-        })
+        const response = await fetch(
+          `${MESSAGES_API_URL}/messages?id=${encodeURIComponent(id)}&calendar=deferred`,
+          {
+            headers,
+          },
+        )
         if (!response.ok) {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
@@ -1698,13 +1696,10 @@ export const useInboxStore = defineStore('inbox', {
         if (Object.prototype.hasOwnProperty.call(payload, 'calendar_invite')) {
           body.calendarInvite = calendar_invite ?? null
         }
-        if (willShowSpinner) {
-          const elapsed = Date.now() - startedAt
-          if (elapsed < MIN_BODY_LOADING_MS) {
-            await new Promise((resolve) => setTimeout(resolve, MIN_BODY_LOADING_MS - elapsed))
-          }
-        }
+        if (payload.calendar_invite_pending === true) body.calendarInvitePending = true
         cacheSet(this.messageBodies, id, body, MAX_CACHED_MESSAGE_BODIES)
+        if (body.calendarInvitePending)
+          void this.fetchCalendarInvite(id, this.messageBodies.get(id))
         const summaryText = String(thread_summary ?? '')
           .replace(/\s+/g, ' ')
           .trim()
@@ -1720,10 +1715,35 @@ export const useInboxStore = defineStore('inbox', {
         console.error('Failed to load message body:', error)
         return null
       } finally {
+        completeTiming()
         // Always clear, whether the fetch succeeded or failed, but only if this
         // call is still the one in flight (a newer open may have superseded it).
         if (this.bodyLoadingId === id) this.bodyLoadingId = null
       }
+    },
+
+    async fetchCalendarInvite(id, cached) {
+      if (pendingInviteFetches.has(id)) return pendingInviteFetches.get(id)
+      const request = (async () => {
+        try {
+          const headers = await this.authHeaders()
+          const response = await fetch(
+            `${MESSAGES_API_URL}/messages/calendar-invite?id=${encodeURIComponent(id)}`,
+            { headers },
+          )
+          if (!response.ok) return
+          const { calendar_invite } = await response.json()
+          if (this.messageBodies.get(id) !== cached) return
+          cached.calendarInvite = calendar_invite ?? null
+          cached.calendarInvitePending = false
+        } catch {
+          // Keep the body readable and retry enrichment on the next open.
+        } finally {
+          pendingInviteFetches.delete(id)
+        }
+      })()
+      pendingInviteFetches.set(id, request)
+      return request
     },
 
     async downloadAttachment(attachment) {

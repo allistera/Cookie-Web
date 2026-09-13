@@ -16,11 +16,13 @@ export function scheduleContentSave(id, patch) {
   )
   queue.pending.set(id, { ...queue.pending.get(id), ...content })
   const row = this.documents.find((doc) => doc.id === id)
+  const previous = row && { ...row }
   if (row) {
     if (content.title !== undefined) row.title = content.title
     if (content.tags !== undefined) row.tags = content.tags
     if (content.emoji !== undefined) row.emoji = content.emoji
   }
+  if (row) this.syncDocumentPages(row, previous)
   if (this.openDoc?.id === id) Object.assign(this.openDoc, content)
   this.saveState = 'saving'
   clearTimeout(queue.timer)
@@ -45,7 +47,11 @@ export async function flushPendingSave() {
         const update = { ...document }
         const newer = queue.pending.get(id)
         for (const key of CONTENT_FIELDS) if (newer?.[key] !== undefined) delete update[key]
-        if (row) Object.assign(row, update)
+        if (row) {
+          const previous = { ...row }
+          Object.assign(row, update)
+          this.syncDocumentPages(row, previous)
+        }
         if (this.openDoc?.id === id) Object.assign(this.openDoc, update)
         this.saveConflict = false
       } catch (error) {

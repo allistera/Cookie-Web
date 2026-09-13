@@ -4943,3 +4943,56 @@ button.ni-attachment:hover {
 [data-slot='popover-content'] > .univer-max-w-\[--radix-popper-available-width\] {
   max-width: min(560px, var(--radix-popper-available-width));
 }
+
+.document-block-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-height: 260px;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.document-block-preview strong {
+  color: var(--text-primary);
+}
+
+/* Plain document tables stay lightweight until spreadsheet features are requested. */
+.basic-table-editor {
+  overflow-x: auto;
+}
+.basic-table-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+}
+.basic-table-editor td {
+  border: 1px solid var(--border-color);
+  padding: 8px;
+  min-width: 80px;
+  overflow-wrap: anywhere;
+}
+.basic-table-editor td:focus {
+  outline: 2px solid var(--gemini-purple);
+  outline-offset: -2px;
+}
+.basic-table-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.basic-table-actions button {
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+}

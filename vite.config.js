@@ -6,6 +6,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
+import { bundleBudgetPlugin } from './scripts/bundleBudget.mjs'
 
 // Mirrors the validation in cookie-web-tasks/src/taskItems.js so the /task-items
 // fixture rejects what the real Worker handler rejects. See cleanText/isUuid there.
@@ -2002,40 +2003,13 @@ function localApiPlugin(mode) {
   }
 }
 
-// Guards the main entry chunk against silently absorbing a heavy dependency.
-// Every genuinely heavy dependency here (Excalidraw+React, Editor.js,
-// mermaid) already lives behind a dynamic import() route/component boundary,
-// so the entry chunk should stay small; Vite's default chunkSizeWarningLimit
-// doesn't single that chunk out, and would just as happily warn on the
-// (legitimate, already-deferred) multi-hundred-KB Excalidraw chunks.
-const ENTRY_CHUNK_BUDGET_BYTES = 150_000
-
-function entryChunkBudgetPlugin() {
-  return {
-    name: 'entry-chunk-budget',
-    generateBundle(_, bundle) {
-      for (const chunk of Object.values(bundle)) {
-        if (chunk.type !== 'chunk' || !chunk.isEntry) continue
-        const size = Buffer.byteLength(chunk.code)
-        if (size > ENTRY_CHUNK_BUDGET_BYTES) {
-          this.error(
-            `Entry chunk ${chunk.fileName} is ${size} bytes, over the ${ENTRY_CHUNK_BUDGET_BYTES}-byte budget. ` +
-              'A new static import likely pulled a heavy dependency into the main bundle — ' +
-              'import it behind a route or component boundary instead.',
-          )
-        }
-      }
-    },
-  }
-}
-
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Expose .env values (DATABASE_URL) to the local API middleware.
   Object.assign(process.env, loadEnv(mode, process.cwd(), ''))
 
   return {
-    plugins: [vue(), vueDevTools(), localApiPlugin(mode), entryChunkBudgetPlugin()],
+    plugins: [vue(), vueDevTools(), localApiPlugin(mode), bundleBudgetPlugin()],
     server: {
       port: 5180,
     },

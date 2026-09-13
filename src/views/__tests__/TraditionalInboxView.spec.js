@@ -1202,7 +1202,7 @@ describe('TraditionalInboxView reading panel', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${MESSAGES_API_URL}/messages?id=older`,
+      `${MESSAGES_API_URL}/messages?id=older&calendar=deferred`,
       expect.anything(),
     )
     const opened = wrapper.get('.ni-thread-message-open')

@@ -108,7 +108,10 @@ describe('TaskDetailPanel', () => {
   })
 
   // A stale link, a deleted task, or one hidden because it is complete.
-  it('closes and notifies when the task is not in the loaded list', async () => {
+  it('closes and notifies only when detail lookup confirms the task is missing', async () => {
+    vi.spyOn(items, 'request').mockRejectedValue(
+      Object.assign(new Error('Missing'), { status: 404 }),
+    )
     const wrapper = mountPanel('missing')
     seed()
     await flushPromises()
@@ -128,6 +131,49 @@ describe('TaskDetailPanel', () => {
 
     expect(items.notify).not.toHaveBeenCalled()
     expect(router.currentRoute.value.query.task).toBe('b')
+    wrapper.unmount()
+  })
+
+  it.each([null, '2026-09-01T00:00:00Z'])(
+    'keeps a slow deep link open, including completed tasks (%s)',
+    async (completedAt) => {
+      seed()
+      let resolveDetail
+      vi.spyOn(items, 'request').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveDetail = resolve
+          }),
+      )
+      const wrapper = mountPanel('older-task')
+      await flushPromises()
+      expect(router.currentRoute.value.query.task).toBe('b')
+      expect(items.notify).not.toHaveBeenCalled()
+      resolveDetail({
+        item: {
+          id: 'older-task',
+          content: 'Older task',
+          projectId: null,
+          completedAt,
+          summary: false,
+        },
+        subtasks: [],
+      })
+      await flushPromises()
+      expect(wrapper.get('.task-panel-title').text()).toBe('Older task')
+      expect(router.currentRoute.value.query.task).toBe('b')
+      wrapper.unmount()
+    },
+  )
+
+  it('keeps a failed lookup open for retry instead of reporting deletion', async () => {
+    seed()
+    vi.spyOn(items, 'request').mockRejectedValue(new Error('Offline'))
+    const wrapper = mountPanel('older-task')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('b')
+    expect(wrapper.text()).toContain('Retry')
+    expect(items.notify).not.toHaveBeenCalledWith('That task no longer exists.', 'error')
     wrapper.unmount()
   })
 

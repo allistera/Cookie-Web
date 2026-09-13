@@ -1,4 +1,5 @@
-import { watch } from 'vue'
+import { nextTick, watch } from 'vue'
+import { startTiming } from '../lib/performance'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { getAuth0 } from '../auth0-client'
@@ -74,6 +75,18 @@ const router = createRouter({
 // the identical isLoading/isAuthenticated state components observe through
 // useAuth0(). Returns null in E2E mode, where auth is stubbed as always
 // authenticated.
+let completeRouteTiming = () => {}
+router.beforeEach(() => {
+  completeRouteTiming()
+  completeRouteTiming = startTiming('route-ready')
+})
+router.afterEach(async () => {
+  const complete = completeRouteTiming
+  await nextTick()
+  if (globalThis.requestAnimationFrame) requestAnimationFrame(complete)
+  else complete()
+})
+
 router.beforeEach(async (to) => {
   if (!to.meta.requiresAuth) return true
   const auth0 = getAuth0()

@@ -21,6 +21,12 @@ const itemMutations = new WeakMap()
 export const useTaskItemsStore = defineStore('taskItems', {
   state: () => ({
     items: [],
+    nextCursor: null,
+    isLoadingMore: false,
+    detailLoading: {},
+    detailErrors: {},
+    detailCursors: {},
+    detailCounts: {},
     completingIds: [],
     // Which project the loaded items belong to ('inbox' or a project id), so
     // navigating between projects refetches rather than showing the last one.
@@ -73,17 +79,23 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // than stuck believing it already "loaded" nothing.
       const seq = ++this.loadSeq
       this.items = []
+      this.nextCursor = null
+      this.detailErrors = {}
+      this.detailCursors = {}
+      this.detailCounts = {}
+      this.isLoadingMore = false
       this.loadedProject = null
       this.isLoading = true
       try {
         // Today spans every project and needs the caller's own date; the
         // Worker refuses the request without one.
         const date = project === 'today' ? `&date=${localToday()}` : ''
-        const { items } = await this.request('GET', {
-          params: `?project=${encodeURIComponent(project)}${date}`,
+        const { items, nextCursor } = await this.request('GET', {
+          params: `?project=${encodeURIComponent(project)}${date}&view=page`,
         })
         if (seq !== this.loadSeq) return
         this.items = items
+        this.nextCursor = nextCursor ?? null
         this.loadedProject = project
       } catch (error) {
         if (seq !== this.loadSeq) return
@@ -91,6 +103,60 @@ export const useTaskItemsStore = defineStore('taskItems', {
         this.notify(error.userMessage || 'Failed to load tasks.', 'error')
       } finally {
         if (seq === this.loadSeq) this.isLoading = false
+      }
+    },
+
+    async loadMoreItems() {
+      if (!this.nextCursor || this.isLoadingMore || !this.loadedProject) return
+      const seq = this.loadSeq
+      const project = this.loadedProject
+      this.isLoadingMore = true
+      try {
+        const params = new URLSearchParams({ project, view: 'page', after: this.nextCursor })
+        if (project === 'today') params.set('date', localToday())
+        const { items, nextCursor } = await this.request('GET', { params: `?${params}` })
+        if (seq !== this.loadSeq) return
+        const seen = new Set(this.items.map((item) => item.id))
+        this.items.push(...items.filter((item) => !seen.has(item.id)))
+        this.nextCursor = nextCursor ?? null
+      } catch (error) {
+        this.notify(error.userMessage || 'Failed to load more tasks.', 'error')
+      } finally {
+        this.isLoadingMore = false
+      }
+    },
+
+    async loadDetail(id, { more = false } = {}) {
+      if (this.detailLoading[id]) return
+      const seq = this.loadSeq
+      this.detailLoading[id] = true
+      delete this.detailErrors[id]
+      try {
+        const params = new URLSearchParams({ view: 'detail', id })
+        if (more && this.detailCursors[id]) params.set('after', this.detailCursors[id])
+        const {
+          item,
+          subtasks = [],
+          nextCursor,
+          counts,
+        } = await this.request('GET', { params: `?${params}` })
+        if (seq !== this.loadSeq || !item) return
+        if (!this.belongsToLoadedList(item)) item.detailOnly = true
+        const incoming = new Map([item, ...subtasks].map((row) => [row.id, row]))
+        this.items = this.items.filter(
+          (row) => !incoming.has(row.id) && (more || row.parentId !== id),
+        )
+        this.items.push(...incoming.values())
+        this.items = sortForList(this.items, this.loadedProject)
+        this.detailCursors[id] = nextCursor ?? null
+        this.detailCounts[id] = counts
+      } catch (error) {
+        if (seq !== this.loadSeq) return
+        this.detailErrors[id] = error.status === 404 ? 'missing' : 'failed'
+        if (error.status !== 404)
+          this.notify(error.userMessage || 'Failed to load the task.', 'error')
+      } finally {
+        this.detailLoading[id] = false
       }
     },
 
@@ -182,7 +248,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
         const { item } = await this.request('POST', { body: { kind: 'divider', projectId } })
         if (!this.belongsToLoadedList(item)) return item
         this.items.push(item)
-        const ids = this.items.filter((row) => !row.parentId).map((row) => row.id)
+        const rows = this.items.filter((row) => !row.parentId && row.id !== item.id)
+        const offset =
+          Math.floor(
+            Math.max(
+              0,
+              rows.findIndex((row) => row.id === afterId),
+            ) / 100,
+          ) * 100
+        const ids = [...rows.slice(offset, offset + 100).map((row) => row.id), item.id]
         const order = orderAfterDrop(ids, item.id, afterId, 'after')
         if (order) await this.reorderItems(order)
         return item
@@ -306,11 +380,18 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
       this.items = sortForList(this.items, this.loadedProject)
 
-      const body = today ? { ids, view: 'today' } : { ids }
+      const body = today ? { ids, view: 'today', paged: true } : { ids }
       const send = () => this.request('POST', { params: '/reorder', body })
       reorderQueue = reorderQueue.catch(() => {}).then(send)
       try {
-        await reorderQueue
+        const result = await reorderQueue
+        if (seq === reorderSeq && result?.items) {
+          for (const updated of result.items) {
+            const row = this.items.find((item) => item.id === updated.id)
+            if (row) Object.assign(row, updated)
+          }
+          this.items = sortForList(this.items, this.loadedProject)
+        }
         return true
       } catch (error) {
         if (seq !== reorderSeq) return false

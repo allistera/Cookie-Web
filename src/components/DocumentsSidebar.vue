@@ -1,7 +1,8 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import VirtualList from './VirtualList.vue'
 import { useDocumentsStore } from '../stores/documents'
 import { flattenDocumentsTree } from '../lib/documentsTree'
 import { getStoredExpandedFolderIds, saveExpandedFolderIds } from '../lib/documentsSidebarFolders'
@@ -19,9 +20,26 @@ onMounted(async () => {
   await store.loadWorkspace()
 })
 
+const starredRows = computed(() => store.starredDocuments.map((doc) => ({ ...doc, key: doc.id })))
+
 const treeRows = computed(() =>
-  flattenDocumentsTree(store.folders, store.documents, expandedIds.value),
+  flattenDocumentsTree(store.folders, store.documents, expandedIds.value, (id) =>
+    store.workspacePaged ? (store.pageFor({ folder: id }) ?? { loaded: false }) : null,
+  ).map((row) => ({ ...row, key: `${row.kind}:${row.item.id}` })),
 )
+
+watch(
+  () => [expandedIds.value, store.workspaceVersion],
+  () => {
+    if (store.workspacePaged)
+      for (const id of expandedIds.value) void store.loadDocumentPage({ folder: id })
+  },
+)
+function refreshVisibleWorkspace() {
+  if (!document.hidden) void store.loadWorkspace({ force: true })
+}
+onMounted(() => document.addEventListener('visibilitychange', refreshVisibleWorkspace))
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshVisibleWorkspace))
 
 function toggleFolder(id) {
   const next = new Set(expandedIds.value)
@@ -154,16 +172,29 @@ function onDragEnd() {
     <template v-if="store.starredDocuments.length">
       <div class="sb-section-label documents-starred-label">Starred</div>
       <nav class="sidebar-nav documents-starred-nav" aria-label="Starred documents">
-        <router-link
-          v-for="doc in store.starredDocuments"
-          :key="`starred-${doc.id}`"
-          :to="`/documents/${doc.id}`"
-          class="nav-item doc-item"
-          :class="{ active: route.params.id === doc.id }"
+        <VirtualList
+          :items="starredRows"
+          :style="{ height: `${Math.min(starredRows.length * 40, 240)}px` }"
         >
-          <span class="doc-emoji" aria-hidden="true">{{ doc.emoji }}</span>
-          <span class="nav-text">{{ doc.title || 'Untitled' }}</span>
-        </router-link>
+          <template #default="{ item: doc }">
+            <router-link
+              :to="`/documents/${doc.id}`"
+              class="nav-item doc-item"
+              :class="{ active: route.params.id === doc.id }"
+            >
+              <span class="doc-emoji" aria-hidden="true">{{ doc.emoji }}</span>
+              <span class="nav-text">{{ doc.title || 'Untitled' }}</span>
+            </router-link>
+          </template>
+        </VirtualList>
+        <button
+          v-if="store.pageFor({ starred: true })?.nextCursor"
+          class="nav-item"
+          :disabled="store.pageFor({ starred: true })?.loading"
+          @click="store.loadDocumentPage({ starred: true }, { more: true })"
+        >
+          More starred documents
+        </button>
       </nav>
     </template>
 
@@ -193,98 +224,117 @@ function onDragEnd() {
       </button>
     </div>
     <nav class="sidebar-nav documents-tree" aria-label="Documents">
-      <template v-for="row in treeRows" :key="`${row.kind}-${row.item.id}`">
-        <div
-          v-if="row.kind === 'folder'"
-          class="nav-item folder-item"
-          :class="{ 'drop-target': dropFolderId === row.item.id }"
-          :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
-          role="button"
-          tabindex="0"
-          :aria-expanded="row.expanded"
-          @click="toggleFolder(row.item.id)"
-          @keydown.enter.prevent="toggleFolder(row.item.id)"
-          @dblclick="startRename(row.item)"
-          @dragover="onDragOver(row.item.id, $event)"
-          @dragleave="dropFolderId = undefined"
-          @drop="onDrop(row.item.id)"
-        >
-          <span class="material-symbols-outlined folder-arrow" aria-hidden="true">
-            {{ row.expanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
-          </span>
-          <span class="doc-emoji" aria-hidden="true">{{ row.item.emoji }}</span>
-          <input
-            v-if="renamingFolderId === row.item.id"
-            ref="renameInput"
-            v-model="renameTitle"
-            class="folder-rename-input"
-            :aria-label="`Rename ${row.item.title}`"
-            @click.stop
-            @keydown.enter.prevent="submitRename(row.item)"
-            @keydown.escape="renamingFolderId = null"
-            @blur="submitRename(row.item)"
-          />
-          <span v-else class="nav-text">{{ row.item.title }}</span>
-          <span class="row-actions" @click.stop>
-            <button
-              class="row-action-btn"
-              :title="`New document in ${row.item.title}`"
-              :aria-label="`New document in ${row.item.title}`"
-              @click="newDocument(row.item.id)"
-            >
-              <span class="material-symbols-outlined">note_add</span>
-            </button>
-            <button
-              class="row-action-btn"
-              :title="`New folder in ${row.item.title}`"
-              :aria-label="`New folder in ${row.item.title}`"
-              @click="showNewFolder(row.item.id)"
-            >
-              <span class="material-symbols-outlined">create_new_folder</span>
-            </button>
-            <button
-              class="row-action-btn"
-              :title="`Delete ${row.item.title}`"
-              :aria-label="`Delete ${row.item.title}`"
-              @click="store.deleteFolder(row.item.id)"
-            >
-              <span class="material-symbols-outlined">delete</span>
-            </button>
-          </span>
-        </div>
-        <router-link
-          v-else
-          :to="`/documents/${row.item.id}`"
-          class="nav-item doc-item"
-          :class="{ active: route.params.id === row.item.id, dragging: dragDocId === row.item.id }"
-          :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
-          draggable="true"
-          @dragstart="onDragStart(row.item, $event)"
-          @dragend="onDragEnd"
-        >
-          <span class="doc-emoji" aria-hidden="true">{{ row.item.emoji }}</span>
-          <span class="nav-text">{{ row.item.title || 'Untitled' }}</span>
-          <span class="row-actions" @click.prevent.stop>
-            <button
-              class="row-action-btn"
-              :class="{ 'is-starred': row.item.starred }"
-              :title="row.item.starred ? 'Unstar document' : 'Star document'"
-              :aria-label="`${row.item.starred ? 'Unstar' : 'Star'} ${row.item.title || 'Untitled'}`"
-              @click="store.toggleStar(row.item.id)"
-            >
-              <span class="material-symbols-outlined">star</span>
-            </button>
-            <button
-              class="row-action-btn"
-              :title="`Delete ${row.item.title || 'Untitled'}`"
-              :aria-label="`Delete ${row.item.title || 'Untitled'}`"
-              @click="deleteDocument(row.item)"
-            >
-              <span class="material-symbols-outlined">delete</span>
-            </button>
-          </span>
-        </router-link>
-      </template>
+      <VirtualList class="document-tree-window" :items="treeRows">
+        <template #default="{ item: row }">
+          <div
+            v-if="row.kind === 'folder'"
+            class="nav-item folder-item"
+            :class="{ 'drop-target': dropFolderId === row.item.id }"
+            :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+            role="button"
+            tabindex="0"
+            :aria-expanded="row.expanded"
+            @click="toggleFolder(row.item.id)"
+            @keydown.enter.prevent="toggleFolder(row.item.id)"
+            @dblclick="startRename(row.item)"
+            @dragover="onDragOver(row.item.id, $event)"
+            @dragleave="dropFolderId = undefined"
+            @drop="onDrop(row.item.id)"
+          >
+            <span class="material-symbols-outlined folder-arrow" aria-hidden="true">
+              {{ row.expanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
+            </span>
+            <span class="doc-emoji" aria-hidden="true">{{ row.item.emoji }}</span>
+            <input
+              v-if="renamingFolderId === row.item.id"
+              ref="renameInput"
+              v-model="renameTitle"
+              class="folder-rename-input"
+              :aria-label="`Rename ${row.item.title}`"
+              @click.stop
+              @keydown.enter.prevent="submitRename(row.item)"
+              @keydown.escape="renamingFolderId = null"
+              @blur="submitRename(row.item)"
+            />
+            <span v-else class="nav-text">{{ row.item.title }}</span>
+            <span class="row-actions" @click.stop>
+              <button
+                class="row-action-btn"
+                :title="`New document in ${row.item.title}`"
+                :aria-label="`New document in ${row.item.title}`"
+                @click="newDocument(row.item.id)"
+              >
+                <span class="material-symbols-outlined">note_add</span>
+              </button>
+              <button
+                class="row-action-btn"
+                :title="`New folder in ${row.item.title}`"
+                :aria-label="`New folder in ${row.item.title}`"
+                @click="showNewFolder(row.item.id)"
+              >
+                <span class="material-symbols-outlined">create_new_folder</span>
+              </button>
+              <button
+                class="row-action-btn"
+                :title="`Delete ${row.item.title}`"
+                :aria-label="`Delete ${row.item.title}`"
+                @click="store.deleteFolder(row.item.id)"
+              >
+                <span class="material-symbols-outlined">delete</span>
+              </button>
+            </span>
+          </div>
+          <button
+            v-else-if="row.kind === 'more'"
+            class="nav-item"
+            :disabled="row.loading"
+            :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+            @click="
+              store.loadDocumentPage(
+                { folder: row.item.id },
+                { more: Boolean(store.pageFor({ folder: row.item.id })?.nextCursor) },
+              )
+            "
+          >
+            {{ row.loading ? 'Loading…' : 'More documents' }}
+          </button>
+          <router-link
+            v-else
+            :to="`/documents/${row.item.id}`"
+            class="nav-item doc-item"
+            :class="{
+              active: route.params.id === row.item.id,
+              dragging: dragDocId === row.item.id,
+            }"
+            :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+            draggable="true"
+            @dragstart="onDragStart(row.item, $event)"
+            @dragend="onDragEnd"
+          >
+            <span class="doc-emoji" aria-hidden="true">{{ row.item.emoji }}</span>
+            <span class="nav-text">{{ row.item.title || 'Untitled' }}</span>
+            <span class="row-actions" @click.prevent.stop>
+              <button
+                class="row-action-btn"
+                :class="{ 'is-starred': row.item.starred }"
+                :title="row.item.starred ? 'Unstar document' : 'Star document'"
+                :aria-label="`${row.item.starred ? 'Unstar' : 'Star'} ${row.item.title || 'Untitled'}`"
+                @click="store.toggleStar(row.item.id)"
+              >
+                <span class="material-symbols-outlined">star</span>
+              </button>
+              <button
+                class="row-action-btn"
+                :title="`Delete ${row.item.title || 'Untitled'}`"
+                :aria-label="`Delete ${row.item.title || 'Untitled'}`"
+                @click="deleteDocument(row.item)"
+              >
+                <span class="material-symbols-outlined">delete</span>
+              </button>
+            </span>
+          </router-link>
+        </template>
+      </VirtualList>
 
       <form
         v-if="openNewFolderFor !== null"
@@ -325,6 +375,9 @@ function onDragEnd() {
 </template>
 
 <style scoped>
+.document-tree-window {
+  height: min(55vh, 600px);
+}
 .documents-sidebar .doc-emoji {
   width: 18px;
   text-align: center;

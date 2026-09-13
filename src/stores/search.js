@@ -1,3 +1,4 @@
+import { startTiming } from '../lib/performance'
 import { defineStore } from 'pinia'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
@@ -68,6 +69,7 @@ export const useSearchStore = defineStore('search', {
       const seq = ++this.seq
       this.loading = true
       this.error = null
+      const completeTiming = startTiming('search')
       try {
         const headers = await this.authHeaders()
         const params = new URLSearchParams({
@@ -105,6 +107,7 @@ export const useSearchStore = defineStore('search', {
         this.results = []
         this.estimatedTotalHits = 0
       } finally {
+        completeTiming()
         if (searchAbortController === controller) searchAbortController = null
         if (seq === this.seq) this.loading = false
       }

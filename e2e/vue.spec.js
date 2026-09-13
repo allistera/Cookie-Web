@@ -808,7 +808,8 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
   await expect(reader.locator('.ni-reader-subject')).toContainText('Revised Floor Plan')
-  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveCount(0)
+  // The body and its saved summary now publish immediately, without a minimum delay.
+  await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveCount(1)
 
   // Reader actions sit together in the top-right toolbar.
   const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()

@@ -17,6 +17,13 @@ const items = useTaskItemsStore()
 const projects = useProjectsStore()
 
 const item = computed(() => items.itemById(props.taskId))
+watch(
+  () => [props.taskId, items.isLoading],
+  () => {
+    if (!items.isLoading && (!item.value || item.value.summary)) void items.loadDetail(props.taskId)
+  },
+  { immediate: true },
+)
 const recurrenceDraft = ref('')
 const savingRecurrence = ref(false)
 watch(
@@ -83,6 +90,21 @@ const descriptionRows = computed(() =>
 // Sub-tasks resolve out of the same loaded list the panel's own task does —
 // the list query returns them (completed included) alongside their parent.
 const subtasks = computed(() => items.items.filter((row) => row.parentId === props.taskId))
+const subtaskOffset = ref(0)
+watch(
+  () => props.taskId,
+  () => {
+    subtaskOffset.value = 0
+  },
+)
+const visibleSubtasks = computed(() =>
+  subtasks.value.slice(subtaskOffset.value, subtaskOffset.value + 100),
+)
+async function nextSubtaskPage() {
+  if (subtaskOffset.value + 100 >= subtasks.value.length)
+    await items.loadDetail(props.taskId, { more: true })
+  if (subtaskOffset.value + 100 < subtasks.value.length) subtaskOffset.value += 100
+}
 const doneCount = computed(() => subtasks.value.filter((row) => row.completedAt).length)
 const subtasksOpen = ref(true)
 
@@ -237,14 +259,16 @@ function close() {
 // judging, or a panel opened by a deep link closes itself while the list is
 // still in flight.
 watch(
-  () => [items.isLoading, items.loadedProject, item.value],
+  () => [items.detailErrors[props.taskId], items.detailLoading[props.taskId]],
   () => {
     if (
       completing.value ||
       savingRecurrence.value ||
       items.isLoading ||
       items.loadedProject === null ||
-      item.value
+      item.value ||
+      items.detailLoading[props.taskId] ||
+      items.detailErrors[props.taskId] !== 'missing'
     )
       return
     items.notify('That task no longer exists.', 'error')
@@ -306,7 +330,11 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         </div>
       </header>
 
-      <div class="task-panel-body">
+      <div v-if="!item || item.summary" class="task-panel-main" role="status">
+        <p>{{ items.detailLoading[taskId] ? 'Loading task…' : 'Could not load task details.' }}</p>
+        <button v-if="!items.detailLoading[taskId]" @click="items.loadDetail(taskId)">Retry</button>
+      </div>
+      <div v-else class="task-panel-body">
         <div class="task-panel-main">
           <div class="task-panel-heading">
             <button
@@ -356,13 +384,18 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                   {{ subtasksOpen ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
                 </span>
                 <span class="task-subtasks-title">Sub-tasks</span>
-                <span class="task-subtasks-count">{{ doneCount }}/{{ subtasks.length }}</span>
+                <span class="task-subtasks-count"
+                  >{{ doneCount }}/{{ subtasks.length
+                  }}<span v-if="items.detailCursors[taskId]">
+                    loaded ({{ items.detailCounts[taskId]?.total }} total)</span
+                  ></span
+                >
               </button>
             </header>
 
             <template v-if="subtasksOpen">
               <ul v-if="subtasks.length" class="subtask-rows">
-                <li v-for="sub in subtasks" :key="sub.id" class="subtask-row">
+                <li v-for="sub in visibleSubtasks" :key="sub.id" class="subtask-row">
                   <button
                     class="subtask-check"
                     :class="{ done: sub.completedAt }"
@@ -383,6 +416,21 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 </li>
               </ul>
 
+              <button
+                v-if="subtaskOffset > 0"
+                class="add-subtask-btn"
+                @click="subtaskOffset -= 100"
+              >
+                Previous sub-tasks
+              </button>
+              <button
+                v-if="items.detailCursors[taskId] || subtaskOffset + 100 < subtasks.length"
+                class="add-subtask-btn"
+                :disabled="items.detailLoading[taskId]"
+                @click="nextSubtaskPage"
+              >
+                More sub-tasks
+              </button>
               <form v-if="addingSubtask" class="add-subtask-row" @submit.prevent="submitSubtask">
                 <input
                   ref="subtaskInput"

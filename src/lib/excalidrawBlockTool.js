@@ -1,3 +1,4 @@
+import { deferEditorMount, editorPreview } from './deferredEditor'
 import {
   excalidrawDrawingLabel,
   normalizeExcalidrawScene,
@@ -30,11 +31,11 @@ export class ExcalidrawBlockTool {
     this.wrapper.setAttribute('role', 'region')
     this.updateLabel()
 
-    const loading = document.createElement('div')
-    loading.className = 'excalidraw-block__loading'
-    loading.textContent = 'Loading Excalidraw…'
+    const loading = editorPreview(excalidrawDrawingLabel(this.data))
     this.wrapper.append(loading)
-    this.mountExcalidraw(loading)
+    this.cancelDeferredMount = deferEditorMount(this.wrapper, loading, (preview) =>
+      this.mountExcalidraw(preview),
+    )
     return this.wrapper
   }
 
@@ -109,6 +110,7 @@ export class ExcalidrawBlockTool {
   }
 
   destroy() {
+    this.cancelDeferredMount?.()
     if (this.changeFrame !== null) cancelAnimationFrame(this.changeFrame)
     this.changeFrame = null
     this.root?.unmount()

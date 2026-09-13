@@ -191,9 +191,21 @@ const descriptionRows = computed(() =>
 
 // Sub-tasks live inside their parent's panel, not in the list; the store
 // still loads them so the panel can resolve them from the same list.
-const topLevelItems = computed(() => items.items.filter((item) => !item.parentId))
+const topLevelItems = computed(() =>
+  items.items.filter((item) => !item.parentId && !item.detailOnly),
+)
 
-const visibleItems = topLevelItems
+const taskOffset = ref(0)
+watch(project, () => {
+  taskOffset.value = 0
+})
+const visibleItems = computed(() =>
+  topLevelItems.value.slice(taskOffset.value, taskOffset.value + 100),
+)
+async function nextTaskPage() {
+  if (taskOffset.value + 100 >= topLevelItems.value.length) await items.loadMoreItems()
+  if (taskOffset.value + 100 < topLevelItems.value.length) taskOffset.value += 100
+}
 
 const taskGroups = computed(() => {
   if (taskLayout.value === 'list') return [{ id: 'list', items: visibleItems.value }]
@@ -244,9 +256,9 @@ function canDropOn(item) {
 // The rows a drop re-arranges: the whole list, or in Today the dragged
 // row's day.
 function reorderGroup() {
-  if (!isToday.value) return topLevelItems.value
+  if (!isToday.value) return visibleItems.value
   const { dueDate } = draggedItem.value
-  return topLevelItems.value.filter((row) => row.dueDate === dueDate)
+  return visibleItems.value.filter((row) => row.dueDate === dueDate)
 }
 
 function onTaskDragStart(item, event) {
@@ -539,6 +551,19 @@ async function submitDraft() {
       <span>Add task</span>
     </button>
 
+    <div class="task-pagination">
+      <button v-if="taskOffset > 0" class="btn btn-secondary" @click="taskOffset -= 100">
+        Previous tasks
+      </button>
+      <button
+        v-if="items.nextCursor || taskOffset + 100 < topLevelItems.length"
+        class="btn btn-secondary"
+        :disabled="items.isLoadingMore"
+        @click="nextTaskPage"
+      >
+        More tasks
+      </button>
+    </div>
     <TaskDetailPanel v-if="openTaskId" :key="openTaskId" :task-id="openTaskId" />
   </div>
 </template>

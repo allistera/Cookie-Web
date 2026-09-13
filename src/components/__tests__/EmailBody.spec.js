@@ -235,7 +235,8 @@ describe('EmailBody', () => {
     expect(wrapper.find('.ni-email-body').exists()).toBe(true)
   })
 
-  it('shows a spinner (not text, not iframe) while an HTML body is loading', () => {
+  it('delays the spinner while reserving the reader for an HTML body', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(EmailBody, {
       props: {
         html: null,
@@ -248,6 +249,8 @@ describe('EmailBody', () => {
 
     const spinner = wrapper.find('[role="status"]')
     expect(spinner.exists()).toBe(true)
+    expect(spinner.find('.spinner').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(150)
     expect(spinner.find('.spinner').exists()).toBe(true)
     // Neither the text fallback nor the iframe render during the fetch window.
     expect(wrapper.find('.ni-email-body').exists()).toBe(false)

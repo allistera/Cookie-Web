@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from './workerFixtures.js'
-import { AI_API_URL } from '../src/lib/apiWorkers.js'
+import { AI_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
 
 test('The app switcher opens Documents: tree, editor with autosave, and starring all work', async ({
   page,
@@ -194,6 +194,7 @@ test('A table block computes formulas, recalculates on change, and persists acro
   const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
   await expect(insertMenu).toBeVisible()
   await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+  await page.getByRole('button', { name: 'Open spreadsheet', exact: true }).click()
   await waitForSheet(page)
 
   // A brand-new table freezes its header row by default.
@@ -652,6 +653,7 @@ test('A failed autosave keeps the draft open through navigation and can be retri
 test('Multiple spreadsheet blocks load independently and retain their own values', async ({
   page,
 }, testInfo) => {
+  test.setTimeout(120000)
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/documents/stub-doc-scratchpad')
@@ -667,6 +669,14 @@ test('Multiple spreadsheet blocks load independently and retain their own values
     const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
     const started = performance.now()
     await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+    await page.getByRole('button', { name: 'Open spreadsheet', exact: true }).click()
+    // Offscreen sheets retain a preview until they enter the viewport.
+    for (const sheet of await page.locator('.univer-sheet-block').all()) {
+      await sheet.scrollIntoViewIfNeeded()
+      await expect
+        .poll(() => sheet.evaluate((element) => Boolean(element.__univerAPI)), { timeout: 15000 })
+        .toBe(true)
+    }
     await expect
       .poll(() =>
         page.evaluate(
@@ -715,6 +725,13 @@ test('Multiple spreadsheet blocks load independently and retain their own values
   await expect(page.locator('.save-status')).toHaveText('All changes saved')
   await page.screenshot({ path: '/tmp/cookie-three-tables.png' })
   await page.reload()
+  await expect(page.locator('.univer-sheet-block')).toHaveCount(3)
+  for (const sheet of await page.locator('.univer-sheet-block').all()) {
+    await sheet.scrollIntoViewIfNeeded()
+    await expect
+      .poll(() => sheet.evaluate((element) => Boolean(element.__univerAPI)), { timeout: 15000 })
+      .toBe(true)
+  }
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -997,4 +1014,58 @@ test('Navigating away cancels Document AI without adding its reply to another do
   await expect(panel.getByRole('log')).not.toContainText('Old document reply')
   await expect(panel.getByRole('textbox')).toBeEmpty()
   await expect(panel.getByText('No document attached')).toBeVisible()
+})
+
+test('AI document creation finishes saving without overriding later navigation', async ({
+  page,
+}) => {
+  let release, started
+  const requested = new Promise((resolve) => {
+    started = resolve
+  })
+  const held = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route(`${AI_API_URL}/document-chat`, (route) =>
+    route.fulfill({
+      json: {
+        reply: 'Proposed memo',
+        model: 'test',
+        proposal: {
+          title: 'AI navigation repro',
+          blocks: [{ type: 'paragraph', data: { text: 'Memo' } }],
+          preview: 'Memo',
+        },
+      },
+    }),
+  )
+  await page.route(`${TASKS_API_URL}/documents**`, async (route) => {
+    if (route.request().method() === 'POST') {
+      started()
+      await held
+    }
+    await route.fallback()
+  })
+  await page.goto('/documents')
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  await page.getByRole('textbox', { name: 'Message document AI' }).fill('Make a memo')
+  await page.getByRole('button', { name: 'Send message' }).click()
+  await page.getByRole('button', { name: 'Create document', exact: true }).click()
+  await requested
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await expect(page.locator('.document-title')).toHaveText('Scratchpad')
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' &&
+      response.url().includes('/documents') &&
+      response.ok(),
+  )
+  release()
+  await saved
+  await expect(
+    page.locator('.documents-sidebar .doc-item', { hasText: 'AI navigation repro' }),
+  ).toBeVisible()
+  await expect(page.locator('.document-title')).toHaveText('Scratchpad')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'AI navigation repro' }).click()
+  await expect(page.locator('.codex-editor .ce-paragraph').first()).toHaveText('Memo')
 })

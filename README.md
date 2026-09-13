@@ -277,3 +277,9 @@ Open a document and click its icon to the left of the title to choose an emoji. 
 The AI button beside the document back arrow opens a panel on the right. Close it with the close button or Escape; the chat layout shows the document context, a scrollable conversation area, and a message composer. Drafts stay while the panel is closed and reset when switching documents. Send an instruction to GPT-5.6 Sol with the latest document snapshot and recent conversation. Review the response and use **Apply changes** to update the document, or **Create document** when starting from the dashboard. Newer local edits prevent stale suggestions from being applied; images, drawings and other non-text blocks are preserved. Failed requests keep the draft message for retry.
 
 Document AI uses the authenticated `/document-chat` route on `cookie-web-ai`; the OpenAI key stays in the Worker. Enter sends, Shift+Enter inserts a newline, and switching documents cancels the pending response and clears the conversation. Full document context is limited to 500 blocks / 250,000 characters; oversized requests show an error rather than sending a truncated draft.
+
+## Document tables and review fixes
+
+New plain tables use a lightweight cell editor with Add row and Add column controls. Choose **Open spreadsheet** for formulas and advanced spreadsheet tools. Existing formula tables and workbook snapshots keep the full spreadsheet editor, with offscreen activation deferred until needed. Plain-table edits keep the existing content-grid storage/export format.
+
+Document blocks become interactive only after Editor.js has installed its change observer. Task deep links wait for their detail lookup; temporary failures remain retryable. AI document creation completes its save without replacing a document opened while the request was pending.

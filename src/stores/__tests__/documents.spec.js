@@ -657,3 +657,52 @@ describe('draft recovery', () => {
     expect(store.saveConflict).toBe(false)
   })
 })
+
+describe('paged document workspace', () => {
+  it('keeps global metadata, deduplicates pages, and skips unchanged refreshes', async () => {
+    const request = vi.spyOn(store, 'request').mockImplementation(async (_, { params }) => {
+      const url = new URL(`https://fixture.invalid/${params}`)
+      if (url.searchParams.get('view') === 'meta') {
+        if (url.searchParams.has('version')) return { unchanged: true, version: '1' }
+        return { folders: FOLDERS, tags: [{ name: 'unloaded', count: 200 }], version: '1' }
+      }
+      return { documents: DOCS, nextCursor: url.searchParams.has('before') ? null : 'next' }
+    })
+    await store.loadWorkspace()
+    expect(store.documentTags).toEqual([{ name: 'unloaded', count: 200 }])
+    expect(store.documentsForPage({})).toHaveLength(2)
+    await store.loadDocumentPage({}, { more: true })
+    expect(store.documentsForPage({})).toHaveLength(2)
+    expect(store.pageFor({}).nextCursor).toBeNull()
+    const calls = request.mock.calls.length
+    await store.loadWorkspace({ force: true })
+    expect(request.mock.calls.length).toBe(calls + 1)
+    expect(store.documents).toHaveLength(2)
+  })
+
+  it('updates paged membership and global tag counts after create, move and delete', async () => {
+    store.workspacePaged = true
+    store.workspaceTags = [{ name: 'home', count: 100 }]
+    store.pages = {
+      '[null,false,null]': { ids: [], loaded: true },
+      '["root",false,null]': { ids: [], loaded: true },
+      '["f-1",false,null]': { ids: [], loaded: true },
+      '[null,true,null]': { ids: [], loaded: true },
+    }
+    const document = { ...DOCS[1], tags: ['home'] }
+    store.documents = [document]
+    store.syncDocumentPages(document)
+    expect(store.documentsForPage({ folder: 'root' })).toHaveLength(1)
+    expect(store.documentTags).toEqual([{ name: 'home', count: 101 }])
+    const previous = { ...document }
+    document.folder_id = 'f-1'
+    document.starred = false
+    store.syncDocumentPages(document, previous)
+    expect(store.documentsForPage({ folder: 'root' })).toHaveLength(0)
+    expect(store.documentsForPage({ folder: 'f-1' })).toHaveLength(1)
+    expect(store.documentsForPage({ starred: true })).toHaveLength(0)
+    store.syncDocumentPages(null, document)
+    expect(store.documentsForPage({})).toHaveLength(0)
+    expect(store.documentTags).toEqual([{ name: 'home', count: 100 }])
+  })
+})

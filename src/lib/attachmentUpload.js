@@ -1,5 +1,3 @@
-import { upload } from '@vercel/blob/client'
-
 // Mirrors MAX_OUTBOUND_ATTACHMENT_BYTES and MAX_OUTBOUND_ATTACHMENTS in
 // api/send.js. Checking here too keeps an oversized pick from spending the
 // user's upload allowance on a request the send would reject anyway.
@@ -42,7 +40,7 @@ export function attachmentSizeError(file) {
  */
 export async function uploadAttachment(
   file,
-  { userId, authHeaders, uploader = upload, fetchImpl = fetch, onProgress } = {},
+  { userId, authHeaders, uploader, fetchImpl = fetch, onProgress } = {},
 ) {
   if (!userId) throw new Error('Mailbox is still loading; attachments are not ready yet')
   const sizeError = attachmentSizeError(file)
@@ -56,7 +54,8 @@ export async function uploadAttachment(
     headers,
   }
   if (onProgress) uploadOptions.onUploadProgress = onProgress
-  const blob = await uploader(attachmentPathname(userId, file.name), file, uploadOptions)
+  const upload = uploader ?? (await import('@vercel/blob/client')).upload
+  const blob = await upload(attachmentPathname(userId, file.name), file, uploadOptions)
 
   const registerHeaders = await authHeaders({ 'Content-Type': 'application/json' })
   const response = await fetchImpl('/api/send?resource=attachment', {
