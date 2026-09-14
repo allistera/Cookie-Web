@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import VirtualList from './VirtualList.vue'
 import { useDocumentsStore } from '../stores/documents'
+import { confirmDocumentDelete, confirmFolderDelete } from '../lib/documentDeleteConfirmation'
 import { flattenDocumentsTree } from '../lib/documentsTree'
 import { getStoredExpandedFolderIds, saveExpandedFolderIds } from '../lib/documentsSidebarFolders'
 
@@ -63,10 +64,16 @@ async function openToday() {
 }
 
 async function deleteDocument(doc) {
+  if (!confirmDocumentDelete(doc)) return
   const wasOpen = route.params.id === doc.id
   if (await store.deleteDocument(doc.id)) {
     if (wasOpen) router.push('/documents')
   }
+}
+
+async function deleteFolder(folder) {
+  if (!confirmFolderDelete(folder)) return
+  await store.deleteFolder(folder.id)
 }
 
 // Inline "New folder" row: openNewFolderFor is null when hidden, '' for a
@@ -278,7 +285,7 @@ function onDragEnd() {
                 class="row-action-btn"
                 :title="`Delete ${row.item.title}`"
                 :aria-label="`Delete ${row.item.title}`"
-                @click="store.deleteFolder(row.item.id)"
+                @click="deleteFolder(row.item)"
               >
                 <span class="material-symbols-outlined">delete</span>
               </button>

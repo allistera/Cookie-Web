@@ -14,6 +14,7 @@ import { useDocumentsStore } from '../stores/documents'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
 import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
 import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
+import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
 
 // The dashboard only needs document metadata. Keep Editor.js and its tools out
 // of that route payload until a specific document is actually opened.
@@ -307,6 +308,7 @@ function newDocument() {
 }
 
 async function deleteFromDashboard(doc) {
+  if (!confirmDocumentDelete(doc)) return
   await store.deleteDocument(doc.id)
 }
 

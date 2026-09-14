@@ -150,11 +150,38 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
 
   // Delete it from the tree; the editor route falls back to the dashboard.
   await treeRow.hover()
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toBe(
+      'Delete document "Meeting notes"?\n\nThis action cannot be undone.',
+    )
+    await dialog.accept()
+  })
   await treeRow.getByRole('button', { name: 'Delete Meeting notes' }).click()
   await expect(page).toHaveURL(/\/documents$/)
   await expect(
     page.locator('.documents-sidebar .doc-item', { hasText: 'Meeting notes' }),
   ).toHaveCount(0)
+})
+
+test('Dashboard document deletion requires confirmation', async ({ page }) => {
+  await page.goto('/documents')
+
+  const scratchpad = page.locator('.documents-table-row', { hasText: 'Scratchpad' })
+  const deleteButton = scratchpad.getByRole('button', { name: 'Delete Scratchpad' })
+  await scratchpad.hover()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toBe('Delete document "Scratchpad"?\n\nThis action cannot be undone.')
+    await dialog.dismiss()
+  })
+  await deleteButton.click()
+  await expect(scratchpad).toBeVisible()
+
+  page.once('dialog', async (dialog) => {
+    await dialog.accept()
+  })
+  await deleteButton.click()
+  await expect(scratchpad).toHaveCount(0)
 })
 
 // The table block embeds a full Univer sheet, which renders its grid on
@@ -549,6 +576,12 @@ test('Folders can be created inline and documents dragged between them', async (
   // Deleting the folder returns its documents to the root.
   const readingList = sidebar.locator('.folder-item', { hasText: 'Reading list' })
   await readingList.hover()
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toBe(
+      'Delete folder "Reading list" and its subfolders?\n\nDocuments inside will be moved to Documents. This action cannot be undone.',
+    )
+    await dialog.accept()
+  })
   await readingList.getByRole('button', { name: 'Delete Reading list' }).click()
   await expect(sidebar.locator('.folder-item', { hasText: 'Reading list' })).toHaveCount(0)
   await expect(sidebar.locator('.doc-item', { hasText: 'Scratchpad' })).toBeVisible()

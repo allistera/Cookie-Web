@@ -51,6 +51,7 @@ beforeEach(async () => {
   const store = useDocumentsStore()
   vi.spyOn(store, 'authHeaders').mockResolvedValue({})
   vi.spyOn(useInboxStore(), 'notify').mockImplementation(() => {})
+  vi.stubGlobal('confirm', vi.fn())
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, options = {}) => {
@@ -206,5 +207,43 @@ describe('DocumentsSidebar', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Reading list')
+  })
+
+  it('requires confirmation before deleting a document', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const store = useDocumentsStore()
+    const deleteDocument = vi.spyOn(store, 'deleteDocument').mockResolvedValue(true)
+    const deleteButton = wrapper.get('[aria-label="Delete Scratch"]')
+
+    confirm.mockReturnValueOnce(false)
+    await deleteButton.trigger('click')
+    expect(confirm).toHaveBeenCalledWith(
+      'Delete document "Scratch"?\n\nThis action cannot be undone.',
+    )
+    expect(deleteDocument).not.toHaveBeenCalled()
+
+    confirm.mockReturnValueOnce(true)
+    await deleteButton.trigger('click')
+    expect(deleteDocument).toHaveBeenCalledWith('d-scratch')
+  })
+
+  it('explains the consequences and requires confirmation before deleting a folder', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const store = useDocumentsStore()
+    const deleteFolder = vi.spyOn(store, 'deleteFolder').mockResolvedValue()
+    const deleteButton = wrapper.get('[aria-label="Delete Projects"]')
+
+    confirm.mockReturnValueOnce(false)
+    await deleteButton.trigger('click')
+    expect(confirm).toHaveBeenCalledWith(
+      'Delete folder "Projects" and its subfolders?\n\nDocuments inside will be moved to Documents. This action cannot be undone.',
+    )
+    expect(deleteFolder).not.toHaveBeenCalled()
+
+    confirm.mockReturnValueOnce(true)
+    await deleteButton.trigger('click')
+    expect(deleteFolder).toHaveBeenCalledWith('f-projects')
   })
 })
