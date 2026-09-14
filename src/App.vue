@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
+import { useContactInsightsStore } from './stores/contactInsights'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
@@ -13,12 +14,16 @@ import { useAppBadge } from './composables/useAppBadge'
 import { getRealtimeClient } from './lib/supabase'
 
 const ChatDrawer = defineAsyncComponent(() => import('./components/ChatDrawer.vue'))
+const ContactInsightsDrawer = defineAsyncComponent(
+  () => import('./components/ContactInsightsDrawer.vue'),
+)
 const CommandPalette = defineAsyncComponent(() => import('./components/CommandPalette.vue'))
 const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
 const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
 const TasksSidebar = defineAsyncComponent(() => import('./components/TasksSidebar.vue'))
 
 const store = useInboxStore()
+const contactInsightsStore = useContactInsightsStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -116,15 +121,28 @@ function onUndoKeydown(event) {
 }
 
 const chatDrawerLoaded = ref(store.isChatDrawerActive)
+const contactInsightsLoaded = ref(contactInsightsStore.isOpen)
 const commandPaletteLoaded = ref(store.isCommandPaletteOpen)
 const composerLoaded = ref(store.isComposerActive)
 
 watch(
   () => store.isChatDrawerActive,
   (active) => {
-    if (active) chatDrawerLoaded.value = true
+    if (active) {
+      chatDrawerLoaded.value = true
+      contactInsightsStore.close()
+    }
   },
 )
+watch(
+  () => contactInsightsStore.isOpen,
+  (active) => {
+    if (active) contactInsightsLoaded.value = true
+  },
+)
+watch(activeApp, (app) => {
+  if (app !== 'email') contactInsightsStore.close()
+})
 watch(
   () => store.isComposerActive,
   (active) => {
@@ -576,6 +594,13 @@ onUnmounted(() => {
         <main class="main-content">
           <router-view />
         </main>
+
+        <Transition name="contact-drawer">
+          <ContactInsightsDrawer
+            v-if="contactInsightsLoaded && contactInsightsStore.isOpen"
+            :key="contactInsightsStore.contact?.address"
+          />
+        </Transition>
 
         <!-- Assistant chat drawer -->
         <ChatDrawer v-if="chatDrawerLoaded" />

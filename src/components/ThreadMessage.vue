@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 
 import EmailBody from './EmailBody.vue'
+import ContactAddress from './ContactAddress.vue'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
 import { formatEmailDate, useInboxStore } from '../stores/inbox'
 
@@ -60,7 +61,7 @@ watch(
       <div class="ni-email-meta">
         <div>
           <span class="ni-email-sender">{{ sender }}</span>
-          <span class="ni-email-address">{{ message.from_address }}</span>
+          <ContactAddress class="ni-email-address" :address="message.from_address" :name="sender" />
         </div>
       </div>
       <div class="ni-email-header-right">

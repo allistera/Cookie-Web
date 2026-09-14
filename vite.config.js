@@ -65,6 +65,7 @@ function localApiPlugin(mode) {
         rules: [],
         scheduledSends: [],
         followUps: new Map(),
+        contactInsights: new Map(),
         projects: [],
         taskItems: [],
         drafts: [],
@@ -1760,7 +1761,7 @@ function localApiPlugin(mode) {
     return json(res, { labels })
   }
 
-  // cookie-web-messages: /messages[/attachment|contacts]
+  // cookie-web-messages: /messages[/attachment|contacts|contact-insights]
   const handleWorkerMessagesApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
@@ -1778,6 +1779,62 @@ function localApiPlugin(mode) {
         }
       }
       return json(res, { contacts: [...contacts.values()] })
+    }
+    if (sub === 'contact-insights') {
+      const state = fixtureMailboxState(req, res)
+      if (req.method === 'PATCH') {
+        const body = await readBody(req)
+        const address = String(body.address ?? '')
+          .trim()
+          .toLowerCase()
+        const { fixtureEmails } = await import('./api/_fixtures/emails.js')
+        const fallback = fixtureEmails().find(
+          (message) => message.from_address?.toLowerCase() === address,
+        )
+        const contact = {
+          address,
+          name: state.contactInsights.get(address)?.name || fallback?.from_name || null,
+          company: body.company || null,
+          role: body.role || null,
+          linkedinUrl: body.linkedinUrl || null,
+          notes: body.notes || '',
+        }
+        state.contactInsights.set(address, contact)
+        return json(res, { contact })
+      }
+      if (req.method !== 'GET') return json(res, { error: 'Method not allowed' }, 405)
+      const address = String(url.searchParams.get('address') ?? '')
+        .trim()
+        .toLowerCase()
+      const { fixtureEmails, fixtureSentEmails } = await import('./api/_fixtures/emails.js')
+      const allMessages = [...fixtureEmails(), ...fixtureSentEmails()]
+      const history = allMessages
+        .filter((message) => {
+          if (!message.is_sent) return message.from_address?.toLowerCase() === address
+          return ['to', 'cc', 'bcc'].some((kind) =>
+            (message.recipients?.[kind] ?? []).some(
+              (recipient) => String(recipient.address ?? recipient).toLowerCase() === address,
+            ),
+          )
+        })
+        .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))
+        .slice(0, 10)
+      const fallback = allMessages.find(
+        (message) => message.from_address?.toLowerCase() === address,
+      )
+      const saved = state.contactInsights.get(address)
+      return json(res, {
+        contact: {
+          address,
+          name: saved?.name || fallback?.from_name || null,
+          company: saved?.company || null,
+          role: saved?.role || null,
+          linkedinUrl: saved?.linkedinUrl || null,
+          notes: saved?.notes || '',
+        },
+        history,
+        nextCursor: null,
+      })
     }
     if (sub === 'attachment') {
       const id = url.searchParams.get('id')

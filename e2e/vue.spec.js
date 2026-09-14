@@ -2666,3 +2666,46 @@ test('Inbox tabs open on Important, narrow by category, and Other holds the rest
     'true',
   )
 })
+
+test('Contact insights opens from an email address and saves private context', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const note = `Confirm the revised measurements before Friday. ${Date.now()}`
+  await page.goto('/inbox')
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+
+  const reader = page.locator('.ni-reader')
+  const address = reader
+    .locator('.contact-address', { hasText: 'updates@cityconstruction.com' })
+    .first()
+  await address.hover()
+
+  const popover = reader.getByRole('dialog', {
+    name: 'Contact actions for updates@cityconstruction.com',
+  })
+  await expect(popover).toBeVisible()
+  await popover.getByRole('button', { name: 'View Insights' }).click()
+
+  const drawer = page.getByRole('complementary', { name: 'Contact insights' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer).toContainText('City Construction')
+  await expect(drawer).toContainText('Revised Floor Plan')
+
+  const save = page.waitForResponse(
+    (response) =>
+      response.url().includes('/messages/contact-insights') &&
+      response.request().method() === 'PATCH',
+  )
+  await drawer.getByPlaceholder('Add company').fill('City Construction Ltd')
+  await drawer.getByPlaceholder('Add role').fill('Project team')
+  await drawer
+    .getByPlaceholder('https://linkedin.com/in/…')
+    .fill('https://www.linkedin.com/company/city-construction')
+  const notes = drawer.getByPlaceholder('Add a private note about this contact…')
+  await notes.fill(note)
+  await notes.blur()
+  await save
+  await expect(drawer.getByRole('status')).toContainText('Saved')
+  await expect(drawer.getByPlaceholder('Add company')).toHaveValue('City Construction Ltd')
+  await expect(drawer.getByPlaceholder('Add role')).toHaveValue('Project team')
+  await expect(drawer.getByPlaceholder('Add a private note about this contact…')).toHaveValue(note)
+})

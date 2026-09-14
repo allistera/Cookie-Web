@@ -12,6 +12,7 @@ import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
+import ContactAddress from '../components/ContactAddress.vue'
 import EmailRow from '../components/EmailRow.vue'
 import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
@@ -1916,10 +1917,24 @@ onUnmounted(() => {
                 <div class="ni-email-meta">
                   <div>
                     <span class="ni-email-sender">{{ openEmail.sender }}</span>
-                    <span class="ni-email-address">{{ openEmail.address }}</span>
+                    <ContactAddress
+                      class="ni-email-address"
+                      :address="openEmail.address"
+                      :name="openEmail.sender"
+                    />
                   </div>
                   <div class="ni-email-to" :title="openEmailRecipientAddresses">
-                    {{ openEmail.isSent ? `To ${openEmail.to ?? openEmail.address}` : 'To me' }}
+                    <template v-if="openEmail.isSent && openEmail.recipients?.to?.[0]">
+                      <span>To&nbsp;</span>
+                      <ContactAddress
+                        :address="openEmail.recipients.to[0].address"
+                        :name="openEmail.recipients.to[0].name || ''"
+                      />
+                      <span v-if="openEmail.recipients.to.length > 1">
+                        &nbsp;+{{ openEmail.recipients.to.length - 1 }}
+                      </span>
+                    </template>
+                    <template v-else>To me</template>
                     <span class="material-symbols-outlined">unfold_more</span>
                   </div>
                 </div>
