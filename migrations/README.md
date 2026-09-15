@@ -54,6 +54,12 @@ short-lived delivery queue. The notifications Worker drains that queue every
 minute and publishes only a sender label, subject, and Cookie deep link; the
 database trigger keeps ntfy delivery isolated from inbound message ingestion.
 
+`0078_category_notifications.sql` adds the default-on notification preference
+for each email category. Apply it before deploying the category API and
+notifications Worker changes that read `email_categories.notifications_enabled`.
+Both browser and ntfy delivery wait for pending enrichment, then suppress an
+alert when its assigned category has notifications disabled.
+
 ## Read receipts
 
 `0021_read_receipts.sql` stores opaque per-message tokens and best-effort open timestamps for sent mail. The tracking pixel contains no mailbox or message identifier, the receipt table is server-only, and stored sent HTML excludes the pixel so opening Cookie's own sent copy does not mark it read. Image blocking can suppress receipts and security scanners can trigger them, so the UI treats status as indicative rather than guaranteed.
