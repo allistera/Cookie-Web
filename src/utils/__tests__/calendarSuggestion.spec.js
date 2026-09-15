@@ -42,6 +42,36 @@ describe('detectCalendarSuggestion', () => {
     expect(suggestion).toMatchObject({ date: '2026-07-30', start: '14:30', end: '15:30' })
   })
 
+  it('detects NHS-style UK dates with a weekday prefix', () => {
+    const suggestion = detectCalendarSuggestion(
+      {
+        subject: 'Your NHS winter vaccine appointment reminder',
+        snippet: 'Wednesday 2 September 2026 at 10:45am at Whitburn Surgery.',
+        sentAt: '2026-08-20T08:00:00Z',
+      },
+      NOW,
+    )
+
+    expect(suggestion).toMatchObject({
+      title: 'Your NHS winter vaccine appointment reminder',
+      date: '2026-09-02',
+      start: '10:45',
+      end: '11:45',
+    })
+  })
+
+  it('detects numeric UK dates in event emails', () => {
+    expect(
+      detectCalendarSuggestion(
+        {
+          subject: 'Appointment reminder',
+          snippet: 'Your appointment is on 02/09/2026 at 10:45.',
+        },
+        NOW,
+      ),
+    ).toMatchObject({ date: '2026-09-02', start: '10:45' })
+  })
+
   it('prefers a structured invite and preserves its exact local duration', () => {
     const inviteStart = new Date(2026, 8, 2, 15, 0)
     const inviteEnd = new Date(2026, 8, 2, 15, 30)

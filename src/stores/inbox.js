@@ -13,6 +13,7 @@ import {
   SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
+  NOTIFICATIONS_API_URL,
   RECEIPTS_API_URL,
   TASKS_API_URL,
 } from '../lib/apiWorkers'
@@ -437,6 +438,7 @@ export const useInboxStore = defineStore('inbox', {
     traditionalEmails: [],
     unreadInboxCount: 0,
     userId: null, // the authenticated user's uuid, for the Realtime inbox-ping channel
+    ntfySubscription: null,
     isInboxStateLoaded: false,
     isInboxLoaded: false,
     isRefreshing: false,
@@ -1132,6 +1134,30 @@ export const useInboxStore = defineStore('inbox', {
         console.error('Failed to load categories:', error)
         this.notify('Failed to load categories.', 'error')
       }
+    },
+
+    async loadNtfySubscription() {
+      const headers = await this.authHeaders()
+      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { headers, cache: 'no-store' })
+      if (!response.ok) throw new Error(`GET /ntfy responded ${response.status}`)
+      const subscription = await response.json()
+      this.ntfySubscription = subscription.enabled ? subscription : null
+      return this.ntfySubscription
+    },
+
+    async createNtfySubscription() {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { method: 'POST', headers })
+      if (!response.ok) throw new Error(`POST /ntfy responded ${response.status}`)
+      this.ntfySubscription = await response.json()
+      return this.ntfySubscription
+    },
+
+    async disableNtfySubscription() {
+      const headers = await this.authHeaders()
+      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { method: 'DELETE', headers })
+      if (!response.ok) throw new Error(`DELETE /ntfy responded ${response.status}`)
+      this.ntfySubscription = null
     },
 
     async setMessageCategory(email, category) {

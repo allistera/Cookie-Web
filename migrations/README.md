@@ -49,6 +49,11 @@ then deploy Cookie-Web for the reader's Mute thread / Unmute thread control.
 
 `0016_browser_notification_events.sql` adds short-lived, opaque event tokens for opt-in browser notifications. Realtime broadcasts only the token; an authenticated Vercel function leases and resolves its owned message before the browser can display sender and subject. The table is server-only, old unclaimed events are pruned after 24 hours, and all notification failures remain isolated from inbound message ingestion.
 
+`0077_ntfy_notifications.sql` adds opt-in ntfy subscriptions and a separate
+short-lived delivery queue. The notifications Worker drains that queue every
+minute and publishes only a sender label, subject, and Cookie deep link; the
+database trigger keeps ntfy delivery isolated from inbound message ingestion.
+
 ## Read receipts
 
 `0021_read_receipts.sql` stores opaque per-message tokens and best-effort open timestamps for sent mail. The tracking pixel contains no mailbox or message identifier, the receipt table is server-only, and stored sent HTML excludes the pixel so opening Cookie's own sent copy does not mark it read. Image blocking can suppress receipts and security scanners can trigger them, so the UI treats status as indicative rather than guaranteed.

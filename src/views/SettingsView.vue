@@ -216,6 +216,8 @@ const notificationOwnerId = computed(() => store.userId)
 const browserPermission = ref(browserNotificationPermission())
 const browserNotificationsOn = ref(false)
 const isRequestingBrowserPermission = ref(false)
+const ntfyError = ref('')
+const isNtfyLoading = ref(false)
 
 function syncBrowserNotificationPreference() {
   browserPermission.value = browserNotificationPermission()
@@ -224,7 +226,21 @@ function syncBrowserNotificationPreference() {
 }
 
 watch(notificationOwnerId, syncBrowserNotificationPreference, { immediate: true })
-watch(activeSection, syncBrowserNotificationPreference)
+watch(activeSection, (section) => {
+  syncBrowserNotificationPreference()
+  if (section === 'notifications' && notificationOwnerId.value && !store.ntfySubscription) {
+    isNtfyLoading.value = true
+    store
+      .loadNtfySubscription()
+      .catch((error) => {
+        console.error('Failed to load ntfy subscription:', error)
+        ntfyError.value = 'Could not load ntfy settings.'
+      })
+      .finally(() => {
+        isNtfyLoading.value = false
+      })
+  }
+})
 
 const browserNotificationStatus = computed(() => {
   if (!browserNotificationsSupported()) return 'Browser notifications are not supported here.'
@@ -258,6 +274,37 @@ async function toggleBrowserNotifications(event) {
   browserNotificationsOn.value = permission === 'granted'
   event.target.checked = browserNotificationsOn.value
   saveBrowserNotificationsEnabled(notificationOwnerId.value, browserNotificationsOn.value)
+}
+
+async function enableNtfy() {
+  ntfyError.value = ''
+  isNtfyLoading.value = true
+  try {
+    await store.createNtfySubscription()
+  } catch (error) {
+    console.error('Failed to enable ntfy notifications:', error)
+    ntfyError.value = 'Could not enable ntfy notifications. Please try again.'
+  } finally {
+    isNtfyLoading.value = false
+  }
+}
+
+async function disableNtfy() {
+  ntfyError.value = ''
+  isNtfyLoading.value = true
+  try {
+    await store.disableNtfySubscription()
+  } catch (error) {
+    console.error('Failed to disable ntfy notifications:', error)
+    ntfyError.value = 'Could not disable ntfy notifications. Please try again.'
+  } finally {
+    isNtfyLoading.value = false
+  }
+}
+
+async function copyNtfyUrl() {
+  if (!store.ntfySubscription?.subscribeUrl || !navigator.clipboard) return
+  await navigator.clipboard.writeText(store.ntfySubscription.subscribeUrl)
 }
 
 // --- Labels ---
@@ -694,6 +741,38 @@ function toggleRuleEnabled(rule) {
                 @change="toggleBrowserNotifications"
               />
             </label>
+            <h3 class="settings-section-title settings-section-title-spaced">ntfy notifications</h3>
+            <p class="settings-section-hint">
+              Receive Cookie alerts in the ntfy iOS app. Install ntfy, subscribe to your private
+              topic, then leave this enabled.
+            </p>
+            <button
+              v-if="!store.ntfySubscription"
+              type="button"
+              class="btn btn-primary"
+              :disabled="isNtfyLoading || !notificationOwnerId"
+              @click="enableNtfy"
+            >
+              {{ isNtfyLoading ? 'Preparing…' : 'Set up ntfy' }}
+            </button>
+            <div v-else class="ntfy-subscription" data-testid="ntfy-subscription">
+              <p>Subscribe in ntfy to:</p>
+              <code>{{ store.ntfySubscription.subscribeUrl }}</code>
+              <div class="label-create-actions">
+                <button type="button" class="btn btn-secondary" @click="copyNtfyUrl">
+                  Copy topic URL
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="isNtfyLoading"
+                  @click="disableNtfy"
+                >
+                  Disable ntfy
+                </button>
+              </div>
+            </div>
+            <p v-if="ntfyError" class="settings-error" role="alert">{{ ntfyError }}</p>
           </section>
 
           <!-- Labels -->

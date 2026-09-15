@@ -25,4 +25,17 @@ describe('browser notification events migration', () => {
     )
     expect(migration).toContain('SET search_path = pg_catalog')
   })
+
+  it('keeps ntfy subscriptions and queued deliveries server-only', () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), 'migrations/0077_ntfy_notifications.sql'),
+      'utf8',
+    )
+
+    expect(migration).toContain('CREATE TABLE public.ntfy_subscriptions')
+    expect(migration).toContain('CREATE TABLE public.ntfy_notification_events')
+    expect(migration).toContain('ALTER TABLE public.ntfy_subscriptions ENABLE ROW LEVEL SECURITY')
+    expect(migration).toContain('REVOKE ALL PRIVILEGES')
+    expect(migration).toContain('ON CONFLICT (message_id) DO NOTHING')
+  })
 })

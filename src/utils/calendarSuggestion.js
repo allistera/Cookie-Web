@@ -27,8 +27,11 @@ const EVENT_LANGUAGE =
   /\b(appointment|booking|call|class|conference|dinner|event|game|interview|invitation|lunch|meeting|party|reservation|scrimmage|session|tour|visit|webinar|workshop)\b/i
 const MONTH_DATE =
   /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i
+const DAY_MONTH_DATE =
+  /\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:,?\s+(\d{4}))?\b/i
 const SLASH_MONTH_DATE =
   /\b(\d{1,2})\/(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\/(\d{4})\b/i
+const NUMERIC_DATE = /\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b/
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/
 const RELATIVE_DATE =
   /\b(tomorrow|next\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b/i
@@ -64,10 +67,27 @@ function detectedDate(text, sentAt) {
     return date
   }
 
+  const dayMonthDate = text.match(DAY_MONTH_DATE)
+  if (dayMonthDate) {
+    const month = MONTHS.get(dayMonthDate[2].slice(0, 3).toLowerCase())
+    let year = dayMonthDate[3] ? Number(dayMonthDate[3]) : sentAt.getFullYear()
+    let date = validDate(year, month, Number(dayMonthDate[1]))
+    if (!dayMonthDate[3] && date && date < startOfDay(sentAt)) {
+      year += 1
+      date = validDate(year, month, Number(dayMonthDate[1]))
+    }
+    return date
+  }
+
   const slashMonthDate = text.match(SLASH_MONTH_DATE)
   if (slashMonthDate) {
     const month = MONTHS.get(slashMonthDate[2].slice(0, 3).toLowerCase())
     return validDate(Number(slashMonthDate[3]), month, Number(slashMonthDate[1]))
+  }
+
+  const numericDate = text.match(NUMERIC_DATE)
+  if (numericDate) {
+    return validDate(Number(numericDate[3]), Number(numericDate[2]) - 1, Number(numericDate[1]))
   }
 
   const relative = text.match(RELATIVE_DATE)?.[1].toLowerCase()

@@ -4408,6 +4408,20 @@ button.ni-attachment:hover {
   font-size: 0.9rem;
 }
 
+.ntfy-subscription {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ntfy-subscription code {
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
 .rule-list {
   display: grid;
   gap: 8px;
