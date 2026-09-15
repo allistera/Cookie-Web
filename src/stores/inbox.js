@@ -504,6 +504,7 @@ export const useInboxStore = defineStore('inbox', {
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
     categories: [], // user-defined single-value email categories
+    categoryNotificationSavingIds: new Set(),
     // The inbox tab the user picked: 'priority' (high-rated and due mail),
     // 'other' (the rest with no configured category), or 'category:<id>'.
     // Null until they pick one, when the view opens on the
@@ -1166,7 +1167,13 @@ export const useInboxStore = defineStore('inbox', {
         method: 'POST',
         headers,
       })
-      if (!response.ok) throw new Error(`POST /ntfy/test responded ${response.status}`)
+      if (!response.ok) {
+        const details = await response.json().catch(() => ({}))
+        const error = new Error(`POST /ntfy/test responded ${response.status}`)
+        error.code = details.error
+        error.retryAfterSeconds = details.retryAfterSeconds
+        throw error
+      }
       return response.json()
     },
 
@@ -1306,6 +1313,36 @@ export const useInboxStore = defineStore('inbox', {
         console.error('Failed to update category:', error)
         this.notify('Failed to update category.', 'error')
         return false
+      }
+    },
+
+    async setCategoryNotifications(category, enabled) {
+      if (!category) return false
+      if (this.categoryNotificationSavingIds.has(category.id)) return false
+      this.categoryNotificationSavingIds.add(category.id)
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${LABELS_API_URL}/categories`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({
+            id: category.id,
+            notifications_enabled: enabled,
+          }),
+        })
+        if (!response.ok) throw new Error(`PATCH /categories responded ${response.status}`)
+        const { category: updatedCategory } = await response.json()
+        Object.assign(category, updatedCategory)
+        this.notify(
+          enabled ? 'Category notifications enabled.' : 'Category notifications disabled.',
+        )
+        return true
+      } catch (error) {
+        console.error('Failed to update category notifications:', error)
+        this.notify('Failed to update category notifications.', 'error')
+        return false
+      } finally {
+        this.categoryNotificationSavingIds.delete(category.id)
       }
     },
 

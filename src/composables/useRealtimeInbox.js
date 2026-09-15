@@ -7,6 +7,7 @@ import {
 import { NOTIFICATIONS_API_URL } from '../lib/apiWorkers'
 
 const DEBOUNCE_MS = 1500
+const NOTIFICATION_CLAIM_RETRIES = 60
 
 // Subscribes to the authenticated user's content-free Realtime "inbox
 // changed" channel and refreshes the inbox store through the normal
@@ -64,16 +65,21 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     })
   }
 
-  async function claimNotificationEvent(eventId, userId, version, allowRetry = true) {
+  async function claimNotificationEvent(
+    eventId,
+    userId,
+    version,
+    retriesRemaining = NOTIFICATION_CLAIM_RETRIES,
+  ) {
     if (!canShowBrowserNotification(userId, version)) return
     try {
       const response = await postNotificationEvent({ action: 'claim', eventId })
-      if (response.status === 423 && allowRetry) {
+      if ((response.status === 423 || response.status === 425) && retriesRemaining > 0) {
         const retryAfter = Number.parseInt(response.headers?.get?.('Retry-After') || '30', 10)
         const timer = setTimeout(
           () => {
             notificationRetryTimers.delete(timer)
-            claimNotificationEvent(eventId, userId, version, false)
+            claimNotificationEvent(eventId, userId, version, retriesRemaining - 1)
           },
           Math.max(1, retryAfter) * 1000,
         )

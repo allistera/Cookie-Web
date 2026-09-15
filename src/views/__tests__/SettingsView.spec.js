@@ -444,6 +444,32 @@ describe('SettingsView', () => {
     )
   })
 
+  it('explains when ntfy temporarily rate limits a test notification', async () => {
+    const wrapper = await openView()
+    store.userId = 'user-1'
+    store.ntfySubscription = {
+      topic: 'cookie-user-topic',
+      subscribeUrl: 'https://ntfy.allisterantosik.com/cookie-user-topic',
+      enabled: true,
+    }
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: 'ntfy_rate_limited', retryAfterSeconds: 4 }),
+    })
+
+    await openPane(wrapper, 'notifications')
+    const button = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('Send test notification'))
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toBe(
+      'ntfy is temporarily rate-limiting notifications. Try again shortly.',
+    )
+  })
+
   it('persists the theme preference from the Appearance pane', async () => {
     const wrapper = await openView()
 

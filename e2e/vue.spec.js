@@ -1648,6 +1648,12 @@ test('Settings Categories pane lists, creates and edits categories', async ({ pa
   await page.goto('/settings/categories')
   const settings = page.locator('.settings-page')
   await expect(settings.locator('.ni-category-pill', { hasText: 'Projects' })).toBeVisible()
+  const projectNotifications = settings.getByLabel('Notifications for Projects')
+  await expect(projectNotifications).toBeChecked()
+  await projectNotifications.uncheck()
+  await expect(projectNotifications).not.toBeChecked()
+  await page.reload()
+  await expect(settings.getByLabel('Notifications for Projects')).not.toBeChecked()
 
   await settings.locator('input[placeholder="Category name"]').fill('Clients')
   await settings.locator('.category-settings .btn-primary').click()

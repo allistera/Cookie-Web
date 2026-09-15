@@ -4275,6 +4275,36 @@ describe('email Categories', () => {
     expect(store.categories).toEqual([])
     expect(store.traditionalEmails[0].category).toBeNull()
   })
+
+  it('persists a category notification preference', async () => {
+    const store = useInboxStore()
+    const category = { id: 'c1', name: 'Projects', notifications_enabled: true }
+    store.categories = [category]
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ category: { ...category, notifications_enabled: false } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await store.setCategoryNotifications(category, false)).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      id: 'c1',
+      notifications_enabled: false,
+    })
+    expect(category.notifications_enabled).toBe(false)
+  })
+
+  it('keeps the category notification preference unchanged when saving fails', async () => {
+    const store = useInboxStore()
+    const category = { id: 'c1', name: 'Projects', notifications_enabled: true }
+    store.categories = [category]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(await store.setCategoryNotifications(category, false)).toBe(false)
+    expect(category.notifications_enabled).toBe(true)
+    expect(store.categoryNotificationSavingIds.size).toBe(0)
+  })
 })
 
 describe('draft summaries and retry recovery', () => {

@@ -316,7 +316,12 @@ async function sendNtfyTest() {
     store.notify('Test notification sent.')
   } catch (error) {
     console.error('Failed to send ntfy test notification:', error)
-    ntfyError.value = 'Could not send the test notification. Please try again.'
+    ntfyError.value =
+      error?.code === 'ntfy_rate_limited'
+        ? 'ntfy is temporarily rate-limiting notifications. Try again shortly.'
+        : error?.code === 'ntfy_unavailable'
+          ? 'The notification service is temporarily unavailable. Try again shortly.'
+          : 'Could not send the test notification. Please try again.'
   } finally {
     isNtfyTesting.value = false
   }

@@ -944,6 +944,7 @@ function localApiPlugin(mode) {
           name: 'Projects',
           color: '#1a73e8',
           description: 'Active project mail',
+          notifications_enabled: true,
           message_count: 1,
         },
         {
@@ -951,6 +952,7 @@ function localApiPlugin(mode) {
           name: 'Personal',
           color: '#7048e8',
           description: null,
+          notifications_enabled: true,
           message_count: 0,
         },
       ]
@@ -1650,6 +1652,7 @@ function localApiPlugin(mode) {
           name: body.name,
           color: body.color,
           description: body.description || null,
+          notifications_enabled: true,
           message_count: 0,
         }
         categories.push(category)
@@ -1661,6 +1664,9 @@ function localApiPlugin(mode) {
         if (Object.hasOwn(body, 'name')) category.name = body.name
         if (Object.hasOwn(body, 'color')) category.color = body.color
         if (Object.hasOwn(body, 'description')) category.description = body.description || null
+        if (Object.hasOwn(body, 'notifications_enabled')) {
+          category.notifications_enabled = body.notifications_enabled
+        }
         for (const assigned of state.messageCategories.values()) {
           if (assigned?.id === category.id) Object.assign(assigned, category)
         }

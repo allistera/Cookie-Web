@@ -197,6 +197,49 @@ describe('useRealtimeInbox', () => {
     )
   })
 
+  it('retries a browser notification claim while categorisation is pending', async () => {
+    const client = makeMockClient()
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    localStorage.setItem(
+      `cookie-browser-notifications:${store.userId}`,
+      JSON.stringify({ enabled: true }),
+    )
+    const NotificationMock = vi.fn(function Notification() {
+      this.close = vi.fn()
+    })
+    NotificationMock.permission = 'granted'
+    vi.stubGlobal('Notification', NotificationMock)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 425,
+          headers: new Headers({ 'Retry-After': '1' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            claimToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            message: { id: 'message-1', sender: 'Ana', subject: 'Ready' },
+          }),
+        })
+        .mockResolvedValueOnce({ ok: true, status: 204 }),
+    )
+    mount(client)
+
+    setHidden(true)
+    client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(NotificationMock).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
   it('never requests browser notification content for an update ping', async () => {
     const client = makeMockClient()
     store.userId = '11111111-1111-1111-1111-111111111111'

@@ -64,6 +64,11 @@ async function saveEdit(category) {
   isUpdating.value = false
   if (updated) cancelEdit()
 }
+
+async function setNotifications(category, event) {
+  const saved = await store.setCategoryNotifications(category, event.target.checked)
+  if (!saved) event.target.checked = category.notifications_enabled !== false
+}
 </script>
 
 <template>
@@ -78,6 +83,7 @@ async function saveEdit(category) {
       <div class="category-table-head">
         <span>Category</span>
         <span>Description</span>
+        <span>Notification</span>
         <span></span>
       </div>
       <div v-for="category in store.allCategories" :key="category.id" class="category-table-row">
@@ -110,6 +116,14 @@ async function saveEdit(category) {
           @keydown.esc.prevent="cancelEdit"
         />
         <span v-else class="label-description">{{ category.description || '—' }}</span>
+        <input
+          type="checkbox"
+          class="category-notification-checkbox"
+          :checked="category.notifications_enabled !== false"
+          :aria-label="`Notifications for ${category.name}`"
+          :disabled="store.categoryNotificationSavingIds.has(category.id)"
+          @change="setNotifications(category, $event)"
+        />
         <div class="label-row-actions">
           <template v-if="editingId === category.id">
             <button
@@ -197,7 +211,7 @@ async function saveEdit(category) {
 .category-table-head,
 .category-table-row {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 68px;
+  grid-template-columns: 150px minmax(0, 1fr) 92px 68px;
   align-items: center;
   gap: 12px;
   padding: 8px 0;
@@ -216,6 +230,10 @@ async function saveEdit(category) {
   justify-self: start;
 }
 
+.category-notification-checkbox {
+  justify-self: start;
+}
+
 .category-table-row:hover .label-row-actions :deep(.ni-action-btn),
 .label-row-actions :deep(.ni-action-btn:focus-visible) {
   opacity: 1;
@@ -228,7 +246,7 @@ async function saveEdit(category) {
 
   .category-table-head,
   .category-table-row {
-    grid-template-columns: minmax(88px, 0.8fr) minmax(112px, 1.2fr) 68px;
+    grid-template-columns: minmax(88px, 0.8fr) minmax(112px, 1.2fr) 92px 68px;
     gap: 8px;
     min-width: 0;
   }
