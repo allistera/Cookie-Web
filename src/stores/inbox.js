@@ -1160,6 +1160,16 @@ export const useInboxStore = defineStore('inbox', {
       this.ntfySubscription = null
     },
 
+    async sendNtfyTest() {
+      const headers = await this.authHeaders()
+      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy/test`, {
+        method: 'POST',
+        headers,
+      })
+      if (!response.ok) throw new Error(`POST /ntfy/test responded ${response.status}`)
+      return response.json()
+    },
+
     async setMessageCategory(email, category) {
       if (!email) return false
       const categoryId = category?.id ?? null

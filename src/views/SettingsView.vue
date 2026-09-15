@@ -218,6 +218,7 @@ const browserNotificationsOn = ref(false)
 const isRequestingBrowserPermission = ref(false)
 const ntfyError = ref('')
 const isNtfyLoading = ref(false)
+const isNtfyTesting = ref(false)
 
 function syncBrowserNotificationPreference() {
   browserPermission.value = browserNotificationPermission()
@@ -305,6 +306,20 @@ async function disableNtfy() {
 async function copyNtfyUrl() {
   if (!store.ntfySubscription?.subscribeUrl || !navigator.clipboard) return
   await navigator.clipboard.writeText(store.ntfySubscription.subscribeUrl)
+}
+
+async function sendNtfyTest() {
+  ntfyError.value = ''
+  isNtfyTesting.value = true
+  try {
+    await store.sendNtfyTest()
+    store.notify('Test notification sent.')
+  } catch (error) {
+    console.error('Failed to send ntfy test notification:', error)
+    ntfyError.value = 'Could not send the test notification. Please try again.'
+  } finally {
+    isNtfyTesting.value = false
+  }
 }
 
 // --- Labels ---
@@ -761,6 +776,14 @@ function toggleRuleEnabled(rule) {
               <div class="label-create-actions">
                 <button type="button" class="btn btn-secondary" @click="copyNtfyUrl">
                   Copy topic URL
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="isNtfyTesting || isNtfyLoading"
+                  @click="sendNtfyTest"
+                >
+                  {{ isNtfyTesting ? 'Sending…' : 'Send test notification' }}
                 </button>
                 <button
                   type="button"

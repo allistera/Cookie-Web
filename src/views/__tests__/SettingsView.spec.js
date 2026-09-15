@@ -415,6 +415,35 @@ describe('SettingsView', () => {
     expect(localStorage.getItem('cookie-settings-prefs')).toBeNull()
   })
 
+  it('sends an ntfy test notification and confirms delivery was accepted', async () => {
+    const wrapper = await openView()
+    store.userId = 'user-1'
+    store.ntfySubscription = {
+      topic: 'cookie-user-topic',
+      subscribeUrl: 'https://ntfy.sh/cookie-user-topic',
+      enabled: true,
+    }
+
+    await openPane(wrapper, 'notifications')
+    const button = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('Send test notification'))
+    expect(button).toBeDefined()
+
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ntfy/test'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(store.toasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: 'Test notification sent.', kind: 'info' }),
+      ]),
+    )
+  })
+
   it('persists the theme preference from the Appearance pane', async () => {
     const wrapper = await openView()
 
