@@ -4176,6 +4176,71 @@ describe('Inbox Store', () => {
     })
   })
 
+  describe('completeTopicItem', () => {
+    it('marks an unread referenced email done and updates its cached state', async () => {
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', unread: true, isArchived: false }]
+      store.isDoneLoaded = true
+      store.unreadInboxCount = 5
+      const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+
+      const item = { message_id: 'msg-1', unread: true }
+      await store.completeTopicItem(item)
+
+      expect(updateMessage).toHaveBeenCalledWith('msg-1', {
+        is_archived: true,
+        is_unread: false,
+      })
+      expect(item.unread).toBe(false)
+      expect(store.traditionalEmails).toEqual([])
+      expect(store.doneEmails).toHaveLength(1)
+      expect(store.doneEmails[0]).toMatchObject({ id: 'msg-1', unread: false, isArchived: true })
+      expect(store.unreadInboxCount).toBe(4)
+    })
+
+    it('persists done for an already-read item without changing the unread count', async () => {
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', unread: false, isArchived: false }]
+      store.unreadInboxCount = 5
+      const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+
+      const item = { message_id: 'msg-1', unread: false }
+      await store.completeTopicItem(item)
+
+      expect(updateMessage).toHaveBeenCalledWith('msg-1', {
+        is_archived: true,
+        is_unread: false,
+      })
+      expect(store.traditionalEmails).toEqual([])
+      expect(store.unreadInboxCount).toBe(5)
+    })
+
+    it('does not decrement the unread count from a stale digest flag after the email was read', async () => {
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', unread: false, isArchived: false }]
+      store.unreadInboxCount = 5
+      vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+
+      await store.completeTopicItem({ message_id: 'msg-1', unread: true })
+
+      expect(store.unreadInboxCount).toBe(5)
+    })
+
+    it('leaves digest and cached email state unchanged when persistence fails', async () => {
+      const store = useInboxStore()
+      store.traditionalEmails = [{ id: 'msg-1', unread: true, isArchived: false }]
+      store.unreadInboxCount = 5
+      vi.spyOn(store, 'updateMessage').mockRejectedValue(new Error('boom'))
+
+      const item = { message_id: 'msg-1', unread: true }
+      await expect(store.completeTopicItem(item)).rejects.toThrow('boom')
+
+      expect(item.unread).toBe(true)
+      expect(store.traditionalEmails[0]).toMatchObject({ unread: true, isArchived: false })
+      expect(store.unreadInboxCount).toBe(5)
+    })
+  })
+
   describe('rescheduleDigestItem', () => {
     it('delegates to updateMessage with the new scheduled_for', async () => {
       const store = useInboxStore()

@@ -291,7 +291,8 @@ describe('AIInboxView (AI Today)', () => {
 
   it('marks a topic item done, persists it, and hides just that row', async () => {
     store.digest = DIGEST()
-    const markTopicItemRead = vi.spyOn(store, 'markTopicItemRead').mockResolvedValue(undefined)
+    store.traditionalEmails = [{ id: 'msg-1', unread: true, isArchived: false }]
+    const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
     const notify = vi.spyOn(store, 'notify')
 
     const wrapper = mountView()
@@ -301,7 +302,11 @@ describe('AIInboxView (AI Today)', () => {
     await kitchen.findAll('.topic-catchup-row')[0].get('.todo-check-btn').trigger('click')
     await flushPromises()
 
-    expect(markTopicItemRead).toHaveBeenCalledWith(store.digest.topics[0].items[0])
+    expect(updateMessage).toHaveBeenCalledWith('msg-1', {
+      is_archived: true,
+      is_unread: false,
+    })
+    expect(store.traditionalEmails).toEqual([])
     expect(notify).toHaveBeenCalledWith('Marked "Contractor needs the floor-plan choice" done.')
     // The topic still has one item left, so it stays on screen.
     const kitchenAfter = wrapper.findAll('.topic-section')[0]
@@ -311,7 +316,7 @@ describe('AIInboxView (AI Today)', () => {
 
   it('drops a topic entirely once its last item is marked done', async () => {
     store.digest = DIGEST()
-    vi.spyOn(store, 'markTopicItemRead').mockResolvedValue(undefined)
+    vi.spyOn(store, 'completeTopicItem').mockResolvedValue(undefined)
 
     const wrapper = mountView()
     // Review is the second group and has a single, already-read item.
@@ -325,7 +330,7 @@ describe('AIInboxView (AI Today)', () => {
 
   it('rolls a topic item back into view when marking it done fails', async () => {
     store.digest = DIGEST()
-    vi.spyOn(store, 'markTopicItemRead').mockRejectedValue(new Error('boom'))
+    vi.spyOn(store, 'completeTopicItem').mockRejectedValue(new Error('boom'))
     const notify = vi.spyOn(store, 'notify')
 
     const wrapper = mountView()

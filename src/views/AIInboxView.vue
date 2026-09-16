@@ -146,7 +146,7 @@ async function markTopicRead(topic) {
 async function completeTopicItem(item) {
   completingItemIds.value = new Set(completingItemIds.value).add(item.message_id)
   try {
-    await store.markTopicItemRead(item)
+    await store.completeTopicItem(item)
     store.notify(`Marked "${item.headline}" done.`)
   } catch {
     const next = new Set(completingItemIds.value)

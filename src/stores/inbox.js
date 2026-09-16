@@ -2646,6 +2646,39 @@ export const useInboxStore = defineStore('inbox', {
       this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
     },
 
+    // Completes one digest item by marking its referenced email Done. The
+    // persisted archive flag is what makes the Worker omit the item when the
+    // stored digest is composed again after a reload. Apply local state only
+    // after the PATCH succeeds so the view can restore its optimistic row on
+    // failure without also repairing cached email state.
+    async completeTopicItem(item) {
+      const email = this.emailById(item.message_id)
+      const positions = email
+        ? captureListPositions(email, [
+            this.traditionalEmails,
+            this.starredEmails,
+            this.labelEmails,
+            this.snoozedEmails,
+            this.spamEmails,
+          ])
+        : []
+      const wasUnreadInbox = email ? positions[0].index > -1 && email.unread : Boolean(item?.unread)
+      const addToDone =
+        email &&
+        this.isDoneLoaded &&
+        this.donePageIndex === 0 &&
+        !this.doneEmails.some((candidate) => candidate.id === email.id)
+      await this.updateMessage(item.message_id, { is_archived: true, is_unread: false })
+      item.unread = false
+      if (email) {
+        removeFromCapturedLists(email, positions)
+        email.unread = false
+        email.isArchived = true
+        if (addToDone) this.doneEmails.unshift(email)
+      }
+      if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+    },
+
     // Marks every still-unread message in one digest topic as read, clearing
     // its dots in place. Settled per message, so one failure does not abandon
     // the rest.
