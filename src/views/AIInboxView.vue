@@ -43,6 +43,13 @@ const noiseSummary = computed(() =>
     .join(' · '),
 )
 const newsSections = computed(() => store.news?.sections ?? [])
+const newsCollapsedKey = 'cookie-world-today-collapsed'
+const newsCollapsed = ref(localStorage.getItem(newsCollapsedKey) === 'true')
+
+function toggleNews() {
+  newsCollapsed.value = !newsCollapsed.value
+  localStorage.setItem(newsCollapsedKey, String(newsCollapsed.value))
+}
 
 const completingTaskIds = ref(new Set())
 // The API already orders these most-pressing first (soonest due, then highest
@@ -379,13 +386,31 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- TODAY'S NEWS -->
+      <!-- THE WORLD TODAY -->
       <section class="ai-card topics-card">
-        <div class="card-header">
-          <h2>Today's news</h2>
+        <div class="card-header world-today-header">
+          <button
+            class="world-today-toggle"
+            type="button"
+            data-testid="world-today-toggle"
+            :aria-expanded="!newsCollapsed"
+            aria-controls="world-today-content"
+            :aria-label="`${newsCollapsed ? 'Expand' : 'Collapse'} The World Today`"
+            @click="toggleNews"
+          >
+            <h2>The World Today</h2>
+            <span class="material-symbols-outlined world-today-chevron" aria-hidden="true">
+              expand_more
+            </span>
+          </button>
         </div>
 
-        <div v-if="newsSections.length" class="topics-container" data-testid="news-sections">
+        <div
+          v-if="!newsCollapsed && newsSections.length"
+          id="world-today-content"
+          class="topics-container"
+          data-testid="news-sections"
+        >
           <div v-for="section in newsSections" :key="section.title" class="topic-section">
             <div class="topic-title-row">
               <h3 class="topic-title">{{ section.emoji }} {{ section.title }}</h3>
@@ -410,7 +435,12 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <p v-else class="topic-empty" data-testid="news-empty">
+        <p
+          v-else-if="!newsCollapsed"
+          id="world-today-content"
+          class="topic-empty"
+          data-testid="news-empty"
+        >
           No news yet. The scheduled run gathers GitHub, Product Hunt and UK headlines — add topics
           under Settings → Personalisation to personalise Product Hunt and optionally GitHub.
         </p>
@@ -420,6 +450,33 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.world-today-header {
+  padding: 0;
+}
+
+.world-today-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 24px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.world-today-chevron {
+  color: var(--text-secondary);
+  transition: transform var(--transition-fast);
+}
+
+.world-today-toggle[aria-expanded='false'] .world-today-chevron {
+  transform: rotate(-90deg);
+}
+
 .news-link {
   font-weight: 600;
   color: var(--text-primary);

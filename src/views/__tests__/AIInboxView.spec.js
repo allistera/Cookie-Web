@@ -75,6 +75,7 @@ describe('AIInboxView (AI Today)', () => {
   let store
 
   beforeEach(() => {
+    localStorage.clear()
     setActivePinia(createPinia())
     store = useInboxStore()
     // Short-circuit onMounted's loadTasks() so it never hits the network.
@@ -250,6 +251,44 @@ describe('AIInboxView (AI Today)', () => {
 
     // Headlines carry no personalisation note, since they are never ranked.
     expect(sections[1].find('.news-note').exists()).toBe(false)
+  })
+
+  it('collapses The World Today with an accessible header control', async () => {
+    store.news = {
+      sections: [
+        {
+          emoji: '💻',
+          title: 'GitHub',
+          items: [{ title: 'acme/rocket', url: 'https://github.com/acme/rocket' }],
+        },
+      ],
+    }
+    const wrapper = mountView()
+    const toggle = wrapper.get('[data-testid="world-today-toggle"]')
+
+    expect(toggle.text()).toContain('The World Today')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('[data-testid="news-sections"]').exists()).toBe(true)
+
+    await toggle.trigger('click')
+
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(toggle.attributes('aria-label')).toBe('Expand The World Today')
+    expect(wrapper.find('[data-testid="news-sections"]').exists()).toBe(false)
+  })
+
+  it('restores The World Today collapsed state on the next visit', async () => {
+    const firstVisit = mountView()
+    await firstVisit.get('[data-testid="world-today-toggle"]').trigger('click')
+    expect(localStorage.getItem('cookie-world-today-collapsed')).toBe('true')
+    firstVisit.unmount()
+
+    const nextVisit = mountView()
+
+    expect(nextVisit.get('[data-testid="world-today-toggle"]').attributes('aria-expanded')).toBe(
+      'false',
+    )
+    expect(nextVisit.find('[data-testid="news-empty"]').exists()).toBe(false)
   })
 
   it('shows a news empty state pointing at the settings pane', () => {
