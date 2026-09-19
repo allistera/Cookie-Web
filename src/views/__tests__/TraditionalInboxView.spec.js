@@ -24,6 +24,12 @@ let routerPush
 // The signed-in account's address; reply-all leaves it out of the recipients.
 const SELF_EMAIL = 'me@example.com'
 
+// The reader keeps only daily triage actions (Done, Snooze, Star, Category)
+// in the toolbar; everything else lives behind its More menu.
+async function openMoreMenu(wrapper) {
+  await wrapper.get('.ni-reader-topbar [title="More"]').trigger('click')
+}
+
 function mountView(options = {}) {
   // useAuth0() is inject()-based, so providing under its key feeds the view a
   // signed-in user through the real interface.
@@ -87,22 +93,24 @@ describe('reader thread muting', () => {
 
   it('offers accessible mute and unmute actions for the open conversation', async () => {
     const toggle = vi.spyOn(store, 'setThreadMuted').mockResolvedValue()
+    await openMoreMenu(wrapper)
     const mute = wrapper.get('[aria-label="Mute thread"]')
-    expect(mute.attributes('aria-pressed')).toBe('false')
+    expect(mute.attributes('role')).toBe('menuitemcheckbox')
+    expect(mute.attributes('aria-checked')).toBe('false')
     await mute.trigger('click')
     expect(toggle).toHaveBeenCalledWith('mute-1', true)
 
     store.messageBodies.get('mute-1').threadMuted = true
     await nextTick()
     const unmute = wrapper.get('[aria-label="Unmute thread"]')
-    expect(unmute.attributes('aria-pressed')).toBe('true')
+    expect(unmute.attributes('aria-checked')).toBe('true')
     await unmute.trigger('click')
     expect(toggle).toHaveBeenLastCalledWith('mute-1', false)
   })
 
   it('disables the action until thread metadata is loaded and while saving', async () => {
     store.mutingThreadIds.add('thread-1')
-    await nextTick()
+    await openMoreMenu(wrapper)
     expect(wrapper.get('[aria-label="Mute thread"]').element.disabled).toBe(true)
     store.mutingThreadIds.clear()
     store.messageBodies.delete('mute-1')
@@ -1049,6 +1057,7 @@ describe('TraditionalInboxView filtered views', () => {
 
     const wrapper = mountView()
     await wrapper.get('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
     await wrapper.get('.ni-reader-topbar [title="Remind me if no reply"]').trigger('click')
     const tomorrow = wrapper
       .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
@@ -1056,6 +1065,7 @@ describe('TraditionalInboxView filtered views', () => {
     await tomorrow.trigger('click')
 
     expect(setFollowUp).toHaveBeenCalledWith(sent, expect.any(String))
+    await openMoreMenu(wrapper)
     await wrapper.get('.ni-reader-topbar [title^="Follow-up reminder:"]').trigger('click')
     const clear = wrapper
       .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
@@ -1720,41 +1730,93 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(inboxZero.find('img').exists()).toBe(false)
   })
 
-  it('the reader topbar offers Star, Done and Reschedule with no Delete or Archive', async () => {
+  it('the reader topbar offers Done, Snooze, Star and Category, then a divider and More', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const topbar = wrapper.find('.ni-reader-topbar')
-    const star = topbar.find('[title="Star"]')
-    const done = topbar.find('[title="Done"]')
-    const reschedule = topbar.find('[title="Reschedule"]')
-    expect(star.exists()).toBe(true)
-    expect(star.text()).toContain('star_border')
-    expect(done.exists()).toBe(true)
-    expect(done.text()).toContain('check_box')
-    expect(reschedule.exists()).toBe(true)
-    expect(reschedule.text()).toContain('schedule')
+    const buttons = topbar.findAll('.ni-reader-btn')
+    expect(buttons.map((button) => button.attributes('title'))).toEqual([
+      'Done',
+      'Snooze',
+      'Star',
+      'Category',
+      'More',
+    ])
+    expect(buttons[0].text()).toContain('check_box')
+    expect(buttons[1].text()).toContain('schedule')
+    expect(buttons[2].text()).toContain('star_border')
+    expect(buttons[3].text()).toContain('folder')
+    expect(buttons[4].text()).toContain('more_horiz')
+    expect(topbar.find('.ni-reader-divider').exists()).toBe(true)
     expect(topbar.find('[title="Delete"]').exists()).toBe(false)
     expect(topbar.find('[title="Archive"]').exists()).toBe(false)
+    expect(topbar.find('[title="Reschedule"]').exists()).toBe(false)
   })
 
-  it('the reader topbar offers Report spam with the report icon for inbound mail', async () => {
+  it('keeps non-triage actions behind the More menu with labels', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
+
+    const topbar = wrapper.find('.ni-reader-topbar')
+    expect(topbar.find('.ni-more-menu').exists()).toBe(false)
+    expect(topbar.find('[title="Report spam"]').exists()).toBe(false)
+    expect(topbar.find('[aria-label="Mute thread"]').exists()).toBe(false)
+
+    await openMoreMenu(wrapper)
+
+    const menu = topbar.find('.ni-more-menu')
+    expect(menu.attributes('role')).toBe('menu')
+    expect(topbar.find('[title="More"]').attributes('aria-expanded')).toBe('true')
+    const items = menu.findAll('.ni-more-item')
+    expect(items.map((item) => item.text())).toEqual([
+      expect.stringContaining('Add label'),
+      expect.stringContaining('Mute thread'),
+      expect.stringContaining('Report spam'),
+    ])
+    // Remind me only applies to sent mail; Unsubscribe only to newsletters.
+    expect(menu.find('[title="Remind me if no reply"]').exists()).toBe(false)
+    expect(menu.find('[title="Unsubscribe"]').exists()).toBe(false)
+
+    await openMoreMenu(wrapper)
+    expect(topbar.find('.ni-more-menu').exists()).toBe(false)
+  })
+
+  it('the More menu hands off to the label menu', async () => {
+    store.labels = [{ id: 'l1', name: 'Newsletters', color: '#c2410c', kind: 'user' }]
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
+
+    await wrapper.get('.ni-more-menu [title="Tag"]').trigger('click')
+
+    const topbar = wrapper.find('.ni-reader-topbar')
+    expect(topbar.find('.ni-more-menu').exists()).toBe(false)
+    const tagMenu = topbar.find('.ni-more-wrap .ni-tag-menu')
+    expect(tagMenu.exists()).toBe(true)
+    expect(tagMenu.text()).toContain('Newsletters')
+  })
+
+  it('the More menu offers Report spam with the report icon for inbound mail', async () => {
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
 
     const spam = wrapper.find('.ni-reader-topbar [title="Report spam"]')
     expect(spam.exists()).toBe(true)
     expect(spam.text()).toContain('report')
-    expect(spam.attributes('aria-pressed')).toBe('false')
+    expect(spam.attributes('aria-checked')).toBe('false')
     expect(wrapper.find('.ni-reader-topbar [title="Not spam"]').exists()).toBe(false)
   })
 
-  it('hides Report spam for sent mail', async () => {
+  it('hides Report spam and Snooze for sent mail', async () => {
     store.traditionalEmails = [{ ...makeEmail('sent-1', Date.now() - HOUR), isSent: true }]
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
 
     expect(wrapper.find('.ni-reader-topbar [title="Report spam"]').exists()).toBe(false)
+    expect(wrapper.find('.ni-reader-topbar [title="Snooze"]').exists()).toBe(false)
   })
 
   it('clicking Report spam records the verdict and advances to the next email', async () => {
@@ -1766,6 +1828,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     vi.spyOn(store, 'setSpam')
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
 
     await wrapper.find('.ni-reader-topbar [title="Report spam"]').trigger('click')
 
@@ -1785,6 +1848,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     await wrapper.find('.ni-row').trigger('click')
     store.starredEmails[0].unread = true
     const setUnread = vi.spyOn(store, 'setUnread')
+    await openMoreMenu(wrapper)
 
     await wrapper.find('.ni-reader-topbar [title="Report spam"]').trigger('click')
 
@@ -1803,11 +1867,12 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     vi.spyOn(store, 'setSpam')
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
 
     const notSpam = wrapper.find('.ni-reader-topbar [title="Not spam"]')
     expect(notSpam.exists()).toBe(true)
     expect(notSpam.text()).toContain('report_off')
-    expect(notSpam.attributes('aria-pressed')).toBe('true')
+    expect(notSpam.attributes('aria-checked')).toBe('true')
 
     await notSpam.trigger('click')
 
@@ -1827,12 +1892,12 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(store.toggleStar.mock.calls[0][0].id).toBe('today-1')
   })
 
-  it('the reader Reschedule action schedules the email for Tomorrow', async () => {
+  it('the reader Snooze action schedules the email for Tomorrow', async () => {
     vi.spyOn(store, 'authHeaders').mockResolvedValue({})
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
-    await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
+    await wrapper.find('.ni-reader-topbar [title="Snooze"]').trigger('click')
     const choices = wrapper.findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
     // scheduleChoices drops a preset that names the same day as another
     // (on a Friday "This weekend" is "Tomorrow"), so the expected list is
@@ -1864,7 +1929,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
-    await wrapper.find('.ni-reader-topbar [title="Reschedule"]').trigger('click')
+    await wrapper.find('.ni-reader-topbar [title="Snooze"]').trigger('click')
     const custom = wrapper
       .findAll('.ni-reader-topbar .ni-schedule-menu [role="menuitem"]')
       .find((choice) => choice.text().includes('Pick date & time'))
@@ -2020,13 +2085,11 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(wrapper.find('.ni-row [title="Snooze"]').exists()).toBe(false)
   })
 
-  it('the reader keeps placeholder controls hidden and offers Forward beside Reply', async () => {
+  it('the reader offers Forward beside Reply', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const reader = wrapper.find('.ni-reader')
-    expect(reader.find('[title="Snooze"]').exists()).toBe(false)
-    expect(reader.find('[title="More"]').exists()).toBe(false)
     expect(reader.find('[title="Forward"]').exists()).toBe(true)
 
     const pills = reader.findAll('.ni-reader-footer .ni-pill-btn')
@@ -2111,7 +2174,8 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(reader.find('[title="Reply all"]').exists()).toBe(false)
     expect(reader.find('[title="Star"]').exists()).toBe(true)
     expect(reader.find('[title="Done"]').exists()).toBe(true)
-    expect(reader.find('[title="Reschedule"]').exists()).toBe(true)
+    expect(reader.find('[title="Snooze"]').exists()).toBe(true)
+    expect(reader.find('[title="More"]').exists()).toBe(true)
     expect(reader.find('[title="Close"]').exists()).toBe(false)
     expect(reader.find('[title="Previous"]').exists()).toBe(false)
     expect(reader.find('[title="Next"]').exists()).toBe(false)
@@ -2145,17 +2209,20 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     store.messageBodies.set('news-1', { html: null, text: 'Body', unsubscribe })
     wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
     return wrapper.find('.ni-reader')
   }
 
-  it('shows an Unsubscribe button when the open email advertises List-Unsubscribe', async () => {
+  it('offers Unsubscribe in the More menu when the open email advertises List-Unsubscribe', async () => {
     const reader = await openReader(UNSUB)
 
-    const toolbarGroups = reader.findAll('.ni-reader-topbar .ni-reader-nav')
-    const button = toolbarGroups[1].find('[title="Unsubscribe"]')
+    const menu = reader.find('.ni-reader-topbar .ni-more-menu')
+    const button = menu.find('[title="Unsubscribe"]')
     expect(button.exists()).toBe(true)
-    expect(button.text()).toContain('Unsubscribe')
-    expect(toolbarGroups[0].find('[title="Unsubscribe"]').exists()).toBe(false)
+    expect(button.attributes('role')).toBe('menuitem')
+    expect(button.text()).toContain('Unsubscribe from sender')
+    expect(menu.find('.ni-more-sep').exists()).toBe(true)
+    expect(reader.find('.ni-reader-btn[title="Unsubscribe"]').exists()).toBe(false)
   })
 
   it('shows an Unsubscribe button for a link in the email content', async () => {
@@ -2180,6 +2247,7 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
       mailto: null,
       source: 'content',
     })
+    await openMoreMenu(wrapper)
     await vi.waitFor(() => {
       expect(wrapper.find('.ni-reader [title="Unsubscribe"]').exists()).toBe(true)
     })
@@ -2194,10 +2262,12 @@ describe('TraditionalInboxView newsletter unsubscribe', () => {
     expect(store.openEmailId).toBe(null)
   })
 
-  it('hides the Unsubscribe button for a regular email', async () => {
+  it('hides Unsubscribe and its separator for a regular email', async () => {
     const reader = await openReader(null)
 
+    expect(reader.find('.ni-more-menu').exists()).toBe(true)
     expect(reader.find('[title="Unsubscribe"]').exists()).toBe(false)
+    expect(reader.find('.ni-more-sep').exists()).toBe(false)
   })
 
   it('posts the unsubscribe action, marks the email done, and closes the reader', async () => {

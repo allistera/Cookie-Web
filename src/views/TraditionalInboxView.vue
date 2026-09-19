@@ -504,15 +504,32 @@ const readerFollowUpOpen = ref(false)
 const replyFollowUpOpen = ref(false)
 const readerTagOpen = ref(false)
 const readerCategoryOpen = ref(false)
-
-function toggleReaderTagMenu() {
-  readerCategoryOpen.value = false
-  readerTagOpen.value = !readerTagOpen.value
-}
+// The reader's overflow ("More") menu. Its "Remind me" and "Add label" items
+// hand off to the follow-up and label menus, which open in its place.
+const readerMoreOpen = ref(false)
 
 function toggleReaderCategoryMenu() {
   readerTagOpen.value = false
+  readerMoreOpen.value = false
   readerCategoryOpen.value = !readerCategoryOpen.value
+}
+
+function toggleReaderMoreMenu() {
+  readerTagOpen.value = false
+  readerCategoryOpen.value = false
+  readerFollowUpOpen.value = false
+  readerMoreOpen.value = !readerMoreOpen.value
+}
+
+function openReaderTagMenu() {
+  readerMoreOpen.value = false
+  readerCategoryOpen.value = false
+  readerTagOpen.value = true
+}
+
+function openReaderFollowUpMenu() {
+  readerMoreOpen.value = false
+  readerFollowUpOpen.value = true
 }
 // Depends on the menus' open flags so the presets recompute from the current
 // clock each time a menu opens — with no reactive deps this cached its
@@ -662,10 +679,10 @@ const openEmailUnsubscribe = computed(
 const isUnsubscribed = computed(() => store.openEmailUnsubscribed)
 const isUnsubscribing = computed(() => store.unsubscribingId === store.openEmailId)
 const hasUnsubscribeFailed = computed(() => store.openEmailUnsubscribeFailed)
-const unsubscribeLabel = computed(() => {
+const unsubscribeMenuLabel = computed(() => {
   if (hasUnsubscribeFailed.value) return 'AI Unsubscribe Failed'
   if (isUnsubscribing.value) return 'Unsubscribing\u2026'
-  return isUnsubscribed.value ? 'Unsubscribed' : 'Unsubscribe'
+  return isUnsubscribed.value ? 'Unsubscribed' : 'Unsubscribe from sender'
 })
 const openEmailSummary = computed(() => store.openEmailSummary)
 const isSummarizing = computed(() => store.isOpenSummaryLoading)
@@ -790,6 +807,7 @@ function openReader(email) {
 
 function closeReader() {
   readerTagOpen.value = false
+  readerMoreOpen.value = false
   store.closeReader()
 }
 
@@ -821,6 +839,7 @@ watch(
     replyFollowUpOpen.value = false
     readerFollowUpOpen.value = false
     readerTagOpen.value = false
+    readerMoreOpen.value = false
     contentUnsubscribe.value = null
     // Fetch the full body on demand (cached) for any open path, including the
     // command palette.
@@ -1376,19 +1395,28 @@ function forwardEmailKeydown(event) {
 }
 
 function onDocumentClick(e) {
-  const clickedReader = e.composedPath().some((node) => node?.classList?.contains('ni-reader'))
-  if (!e.target.closest('.ni-schedule-wrap')) {
+  // Resolve ancestry from the event's composed path, captured at dispatch: a
+  // menu item that closes its own menu is detached by the time this document
+  // listener runs, so target.closest() would no longer find its wrapper.
+  const path = e.composedPath()
+  const within = (className) => path.some((node) => node?.classList?.contains(className))
+  const clickedReader = within('ni-reader')
+  const inScheduleWrap = within('ni-schedule-wrap')
+  const inTagWrap = within('ni-tag-wrap')
+  // The reader's follow-up and label menus open from the More menu, so they
+  // sit inside its wrapper rather than their own.
+  const inMoreWrap = within('ni-more-wrap')
+  if (!inScheduleWrap) {
     bulkScheduleOpen.value = false
     bulkLabelOpen.value = false
     bulkCategoryOpen.value = false
     readerScheduleOpen.value = false
-    readerFollowUpOpen.value = false
     replyFollowUpOpen.value = false
   }
-  if (!e.target.closest('.ni-tag-wrap')) {
-    readerTagOpen.value = false
-    readerCategoryOpen.value = false
-  }
+  if (!inScheduleWrap && !inMoreWrap) readerFollowUpOpen.value = false
+  if (!inTagWrap) readerCategoryOpen.value = false
+  if (!inTagWrap && !inMoreWrap) readerTagOpen.value = false
+  if (!inMoreWrap) readerMoreOpen.value = false
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run.
   if (!openEmail.value || store.isCommandPaletteOpen) return
@@ -1647,82 +1675,19 @@ onUnmounted(() => {
           <div class="ni-reader-nav"></div>
           <div class="ni-reader-nav">
             <button
-              class="ni-reader-btn"
-              :class="{ active: threadMuteBody?.threadMuted }"
-              :title="threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'"
-              :aria-label="threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'"
-              :aria-pressed="Boolean(threadMuteBody?.threadMuted)"
-              :disabled="!threadMuteBody?.threadId || threadMutePending"
-              :aria-busy="threadMutePending"
-              @click="store.setThreadMuted(openEmail.id, !threadMuteBody.threadMuted)"
-            >
-              <span class="material-symbols-outlined">{{
-                threadMuteBody?.threadMuted ? 'notifications_off' : 'notifications'
-              }}</span>
-            </button>
-            <button
-              class="ni-reader-btn"
-              :class="{ starred: openEmail.starred }"
-              :title="openEmail.starred ? 'Unstar' : 'Star'"
-              :aria-label="openEmail.starred ? 'Unstar' : 'Star'"
-              :aria-pressed="openEmail.starred"
-              @click="starOpenEmail"
-            >
-              <span class="material-symbols-outlined">{{
-                openEmail.starred ? 'star' : 'star_border'
-              }}</span>
-            </button>
-            <button
               v-if="activeFilter !== 'done'"
               class="ni-reader-btn"
               title="Done"
+              aria-label="Done"
               @click="archiveOpenEmail"
             >
               <span class="material-symbols-outlined">check_box</span>
             </button>
-            <button
-              v-if="!openEmail.isSent"
-              class="ni-reader-btn"
-              :title="openEmail.isSpam ? 'Not spam' : 'Report spam'"
-              :aria-label="openEmail.isSpam ? 'Not spam' : 'Report spam'"
-              :aria-pressed="Boolean(openEmail.isSpam)"
-              @click="toggleOpenEmailSpam"
-            >
-              <span class="material-symbols-outlined">{{
-                openEmail.isSpam ? 'report_off' : 'report'
-              }}</span>
-            </button>
-            <div v-if="openEmail.isSent" class="ni-schedule-wrap">
+            <div v-if="!openEmail.isSent && activeFilter !== 'done'" class="ni-schedule-wrap">
               <button
                 class="ni-reader-btn"
-                :class="{ active: openEmail.followUpAt }"
-                :title="
-                  openEmail.followUpAt
-                    ? `Follow-up reminder: ${FOLLOW_UP_FMT.format(new Date(openEmail.followUpAt))}`
-                    : 'Remind me if no reply'
-                "
-                aria-haspopup="menu"
-                :aria-expanded="readerFollowUpOpen"
-                @click="readerFollowUpOpen = !readerFollowUpOpen"
-              >
-                <span class="material-symbols-outlined">{{
-                  openEmail.followUpAt ? 'notifications_active' : 'notification_add'
-                }}</span>
-              </button>
-              <ScheduleMenu
-                v-if="readerFollowUpOpen"
-                :choices="scheduleOptions"
-                submit-label="Remind me"
-                custom-label="Custom follow-up time"
-                :clear-label="openEmail.followUpAt ? 'Clear reminder' : ''"
-                @select="setOpenEmailFollowUp"
-                @clear="clearOpenEmailFollowUp"
-              />
-            </div>
-            <div v-else-if="activeFilter !== 'done'" class="ni-schedule-wrap">
-              <button
-                class="ni-reader-btn"
-                title="Reschedule"
+                title="Snooze"
+                aria-label="Snooze"
                 aria-haspopup="menu"
                 :aria-expanded="readerScheduleOpen"
                 @click="readerScheduleOpen = !readerScheduleOpen"
@@ -1735,6 +1700,18 @@ onUnmounted(() => {
                 @select="scheduleOpenEmail"
               />
             </div>
+            <button
+              class="ni-reader-btn"
+              :class="{ starred: openEmail.starred }"
+              :title="openEmail.starred ? 'Unstar' : 'Star'"
+              :aria-label="openEmail.starred ? 'Unstar' : 'Star'"
+              :aria-pressed="openEmail.starred"
+              @click="starOpenEmail"
+            >
+              <span class="material-symbols-outlined">{{
+                openEmail.starred ? 'star' : 'star_border'
+              }}</span>
+            </button>
             <div class="ni-tag-wrap">
               <button
                 class="ni-reader-btn"
@@ -1786,17 +1763,129 @@ onUnmounted(() => {
                 </p>
               </div>
             </div>
-            <div class="ni-tag-wrap">
+            <span class="ni-reader-divider" role="separator" aria-orientation="vertical"></span>
+            <!-- Overflow: everything that is not a daily triage action lives
+                 here, with a label so nothing depends on guessing an icon. -->
+            <div class="ni-more-wrap">
               <button
                 class="ni-reader-btn"
-                title="Tag"
-                aria-label="Add tags"
+                title="More"
+                aria-label="More actions"
                 aria-haspopup="menu"
-                :aria-expanded="readerTagOpen"
-                @click="toggleReaderTagMenu"
+                :aria-expanded="readerMoreOpen"
+                @click="toggleReaderMoreMenu"
               >
-                <span class="material-symbols-outlined">sell</span>
+                <span class="material-symbols-outlined">more_horiz</span>
               </button>
+              <div v-if="readerMoreOpen" class="ni-more-menu" role="menu">
+                <button
+                  v-if="openEmail.isSent"
+                  type="button"
+                  role="menuitem"
+                  class="ni-more-item"
+                  :class="{ active: openEmail.followUpAt }"
+                  :title="
+                    openEmail.followUpAt
+                      ? `Follow-up reminder: ${FOLLOW_UP_FMT.format(new Date(openEmail.followUpAt))}`
+                      : 'Remind me if no reply'
+                  "
+                  aria-haspopup="menu"
+                  @click="openReaderFollowUpMenu"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">{{
+                    openEmail.followUpAt ? 'notifications_active' : 'notifications'
+                  }}</span>
+                  <span class="ni-more-label">Remind me</span>
+                  <span v-if="openEmail.followUpAt" class="ni-more-detail">{{
+                    FOLLOW_UP_FMT.format(new Date(openEmail.followUpAt))
+                  }}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="ni-more-item"
+                  title="Tag"
+                  aria-haspopup="menu"
+                  @click="openReaderTagMenu"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">sell</span>
+                  <span class="ni-more-label">Add label</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  class="ni-more-item"
+                  :title="threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'"
+                  :aria-label="threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'"
+                  :aria-checked="Boolean(threadMuteBody?.threadMuted)"
+                  :disabled="!threadMuteBody?.threadId || threadMutePending"
+                  :aria-busy="threadMutePending"
+                  @click="store.setThreadMuted(openEmail.id, !threadMuteBody.threadMuted)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">{{
+                    threadMuteBody?.threadMuted ? 'notifications' : 'notifications_off'
+                  }}</span>
+                  <span class="ni-more-label">{{
+                    threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'
+                  }}</span>
+                </button>
+                <button
+                  v-if="!openEmail.isSent"
+                  type="button"
+                  role="menuitemcheckbox"
+                  class="ni-more-item"
+                  :title="openEmail.isSpam ? 'Not spam' : 'Report spam'"
+                  :aria-label="openEmail.isSpam ? 'Not spam' : 'Report spam'"
+                  :aria-checked="Boolean(openEmail.isSpam)"
+                  @click="toggleOpenEmailSpam"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">{{
+                    openEmail.isSpam ? 'report_off' : 'report'
+                  }}</span>
+                  <span class="ni-more-label">{{
+                    openEmail.isSpam ? 'Not spam' : 'Report spam'
+                  }}</span>
+                </button>
+                <template v-if="openEmailUnsubscribe">
+                  <div class="ni-more-sep" role="separator"></div>
+                  <a
+                    v-if="openEmailUnsubscribe.source === 'content'"
+                    role="menuitem"
+                    class="ni-more-item"
+                    title="Unsubscribe"
+                    :href="openEmailUnsubscribe.href"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click="unsubscribeFromContent"
+                  >
+                    <span class="material-symbols-outlined" aria-hidden="true">mail</span>
+                    <span class="ni-more-label">Unsubscribe from sender</span>
+                  </a>
+                  <button
+                    v-else
+                    type="button"
+                    role="menuitem"
+                    class="ni-more-item"
+                    :class="{ failed: hasUnsubscribeFailed }"
+                    title="Unsubscribe"
+                    :disabled="isUnsubscribing || isUnsubscribed || hasUnsubscribeFailed"
+                    @click="unsubscribeOpenEmail"
+                  >
+                    <span v-if="isUnsubscribing" class="ni-unsub-spinner" aria-hidden="true"></span>
+                    <span v-else class="material-symbols-outlined" aria-hidden="true">mail</span>
+                    <span class="ni-more-label">{{ unsubscribeMenuLabel }}</span>
+                  </button>
+                </template>
+              </div>
+              <ScheduleMenu
+                v-if="readerFollowUpOpen"
+                :choices="scheduleOptions"
+                submit-label="Remind me"
+                custom-label="Custom follow-up time"
+                :clear-label="openEmail.followUpAt ? 'Clear reminder' : ''"
+                @select="setOpenEmailFollowUp"
+                @clear="clearOpenEmailFollowUp"
+              />
               <div v-if="readerTagOpen" class="ni-tag-menu" role="menu">
                 <button
                   v-for="label in store.allLabels"
@@ -1821,30 +1910,6 @@ onUnmounted(() => {
                 </p>
               </div>
             </div>
-            <a
-              v-if="openEmailUnsubscribe?.source === 'content'"
-              class="ni-unsub-btn"
-              title="Unsubscribe"
-              :href="openEmailUnsubscribe.href"
-              target="_blank"
-              rel="noopener noreferrer"
-              @click="unsubscribeFromContent"
-            >
-              <span class="material-symbols-outlined">unsubscribe</span>
-              <span>Unsubscribe</span>
-            </a>
-            <button
-              v-else-if="openEmailUnsubscribe"
-              class="ni-unsub-btn"
-              :class="{ failed: hasUnsubscribeFailed }"
-              title="Unsubscribe"
-              :disabled="isUnsubscribing || isUnsubscribed || hasUnsubscribeFailed"
-              @click="unsubscribeOpenEmail"
-            >
-              <span v-if="isUnsubscribing" class="ni-unsub-spinner" aria-hidden="true"></span>
-              <span v-else class="material-symbols-outlined">unsubscribe</span>
-              <span>{{ unsubscribeLabel }}</span>
-            </button>
           </div>
         </div>
 

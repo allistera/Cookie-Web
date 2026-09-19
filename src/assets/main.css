@@ -926,11 +926,15 @@ body {
 :root {
   --ni-accent: #5e6ad2;
   --ni-accent-bg: rgba(35, 131, 226, 0.1);
+  --ni-star: #c2410c;
+  --ni-pressed-tint: rgba(0, 0, 0, 0.08);
 }
 
 [data-theme='dark'] {
   --ni-accent: #858df8;
   --ni-accent-bg: rgba(127, 207, 255, 0.12);
+  --ni-star: #f0a35a;
+  --ni-pressed-tint: rgba(255, 255, 255, 0.12);
 }
 
 .ni-header {
@@ -1710,37 +1714,7 @@ body {
   }
 }
 
-/* Newsletter unsubscribe pill in the reader top bar */
-.ni-unsub-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.ni-unsub-btn .material-symbols-outlined {
-  font-size: 18px;
-}
-
-.ni-unsub-btn:disabled {
-  cursor: default;
-}
-
-.ni-unsub-btn.failed {
-  color: var(--danger, #e5484d);
-}
-
-/* In-flight AI unsubscribe: the reader disables the button and swaps the
+/* In-flight AI unsubscribe: the More menu disables the item and swaps the
    icon for a spinner (the attempt can run for up to three minutes). */
 .ni-unsub-spinner {
   width: 14px;
@@ -1751,43 +1725,54 @@ body {
   animation: spin 1s linear infinite;
 }
 
-.ni-unsub-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.ni-unsub-btn:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
 .ni-reader-nav {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
+/* Reader icon buttons: 40px hit area, 18px icon, 8px radius. State is
+   carried by the background tint only, so the row stays quiet until
+   touched. */
 .ni-reader-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: none;
   background: none;
   border-radius: 8px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   cursor: pointer;
   transition: background-color var(--transition-fast);
 }
 
-.ni-reader-btn:hover:not(:disabled) {
+.ni-reader-btn .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.ni-reader-btn:hover:not(:disabled),
+.ni-reader-btn[aria-expanded='true'] {
   background: var(--bg-hover);
-  color: var(--text-primary);
+}
+
+.ni-reader-btn:active:not(:disabled) {
+  background: var(--ni-pressed-tint);
+}
+
+.ni-reader-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 0;
 }
 
 .ni-reader-btn.starred {
-  color: #f2c94c;
+  color: var(--ni-star);
+}
+
+.ni-reader-btn.starred .material-symbols-outlined {
+  font-variation-settings: 'FILL' 1;
 }
 
 .ni-reader-btn.active {
@@ -1798,6 +1783,94 @@ body {
 .ni-reader-btn:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+.ni-reader-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--border-color);
+}
+
+/* Reader overflow menu — labelled actions that are not daily triage. */
+.ni-more-wrap {
+  position: relative;
+}
+
+.ni-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 950;
+  width: 240px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-dialog);
+  box-shadow: var(--shadow-md);
+}
+
+.ni-more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ni-more-item .material-symbols-outlined {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.ni-more-item:hover:not(:disabled),
+.ni-more-item:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+}
+
+.ni-more-item[aria-checked='true'] .material-symbols-outlined,
+.ni-more-item.active .material-symbols-outlined {
+  color: var(--text-blue);
+}
+
+.ni-more-item:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ni-more-item.failed {
+  color: var(--danger, #e5484d);
+}
+
+.ni-more-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ni-more-detail {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ni-more-sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border-color);
 }
 
 .ni-reader-subject {

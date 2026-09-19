@@ -21,8 +21,9 @@ test('email-content unsubscribe link appears in the reader action bar', async ({
 
   await page.goto('/inbox')
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await page.locator('.ni-reader-topbar [title="More"]').click()
 
-  const action = page.locator('.ni-reader-topbar a[title="Unsubscribe"]')
+  const action = page.locator('.ni-reader-topbar .ni-more-menu a[title="Unsubscribe"]')
   await expect(action).toBeVisible()
   await expect(action).toHaveAttribute('href', url)
   await expect(action).toHaveAttribute('target', '_blank')

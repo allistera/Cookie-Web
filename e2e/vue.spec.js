@@ -783,17 +783,22 @@ test('A sent-message follow-up reminder persists across reload and can be cleare
   const firstRow = page.locator('.ni-row').first()
   await firstRow.click()
 
+  // Remind me lives in the reader's More menu and hands off to the picker.
   const reader = page.locator('.ni-reader')
+  await reader.locator('.ni-reader-topbar [title="More"]').click()
   await reader.getByTitle('Remind me if no reply').click()
   await reader.getByRole('menuitem', { name: /Tomorrow/ }).click()
+  await reader.locator('.ni-reader-topbar [title="More"]').click()
   await expect(reader.locator('[title^="Follow-up reminder:"]')).toBeVisible()
 
   await page.reload()
   await page.locator('.ni-row').first().click()
+  await page.locator('.ni-reader-topbar [title="More"]').click()
   await expect(page.locator('.ni-reader [title^="Follow-up reminder:"]')).toBeVisible()
 
   await page.locator('.ni-reader [title^="Follow-up reminder:"]').click()
   await page.getByRole('menuitem', { name: 'Clear reminder' }).click()
+  await page.locator('.ni-reader-topbar [title="More"]').click()
   await expect(page.locator('.ni-reader [title="Remind me if no reply"]')).toBeVisible()
 })
 
@@ -811,11 +816,22 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   // The body and its saved summary now publish immediately, without a minimum delay.
   await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveCount(1)
 
-  // Reader actions sit together in the top-right toolbar.
+  // Reader actions sit together in the top-right toolbar: the four daily
+  // triage actions, then a divider and the More menu.
   const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
-  await expect(actions.locator('[title="Star"]')).toBeVisible()
+  await expect(actions.locator('.ni-reader-btn')).toHaveText([
+    'check_box',
+    'schedule',
+    'star_border',
+    'folder',
+    'more_horiz',
+  ])
   await expect(actions.locator('[title="Done"]')).toBeVisible()
-  await expect(actions.locator('[title="Reschedule"]')).toBeVisible()
+  await expect(actions.locator('[title="Snooze"]')).toBeVisible()
+  await expect(actions.locator('[title="Star"]')).toBeVisible()
+  await expect(actions.locator('[title="Category"]')).toBeVisible()
+  await expect(actions.locator('.ni-reader-divider')).toBeVisible()
+  await expect(actions.locator('[title="More"]')).toBeVisible()
 
   // The reader no longer has close/previous/next nav buttons
   await expect(reader.locator('.ni-reader-close')).toHaveCount(0)
@@ -1087,7 +1103,7 @@ test('Reader scheduling offers Tomorrow and Next Week, then removes the email un
   await row.click()
   const reader = page.locator('.ni-reader')
 
-  await reader.locator('[title="Reschedule"]').click()
+  await reader.locator('[title="Snooze"]').click()
   const scheduleMenu = reader.locator('.ni-schedule-menu')
   await expect(scheduleMenu.getByRole('menuitem', { name: /Tomorrow/ })).toBeVisible()
   await expect(scheduleMenu.getByRole('menuitem', { name: /Next Week/ })).toBeVisible()
@@ -1986,11 +2002,13 @@ test('Newsletters offer one-click Unsubscribe in the reader', async ({ page }) =
   const reader = page.locator('.ni-reader')
   await expect(reader).toBeVisible()
   const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
-  const unsubscribe = actions.locator('[title="Unsubscribe"]')
-  await expect(unsubscribe).toBeVisible()
   await expect(actions.locator('[title="Star"]')).toBeVisible()
   await expect(actions.locator('[title="Done"]')).toBeVisible()
-  await expect(actions.locator('[title="Reschedule"]')).toBeVisible()
+  await expect(actions.locator('[title="Snooze"]')).toBeVisible()
+  await actions.locator('[title="More"]').click()
+  const unsubscribe = actions.locator('.ni-more-menu [title="Unsubscribe"]')
+  await expect(unsubscribe).toBeVisible()
+  await expect(unsubscribe).toHaveText(/Unsubscribe from sender/)
 
   await unsubscribe.click()
   await expect(page.locator('.toast', { hasText: 'Unsubscribed from Daily Bites' })).toBeVisible()
@@ -2079,7 +2097,7 @@ test('The hidden Done mailbox shows emails after they are marked done', async ({
   const reader = page.locator('.ni-reader')
   await expect(reader.locator('.ni-reader-subject-text')).toHaveText(subject)
   await expect(reader.locator('[title="Done"]')).toHaveCount(0)
-  await expect(reader.locator('[title="Reschedule"]')).toHaveCount(0)
+  await expect(reader.locator('[title="Snooze"]')).toHaveCount(0)
   await page.screenshot({ path: '/tmp/cookie-web-done-mailbox.png', fullPage: true })
 })
 
@@ -2163,8 +2181,9 @@ test('Tags can be added to and removed from an email in the reader', async ({ pa
   await expect(readerLabels.locator('.ni-label-pill', { hasText: 'Home' })).toBeVisible()
   await expect(readerLabels.locator('.ni-label-pill', { hasText: 'Finance' })).toHaveCount(0)
 
-  // Open the tag menu and apply a label the email doesn't have yet.
-  await reader.locator('.ni-tag-wrap button[title="Tag"]').click()
+  // Add label lives in the More menu and hands off to the tag menu.
+  await reader.locator('.ni-reader-topbar [title="More"]').click()
+  await reader.locator('.ni-more-menu [title="Tag"]').click()
   const menu = reader.locator('.ni-tag-menu')
   await expect(menu).toBeVisible()
   await menu.locator('.ni-tag-item', { hasText: 'Finance' }).click()

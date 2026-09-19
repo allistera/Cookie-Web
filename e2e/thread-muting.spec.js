@@ -25,20 +25,21 @@ test('mute survives a reload and can be undone without removing the conversation
     await route.fulfill({ json: { thread: { id: 'thread-1', is_muted: muted } } })
   })
 
+  // Muting is not a daily triage action, so it lives in the reader's More menu.
   await page.goto('/inbox')
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
-  await page.getByRole('button', { name: 'Mute thread', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Unmute thread', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await page.locator('.ni-reader-topbar [title="More"]').click()
+  await page.getByRole('menuitemcheckbox', { name: 'Mute thread', exact: true }).click()
+  await expect(
+    page.getByRole('menuitemcheckbox', { name: 'Unmute thread', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true')
   await page.reload()
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
-  await page.getByRole('button', { name: 'Unmute thread', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Mute thread', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
+  await page.locator('.ni-reader-topbar [title="More"]').click()
+  await page.getByRole('menuitemcheckbox', { name: 'Unmute thread', exact: true }).click()
+  await expect(
+    page.getByRole('menuitemcheckbox', { name: 'Mute thread', exact: true }),
+  ).toHaveAttribute('aria-checked', 'false')
   await expect(page.locator('.ni-row', { hasText: 'City Construction' })).toBeVisible()
   expect(actions).toEqual(['mute_thread', 'unmute_thread'])
 })
