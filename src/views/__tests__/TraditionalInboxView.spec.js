@@ -2108,6 +2108,24 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(wrapper.find('.ni-row [title="Snooze"]').exists()).toBe(false)
   })
 
+  it('shows remote images by default only for Important mail', async () => {
+    store.traditionalEmails = [
+      { ...makeEmail('plain-1', Date.now() - HOUR), hasHtml: true },
+      { ...makeEmail('urgent-1', Date.now() - 2 * HOUR), hasHtml: true, isPriority: true },
+    ]
+    const wrapper = mountView()
+
+    // The Important tab is exclusive, so open each email directly rather
+    // than through whichever tab lists it.
+    store.openReader(store.traditionalEmails[0])
+    await nextTick()
+    expect(wrapper.findComponent(EmailBody).props('showImages')).toBe(false)
+
+    store.openReader(store.traditionalEmails[1])
+    await nextTick()
+    expect(wrapper.findComponent(EmailBody).props('showImages')).toBe(true)
+  })
+
   it('the reader offers Forward beside Reply', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')

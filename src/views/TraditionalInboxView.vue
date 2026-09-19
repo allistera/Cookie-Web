@@ -96,17 +96,24 @@ const inboxEmails = computed(() => {
       )
 })
 
-// Important is exclusive: whatever Important holds (high-rated mail, due
-// mail, mail in a category named Important) appears in no other tab, so an
-// email is never listed twice. A category tab therefore only shows the rest
-// of its category, and never a Due Today group.
-function emailInTab(email, tabId) {
-  const priority =
+// What the Important tab holds: high-rated mail, due mail, and mail in a
+// category named Important. The reader also trusts these enough to load
+// their remote images without asking.
+function isImportantEmail(email) {
+  return (
     Boolean(email.isPriority) ||
     isDueNow(email) ||
     store.allCategories.some(
       (category) => category.id === email.category?.id && isImportantCategory(category),
     )
+  )
+}
+
+// Important is exclusive: whatever Important holds appears in no other tab,
+// so an email is never listed twice. A category tab therefore only shows the
+// rest of its category, and never a Due Today group.
+function emailInTab(email, tabId) {
+  const priority = isImportantEmail(email)
   if (tabId === PRIORITY_TAB) return priority
   if (priority) return false
   if (tabId === OTHER_TAB) {
@@ -2043,6 +2050,7 @@ onUnmounted(() => {
                 :has-html-body="openEmail.hasHtml"
                 :loading="store.isOpenBodyLoading"
                 :body-resolved="store.isOpenBodyResolved"
+                :show-images="isImportantEmail(openEmail)"
                 @keydown="forwardEmailKeydown"
                 @unsubscribe-link="setContentUnsubscribe"
               />

@@ -101,6 +101,18 @@ describe('EmailBody', () => {
     expect(embeddedOnly.find('.ni-email-images-notice').exists()).toBe(false)
   })
 
+  it('loads remote images from the start when showImages is set', () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: '<img src="https://tracker.example/logo.png">', showImages: true },
+    })
+    expect(wrapper.find('.ni-email-images-notice').exists()).toBe(false)
+    const csp = wrapper
+      .find('iframe')
+      .attributes('srcdoc')
+      .match(/Content-Security-Policy" content="([^"]+)/)?.[1]
+    expect(csp).toContain('img-src data: cid: https: http:')
+  })
+
   it('forwards key presses from the iframe document to the reader', async () => {
     const wrapper = mount(EmailBody, {
       props: { html: '<p><a href="https://example.com">link</a></p>', text: 'fallback' },
