@@ -504,14 +504,15 @@ const readerFollowUpOpen = ref(false)
 const replyFollowUpOpen = ref(false)
 const readerTagOpen = ref(false)
 const readerCategoryOpen = ref(false)
-// The reader's overflow ("More") menu. Its "Remind me" and "Add label" items
-// hand off to the follow-up and label menus, which open in its place.
+// The reader's overflow ("More") menu. Its "Remind me", "Add label" and "Set
+// category" items hand off to the follow-up, label and category menus, which
+// open in its place.
 const readerMoreOpen = ref(false)
 
-function toggleReaderCategoryMenu() {
-  readerTagOpen.value = false
+function openReaderCategoryMenu() {
   readerMoreOpen.value = false
-  readerCategoryOpen.value = !readerCategoryOpen.value
+  readerTagOpen.value = false
+  readerCategoryOpen.value = true
 }
 
 function toggleReaderMoreMenu() {
@@ -1402,9 +1403,8 @@ function onDocumentClick(e) {
   const within = (className) => path.some((node) => node?.classList?.contains(className))
   const clickedReader = within('ni-reader')
   const inScheduleWrap = within('ni-schedule-wrap')
-  const inTagWrap = within('ni-tag-wrap')
-  // The reader's follow-up and label menus open from the More menu, so they
-  // sit inside its wrapper rather than their own.
+  // The reader's follow-up, label and category menus open from the More
+  // menu, so they sit inside its wrapper.
   const inMoreWrap = within('ni-more-wrap')
   if (!inScheduleWrap) {
     bulkScheduleOpen.value = false
@@ -1414,9 +1414,11 @@ function onDocumentClick(e) {
     replyFollowUpOpen.value = false
   }
   if (!inScheduleWrap && !inMoreWrap) readerFollowUpOpen.value = false
-  if (!inTagWrap) readerCategoryOpen.value = false
-  if (!inTagWrap && !inMoreWrap) readerTagOpen.value = false
-  if (!inMoreWrap) readerMoreOpen.value = false
+  if (!inMoreWrap) {
+    readerCategoryOpen.value = false
+    readerTagOpen.value = false
+    readerMoreOpen.value = false
+  }
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run.
   if (!openEmail.value || store.isCommandPaletteOpen) return
@@ -1712,57 +1714,6 @@ onUnmounted(() => {
                 openEmail.starred ? 'star' : 'star_border'
               }}</span>
             </button>
-            <div class="ni-tag-wrap">
-              <button
-                class="ni-reader-btn"
-                title="Category"
-                aria-label="Set category"
-                aria-haspopup="menu"
-                :aria-expanded="readerCategoryOpen"
-                @click="toggleReaderCategoryMenu"
-              >
-                <span class="material-symbols-outlined">folder</span>
-              </button>
-              <div v-if="readerCategoryOpen" class="ni-tag-menu" role="menu">
-                <button
-                  role="menuitemradio"
-                  :aria-checked="!openEmail.category"
-                  class="ni-tag-item"
-                  :class="{ applied: !openEmail.category }"
-                  @click="chooseOpenCategory(null)"
-                >
-                  <span class="material-symbols-outlined ni-menu-leading-icon">close</span>
-                  <span class="ni-tag-name">No category</span>
-                  <span
-                    v-if="!openEmail.category"
-                    class="material-symbols-outlined ni-tag-check"
-                    aria-hidden="true"
-                    >check</span
-                  >
-                </button>
-                <button
-                  v-for="category in store.allCategories"
-                  :key="category.id"
-                  role="menuitemradio"
-                  :aria-checked="openEmail.category?.id === category.id"
-                  class="ni-tag-item"
-                  :class="{ applied: openEmail.category?.id === category.id }"
-                  @click="chooseOpenCategory(category)"
-                >
-                  <span class="ni-tag-dot" :style="{ backgroundColor: category.color }"></span>
-                  <span class="ni-tag-name">{{ category.name }}</span>
-                  <span
-                    v-if="openEmail.category?.id === category.id"
-                    class="material-symbols-outlined ni-tag-check"
-                    aria-hidden="true"
-                    >check</span
-                  >
-                </button>
-                <p v-if="!store.allCategories.length" class="ni-tag-empty">
-                  No categories yet. Create them in Settings → Categories.
-                </p>
-              </div>
-            </div>
             <span class="ni-reader-divider" role="separator" aria-orientation="vertical"></span>
             <!-- Overflow: everything that is not a daily triage action lives
                  here, with a label so nothing depends on guessing an icon. -->
@@ -1810,6 +1761,18 @@ onUnmounted(() => {
                 >
                   <span class="material-symbols-outlined" aria-hidden="true">sell</span>
                   <span class="ni-more-label">Add label</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="ni-more-item"
+                  title="Category"
+                  aria-label="Set category"
+                  aria-haspopup="menu"
+                  @click="openReaderCategoryMenu"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">folder</span>
+                  <span class="ni-more-label">Set category</span>
                 </button>
                 <button
                   type="button"
@@ -1886,6 +1849,45 @@ onUnmounted(() => {
                 @select="setOpenEmailFollowUp"
                 @clear="clearOpenEmailFollowUp"
               />
+              <div v-if="readerCategoryOpen" class="ni-tag-menu" role="menu">
+                <button
+                  role="menuitemradio"
+                  :aria-checked="!openEmail.category"
+                  class="ni-tag-item"
+                  :class="{ applied: !openEmail.category }"
+                  @click="chooseOpenCategory(null)"
+                >
+                  <span class="material-symbols-outlined ni-menu-leading-icon">close</span>
+                  <span class="ni-tag-name">No category</span>
+                  <span
+                    v-if="!openEmail.category"
+                    class="material-symbols-outlined ni-tag-check"
+                    aria-hidden="true"
+                    >check</span
+                  >
+                </button>
+                <button
+                  v-for="category in store.allCategories"
+                  :key="category.id"
+                  role="menuitemradio"
+                  :aria-checked="openEmail.category?.id === category.id"
+                  class="ni-tag-item"
+                  :class="{ applied: openEmail.category?.id === category.id }"
+                  @click="chooseOpenCategory(category)"
+                >
+                  <span class="ni-tag-dot" :style="{ backgroundColor: category.color }"></span>
+                  <span class="ni-tag-name">{{ category.name }}</span>
+                  <span
+                    v-if="openEmail.category?.id === category.id"
+                    class="material-symbols-outlined ni-tag-check"
+                    aria-hidden="true"
+                    >check</span
+                  >
+                </button>
+                <p v-if="!store.allCategories.length" class="ni-tag-empty">
+                  No categories yet. Create them in Settings → Categories.
+                </p>
+              </div>
               <div v-if="readerTagOpen" class="ni-tag-menu" role="menu">
                 <button
                   v-for="label in store.allLabels"

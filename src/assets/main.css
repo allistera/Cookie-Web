@@ -1369,11 +1369,7 @@ body {
   opacity: 0.5;
 }
 
-/* Reader tag menu — apply/remove labels on the open email. */
-.ni-tag-wrap {
-  position: relative;
-}
-
+/* Reader tag/category menus — opened from the More menu on the open email. */
 .ni-tag-menu {
   position: absolute;
   top: calc(100% + 6px);

@@ -1730,7 +1730,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(inboxZero.find('img').exists()).toBe(false)
   })
 
-  it('the reader topbar offers Done, Snooze, Star and Category, then a divider and More', async () => {
+  it('the reader topbar offers Done, Snooze and Star, then a divider and More', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
@@ -1740,14 +1740,13 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
       'Done',
       'Snooze',
       'Star',
-      'Category',
       'More',
     ])
     expect(buttons[0].text()).toContain('check_box')
     expect(buttons[1].text()).toContain('schedule')
     expect(buttons[2].text()).toContain('star_border')
-    expect(buttons[3].text()).toContain('folder')
-    expect(buttons[4].text()).toContain('more_horiz')
+    expect(buttons[3].text()).toContain('more_horiz')
+    expect(topbar.find('[title="Category"]').exists()).toBe(false)
     expect(topbar.find('.ni-reader-divider').exists()).toBe(true)
     expect(topbar.find('[title="Delete"]').exists()).toBe(false)
     expect(topbar.find('[title="Archive"]').exists()).toBe(false)
@@ -1771,6 +1770,7 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     const items = menu.findAll('.ni-more-item')
     expect(items.map((item) => item.text())).toEqual([
       expect.stringContaining('Add label'),
+      expect.stringContaining('Set category'),
       expect.stringContaining('Mute thread'),
       expect.stringContaining('Report spam'),
     ])
@@ -1795,6 +1795,29 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     const tagMenu = topbar.find('.ni-more-wrap .ni-tag-menu')
     expect(tagMenu.exists()).toBe(true)
     expect(tagMenu.text()).toContain('Newsletters')
+  })
+
+  it('the More menu hands off to the category menu', async () => {
+    store.categories = [{ id: 'c1', name: 'Projects', color: '#5e6ad2' }]
+    vi.spyOn(store, 'setMessageCategory').mockResolvedValue()
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
+
+    await wrapper.get('.ni-more-menu [aria-label="Set category"]').trigger('click')
+
+    const topbar = wrapper.find('.ni-reader-topbar')
+    expect(topbar.find('.ni-more-menu').exists()).toBe(false)
+    const menu = topbar.find('.ni-more-wrap .ni-tag-menu')
+    expect(menu.exists()).toBe(true)
+    const projects = menu
+      .findAll('[role="menuitemradio"]')
+      .find((item) => item.text().includes('Projects'))
+    await projects.trigger('click')
+
+    expect(store.setMessageCategory).toHaveBeenCalledTimes(1)
+    expect(store.setMessageCategory.mock.calls[0][1].id).toBe('c1')
+    expect(topbar.find('.ni-tag-menu').exists()).toBe(false)
   })
 
   it('the More menu offers Report spam with the report icon for inbound mail', async () => {

@@ -816,20 +816,18 @@ test('Clicking an inbox email slides in the reading panel', async ({ page }) => 
   // The body and its saved summary now publish immediately, without a minimum delay.
   await expect(reader.locator('.ni-reader-subject .ni-ai-generated-icon')).toHaveCount(1)
 
-  // Reader actions sit together in the top-right toolbar: the four daily
-  // triage actions, then a divider and the More menu.
+  // Reader actions sit together in the top-right toolbar: the daily triage
+  // actions, then a divider and the More menu.
   const actions = reader.locator('.ni-reader-topbar .ni-reader-nav').last()
   await expect(actions.locator('.ni-reader-btn')).toHaveText([
     'check_box',
     'schedule',
     'star_border',
-    'folder',
     'more_horiz',
   ])
   await expect(actions.locator('[title="Done"]')).toBeVisible()
   await expect(actions.locator('[title="Snooze"]')).toBeVisible()
   await expect(actions.locator('[title="Star"]')).toBeVisible()
-  await expect(actions.locator('[title="Category"]')).toBeVisible()
   await expect(actions.locator('.ni-reader-divider')).toBeVisible()
   await expect(actions.locator('[title="More"]')).toBeVisible()
 
@@ -2209,7 +2207,8 @@ test('A reader email can have one Category which can be replaced or cleared', as
   const reader = page.locator('.ni-reader')
 
   await expect(reader.locator('.ni-category-pill')).toHaveCount(0)
-  await reader.getByRole('button', { name: 'Set category' }).click()
+  await reader.locator('.ni-reader-topbar [title="More"]').click()
+  await reader.getByRole('menuitem', { name: 'Set category' }).click()
   const menu = reader.locator('.ni-tag-menu', { hasText: 'No category' })
   await expect(menu.getByRole('menuitemradio', { name: 'Projects' })).toHaveAttribute(
     'aria-checked',
@@ -2218,13 +2217,15 @@ test('A reader email can have one Category which can be replaced or cleared', as
   await menu.getByRole('menuitemradio', { name: 'Personal' }).click()
   await expect(reader.locator('.ni-category-pill')).toHaveCount(0)
 
-  await reader.getByRole('button', { name: 'Set category' }).click()
+  await reader.locator('.ni-reader-topbar [title="More"]').click()
+  await reader.getByRole('menuitem', { name: 'Set category' }).click()
   await expect(menu.getByRole('menuitemradio', { name: 'Personal' })).toHaveAttribute(
     'aria-checked',
     'true',
   )
   await menu.getByRole('menuitemradio', { name: 'No category' }).click()
-  await reader.getByRole('button', { name: 'Set category' }).click()
+  await reader.locator('.ni-reader-topbar [title="More"]').click()
+  await reader.getByRole('menuitem', { name: 'Set category' }).click()
   await expect(menu.getByRole('menuitemradio', { name: 'No category' })).toHaveAttribute(
     'aria-checked',
     'true',
