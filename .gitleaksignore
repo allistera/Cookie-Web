@@ -1,0 +1,12 @@
+# Findings gitleaks reports for this repository's history that are known
+# false positives. Each line is a fingerprint (commit:file:rule:line).
+#
+# Commit ca84bff6 vendored Cloudflare's agent skill docs under .agents/skills/
+# (since removed). Their curl and config examples use placeholder tokens such
+# as YOUR_API_TOKEN and sk_live_abc123, which trip the generic rules.
+ca84bff67fcede9c956707291e47d202f2fc6304:.agents/skills/cloudflare/references/argo-smart-routing/README.md:curl-auth-header:13
+ca84bff67fcede9c956707291e47d202f2fc6304:.agents/skills/cloudflare/references/bindings/patterns.md:generic-api-key:82
+ca84bff67fcede9c956707291e47d202f2fc6304:.agents/skills/cloudflare/references/bindings/patterns.md:generic-api-key:182
+ca84bff67fcede9c956707291e47d202f2fc6304:.agents/skills/cloudflare/references/argo-smart-routing/api.md:curl-auth-header:27
+ca84bff67fcede9c956707291e47d202f2fc6304:.agents/skills/cloudflare/references/argo-smart-routing/api.md:curl-auth-header:84
+ca84bff67fcede9c956707291e47d202f2fc6304:.agents/skills/workers-best-practices/references/rules.md:generic-api-key:82
