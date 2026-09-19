@@ -2654,9 +2654,11 @@ test('Inbox tabs open on Important, narrow by category, and Other holds the rest
   await expect(page.locator('.ni-row')).toHaveCount(1)
   await expect(priorityRow).toBeVisible()
 
+  // The only Projects email is the high-rated one, and Important keeps it to
+  // itself, so its category tab is empty rather than listing it a second time.
   await page.locator('.ni-tab', { hasText: 'Projects' }).click()
-  await expect(priorityRow).toBeVisible()
-  await expect(page.locator('.ni-row .ni-category-pill')).toHaveCount(0)
+  await expect(priorityRow).toHaveCount(0)
+  await expect(page.locator('.ni-empty')).toHaveText('No emails in this category.')
 
   await page.locator('.ni-tab', { hasText: 'Other' }).click()
   await expect(priorityRow).toHaveCount(0)

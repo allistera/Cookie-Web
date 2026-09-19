@@ -96,22 +96,23 @@ const inboxEmails = computed(() => {
       )
 })
 
-// Due mail belongs to Important alone, whatever category it carries; a
-// category tab never shows a Due Today group. High-rated mail still sits
-// under its category too.
+// Important is exclusive: whatever Important holds (high-rated mail, due
+// mail, mail in a category named Important) appears in no other tab, so an
+// email is never listed twice. A category tab therefore only shows the rest
+// of its category, and never a Due Today group.
 function emailInTab(email, tabId) {
-  const due = isDueNow(email)
   const priority =
     Boolean(email.isPriority) ||
-    due ||
+    isDueNow(email) ||
     store.allCategories.some(
       (category) => category.id === email.category?.id && isImportantCategory(category),
     )
   if (tabId === PRIORITY_TAB) return priority
+  if (priority) return false
   if (tabId === OTHER_TAB) {
-    return !priority && !store.allCategories.some((category) => email.category?.id === category.id)
+    return !store.allCategories.some((category) => email.category?.id === category.id)
   }
-  return !due && categoryTabId(email.category?.id) === tabId
+  return categoryTabId(email.category?.id) === tabId
 }
 
 const inboxTabs = computed(() => {
