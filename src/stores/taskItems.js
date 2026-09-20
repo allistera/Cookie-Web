@@ -188,6 +188,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // Today carries overdue tasks forward, so it is "due on or before".
       if (this.loadedProject === 'today')
         return Boolean(item.dueDate) && item.dueDate <= localToday()
+      // A label list spans every project: membership is the label itself.
+      if (this.loadedProject.startsWith('label:'))
+        return Boolean(item.labels?.includes(this.loadedProject.slice('label:'.length)))
       if (this.loadedProject === 'inbox') return item.projectId === null
       return item.projectId === this.loadedProject
     },

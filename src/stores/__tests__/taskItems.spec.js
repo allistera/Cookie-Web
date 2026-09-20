@@ -870,3 +870,21 @@ it('keeps writes serialized when a list refresh replaces the task object', async
   await Promise.all([rename, priority])
   expect(store.items[0]).toMatchObject({ content: 'Latest', priority: 1 })
 })
+
+describe('a label list', () => {
+  it('holds exactly the tasks that carry the label', () => {
+    store.loadedProject = 'label:home'
+    expect(store.belongsToLoadedList({ ...ITEM, labels: ['home', 'calls'] })).toBe(true)
+    expect(store.belongsToLoadedList({ ...ITEM, labels: ['calls'] })).toBe(false)
+    expect(store.belongsToLoadedList({ ...ITEM, labels: undefined })).toBe(false)
+  })
+
+  it('requests the label list with the value intact', async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+
+    await store.loadItems('label:home')
+
+    expect(fetch.mock.calls[0][0]).toContain('project=label%3Ahome')
+    expect(store.loadedProject).toBe('label:home')
+  })
+})
