@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
@@ -146,22 +147,11 @@ function onTimeChange(event) {
   )
 }
 
-const labelsDraft = ref('')
+// Labels save on every change: chips have no blur to wait for, and each
+// change is one small PATCH the store serialises per task.
 const savingLabels = ref(false)
-watch(
-  () => [props.taskId, item.value?.labels],
-  () => {
-    labelsDraft.value = (item.value?.labels ?? []).map((label) => `@${label}`).join(' ')
-  },
-  { immediate: true },
-)
-
-async function saveLabels() {
+async function onLabelsChange(labels) {
   if (savingLabels.value) return
-  const labels = labelsDraft.value
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .map((label) => label.replace(/^@/, ''))
   savingLabels.value = true
   try {
     await items.setLabels(props.taskId, labels)
@@ -504,14 +494,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
           <div class="task-panel-field">
             <h3>Labels</h3>
-            <input
-              v-model="labelsDraft"
-              class="task-panel-labels-input"
-              aria-label="Labels"
-              placeholder="@home @errands"
+            <TaskLabelPicker
+              :model-value="item?.labels ?? []"
               :disabled="savingLabels"
-              @keydown.enter.prevent="$event.target.blur()"
-              @blur="saveLabels"
+              @update:model-value="onLabelsChange"
             />
           </div>
 
@@ -910,19 +896,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 .task-panel-date-input,
 .task-panel-time-input,
-.task-panel-labels-input {
-  flex: 1;
-  width: 100%;
-  box-sizing: border-box;
-  min-width: 0;
-  font: inherit;
-  font-size: 14px;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 4px 6px;
-}
 
 .task-panel-time-input:disabled {
   opacity: 0.55;

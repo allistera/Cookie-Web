@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import TaskDetailPanel from '../TaskDetailPanel.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { useTaskItemsStore } from '../../stores/taskItems'
+import { useTaskLabelsStore } from '../../stores/taskLabels'
 
 let router
 let items
@@ -36,6 +37,7 @@ beforeEach(async () => {
   await router.push('/tasks?task=b')
   await router.isReady()
   setActivePinia(createPinia())
+  useTaskLabelsStore().isLoaded = true
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => ({ ok: true, json: async () => ({ items: [], projects: [] }) })),
@@ -483,19 +485,22 @@ describe('TaskDetailPanel', () => {
     expect(setDueTime).toHaveBeenCalledWith('b', null, null)
   })
 
-  it('shows and saves labels from the detail panel', async () => {
+  it('shows the labels as chips and saves a change at once', async () => {
     seed([{ ...ITEMS[1], labels: ['home', 'errands'] }])
     const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
     const wrapper = mountPanel()
     await flushPromises()
 
-    const input = wrapper.get('.task-panel-labels-input')
-    expect(input.element.value).toBe('@home @errands')
-    await input.setValue('@Home, @calls')
-    await input.trigger('blur')
+    expect(wrapper.findAll('.task-label-chip-text').map((chip) => chip.text())).toEqual([
+      '@home',
+      '@errands',
+    ])
+    const input = wrapper.get('.task-label-picker-input')
+    await input.setValue('@Calls')
+    await input.trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
-    expect(setLabels).toHaveBeenCalledWith('b', ['Home', 'calls'])
+    expect(setLabels).toHaveBeenCalledWith('b', ['home', 'errands', 'calls'])
   })
 
   // Priority is Todoist's four levels: 1 the most urgent, 4 the default.

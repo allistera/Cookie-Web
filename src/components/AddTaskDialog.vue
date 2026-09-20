@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
+import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useProjectsStore } from '../stores/projects'
@@ -27,7 +28,6 @@ const draft = ref({
   recurrence: '',
   labels: [],
 })
-const labelsText = ref('')
 const projectOptions = computed(() =>
   flattenProjectTree(projects.projects, new Set(projects.projects.map((row) => row.id))),
 )
@@ -42,7 +42,6 @@ async function interpret() {
   if (parsedText.value === input) return
   const parsed = await items.interpretItem(input)
   draft.value = { ...draft.value, ...parsed }
-  labelsText.value = (parsed.labels ?? []).map((label) => `@${label}`).join(' ')
   parsedText.value = input
 }
 
@@ -90,11 +89,7 @@ async function submit() {
     }
     if (draft.value.priority !== 4) task.priority = draft.value.priority
     if (draft.value.recurrence?.trim()) task.recurrence = draft.value.recurrence.trim()
-    const labels = labelsText.value
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .map((label) => label.replace(/^@/, ''))
-    if (labels.length) task.labels = labels
+    if (draft.value.labels?.length) task.labels = draft.value.labels
     const created = await items.createItem(task)
     if (created) emit('close')
     else
@@ -209,13 +204,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </option>
             </select>
           </label>
-          <label
-            >Labels<input
-              v-model="labelsText"
-              aria-label="Labels"
-              placeholder="@home @errands"
-              :disabled="isSaving"
-          /></label>
+          <div class="add-task-labels">
+            <span class="add-task-labels-title">Labels</span>
+            <TaskLabelPicker v-model="draft.labels" :disabled="isSaving" />
+          </div>
           <TaskRepeatInput v-model="draft.recurrence" :disabled="isSaving" />
         </div>
         <p v-if="error" class="add-task-error" role="alert">{{ error }}</p>
@@ -396,6 +388,17 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   display: grid;
   gap: 12px;
   padding: 16px 20px;
+}
+
+.add-task-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.add-task-labels-title {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .add-task-fields label {

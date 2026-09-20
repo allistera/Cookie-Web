@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AddTaskDialog from '../AddTaskDialog.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { useTaskItemsStore } from '../../stores/taskItems'
+import { useTaskLabelsStore } from '../../stores/taskLabels'
 
 let items
 let projects
@@ -30,6 +31,7 @@ function parsedTask(overrides = {}) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  useTaskLabelsStore().isLoaded = true
   items = useTaskItemsStore()
   projects = useProjectsStore()
   projects.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
@@ -73,6 +75,25 @@ describe('AddTaskDialog natural-language quick add', () => {
     wrapper.unmount()
   })
 
+  it('shows parsed labels as chips in the full form and sends any added one', async () => {
+    vi.spyOn(items, 'interpretItem').mockResolvedValue(parsedTask())
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+    const wrapper = mountDialog()
+    await wrapper.get('[aria-label="Describe your task"]').setValue('Call plumber @home')
+    await wrapper.get('button.add-task-advanced').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.task-label-chip-text').map((chip) => chip.text())).toEqual(['@home'])
+    const input = wrapper.get('.task-label-picker-input')
+    await input.setValue('calls')
+    await input.trigger('keydown', { key: 'Enter' })
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(create.mock.calls[0][0].labels).toEqual(['home', 'calls'])
+    wrapper.unmount()
+  })
+
   it('parses into the editable full form when Advanced is clicked', async () => {
     vi.spyOn(items, 'interpretItem').mockResolvedValue(
       parsedTask({ recurrence: 'every friday', description: 'Ask about the boiler' }),
@@ -93,7 +114,7 @@ describe('AddTaskDialog natural-language quick add', () => {
     expect(wrapper.get('[aria-label="Due date"]').element.value).toBe('2026-09-11')
     expect(wrapper.get('[aria-label="Due time"]').element.value).toBe('15:00')
     expect(wrapper.get('[aria-label="Priority"]').element.value).toBe('1')
-    expect(wrapper.get('[aria-label="Labels"]').element.value).toBe('@home')
+    expect(wrapper.findAll('.task-label-chip-text').map((chip) => chip.text())).toEqual(['@home'])
     expect(wrapper.get('.task-repeat input').element.value).toBe('every friday')
     wrapper.unmount()
   })
