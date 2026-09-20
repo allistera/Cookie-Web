@@ -896,7 +896,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 .task-panel-date-input,
 .task-panel-time-input,
-
 .task-panel-time-input:disabled {
   opacity: 0.55;
 }

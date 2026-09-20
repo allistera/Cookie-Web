@@ -524,7 +524,11 @@ async function removeLabel(label) {
           ></button>
         </div>
       </template>
-      <form v-if="newLabelOpen" class="new-project-row new-label-row" @submit.prevent="submitNewLabel">
+      <form
+        v-if="newLabelOpen"
+        class="new-project-row new-label-row"
+        @submit.prevent="submitNewLabel"
+      >
         <input
           ref="newLabelInput"
           v-model="newLabelName"
