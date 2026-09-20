@@ -139,8 +139,11 @@ async function submitRename(folder) {
   if (title && title !== folder.title) await store.renameFolder(folder.id, title)
 }
 
-// Drag a document row onto a folder row (or the section label for the root)
-// to move it, mirroring paper's move-to-section.
+// Drag a document row onto a folder row to move it into that folder,
+// mirroring paper's move-to-section. The rest of the tree - its empty space,
+// the "Documents" label and root-level document rows - is one drop zone for
+// the root, so a document can leave a folder without aiming at the label.
+// Dropping onto a document that sits inside a folder targets that folder.
 const dragDocId = ref(null)
 const dropFolderId = ref(undefined)
 
@@ -157,10 +160,32 @@ function onDragOver(folderId, event) {
   dropFolderId.value = folderId
 }
 
+// Folder rows handle their own dragover/drop and stop it here, so anything
+// else reaching the tree resolves to a root-level target or a document row's
+// own folder.
+function treeDropTarget(event) {
+  const docRow = event.target.closest?.('.doc-item')
+  return docRow?.dataset.folderId || null
+}
+
+function onTreeDragOver(event) {
+  onDragOver(treeDropTarget(event), event)
+}
+
+// dragleave fires on every child boundary; only clear the highlight once the
+// pointer has left the zone itself.
+function onDragLeave(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) dropFolderId.value = undefined
+}
+
 function onDrop(folderId) {
-  if (dragDocId.value) store.moveDocument(dragDocId.value, folderId)
+  const docId = dragDocId.value
   dragDocId.value = null
   dropFolderId.value = undefined
+  if (!docId) return
+  const doc = store.documents.find((candidate) => candidate.id === docId)
+  if ((doc?.folder_id ?? null) === folderId) return
+  store.moveDocument(docId, folderId)
 }
 
 function onDragEnd() {
@@ -217,7 +242,7 @@ function onDragEnd() {
       class="sb-section-label documents-root-label"
       :class="{ 'drop-target': dropFolderId === null }"
       @dragover="onDragOver(null, $event)"
-      @dragleave="dropFolderId = undefined"
+      @dragleave="onDragLeave"
       @drop="onDrop(null)"
     >
       <span>Documents</span>
@@ -230,7 +255,14 @@ function onDragEnd() {
         <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
       </button>
     </div>
-    <nav class="sidebar-nav documents-tree" aria-label="Documents">
+    <nav
+      class="sidebar-nav documents-tree"
+      :class="{ 'drop-target': dropFolderId === null }"
+      aria-label="Documents"
+      @dragover="onTreeDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop(treeDropTarget($event))"
+    >
       <VirtualList class="document-tree-window" :items="treeRows">
         <template #default="{ item: row }">
           <div
@@ -244,9 +276,9 @@ function onDragEnd() {
             @click="toggleFolder(row.item.id)"
             @keydown.enter.prevent="toggleFolder(row.item.id)"
             @dblclick="startRename(row.item)"
-            @dragover="onDragOver(row.item.id, $event)"
-            @dragleave="dropFolderId = undefined"
-            @drop="onDrop(row.item.id)"
+            @dragover.stop="onDragOver(row.item.id, $event)"
+            @dragleave="onDragLeave"
+            @drop.stop="onDrop(row.item.id)"
           >
             <span class="material-symbols-outlined folder-arrow" aria-hidden="true">
               {{ row.expanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
@@ -314,6 +346,7 @@ function onDragEnd() {
               dragging: dragDocId === row.item.id,
             }"
             :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+            :data-folder-id="row.item.folder_id ?? ''"
             draggable="true"
             @dragstart="onDragStart(row.item, $event)"
             @dragend="onDragEnd"
@@ -485,6 +518,17 @@ function onDragEnd() {
   outline: 1.5px dashed currentColor;
   outline-offset: -1.5px;
   border-radius: 6px;
+}
+
+/* The tree is the root drop zone; give it a floor of empty space so there
+   is always somewhere to drop a document out of its folder. */
+.documents-tree {
+  min-height: 72px;
+  padding-bottom: 28px;
+}
+
+.documents-tree.drop-target {
+  background: var(--bg-hover);
 }
 
 .documents-root-label {

@@ -573,6 +573,25 @@ test('Folders can be created inline and documents dragged between them', async (
     .poll(async () => sidebar.locator('.doc-item', { hasText: 'Scratchpad' }).getAttribute('style'))
     .toContain('padding-left: 24px')
 
+  // Drag it back out: the empty space below the tree's last row is the root.
+  const tree = sidebar.locator('.documents-tree')
+  const treeBox = await tree.boundingBox()
+  await sidebar
+    .locator('.doc-item', { hasText: 'Scratchpad' })
+    .dragTo(tree, { targetPosition: { x: 40, y: treeBox.height - 6 } })
+  await expect
+    .poll(async () => sidebar.locator('.doc-item', { hasText: 'Scratchpad' }).getAttribute('style'))
+    .toContain('padding-left: 10px')
+  await expect(sidebar.locator('.drop-target')).toHaveCount(0)
+
+  // And into the folder once more, so deleting the folder has something to return.
+  await sidebar
+    .locator('.doc-item', { hasText: 'Scratchpad' })
+    .dragTo(sidebar.locator('.folder-item', { hasText: 'Reading list' }))
+  await expect
+    .poll(async () => sidebar.locator('.doc-item', { hasText: 'Scratchpad' }).getAttribute('style'))
+    .toContain('padding-left: 24px')
+
   // Deleting the folder returns its documents to the root.
   const readingList = sidebar.locator('.folder-item', { hasText: 'Reading list' })
   await readingList.hover()

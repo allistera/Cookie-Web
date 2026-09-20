@@ -167,6 +167,62 @@ describe('DocumentsSidebar', () => {
     expect(remounted.find('.documents-tree').text()).toContain('Kitchen')
   })
 
+  it('drops a document onto the tree, the label or a root row to move it to the root', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const store = useDocumentsStore()
+    const move = vi.spyOn(store, 'moveDocument').mockResolvedValue()
+    const dataTransfer = { effectAllowed: null, dropEffect: null, setData: vi.fn() }
+    // Starred lists Plan too, but only tree rows are draggable.
+    const rowFor = (title) =>
+      wrapper
+        .find('.documents-tree')
+        .findAll('.doc-item')
+        .find((node) => node.text().includes(title))
+
+    // Reveal Plan, which lives in Projects/Kitchen.
+    await wrapper
+      .findAll('.folder-item')
+      .find((node) => node.text().includes('Projects'))
+      .trigger('click')
+    await wrapper
+      .findAll('.folder-item')
+      .find((node) => node.text().includes('Kitchen'))
+      .trigger('click')
+
+    await rowFor('Plan').trigger('dragstart', { dataTransfer })
+    const tree = wrapper.find('.documents-tree')
+    await tree.trigger('dragover', { dataTransfer })
+    expect(tree.classes()).toContain('drop-target')
+    expect(wrapper.find('.documents-root-label').classes()).toContain('drop-target')
+    await tree.trigger('drop')
+    expect(move).toHaveBeenCalledWith('d-plan', null)
+
+    // A root-level document row is part of the root zone too.
+    await rowFor('Plan').trigger('dragstart', { dataTransfer })
+    await rowFor('Scratch').trigger('dragover', { dataTransfer })
+    expect(tree.classes()).toContain('drop-target')
+    await rowFor('Scratch').trigger('drop')
+    expect(move).toHaveBeenLastCalledWith('d-plan', null)
+
+    // A document row inside a folder targets that folder instead.
+    await rowFor('Scratch').trigger('dragstart', { dataTransfer })
+    await rowFor('Plan').trigger('dragover', { dataTransfer })
+    expect(tree.classes()).not.toContain('drop-target')
+    const kitchen = wrapper.findAll('.folder-item').find((node) => node.text().includes('Kitchen'))
+    expect(kitchen.classes()).toContain('drop-target')
+    await rowFor('Plan').trigger('drop')
+    expect(move).toHaveBeenLastCalledWith('d-scratch', 'f-kitchen')
+
+    // Dropping where the document already lives is a no-op.
+    move.mockClear()
+    await rowFor('Scratch').trigger('dragstart', { dataTransfer })
+    await tree.trigger('dragover', { dataTransfer })
+    await tree.trigger('drop')
+    expect(move).not.toHaveBeenCalled()
+    expect(tree.classes()).not.toContain('drop-target')
+  })
+
   it('opens the new document picker', async () => {
     const wrapper = mountSidebar()
     await flushPromises()
