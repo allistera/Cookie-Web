@@ -6,9 +6,12 @@ import AddTaskDialog from './AddTaskDialog.vue'
 import AiTaskDialog from './AiTaskDialog.vue'
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
 import { localToday } from '../lib/localDate'
+import { LABEL_PALETTE } from '../lib/labelPalette'
+import { normalizeLabelName } from '../lib/taskLabels'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
+import { useTaskLabelsStore } from '../stores/taskLabels'
 
 const EXPANDED_KEY = 'cookie-tasks-expanded-projects'
 
@@ -26,6 +29,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useProjectsStore()
 const taskItems = useTaskItemsStore()
+const labelsStore = useTaskLabelsStore()
 
 // Which projects are open, persisted so a reload restores the same tree.
 const expandedIds = ref(new Set(getStoredExpandedIds(EXPANDED_KEY)))
@@ -37,7 +41,10 @@ const rows = computed(() => flattenProjectTree(store.projects, expandedIds.value
 // ?project at all — selects it, matching what TasksView already renders.
 const selectedProject = computed(() => String(route.query.project ?? 'today'))
 
-onMounted(() => store.loadProjects())
+onMounted(() => {
+  store.loadProjects()
+  labelsStore.loadLabels()
+})
 
 function toggle(id) {
   const next = new Set(expandedIds.value)
@@ -222,6 +229,74 @@ async function removeProject(project) {
   const deleted = await store.deleteProject(project.id)
   if (deleted && viewingDoomed) router.push('/tasks?project=inbox')
 }
+
+// --- Labels ---
+// Same shape as the projects section: an inline create row, double-click
+// to rename, hover to delete. Names are normalised here so the server is
+// never asked to store one it would refuse.
+const newLabelOpen = ref(false)
+const newLabelName = ref('')
+const newLabelInput = ref(null)
+
+async function showNewLabel() {
+  newLabelOpen.value = true
+  newLabelName.value = ''
+  await nextTick()
+  newLabelInput.value?.focus()
+}
+
+async function submitNewLabel() {
+  // Enter submits and unmounts the input, which fires blur; the second call
+  // must be a no-op or every Enter would create the label twice.
+  if (!newLabelOpen.value) return
+  const name = normalizeLabelName(newLabelName.value)
+  newLabelOpen.value = false
+  if (!name) return
+  await labelsStore.createLabel({ name })
+}
+
+const renamingLabelId = ref(null)
+const renameLabelName = ref('')
+const renameLabelInput = ref(null)
+
+async function startRenameLabel(label) {
+  renamingLabelId.value = label.id
+  renameLabelName.value = label.name
+  await nextTick()
+  renameLabelInput.value?.[0]?.focus?.()
+  renameLabelInput.value?.[0]?.select?.()
+}
+
+async function submitRenameLabel(label) {
+  if (renamingLabelId.value !== label.id) return
+  const name = normalizeLabelName(renameLabelName.value)
+  renamingLabelId.value = null
+  if (name && name !== label.name) await labelsStore.renameLabel(label.id, name)
+}
+
+// The dot opens a row of swatches under the label; picking one closes it.
+const recolouringId = ref(null)
+
+function toggleSwatches(label) {
+  recolouringId.value = recolouringId.value === label.id ? null : label.id
+}
+
+async function pickLabelColour(label, color) {
+  recolouringId.value = null
+  if (color !== label.color) await labelsStore.recolourLabel(label.id, color)
+}
+
+// Deleting strips the label from every task that carries it, so the count
+// is named first. A label on no task just goes.
+async function removeLabel(label) {
+  if (label.taskCount) {
+    const plural = label.taskCount === 1 ? 'task' : 'tasks'
+    if (!confirm(`Remove @${label.name} from ${label.taskCount} ${plural} and delete it?`)) return
+  }
+  const viewing = selectedProject.value === `label:${label.name}`
+  const deleted = await labelsStore.deleteLabel(label.id)
+  if (deleted && viewing) router.push('/tasks?project=inbox')
+}
 </script>
 
 <template>
@@ -375,6 +450,94 @@ async function removeProject(project) {
       </form>
       <p v-if="!rows.length && newProjectFor === null" class="tasks-projects-empty">
         No projects yet
+      </p>
+    </nav>
+
+    <div class="sb-section-label tasks-projects-label">
+      <span>Labels</span>
+      <button
+        class="new-project-btn new-label-btn"
+        type="button"
+        title="New label"
+        aria-label="New label"
+        @click.stop="showNewLabel"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+      </button>
+    </div>
+    <nav class="sidebar-nav tasks-labels-nav" aria-label="Labels">
+      <template v-for="label in labelsStore.labels" :key="label.id">
+        <router-link
+          :to="{ path: '/tasks', query: { project: `label:${label.name}` } }"
+          class="nav-item project-item label-item"
+          :class="{ active: selectedProject === `label:${label.name}` }"
+          @dblclick.prevent="startRenameLabel(label)"
+        >
+          <button
+            type="button"
+            class="label-dot"
+            :style="{ backgroundColor: label.color }"
+            :aria-label="`Change colour of ${label.name}`"
+            :aria-expanded="recolouringId === label.id"
+            @click.prevent.stop="toggleSwatches(label)"
+          ></button>
+          <input
+            v-if="renamingLabelId === label.id"
+            ref="renameLabelInput"
+            v-model="renameLabelName"
+            class="project-rename-input"
+            :aria-label="`Rename ${label.name}`"
+            @click.prevent.stop
+            @keydown.enter.prevent="submitRenameLabel(label)"
+            @keydown.escape="renamingLabelId = null"
+            @blur="submitRenameLabel(label)"
+          />
+          <span v-else class="nav-text">{{ label.name }}</span>
+          <span class="row-actions" @click.prevent.stop>
+            <button
+              class="row-action-btn"
+              data-action="delete"
+              :title="`Delete ${label.name}`"
+              :aria-label="`Delete label ${label.name}`"
+              @click="removeLabel(label)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            </button>
+          </span>
+        </router-link>
+        <div
+          v-if="recolouringId === label.id"
+          class="label-swatches"
+          role="group"
+          :aria-label="`Colour for ${label.name}`"
+        >
+          <button
+            v-for="color in LABEL_PALETTE"
+            :key="color"
+            type="button"
+            class="label-color-swatch"
+            :class="{ selected: label.color === color }"
+            :style="{ backgroundColor: color }"
+            :title="color"
+            :aria-label="`Use ${color}`"
+            @click="pickLabelColour(label, color)"
+          ></button>
+        </div>
+      </template>
+      <form v-if="newLabelOpen" class="new-project-row new-label-row" @submit.prevent="submitNewLabel">
+        <input
+          ref="newLabelInput"
+          v-model="newLabelName"
+          class="project-rename-input"
+          placeholder="Label name"
+          aria-label="New label name"
+          @keydown.enter.prevent="submitNewLabel"
+          @keydown.escape="newLabelOpen = false"
+          @blur="submitNewLabel"
+        />
+      </form>
+      <p v-if="!labelsStore.labels.length && !newLabelOpen" class="tasks-projects-empty">
+        No labels yet
       </p>
     </nav>
   </aside>
@@ -539,5 +702,45 @@ async function removeProject(project) {
   outline: 1.5px dashed currentColor;
   outline-offset: -1.5px;
   border-radius: 6px;
+}
+
+.tasks-labels-nav {
+  margin-top: 2px;
+}
+
+.label-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  margin: 0 4px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+}
+
+.label-dot:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: 2px;
+}
+
+.label-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 10px 8px 28px;
+}
+
+.label-color-swatch {
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+}
+
+.label-color-swatch.selected {
+  border-color: var(--text-primary);
 }
 </style>

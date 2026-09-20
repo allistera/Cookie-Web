@@ -7,6 +7,7 @@ import TasksSidebar from '../TasksSidebar.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { localToday } from '../../lib/localDate'
 import { useTaskItemsStore } from '../../stores/taskItems'
+import { useTaskLabelsStore } from '../../stores/taskLabels'
 
 let router
 
@@ -25,7 +26,7 @@ beforeEach(async () => {
 
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: true, json: async () => ({ projects: [] }) })),
+    vi.fn(async () => ({ ok: true, json: async () => ({ projects: [], labels: [] }) })),
   )
 })
 
@@ -549,5 +550,114 @@ describe('the Add Task button', () => {
     await wrapper.findComponent({ name: 'AddTaskDialog' }).vm.$emit('close')
 
     expect(wrapper.findComponent({ name: 'AddTaskDialog' }).exists()).toBe(false)
+  })
+})
+
+describe('the Labels section', () => {
+  function seedLabels(labels) {
+    const store = useTaskLabelsStore()
+    store.labels = labels
+    store.isLoaded = true
+    return store
+  }
+
+  it('lists labels with their colour, linking to the label view', async () => {
+    seedLabels([
+      { id: 'l1', name: 'home', color: '#1a73e8', taskCount: 2 },
+      { id: 'l2', name: 'work', color: '#e5484d', taskCount: 0 },
+    ])
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.tasks-labels-nav .label-item')
+    expect(rows.map((row) => row.get('.nav-text').text())).toEqual(['home', 'work'])
+    expect(rows[0].attributes('href')).toBe('/tasks?project=label:home')
+    expect(rows[0].get('.label-dot').attributes('style')).toContain('rgb(26, 115, 232)')
+  })
+
+  it('marks the viewed label active', async () => {
+    seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }])
+    await router.push('/tasks?project=label:home')
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    expect(wrapper.get('.label-item').classes()).toContain('active')
+    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).not.toContain('active')
+  })
+
+  it('creates a label from the inline row, once, with the name normalised', async () => {
+    const store = seedLabels([])
+    const create = vi.spyOn(store, 'createLabel').mockResolvedValue({ id: 'l1', name: 'home' })
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="New label"]').trigger('click')
+    const input = wrapper.get('[aria-label="New label name"]')
+    await input.setValue('@Home')
+    await input.trigger('keydown', { key: 'Enter' })
+    await input.trigger('blur')
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledWith({ name: 'home' })
+  })
+
+  it('renames on double-click', async () => {
+    const store = seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }])
+    const rename = vi.spyOn(store, 'renameLabel').mockResolvedValue({})
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('.label-item').trigger('dblclick')
+    const input = wrapper.get('[aria-label="Rename home"]')
+    await input.setValue('House')
+    await input.trigger('keydown', { key: 'Enter' })
+
+    expect(rename).toHaveBeenCalledWith('l1', 'house')
+  })
+
+  it('recolours from the swatches behind the dot', async () => {
+    const store = seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }])
+    const recolour = vi.spyOn(store, 'recolourLabel').mockResolvedValue({})
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    expect(wrapper.find('.label-swatches').exists()).toBe(false)
+    await wrapper.get('.label-dot').trigger('click')
+    const swatches = wrapper.findAll('.label-swatches .label-color-swatch')
+    expect(swatches).toHaveLength(8)
+    await swatches[2].trigger('click')
+
+    expect(recolour).toHaveBeenCalledWith('l1', '#2f9e44')
+    expect(wrapper.find('.label-swatches').exists()).toBe(false)
+  })
+
+  it('confirms before deleting a label that tasks carry, naming the count', async () => {
+    const store = seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 3 }])
+    const remove = vi.spyOn(store, 'deleteLabel').mockResolvedValue(true)
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Delete label home"]').trigger('click')
+
+    expect(confirm).toHaveBeenCalledWith('Remove @home from 3 tasks and delete it?')
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('deletes an unused label without asking and routes away from its view', async () => {
+    const store = seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }])
+    vi.spyOn(store, 'deleteLabel').mockResolvedValue(true)
+    const confirm = vi.fn()
+    vi.stubGlobal('confirm', confirm)
+    await router.push('/tasks?project=label:home')
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Delete label home"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.query.project).toBe('inbox')
   })
 })
