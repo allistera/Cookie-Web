@@ -1,19 +1,9 @@
 <script setup>
 import { nextTick, reactive, ref } from 'vue'
+import { LABEL_PALETTE as CATEGORY_PALETTE } from '../lib/labelPalette'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
-
-const CATEGORY_PALETTE = [
-  '#e5484d',
-  '#e58f1a',
-  '#2f9e44',
-  '#1a73e8',
-  '#7048e8',
-  '#d6409f',
-  '#0ca678',
-  '#64748b',
-]
 
 const draft = reactive({ name: '', description: '', color: CATEGORY_PALETTE[3] })
 const isSaving = ref(false)
