@@ -5,7 +5,6 @@ import EmojiPicker from './EmojiPicker.vue'
 import EditorJS from '@editorjs/editorjs'
 import Header from '@editorjs/header'
 import List from '@editorjs/list'
-import CodeTool from '@editorjs/code'
 import Delimiter from '@editorjs/delimiter'
 import ImageTool from '@editorjs/image'
 import DragDrop from 'editorjs-drag-drop'
@@ -15,6 +14,7 @@ import { useInboxStore } from '../stores/inbox'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { formatInsertedDate } from '../lib/documentDates'
 import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
+import { CodeBlockTool } from '../lib/codeBlockTool'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
@@ -289,7 +289,7 @@ function mountEditor() {
       // separate Checklist tool would double-list "Checklist" in the "/" menu.
       list: { class: List, inlineToolbar: true, config: { defaultStyle: 'unordered' } },
       table: { class: UniverSheetTool, config: { onChange: scheduleBlocksSave } },
-      code: { class: CodeTool, config: { placeholder: 'Write code here…' } },
+      code: { class: CodeBlockTool, config: { placeholder: 'Write code here…' } },
       delimiter: Delimiter,
       date: InsertDateTool,
       excalidraw: { class: ExcalidrawBlockTool, config: { onChange: scheduleBlocksSave } },
@@ -747,11 +747,146 @@ async function exportToPDF() {
   background: var(--bg-hover);
 }
 
-.document-blocks :deep(.ce-code__textarea) {
+.document-blocks :deep(.code-block) {
+  margin: 8px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   background: var(--bg-input);
-  color: var(--text-primary);
-  border-color: var(--border-color);
+  overflow: hidden;
+}
+
+.document-blocks :deep(.code-block__bar) {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.document-blocks :deep(.code-block__language) {
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.document-blocks :deep(.code-block__language:focus-visible) {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 0;
+}
+
+/* The textarea sits on top of the highlighted preview in the same grid
+   cell; both share font, padding and wrapping so glyphs line up exactly. */
+.document-blocks :deep(.code-block__editor) {
+  display: grid;
+}
+
+.document-blocks :deep(.code-block__preview),
+.document-blocks :deep(.code-block__textarea) {
+  grid-area: 1 / 1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3.5em;
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
   font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.document-blocks :deep(.code-block__preview) {
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
+.document-blocks :deep(.code-block__preview code) {
+  font: inherit;
+  white-space: inherit;
+}
+
+.document-blocks :deep(.code-block__textarea) {
+  display: block;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text-primary);
+  outline: none;
+}
+
+.document-blocks :deep(.code-block__textarea::placeholder) {
+  color: var(--text-secondary);
+}
+
+.document-blocks :deep(.code-block__textarea::selection) {
+  background: var(--accent-soft);
+}
+
+/* Highlight palette on the app's tokens, so both themes stay consistent. */
+.document-blocks :deep(.code-block .hljs-comment),
+.document-blocks :deep(.code-block .hljs-quote) {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.document-blocks :deep(.code-block .hljs-keyword),
+.document-blocks :deep(.code-block .hljs-selector-tag),
+.document-blocks :deep(.code-block .hljs-built_in),
+.document-blocks :deep(.code-block .hljs-doctag),
+.document-blocks :deep(.code-block .hljs-meta) {
+  color: var(--code-keyword);
+}
+
+.document-blocks :deep(.code-block .hljs-string),
+.document-blocks :deep(.code-block .hljs-regexp),
+.document-blocks :deep(.code-block .hljs-addition),
+.document-blocks :deep(.code-block .hljs-template-tag) {
+  color: var(--code-string);
+}
+
+.document-blocks :deep(.code-block .hljs-number),
+.document-blocks :deep(.code-block .hljs-literal),
+.document-blocks :deep(.code-block .hljs-symbol),
+.document-blocks :deep(.code-block .hljs-bullet) {
+  color: var(--code-number);
+}
+
+.document-blocks :deep(.code-block .hljs-title),
+.document-blocks :deep(.code-block .hljs-section),
+.document-blocks :deep(.code-block .hljs-name),
+.document-blocks :deep(.code-block .hljs-selector-id),
+.document-blocks :deep(.code-block .hljs-selector-class) {
+  color: var(--code-title);
+}
+
+.document-blocks :deep(.code-block .hljs-attr),
+.document-blocks :deep(.code-block .hljs-attribute),
+.document-blocks :deep(.code-block .hljs-variable),
+.document-blocks :deep(.code-block .hljs-template-variable),
+.document-blocks :deep(.code-block .hljs-type),
+.document-blocks :deep(.code-block .hljs-params) {
+  color: var(--code-attr);
+}
+
+.document-blocks :deep(.code-block .hljs-deletion) {
+  color: var(--danger, #e5484d);
+}
+
+.document-blocks :deep(.code-block .hljs-emphasis) {
+  font-style: italic;
+}
+
+.document-blocks :deep(.code-block .hljs-strong) {
+  font-weight: 700;
 }
 
 .document-blocks :deep(.univer-sheet-block) {

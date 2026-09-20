@@ -1,5 +1,13 @@
 import DOMPurify from 'dompurify'
 
+import { PLAIN_LANGUAGE, normalizeCodeLanguage } from './codeHighlight'
+
+// The fence/class language tag for a code block; plain text carries none.
+function codeLanguage(data) {
+  const language = normalizeCodeLanguage(data?.language)
+  return language === PLAIN_LANGUAGE ? '' : language
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -164,7 +172,7 @@ export function convertBlocksToMarkdown(blocks, title = '') {
       case 'code': {
         const runs = String(data.code ?? '').match(/`+/g) ?? []
         const fence = '`'.repeat(Math.max(3, ...runs.map((run) => run.length + 1)))
-        markdown += `${fence}\n${data.code ?? ''}\n${fence}\n\n`
+        markdown += `${fence}${codeLanguage(data)}\n${data.code ?? ''}\n${fence}\n\n`
         break
       }
       case 'delimiter':
@@ -280,9 +288,12 @@ export function convertBlocksToHTML(blocks, title = '') {
       case 'list':
         html += listHTML(data.items ?? [], data.style, data.meta?.start ?? 1)
         break
-      case 'code':
-        html += `<pre><code>${escapeHtml(data.code)}</code></pre>`
+      case 'code': {
+        const language = codeLanguage(data)
+        const attr = language ? ` class="language-${language}"` : ''
+        html += `<pre><code${attr}>${escapeHtml(data.code)}</code></pre>`
         break
+      }
       case 'delimiter':
         html += '<hr>'
         break

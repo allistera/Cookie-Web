@@ -78,6 +78,21 @@ describe('document export', () => {
     expect(markdown).toContain('- One\n- Two')
   })
 
+  it('tags code blocks with their language and leaves plain text untagged', () => {
+    const blocks = [
+      block('code', { code: 'const a = 1', language: 'javascript' }),
+      block('code', { code: '<b>plain</b>' }),
+      block('code', { code: 'x', language: 'not-a-language' }),
+    ]
+    expect(convertBlocksToMarkdown(blocks)).toBe(
+      '```javascript\nconst a = 1\n```\n\n```\n<b>plain</b>\n```\n\n```\nx\n```\n\n',
+    )
+    const html = convertBlocksToHTML(blocks)
+    expect(html).toContain('<pre><code class="language-javascript">const a = 1</code></pre>')
+    expect(html).toContain('<pre><code>&lt;b&gt;plain&lt;/b&gt;</code></pre>')
+    expect(html).toContain('<pre><code>x</code></pre>')
+  })
+
   it('exports Kanban content and escapes executable HTML', () => {
     const blocks = [
       block('kanban', {
