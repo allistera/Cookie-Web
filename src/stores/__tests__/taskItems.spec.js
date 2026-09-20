@@ -923,3 +923,21 @@ describe('label counts', () => {
     expect(reload).not.toHaveBeenCalled()
   })
 })
+
+describe('divider text', () => {
+  it('patches the heading optimistically through the item patch path', async () => {
+    store.items = [{ id: 'd', kind: 'divider', content: '', projectId: 'p1', parentId: null }]
+    store.loadedProject = 'p1'
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { id: 'd', kind: 'divider', content: 'Later', projectId: 'p1' } }),
+    }))
+
+    const pending = store.setDividerText('d', 'Later')
+    expect(store.items[0].content).toBe('Later')
+    await pending
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ id: 'd', content: 'Later' })
+    expect(store.items[0].content).toBe('Later')
+  })
+})

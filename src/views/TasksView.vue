@@ -89,6 +89,30 @@ function isDivider(item) {
   return item.kind === 'divider'
 }
 
+// A divider's heading sits on the rule's midpoint and edits in place. Only
+// one edits at a time; Enter or blur saves, Escape discards, and a cleared
+// heading returns the divider to a plain rule.
+const editingDividerId = ref(null)
+const dividerDraft = ref('')
+const dividerInput = ref(null)
+
+async function startDividerEdit(item) {
+  editingDividerId.value = item.id
+  dividerDraft.value = item.content ?? ''
+  await nextTick()
+  dividerInput.value?.[0]?.focus?.()
+  dividerInput.value?.[0]?.select?.()
+}
+
+async function submitDividerEdit(item) {
+  // Same Enter-then-blur double fire as the title edit: the second call
+  // must be a no-op.
+  if (editingDividerId.value !== item.id) return
+  const content = dividerDraft.value.trim()
+  editingDividerId.value = null
+  if (content !== (item.content ?? '')) await items.setDividerText(item.id, content)
+}
+
 const canAddDividers = computed(
   () => taskLayout.value === 'list' && !isToday.value && !isLabel.value,
 )
@@ -118,7 +142,7 @@ function open(id) {
 }
 
 function labelOf(item) {
-  return isDivider(item) ? 'divider' : item.content
+  return isDivider(item) ? item.content || 'divider' : item.content
 }
 
 function labelStyleOf(name) {
@@ -480,8 +504,31 @@ async function submitDraft() {
                 <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
               </button>
               <template v-if="isDivider(item)">
-                <!-- A rule with its delete in the middle, shown when the pointer
-               rests on it. Nothing to confirm: the divider holds nothing. -->
+                <!-- A rule with an optional heading on its midpoint and its
+               delete at the right end, shown when the pointer rests on it.
+               Nothing to confirm on delete: a divider holds only its text. -->
+                <span class="divider-line" aria-hidden="true"></span>
+                <input
+                  v-if="editingDividerId === item.id"
+                  ref="dividerInput"
+                  v-model="dividerDraft"
+                  class="divider-text-input"
+                  aria-label="Divider text"
+                  maxlength="120"
+                  @keydown.enter.prevent="submitDividerEdit(item)"
+                  @keydown.escape="editingDividerId = null"
+                  @blur="submitDividerEdit(item)"
+                />
+                <button
+                  v-else
+                  type="button"
+                  class="divider-text"
+                  :class="{ 'divider-text-empty': !item.content }"
+                  :title="item.content ? 'Edit divider text' : 'Add divider text'"
+                  @click="startDividerEdit(item)"
+                >
+                  {{ item.content || 'Add text' }}
+                </button>
                 <span class="divider-line" aria-hidden="true"></span>
                 <button
                   class="divider-delete"
@@ -753,11 +800,64 @@ async function submitDraft() {
 }
 
 /* A divider: the grip, then a rule where a task's circle and title would be,
-   with the delete sitting on the rule's midpoint. */
+   its heading on the rule's midpoint and the delete at the right end. */
 .task-row.task-divider {
+  position: relative;
   align-items: center;
   padding: 12px 0;
   border-bottom: none;
+}
+
+.divider-text,
+.divider-text-input {
+  flex: 0 1 auto;
+  max-width: 60%;
+  margin: 0 4px;
+  padding: 1px 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-align: center;
+}
+
+.divider-text {
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.divider-text:hover,
+.divider-text:focus-visible {
+  color: var(--text-primary);
+}
+
+/* The "Add text" prompt stays out of the line until the pointer rests on
+   the row, so an empty divider reads as one unbroken rule. */
+.divider-text-empty {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-style: italic;
+  font-weight: 400;
+  opacity: 0;
+  transition: opacity var(--transition-fast) ease;
+}
+
+.task-divider:hover .divider-text-empty,
+.divider-text-empty:focus-visible {
+  opacity: 1;
+}
+
+.divider-text-input {
+  min-width: 140px;
+  outline: 1px solid var(--border-color);
 }
 
 .divider-line {
@@ -774,10 +874,8 @@ async function submitDraft() {
 }
 
 .divider-delete {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  flex: 0 0 auto;
+  margin-left: 8px;
   display: flex;
   align-items: center;
   padding: 2px;

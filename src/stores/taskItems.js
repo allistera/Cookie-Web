@@ -339,6 +339,11 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return this.patchItem(id, { content }, { content }, 'Failed to rename the task.')
     },
 
+    // A divider's heading; blank clears it back to a plain rule.
+    setDividerText(id, content) {
+      return this.patchItem(id, { content }, { content }, 'Failed to save the divider text.')
+    },
+
     describeItem(id, description) {
       return this.patchItem(id, { description }, { description }, 'Failed to save the description.')
     },

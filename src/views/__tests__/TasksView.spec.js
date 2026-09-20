@@ -753,6 +753,56 @@ describe('dividers', () => {
     )
   })
 
+  it('shows a divider heading on the rule and edits it in place', async () => {
+    const items = seedWithDivider()
+    items.items[1].content = 'Later'
+    const setText = vi.spyOn(items, 'setDividerText').mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+
+    const row = wrapper.get('.task-divider')
+    expect(row.get('.divider-text').text()).toBe('Later')
+    expect(row.get('.divider-text').classes()).not.toContain('divider-text-empty')
+    expect(row.findAll('.divider-line')).toHaveLength(2)
+    expect(row.get('.task-grip').attributes('aria-label')).toBe('Drag Later')
+
+    await row.get('.divider-text').trigger('click')
+    const input = row.get('.divider-text-input')
+    expect(input.element.value).toBe('Later')
+    await input.setValue('  Next week ')
+    await input.trigger('keydown', { key: 'Enter' })
+    await input.trigger('blur')
+
+    expect(setText).toHaveBeenCalledTimes(1)
+    expect(setText).toHaveBeenCalledWith('d', 'Next week')
+  })
+
+  it('prompts for text on an empty divider and clears a heading with blank text', async () => {
+    const items = seedWithDivider()
+    const setText = vi.spyOn(items, 'setDividerText').mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+
+    const prompt = wrapper.get('.task-divider .divider-text')
+    expect(prompt.text()).toBe('Add text')
+    expect(prompt.classes()).toContain('divider-text-empty')
+
+    await prompt.trigger('click')
+    const input = wrapper.get('.divider-text-input')
+    await input.setValue('Soon')
+    await input.trigger('keydown', { key: 'Escape' })
+    expect(setText).not.toHaveBeenCalled()
+    expect(wrapper.find('.divider-text-input').exists()).toBe(false)
+
+    items.items[1].content = 'Soon'
+    await flushPromises()
+    await wrapper.get('.task-divider .divider-text').trigger('click')
+    await wrapper.get('.divider-text-input').setValue('   ')
+    await wrapper.get('.divider-text-input').trigger('blur')
+
+    expect(setText).toHaveBeenCalledWith('d', '')
+  })
+
   it('ignores a second click while a divider is still being added', async () => {
     const items = seedTwo()
     let finish
