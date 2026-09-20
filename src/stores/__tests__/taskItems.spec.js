@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useTaskItemsStore } from '../taskItems'
 import { useInboxStore } from '../inbox'
+import { useTaskLabelsStore } from '../taskLabels'
 
 const ITEM = { id: 't1', projectId: 'p1', parentId: null, content: 'Ship it', completedAt: null }
 
@@ -886,5 +887,39 @@ describe('a label list', () => {
 
     expect(fetch.mock.calls[0][0]).toContain('project=label%3Ahome')
     expect(store.loadedProject).toBe('label:home')
+  })
+})
+
+describe('label counts', () => {
+  it('asks the labels store to refetch after a label change, a labelled create and a delete', async () => {
+    const reload = vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue()
+    store.items = [{ ...ITEM, labels: [] }]
+    store.loadedProject = 'p1'
+    stubFetch(async (url, init) => ({
+      ok: true,
+      json: async () =>
+        init.method === 'DELETE'
+          ? { ok: true }
+          : { item: { ...ITEM, id: init.method === 'POST' ? 't2' : 't1', labels: ['home'] } },
+    }))
+
+    await store.setLabels('t1', ['home'])
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reload).toHaveBeenCalledWith({ force: true })
+
+    await store.createItem({ content: 'New', projectId: 'p1', labels: ['home'] })
+    expect(reload).toHaveBeenCalledTimes(2)
+
+    await store.deleteItem('t1')
+    expect(reload).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not refetch for a create without labels', async () => {
+    const reload = vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue()
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: { ...ITEM, labels: [] } }) }))
+
+    await store.createItem({ content: 'New', projectId: 'p1' })
+
+    expect(reload).not.toHaveBeenCalled()
   })
 })

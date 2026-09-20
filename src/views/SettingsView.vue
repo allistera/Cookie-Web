@@ -21,6 +21,7 @@ import DailyNoteSettings from '../components/DailyNoteSettings.vue'
 import AutoArchiveSettings from '../components/AutoArchiveSettings.vue'
 import AiTodaySettings from '../components/AiTodaySettings.vue'
 import CategorySettings from '../components/CategorySettings.vue'
+import TaskLabelSettings from '../components/TaskLabelSettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -1036,6 +1037,9 @@ function toggleRuleEnabled(rule) {
           </section>
 
           <CategorySettings v-if="activeSection === 'categories'" />
+
+          <!-- Tasks -->
+          <TaskLabelSettings v-if="activeSection === 'task-labels'" />
 
           <!-- Calendar -->
           <section v-if="activeSection === 'calendar'" class="settings-section">

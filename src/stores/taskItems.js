@@ -6,6 +6,7 @@ import { TASKS_API_URL } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
 import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
+import { useTaskLabelsStore } from './taskLabels'
 
 // Re-arranging sends the whole order, so the requests must reach the server
 // in the order they were made; one chain carries them. reorderSeq tells a
@@ -60,6 +61,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     notify(message, kind = 'info') {
       useInboxStore().notify(message, kind)
+    },
+
+    // Label task counts live on the labels store, straight from the server;
+    // any write that can change which tasks carry a label asks for them
+    // again rather than keeping a second tally here.
+    refreshLabelCounts() {
+      useTaskLabelsStore().loadLabels({ force: true })
     },
 
     async request(method, { params = '', body } = {}) {
@@ -206,6 +214,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         }
         const { item } = await this.request('POST', { body })
         if (this.belongsToLoadedList(item)) this.items.push(item)
+        if (item.labels?.length) this.refreshLabelCounts()
         return item
       } catch (error) {
         console.error('Failed to create task:', error)
@@ -238,8 +247,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return this.patchItem(id, {}, { dueTime, timeZone }, 'Failed to set the time.')
     },
 
-    setLabels(id, labels) {
-      return this.patchItem(id, {}, { labels }, 'Failed to save task labels.')
+    async setLabels(id, labels) {
+      const item = await this.patchItem(id, {}, { labels }, 'Failed to save task labels.')
+      if (item) this.refreshLabelCounts()
+      return item
     },
 
     // A divider is a rule between rows (kind: 'divider'), added from the line
@@ -434,6 +445,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
       this.items = this.items.filter((row) => row.id !== id)
       try {
         await this.request('DELETE', { body: { id } })
+        // Sub-tasks go with it and may carry labels of their own, so this
+        // does not check the removed row's labels before asking.
+        this.refreshLabelCounts()
         return true
       } catch (error) {
         console.error('Failed to delete task:', error)

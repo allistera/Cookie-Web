@@ -297,6 +297,26 @@ async function removeLabel(label) {
   const deleted = await labelsStore.deleteLabel(label.id)
   if (deleted && viewing) router.push('/tasks?project=inbox')
 }
+
+// A task dragged out of the list can be dropped on a label to tag it. The
+// task is in the loaded list (that is where it was dragged from), so its
+// current labels are known here; a divider carries no labels and is
+// refused while still in the air.
+function onLabelDragOver(label, event) {
+  if (!isTaskDrag(event) || isDividerDrag(event)) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'link'
+  taskDropTarget.value = `label:${label.name}`
+}
+
+function onLabelDrop(label, event) {
+  taskDropTarget.value = null
+  if (!isTaskDrag(event) || isDividerDrag(event)) return
+  const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
+  const task = taskItems.items.find((row) => row.id === id)
+  if (!task || task.labels?.includes(label.name)) return
+  taskItems.setLabels(id, [...(task.labels ?? []), label.name])
+}
 </script>
 
 <template>
@@ -470,8 +490,14 @@ async function removeLabel(label) {
         <router-link
           :to="{ path: '/tasks', query: { project: `label:${label.name}` } }"
           class="nav-item project-item label-item"
-          :class="{ active: selectedProject === `label:${label.name}` }"
+          :class="{
+            active: selectedProject === `label:${label.name}`,
+            'drop-target': taskDropTarget === `label:${label.name}`,
+          }"
           @dblclick.prevent="startRenameLabel(label)"
+          @dragover="onLabelDragOver(label, $event)"
+          @dragleave="onTaskDragLeave(`label:${label.name}`)"
+          @drop.prevent="onLabelDrop(label, $event)"
         >
           <button
             type="button"
@@ -493,6 +519,7 @@ async function removeLabel(label) {
             @blur="submitRenameLabel(label)"
           />
           <span v-else class="nav-text">{{ label.name }}</span>
+          <span v-if="label.taskCount" class="nav-badge">{{ label.taskCount }}</span>
           <span class="row-actions" @click.prevent.stop>
             <button
               class="row-action-btn"

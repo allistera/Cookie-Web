@@ -661,3 +661,76 @@ describe('the Labels section', () => {
     expect(router.currentRoute.value.query.project).toBe('inbox')
   })
 })
+
+describe('dropping a task on a label', () => {
+  function seedLabels(labels) {
+    const store = useTaskLabelsStore()
+    store.labels = labels
+    store.isLoaded = true
+    return store
+  }
+
+  function taskDrag(id, types = ['application/x-cookie-task']) {
+    return { dataTransfer: { types, getData: () => id, dropEffect: '' } }
+  }
+
+  it('shows the count beside a label that tasks carry', async () => {
+    seedLabels([
+      { id: 'l1', name: 'home', color: '#1a73e8', taskCount: 4 },
+      { id: 'l2', name: 'work', color: '#e5484d', taskCount: 0 },
+    ])
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.label-item')
+    expect(rows[0].get('.nav-badge').text()).toBe('4')
+    expect(rows[1].find('.nav-badge').exists()).toBe(false)
+  })
+
+  it('adds the label to the dropped task, keeping its existing labels', async () => {
+    seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }])
+    const items = useTaskItemsStore()
+    items.items = [{ id: 't1', content: 'Call plumber', labels: ['calls'] }]
+    const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const row = wrapper.get('.label-item')
+    await row.trigger('dragover', taskDrag('t1'))
+    expect(row.classes()).toContain('drop-target')
+    await row.trigger('drop', taskDrag('t1'))
+
+    expect(setLabels).toHaveBeenCalledWith('t1', ['calls', 'home'])
+    expect(row.classes()).not.toContain('drop-target')
+  })
+
+  it('does nothing when the task already carries the label', async () => {
+    seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 1 }])
+    const items = useTaskItemsStore()
+    items.items = [{ id: 't1', content: 'Call plumber', labels: ['home'] }]
+    const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('.label-item').trigger('drop', taskDrag('t1'))
+
+    expect(setLabels).not.toHaveBeenCalled()
+  })
+
+  it('refuses a divider', async () => {
+    seedLabels([{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }])
+    const items = useTaskItemsStore()
+    items.items = [{ id: 'd1', kind: 'divider', content: '', labels: [] }]
+    const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const row = wrapper.get('.label-item')
+    const drag = taskDrag('d1', ['application/x-cookie-task', 'application/x-cookie-divider'])
+    await row.trigger('dragover', drag)
+    expect(row.classes()).not.toContain('drop-target')
+    await row.trigger('drop', drag)
+
+    expect(setLabels).not.toHaveBeenCalled()
+  })
+})

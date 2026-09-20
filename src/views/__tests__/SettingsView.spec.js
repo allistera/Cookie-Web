@@ -317,7 +317,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(15)
+    expect(navItems).toHaveLength(16)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -332,6 +332,7 @@ describe('SettingsView', () => {
       'Auto Archive',
       'Spam',
       'Calendars',
+      'Task Labels',
       'Templates',
       'Time Management',
     ].entries()) {
@@ -341,6 +342,7 @@ describe('SettingsView', () => {
       'General',
       'Email',
       'Calendar',
+      'Tasks',
       'Documents',
     ])
     expect(wrapper.find('.settings-page').exists()).toBe(true)
@@ -714,6 +716,15 @@ describe('SettingsView', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'l1' }),
     })
+  })
+
+  it('opens the Task Labels pane under Tasks', async () => {
+    const wrapper = mountView()
+    await openPane(wrapper, 'task-labels')
+    await flushPromises()
+
+    expect(wrapper.find('.task-label-settings').exists()).toBe(true)
+    expect(wrapper.get('.task-label-settings .settings-section-title').text()).toBe('Task labels')
   })
 
   it('lists, creates and edits single-value Categories', async () => {

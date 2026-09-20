@@ -350,8 +350,9 @@ describe('useCommands', () => {
     const { commands, push } = await setupCommands()
     const sections = commands.value.filter((c) => c.id.startsWith('settings-'))
     expect(sections.map((c) => c.title)).toContain('Settings: Appearance')
-    expect(sections).toHaveLength(15)
+    expect(sections).toHaveLength(16)
     expect(sections.map((c) => c.title)).toContain('Settings: Categories')
+    expect(sections.map((c) => c.title)).toContain('Settings: Task Labels')
     expect(sections.map((c) => c.title)).toContain('Settings: Auto Archive')
     expect(sections.map((c) => c.title)).toContain('Settings: AI Today')
 

@@ -28,6 +28,10 @@ export const settingsSectionGroups = [
     sections: [{ id: 'calendar', label: 'Calendars', icon: 'calendar_month' }],
   },
   {
+    label: 'Tasks',
+    sections: [{ id: 'task-labels', label: 'Task Labels', icon: 'label' }],
+  },
+  {
     label: 'Documents',
     sections: [
       { id: 'document-templates', label: 'Templates', icon: 'description' },
