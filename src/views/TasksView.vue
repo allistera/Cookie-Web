@@ -8,7 +8,9 @@ import { localToday } from '../lib/localDate'
 import { orderAfterDrop } from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
+import { labelChipStyle } from '../lib/taskLabels'
 import { useProjectsStore } from '../stores/projects'
+import { useTaskLabelsStore } from '../stores/taskLabels'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const route = useRoute()
@@ -37,7 +39,14 @@ const isInbox = computed(() => project.value === 'inbox')
 // Today, like Inbox, is a rule rather than a project: nothing to rename,
 // describe or nest, and no single project a new task would belong to.
 const isToday = computed(() => project.value === 'today')
-const isRule = computed(() => isInbox.value || isToday.value)
+// A label view is a rule too: it lists every task carrying the label,
+// across projects, so there is nothing to rename or describe and no single
+// project a divider could belong to.
+const isLabel = computed(() => project.value.startsWith('label:'))
+const labelName = computed(() => (isLabel.value ? project.value.slice('label:'.length) : ''))
+const labels = useTaskLabelsStore()
+const labelStyle = computed(() => labelChipStyle(labels.byName.get(labelName.value)?.color))
+const isRule = computed(() => isInbox.value || isToday.value || isLabel.value)
 const current = computed(() =>
   isRule.value ? null : projects.projects.find((row) => row.id === project.value),
 )
@@ -46,6 +55,7 @@ const ancestors = computed(() =>
 )
 const title = computed(() => {
   if (isToday.value) return 'Today'
+  if (isLabel.value) return `@${labelName.value}`
   return isInbox.value ? 'Inbox' : (current.value?.name ?? '')
 })
 
@@ -79,7 +89,9 @@ function isDivider(item) {
   return item.kind === 'divider'
 }
 
-const canAddDividers = computed(() => taskLayout.value === 'list' && !isToday.value)
+const canAddDividers = computed(
+  () => taskLayout.value === 'list' && !isToday.value && !isLabel.value,
+)
 // One at a time: a second click while the first is still on its way would
 // put two rules side by side.
 const addingDivider = ref(false)
@@ -107,6 +119,10 @@ function open(id) {
 
 function labelOf(item) {
   return isDivider(item) ? 'divider' : item.content
+}
+
+function labelStyleOf(name) {
+  return labelChipStyle(labels.byName.get(name)?.color)
 }
 
 const DUE_MONTHS = [
@@ -217,13 +233,14 @@ const taskGroups = computed(() => {
       items: tasks.filter((item) => priorityOf(item) === priority.value),
     }))
   }
-  const labels = [...new Set(tasks.flatMap((item) => item.labels ?? []))].sort((a, b) =>
+  const labelNames = [...new Set(tasks.flatMap((item) => item.labels ?? []))].sort((a, b) =>
     a.localeCompare(b),
   )
   return [
-    ...labels.map((label) => ({
+    ...labelNames.map((label) => ({
       id: `label:${label}`,
       name: label,
+      style: labelStyleOf(label),
       items: tasks.filter((item) => item.labels?.includes(label)),
     })),
     { id: 'unlabelled', name: 'No label', items: tasks.filter((item) => !item.labels?.length) },
@@ -364,7 +381,7 @@ async function submitDraft() {
   <div class="view-panel active tasks-view" :class="{ 'tasks-board-view': taskLayout === 'board' }">
     <div class="tasks-header">
       <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
-        <span>My Projects</span>
+        <span>{{ isLabel ? 'Labels' : 'My Projects' }}</span>
         <template v-for="ancestor in ancestors" :key="ancestor.id">
           <span aria-hidden="true">/</span>
           <router-link :to="{ path: '/tasks', query: { project: ancestor.id } }">
@@ -392,6 +409,9 @@ async function submitDraft() {
       @keydown.escape="titleEdit.editing.value = false"
       @blur="titleEdit.submit"
     />
+    <h1 v-else-if="isLabel" class="tasks-title">
+      <span class="tasks-title-label" :style="labelStyle">{{ title }}</span>
+    </h1>
     <h1 v-else class="tasks-title" @click="titleEdit.start">{{ title }}</h1>
 
     <textarea
@@ -421,6 +441,12 @@ async function submitDraft() {
         :aria-label="group.name"
       >
         <h2 v-if="taskLayout === 'board'" class="task-column-title">
+          <span
+            v-if="group.style"
+            class="task-column-dot"
+            :style="{ backgroundColor: group.style.color }"
+            aria-hidden="true"
+          ></span>
           {{ group.name }} <span>{{ group.items.length }}</span>
         </h2>
         <p v-if="taskLayout === 'board' && !group.items.length" class="tasks-empty">No tasks</p>
@@ -491,7 +517,12 @@ async function submitDraft() {
                     {{ formatDueLine(item) }}
                   </span>
                   <span v-if="item.labels?.length" class="task-labels" aria-label="Labels">
-                    <span v-for="label in item.labels" :key="label" class="task-label">
+                    <span
+                      v-for="label in item.labels"
+                      :key="label"
+                      class="task-label"
+                      :style="labelStyleOf(label)"
+                    >
                       @{{ label }}
                     </span>
                   </span>
@@ -959,9 +990,23 @@ async function submitDraft() {
 .task-label {
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--bg-hover);
-  color: var(--text-secondary);
   font-size: 11px;
+}
+
+.tasks-title-label {
+  display: inline-block;
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-size: 0.85em;
+}
+
+.task-column-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
 }
 
 .task-check {

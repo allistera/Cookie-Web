@@ -7,6 +7,7 @@ import TasksView from '../TasksView.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { localToday } from '../../lib/localDate'
 import { useTaskItemsStore } from '../../stores/taskItems'
+import { useTaskLabelsStore } from '../../stores/taskLabels'
 
 let router
 
@@ -24,7 +25,7 @@ beforeEach(async () => {
   setActivePinia(createPinia())
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: true, json: async () => ({ items: [], projects: [] }) })),
+    vi.fn(async () => ({ ok: true, json: async () => ({ items: [], projects: [], labels: [] }) })),
   )
   const projects = useProjectsStore()
   projects.projects = [
@@ -872,5 +873,69 @@ describe('dividers', () => {
     await flushPromises()
     expect(wrapper.find('.task-insert').exists()).toBe(true)
     expect(wrapper.find('[aria-label="Search tasks"]').exists()).toBe(false)
+  })
+})
+
+describe('a label view', () => {
+  beforeEach(() => {
+    const labels = useTaskLabelsStore()
+    labels.labels = [{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 1 }]
+    labels.isLoaded = true
+  })
+
+  it('loads the label list and titles the view with the label', async () => {
+    const items = useTaskItemsStore()
+    const load = vi.spyOn(items, 'loadItems').mockResolvedValue()
+    await router.push('/tasks?project=label:home')
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(load).toHaveBeenCalledWith('label:home')
+    const title = wrapper.get('.tasks-title-label')
+    expect(title.text()).toBe('@home')
+    expect(title.attributes('style')).toContain('rgb(26, 115, 232)')
+    expect(wrapper.get('.tasks-breadcrumb').text()).toContain('Labels')
+    expect(wrapper.find('.tasks-description').exists()).toBe(false)
+  })
+
+  it('offers no divider plus in a label list', async () => {
+    await router.push('/tasks?project=label:home')
+    const wrapper = mountView()
+    await flushPromises()
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', labels: ['home'] },
+      { id: 'b', content: 'Two', labels: ['home'] },
+    ]
+    await flushPromises()
+
+    expect(wrapper.find('.task-insert').exists()).toBe(false)
+  })
+})
+
+describe('label colours', () => {
+  it('colours chips and group headers from the label store', async () => {
+    const labels = useTaskLabelsStore()
+    labels.labels = [{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 1 }]
+    labels.isLoaded = true
+    const wrapper = mountView()
+    await flushPromises()
+    const items = useTaskItemsStore()
+    items.items = [{ id: 'a', content: 'One', priority: 4, labels: ['home', 'calls'] }]
+    await flushPromises()
+
+    const chips = wrapper.findAll('.task-label')
+    expect(chips[0].attributes('style')).toContain('rgb(26, 115, 232)')
+    // A name with no row keeps the default grey.
+    expect(chips[1].attributes('style')).toContain('rgb(100, 116, 139)')
+
+    await wrapper.get('.display-layouts button:last-child').trigger('click')
+    await flushPromises()
+    await wrapper.get('[aria-label="Group tasks by"]').setValue('labels')
+    await flushPromises()
+    const homeColumn = wrapper
+      .findAll('.task-column-title')
+      .find((node) => node.text().startsWith('home'))
+    expect(homeColumn.get('.task-column-dot').attributes('style')).toContain('rgb(26, 115, 232)')
   })
 })
