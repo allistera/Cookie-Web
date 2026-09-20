@@ -7,11 +7,16 @@ import App from './App.vue'
 import router from './router'
 import { getAuth0 } from './auth0-client'
 import { registerServiceWorker } from './lib/serviceWorker'
+import { installStaleChunkReload } from './lib/staleChunkReload'
 import { initTheme } from './lib/theme'
 
 // Apply the saved theme (and start tracking the OS for 'system') before mount
 // so the first paint already carries the right data-theme — no flash.
 initTheme()
+
+// A tab left open across a deploy references chunks that no longer exist;
+// reload once so it picks up the current bundle instead of erroring.
+installStaleChunkReload()
 
 const app = createApp(App)
 
