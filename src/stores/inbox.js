@@ -104,6 +104,61 @@ const pendingInviteFetches = new Map()
 // the second. Each map holds the tail of that message's update chain.
 const pendingStarUpdates = new Map()
 const pendingUnreadUpdates = new Map()
+
+// Inbox rows removed optimistically (Done, Report spam, Snooze) whose PATCH
+// may not have landed when an inbox page was requested. Such a page still
+// lists the row, and mergeInboxPage would put it straight back (it adds any
+// incoming id it does not hold), so the row would linger until a reload.
+// Each removal is logged here and dropped from every page whose fetch began
+// before the server confirmed it; see dropPendingRemovals.
+let inboxRemovalSeq = 0
+const inboxRemovals = new Map() // id -> { settledSeq: number | null }
+
+// @param {string} id
+// @param {Promise<unknown>} persistence resolves false (or rejects) when the
+//   change did not land, in which case the row belongs in the list again.
+function trackInboxRemoval(id, persistence) {
+  inboxRemovals.set(id, { settledSeq: null })
+  persistence.then(
+    (ok) => {
+      const entry = inboxRemovals.get(id)
+      if (!entry) return
+      if (ok === false) inboxRemovals.delete(id)
+      else entry.settledSeq = ++inboxRemovalSeq
+    },
+    () => inboxRemovals.delete(id),
+  )
+}
+
+// Restored rows (undo, failure) belong in the list again.
+function untrackInboxRemoval(id) {
+  inboxRemovals.delete(id)
+}
+
+// The value to capture with `inboxRemovalSeq` when an inbox fetch starts.
+function inboxFetchSeq() {
+  return inboxRemovalSeq
+}
+
+/**
+ * Filters a fetched inbox page against removals the fetch could not have
+ * seen: any still pending, and any confirmed after the fetch began. A row
+ * whose removal settled before the fetch started is the server's word again
+ * (it may have been un-archived elsewhere), so it is kept and the log entry
+ * cleared. Entries settled before the fetch that the page no longer lists are
+ * confirmed gone and cleared too, keeping the log bounded.
+ */
+export function dropPendingRemovals(rows, fetchSeq) {
+  const kept = rows.filter((row) => {
+    const entry = inboxRemovals.get(row.id)
+    if (!entry) return true
+    return entry.settledSeq !== null && entry.settledSeq <= fetchSeq
+  })
+  for (const [id, entry] of inboxRemovals) {
+    if (entry.settledSeq !== null && entry.settledSeq <= fetchSeq) inboxRemovals.delete(id)
+  }
+  return kept
+}
 // Spam verdict PATCHes, serialized per message like stars and read state,
 // and the latest setSpam action per message so a failed earlier request
 // knows not to roll back a newer choice (the verdict value alone can't tell:
@@ -839,12 +894,13 @@ export const useInboxStore = defineStore('inbox', {
     // results still being displayed. See the listSeq state comment.
     async loadEmails() {
       const seq = ++this.listSeq
+      const fetchSeq = inboxFetchSeq()
       this.isRefreshing = true
       try {
         const { emails, nextCursor, unreadCount, spamCount, snoozedCount, userId } =
           await this.fetchEmailPage()
         if (seq !== this.listSeq) return
-        this.traditionalEmails = emails.map(mapEmailRow)
+        this.traditionalEmails = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
         this.unreadInboxCount = Number.isFinite(unreadCount)
@@ -871,11 +927,12 @@ export const useInboxStore = defineStore('inbox', {
     async loadMoreEmails() {
       if (!this.emailsCursor || this.isRefreshing || this.activeSearchQuery) return
       const seq = ++this.listSeq
+      const fetchSeq = inboxFetchSeq()
       this.isRefreshing = true
       try {
         const { emails, nextCursor } = await this.fetchEmailPage({ before: this.emailsCursor })
         if (seq !== this.listSeq) return
-        this.traditionalEmails.push(...emails.map(mapEmailRow))
+        this.traditionalEmails.push(...dropPendingRemovals(emails.map(mapEmailRow), fetchSeq))
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
       } catch (error) {
@@ -898,11 +955,12 @@ export const useInboxStore = defineStore('inbox', {
     async refreshInboxEmails() {
       if (this.activeSearchQuery) return
       const seq = this.listSeq
+      const fetchSeq = inboxFetchSeq()
       try {
         const { emails, nextCursor, unreadCount, spamCount, snoozedCount, userId } =
           await this.fetchEmailPage()
         if (this.activeSearchQuery || seq !== this.listSeq) return
-        const incoming = emails.map(mapEmailRow)
+        const incoming = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
         const existing = this.traditionalEmails
         this.traditionalEmails = mergeInboxPage(
           existing,
@@ -2065,6 +2123,7 @@ export const useInboxStore = defineStore('inbox', {
       const restore = () => {
         if (!applied) return
         applied = false
+        untrackInboxRemoval(email.id)
         email.scheduledFor = previousScheduledFor
         this.snoozedCount = Math.max(0, this.snoozedCount - snoozedDelta)
         if (inboxIndex > -1 && !this.traditionalEmails.includes(email)) {
@@ -2091,6 +2150,7 @@ export const useInboxStore = defineStore('inbox', {
         errorMessage: 'Failed to schedule email.',
         shouldNotify,
       })
+      if (inboxIndex > -1) trackInboxRemoval(email.id, persistence)
       const success = await persistence
       if (success && undoActions) undoActions.push(undo)
       return success
@@ -2135,6 +2195,7 @@ export const useInboxStore = defineStore('inbox', {
       const restore = () => {
         if (!applied) return
         applied = false
+        untrackInboxRemoval(email.id)
         restoreCapturedLists(email, positions)
         email.unread = wasUnread
         email.isArchived = wasArchived
@@ -2147,7 +2208,7 @@ export const useInboxStore = defineStore('inbox', {
         }
       }
 
-      const { undo } = reversibleMessageUpdate(this, {
+      const { persistence, undo } = reversibleMessageUpdate(this, {
         email,
         apply,
         restore,
@@ -2157,6 +2218,7 @@ export const useInboxStore = defineStore('inbox', {
         errorMessage: 'Failed to archive email.',
         shouldNotify,
       })
+      if (positions[0].index > -1) trackInboxRemoval(email.id, persistence)
       if (undoActions) undoActions.push(undo)
       return undo
     },
@@ -2214,6 +2276,7 @@ export const useInboxStore = defineStore('inbox', {
       const restore = () => {
         if (!applied) return
         applied = false
+        if (spam) untrackInboxRemoval(email.id)
         email.isSpam = wasSpam
         for (const { item } of positions) if (item) item.isSpam = wasSpam
         if (destination) {
@@ -2231,7 +2294,7 @@ export const useInboxStore = defineStore('inbox', {
         }
       }
 
-      const { undo } = reversibleMessageUpdate(this, {
+      const { persistence, undo } = reversibleMessageUpdate(this, {
         email,
         apply,
         restore,
@@ -2246,6 +2309,9 @@ export const useInboxStore = defineStore('inbox', {
           ),
         isCurrent: () => latestSpamAction.get(email.id) === seq,
       })
+      if (spam && inboxPosition && inboxPosition.index > -1) {
+        trackInboxRemoval(email.id, persistence)
+      }
       if (undoActions) undoActions.push(undo)
       return undo
     },
@@ -2668,7 +2734,12 @@ export const useInboxStore = defineStore('inbox', {
         this.isDoneLoaded &&
         this.donePageIndex === 0 &&
         !this.doneEmails.some((candidate) => candidate.id === email.id)
-      await this.updateMessage(item.message_id, { is_archived: true, is_unread: false })
+      const persistence = this.updateMessage(item.message_id, {
+        is_archived: true,
+        is_unread: false,
+      })
+      trackInboxRemoval(item.message_id, persistence)
+      await persistence
       item.unread = false
       if (email) {
         removeFromCapturedLists(email, positions)

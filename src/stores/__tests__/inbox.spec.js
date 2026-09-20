@@ -686,6 +686,96 @@ describe('Inbox Store', () => {
     expect(merged[2]).toBe(existingB)
   })
 
+  it('does not let a refresh put back an email marked Done before the PATCH landed', async () => {
+    const listRow = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: true,
+      is_starred: false,
+    })
+    let resolveArchive
+    let page = [listRow('a'), listRow('b')]
+    const fetchMock = vi.fn((url, options = {}) => {
+      if (options.method === 'PATCH') {
+        return new Promise((resolve) => {
+          resolveArchive = resolve
+        })
+      }
+      return { ok: true, json: async () => ({ emails: page, unreadCount: 2, userId: 'user-1' }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    store.traditionalEmails = [
+      { id: 'a', sender: 'Sender', subject: 'Subject a', unread: true, labels: [] },
+      { id: 'b', sender: 'Sender', subject: 'Subject b', unread: true, labels: [] },
+    ]
+    store.isInboxLoaded = true
+    const emailA = store.traditionalEmails[0]
+
+    store.archiveEmail(emailA, false)
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['b'])
+
+    // A refresh whose page was composed before the archive landed still
+    // lists the row; it must not come back.
+    await store.refreshInbox()
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['b'])
+
+    // Nor may a full reload started while the PATCH is still in flight.
+    await store.loadEmails()
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['b'])
+
+    resolveArchive({ ok: true, json: async () => ({ message: {} }) })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // Once the server has confirmed the archive, its later pages are
+    // authoritative again: an email un-archived elsewhere may return.
+    page = [listRow('a'), listRow('b')]
+    await store.refreshInbox()
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['a', 'b'])
+  })
+
+  it('lets an undone Done reappear in later inbox pages', async () => {
+    const listRow = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: true,
+      is_starred: false,
+    })
+    const fetchMock = vi.fn((url, options = {}) => {
+      if (options.method === 'PATCH') return { ok: true, json: async () => ({ message: {} }) }
+      return {
+        ok: true,
+        json: async () => ({ emails: [listRow('a')], unreadCount: 1, userId: 'user-1' }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    store.traditionalEmails = [
+      { id: 'a', sender: 'Sender', subject: 'Subject a', unread: true, labels: [] },
+    ]
+    store.isInboxLoaded = true
+
+    const undo = store.archiveEmail(store.traditionalEmails[0], false)
+    expect(store.traditionalEmails).toHaveLength(0)
+    await undo()
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['a'])
+
+    await store.loadEmails()
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['a'])
+  })
+
   it('refreshInbox merges the first page without dropping extra rows or in-flight stars', async () => {
     const listRow = (id, extra = {}) => ({
       id,
