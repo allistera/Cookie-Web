@@ -258,6 +258,16 @@ date and time zone; dividers cannot carry times or labels. Existing tasks keep
 no due time and an empty label list. Apply this migration before deploying the
 task API that reads and writes these fields.
 
+## Task labels
+
+`0079_task_labels.sql` adds `task_labels`, one row per user-defined label
+with a colour, keyed by `(user_id, name)`. `task_items.labels` keeps holding
+names; this table is what the Tasks sidebar lists and what a rename or
+delete rewrites across tasks. It seeds a row for every name already on a
+task and adds a GIN index on `task_items.labels` for the label view's
+containment filter. Apply it before deploying the `cookie-web-tasks` Worker
+that serves `/task-labels`, then deploy Cookie-Web.
+
 ## Automatic priority reply drafts
 
 `0069_priority_reply_drafts.sql` adds independent reply-draft status, attempts,
