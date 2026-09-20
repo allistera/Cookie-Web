@@ -1,6 +1,6 @@
 # Task labels: managed labels with colours
 
-Status: designed, not implemented. Spans Cookie-Web and Cookie-Worker.
+Status: implemented (Cookie-Worker + Cookie-Web, September 2026).
 
 ## Problem
 
