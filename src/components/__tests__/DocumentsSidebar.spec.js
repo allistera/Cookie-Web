@@ -302,4 +302,22 @@ describe('DocumentsSidebar', () => {
     await deleteButton.trigger('click')
     expect(deleteFolder).toHaveBeenCalledWith('f-projects')
   })
+
+  it('navigates the browser to a folder when its row is clicked', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    await wrapper.find('.folder-item').trigger('click')
+    expect(push).toHaveBeenCalledWith({ path: '/documents', query: { folder: 'f-projects' } })
+  })
+
+  it('accepts a file dragged from the browser onto a folder row', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const store = useDocumentsStore()
+    const moveFile = vi.spyOn(store, 'moveFile').mockResolvedValue()
+    await wrapper.find('.folder-item').trigger('drop', {
+      dataTransfer: { types: ['text/plain'], getData: () => 'file:x-1' },
+    })
+    expect(moveFile).toHaveBeenCalledWith('x-1', 'f-projects')
+  })
 })

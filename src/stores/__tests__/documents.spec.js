@@ -30,8 +30,13 @@ const DOCS = [
 function stubFetch(routes) {
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || 'GET'
+    // Uploads send FormData; everything else sends a JSON string.
     const body =
-      typeof options.body === 'string' ? JSON.parse(options.body) : (options.body ?? undefined)
+      options.body instanceof FormData
+        ? options.body
+        : options.body
+          ? JSON.parse(options.body)
+          : undefined
     const handler = routes[method]
     if (!handler) throw new Error(`Unexpected fetch: ${method} ${url}`)
     return handler(url, body)

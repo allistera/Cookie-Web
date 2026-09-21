@@ -13,6 +13,8 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useDocumentsStore } from '../stores/documents'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
 import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
+import DocumentsBrowser from '../components/DocumentsBrowser.vue'
+import FilePreview from '../components/FilePreview.vue'
 import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
 import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
 
@@ -245,6 +247,18 @@ const activeTag = computed(() => {
   const value = Array.isArray(route.query.tag) ? route.query.tag[0] : route.query.tag
   return String(value ?? '')
 })
+const currentFolderId = computed(() => {
+  const value = Array.isArray(route.query.folder) ? route.query.folder[0] : route.query.folder
+  const id = String(value ?? '')
+  // An unknown or foreign folder id falls back to the root once folders are known.
+  if (!id || (store.isLoaded && !store.folders.some((folder) => folder.id === id))) return null
+  return id
+})
+// The folder browser is the default; starred, tag and search cut across
+// folders and keep the flat table.
+const showBrowser = computed(
+  () => !starredOnly.value && !activeTag.value && !store.activeSearchQuery,
+)
 const dashboardOffset = ref(0)
 const dashboardScope = computed(() => ({ starred: starredOnly.value, tag: activeTag.value }))
 watch(
@@ -320,7 +334,7 @@ function onEditorSave(payload) {
 <template>
   <div class="documents-view">
     <!-- Editor -->
-    <template v-if="route.params.id">
+    <template v-if="route.params.id && !route.params.fileId">
       <div class="editor-statusbar">
         <div class="editor-save-navigation">
           <router-link to="/documents" class="back-link" aria-label="Back to all documents">
@@ -492,8 +506,10 @@ function onEditorSave(payload) {
       </aside>
     </Transition>
 
+    <FilePreview v-if="route.params.fileId" :file-id="String(route.params.fileId)" />
+
     <!-- Dashboard -->
-    <template v-if="!route.params.id">
+    <template v-if="!route.params.id && !route.params.fileId">
       <header class="documents-header">
         <div>
           <h1>{{ activeTag ? `#${activeTag}` : 'Documents' }}</h1>
@@ -501,7 +517,9 @@ function onEditorSave(payload) {
             {{
               activeTag
                 ? `Documents tagged #${activeTag}`
-                : 'Notes and docs, organised in folders. Autosaved as you type.'
+                : showBrowser
+                  ? 'Notes, docs and files, organised in folders.'
+                  : 'Notes and docs, organised in folders. Autosaved as you type.'
             }}
           </p>
         </div>
@@ -537,80 +555,84 @@ function onEditorSave(payload) {
         </div>
       </header>
 
-      <div v-if="store.isLoading && !store.isLoaded" class="documents-loading">
-        <div class="spinner"></div>
-      </div>
+      <DocumentsBrowser v-if="showBrowser" :folder-id="currentFolderId" />
 
-      <div v-else-if="!dashboardDocs.length" class="documents-empty">
-        <p v-if="store.activeSearchQuery">No documents match “{{ store.activeSearchQuery }}”.</p>
-        <p v-else-if="activeTag">No documents tagged #{{ activeTag }}.</p>
-        <p v-else-if="starredOnly">
-          No starred documents yet — star one from the list or the sidebar.
-        </p>
-        <p v-else>No documents yet. Create your first one to get started.</p>
-      </div>
+      <template v-else>
+        <div v-if="store.isLoading && !store.isLoaded" class="documents-loading">
+          <div class="spinner"></div>
+        </div>
 
-      <table v-else class="documents-table">
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Folder</th>
-            <th scope="col">Updated</th>
-            <th scope="col"><span class="visually-hidden">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="doc in dashboardDocs"
-            :key="doc.id"
-            class="documents-table-row"
-            @click="router.push(`/documents/${doc.id}`)"
+        <div v-else-if="!dashboardDocs.length" class="documents-empty">
+          <p v-if="store.activeSearchQuery">No documents match “{{ store.activeSearchQuery }}”.</p>
+          <p v-else-if="activeTag">No documents tagged #{{ activeTag }}.</p>
+          <p v-else-if="starredOnly">
+            No starred documents yet — star one from the list or the sidebar.
+          </p>
+          <p v-else>No documents yet. Create your first one to get started.</p>
+        </div>
+
+        <table v-else class="documents-table">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Folder</th>
+              <th scope="col">Updated</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="doc in dashboardDocs"
+              :key="doc.id"
+              class="documents-table-row"
+              @click="router.push(`/documents/${doc.id}`)"
+            >
+              <td class="doc-name-cell">
+                <span aria-hidden="true">{{ doc.emoji }}</span>
+                <span>{{ doc.title || 'Untitled' }}</span>
+              </td>
+              <td class="doc-folder-cell">{{ folderTitles(doc) }}</td>
+              <td class="doc-updated-cell">{{ formatUpdated(doc.updated_at) }}</td>
+              <td class="doc-actions-cell" @click.stop>
+                <button
+                  class="table-action-btn"
+                  :class="{ 'is-starred': doc.starred }"
+                  :title="doc.starred ? 'Unstar document' : 'Star document'"
+                  :aria-label="`${doc.starred ? 'Unstar' : 'Star'} ${doc.title || 'Untitled'}`"
+                  @click="store.toggleStar(doc.id)"
+                >
+                  <span class="material-symbols-outlined">star</span>
+                </button>
+                <button
+                  class="table-action-btn"
+                  :title="`Delete ${doc.title || 'Untitled'}`"
+                  :aria-label="`Delete ${doc.title || 'Untitled'}`"
+                  @click="deleteFromDashboard(doc)"
+                >
+                  <span class="material-symbols-outlined">delete</span>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="store.workspacePaged && !store.activeSearchQuery" class="document-pagination">
+          <button
+            v-if="dashboardOffset > 0"
+            class="btn btn-secondary"
+            @click="dashboardOffset -= 100"
           >
-            <td class="doc-name-cell">
-              <span aria-hidden="true">{{ doc.emoji }}</span>
-              <span>{{ doc.title || 'Untitled' }}</span>
-            </td>
-            <td class="doc-folder-cell">{{ folderTitles(doc) }}</td>
-            <td class="doc-updated-cell">{{ formatUpdated(doc.updated_at) }}</td>
-            <td class="doc-actions-cell" @click.stop>
-              <button
-                class="table-action-btn"
-                :class="{ 'is-starred': doc.starred }"
-                :title="doc.starred ? 'Unstar document' : 'Star document'"
-                :aria-label="`${doc.starred ? 'Unstar' : 'Star'} ${doc.title || 'Untitled'}`"
-                @click="store.toggleStar(doc.id)"
-              >
-                <span class="material-symbols-outlined">star</span>
-              </button>
-              <button
-                class="table-action-btn"
-                :title="`Delete ${doc.title || 'Untitled'}`"
-                :aria-label="`Delete ${doc.title || 'Untitled'}`"
-                @click="deleteFromDashboard(doc)"
-              >
-                <span class="material-symbols-outlined">delete</span>
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="store.workspacePaged && !store.activeSearchQuery" class="document-pagination">
-        <button
-          v-if="dashboardOffset > 0"
-          class="btn btn-secondary"
-          @click="dashboardOffset -= 100"
-        >
-          Newer documents
-        </button>
-        <button
-          v-if="dashboardPage?.nextCursor || dashboardOffset + 100 < dashboardPage?.ids.length"
-          class="btn btn-secondary"
-          :disabled="dashboardPage?.loading"
-          @click="nextDashboardPage"
-        >
-          Older documents
-        </button>
-      </div>
+            Newer documents
+          </button>
+          <button
+            v-if="dashboardPage?.nextCursor || dashboardOffset + 100 < dashboardPage?.ids.length"
+            class="btn btn-secondary"
+            :disabled="dashboardPage?.loading"
+            @click="nextDashboardPage"
+          >
+            Older documents
+          </button>
+        </div>
+      </template>
     </template>
     <NewDocumentDialog v-if="store.newDocumentDialogOpen" />
   </div>

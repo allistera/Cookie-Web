@@ -50,7 +50,11 @@ function load(force = false) {
   void store.loadDocumentPage(pageScope.value, { force })
   void store.loadFiles(props.folderId, { force })
 }
-watch(() => props.folderId, () => load(), { immediate: true })
+watch(
+  () => props.folderId,
+  () => load(),
+  { immediate: true },
+)
 
 function folderRoute(id) {
   return id ? { path: '/documents', query: { folder: id } } : { path: '/documents' }

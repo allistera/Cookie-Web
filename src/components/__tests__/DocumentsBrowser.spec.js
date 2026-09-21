@@ -203,7 +203,10 @@ describe('DocumentsBrowser', () => {
   })
 
   it('deletes a document only after confirmation', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const del = vi.spyOn(store, 'deleteDocument').mockResolvedValue()
     const wrapper = mountBrowser(null)
     await flushPromises()

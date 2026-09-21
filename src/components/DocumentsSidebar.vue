@@ -47,6 +47,8 @@ function toggleFolder(id) {
   if (next.has(id)) next.delete(id)
   else next.add(id)
   expandedIds.value = next
+  // The browser pane follows the tree: clicking a folder shows its contents.
+  router.push({ path: '/documents', query: { folder: id } })
 }
 
 function newDocument(folderId = null) {
@@ -154,7 +156,8 @@ function onDragStart(doc, event) {
 }
 
 function onDragOver(folderId, event) {
-  if (!dragDocId.value) return
+  const external = Array.from(event.dataTransfer?.types ?? []).includes('text/plain')
+  if (!dragDocId.value && !external) return
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   dropFolderId.value = folderId
@@ -178,10 +181,19 @@ function onDragLeave(event) {
   if (!event.currentTarget.contains(event.relatedTarget)) dropFolderId.value = undefined
 }
 
-function onDrop(folderId) {
-  const docId = dragDocId.value
+function onDrop(folderId, event) {
+  const ownDocId = dragDocId.value
   dragDocId.value = null
   dropFolderId.value = undefined
+  // Items dragged in from the browser pane carry "<kind>:<id>"; the tree's
+  // own rows only set dragDocId.
+  const data = ownDocId ? '' : String(event?.dataTransfer?.getData?.('text/plain') ?? '')
+  const [kind, draggedId] = data.includes(':') ? data.split(':') : ['document', data]
+  if (kind === 'file' && draggedId) {
+    void store.moveFile(draggedId, folderId)
+    return
+  }
+  const docId = ownDocId || (kind === 'document' ? draggedId : null)
   if (!docId) return
   const doc = store.documents.find((candidate) => candidate.id === docId)
   if ((doc?.folder_id ?? null) === folderId) return
@@ -243,7 +255,7 @@ function onDragEnd() {
       :class="{ 'drop-target': dropFolderId === null }"
       @dragover="onDragOver(null, $event)"
       @dragleave="onDragLeave"
-      @drop="onDrop(null)"
+      @drop="onDrop(null, $event)"
     >
       <span>Documents</span>
       <button
@@ -261,7 +273,7 @@ function onDragEnd() {
       aria-label="Documents"
       @dragover="onTreeDragOver"
       @dragleave="onDragLeave"
-      @drop="onDrop(treeDropTarget($event))"
+      @drop="onDrop(treeDropTarget($event), $event)"
     >
       <VirtualList class="document-tree-window" :items="treeRows">
         <template #default="{ item: row }">
@@ -278,7 +290,7 @@ function onDragEnd() {
             @dblclick="startRename(row.item)"
             @dragover.stop="onDragOver(row.item.id, $event)"
             @dragleave="onDragLeave"
-            @drop.stop="onDrop(row.item.id)"
+            @drop.stop="onDrop(row.item.id, $event)"
           >
             <span class="material-symbols-outlined folder-arrow" aria-hidden="true">
               {{ row.expanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}

@@ -38,9 +38,7 @@ describe('FilePreview', () => {
       name: 'brief.pdf',
       mime_type: 'application/pdf',
     })
-    vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(
-      new Blob(['x'], { type: 'application/pdf' }),
-    )
+    vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['x'], { type: 'application/pdf' }))
     const wrapper = mount(FilePreview, { props: { fileId: 'x-1' }, global: { plugins: [router] } })
     await flushPromises()
     expect(wrapper.find('h1').text()).toBe('brief.pdf')
@@ -50,7 +48,11 @@ describe('FilePreview', () => {
   })
 
   it('renders an image in an img', async () => {
-    vi.spyOn(store, 'loadFile').mockResolvedValue({ id: 'x-2', name: 'a.png', mime_type: 'image/png' })
+    vi.spyOn(store, 'loadFile').mockResolvedValue({
+      id: 'x-2',
+      name: 'a.png',
+      mime_type: 'image/png',
+    })
     vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }))
     const wrapper = mount(FilePreview, { props: { fileId: 'x-2' }, global: { plugins: [router] } })
     await flushPromises()
