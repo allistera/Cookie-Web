@@ -5,6 +5,7 @@ import { scheduleContentSave, flushPendingSave, discardPendingSave } from '../li
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { AI_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
+import { MAX_UPLOAD_BYTES, fileFolderKey } from '../lib/documentFiles'
 import {
   formatDailyMonthFolder,
   formatDailyNoteTitle,
@@ -74,6 +75,13 @@ export const useDocumentsStore = defineStore('documents', {
     dailyNoteSeed: [],
     dailyNoteSeedLoaded: false,
     dailyNoteSeedLoading: false,
+    // Uploaded files (document_files rows) by id, and per-folder pages keyed
+    // by fileFolderKey. They share the folder tree with documents but none of
+    // the document machinery (search, tags, revisions, AI).
+    files: {},
+    filePages: {},
+    // In-flight or failed uploads shown as placeholders in the browser.
+    uploads: [],
   }),
 
   getters: {
@@ -124,6 +132,165 @@ export const useDocumentsStore = defineStore('documents', {
         body !== undefined ? { 'Content-Type': 'application/json' } : {},
       )
       return jsonRequest(`${TASKS_API_URL}/documents${params}`, { method, headers, body })
+    },
+
+    async filesRequest(method, path = '', { body } = {}) {
+      const headers = await this.authHeaders(
+        body !== undefined ? { 'Content-Type': 'application/json' } : {},
+      )
+      return jsonRequest(`${TASKS_API_URL}/files${path}`, { method, headers, body })
+    },
+
+    filesForFolder(folderId) {
+      const page = this.filePages[fileFolderKey(folderId)]
+      if (!page) return []
+      return page.ids.map((id) => this.files[id]).filter(Boolean)
+    },
+
+    async loadFiles(folderId = null, { force = false } = {}) {
+      const key = fileFolderKey(folderId)
+      this.filePages[key] ??= { ids: [], loaded: false, loading: false, error: null }
+      const page = this.filePages[key]
+      if ((page.loaded && !force) || page.loading) return
+      page.loading = true
+      page.error = null
+      try {
+        const { files } = await this.filesRequest('GET', `?folder=${encodeURIComponent(key)}`)
+        for (const file of files) this.files[file.id] = file
+        page.ids = files.map((file) => file.id)
+        page.loaded = true
+      } catch (error) {
+        page.error = error.userMessage || 'Failed to load files.'
+        this.notify(page.error, 'error')
+      } finally {
+        page.loading = false
+      }
+    },
+
+    async loadFile(id) {
+      if (this.files[id]) return this.files[id]
+      const { file } = await this.filesRequest('GET', `/${encodeURIComponent(id)}`)
+      this.files[file.id] = file
+      return file
+    },
+
+    async uploadFiles(fileList, folderId = null) {
+      await Promise.all(Array.from(fileList).map((file) => this.uploadFile(file, folderId)))
+    },
+
+    // One request per file so a single failure cannot sink the batch; the
+    // placeholder stays visible with its error until dismissed.
+    async uploadFile(file, folderId = null) {
+      this.uploads.push({
+        id: `upload-${crypto.randomUUID()}`,
+        name: file.name,
+        folder_id: folderId,
+        size_bytes: file.size,
+        status: 'uploading',
+        error: null,
+      })
+      // Work with the reactive entry, not the raw literal, so status changes
+      // render and the identity check below holds.
+      const placeholder = this.uploads[this.uploads.length - 1]
+      if (file.size > MAX_UPLOAD_BYTES) {
+        placeholder.status = 'error'
+        placeholder.error = 'File is larger than 25 MB.'
+        return null
+      }
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        if (folderId) form.append('folder', folderId)
+        const headers = await this.authHeaders()
+        const response = await fetch(`${TASKS_API_URL}/files`, {
+          method: 'POST',
+          headers,
+          body: form,
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.error || `Upload failed (${response.status})`)
+        }
+        const { file: stored } = await response.json()
+        this.files[stored.id] = stored
+        const page = this.filePages[fileFolderKey(stored.folder_id)]
+        if (page?.loaded && !page.ids.includes(stored.id)) page.ids.unshift(stored.id)
+        this.uploads = this.uploads.filter((upload) => upload.id !== placeholder.id)
+        return stored
+      } catch (error) {
+        placeholder.status = 'error'
+        placeholder.error = error.message || 'Upload failed.'
+        return null
+      }
+    },
+
+    dismissUpload(id) {
+      this.uploads = this.uploads.filter((upload) => upload.id !== id)
+    },
+
+    async renameFile(id, name) {
+      const file = this.files[id]
+      if (!file) return
+      const previous = file.name
+      file.name = name
+      try {
+        const { file: updated } = await this.filesRequest('PATCH', `/${encodeURIComponent(id)}`, {
+          body: { name },
+        })
+        Object.assign(file, updated)
+      } catch (error) {
+        file.name = previous
+        this.notify(error.userMessage || 'Failed to rename the file.', 'error')
+      }
+    },
+
+    async moveFile(id, folderId) {
+      const file = this.files[id]
+      if (!file || (file.folder_id ?? null) === (folderId ?? null)) return
+      const previousFolder = file.folder_id ?? null
+      const place = (from, to) => {
+        const fromPage = this.filePages[fileFolderKey(from)]
+        if (fromPage) fromPage.ids = fromPage.ids.filter((existing) => existing !== id)
+        const toPage = this.filePages[fileFolderKey(to)]
+        if (toPage?.loaded && !toPage.ids.includes(id)) toPage.ids.unshift(id)
+        file.folder_id = to
+      }
+      place(previousFolder, folderId)
+      try {
+        const { file: updated } = await this.filesRequest('PATCH', `/${encodeURIComponent(id)}`, {
+          body: { folder: folderId },
+        })
+        Object.assign(file, updated)
+      } catch (error) {
+        place(folderId, previousFolder)
+        this.notify(error.userMessage || 'Failed to move the file.', 'error')
+      }
+    },
+
+    async deleteFile(id) {
+      const file = this.files[id]
+      if (!file) return
+      const page = this.filePages[fileFolderKey(file.folder_id)]
+      const index = page?.ids.indexOf(id) ?? -1
+      if (page) page.ids = page.ids.filter((existing) => existing !== id)
+      delete this.files[id]
+      try {
+        await this.filesRequest('DELETE', `/${encodeURIComponent(id)}`)
+        this.notify('File deleted.')
+      } catch (error) {
+        this.files[id] = file
+        if (page && index >= 0) page.ids.splice(index, 0, id)
+        this.notify(error.userMessage || 'Failed to delete the file.', 'error')
+      }
+    },
+
+    async fetchFileBlob(id) {
+      const headers = await this.authHeaders()
+      const response = await fetch(`${TASKS_API_URL}/files/${encodeURIComponent(id)}/content`, {
+        headers,
+      })
+      if (!response.ok) throw new Error(`Download failed (${response.status})`)
+      return response.blob()
     },
 
     async loadWorkspace({ force = false } = {}) {
@@ -694,6 +861,9 @@ export const useDocumentsStore = defineStore('documents', {
           }
         }
         this.folders = this.folders.filter((folder) => !doomed.has(folder.id))
+        // Files in a deleted folder fall back to the root on the server; drop
+        // the cached pages so the next visit reloads them.
+        this.filePages = {}
         for (const doc of this.documents) {
           if (doomed.has(doc.folder_id)) doc.folder_id = null
         }

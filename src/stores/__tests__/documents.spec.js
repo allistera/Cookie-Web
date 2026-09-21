@@ -30,7 +30,8 @@ const DOCS = [
 function stubFetch(routes) {
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || 'GET'
-    const body = options.body ? JSON.parse(options.body) : undefined
+    const body =
+      typeof options.body === 'string' ? JSON.parse(options.body) : (options.body ?? undefined)
     const handler = routes[method]
     if (!handler) throw new Error(`Unexpected fetch: ${method} ${url}`)
     return handler(url, body)
@@ -704,5 +705,120 @@ describe('paged document workspace', () => {
     store.syncDocumentPages(null, document)
     expect(store.documentsForPage({})).toHaveLength(0)
     expect(store.documentTags).toEqual([{ name: 'home', count: 100 }])
+  })
+})
+
+describe('documents store — files', () => {
+  const FILE = {
+    id: 'x-1',
+    folder_id: null,
+    name: 'notes.pdf',
+    mime_type: 'application/pdf',
+    size_bytes: 10,
+    created_at: 't0',
+    updated_at: 't0',
+  }
+
+  it('loads a folder page of files once and exposes it', async () => {
+    const fetchMock = stubFetch({ GET: () => ok({ files: [FILE] }) })
+    await store.loadFiles(null)
+    await store.loadFiles(null)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${TASKS_API_URL}/files?folder=root`)
+    expect(store.filesForFolder(null)).toEqual([FILE])
+    expect(store.filePages.root.loaded).toBe(true)
+  })
+
+  it('records a failed load and notifies', async () => {
+    stubFetch({ GET: fail })
+    await store.loadFiles('f-1')
+    expect(store.filePages['f-1'].error).toBeTruthy()
+    expect(useInboxStore().notify).toHaveBeenCalled()
+  })
+
+  it('uploads with multipart form data into the folder page', async () => {
+    const fetchMock = stubFetch({
+      POST: () => ({
+        ok: true,
+        status: 201,
+        json: async () => ({ file: { ...FILE, folder_id: 'f-1' } }),
+      }),
+    })
+    store.filePages['f-1'] = { ids: [], loaded: true, loading: false, error: null }
+    const file = new File(['hi'], 'notes.pdf', { type: 'application/pdf' })
+    await store.uploadFiles([file], 'f-1')
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe(`${TASKS_API_URL}/files`)
+    expect(options.body).toBeInstanceOf(FormData)
+    expect(options.body.get('folder')).toBe('f-1')
+    expect(store.filePages['f-1'].ids).toEqual(['x-1'])
+    expect(store.uploads).toEqual([])
+  })
+
+  it('keeps a failed upload as a dismissable placeholder', async () => {
+    stubFetch({
+      POST: () => ({
+        ok: false,
+        status: 413,
+        json: async () => ({ error: 'File is larger than 25 MB' }),
+      }),
+    })
+    await store.uploadFiles([new File(['x'], 'a.bin')], null)
+    expect(store.uploads).toHaveLength(1)
+    expect(store.uploads[0]).toMatchObject({ status: 'error', error: 'File is larger than 25 MB' })
+    store.dismissUpload(store.uploads[0].id)
+    expect(store.uploads).toEqual([])
+  })
+
+  it('rejects oversized files before any request', async () => {
+    const fetchMock = stubFetch({})
+    const big = new File([new Uint8Array(1)], 'big.bin')
+    Object.defineProperty(big, 'size', { value: 25 * 1024 * 1024 + 1 })
+    await store.uploadFiles([big], null)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(store.uploads[0].error).toContain('25 MB')
+  })
+
+  it('renames optimistically and rolls back on failure', async () => {
+    store.files['x-1'] = { ...FILE }
+    stubFetch({ PATCH: fail })
+    await store.renameFile('x-1', 'renamed.pdf')
+    expect(store.files['x-1'].name).toBe('notes.pdf')
+    expect(useInboxStore().notify).toHaveBeenCalled()
+  })
+
+  it('moves between loaded folder pages', async () => {
+    store.files['x-1'] = { ...FILE }
+    store.filePages.root = { ids: ['x-1'], loaded: true, loading: false, error: null }
+    store.filePages['f-1'] = { ids: [], loaded: true, loading: false, error: null }
+    stubFetch({ PATCH: (_url, body) => ok({ file: { ...FILE, folder_id: body.folder } }) })
+    await store.moveFile('x-1', 'f-1')
+    expect(store.filePages.root.ids).toEqual([])
+    expect(store.filePages['f-1'].ids).toEqual(['x-1'])
+    expect(store.files['x-1'].folder_id).toBe('f-1')
+  })
+
+  it('deletes optimistically and restores on failure', async () => {
+    store.files['x-1'] = { ...FILE }
+    store.filePages.root = { ids: ['x-1'], loaded: true, loading: false, error: null }
+    stubFetch({ DELETE: fail })
+    await store.deleteFile('x-1')
+    expect(store.filePages.root.ids).toEqual(['x-1'])
+    expect(store.files['x-1']).toBeDefined()
+  })
+
+  it('fetches content as a blob with auth headers', async () => {
+    const blob = new Blob(['pdf'])
+    const fetchMock = stubFetch({ GET: () => ({ ok: true, blob: async () => blob }) })
+    await expect(store.fetchFileBlob('x-1')).resolves.toBe(blob)
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${TASKS_API_URL}/files/x-1/content`)
+  })
+
+  it('forgets file pages when a folder is deleted', async () => {
+    store.folders = [{ id: 'f-1', parent_id: null, title: 'A' }]
+    store.filePages['f-1'] = { ids: [], loaded: true, loading: false, error: null }
+    stubFetch({ DELETE: () => ({ ok: true, status: 204 }) })
+    await store.deleteFolder('f-1')
+    expect(store.filePages).toEqual({})
   })
 })
