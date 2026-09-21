@@ -7,6 +7,38 @@ import { sanitizeEmailHtml } from '../sanitizeEmailHtml'
 // script, event handlers, dangerous URI schemes, or form/meta/link vectors,
 // while preserving benign formatting (tables, inline styles, images).
 describe('sanitizeEmailHtml', () => {
+  // Some senders paint their text white and set the page colour on <body>.
+  // Sanitizing keeps only the body's contents, so without carrying the
+  // background across the reader shows white text on its own white panel.
+  it('keeps a background colour set on <body> by wrapping the content', () => {
+    const out = sanitizeEmailHtml(
+      '<html><body style="background-color: #1a1a2e;"><p style="color:#fff">hi</p></body></html>',
+    )
+    expect(out).toContain('<p style="color:#fff">hi</p>')
+    expect(out).toMatch(/^<div style="[^"]*background-color:\s*#1a1a2e[^"]*">/)
+    expect(out).toMatch(/<\/div>$/)
+  })
+
+  it('keeps a legacy bgcolor attribute on <body> as a background colour', () => {
+    const out = sanitizeEmailHtml('<body bgcolor="#123456"><p>hi</p></body>')
+    expect(out).toMatch(/^<div style="[^"]*background-color:\s*#123456[^"]*">/)
+    expect(out).toContain('<p>hi</p>')
+  })
+
+  it('adds no wrapper when <body> carries no background', () => {
+    expect(sanitizeEmailHtml('<p>hi</p>')).toBe('<p>hi</p>')
+    expect(sanitizeEmailHtml('<html><body><p>hi</p></body></html>')).toBe('<p>hi</p>')
+  })
+
+  it('still strips event handlers declared on <body>', () => {
+    const out = sanitizeEmailHtml(
+      '<body style="background:#000" onload="window.evil = 1"><p>hi</p></body>',
+    )
+    expect(out.toLowerCase()).not.toContain('onload')
+    expect(out).not.toContain('window.evil')
+    expect(out).toContain('background:#000')
+  })
+
   it('strips <script> tags', () => {
     const out = sanitizeEmailHtml('<p>hi</p><script>window.evil = 1</script>')
     expect(out).toContain('<p>hi</p>')

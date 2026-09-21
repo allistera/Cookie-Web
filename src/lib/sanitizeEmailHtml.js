@@ -84,13 +84,32 @@ function installLinkHook() {
   hookInstalled = true
 }
 
+// Sanitizing keeps only the contents of the sender's <body>, so a page
+// colour set on the body itself (inline style or legacy bgcolor) would be
+// lost — and emails that paint their text white on a dark body then render
+// as white on the reader's own light panel. Carry that background across on
+// a wrapper <div>. The wrapper is part of the string DOMPurify sanitizes, so
+// its style is vetted exactly like any other inline style and any other
+// body attribute (event handlers included) is dropped.
+function carryBodyBackground(html) {
+  if (!globalThis.DOMParser) return html
+  const body = new DOMParser().parseFromString(html, 'text/html').body
+  if (!body) return html
+  const style = body.getAttribute('style')?.trim() ?? ''
+  const bgcolor = body.getAttribute('bgcolor')?.trim() ?? ''
+  if (!style && !bgcolor) return html
+  const background = bgcolor ? `background-color: ${bgcolor};` : ''
+  const separator = background && style ? ' ' : ''
+  return `<div style="${background}${separator}${style}">${body.innerHTML}</div>`
+}
+
 // Returns a sanitized HTML string safe to embed in the reader iframe's
 // srcdoc. Empty string for empty / missing input.
 export function sanitizeEmailHtml(dirty) {
   const html = String(dirty ?? '')
   if (html === '') return ''
   installLinkHook()
-  return DOMPurify.sanitize(html, CONFIG)
+  return DOMPurify.sanitize(carryBodyBackground(html), CONFIG)
 }
 
 export function sanitizeForwardedEmailHtml(dirty) {
