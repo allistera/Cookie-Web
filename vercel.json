@@ -18,7 +18,7 @@
       ]
     },
     {
-      "source": "/(icons/.*|site\\.webmanifest|favicon\\.ico|apple-touch-icon\\.png|rose_avatar\\.webp)",
+      "source": "/(icons/.*|fonts/.*|site\\.webmanifest|favicon\\.ico|apple-touch-icon\\.png|rose_avatar\\.webp)",
       "headers": [
         {
           "key": "Cache-Control",

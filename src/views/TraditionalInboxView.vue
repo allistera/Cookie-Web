@@ -2014,18 +2014,29 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div class="ni-email-header-right">
-                  <button class="ni-reader-btn" title="Reply" @click="replyToOpenEmail">
+                  <button
+                    class="ni-reader-btn"
+                    title="Reply"
+                    aria-label="Reply"
+                    @click="replyToOpenEmail"
+                  >
                     <span class="material-symbols-outlined">reply</span>
                   </button>
                   <button
                     v-if="canReplyAll"
                     class="ni-reader-btn"
                     title="Reply all"
+                    aria-label="Reply all"
                     @click="replyAllToOpenEmail"
                   >
                     <span class="material-symbols-outlined">reply_all</span>
                   </button>
-                  <button class="ni-reader-btn" title="Forward" @click="forwardOpenEmail">
+                  <button
+                    class="ni-reader-btn"
+                    title="Forward"
+                    aria-label="Forward"
+                    @click="forwardOpenEmail"
+                  >
                     <span class="material-symbols-outlined">forward</span>
                   </button>
                   <span class="ni-email-time">{{ openEmail.date }}</span>

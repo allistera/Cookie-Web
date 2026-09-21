@@ -1,6 +1,11 @@
-// Keep the Google-hosted Material Symbols subset off the logged-out critical
-// path. The authenticated shell requests it once, immediately before icons are
-// needed; iconFontSubset.spec.js keeps this list aligned with source usage.
+// Keep the Material Symbols subset off the logged-out critical path. The
+// authenticated shell requests it once, immediately before icons are needed;
+// iconFontSubset.spec.js keeps this list aligned with source usage.
+//
+// The subset is self-hosted (public/fonts/, precached by public/sw.js) rather
+// than fetched from fonts.googleapis.com, so an installed PWA started offline
+// still renders icons. After editing this list run `npm run fetch:icon-font`
+// to regenerate the woff2 and its stylesheet from the same names.
 export const MATERIAL_SYMBOL_NAMES = [
   'add',
   'add_reaction',
@@ -93,22 +98,25 @@ export const MATERIAL_SYMBOL_NAMES = [
   'warning_amber',
 ]
 
-const MATERIAL_SYMBOLS_URL =
-  'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:' +
-  'opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=' +
-  `${MATERIAL_SYMBOL_NAMES.join(',')}&display=block`
+// Written by scripts/fetch-icon-font.mjs; served same-origin and precached by
+// public/sw.js, so this request works offline and adds no third-party origin
+// to the render path.
+export const MATERIAL_SYMBOLS_STYLESHEET_URL = '/fonts/material-symbols-outlined.css'
+
+// Matches the @font-face in that stylesheet.
+const MATERIAL_SYMBOLS_FONT = '24px "Material Symbols Outlined"'
 
 export function loadMaterialSymbols(doc = document) {
   if (doc.head.querySelector('link[data-material-symbols]')) return
   doc.documentElement.dataset.materialSymbols = 'loading'
   const stylesheet = doc.createElement('link')
   stylesheet.rel = 'stylesheet'
-  stylesheet.href = MATERIAL_SYMBOLS_URL
+  stylesheet.href = MATERIAL_SYMBOLS_STYLESHEET_URL
   stylesheet.dataset.materialSymbols = ''
   stylesheet.addEventListener(
     'load',
     () => {
-      doc.documentElement.dataset.materialSymbols = 'loaded'
+      void revealWhenGlyphsReady(doc)
     },
     { once: true },
   )
@@ -119,10 +127,24 @@ export function loadMaterialSymbols(doc = document) {
     },
     { once: true },
   )
-  // The Google stylesheet also declares size, colour, and line-height on the
-  // icon class. Keep it before application CSS so component-level rules retain
-  // the same cascade precedence they had when the font lived in index.html.
+  // The generated stylesheet mirrors Google's and also declares size, colour,
+  // line-height, and ligature settings on the icon class. Keep it before
+  // application CSS so component-level rules retain the same cascade
+  // precedence they had when the font lived in index.html.
   const applicationStyles = doc.head.querySelector('style, link[rel="stylesheet"]')
   if (applicationStyles) doc.head.insertBefore(stylesheet, applicationStyles)
   else doc.head.append(stylesheet)
+}
+
+// The stylesheet's load event only means the @font-face rule parsed. Wait for
+// the woff2 itself before revealing icons: font-display: block would otherwise
+// expire and paint raw ligature text ("calendar_month") in every control.
+async function revealWhenGlyphsReady(doc) {
+  try {
+    const faces = await doc.fonts?.load?.(MATERIAL_SYMBOLS_FONT)
+    if (faces?.length === 0) throw new Error('Material Symbols Outlined is not declared')
+    doc.documentElement.dataset.materialSymbols = 'loaded'
+  } catch {
+    doc.documentElement.dataset.materialSymbols = 'error'
+  }
 }

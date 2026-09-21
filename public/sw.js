@@ -4,12 +4,18 @@ const MAIL_CACHE = 'cookie-recent-mail-v3'
 // bundles need only a small bounded cache across deployments.
 const MAX_SHELL_ENTRIES = self.location.hostname === 'localhost' ? 500 : 60
 const MAX_MAIL_ENTRIES = 20
+// Every SW update re-runs install, which re-fetches this whole list, so new
+// entries reach existing installs without renaming SHELL_CACHE.
 const SHELL_URLS = [
   '/',
   '/site.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-512-maskable.png',
+  // Self-hosted Material Symbols subset (src/lib/iconFont.js). Without these
+  // an offline start renders every icon hidden by main.css.
+  '/fonts/material-symbols-outlined.css',
+  '/fonts/material-symbols-outlined.woff2',
 ]
 const STATIC_DESTINATIONS = new Set(['font', 'image', 'manifest', 'script', 'style'])
 

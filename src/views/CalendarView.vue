@@ -1338,6 +1338,12 @@ onUnmounted(() => {
 
 <style scoped>
 .calendar-view {
+  /* Local stacking inside the calendar grid: events, a drag preview over
+     them, then the current-time line over both. */
+  --z-cal-event: 1;
+  --z-cal-drag: 2;
+  --z-cal-now: 3;
+
   --calendar-canvas: var(--bg-card);
   --calendar-surface: var(--bg-dialog);
   --calendar-ink: var(--text-primary);
@@ -1920,7 +1926,7 @@ onUnmounted(() => {
 }
 
 .calendar-event.drag-preview {
-  z-index: 5;
+  z-index: var(--z-cal-drag);
   border: 2px dashed var(--calendar-emphasis);
   background: color-mix(in srgb, var(--calendar-emphasis) 14%, transparent);
   pointer-events: none;
@@ -1928,7 +1934,7 @@ onUnmounted(() => {
 
 .current-time-line {
   position: absolute;
-  z-index: 6;
+  z-index: var(--z-cal-now);
   height: 2px;
   background: var(--calendar-time-line);
   pointer-events: none;
@@ -2049,7 +2055,7 @@ onUnmounted(() => {
 
 .week-event {
   position: absolute;
-  z-index: 4;
+  z-index: var(--z-cal-event);
   padding: 6px 8px;
   font-size: 13px;
 }
@@ -2175,7 +2181,7 @@ onUnmounted(() => {
 .new-event-overlay {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  z-index: var(--z-modal);
   padding: 4px;
   background: var(--calendar-overlay);
   display: flex;

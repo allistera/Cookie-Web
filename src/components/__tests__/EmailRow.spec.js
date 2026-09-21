@@ -27,6 +27,17 @@ describe('EmailRow', () => {
     expect(row.attributes('aria-label')).toContain('Quarterly numbers')
   })
 
+  // The action buttons are icon-only, so without a label a screen reader
+  // reads the icon ligature ("star_border") - and in a list of rows it has to
+  // say which message the action belongs to.
+  it('names the row actions after the message', () => {
+    const wrapper = mountRow({ showDone: true })
+
+    expect(wrapper.get('[aria-label="Star Quarterly numbers"]').attributes('title')).toBe('Star')
+    expect(wrapper.get('[aria-label="Mark Quarterly numbers done"]').exists()).toBe(true)
+    expect(wrapper.get('[aria-label="Mark Quarterly numbers as read"]').exists()).toBe(true)
+  })
+
   it('opens on Enter and Space', async () => {
     const wrapper = mountRow()
     await wrapper.get('.ni-row').trigger('keydown', { key: 'Enter' })

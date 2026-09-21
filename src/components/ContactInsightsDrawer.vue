@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
 .contact-insights-header {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: var(--z-header);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -528,7 +528,7 @@ onBeforeUnmount(() => {
   .contact-insights-drawer {
     position: fixed;
     inset: 52px 0 0;
-    z-index: 100;
+    z-index: var(--z-drawer);
     width: 100%;
     min-width: 0;
     height: auto;

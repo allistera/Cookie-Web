@@ -231,6 +231,30 @@ onUnmounted(() => {
     </div>
 
     <div class="ai-cards-container">
+      <!-- The greeting alone looks like "nothing to do", so say when the day
+           is still loading or could not be prepared. -->
+      <div
+        v-if="store.isTasksLoading && !store.tasksLoaded"
+        class="ai-state ai-state-loading"
+        data-testid="today-loading"
+        role="status"
+        aria-label="Preparing your day"
+      >
+        <div class="spinner"></div>
+      </div>
+
+      <div
+        v-else-if="store.tasksError && !store.tasksLoaded"
+        class="ai-state ai-state-error"
+        data-testid="today-error"
+        role="alert"
+      >
+        <p>{{ store.tasksError }}</p>
+        <button type="button" class="btn btn-secondary" @click="store.loadTasks({ force: true })">
+          Try again
+        </button>
+      </div>
+
       <!-- SUGGESTED TO-DOS -->
       <section v-if="tasks.length" class="ai-card todo-card" data-testid="todo-card">
         <div class="card-header">
@@ -240,7 +264,12 @@ onUnmounted(() => {
         <TransitionGroup name="todo-list" tag="div" class="todo-rows" data-testid="task-rows">
           <div v-for="task in tasks" :key="task.id" class="todo-row">
             <div class="todo-checkbox-container">
-              <button class="todo-check-btn" title="Mark done" @click="completeTask(task)">
+              <button
+                class="todo-check-btn"
+                title="Mark done"
+                :aria-label="`Mark done: ${task.content}`"
+                @click="completeTask(task)"
+              >
                 <span class="material-symbols-outlined">circle</span>
               </button>
             </div>
@@ -317,7 +346,12 @@ onUnmounted(() => {
                 class="topic-email-row topic-catchup-row"
               >
                 <div class="todo-checkbox-container">
-                  <button class="todo-check-btn" title="Mark done" @click="completeTopicItem(item)">
+                  <button
+                    class="todo-check-btn"
+                    title="Mark done"
+                    :aria-label="`Mark done: ${item.headline}`"
+                    @click="completeTopicItem(item)"
+                  >
                     <span class="material-symbols-outlined">circle</span>
                   </button>
                 </div>
@@ -335,6 +369,7 @@ onUnmounted(() => {
                   <button
                     class="todo-check-btn"
                     title="Reschedule"
+                    :aria-label="`Reschedule: ${item.headline}`"
                     aria-haspopup="menu"
                     :aria-expanded="reschedulingItemId === item.message_id"
                     @click="
@@ -574,5 +609,21 @@ onUnmounted(() => {
   padding-bottom: 0;
   margin: 0;
   border: none;
+}
+
+.ai-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 0;
+  color: var(--text-secondary);
+}
+
+.ai-state-loading {
+  justify-content: center;
+}
+
+.ai-state p {
+  margin: 0;
 }
 </style>

@@ -644,7 +644,7 @@ function onEditorSave(payload) {
   top: 0;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-color);
-  z-index: 5;
+  z-index: var(--z-header);
 }
 
 .editor-save-navigation {
@@ -881,13 +881,6 @@ function onEditorSave(payload) {
   color: #f5b301;
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
 .document-ai-toggle,
 .document-ai-panel-header button {
   display: inline-flex;
@@ -914,7 +907,7 @@ function onEditorSave(payload) {
   bottom: 0;
   width: min(380px, 100vw);
   box-sizing: border-box;
-  z-index: 1000;
+  z-index: var(--z-drawer);
   background: var(--bg-card);
   color: var(--text-primary);
   border-left: 1px solid var(--border-color);

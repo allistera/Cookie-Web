@@ -611,17 +611,24 @@ onUnmounted(() => {
     </div>
 
     <!-- Toast notifications -->
-    <div class="toast-container">
+    <div class="toast-container" role="status" aria-live="polite">
       <Transition name="toast">
+        <!-- aria-live="off": the countdown re-renders every second and would
+             otherwise be read out on every tick. The Undo button stays
+             mounted for the whole countdown (main.css reveals it on hover or
+             focus) so it can be tabbed to. -->
         <div
           v-if="store.pendingSend"
           class="toast undo-send-toast"
           :class="{ expanded: undoSendHover }"
+          aria-live="off"
           @mouseenter="onUndoSendEnter"
           @mouseleave="onUndoSendLeave"
+          @focusin="onUndoSendEnter"
+          @focusout="onUndoSendLeave"
         >
           <span class="toast-message">Sending in {{ store.pendingSend.secondsLeft }}</span>
-          <button v-if="undoSendHover" class="undo-send-btn" @click="undoSend">Undo</button>
+          <button class="undo-send-btn" @click="undoSend">Undo</button>
         </div>
       </Transition>
       <TransitionGroup name="toast">
@@ -630,12 +637,19 @@ onUnmounted(() => {
           :key="toast.id"
           class="toast"
           :class="`toast-${toast.kind}`"
+          :role="toast.kind === 'error' ? 'alert' : null"
+          :aria-live="toast.kind === 'error' ? 'assertive' : null"
         >
           <span class="toast-message">{{ toast.message }}</span>
           <button v-if="toast.action" class="toast-action" @click="store.runToastAction(toast.id)">
             {{ toast.action.label }}
           </button>
-          <button class="toast-close" title="Dismiss" @click="store.dismissToast(toast.id)">
+          <button
+            class="toast-close"
+            title="Dismiss"
+            aria-label="Dismiss notification"
+            @click="store.dismissToast(toast.id)"
+          >
             <span class="material-symbols-outlined">close</span>
           </button>
         </div>

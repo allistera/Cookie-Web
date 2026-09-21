@@ -1,6 +1,7 @@
 import { startTiming } from '../lib/performance'
 import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { parseAutoArchive } from '../lib/autoArchive'
 import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
@@ -643,6 +644,9 @@ export const useInboxStore = defineStore('inbox', {
     // server-side; the client only ever lists/cancels them.
     scheduledSends: [],
     isScheduledSendsLoaded: false,
+    isScheduledSendsLoading: false,
+    // Message shown by the Scheduled view when the queue could not be read.
+    scheduledSendsError: null,
 
     // Compose auto-suggest: [{ address, name }] of mailbox correspondents,
     // loaded lazily on first composer open.
@@ -654,6 +658,9 @@ export const useInboxStore = defineStore('inbox', {
     // opens.
     tasks: [],
     tasksLoaded: false,
+    isTasksLoading: false,
+    // Message shown by AI Today when the day could not be prepared.
+    tasksError: null,
 
     // AI Today's three-tier email triage: Reply Needed and Review groups plus
     // summarized Noise, or null. The legacy API field name remains `digest`.
@@ -1739,8 +1746,9 @@ export const useInboxStore = defineStore('inbox', {
         if (thread?.id !== threadId || ![true, false].includes(thread.is_muted)) {
           throw new Error('Invalid thread mute response')
         }
-        for (const cached of this.messageBodies.values()) {
-          if (cached.threadId === threadId) cached.threadMuted = thread.is_muted
+        for (const [cachedId, cached] of this.messageBodies.entries()) {
+          if (cached.threadId === threadId)
+            this.replaceMessageBody(cachedId, { threadMuted: thread.is_muted })
         }
         this.notify(thread.is_muted ? 'Thread muted. Replies will be silent.' : 'Thread unmuted.')
       } catch (error) {
@@ -1783,11 +1791,22 @@ export const useInboxStore = defineStore('inbox', {
     // reader sanitizes it before rendering). Successful fetches are cached so
     // reopening doesn't refetch; failures are not cached so a later open can
     // retry. Never throws — the reader falls back to the list's body_text.
+    // Swaps a cached body for a copy with `patch` applied. Cached bodies are
+    // raw (see fetchMessageBodyUncached), so mutating one in place would not
+    // notify the getters; replacing the Map entry does.
+    replaceMessageBody(id, patch) {
+      const cached = this.messageBodies.get(id)
+      if (!cached) return null
+      const next = markRaw({ ...cached, ...patch })
+      this.messageBodies.set(id, next)
+      return next
+    },
+
     async fetchMessageBody(id) {
       if (!id) return null
       if (this.messageBodies.has(id)) {
         const cached = this.messageBodies.get(id)
-        if (cached.calendarInvitePending) void this.fetchCalendarInvite(id, cached)
+        if (cached.calendarInvitePending) void this.fetchCalendarInvite(id)
         return cached
       }
       // Both openReader and the view's openEmailId watcher request the body in
@@ -1849,9 +1868,13 @@ export const useInboxStore = defineStore('inbox', {
           body.calendarInvite = calendar_invite ?? null
         }
         if (payload.calendar_invite_pending === true) body.calendarInvitePending = true
-        cacheSet(this.messageBodies, id, body, MAX_CACHED_MESSAGE_BODIES)
-        if (body.calendarInvitePending)
-          void this.fetchCalendarInvite(id, this.messageBodies.get(id))
+        // Bodies carry full HTML, whole threads and attachment lists; they only
+        // ever need reference-level reactivity (getters read the entry, never
+        // a field on it), so keep them raw instead of deep-proxying every
+        // message of a long thread right as the reader paints. Later updates
+        // replace the entry (replaceMessageBody) rather than mutate it.
+        cacheSet(this.messageBodies, id, markRaw(body), MAX_CACHED_MESSAGE_BODIES)
+        if (body.calendarInvitePending) void this.fetchCalendarInvite(id)
         const summaryText = String(thread_summary ?? '')
           .replace(/\s+/g, ' ')
           .trim()
@@ -1874,7 +1897,7 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async fetchCalendarInvite(id, cached) {
+    async fetchCalendarInvite(id) {
       if (pendingInviteFetches.has(id)) return pendingInviteFetches.get(id)
       const request = (async () => {
         try {
@@ -1885,9 +1908,14 @@ export const useInboxStore = defineStore('inbox', {
           )
           if (!response.ok) return
           const { calendar_invite } = await response.json()
-          if (this.messageBodies.get(id) !== cached) return
-          cached.calendarInvite = calendar_invite ?? null
-          cached.calendarInvitePending = false
+          // Bodies are replaced, not mutated, so identity with `cached` can
+          // change underneath a slow invite fetch (a thread mute, say). The
+          // invite still belongs to this entry as long as it is still waiting.
+          if (!this.messageBodies.get(id)?.calendarInvitePending) return
+          this.replaceMessageBody(id, {
+            calendarInvite: calendar_invite ?? null,
+            calendarInvitePending: false,
+          })
         } catch {
           // Keep the body readable and retry enrichment on the next open.
         } finally {
@@ -2051,7 +2079,7 @@ export const useInboxStore = defineStore('inbox', {
             cacheSet(
               this.messageBodies,
               email.id,
-              { ...cached, unsubscribed: true },
+              markRaw({ ...cached, unsubscribed: true }),
               MAX_CACHED_MESSAGE_BODIES,
             )
           }
@@ -2063,7 +2091,7 @@ export const useInboxStore = defineStore('inbox', {
             cacheSet(
               this.messageBodies,
               email.id,
-              { ...cached, unsubscribeFailed: true },
+              markRaw({ ...cached, unsubscribeFailed: true }),
               MAX_CACHED_MESSAGE_BODIES,
             )
           }
@@ -2578,6 +2606,8 @@ export const useInboxStore = defineStore('inbox', {
     // control passes force to re-read past the cache.
     async loadTasks({ force = false } = {}) {
       if (this.tasksLoaded && !force) return
+      this.isTasksLoading = true
+      this.tasksError = null
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${TASKS_API_URL}/tasks?date=${localToday()}`, { headers })
@@ -2589,6 +2619,9 @@ export const useInboxStore = defineStore('inbox', {
         this.tasksLoaded = true
       } catch (error) {
         console.error('Failed to load tasks:', error)
+        this.tasksError = 'Could not load your day.'
+      } finally {
+        this.isTasksLoading = false
       }
     },
 
@@ -3569,6 +3602,8 @@ export const useInboxStore = defineStore('inbox', {
     // Best-effort and cached, like loadContacts/loadTasks.
     async loadScheduledSends() {
       if (this.isScheduledSendsLoaded) return
+      this.isScheduledSendsLoading = true
+      this.scheduledSendsError = null
       try {
         const headers = await this.authHeaders()
         const response = await fetch('/api/send?resource=scheduled', { headers })
@@ -3578,6 +3613,9 @@ export const useInboxStore = defineStore('inbox', {
         this.isScheduledSendsLoaded = true
       } catch (error) {
         console.error('Failed to load scheduled sends:', error)
+        this.scheduledSendsError = 'Could not load your scheduled mail.'
+      } finally {
+        this.isScheduledSendsLoading = false
       }
     },
 

@@ -53,6 +53,20 @@
   --modal-close-dur: 150ms;
   --modal-scale: 0.96;
   --modal-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Stacking order. Every z-index in src/ comes from this scale — see
+     src/assets/__tests__/zIndex.spec.js, which fails on a bare literal. Nudge
+     a layer past its own family with calc(), e.g. a menu that has to beat the
+     modal it lives in: calc(var(--z-modal) + 1). */
+  --z-header: 10; /* sticky in-flow chrome: app header, sticky panel headers */
+  --z-popover: 100; /* tooltips, row menus, autocompletes */
+  --z-drawer: 200; /* side panels: mail reader, contact insights, AI panel */
+  --z-composer: 300; /* the floating composer window */
+  --z-dropdown: 400; /* header and profile dropdowns, the bulk action bar */
+  --z-modal: 500; /* dialog backdrops */
+  --z-palette: 600; /* command palette */
+  --z-toast: 700; /* toasts and the undo-send countdown */
+  --z-loading: 800; /* the global loading bar, on top of everything */
 }
 
 /* Dark Mode Variables */
@@ -115,6 +129,21 @@
   visibility: visible;
 }
 
+/* Names a control for assistive tech without painting anything: unlike
+   display: none or visibility: hidden it stays in the accessibility tree, and
+   it takes no space in the layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 body {
   font-family: var(--font-stack);
   background-color: var(--bg-app);
@@ -141,7 +170,7 @@ body {
   height: 52px;
   padding: 0 16px;
   background-color: var(--bg-header);
-  z-index: 10;
+  z-index: var(--z-header);
   transition:
     background-color var(--transition-normal),
     border-color var(--transition-normal);
@@ -268,7 +297,7 @@ body {
   left: 72px;
   width: 164px;
   padding-top: 8px;
-  z-index: 100;
+  z-index: var(--z-popover);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -409,7 +438,7 @@ body {
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-color);
   padding: 8px 0;
-  z-index: 100;
+  z-index: var(--z-popover);
   animation: slide-down var(--transition-fast);
 }
 
@@ -1123,7 +1152,7 @@ body {
   left: 0;
   right: 0;
   height: 3px;
-  z-index: 2000;
+  z-index: var(--z-loading);
   overflow: hidden;
   pointer-events: none;
   background: transparent;
@@ -1187,7 +1216,7 @@ body {
   border: 1px solid var(--border-color);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   cursor: pointer;
-  z-index: 5;
+  z-index: var(--z-popover);
 }
 
 /* Invisible bridge over the 8px gap so the pointer can travel from the badge
@@ -1228,7 +1257,8 @@ body {
   background: var(--bg-dialog);
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-md);
-  z-index: 900;
+  /* Above the composer, below any dialog. */
+  z-index: var(--z-dropdown);
 }
 
 .ni-bulk-count {
@@ -1293,7 +1323,7 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 950;
+  z-index: var(--z-popover);
   width: 210px;
   padding: 6px;
   border: 1px solid var(--border-color);
@@ -1392,7 +1422,7 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 950;
+  z-index: var(--z-popover);
   width: 230px;
   max-height: 320px;
   overflow-y: auto;
@@ -1695,7 +1725,7 @@ body {
   background: var(--bg-card);
   border-left: 1px solid var(--border-color);
   box-shadow: -16px 0 40px rgba(0, 0, 0, 0.14);
-  z-index: 40;
+  z-index: var(--z-drawer);
   display: flex;
   flex-direction: column;
   padding: 16px 28px 24px;
@@ -1822,7 +1852,7 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 950;
+  z-index: var(--z-popover);
   width: 240px;
   padding: 6px;
   border: 1px solid var(--border-color);
@@ -2361,7 +2391,7 @@ button.ni-attachment:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  z-index: 900;
+  z-index: var(--z-toast);
 }
 
 .toast {
@@ -2388,8 +2418,25 @@ button.ni-attachment:hover {
   transition: min-width var(--transition-fast);
 }
 
-.undo-send-toast.expanded {
+.undo-send-toast.expanded,
+.undo-send-toast:hover,
+.undo-send-toast:focus-within {
   min-width: 300px;
+}
+
+/* The Undo button stays mounted (and focusable) for the whole countdown so
+   keyboard and touch users can reach it; it is only revealed once the toast is
+   hovered or holds focus. Opacity, not visibility: a hidden button is not
+   reachable. */
+.undo-send-btn {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.undo-send-toast.expanded .undo-send-btn,
+.undo-send-toast:hover .undo-send-btn,
+.undo-send-toast:focus-within .undo-send-btn {
+  opacity: 1;
 }
 
 .undo-send-btn,
@@ -2698,7 +2745,7 @@ button.ni-attachment:hover {
   background-color: rgba(0, 0, 0, 0.5);
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -2957,7 +3004,7 @@ button.ni-attachment:hover {
     0 9px 24px rgba(15, 15, 15, 0.2);
   display: none;
   flex-direction: column;
-  z-index: 500;
+  z-index: var(--z-composer);
   overflow: hidden;
   animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -3042,7 +3089,8 @@ button.ni-attachment:hover {
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
   padding: 6px 0;
-  z-index: 20;
+  /* Popovers inside the composer sit above the composer itself. */
+  z-index: calc(var(--z-composer) + 1);
   overflow: hidden;
 }
 
@@ -3297,7 +3345,7 @@ button.ni-attachment:hover {
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
   padding: 6px 0;
-  z-index: 30;
+  z-index: calc(var(--z-composer) + 2);
 }
 
 .composer-slash-menu .suggestion-item.highlighted {
@@ -3438,7 +3486,7 @@ button.ni-attachment:hover {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  z-index: 950;
+  z-index: calc(var(--z-composer) + 3);
   width: 320px;
   display: flex;
   flex-direction: column;
@@ -4696,7 +4744,7 @@ button.ni-attachment:hover {
   .settings-sidebar {
     position: sticky;
     top: 0;
-    z-index: 20;
+    z-index: var(--z-header);
     padding: 10px 14px 12px;
     border-bottom: 1px solid var(--border-color);
     background-color: var(--bg-input);
@@ -4804,7 +4852,7 @@ button.ni-attachment:hover {
   padding: 16px;
   min-width: 240px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  z-index: var(--z-dropdown);
   animation: slide-down 0.2s ease-out;
   cursor: default;
 }
@@ -4947,7 +4995,7 @@ button.ni-attachment:hover {
   align-items: flex-start;
   justify-content: center;
   padding-top: 14vh;
-  z-index: 1100;
+  z-index: var(--z-palette);
 }
 
 .cp-overlay.active {

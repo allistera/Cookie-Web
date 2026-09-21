@@ -37,6 +37,30 @@ beforeEach(() => {
 })
 
 describe('ScheduledSendsView', () => {
+  it('shows a loading state, not the empty message, while the queue loads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {})),
+    )
+
+    const wrapper = mount(ScheduledSendsView)
+    await flushPromises()
+
+    expect(wrapper.find('.scheduled-sends-loading').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Nothing is scheduled')
+  })
+
+  it('shows an error, not the empty message, when the queue fails to load', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const wrapper = mount(ScheduledSendsView)
+    await flushPromises()
+
+    expect(wrapper.get('.scheduled-sends-error').text()).toContain('Could not load')
+    expect(wrapper.text()).not.toContain('Nothing is scheduled')
+  })
+
   it('shows an empty state when nothing is scheduled', async () => {
     stubFetch([])
 

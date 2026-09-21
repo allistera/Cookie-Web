@@ -72,6 +72,36 @@ const DIGEST = () => ({
 })
 
 describe('AIInboxView (AI Today)', () => {
+  it('shows a loading state while the day is being prepared', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {})),
+    )
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    store.tasksLoaded = false
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="today-loading"]').exists()).toBe(true)
+  })
+
+  it('shows an error with a retry when the day fails to load', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    store.tasksLoaded = false
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const error = wrapper.get('[data-testid="today-error"]')
+    expect(error.text()).toContain('Could not load')
+    const loadTasks = vi.spyOn(store, 'loadTasks').mockResolvedValue()
+    await error.get('button').trigger('click')
+    expect(loadTasks).toHaveBeenCalledWith({ force: true })
+  })
+
   let store
 
   beforeEach(() => {

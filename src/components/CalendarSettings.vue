@@ -276,6 +276,7 @@ onMounted(loadCalendars)
               type="submit"
               class="ni-action-btn"
               title="Save"
+              :aria-label="`Save ${calendar.name}`"
               :disabled="!editingCalendarName.trim()"
             >
               <span class="material-symbols-outlined" aria-hidden="true">check</span>
@@ -284,6 +285,7 @@ onMounted(loadCalendars)
               type="button"
               class="ni-action-btn"
               title="Cancel"
+              :aria-label="`Cancel renaming ${calendar.name}`"
               @click="cancelRenameCalendar"
             >
               <span class="material-symbols-outlined" aria-hidden="true">close</span>

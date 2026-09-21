@@ -40,7 +40,25 @@ async function cancel(scheduledSend) {
       </p>
     </header>
 
-    <div v-if="!store.scheduledSends.length" class="scheduled-sends-empty">
+    <!-- Loading, then error, then empty: the empty message must never stand
+         in for a request that is still running or that failed. -->
+    <div
+      v-if="store.isScheduledSendsLoading && !store.isScheduledSendsLoaded"
+      class="scheduled-sends-loading"
+      role="status"
+      aria-label="Loading scheduled mail"
+    >
+      <div class="spinner"></div>
+    </div>
+
+    <div v-else-if="store.scheduledSendsError" class="scheduled-sends-error" role="alert">
+      <p>{{ store.scheduledSendsError }}</p>
+      <button type="button" class="btn btn-secondary" @click="store.loadScheduledSends()">
+        Try again
+      </button>
+    </div>
+
+    <div v-else-if="!store.scheduledSends.length" class="scheduled-sends-empty">
       Nothing is scheduled to send later.
     </div>
 
@@ -64,6 +82,25 @@ async function cancel(scheduledSend) {
   max-width: 720px;
   margin: 0 auto;
   padding: 32px 24px;
+}
+
+.scheduled-sends-loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.scheduled-sends-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px 0;
+  color: var(--text-secondary);
+}
+
+.scheduled-sends-error p {
+  margin: 0;
 }
 
 .scheduled-sends-header h1 {

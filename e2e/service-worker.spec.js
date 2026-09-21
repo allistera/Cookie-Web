@@ -40,6 +40,10 @@ test('the service worker keeps the shell and recently read mail available offlin
   })
   expect(shellUrls).toContain('/')
   expect(shellUrls).toContain('/inbox')
+  // The self-hosted Material Symbols subset is precached at install; without
+  // it main.css keeps every icon hidden for an offline start.
+  expect(shellUrls).toContain('/fonts/material-symbols-outlined.css')
+  expect(shellUrls).toContain('/fonts/material-symbols-outlined.woff2')
 
   const onlineBody = await page.evaluate(async () => {
     const response = await fetch('/api/messages?id=fixture-1')
@@ -68,6 +72,11 @@ test('the service worker keeps the shell and recently read mail available offlin
 
     await page.reload()
     await expect(page.locator('#traditionalInboxView')).toBeVisible()
+    // Icons come from the precached subset, so they resolve offline rather
+    // than staying hidden behind the loading state.
+    await expect
+      .poll(() => page.locator('html').getAttribute('data-material-symbols'))
+      .toBe('loaded')
   } finally {
     await context.setOffline(false)
   }

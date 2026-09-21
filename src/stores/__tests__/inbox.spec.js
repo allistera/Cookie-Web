@@ -1,4 +1,5 @@
 import { setActivePinia, createPinia } from 'pinia'
+import { isProxy } from 'vue'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { mergeInboxPage, useInboxStore, mapEmailRow } from '../inbox'
 import { setAuth0Client } from '../../auth0-client'
@@ -22,6 +23,103 @@ describe('Inbox Store', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  describe('Message body cache', () => {
+    const bodyResponse = (extra = {}) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'm1',
+        body_html: '<p>hi</p>',
+        body_text: 'hi',
+        thread_id: 'thread-1',
+        thread: [],
+        attachments: [],
+        ...extra,
+      }),
+    })
+
+    it('stores fetched bodies as raw objects so a long thread is not deep-proxied', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(bodyResponse()))
+      const store = useInboxStore()
+
+      await store.fetchMessageBody('m1')
+
+      expect(isProxy(store.messageBodies.get('m1'))).toBe(false)
+      store.openEmailId = 'm1'
+      expect(store.openEmailHtml).toBe('<p>hi</p>')
+    })
+
+    it('keeps getters reactive when a deferred calendar invite lands', async () => {
+      const invite = { summary: 'Site visit', start: '2026-09-22T09:00:00Z' }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url) =>
+          String(url).includes('/calendar-invite')
+            ? { ok: true, status: 200, json: async () => ({ calendar_invite: invite }) }
+            : bodyResponse({ calendar_invite_pending: true }),
+        ),
+      )
+      const store = useInboxStore()
+      store.openEmailId = 'm1'
+
+      await store.fetchMessageBody('m1')
+      await vi.waitFor(() => expect(store.openEmailCalendarInvite).toEqual(invite))
+      expect(isProxy(store.messageBodies.get('m1'))).toBe(false)
+    })
+  })
+
+  describe('Best-effort loaders expose loading and error state', () => {
+    it('loadScheduledSends reports loading while in flight and an error on failure', async () => {
+      let resolveFetch
+      const fetchMock = vi.fn(() => new Promise((resolve) => (resolveFetch = resolve)))
+      vi.stubGlobal('fetch', fetchMock)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+
+      const load = store.loadScheduledSends()
+      expect(store.isScheduledSendsLoading).toBe(true)
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+      resolveFetch({ ok: false, status: 500 })
+      await load
+
+      expect(store.isScheduledSendsLoading).toBe(false)
+      expect(store.scheduledSendsError).toBeTruthy()
+      expect(store.isScheduledSendsLoaded).toBe(false)
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ scheduledSends: [] }) }),
+      )
+      await store.loadScheduledSends()
+      expect(store.scheduledSendsError).toBeNull()
+      expect(store.isScheduledSendsLoaded).toBe(true)
+    })
+
+    it('loadTasks reports loading while in flight and an error on failure', async () => {
+      let resolveFetch
+      const fetchMock = vi.fn(() => new Promise((resolve) => (resolveFetch = resolve)))
+      vi.stubGlobal('fetch', fetchMock)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+
+      const load = store.loadTasks()
+      expect(store.isTasksLoading).toBe(true)
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+      resolveFetch({ ok: false, status: 500 })
+      await load
+
+      expect(store.isTasksLoading).toBe(false)
+      expect(store.tasksError).toBeTruthy()
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tasks: [] }) }),
+      )
+      await store.loadTasks({ force: true })
+      expect(store.tasksError).toBeNull()
+    })
   })
 
   describe('Thread muting', () => {

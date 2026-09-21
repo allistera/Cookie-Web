@@ -57,6 +57,31 @@ describe('ChatDrawer message formatting', () => {
     expect(chips[0].attributes('title')).toBe('City Construction')
   })
 
+  // The drawer is never unmounted - it collapses to width 0 - so while it is
+  // closed it has to be out of the tab order and out of the accessibility
+  // tree, or Tab walks through an invisible chat.
+  it('is an inert, labelled dialog while closed', () => {
+    store.isChatDrawerActive = false
+    const drawer = mount(ChatDrawer).get('.gemini-chat-drawer')
+
+    expect(drawer.attributes('role')).toBe('dialog')
+    expect(drawer.attributes('aria-label')).toBe('Cookie Assistant')
+    expect(drawer.attributes('inert')).toBeDefined()
+  })
+
+  it('drops inert once open, and names its controls', () => {
+    store.isChatDrawerActive = true
+    const wrapper = mount(ChatDrawer)
+
+    expect(wrapper.get('.gemini-chat-drawer').attributes('inert')).toBeUndefined()
+    expect(wrapper.get('.close-drawer-btn').attributes('aria-label')).toBe('Close Cookie Assistant')
+    expect(wrapper.get('.drawer-send-btn').attributes('aria-label')).toBe('Send message')
+    const input = wrapper.get('.drawer-input')
+    const label = wrapper.get('label.visually-hidden')
+    expect(label.attributes('for')).toBe(input.attributes('id'))
+    expect(label.text()).toBe('Ask Cookie Assistant')
+  })
+
   it('renders plain user messages unchanged', () => {
     store.chatHistory = [{ text: 'Summarize my kitchen renovation updates.', sender: 'user' }]
     const wrapper = mount(ChatDrawer)

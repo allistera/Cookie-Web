@@ -119,6 +119,7 @@ async function setNotifications(category, event) {
             <button
               class="ni-action-btn"
               :title="`Save ${category.name}`"
+              :aria-label="`Save ${category.name}`"
               :disabled="!editedName.trim() || isUpdating"
               @click="saveEdit(category)"
             >
@@ -127,6 +128,7 @@ async function setNotifications(category, event) {
             <button
               class="ni-action-btn"
               :title="`Cancel editing ${category.name}`"
+              :aria-label="`Cancel editing ${category.name}`"
               :disabled="isUpdating"
               @click="cancelEdit"
             >
@@ -137,6 +139,7 @@ async function setNotifications(category, event) {
             <button
               class="ni-action-btn"
               :title="`Edit ${category.name}`"
+              :aria-label="`Edit ${category.name}`"
               @click="startEdit(category)"
             >
               <span class="material-symbols-outlined">edit</span>
@@ -144,6 +147,7 @@ async function setNotifications(category, event) {
             <button
               class="ni-action-btn label-delete-btn"
               :title="`Delete ${category.name}`"
+              :aria-label="`Delete ${category.name}`"
               @click="store.deleteCategory(category.id)"
             >
               <span class="material-symbols-outlined">delete</span>

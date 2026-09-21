@@ -580,7 +580,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 .task-panel-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--z-modal);
   display: flex;
   align-items: flex-start;
   justify-content: center;

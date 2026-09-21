@@ -112,16 +112,26 @@ function followUpTitle(followUpAt) {
         class="ni-action-btn"
         :class="{ starred: email.starred }"
         title="Star"
+        :aria-label="`Star ${email.subject}`"
         @click="$emit('toggle-star', email)"
       >
         <span class="material-symbols-outlined">{{ email.starred ? 'star' : 'star_border' }}</span>
       </button>
-      <button v-if="showDone" class="ni-action-btn" title="Done" @click="$emit('done', email)">
+      <button
+        v-if="showDone"
+        class="ni-action-btn"
+        title="Done"
+        :aria-label="`Mark ${email.subject} done`"
+        @click="$emit('done', email)"
+      >
         <span class="material-symbols-outlined">check_box</span>
       </button>
       <button
         class="ni-action-btn"
         :title="email.unread ? 'Mark as read' : 'Mark as unread'"
+        :aria-label="
+          email.unread ? `Mark ${email.subject} as read` : `Mark ${email.subject} as unread`
+        "
         @click="$emit('toggle-unread', email)"
       >
         <span class="material-symbols-outlined">{{

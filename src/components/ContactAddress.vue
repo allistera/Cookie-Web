@@ -100,7 +100,7 @@ onBeforeUnmount(() => window.clearTimeout(closeTimer))
   position: absolute;
   top: calc(100% + 8px);
   left: -12px;
-  z-index: 90;
+  z-index: var(--z-popover);
   display: grid;
   grid-template-columns: 36px minmax(150px, 1fr);
   gap: 10px;

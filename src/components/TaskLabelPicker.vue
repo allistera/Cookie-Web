@@ -162,7 +162,8 @@ function onKeydown(event) {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 5;
+  /* The picker only ever renders inside a dialog, so it has to beat it. */
+  z-index: calc(var(--z-modal) + 1);
   margin: 4px 0 0;
   padding: 4px;
   list-style: none;

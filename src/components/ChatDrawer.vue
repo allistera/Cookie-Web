@@ -43,16 +43,24 @@ watch(
 
 <template>
   <div
+    id="geminiChatDrawer"
     class="gemini-chat-drawer"
     :class="{ active: store.isChatDrawerActive }"
-    id="geminiChatDrawer"
+    role="dialog"
+    aria-label="Cookie Assistant"
+    :inert="store.isChatDrawerActive ? null : true"
   >
     <div class="drawer-header">
       <div class="drawer-title">
         <span class="material-symbols-outlined gemini-color">auto_awesome</span>
         <span>Cookie Assistant</span>
       </div>
-      <button class="icon-btn close-drawer-btn" @click="store.isChatDrawerActive = false">
+      <button
+        class="icon-btn close-drawer-btn"
+        title="Close"
+        aria-label="Close Cookie Assistant"
+        @click="store.isChatDrawerActive = false"
+      >
         <span class="material-symbols-outlined">close</span>
       </button>
     </div>
@@ -88,14 +96,16 @@ watch(
     </div>
 
     <div class="drawer-input-container">
+      <label class="visually-hidden" for="chatDrawerInput">Ask Cookie Assistant</label>
       <input
+        id="chatDrawerInput"
         type="text"
         class="drawer-input"
         placeholder="Ask a follow-up..."
         v-model="inputVal"
         @keydown.enter="handleSend"
       />
-      <button class="drawer-send-btn" @click="handleSend">
+      <button class="drawer-send-btn" title="Send" aria-label="Send message" @click="handleSend">
         <span class="material-symbols-outlined">send</span>
       </button>
     </div>

@@ -677,6 +677,7 @@ function toggleRuleEnabled(rule) {
                   <button
                     class="ni-action-btn"
                     :title="`Edit /${snippet.name}`"
+                    :aria-label="`Edit snippet /${snippet.name}`"
                     @click="editSnippet(snippet)"
                   >
                     <span class="material-symbols-outlined">edit</span>
@@ -684,6 +685,7 @@ function toggleRuleEnabled(rule) {
                   <button
                     class="ni-action-btn label-delete-btn"
                     :title="`Delete /${snippet.name}`"
+                    :aria-label="`Delete snippet /${snippet.name}`"
                     @click="deleteSnippet(snippet.id)"
                   >
                     <span class="material-symbols-outlined">delete</span>
@@ -962,6 +964,7 @@ function toggleRuleEnabled(rule) {
                     <button
                       class="ni-action-btn label-save-btn"
                       :title="`Save ${label.name}`"
+                      :aria-label="`Save ${label.name}`"
                       :disabled="!editedLabelName.trim() || isRenamingLabel"
                       @click="submitLabelRename(label)"
                     >
@@ -970,6 +973,7 @@ function toggleRuleEnabled(rule) {
                     <button
                       class="ni-action-btn label-cancel-btn"
                       :title="`Cancel renaming ${label.name}`"
+                      :aria-label="`Cancel renaming ${label.name}`"
                       :disabled="isRenamingLabel"
                       @click="cancelRenamingLabel"
                     >
@@ -980,6 +984,7 @@ function toggleRuleEnabled(rule) {
                     <button
                       class="ni-action-btn label-edit-btn"
                       :title="`Rename ${label.name}`"
+                      :aria-label="`Rename ${label.name}`"
                       @click="startRenamingLabel(label)"
                     >
                       <span class="material-symbols-outlined">edit</span>
@@ -987,6 +992,7 @@ function toggleRuleEnabled(rule) {
                     <button
                       class="ni-action-btn label-delete-btn"
                       :title="`Delete ${label.name}`"
+                      :aria-label="`Delete ${label.name}`"
                       @click="store.deleteLabel(label.id)"
                     >
                       <span class="material-symbols-outlined">delete</span>
@@ -1022,6 +1028,7 @@ function toggleRuleEnabled(rule) {
                     :class="{ selected: newLabel.color === color }"
                     :style="{ backgroundColor: color }"
                     :title="color"
+                    :aria-label="`Use label colour ${color}`"
                     @click="newLabel.color = color"
                   ></button>
                 </div>
@@ -1120,6 +1127,7 @@ function toggleRuleEnabled(rule) {
                     <button
                       class="ni-action-btn"
                       :title="`Edit ${rule.name || 'rule'}`"
+                      :aria-label="`Edit ${rule.name || 'rule'}`"
                       @click="editRule(rule)"
                     >
                       <span class="material-symbols-outlined">edit</span>
@@ -1127,6 +1135,7 @@ function toggleRuleEnabled(rule) {
                     <button
                       class="ni-action-btn label-delete-btn"
                       :title="`Delete ${rule.name || 'rule'}`"
+                      :aria-label="`Delete ${rule.name || 'rule'}`"
                       @click="store.deleteRule(rule.id)"
                     >
                       <span class="material-symbols-outlined">delete</span>
@@ -1262,6 +1271,7 @@ function toggleRuleEnabled(rule) {
                   type="button"
                   class="ni-action-btn label-delete-btn"
                   title="Remove condition"
+                  aria-label="Remove condition"
                   :disabled="ruleDraft.conditions.length <= 1"
                   @click="removeRuleCondition(index)"
                 >

@@ -282,7 +282,13 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="composer-window-actions">
-        <button class="composer-icon-btn" title="Close" tabindex="-1" @click="store.closeComposer">
+        <button
+          class="composer-icon-btn"
+          title="Close"
+          aria-label="Close composer"
+          tabindex="-1"
+          @click="store.closeComposer"
+        >
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
@@ -333,6 +339,7 @@ onUnmounted(() => {
           <button
             class="composer-icon-btn"
             title="Close Cookie AI"
+            aria-label="Close Cookie AI"
             @click="store.isAiDraftActive = false"
           >
             <span class="material-symbols-outlined">close</span>
@@ -399,6 +406,7 @@ onUnmounted(() => {
                 aria-haspopup="menu"
                 :aria-expanded="scheduleSendOpen"
                 title="Schedule send"
+                aria-label="Schedule send"
                 @click="scheduleSendOpen = !scheduleSendOpen"
               >
                 <span class="material-symbols-outlined">expand_less</span>
