@@ -42,8 +42,14 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
   await expect(sidebar.locator('.doc-item', { hasText: 'Floor plan notes' })).toHaveCount(2) // starred + tree
 
   // The dashboard lists documents; opening one loads its blocks.
+  // The dashboard browses one folder at a time and follows the tree: the
+  // Kitchen Renovation click above opened that folder, so its document is a
+  // card here. Opening one loads its blocks.
   await expect(page.getByRole('heading', { name: 'Documents' })).toBeVisible()
-  await page.locator('.documents-table-row', { hasText: 'Floor plan notes' }).click()
+  await expect(page.locator('.browser-breadcrumb')).toContainText('Kitchen Renovation')
+  await page
+    .locator('.browser-item[data-kind="document"]', { hasText: 'Floor plan notes' })
+    .dblclick()
   await expect(page).toHaveURL(/\/documents\/stub-doc-floor-plan$/)
   await expect(page.locator('.document-title')).toHaveText('Floor plan notes')
   await expect(page.getByText('Bay window dimensions')).toBeVisible()
@@ -166,20 +172,22 @@ test('The app switcher opens Documents: tree, editor with autosave, and starring
 test('Dashboard document deletion requires confirmation', async ({ page }) => {
   await page.goto('/documents')
 
-  const scratchpad = page.locator('.documents-table-row', { hasText: 'Scratchpad' })
-  const deleteButton = scratchpad.getByRole('button', { name: 'Delete Scratchpad' })
-  await scratchpad.hover()
+  const scratchpad = page.locator('.browser-item[data-kind="document"]', { hasText: 'Scratchpad' })
+  const actions = scratchpad.getByRole('button', { name: 'Actions for Scratchpad' })
+  const deleteButton = page.locator('.browser-menu button[data-action="delete"]')
 
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toBe('Delete document "Scratchpad"?\n\nThis action cannot be undone.')
     await dialog.dismiss()
   })
+  await actions.click()
   await deleteButton.click()
   await expect(scratchpad).toBeVisible()
 
   page.once('dialog', async (dialog) => {
     await dialog.accept()
   })
+  await actions.click()
   await deleteButton.click()
   await expect(scratchpad).toHaveCount(0)
 })
@@ -611,8 +619,8 @@ test('The header search from Documents finds documents by content on the /search
 }) => {
   await page.goto('/documents')
 
-  const dashboard = page.locator('.documents-table')
-  await expect(dashboard.getByText('Floor plan notes')).toBeVisible()
+  const dashboard = page.locator('.documents-browser')
+  await expect(dashboard.getByText('Projects')).toBeVisible()
   await expect(dashboard.getByText('Scratchpad')).toBeVisible()
 
   // Type-ahead matches a word from the body, not just the title, and lands
@@ -1120,4 +1128,39 @@ test('AI document creation finishes saving without overriding later navigation',
   await expect(page.locator('.document-title')).toHaveText('Scratchpad')
   await page.locator('.documents-sidebar .doc-item', { hasText: 'AI navigation repro' }).click()
   await expect(page.locator('.codex-editor .ce-paragraph').first()).toHaveText('Memo')
+})
+
+test('Files can be uploaded into a folder, switched to list view, previewed and deleted', async ({
+  page,
+}) => {
+  await page.goto('/documents?folder=stub-folder-projects')
+  await expect(page.locator('.browser-breadcrumb')).toContainText('Projects')
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'brief.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 stub'),
+  })
+  const card = page.locator('.browser-item[data-kind="file"]', { hasText: 'brief.pdf' })
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('PDF')
+
+  await page.getByRole('button', { name: 'List view' }).click()
+  await expect(page.locator('.documents-browser')).toHaveClass(/layout-list/)
+  await expect(card).toContainText('B')
+  await page.reload()
+  await expect(page.locator('.documents-browser')).toHaveClass(/layout-list/)
+  await page.getByRole('button', { name: 'Grid view' }).click()
+
+  await card.dblclick()
+  await expect(page).toHaveURL(/\/documents\/file\/stub-file-/)
+  await expect(page.locator('.file-preview h1')).toHaveText('brief.pdf')
+  await expect(page.locator('.file-preview iframe')).toBeVisible()
+  await page.getByRole('button', { name: 'Back to folder' }).click()
+  await expect(page).toHaveURL(/\/documents\?folder=stub-folder-projects$/)
+
+  await card.getByRole('button', { name: 'Actions for brief.pdf' }).click()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.locator('.browser-menu button[data-action="delete"]').click()
+  await expect(card).toHaveCount(0)
 })

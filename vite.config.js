@@ -1271,6 +1271,72 @@ function localApiPlugin(mode) {
       await handleWorkerDocuments(req, res, state, url)
       return
     }
+    if (segments[0] === 'files') {
+      // Uploaded files: metadata rows plus in-memory bytes, mirroring
+      // cookie-web-tasks/src/files.js's wire shapes.
+      state.docFiles ??= []
+      const publicRow = ({ bytes: _bytes, ...row }) => row
+      if (segments.length === 1 && req.method === 'GET') {
+        const folder = url.searchParams.get('folder')
+        const wanted = folder && folder !== 'root' ? folder : null
+        return json(res, {
+          files: state.docFiles.filter((row) => (row.folder_id ?? null) === wanted).map(publicRow),
+        })
+      }
+      if (segments.length === 1 && req.method === 'POST') {
+        const { Readable } = await import('node:stream')
+        const upload = new Request('http://localhost/files', {
+          method: 'POST',
+          headers: { 'content-type': req.headers['content-type'] || '' },
+          body: Readable.toWeb(req),
+          duplex: 'half',
+        })
+        const form = await upload.formData()
+        const file = form.get('file')
+        if (!(file instanceof File)) return json(res, { error: 'No file provided' }, 400)
+        if (file.size > 25 * 1024 * 1024) {
+          return json(res, { error: 'File is larger than 25 MB' }, 413)
+        }
+        const now = new Date().toISOString()
+        const row = {
+          id: `stub-file-${randomUUID()}`,
+          folder_id: form.get('folder') || null,
+          name: file.name,
+          mime_type: file.type || 'application/octet-stream',
+          size_bytes: file.size,
+          created_at: now,
+          updated_at: now,
+          bytes: Buffer.from(await file.arrayBuffer()),
+        }
+        state.docFiles.push(row)
+        return json(res, { file: publicRow(row) }, 201)
+      }
+      const row = state.docFiles.find((candidate) => candidate.id === segments[1])
+      if (!row) return json(res, { error: 'File not found' }, 404)
+      if (segments[2] === 'content') {
+        res.statusCode = 200
+        res.setHeader('Content-Type', row.mime_type)
+        res.setHeader('Content-Length', String(row.bytes.length))
+        res.setHeader('Content-Disposition', `inline; filename="${row.name}"`)
+        res.end(row.bytes)
+        return
+      }
+      if (req.method === 'GET') return json(res, { file: publicRow(row) })
+      if (req.method === 'PATCH') {
+        const body = await readBody(req)
+        if (body.name !== undefined) row.name = body.name
+        if (Object.hasOwn(body, 'folder')) row.folder_id = body.folder
+        row.updated_at = new Date().toISOString()
+        return json(res, { file: publicRow(row) })
+      }
+      if (req.method === 'DELETE') {
+        state.docFiles = state.docFiles.filter((candidate) => candidate !== row)
+        res.statusCode = 204
+        res.end()
+        return
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
     if (segments[0] === 'projects') {
       if (req.method === 'GET') {
         return json(res, {
