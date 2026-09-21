@@ -29,17 +29,19 @@ test('Document pages stay bounded and global tags survive navigation', async ({ 
     })
   })
   await page.goto('/documents')
-  await expect(page.locator('.documents-table-row')).toHaveCount(100)
+  // The folder browser pages the root the same way the table did.
+  const rows = page.locator('.browser-item[data-kind="document"]')
+  await expect(rows).toHaveCount(100)
   await expect(
     page.getByRole('link', { name: '#global, 205 documents', exact: true }),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Older documents' }).click()
-  await expect(page.locator('.documents-table-row')).toHaveCount(100)
-  await expect(page.locator('.documents-table-row').first()).toContainText('Paged document 100')
+  await expect(rows).toHaveCount(100)
+  await expect(rows.first()).toContainText('Paged document 100')
   await page.getByRole('button', { name: 'Older documents' }).click()
-  await expect(page.locator('.documents-table-row')).toHaveCount(5)
+  await expect(rows).toHaveCount(5)
   await page.getByRole('button', { name: 'Newer documents' }).click()
-  await expect(page.locator('.documents-table-row')).toHaveCount(100)
+  await expect(rows).toHaveCount(100)
 })
 
 test('An older task opens its complete description after paging', async ({ page }) => {

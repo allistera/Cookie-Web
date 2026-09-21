@@ -28,11 +28,33 @@ function setLayout(value) {
 }
 
 const pageScope = computed(() => ({ folder: props.folderId ?? 'root' }))
+// A paged workspace keeps the DOM bounded the way the table did: 100
+// documents at a time, Older/Newer moving through the folder's page.
+const PAGE_SIZE = 100
+const offset = ref(0)
+const pagedIds = computed(() =>
+  store.workspacePaged ? (store.pageFor(pageScope.value)?.ids ?? []) : [],
+)
 const documents = computed(() =>
   store.workspacePaged
-    ? store.documentsForPage(pageScope.value)
+    ? store.documentsForPage(pageScope.value).slice(offset.value, offset.value + PAGE_SIZE)
     : store.documents.filter((doc) => (doc.folder_id ?? null) === (props.folderId ?? null)),
 )
+const hasOlder = computed(
+  () =>
+    store.workspacePaged &&
+    (Boolean(store.pageFor(pageScope.value)?.nextCursor) ||
+      offset.value + PAGE_SIZE < pagedIds.value.length),
+)
+async function olderDocuments() {
+  if (offset.value + PAGE_SIZE >= pagedIds.value.length) {
+    await store.loadDocumentPage(pageScope.value, { more: true })
+  }
+  if (offset.value + PAGE_SIZE < pagedIds.value.length) offset.value += PAGE_SIZE
+}
+function newerDocuments() {
+  offset.value = Math.max(0, offset.value - PAGE_SIZE)
+}
 const files = computed(() => store.filesForFolder(props.folderId))
 const items = computed(() =>
   folderContents(store.folders, documents.value, files.value, props.folderId),
@@ -52,7 +74,10 @@ function load(force = false) {
 }
 watch(
   () => props.folderId,
-  () => load(),
+  () => {
+    offset.value = 0
+    load()
+  },
   { immediate: true },
 )
 
@@ -467,6 +492,26 @@ function detail(entry) {
         </span>
       </li>
     </ul>
+
+    <div v-if="offset > 0 || hasOlder" class="browser-pagination">
+      <button
+        v-if="offset > 0"
+        type="button"
+        class="btn btn-secondary browser-page-newer"
+        @click="newerDocuments"
+      >
+        Newer documents
+      </button>
+      <button
+        v-if="hasOlder"
+        type="button"
+        class="btn btn-secondary browser-page-older"
+        :disabled="store.pageFor(pageScope)?.loading"
+        @click="olderDocuments"
+      >
+        Older documents
+      </button>
+    </div>
   </section>
 </template>
 
@@ -724,6 +769,12 @@ function detail(entry) {
 }
 .browser-menu button.danger {
   color: #c0392b;
+}
+.browser-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0 16px;
 }
 .browser-move-targets {
   max-height: 220px;

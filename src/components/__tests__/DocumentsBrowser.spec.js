@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import DocumentsBrowser from '../DocumentsBrowser.vue'
-import { useDocumentsStore } from '../../stores/documents'
+import { documentPageKey, useDocumentsStore } from '../../stores/documents'
 import { useInboxStore } from '../../stores/inbox'
 
 let router
@@ -224,5 +224,59 @@ describe('DocumentsBrowser', () => {
       dataTransfer: { files: [], types: ['text/plain'], getData: () => 'document:d-root' },
     })
     expect(move).toHaveBeenCalledWith('d-root', 'f-work')
+  })
+
+  // A folder with hundreds of documents keeps the DOM bounded the way the
+  // table did: 100 at a time, with Older/Newer moving through the page.
+  it('pages a paged folder 100 documents at a time', async () => {
+    const docs = Array.from({ length: 150 }, (_, i) => ({
+      id: `p-${i}`,
+      folder_id: null,
+      title: `Paged ${String(i).padStart(3, '0')}`,
+      emoji: '🔹',
+      starred: false,
+      tags: [],
+      updated_at: 't0',
+    }))
+    store.workspacePaged = true
+    store.documents = docs
+    store.pages[documentPageKey({ folder: 'root' })] = {
+      ids: docs.map((doc) => doc.id),
+      nextCursor: null,
+      loaded: true,
+      loading: false,
+    }
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    expect(wrapper.findAll('.browser-item[data-kind="document"]')).toHaveLength(100)
+    expect(wrapper.find('button.browser-page-older').exists()).toBe(true)
+    expect(wrapper.find('button.browser-page-newer').exists()).toBe(false)
+
+    await wrapper.find('button.browser-page-older').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.browser-item[data-kind="document"]')).toHaveLength(50)
+    expect(wrapper.find('.browser-item[data-kind="document"]').text()).toContain('Paged 100')
+    expect(wrapper.find('button.browser-page-older').exists()).toBe(false)
+
+    await wrapper.find('button.browser-page-newer').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.browser-item[data-kind="document"]')).toHaveLength(100)
+  })
+
+  it('asks the store for more when the page has a cursor and the slice is exhausted', async () => {
+    store.workspacePaged = true
+    store.documents = [
+      { id: 'p-0', folder_id: null, title: 'Only', emoji: '🔹', tags: [], updated_at: 't0' },
+    ]
+    store.pages[documentPageKey({ folder: 'root' })] = {
+      ids: ['p-0'],
+      nextCursor: 'cursor',
+      loaded: true,
+      loading: false,
+    }
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    await wrapper.find('button.browser-page-older').trigger('click')
+    expect(store.loadDocumentPage).toHaveBeenCalledWith({ folder: 'root' }, { more: true })
   })
 })
