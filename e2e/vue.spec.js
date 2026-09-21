@@ -141,6 +141,37 @@ test('The header notification count opens the section that raised the first noti
   )
 })
 
+test('Calendar shows a task on its due date and opens it in Tasks', async ({ page }) => {
+  await freezeCalendarClock(page)
+  // The calendar's frozen clock sits on 2026-07-24; a task due that day lands
+  // in Day view straight away.
+  await page.goto('/tasks')
+  const created = await page.evaluate(async (base) => {
+    const response = await fetch(`${base}/task-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Renew car insurance', dueDate: '2026-07-24' }),
+    })
+    return response.json()
+  }, TASKS_API_URL)
+  const taskId = created.item?.id ?? created.id
+
+  await page.goto('/calendar')
+  const task = page.locator('.task-event', { hasText: 'Renew car insurance' })
+  await expect(task).toBeVisible()
+
+  const tasksToggle = page
+    .getByRole('navigation', { name: 'Tasks', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+  await tasksToggle.click()
+  await expect(task).toHaveCount(0)
+  await tasksToggle.click()
+  await expect(task).toBeVisible()
+
+  await task.click()
+  await expect(page).toHaveURL(new RegExp(`/tasks\\?project=inbox&task=${taskId}$`))
+})
+
 test('Calendar settings manages subscriptions that appear in the Calendar view', async ({
   page,
 }) => {

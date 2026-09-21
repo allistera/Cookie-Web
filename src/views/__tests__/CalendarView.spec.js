@@ -106,8 +106,36 @@ const SEED_CALENDARS = [
   { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
   { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
 ]
-import { CALENDAR_API_URL } from '../../lib/apiWorkers'
+import { CALENDAR_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
+// Dated tasks appear on the calendar next to events. One all-day (no time)
+// and one timed, both on the reference date, one in a project and one in
+// the Inbox.
+const SEED_TASKS = [
+  {
+    id: 'task-1',
+    projectId: 'project-1',
+    parentId: null,
+    content: 'Renew car insurance',
+    dueDate: '2026-07-24',
+    dueTime: null,
+    timeZone: null,
+    priority: 2,
+  },
+  {
+    id: 'task-2',
+    projectId: null,
+    parentId: null,
+    content: 'Call the bank',
+    dueDate: '2026-07-24',
+    dueTime: '15:00',
+    timeZone: 'Europe/London',
+    priority: null,
+  },
+]
+
+const TASKS_ENDPOINT = `${TASKS_API_URL}/task-items`
 const EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
 const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const isEventsEndpoint = (url) => url === EVENTS_ENDPOINT || url.startsWith(`${EVENTS_ENDPOINT}?`)
@@ -173,6 +201,14 @@ function mockCalendarApi() {
           events = events.filter((item) => item.id !== body.id)
           return { ok: true, json: async () => ({ ok: true }) }
         }
+      }
+
+      if (url.startsWith(`${TASKS_ENDPOINT}?`) && method === 'GET') {
+        const params = new URLSearchParams(url.split('?')[1] ?? '')
+        const from = params.get('from')
+        const to = params.get('to')
+        const items = SEED_TASKS.filter((task) => task.dueDate >= from && task.dueDate <= to)
+        return { ok: true, json: async () => clone({ items }) }
       }
 
       if (url === CALENDARS_ENDPOINT) {
@@ -306,16 +342,18 @@ describe('CalendarView', () => {
     const wrapper = await mountCalendar()
     const calendarButtons = wrapper.findAll('.calendar-list-item')
 
-    expect(calendarButtons).toHaveLength(5)
+    expect(calendarButtons).toHaveLength(6)
     expect(calendarButtons.map((button) => button.get('.nav-text').text())).toEqual([
       'Work',
       'Personal',
       'Focus time',
       'Birthdays',
       'Holidays',
+      'Tasks',
     ])
     expect(wrapper.findAll('.calendar-sidebar-label').map((label) => label.text())).toEqual([
       'Calendars',
+      'Tasks',
     ])
     expect(wrapper.get('.calendar-manage-link').text()).toContain('Manage calendars')
     expect(wrapper.find('.calendar-add-btn').exists()).toBe(false)
@@ -329,6 +367,70 @@ describe('CalendarView', () => {
 
     await calendarButtons[0].trigger('click')
     expect(wrapper.text()).toContain('Standup')
+  })
+
+  it('shows dated tasks on their day and lets the Tasks toggle hide them', async () => {
+    const wrapper = await mountCalendar()
+
+    const allDayTask = wrapper.get('.all-day-event.task-event')
+    expect(allDayTask.text()).toContain('Renew car insurance')
+    const timedTask = wrapper.get('.day-event.task-event')
+    expect(timedTask.text()).toContain('Call the bank')
+    expect(timedTask.attributes('style')).toContain('top:')
+
+    const tasksToggle = wrapper
+      .findAll('.calendar-list-item')
+      .find((button) => button.text() === 'Tasks')
+    await tasksToggle.trigger('click')
+    expect(tasksToggle.attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('.task-event').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Standup')
+
+    await tasksToggle.trigger('click')
+    expect(wrapper.find('.task-event').exists()).toBe(true)
+  })
+
+  it('requests tasks for the same window as events', async () => {
+    await mountCalendar()
+
+    const urls = fetch.mock.calls.map(([url]) => String(url))
+    const eventsUrl = urls.find((url) => url.startsWith(`${EVENTS_ENDPOINT}?`))
+    const tasksUrl = urls.find((url) => url.startsWith(`${TASKS_ENDPOINT}?`))
+    const eventParams = new URLSearchParams(eventsUrl.split('?')[1])
+    const taskParams = new URLSearchParams(tasksUrl.split('?')[1])
+    expect(taskParams.get('view')).toBe('calendar')
+    expect(taskParams.get('from')).toBe(eventParams.get('from'))
+    expect(taskParams.get('to')).toBe(eventParams.get('to'))
+  })
+
+  it('keeps timed tasks out of conflict detection', async () => {
+    const wrapper = await mountCalendar()
+    // Call the bank (15:00) overlaps nothing; the seed conflict is the
+    // 11:00 design review vs the 11:30 client call, both events.
+    const banner = wrapper.find('.calendar-insight-card')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).not.toContain('Call the bank')
+    expect(banner.text()).toContain('Design review')
+  })
+
+  it('opens a task in the Tasks app when clicked instead of the event dialog', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/calendar', component: { template: '<div />' } },
+        { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
+        { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/calendar')
+    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+
+    await wrapper.get('.all-day-event.task-event').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=project-1&task=task-1')
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
   })
 
   it('colors an event chip to match its owning calendar', async () => {
@@ -746,6 +848,7 @@ describe('CalendarView', () => {
     expect(sections.map((section) => section.get('.calendar-sidebar-label').text())).toEqual([
       'Calendars',
       'Subscribed calendars',
+      'Tasks',
     ])
     expect(sections[1].text()).toContain('Team Feed')
 

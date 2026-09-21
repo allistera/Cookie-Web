@@ -1,10 +1,20 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 import { useCalendars } from '../composables/useCalendars'
-import { CALENDAR_API_URL } from '../lib/apiWorkers'
+import { CALENDAR_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
+import {
+  TASKS_CALENDAR_COLOR,
+  TASKS_CALENDAR_ID,
+  TASKS_CALENDAR_NAME,
+  taskToCalendarItem,
+} from '../lib/taskCalendarItems'
 
 const store = useInboxStore()
+// Optional: the view's own tests mount without a router; only a task click
+// navigates.
+const router = useRouter()
 const { calendars, writableCalendars, subscribedCalendars, loadCalendars } = useCalendars(
   (init) => store.authHeaders(init),
   (message, kind) => store.notify(message, kind),
@@ -36,6 +46,14 @@ const conflictVisible = ref(true)
 
 const visibleCalendars = ref(new Set())
 
+// Tasks with a due date show on the calendar through a pseudo-calendar of
+// their own, so they toggle like any other calendar in the sidebar.
+const TASKS_PSEUDO_CALENDAR = {
+  id: TASKS_CALENDAR_ID,
+  name: TASKS_CALENDAR_NAME,
+  color: TASKS_CALENDAR_COLOR,
+}
+
 const calendarSections = computed(() => [
   { id: 'calendars', label: 'Calendars', calendars: writableCalendars.value },
   ...(subscribedCalendars.value.length
@@ -47,10 +65,15 @@ const calendarSections = computed(() => [
         },
       ]
     : []),
+  { id: 'tasks', label: 'Tasks', calendars: [TASKS_PSEUDO_CALENDAR] },
 ])
 
 const calendarColorById = computed(
-  () => new Map(calendars.value.map((calendar) => [calendar.id, calendar.color])),
+  () =>
+    new Map([
+      ...calendars.value.map((calendar) => [calendar.id, calendar.color]),
+      [TASKS_CALENDAR_ID, TASKS_CALENDAR_COLOR],
+    ]),
 )
 
 // Sets the --event-color custom property an event chip reads for its tint, so
@@ -65,7 +88,10 @@ function eventColorVars(event) {
 
 async function loadVisibleCalendars() {
   await loadCalendars()
-  visibleCalendars.value = new Set(calendars.value.map((calendar) => calendar.id))
+  visibleCalendars.value = new Set([
+    ...calendars.value.map((calendar) => calendar.id),
+    TASKS_CALENDAR_ID,
+  ])
 }
 
 function defaultCalendarId() {
@@ -76,6 +102,30 @@ function defaultCalendarId() {
 }
 
 const events = ref([])
+// Open tasks due inside the loaded window, already shaped as calendar items
+// (lib/taskCalendarItems). Kept apart from events so nothing that edits or
+// saves events ever sees a task; they only meet in visibleEvents.
+const calendarTasks = ref([])
+let tasksRequestSeq = 0
+
+async function loadCalendarTasks(from, to) {
+  const seq = ++tasksRequestSeq
+  try {
+    const headers = await store.authHeaders()
+    const response = await fetch(
+      `${TASKS_API_URL}/task-items?view=calendar&from=${from}&to=${to}`,
+      { headers },
+    )
+    if (!response.ok) throw new Error(`GET /task-items?view=calendar responded ${response.status}`)
+    const { items } = await response.json()
+    if (seq !== tasksRequestSeq) return
+    calendarTasks.value = (Array.isArray(items) ? items : []).map(taskToCalendarItem)
+  } catch (error) {
+    // Tasks are an overlay on the calendar: a failure keeps the events
+    // readable rather than blocking them.
+    console.error('Failed to load tasks for the calendar:', error)
+  }
+}
 
 // Events are fetched in a padded window around the visible date rather than
 // the user's whole history — the API windows non-recurring rows by event_date
@@ -105,6 +155,7 @@ async function loadEvents() {
   const from = dateKey(addDays(required.from, -EVENT_RANGE_PAD_DAYS))
   const to = dateKey(addDays(required.to, EVENT_RANGE_PAD_DAYS))
   const seq = ++eventsRequestSeq
+  void loadCalendarTasks(from, to)
   try {
     const headers = await store.authHeaders()
     const response = await fetch(`${CALENDAR_API_URL}/calendar-events?from=${from}&to=${to}`, {
@@ -144,7 +195,9 @@ watch(selectedDate, () => {
 })
 
 const visibleEvents = computed(() =>
-  events.value.filter((event) => visibleCalendars.value.has(event.calendar)),
+  [...events.value, ...calendarTasks.value].filter((event) =>
+    visibleCalendars.value.has(event.calendar),
+  ),
 )
 // All-day events (e.g. holidays synced from a subscribed calendar) render in
 // a compact banner rather than being positioned by start time/duration in
@@ -204,7 +257,7 @@ const detectedConflict = computed(() => {
   const windowStart = REFERENCE_DATE
   const windowEnd = addDays(REFERENCE_DATE, CONFLICT_WINDOW_DAYS)
   const candidates = visibleEvents.value
-    .filter((event) => !event.allDay)
+    .filter((event) => !event.allDay && event.kind !== 'task')
     .filter((event) => {
       const eventDate = new Date(`${event.date}T00:00:00`)
       return eventDate >= windowStart && eventDate <= windowEnd
@@ -504,6 +557,11 @@ function toggleRepeatDay(code) {
 }
 
 function editEvent(event) {
+  // A task is edited where it lives: open it in the Tasks app on its project.
+  if (event.kind === 'task') {
+    router?.push({ path: '/tasks', query: { project: event.projectId, task: event.taskId } })
+    return
+  }
   editingEventId.value = event.seriesId ?? event.id
   eventCreationMode.value = 'advanced'
   eventAiInput.value = ''
@@ -940,10 +998,16 @@ onUnmounted(() => {
               :key="event.id"
               type="button"
               class="calendar-event all-day-event"
-              :class="`tone-${event.tone || 'default'}`"
+              :class="[`tone-${event.tone || 'default'}`, { 'task-event': event.kind === 'task' }]"
               :style="eventColorVars(event)"
               @click="editEvent(event)"
             >
+              <span
+                v-if="event.kind === 'task'"
+                class="material-symbols-outlined task-event-icon"
+                aria-hidden="true"
+                >check_box_outline_blank</span
+              >
               {{ event.title }}
             </button>
           </div>
@@ -965,10 +1029,19 @@ onUnmounted(() => {
                 :key="event.id"
                 type="button"
                 class="calendar-event day-event"
-                :class="`tone-${event.tone || 'default'}`"
+                :class="[
+                  `tone-${event.tone || 'default'}`,
+                  { 'task-event': event.kind === 'task' },
+                ]"
                 :style="eventPosition(event, DAY_HOUR_HEIGHT)"
                 @click="editEvent(event)"
               >
+                <span
+                  v-if="event.kind === 'task'"
+                  class="material-symbols-outlined task-event-icon"
+                  aria-hidden="true"
+                  >check_box_outline_blank</span
+                >
                 <strong>{{ event.title }}</strong>
               </button>
               <div
@@ -1017,10 +1090,19 @@ onUnmounted(() => {
                 :key="event.id"
                 type="button"
                 class="calendar-event all-day-event"
-                :class="`tone-${event.tone || 'default'}`"
+                :class="[
+                  `tone-${event.tone || 'default'}`,
+                  { 'task-event': event.kind === 'task' },
+                ]"
                 :style="eventColorVars(event)"
                 @click="editEvent(event)"
               >
+                <span
+                  v-if="event.kind === 'task'"
+                  class="material-symbols-outlined task-event-icon"
+                  aria-hidden="true"
+                  >check_box_outline_blank</span
+                >
                 {{ event.title }}
               </button>
             </div>
@@ -1054,10 +1136,19 @@ onUnmounted(() => {
                 :key="event.id"
                 type="button"
                 class="calendar-event week-event"
-                :class="`tone-${event.tone || 'default'}`"
+                :class="[
+                  `tone-${event.tone || 'default'}`,
+                  { 'task-event': event.kind === 'task' },
+                ]"
                 :style="weekEventStyle(event)"
                 @click="editEvent(event)"
               >
+                <span
+                  v-if="event.kind === 'task'"
+                  class="material-symbols-outlined task-event-icon"
+                  aria-hidden="true"
+                  >check_box_outline_blank</span
+                >
                 <strong>{{ event.title }}</strong>
                 <span v-if="event.duration >= 60"
                   >{{ eventTime(event) }} · {{ event.duration }} min</span
@@ -1100,10 +1191,19 @@ onUnmounted(() => {
                   :key="event.id"
                   type="button"
                   class="month-event"
-                  :class="`tone-${event.tone || 'default'}`"
+                  :class="[
+                    `tone-${event.tone || 'default'}`,
+                    { 'task-event': event.kind === 'task' },
+                  ]"
                   :style="eventColorVars(event)"
                   @click="editEvent(event)"
                 >
+                  <span
+                    v-if="event.kind === 'task'"
+                    class="material-symbols-outlined task-event-icon"
+                    aria-hidden="true"
+                    >check_box_outline_blank</span
+                  >
                   {{ event.title }}
                 </button>
               </div>
@@ -2760,5 +2860,24 @@ onUnmounted(() => {
   .calendar-modal-leave-active .new-event-dialog {
     transition-duration: 0s;
   }
+}
+
+/* Tasks on the calendar: same tint pipeline as events (their pseudo-calendar
+   colour flows in through --event-color) but a dashed outline and a checkbox
+   glyph so a to-do is never mistaken for a meeting. */
+.task-event {
+  border-style: dashed;
+}
+
+.task-event-icon {
+  font-size: 15px;
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+
+.day-event.task-event .task-event-icon,
+.week-event.task-event .task-event-icon {
+  float: left;
+  margin-top: 1px;
 }
 </style>

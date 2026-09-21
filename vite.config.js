@@ -1319,6 +1319,40 @@ function localApiPlugin(mode) {
       return json(res, { error: 'Method not allowed' }, 405)
     }
     if (segments[0] === 'task-items') {
+      if (req.method === 'GET' && url.searchParams.get('view') === 'calendar') {
+        // Mirrors getCalendarTaskItems: every open task due inside the
+        // window, across every project, for Cookie Calendar.
+        const from = url.searchParams.get('from')
+        const to = url.searchParams.get('to')
+        if (!isTaskCalendarDate(from) || !isTaskCalendarDate(to)) {
+          return json(res, { error: 'calendar requires from=YYYY-MM-DD and to=YYYY-MM-DD' }, 400)
+        }
+        const items = state.taskItems
+          .filter(
+            (item) =>
+              item.kind !== 'divider' &&
+              item.completedAt === null &&
+              Boolean(item.dueDate) &&
+              item.dueDate >= from &&
+              item.dueDate <= to,
+          )
+          .sort(
+            (a, b) =>
+              String(a.dueDate).localeCompare(String(b.dueDate)) ||
+              String(a.dueTime ?? '99:99').localeCompare(String(b.dueTime ?? '99:99')),
+          )
+          .map(({ id, projectId, parentId, content, dueDate, dueTime, timeZone, priority }) => ({
+            id,
+            projectId,
+            parentId,
+            content,
+            dueDate,
+            dueTime,
+            timeZone,
+            priority,
+          }))
+        return json(res, { items })
+      }
       if (req.method === 'GET') {
         const project = url.searchParams.get('project') ?? 'inbox'
         const today = project === 'today'
