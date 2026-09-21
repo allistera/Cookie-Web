@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
 import { expect, test } from './workerFixtures.js'
 import { AI_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
