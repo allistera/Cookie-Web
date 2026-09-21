@@ -5,7 +5,12 @@ const MAIL_CACHE = 'cookie-recent-mail-v3'
 const MAX_SHELL_ENTRIES = self.location.hostname === 'localhost' ? 500 : 60
 const MAX_MAIL_ENTRIES = 20
 // Every SW update re-runs install, which re-fetches this whole list, so new
-// entries reach existing installs without renaming SHELL_CACHE.
+// entries reach existing installs without renaming SHELL_CACHE. The same
+// mechanism is how a regenerated icon font reaches installs: the woff2 keeps
+// its URL and staticAssetResponse is cache-first, so bump the revision below
+// whenever `npm run fetch:icon-font` changes public/fonts/, or existing
+// installs render new glyphs as their ligature text.
+// Icon subset revision: 2026-09-21 (Documents folder browser icons)
 const SHELL_URLS = [
   '/',
   '/site.webmanifest',

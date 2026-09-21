@@ -8,6 +8,9 @@
 // Run `npm run fetch:icon-font` after changing MATERIAL_SYMBOL_NAMES in
 // src/lib/iconFont.js — that list is the single source of truth and is
 // imported here so the subset can never drift from what the app renders.
+// Then bump the "Icon subset revision" line in public/sw.js: the service
+// worker serves the font cache-first under an unchanging URL, and only a
+// changed sw.js makes existing installs refetch it.
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
