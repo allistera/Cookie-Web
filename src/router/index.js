@@ -38,6 +38,14 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // Declared ahead of /documents/:id? so "file" is never read as a
+      // document id.
+      path: '/documents/file/:fileId',
+      name: 'document-file',
+      component: () => import('../views/DocumentsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/documents/:id?',
       name: 'documents',
       component: () => import('../views/DocumentsView.vue'),

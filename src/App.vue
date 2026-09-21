@@ -41,7 +41,7 @@ const APPS = {
 }
 const activeApp = computed(() => {
   if (route.name === 'calendar') return 'calendar'
-  if (route.name === 'documents') return 'documents'
+  if (route.name === 'documents' || route.name === 'document-file') return 'documents'
   if (route.name === 'tasks') return 'tasks'
   return 'email'
 })
