@@ -377,6 +377,50 @@ describe('Inbox Store', () => {
       expect(notify).toHaveBeenCalledWith('Could not load your drafts.', 'error')
     })
 
+    it('shares one in-flight drafts request and skips a refetch inside the freshness window', async () => {
+      // The reader requests drafts on every open and the Realtime refresh on
+      // every ping; without a freshness window that is a full collection
+      // fetch per email read.
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ drafts: [{ id: 'd1' }] }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+
+      await Promise.all([store.loadDrafts({ silent: true }), store.loadDrafts({ silent: true })])
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(store.drafts.map((draft) => draft.id)).toEqual(['d1'])
+
+      await store.loadDrafts({ silent: true })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await store.loadDrafts({ force: true })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('refetches drafts once the freshness window has passed', async () => {
+      vi.useFakeTimers()
+      try {
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({ drafts: [] }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+        const store = useInboxStore()
+
+        await store.loadDrafts({ silent: true })
+        vi.setSystemTime(Date.now() + 31_000)
+        await store.loadDrafts({ silent: true })
+
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('replays saves that landed while the drafts list was loading', async () => {
       // Sign-in bootstraps the list while the user has already started
       // typing; the GET's snapshot predates the autosave that followed it.
@@ -684,6 +728,61 @@ describe('Inbox Store', () => {
     expect(existingA.starred).toBe(true)
     expect(existingA.unread).toBe(false)
     expect(merged[2]).toBe(existingB)
+  })
+
+  it('mergeInboxPage keeps label, recipient and category references when a refresh returns identical data', () => {
+    // Every Realtime ping re-merges the page. mapEmailRow builds fresh
+    // composite objects each time, so blindly assigning them would mark every
+    // row changed and re-render the whole visible list for no real change.
+    const labels = [{ id: 'l1', name: 'Home' }]
+    const recipients = { to: [{ name: null, address: 'a@example.com' }], cc: [] }
+    const existing = { id: 'a', starred: false, unread: false, labels, recipients, category: 'c1' }
+    const incoming = [
+      {
+        id: 'a',
+        starred: false,
+        unread: false,
+        labels: [{ id: 'l1', name: 'Home' }],
+        recipients: { to: [{ name: null, address: 'a@example.com' }], cc: [] },
+        category: 'c1',
+      },
+    ]
+
+    mergeInboxPage([existing], incoming)
+
+    expect(existing.labels).toBe(labels)
+    expect(existing.recipients).toBe(recipients)
+    expect(existing.category).toBe('c1')
+  })
+
+  it('mergeInboxPage replaces labels and recipients that actually changed', () => {
+    const existing = {
+      id: 'a',
+      starred: false,
+      unread: false,
+      labels: [{ id: 'l1', name: 'Home' }],
+      recipients: { to: [], cc: [] },
+      category: 'c1',
+    }
+    const nextLabels = [{ id: 'l2', name: 'Work' }]
+    const nextRecipients = { to: [{ name: null, address: 'b@example.com' }], cc: [] }
+    mergeInboxPage(
+      [existing],
+      [
+        {
+          id: 'a',
+          starred: false,
+          unread: false,
+          labels: nextLabels,
+          recipients: nextRecipients,
+          category: null,
+        },
+      ],
+    )
+
+    expect(existing.labels).toBe(nextLabels)
+    expect(existing.recipients).toBe(nextRecipients)
+    expect(existing.category).toBeNull()
   })
 
   it('does not let a refresh put back an email marked Done before the PATCH landed', async () => {

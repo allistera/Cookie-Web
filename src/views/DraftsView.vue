@@ -5,7 +5,7 @@ import { useInboxStore } from '../stores/inbox'
 const store = useInboxStore()
 
 onMounted(() => {
-  store.loadDrafts()
+  store.loadDrafts({ force: true })
 })
 
 // Drafts are edited constantly, so "when" is more usefully relative than

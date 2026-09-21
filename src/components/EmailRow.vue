@@ -30,10 +30,18 @@ function followUpTitle(followUpAt) {
 </script>
 
 <template>
+  <!-- The row is the only way to open a message, so it is a real keyboard
+       target: focusable, named for assistive tech, and activated by Enter or
+       Space like the checkbox inside it. -->
   <div
     class="ni-row"
     :class="{ unread: email.unread, selected: open, checked }"
+    role="button"
+    tabindex="0"
+    :aria-label="`${sender}: ${email.subject}`"
     @click="$emit('open', email)"
+    @keydown.enter.self.prevent="$emit('open', email)"
+    @keydown.space.self.prevent="$emit('open', email)"
   >
     <div class="ni-lead">
       <span

@@ -346,6 +346,8 @@ let replySavesPending = 0
 // load are logged and replayed over its response; a load that a newer load
 // superseded is dropped.
 let draftsLoadSeq = 0
+const DRAFTS_FRESH_MS = 30_000
+const pendingDraftsLoads = new WeakMap()
 let draftEditsDuringLoad = null
 
 // Newest-first upsert or removal, shared by the live list and the replay in
@@ -470,6 +472,23 @@ export function mapEmailRow(message) {
   }
 }
 
+// mapEmailRow builds labels, recipients and category afresh for every row, so
+// a refresh that returns identical data would still hand each existing row
+// three new object references. Vue treats that as a change and re-renders
+// every visible EmailRow on every Realtime ping. Compare those fields by
+// value and leave the existing reference in place when nothing moved.
+const COMPOSITE_FIELDS = new Set(['labels', 'recipients', 'category'])
+
+function assignChangedFields(target, row) {
+  for (const key of Object.keys(row)) {
+    const next = row[key]
+    if (COMPOSITE_FIELDS.has(key)) {
+      if (JSON.stringify(target[key]) === JSON.stringify(next)) continue
+    } else if (Object.is(target[key], next)) continue
+    target[key] = next
+  }
+}
+
 export function mergeInboxPage(existing, incoming, pendingStarIds, pendingUnreadIds) {
   const previousById = new Map(existing.map((email) => [email.id, email]))
   const incomingIds = new Set(incoming.map((email) => email.id))
@@ -480,7 +499,7 @@ export function mergeInboxPage(existing, incoming, pendingStarIds, pendingUnread
     const keepUnread = pendingUnreadIds?.has(previous.id)
     const starred = previous.starred
     const unread = previous.unread
-    Object.assign(previous, row)
+    assignChangedFields(previous, row)
     if (keepStarred) previous.starred = starred
     if (keepUnread) previous.unread = unread
     return previous
@@ -585,6 +604,8 @@ export const useInboxStore = defineStore('inbox', {
     // Saved drafts, newest first, for the Drafts view.
     drafts: [],
     isDraftsLoading: false,
+    // Last successful GET /drafts, for loadDrafts' freshness window.
+    draftsLoadedAt: 0,
     // The row each open composing surface autosaves into. Null until the
     // first save of a session creates one.
     composerDraftId: null,
@@ -2837,7 +2858,24 @@ export const useInboxStore = defineStore('inbox', {
     // silent: the sign-in bootstrap that decides whether the sidebar shows a
     // Drafts folder at all. A failure there should not toast — the folder
     // simply stays hidden until the next save or the Drafts view loads.
-    async loadDrafts({ silent = false } = {}) {
+    //
+    // The reader asks for drafts on every open and the Realtime refresh on
+    // every ping, so without a freshness window this is a full collection
+    // fetch per email read. Concurrent callers share the in-flight request;
+    // a successful load counts as fresh for DRAFTS_FRESH_MS unless the
+    // caller passes force (the Drafts view, autosave reconciliation).
+    async loadDrafts({ silent = false, force = false } = {}) {
+      const pending = pendingDraftsLoads.get(this)
+      if (pending) return pending
+      if (!force && Date.now() - this.draftsLoadedAt < DRAFTS_FRESH_MS) return
+      const request = this.loadDraftsUncached({ silent }).finally(() => {
+        pendingDraftsLoads.delete(this)
+      })
+      pendingDraftsLoads.set(this, request)
+      return request
+    },
+
+    async loadDraftsUncached({ silent }) {
       const seq = ++draftsLoadSeq
       draftEditsDuringLoad = []
       this.isDraftsLoading = true
@@ -2853,6 +2891,7 @@ export const useInboxStore = defineStore('inbox', {
         let list = Array.isArray(drafts) ? drafts : []
         for (const edit of draftEditsDuringLoad) list = applyDraftEdit(list, edit)
         this.drafts = list
+        this.draftsLoadedAt = Date.now()
       } catch (error) {
         console.error('Failed to load drafts:', error)
         if (!silent) this.notify('Could not load your drafts.', 'error')

@@ -31,7 +31,14 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.03);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.16);
 
+  /* Aliases: older rules reach for these names; they must resolve to the
+     tokens above or the element paints transparent / in the fallback font. */
+  --bg-primary: var(--bg-card);
+  --bg-secondary: var(--bg-input);
+  --accent-color: var(--accent);
+
   /* Font Families */
+  --font-family: var(--font-stack);
   --font-stack:
     'Inter Variable', Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1473,6 +1480,13 @@ body {
   font-size: 13px;
   cursor: pointer;
   transition: background-color var(--transition-fast);
+}
+
+/* The row is a keyboard target (role=button in EmailRow.vue): show where
+   focus is without painting a ring on ordinary mouse clicks. */
+.ni-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .ni-row:hover {
