@@ -272,6 +272,10 @@ and keeps your text if generation fails. The Tasks Worker must provide
 
 GitHub news shows all repositories returned by the daily top-repository feed by default. Enable **Settings → Personalisation → Personalise GitHub repositories** to rank and select repositories against your interests on the next AI Today refresh; Product Hunt continues to use your interests independently.
 
+### Files and the folder browser
+
+The Documents dashboard shows one folder at a time: subfolders first, then documents and uploaded files by name, as cards or rows (toggle in the toolbar; the choice is remembered in this browser). Click a folder in the sidebar or double-click its card to open it; the breadcrumb goes back up. **Upload** or drop files onto the pane to add any file type up to 25 MB to the current folder. Images and PDFs open in an inline preview; other types download. Each item's menu offers open, rename, move, star (documents), download (files), and delete. Files live in a private R2 bucket behind the `cookie-web-tasks` Worker and are not searched, tagged, or read by Document AI. The Starred, tag, and search views keep the flat table.
+
 ### Document icons
 
 Open a document and click its icon to the left of the title to choose an emoji. Icons autosave with other edits and appear in the sidebar and document list. If saving fails, the selection stays open for **Retry save** or **Save a copy**.
