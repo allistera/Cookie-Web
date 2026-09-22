@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+
+import FileThumbnail from './FileThumbnail.vue'
 import { useDocumentsStore } from '../stores/documents'
 import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
 import {
-  fileIcon,
   fileKind,
   folderBreadcrumb,
   folderContents,
@@ -395,9 +396,12 @@ function detail(entry) {
         <span v-else-if="entry.kind === 'document'" class="item-icon item-emoji" aria-hidden="true">
           {{ entry.item.emoji }}
         </span>
-        <span v-else class="item-icon material-symbols-outlined" aria-hidden="true">
-          {{ fileIcon(entry.item.mime_type) }}
-        </span>
+        <FileThumbnail
+          v-else
+          class="item-icon"
+          :file-id="entry.id"
+          :mime-type="entry.item.mime_type"
+        />
 
         <input
           v-if="renamingId === entry.id"
@@ -669,6 +673,19 @@ function detail(entry) {
 }
 .layout-grid .item-emoji {
   font-size: 64px;
+}
+/* An image file shows its bytes in the icon area, edge to edge. */
+.layout-grid .item-icon.has-image {
+  justify-self: stretch;
+  height: 96px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.layout-list .item-icon.has-image {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
 }
 .item-folder {
   color: #4a7de0;

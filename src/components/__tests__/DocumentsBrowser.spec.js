@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import DocumentsBrowser from '../DocumentsBrowser.vue'
 import { documentPageKey, useDocumentsStore } from '../../stores/documents'
 import { useInboxStore } from '../../stores/inbox'
+import { thumbnailCache } from '../../lib/fileThumbnails'
 
 let router
 let push
@@ -158,6 +159,43 @@ describe('DocumentsBrowser', () => {
     await flushPromises()
     expect(fetchBlob).toHaveBeenCalledWith('x-1')
     expect(push).not.toHaveBeenCalledWith('/documents/file/x-1')
+  })
+
+  it('shows image files as thumbnails and keeps the icon for everything else', async () => {
+    thumbnailCache.clear()
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:thumb'),
+      revokeObjectURL: vi.fn(),
+    })
+    const fetchBlob = vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['png']))
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    const image = { ...FILE, id: 'x-img', name: 'photo.png', mime_type: 'image/png' }
+    store.files[image.id] = image
+    store.filePages.root.ids = [FILE.id, image.id]
+    await flushPromises()
+
+    const [pdf, photo] = wrapper.findAll('.browser-item[data-kind="file"]')
+    expect(pdf.text()).toContain('brief.pdf')
+    expect(pdf.find('img').exists()).toBe(false)
+    expect(pdf.find('.item-icon').text()).toBe('picture_as_pdf')
+
+    expect(photo.text()).toContain('photo.png')
+    expect(photo.find('img.file-thumbnail-img').attributes('src')).toBe('blob:thumb')
+    expect(photo.find('.item-icon').classes()).toContain('has-image')
+    expect(fetchBlob).toHaveBeenCalledTimes(1)
+    expect(fetchBlob).toHaveBeenCalledWith('x-img')
+
+    // Leaving and re-entering the folder reuses the cached url.
+    wrapper.unmount()
+    const again = mountBrowser(null)
+    await flushPromises()
+    store.files[image.id] = image
+    store.filePages.root.ids = [FILE.id, image.id]
+    await flushPromises()
+    expect(again.findAll('img.file-thumbnail-img')).toHaveLength(1)
+    expect(fetchBlob).toHaveBeenCalledTimes(1)
   })
 
   it('uploads dropped files into the current folder', async () => {
