@@ -614,7 +614,12 @@ test('Profile dropdown contains Settings and Log out, and opens the settings pag
         padding: style.padding,
       }
     })
-  const mailNavStyle = await sidebarTextStyle(page.locator('.sidebar-nav .nav-item').first())
+  // Compare items that are not active on either side: the active item's
+  // weight is heavier, and the mail sidebar's active class lands after the
+  // first paint, so comparing first items raced it.
+  const mailNavStyle = await sidebarTextStyle(
+    page.locator('.sidebar-nav .nav-item:not(.active)').first(),
+  )
   const mailLabelStyle = await sidebarTextStyle(page.locator('.sb-section-label').first())
 
   // Settings cog is no longer in the header
@@ -637,9 +642,12 @@ test('Profile dropdown contains Settings and Log out, and opens the settings pag
     'General',
     'Email',
     'Calendar',
+    'Tasks',
     'Documents',
   ])
-  expect(await sidebarTextStyle(page.locator('.settings-nav-item').first())).toEqual(mailNavStyle)
+  expect(await sidebarTextStyle(page.locator('.settings-nav-item:not(.active)').first())).toEqual(
+    mailNavStyle,
+  )
   expect(await sidebarTextStyle(page.locator('.settings-nav-label').first())).toEqual(
     mailLabelStyle,
   )
@@ -1670,7 +1678,7 @@ test('Settings Labels pane lists, creates and renames labels', async ({ page }) 
   await expect(modal).toBeVisible()
 
   // Switch to the Labels category
-  await modal.locator('.settings-nav-item', { hasText: 'Labels' }).click()
+  await modal.getByRole('link', { name: 'Labels', exact: true }).click()
   await expect(modal.locator('.label-table-row')).not.toHaveCount(0)
   await expect(modal.locator('.ni-label-pill', { hasText: 'Finance' })).toBeVisible()
 
@@ -2555,7 +2563,7 @@ test('Tasks: natural-language quick add parses into Advanced and saves every fie
   await expect(dialog.getByLabel('Due date')).not.toHaveValue('')
   await expect(dialog.getByLabel('Due time')).toHaveValue('15:00')
   await expect(dialog.getByRole('combobox', { name: 'Priority' })).toHaveValue('1')
-  await expect(dialog.getByRole('textbox', { name: 'Labels' })).toHaveValue('@home')
+  await expect(dialog.locator('.task-label-chip-text')).toHaveText(['@home'])
 
   await dialog.getByRole('button', { name: 'Add task' }).click()
   await expect(dialog).toHaveCount(0)

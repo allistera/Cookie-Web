@@ -68,6 +68,7 @@ function localApiPlugin(mode) {
         contactInsights: new Map(),
         projects: [],
         taskItems: [],
+        taskLabels: [],
         drafts: [],
       })
     }
@@ -1334,6 +1335,27 @@ function localApiPlugin(mode) {
         res.statusCode = 204
         res.end()
         return
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
+    if (segments[0] === 'task-labels') {
+      if (req.method === 'GET') return json(res, { labels: state.taskLabels })
+      const body = await readBody(req)
+      if (req.method === 'POST') {
+        const label = { id: `stub-label-${randomUUID()}`, name: body.name, color: body.color }
+        state.taskLabels.push(label)
+        return json(res, { label })
+      }
+      if (req.method === 'PATCH') {
+        const label = state.taskLabels.find((row) => row.id === body.id)
+        if (!label) return json(res, { error: 'Not Found' }, 404)
+        const { id: _id, ...changes } = body
+        Object.assign(label, changes)
+        return json(res, { label })
+      }
+      if (req.method === 'DELETE') {
+        state.taskLabels = state.taskLabels.filter((row) => row.id !== body.id)
+        return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)
     }

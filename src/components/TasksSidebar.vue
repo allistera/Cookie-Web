@@ -476,7 +476,7 @@ function onLabelDrop(label, event) {
     <div class="sb-section-label tasks-projects-label">
       <span>Labels</span>
       <button
-        class="new-project-btn new-label-btn"
+        class="new-label-btn"
         type="button"
         title="New label"
         aria-label="New label"
@@ -567,7 +567,7 @@ function onLabelDrop(label, event) {
           @blur="submitNewLabel"
         />
       </form>
-      <p v-if="!labelsStore.labels.length && !newLabelOpen" class="tasks-projects-empty">
+      <p v-if="!labelsStore.labels.length && !newLabelOpen" class="tasks-labels-empty">
         No labels yet
       </p>
     </nav>
@@ -623,7 +623,8 @@ function onLabelDrop(label, event) {
   font-size: 16px;
 }
 
-.tasks-projects-empty {
+.tasks-projects-empty,
+.tasks-labels-empty {
   margin: 0;
   padding: 2px 8px;
   font-size: 13px;
@@ -636,7 +637,8 @@ function onLabelDrop(label, event) {
   justify-content: space-between;
 }
 
-.new-project-btn {
+.new-project-btn,
+.new-label-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -652,7 +654,9 @@ function onLabelDrop(label, event) {
 }
 
 .new-project-btn:hover,
-.new-project-btn:focus-visible {
+.new-project-btn:focus-visible,
+.new-label-btn:hover,
+.new-label-btn:focus-visible {
   background-color: var(--bg-hover);
   color: var(--text-primary);
   outline: none;
