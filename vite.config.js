@@ -1219,6 +1219,19 @@ function localApiPlugin(mode) {
         created_at: gatheredAt,
         sections: [
           {
+            emoji: '📰',
+            title: 'UK headlines',
+            items: [
+              {
+                title: 'Rail strike talks resume',
+                url: 'https://www.bbc.co.uk/news/uk-00000001',
+                description: 'Unions and operators return to the table.',
+                note: '',
+                meta: '08:12',
+              },
+            ],
+          },
+          {
             emoji: '💻',
             title: 'GitHub',
             items: [
@@ -1241,19 +1254,6 @@ function localApiPlugin(mode) {
                 description: 'Self-hosted dashboards without the yak-shaving.',
                 note: 'You follow self-hosting.',
                 meta: '▲ 340',
-              },
-            ],
-          },
-          {
-            emoji: '📰',
-            title: 'UK headlines',
-            items: [
-              {
-                title: 'Rail strike talks resume',
-                url: 'https://www.bbc.co.uk/news/uk-00000001',
-                description: 'Unions and operators return to the table.',
-                note: '',
-                meta: '08:12',
               },
             ],
           },

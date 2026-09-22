@@ -378,8 +378,8 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
   // The news round-up sits in its own card beneath the mail topics.
   const news = page.getByTestId('news-sections')
   await expect(news.locator('.topic-section')).toHaveCount(3)
-  await expect(news.locator('.topic-title').nth(2)).toContainText('📰 UK headlines')
-  const repo = news.locator('.topic-section').first().locator('a.news-link')
+  await expect(news.locator('.topic-title').first()).toContainText('📰 UK headlines')
+  const repo = news.locator('.topic-section').nth(1).locator('a.news-link')
   await expect(repo).toHaveAttribute('href', 'https://github.com/acme/rocket')
   await expect(repo).toHaveAttribute('target', '_blank')
   await expect(news.locator('.news-note').first()).toContainText('Cloudflare Workers')

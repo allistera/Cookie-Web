@@ -236,19 +236,6 @@ describe('AIInboxView (AI Today)', () => {
       created_at: '2026-08-04T05:00:00.000Z',
       sections: [
         {
-          emoji: '💻',
-          title: 'GitHub',
-          items: [
-            {
-              title: 'acme/rocket',
-              url: 'https://github.com/acme/rocket',
-              description: 'Fast things',
-              note: 'Rust, which you follow',
-              meta: 'Rust · ★ 1200',
-            },
-          ],
-        },
-        {
           emoji: '📰',
           title: 'UK headlines',
           items: [
@@ -261,26 +248,39 @@ describe('AIInboxView (AI Today)', () => {
             },
           ],
         },
+        {
+          emoji: '💻',
+          title: 'GitHub',
+          items: [
+            {
+              title: 'acme/rocket',
+              url: 'https://github.com/acme/rocket',
+              description: 'Fast things',
+              note: 'Rust, which you follow',
+              meta: 'Rust · ★ 1200',
+            },
+          ],
+        },
       ],
     }
 
     const wrapper = mountView()
     const sections = wrapper.get('[data-testid="news-sections"]').findAll('.topic-section')
     expect(sections.map((s) => s.get('.topic-title').text())).toEqual([
-      '💻 GitHub',
       '📰 UK headlines',
+      '💻 GitHub',
     ])
 
-    const link = sections[0].get('a.news-link')
+    // Headlines carry no personalisation note, since they are never ranked.
+    expect(sections[0].find('.news-note').exists()).toBe(false)
+
+    const link = sections[1].get('a.news-link')
     expect(link.attributes('href')).toBe('https://github.com/acme/rocket')
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toContain('noopener')
-    expect(sections[0].text()).toContain('Fast things')
-    expect(sections[0].get('.news-note').text()).toBe('Rust, which you follow')
-    expect(sections[0].get('.news-meta').text()).toBe('Rust · ★ 1200')
-
-    // Headlines carry no personalisation note, since they are never ranked.
-    expect(sections[1].find('.news-note').exists()).toBe(false)
+    expect(sections[1].text()).toContain('Fast things')
+    expect(sections[1].get('.news-note').text()).toBe('Rust, which you follow')
+    expect(sections[1].get('.news-meta').text()).toBe('Rust · ★ 1200')
   })
 
   it('collapses The World Today with an accessible header control', async () => {
