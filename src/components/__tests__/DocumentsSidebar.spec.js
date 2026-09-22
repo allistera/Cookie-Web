@@ -167,6 +167,41 @@ describe('DocumentsSidebar', () => {
     expect(remounted.find('.documents-tree').text()).toContain('Kitchen')
   })
 
+  it('opens the folder shown in the browser and its ancestors on mount', async () => {
+    await router.replace({ path: '/documents', query: { folder: 'f-kitchen' } })
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const treeText = wrapper.find('.documents-tree').text()
+    expect(treeText).toContain('Kitchen')
+    expect(treeText).toContain('Plan')
+    expect(JSON.parse(localStorage.getItem('cookie-documents-expanded-folders'))).toEqual([
+      'f-projects',
+      'f-kitchen',
+    ])
+  })
+
+  it('follows the browser into a folder, then into a document, without collapsing anything', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    expect(wrapper.find('.documents-tree').text()).not.toContain('Kitchen')
+
+    await router.replace({ path: '/documents', query: { folder: 'f-projects' } })
+    await flushPromises()
+    expect(wrapper.find('.documents-tree').text()).toContain('Kitchen')
+    expect(wrapper.find('.documents-tree').text()).not.toContain('Plan')
+
+    // Opening a document reveals the folder chain that contains it.
+    await router.replace('/documents/d-plan')
+    await flushPromises()
+    expect(wrapper.find('.documents-tree').text()).toContain('Plan')
+
+    // Going back up to the root leaves the tree as it was.
+    await router.replace({ path: '/documents' })
+    await flushPromises()
+    expect(wrapper.find('.documents-tree').text()).toContain('Plan')
+  })
+
   it('drops a document onto the tree, the label or a root row to move it to the root', async () => {
     const wrapper = mountSidebar()
     await flushPromises()

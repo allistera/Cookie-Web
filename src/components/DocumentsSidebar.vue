@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import VirtualList from './VirtualList.vue'
 import { useDocumentsStore } from '../stores/documents'
 import { confirmDocumentDelete, confirmFolderDelete } from '../lib/documentDeleteConfirmation'
+import { folderBreadcrumb } from '../lib/documentFiles'
 import { flattenDocumentsTree } from '../lib/documentsTree'
 import { getStoredExpandedFolderIds, saveExpandedFolderIds } from '../lib/documentsSidebarFolders'
 
@@ -27,6 +28,29 @@ const treeRows = computed(() =>
   flattenDocumentsTree(store.folders, store.documents, expandedIds.value, (id) =>
     store.workspacePaged ? (store.pageFor({ folder: id }) ?? { loaded: false }) : null,
   ).map((row) => ({ ...row, key: `${row.kind}:${row.item.id}` })),
+)
+
+// The tree follows the browser pane: the folder it shows (or the folder
+// holding the open document) and every ancestor open up so the current
+// location is always visible. This only ever adds to the set, so folders the
+// user closed elsewhere stay closed. Recomputed once folders load, since the
+// chain is empty until the workspace is known.
+const currentFolderChain = computed(() => {
+  const query = Array.isArray(route.query.folder) ? route.query.folder[0] : route.query.folder
+  const openDoc = route.params.id ? store.documents.find((doc) => doc.id === route.params.id) : null
+  const folderId = query || openDoc?.folder_id || null
+  return folderBreadcrumb(store.folders, folderId)
+    .map((crumb) => crumb.id)
+    .filter(Boolean)
+})
+watch(
+  () => currentFolderChain.value.join('/'),
+  () => {
+    const ids = currentFolderChain.value
+    if (ids.every((id) => expandedIds.value.has(id))) return
+    expandedIds.value = new Set([...expandedIds.value, ...ids])
+  },
+  { immediate: true },
 )
 
 watch(
