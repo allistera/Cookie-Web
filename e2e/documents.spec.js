@@ -193,6 +193,13 @@ test('Dashboard document deletion requires confirmation', async ({ page }) => {
   await expect(scratchpad).toHaveCount(0)
 })
 
+// Editor.js keeps its holder inert until it is ready. Firefox refuses to
+// focus inside an inert subtree, so a fill that lands in that window is
+// silently dropped — wait for readiness before editing blocks.
+async function waitForEditorReady(page) {
+  await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
+}
+
 // The table block embeds a full Univer sheet, which renders its grid on
 // <canvas> — there is no per-cell DOM node to click or type into. It's driven
 // and asserted through Univer's own facade API instead, exposed on the block
@@ -649,6 +656,7 @@ test('The default content for new daily notes can be customized in Settings > Do
   await page.goto('/settings/daily-notes')
 
   await expect(page.getByRole('heading', { name: 'Time Management', exact: true })).toBeVisible()
+  await waitForEditorReady(page)
   // The built-in default is a "Tasks" heading — replace it with custom content.
   const heading = page.locator('.daily-note-editor-surface .ce-header').first()
   await expect(heading).toHaveText('Tasks')
@@ -927,6 +935,7 @@ test('Document AI sends the latest draft, previews edits and applies them throug
   })
   await page.goto('/documents')
   await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await waitForEditorReady(page)
   await page.locator('.document-title').fill('Latest title')
   await page.locator('.codex-editor .ce-paragraph').first().fill('My latest unsaved thought.')
   await page.getByRole('button', { name: 'Open document AI' }).click()

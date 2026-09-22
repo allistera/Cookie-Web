@@ -178,10 +178,10 @@ npm run test:e2e
 Install Playwright browsers once if required:
 
 ```sh
-npx playwright install
+npx playwright install chromium firefox
 ```
 
-Run a narrower browser test with `--project=chromium` or a specific file path when iterating locally.
+`npm run test:e2e` runs Chromium only; CI also runs Firefox. Run `npx playwright test --project=firefox` to check Firefox locally, or `npm run test:e2e:all` for both. Pass a specific file path to narrow a run when iterating.
 
 ## Delivery and operations
 

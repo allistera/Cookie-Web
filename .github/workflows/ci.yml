@@ -41,11 +41,16 @@ jobs:
         run: npm run build
 
   # E2E dominated the pipeline: 560s of a 739s run. It runs alongside the
-  # checks above rather than after them, and on Chromium only — see the note
-  # in playwright.config.js for what that trades away.
+  # checks above rather than after them, with one job per browser so Firefox
+  # adds runner minutes but no wall clock — see the note in
+  # playwright.config.js for what that trades away.
   e2e:
-    name: E2E
+    name: E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
 
     steps:
       - name: Checkout repository
@@ -61,15 +66,15 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browser and dependencies
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Run E2E tests
-        run: npm run test:e2e
+        run: npx playwright test --project=${{ matrix.browser }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 30
