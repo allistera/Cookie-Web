@@ -27,6 +27,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'check_box_outline_blank',
   'circle',
   'close',
+  'code',
   'cookie',
   'create_new_folder',
   'dark_mode',

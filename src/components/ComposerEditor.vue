@@ -74,7 +74,7 @@ function updateSlashMenu() {
 function removeSlashText() {
   const before = textBeforeCaret()
   const match = before && SLASH_RE.exec(before.text)
-  if (!match) return null
+  if (!match) return
   const deleteLength = match[1].length + 1 // the "/" plus the query
   const startAt = before.text.length - deleteLength
   const walker = document.createTreeWalker(editorRef.value, NodeFilter.SHOW_TEXT)
@@ -82,22 +82,35 @@ function removeSlashText() {
   let seen = 0
   while (node) {
     const next = seen + node.textContent.length
-    if (startAt <= next) break
+    if (startAt < next) break
     seen = next
     node = walker.nextNode()
   }
-  if (!node) return null
+  if (!node) return
   const range = document.createRange()
   range.setStart(node, Math.max(0, startAt - seen))
   range.setEnd(before.range.startContainer, before.range.startOffset)
   range.deleteContents()
-  const selection = window.getSelection()
-  selection.removeAllRanges()
-  const caret = document.createRange()
-  caret.setStart(range.startContainer, range.startOffset)
-  caret.collapse(true)
-  selection.addRange(caret)
-  return caret
+  // Deleting the trigger can leave its line as an empty block, which the
+  // browser resolves to the end of the previous line — so a block command
+  // would restyle that line instead. Keep the emptied line renderable.
+  const line = emptiedLine(range.startContainer)
+  if (line) {
+    line.appendChild(document.createElement('br'))
+    placeCaret(line, 0)
+  } else {
+    placeCaret(range.startContainer, range.startOffset)
+  }
+}
+
+const LINE_BLOCKS = 'div, p, li, h1, h2, h3, h4, blockquote, pre'
+
+function emptiedLine(node) {
+  const editor = editorRef.value
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode
+  const line = element.closest(LINE_BLOCKS)
+  if (!line || line === editor || !editor.contains(line)) return null
+  return line.textContent === '' && !line.querySelector('br') ? line : null
 }
 
 function insertHtmlAtCaret(html) {
@@ -171,10 +184,100 @@ function applyCommand(command) {
     case 'bold':
       document.execCommand('bold')
       break
+    case 'code':
+      document.execCommand('formatBlock', false, '<pre>')
+      break
     case 'divider':
       document.execCommand('insertHorizontalRule')
       break
   }
+}
+
+// --- Code blocks ---
+// Browsers disagree on Enter inside a <pre> (Chrome splits the block, Firefox
+// inserts a line break), so the editor handles it: Enter adds a line break and
+// Enter on an empty trailing line leaves the block for a fresh paragraph.
+
+function caretCodeBlock() {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount || !selection.isCollapsed) return null
+  const range = selection.getRangeAt(0)
+  const editor = editorRef.value
+  if (!editor || !editor.contains(range.startContainer)) return null
+  const { startContainer } = range
+  const element =
+    startContainer.nodeType === Node.ELEMENT_NODE ? startContainer : startContainer.parentNode
+  const pre = element.closest('pre')
+  return pre && pre !== editor && editor.contains(pre) ? { pre, range } : null
+}
+
+// Child nodes of a fragment that render something (empty text nodes don't).
+function visibleNodes(fragment) {
+  return [...fragment.childNodes].filter(
+    (node) => node.nodeType !== Node.TEXT_NODE || node.data !== '',
+  )
+}
+
+function isLineBreak(node) {
+  return node.nodeName === 'BR'
+}
+
+function placeCaret(container, offset) {
+  const caret = document.createRange()
+  caret.setStart(container, offset)
+  caret.collapse(true)
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(caret)
+}
+
+function nodesAfterCaret(pre, range) {
+  const after = range.cloneRange()
+  after.setEnd(pre, pre.childNodes.length)
+  return visibleNodes(after.cloneContents())
+}
+
+// The caret is on an empty trailing line when it directly follows a line
+// break and only line breaks remain after it in the block.
+function onEmptyTrailingLine(pre, range) {
+  if (!nodesAfterCaret(pre, range).every(isLineBreak)) return false
+  const before = range.cloneRange()
+  before.setStart(pre, 0)
+  const last = visibleNodes(before.cloneContents()).at(-1)
+  return Boolean(last && isLineBreak(last))
+}
+
+function insertCodeLineBreak(pre, range) {
+  const br = document.createElement('br')
+  range.insertNode(br)
+  const caret = document.createRange()
+  caret.setStartAfter(br)
+  caret.collapse(true)
+  // A caret after the block's last <br> renders on the same line unless a
+  // placeholder <br> follows it.
+  if (nodesAfterCaret(pre, caret).length === 0) pre.appendChild(document.createElement('br'))
+  placeCaret(caret.startContainer, caret.startOffset)
+}
+
+function leaveCodeBlock(pre) {
+  while (pre.lastChild && (isLineBreak(pre.lastChild) || pre.lastChild.data === '')) {
+    pre.lastChild.remove()
+  }
+  const paragraph = document.createElement('div')
+  paragraph.appendChild(document.createElement('br'))
+  pre.after(paragraph)
+  if (!pre.textContent) pre.remove()
+  placeCaret(paragraph, 0)
+}
+
+function onCodeBlockEnter(event) {
+  const block = caretCodeBlock()
+  if (!block) return false
+  event.preventDefault()
+  if (onEmptyTrailingLine(block.pre, block.range)) leaveCodeBlock(block.pre)
+  else insertCodeLineBreak(block.pre, block.range)
+  emitUpdate()
+  return true
 }
 
 function selectCommand(command) {
@@ -286,6 +389,7 @@ function onKeydown(event) {
       return
     }
   }
+  if (event.key === 'Enter' && !event.shiftKey && onCodeBlockEnter(event)) return
   if (event.key === 'Tab' && event.shiftKey) {
     event.preventDefault()
     emit('focusPrev')

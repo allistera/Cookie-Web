@@ -23,6 +23,11 @@ describe('filterSlashCommands', () => {
     expect(filterSlashCommands('unordered').map((c) => c.id)).toEqual(['bullet'])
   })
 
+  it('offers a code block command matched by title and aliases', () => {
+    expect(filterSlashCommands('code').map((c) => c.id)).toEqual(['code'])
+    expect(filterSlashCommands('monospace').map((c) => c.id)).toEqual(['code'])
+  })
+
   it('is case-insensitive and returns nothing for no match', () => {
     expect(filterSlashCommands('BOLD').map((c) => c.id)).toEqual(['bold'])
     expect(filterSlashCommands('zzz')).toEqual([])

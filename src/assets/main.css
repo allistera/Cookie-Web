@@ -3335,6 +3335,19 @@ button.ni-attachment:hover {
   margin: 12px 0;
 }
 
+.composer-editor pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--bg-hover);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .composer-slash-menu {
   position: absolute;
   min-width: 240px;

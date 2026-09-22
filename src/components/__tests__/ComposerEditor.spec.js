@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import ComposerEditor from '../ComposerEditor.vue'
@@ -149,5 +149,99 @@ describe('ComposerEditor paste and input sanitization', () => {
     const html = wrapper.emitted('update:modelValue').at(-1)[0]
     expect(html).toContain('Hello')
     expect(html.toLowerCase()).not.toContain('<script')
+  })
+})
+
+describe('ComposerEditor code blocks', () => {
+  afterEach(() => {
+    delete document.execCommand
+  })
+
+  function pressEnter(editor) {
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    editor.element.dispatchEvent(event)
+    return event
+  }
+
+  it('turns the current line into a code block from the slash menu', async () => {
+    document.execCommand = vi.fn()
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = '/code'
+    editor.element.focus()
+    setCaret(editor.element.firstChild, '/code'.length)
+
+    await editor.trigger('input')
+    expect(wrapper.find('.composer-slash-menu').text()).toContain('Code block')
+    await editor.trigger('keydown', { key: 'Enter' })
+
+    expect(document.execCommand).toHaveBeenCalledWith('formatBlock', false, '<pre>')
+    expect(editor.html()).not.toContain('/code')
+  })
+
+  it('keeps the caret on its own empty line after removing the trigger', async () => {
+    document.execCommand = vi.fn()
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.innerHTML = 'Hello,<div>/code</div>'
+    editor.element.focus()
+    const line = editor.element.querySelector('div')
+    setCaret(line.firstChild, '/code'.length)
+
+    await editor.trigger('input')
+    await editor.trigger('keydown', { key: 'Enter' })
+
+    expect(editor.element.innerHTML).toBe('Hello,<div><br></div>')
+    const { anchorNode } = window.getSelection()
+    expect(anchorNode === line || line.contains(anchorNode)).toBe(true)
+  })
+
+  it('inserts a line break inside a code block on Enter', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.innerHTML = '<pre>ab</pre>'
+    editor.element.focus()
+    setCaret(editor.element.querySelector('pre').firstChild, 1)
+
+    const event = pressEnter(editor)
+    await wrapper.vm.$nextTick()
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(editor.element.querySelectorAll('pre')).toHaveLength(1)
+    expect(editor.element.querySelector('pre').innerHTML).toBe('a<br>b')
+    const pre = editor.element.querySelector('pre')
+    expect(pre.contains(window.getSelection().anchorNode)).toBe(true)
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('<pre>a<br>b</pre>')
+  })
+
+  it('leaves the code block on Enter from an empty trailing line', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.innerHTML = '<pre>code</pre>'
+    editor.element.focus()
+    setCaret(editor.element.querySelector('pre').firstChild, 'code'.length)
+
+    pressEnter(editor)
+    pressEnter(editor)
+    await wrapper.vm.$nextTick()
+
+    const pre = editor.element.querySelector('pre')
+    expect(pre.innerHTML).toBe('code')
+    expect(pre.nextSibling).not.toBeNull()
+    expect(pre.contains(window.getSelection().anchorNode)).toBe(false)
+    expect(editor.element.contains(window.getSelection().anchorNode)).toBe(true)
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toMatch(/^<pre>code<\/pre><div>/)
+  })
+
+  it('does not intercept Enter outside a code block', async () => {
+    const wrapper = mount(ComposerEditor, { attachTo: document.body })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.innerHTML = '<div>plain</div>'
+    editor.element.focus()
+    setCaret(editor.element.querySelector('div').firstChild, 'plain'.length)
+
+    const event = pressEnter(editor)
+
+    expect(event.defaultPrevented).toBe(false)
   })
 })

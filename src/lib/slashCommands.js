@@ -40,6 +40,13 @@ export const SLASH_COMMANDS = [
     keywords: 'quote blockquote citation',
   },
   {
+    id: 'code',
+    title: 'Code block',
+    hint: '</>',
+    icon: 'code',
+    keywords: 'code block pre monospace',
+  },
+  {
     id: 'divider',
     title: 'Divider',
     hint: '—',

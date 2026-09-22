@@ -10,7 +10,7 @@ const MAX_MAIL_ENTRIES = 20
 // its URL and staticAssetResponse is cache-first, so bump the revision below
 // whenever `npm run fetch:icon-font` changes public/fonts/, or existing
 // installs render new glyphs as their ligature text.
-// Icon subset revision: 2026-09-21 (Documents folder browser icons)
+// Icon subset revision: 2026-09-22 (composer code block icon)
 const SHELL_URLS = [
   '/',
   '/site.webmanifest',
