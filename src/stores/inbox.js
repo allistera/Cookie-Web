@@ -780,6 +780,9 @@ export const useInboxStore = defineStore('inbox', {
     openEmail() {
       return this.emailById(this.openEmailId)
     },
+    isNtfyEnabled(state) {
+      return state.ntfySubscription?.enabled === true
+    },
     // Raw (still-untrusted) body_html for the open email, once fetched; null
     // until the fetch lands or when the message has no HTML body. The reader
     // sanitizes this before rendering it in a sandboxed iframe.
@@ -1228,7 +1231,9 @@ export const useInboxStore = defineStore('inbox', {
       const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { headers, cache: 'no-store' })
       if (!response.ok) throw new Error(`GET /ntfy responded ${response.status}`)
       const subscription = await response.json()
-      this.ntfySubscription = subscription.enabled ? subscription : null
+      // A paused subscription keeps its topic so the phone stays subscribed;
+      // only a user who never set ntfy up has no topic at all.
+      this.ntfySubscription = subscription.topic ? subscription : null
       return this.ntfySubscription
     },
 
@@ -1244,7 +1249,9 @@ export const useInboxStore = defineStore('inbox', {
       const headers = await this.authHeaders()
       const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { method: 'DELETE', headers })
       if (!response.ok) throw new Error(`DELETE /ntfy responded ${response.status}`)
-      this.ntfySubscription = null
+      if (this.ntfySubscription) {
+        this.ntfySubscription = { ...this.ntfySubscription, enabled: false }
+      }
     },
 
     async sendNtfyTest() {

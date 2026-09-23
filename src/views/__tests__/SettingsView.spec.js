@@ -404,7 +404,9 @@ describe('SettingsView', () => {
     await openPane(wrapper, 'notifications')
 
     // The stub email-summary / to-do / AI-suggestion toggles have been removed.
-    const otherToggles = wrapper.findAll('.settings-switch:not(.browser-notifications-switch)')
+    const otherToggles = wrapper.findAll(
+      '.settings-switch:not(.browser-notifications-switch):not(.ntfy-switch)',
+    )
     expect(otherToggles).toHaveLength(0)
     expect(wrapper.find('.browser-notifications-switch').exists()).toBe(true)
 
@@ -470,6 +472,80 @@ describe('SettingsView', () => {
     expect(wrapper.get('[role="alert"]').text()).toBe(
       'ntfy is temporarily rate-limiting notifications. Try again shortly.',
     )
+  })
+
+  function stubNtfyApi(current) {
+    const base = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options) => {
+      if (String(url).endsWith('/ntfy')) {
+        if (options?.method === 'POST') {
+          return { ok: true, json: async () => ({ ...NTFY_TOPIC, enabled: true }) }
+        }
+        if (options?.method === 'DELETE') return { ok: true, status: 204 }
+        return { ok: true, json: async () => current }
+      }
+      return base(url, options)
+    })
+  }
+
+  const NTFY_TOPIC = {
+    topic: 'cookie-user-topic',
+    subscribeUrl: 'https://ntfy.example.com/cookie-user-topic',
+  }
+
+  it('turns ntfy on from the switch and shows the new topic', async () => {
+    const wrapper = await openView()
+    store.userId = 'user-1'
+    stubNtfyApi({ enabled: false })
+
+    await openPane(wrapper, 'notifications')
+    await flushPromises()
+    const toggle = wrapper.get('.ntfy-switch')
+    expect(toggle.element.checked).toBe(false)
+    expect(wrapper.find('[data-testid="ntfy-subscription"]').exists()).toBe(false)
+
+    toggle.element.checked = true
+    await toggle.trigger('change')
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ntfy'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(wrapper.get('.ntfy-switch').element.checked).toBe(true)
+    expect(wrapper.get('[data-testid="ntfy-subscription"]').text()).toContain(
+      NTFY_TOPIC.subscribeUrl,
+    )
+  })
+
+  it('turns ntfy off from the switch but keeps the topic on screen', async () => {
+    const wrapper = await openView()
+    store.userId = 'user-1'
+    store.ntfySubscription = { ...NTFY_TOPIC, enabled: true }
+    stubNtfyApi({ ...NTFY_TOPIC, enabled: true })
+
+    await openPane(wrapper, 'notifications')
+    const toggle = wrapper.get('.ntfy-switch')
+    expect(toggle.element.checked).toBe(true)
+
+    toggle.element.checked = false
+    await toggle.trigger('change')
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ntfy'),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(wrapper.get('.ntfy-switch').element.checked).toBe(false)
+    expect(wrapper.get('[data-testid="ntfy-subscription"]').text()).toContain(
+      NTFY_TOPIC.subscribeUrl,
+    )
+    const testButton = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('Send test notification'))
+    expect(testButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('Disable ntfy')
+    expect(wrapper.text()).not.toContain('Set up ntfy')
   })
 
   it('persists the theme preference from the Appearance pane', async () => {

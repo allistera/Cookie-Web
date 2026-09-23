@@ -278,29 +278,27 @@ async function toggleBrowserNotifications(event) {
   saveBrowserNotificationsEnabled(notificationOwnerId.value, browserNotificationsOn.value)
 }
 
-async function enableNtfy() {
-  ntfyError.value = ''
-  isNtfyLoading.value = true
-  try {
-    await store.createNtfySubscription()
-  } catch (error) {
-    console.error('Failed to enable ntfy notifications:', error)
-    ntfyError.value = 'Could not enable ntfy notifications. Please try again.'
-  } finally {
-    isNtfyLoading.value = false
-  }
-}
+const ntfyStatus = computed(() => {
+  if (isNtfyLoading.value) return 'Loading…'
+  if (store.isNtfyEnabled) return 'Cookie will send new mail alerts to your ntfy topic.'
+  if (store.ntfySubscription) return 'Paused. Your topic is kept, so turn this back on any time.'
+  return 'Turn on to create a private topic to subscribe to in the ntfy app.'
+})
 
-async function disableNtfy() {
+// The switch is controlled by the store, so a failed request snaps it back.
+async function toggleNtfy(event) {
+  const enabled = event.target.checked
   ntfyError.value = ''
   isNtfyLoading.value = true
   try {
-    await store.disableNtfySubscription()
+    if (enabled) await store.createNtfySubscription()
+    else await store.disableNtfySubscription()
   } catch (error) {
-    console.error('Failed to disable ntfy notifications:', error)
-    ntfyError.value = 'Could not disable ntfy notifications. Please try again.'
+    console.error(`Failed to ${enabled ? 'enable' : 'disable'} ntfy notifications:`, error)
+    ntfyError.value = `Could not ${enabled ? 'enable' : 'disable'} ntfy notifications. Please try again.`
   } finally {
     isNtfyLoading.value = false
+    event.target.checked = store.isNtfyEnabled
   }
 }
 
@@ -767,18 +765,26 @@ function toggleRuleEnabled(rule) {
             <h3 class="settings-section-title settings-section-title-spaced">ntfy notifications</h3>
             <p class="settings-section-hint">
               Receive Cookie alerts in the ntfy iOS app. Install ntfy, subscribe to your private
-              topic, then leave this enabled.
+              topic, then leave this on.
             </p>
-            <button
-              v-if="!store.ntfySubscription"
-              type="button"
-              class="btn btn-primary"
-              :disabled="isNtfyLoading || !notificationOwnerId"
-              @click="enableNtfy"
+            <label class="settings-row">
+              <div class="settings-row-text">
+                <span>ntfy notifications</span>
+                <small>{{ ntfyStatus }}</small>
+              </div>
+              <input
+                type="checkbox"
+                class="settings-switch ntfy-switch"
+                :checked="store.isNtfyEnabled"
+                :disabled="isNtfyLoading || !notificationOwnerId"
+                @change="toggleNtfy"
+              />
+            </label>
+            <div
+              v-if="store.ntfySubscription"
+              class="ntfy-subscription"
+              data-testid="ntfy-subscription"
             >
-              {{ isNtfyLoading ? 'Preparing…' : 'Set up ntfy' }}
-            </button>
-            <div v-else class="ntfy-subscription" data-testid="ntfy-subscription">
               <p>Subscribe in ntfy to:</p>
               <code>{{ store.ntfySubscription.subscribeUrl }}</code>
               <div class="label-create-actions">
@@ -788,18 +794,10 @@ function toggleRuleEnabled(rule) {
                 <button
                   type="button"
                   class="btn btn-secondary"
-                  :disabled="isNtfyTesting || isNtfyLoading"
+                  :disabled="isNtfyTesting || isNtfyLoading || !store.isNtfyEnabled"
                   @click="sendNtfyTest"
                 >
                   {{ isNtfyTesting ? 'Sending…' : 'Send test notification' }}
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-secondary"
-                  :disabled="isNtfyLoading"
-                  @click="disableNtfy"
-                >
-                  Disable ntfy
                 </button>
               </div>
             </div>

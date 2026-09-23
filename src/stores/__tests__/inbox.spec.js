@@ -10,6 +10,7 @@ import {
   SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
+  NOTIFICATIONS_API_URL,
   RECEIPTS_API_URL,
   TASKS_API_URL,
 } from '../../lib/apiWorkers'
@@ -4751,5 +4752,82 @@ describe('draft summaries and retry recovery', () => {
     const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
     expect(bodies[0].requestId).toBeTruthy()
     expect(bodies[1].requestId).toBe(bodies[0].requestId)
+  })
+})
+
+describe('ntfy subscription toggle', () => {
+  const subscription = {
+    topic: 'cookie-user-topic',
+    subscribeUrl: 'https://ntfy.example.com/cookie-user-topic',
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps a paused subscription so its topic stays available while off', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ ...subscription, enabled: false }) }),
+    )
+    const store = useInboxStore()
+
+    await store.loadNtfySubscription()
+
+    expect(store.ntfySubscription).toEqual({ ...subscription, enabled: false })
+    expect(store.isNtfyEnabled).toBe(false)
+  })
+
+  it('treats a user with no topic as not set up', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ enabled: false }) }),
+    )
+    const store = useInboxStore()
+
+    await store.loadNtfySubscription()
+
+    expect(store.ntfySubscription).toBe(null)
+    expect(store.isNtfyEnabled).toBe(false)
+  })
+
+  it('turning ntfy off keeps the topic and only flips the switch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.ntfySubscription = { ...subscription, enabled: true }
+
+    await store.disableNtfySubscription()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${NOTIFICATIONS_API_URL}/ntfy`,
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(store.ntfySubscription).toEqual({ ...subscription, enabled: false })
+    expect(store.isNtfyEnabled).toBe(false)
+  })
+
+  it('turning ntfy back on re-enables the existing topic', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ ...subscription, enabled: true }) }),
+    )
+    const store = useInboxStore()
+    store.ntfySubscription = { ...subscription, enabled: false }
+
+    await store.createNtfySubscription()
+
+    expect(store.ntfySubscription).toEqual({ ...subscription, enabled: true })
+    expect(store.isNtfyEnabled).toBe(true)
   })
 })
