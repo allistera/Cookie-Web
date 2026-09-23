@@ -1809,9 +1809,18 @@ export const useInboxStore = defineStore('inbox', {
         if (cached.calendarInvitePending) void this.fetchCalendarInvite(id)
         return cached
       }
-      // Both openReader and the view's openEmailId watcher request the body in
-      // the same tick, and the cache only fills on resolve — share the
-      // in-flight request instead of fetching the heaviest payload twice.
+      return this.refetchMessageBody(id)
+    },
+
+    // Fetches a message body over whatever is cached for it. The cached entry
+    // stays in place until the new body replaces it, so a background refresh
+    // (a realtime ping, a stale thread summary) never drops the reader back
+    // to its spinner and repaints the same body. Both openReader and the
+    // view's openEmailId watcher request the body in the same tick, and the
+    // cache only fills on resolve — share the in-flight request instead of
+    // fetching the heaviest payload twice.
+    async refetchMessageBody(id) {
+      if (!id) return null
       const pending = pendingBodyFetches.get(id)
       if (pending) return pending
       const request = this.fetchMessageBodyUncached(id).finally(() => {
@@ -1822,9 +1831,10 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async fetchMessageBodyUncached(id) {
-      // Only flag loading for an actual fetch — cache hits return early in
-      // fetchMessageBody so reopening a message never spins.
-      this.bodyLoadingId = id
+      // Only flag loading when there is nothing to show yet — cache hits
+      // return early in fetchMessageBody so reopening a message never spins,
+      // and a refetch over a cached body keeps painting that body meanwhile.
+      if (!this.messageBodies.has(id)) this.bodyLoadingId = id
       const completeTiming = startTiming('message-body')
       try {
         const headers = await this.authHeaders()
@@ -1993,8 +2003,7 @@ export const useInboxStore = defineStore('inbox', {
             body: JSON.stringify({ id }),
           })
           if (response.status === 409 && attempt === 0) {
-            this.messageBodies.delete(id)
-            await this.fetchMessageBody(id)
+            await this.refetchMessageBody(id)
             if (this.openEmailId !== id) return null
             continue
           }
@@ -2014,8 +2023,7 @@ export const useInboxStore = defineStore('inbox', {
             currentBody.threadLatestMessageId !== latestMessageId
           ) {
             if (attempt === 0) {
-              this.messageBodies.delete(id)
-              await this.fetchMessageBody(id)
+              await this.refetchMessageBody(id)
               if (this.openEmailId !== id) return null
               continue
             }
@@ -2038,8 +2046,7 @@ export const useInboxStore = defineStore('inbox', {
     async refreshOpenThread() {
       const id = this.openEmailId
       if (!id) return null
-      this.messageBodies.delete(id)
-      await this.fetchMessageBody(id)
+      await this.refetchMessageBody(id)
       if (this.openEmailId !== id) return null
       return this.ensureThreadSummary(this.openEmail)
     },

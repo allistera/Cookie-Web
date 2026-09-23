@@ -1638,6 +1638,40 @@ describe('Inbox Store', () => {
     )
   })
 
+  it('refreshOpenThread keeps the rendered body on screen until the refetch lands', async () => {
+    // A realtime ping (including the echo of this tab's own mark-as-read)
+    // refreshes the open thread. The reader must not drop to its spinner and
+    // repaint the same body: the cached body stays until the new one arrives.
+    let resolveFetch
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending))
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'msg-1', hasHtml: true }]
+    store.openEmailId = 'msg-1'
+    store.messageBodies.set('msg-1', {
+      html: '<p>old</p>',
+      text: 'old',
+      thread: [],
+      attachments: [],
+    })
+
+    const refresh = store.refreshOpenThread()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(store.isOpenBodyLoading).toBe(false)
+    expect(store.isOpenBodyResolved).toBe(true)
+    expect(store.openEmailHtml).toBe('<p>old</p>')
+
+    resolveFetch({ ok: true, json: async () => ({ body_html: '<p>new</p>', body_text: 'new' }) })
+    await refresh
+
+    expect(store.isOpenBodyLoading).toBe(false)
+    expect(store.openEmailHtml).toBe('<p>new</p>')
+  })
+
   it('refetches and retries once when mail arrives during summary generation', async () => {
     const email = { id: '11111111-1111-1111-1111-111111111111', unread: false }
     const newLatestId = '22222222-2222-2222-2222-222222222222'
