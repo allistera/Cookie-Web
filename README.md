@@ -137,7 +137,7 @@ The main runtime variables are:
 | `DATABASE_URL`           | Supabase Postgres connection used by migrations and local development tooling. |
 | `OPENAI_API_KEY`         | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.              |
 | `OPENAI_COMPOSE_MODEL`   | Optional AI Compose model override.                                            |
-| `VITE_AUTH0_DOMAIN`      | Auth0 tenant domain exposed to the browser.                                    |
+| `VITE_AUTH0_DOMAIN`      | Auth0 domain exposed to the browser: `auth.infinitywave.online` in production. |
 | `VITE_AUTH0_CLIENT_ID`   | Auth0 SPA client ID exposed to the browser.                                    |
 | `VITE_AUTH0_AUDIENCE`    | Auth0 API audience exposed to the browser.                                     |
 | `VITE_SUPABASE_URL`      | Supabase project URL used for Realtime.                                        |
