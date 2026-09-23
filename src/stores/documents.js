@@ -326,14 +326,23 @@ export const useDocumentsStore = defineStore('documents', {
             this.workspacePaged = true
             this.workspaceVersion = metadata.version
             this.workspaceTags = metadata.tags ?? []
+            // Whatever was on screen (or asked for before this load landed)
+            // comes back alongside the defaults; a reset that reloaded only
+            // the defaults left the open folder empty until the next visit.
+            const wanted = Object.keys(this.pages).map((key) => {
+              const [folder, starred, tag] = JSON.parse(key)
+              return { folder, starred, tag }
+            })
             this.pages = {}
             pageLoads.delete(toRaw(this))
             this.documents = []
-            await Promise.all([
-              this.loadDocumentPage(),
-              this.loadDocumentPage({ folder: 'root' }),
-              this.loadDocumentPage({ starred: true }),
-            ])
+            const scopes = new Map(
+              [{}, { folder: 'root' }, { starred: true }, ...wanted].map((scope) => [
+                documentPageKey(scope),
+                scope,
+              ]),
+            )
+            await Promise.all([...scopes.values()].map((scope) => this.loadDocumentPage(scope)))
           }
           this.isLoaded = true
         } catch (error) {
@@ -360,8 +369,17 @@ export const useDocumentsStore = defineStore('documents', {
     },
 
     async loadDocumentPage(scope = {}, { more = false, force = false } = {}) {
-      if (!this.workspacePaged) return
       const key = documentPageKey(scope)
+      if (!this.workspacePaged) {
+        // Asked before loadWorkspace has answered (the folder browser mounts
+        // beside the sidebar that loads it): leave a placeholder so that load
+        // fetches this page with the defaults. A legacy, unpaged workspace
+        // has nothing to fetch.
+        if (!this.isLoaded) {
+          this.pages[key] ??= { ids: [], nextCursor: null, loaded: false, loading: false }
+        }
+        return
+      }
       const old = this.pages[key]
       if (old?.loaded && !more && !force) return
       if (more && !old?.nextCursor) return

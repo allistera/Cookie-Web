@@ -686,6 +686,57 @@ describe('paged document workspace', () => {
     expect(store.documents).toHaveLength(2)
   })
 
+  // The folder browser mounts beside the sidebar and asks for its folder's
+  // page at once, while the sidebar's loadWorkspace is still in flight and
+  // workspacePaged is still false. That request must not be lost.
+  it('loads a folder page requested before the workspace finished loading', async () => {
+    const request = vi.spyOn(store, 'request').mockImplementation(async (_, { params }) => {
+      const url = new URL(`https://fixture.invalid/${params}`)
+      if (url.searchParams.get('view') === 'meta') {
+        return { folders: FOLDERS, tags: [], version: '1' }
+      }
+      return {
+        documents: url.searchParams.get('folder') === 'f-1' ? [DOCS[1]] : [],
+        nextCursor: null,
+      }
+    })
+
+    const workspace = store.loadWorkspace()
+    void store.loadDocumentPage({ folder: 'f-1' })
+    await workspace
+
+    expect(request.mock.calls.map(([, { params }]) => params)).toContain('?view=page&folder=f-1')
+    expect(store.pageFor({ folder: 'f-1' })?.loaded).toBe(true)
+    expect(store.documentsForPage({ folder: 'f-1' })).toHaveLength(1)
+  })
+
+  // A forced refresh after the workspace changed (an edit bumped the
+  // revision, then the tab came back) rebuilds the pages. The folder on
+  // screen must come back with them, not only the three default scopes.
+  it('reloads the pages that were open when a changed workspace is refetched', async () => {
+    let version = '1'
+    const request = vi.spyOn(store, 'request').mockImplementation(async (_, { params }) => {
+      const url = new URL(`https://fixture.invalid/${params}`)
+      if (url.searchParams.get('view') === 'meta') {
+        return { folders: FOLDERS, tags: [], version }
+      }
+      return {
+        documents: url.searchParams.get('folder') === 'f-1' ? [DOCS[1]] : [],
+        nextCursor: null,
+      }
+    })
+    await store.loadWorkspace()
+    await store.loadDocumentPage({ folder: 'f-1' })
+    expect(store.documentsForPage({ folder: 'f-1' })).toHaveLength(1)
+
+    version = '2'
+    request.mockClear()
+    await store.loadWorkspace({ force: true })
+
+    expect(request.mock.calls.map(([, { params }]) => params)).toContain('?view=page&folder=f-1')
+    expect(store.documentsForPage({ folder: 'f-1' })).toHaveLength(1)
+  })
+
   it('updates paged membership and global tag counts after create, move and delete', async () => {
     store.workspacePaged = true
     store.workspaceTags = [{ name: 'home', count: 100 }]
