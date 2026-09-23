@@ -8,6 +8,10 @@ import { NOTIFICATIONS_API_URL } from '../lib/apiWorkers'
 
 const DEBOUNCE_MS = 1500
 const NOTIFICATION_CLAIM_RETRIES = 60
+// A tab hidden for less than this was alt-tabbed, not frozen: its Realtime
+// channel stayed up and delivered every ping, so resuming has nothing to
+// catch up on. Browsers only start freezing background tabs after minutes.
+export const RESUME_REFRESH_AFTER_MS = 60_000
 
 // Subscribes to the authenticated user's content-free Realtime "inbox
 // changed" channel and refreshes the inbox store through the normal
@@ -24,7 +28,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   let refreshUserId = null
   let refreshQueued = false
   let wasDisconnected = false
-  let wasHidden = document.hidden
+  let hiddenAt = document.hidden ? Date.now() : null
   let lifecycleVersion = 0
   let disposed = false
   const pendingNotificationEventIds = new Set()
@@ -215,13 +219,15 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
 
   // Browsers may freeze a background tab without reporting a Realtime
   // disconnect. In that case broadcasts sent while suspended cannot be
-  // replayed, so refetch once when the tab resumes.
+  // replayed, so refetch once when the tab resumes — but only after a spell
+  // long enough to have been a suspension, not every alt-tab.
   function onVisibilityChange() {
     if (document.hidden) {
-      wasHidden = true
-    } else if (wasHidden) {
-      wasHidden = false
-      refreshNow()
+      hiddenAt = Date.now()
+    } else if (hiddenAt !== null) {
+      const hiddenFor = Date.now() - hiddenAt
+      hiddenAt = null
+      if (hiddenFor >= RESUME_REFRESH_AFTER_MS) refreshNow()
     }
   }
 

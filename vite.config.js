@@ -218,6 +218,7 @@ function localApiPlugin(mode) {
     const snoozedCount = inbox.filter(
       (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
     ).length
+    const scheduledCount = state.scheduledSends.length
     res.setHeader('Content-Type', 'application/json')
     if (isState) {
       res.end(
@@ -225,6 +226,7 @@ function localApiPlugin(mode) {
           unreadCount: inbox.filter((email) => email.is_unread).length,
           spamCount,
           snoozedCount,
+          scheduledCount,
           userId: '11111111-1111-4111-8111-111111111111',
         }),
       )
@@ -238,6 +240,7 @@ function localApiPlugin(mode) {
         unreadCount: emails.filter((e) => e.is_unread).length,
         spamCount,
         snoozedCount,
+        scheduledCount,
         userId: '11111111-1111-4111-8111-111111111111',
         readReceiptsAvailable: folder === 'sent',
       }),

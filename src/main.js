@@ -27,6 +27,16 @@ const isE2E = import.meta.env.VITE_E2E === 'true'
 app.use(createPinia())
 app.use(router)
 const auth0 = isE2E ? null : getAuth0()
+// The SDK's first token request goes to the tenant as soon as the app mounts;
+// open that connection now rather than when the request is built.
+const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN
+if (auth0 && auth0Domain) {
+  const hint = document.createElement('link')
+  hint.rel = 'preconnect'
+  hint.href = `https://${auth0Domain}`
+  hint.crossOrigin = ''
+  document.head.append(hint)
+}
 if (auth0) app.use(auth0)
 
 app.mount('#app')

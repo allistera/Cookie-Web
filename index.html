@@ -15,13 +15,26 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Cookie" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Resource hints for critical external origins -->
-    <link rel="preconnect" href="https://infinitywave.online" crossorigin />
-    <link rel="dns-prefetch" href="https://infinitywave.online" />
-    <link rel="preconnect" href="https://login.auth0.com" crossorigin />
-    <link rel="dns-prefetch" href="https://login.auth0.com" />
-    <!-- Preload the entry module (Vite rewrites this to the hashed bundle) -->
-    <link rel="modulepreload" href="/src/main.js" />
+    <!--
+      Resource hints for the Worker origins the app calls at boot (see
+      src/lib/apiWorkers.js and App.vue's authenticated watcher). The Auth0
+      tenant origin is added at runtime by src/main.js from VITE_AUTH0_DOMAIN.
+    -->
+    <link rel="preconnect" href="https://emails-api.infinitywave.online" crossorigin />
+    <link rel="preconnect" href="https://labels-api.infinitywave.online" crossorigin />
+    <link rel="preconnect" href="https://drafts-api.infinitywave.online" crossorigin />
+    <link rel="preconnect" href="https://messages-api.infinitywave.online" crossorigin />
+    <!--
+      The icon font is applied after auth (src/lib/iconFont.js), but its bytes
+      can start arriving now so the first authenticated paint is not icon-less.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/material-symbols-outlined.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <title>Cookie AI Inbox - Workspace Intelligence</title>
   </head>
   <body>

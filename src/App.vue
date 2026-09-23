@@ -259,6 +259,15 @@ watch(searchInputVal, (value) => {
   }, AUTO_SEARCH_DELAY_MS)
 })
 
+// Mirrors TraditionalInboxView's own load: these folders fetch their own list
+// instead of the inbox page, so they still need the state call.
+const LIST_ONLY_FOLDERS = ['sent', 'spam', 'snoozed', 'done', 'starred', 'label']
+function landsOnInboxList() {
+  return (
+    route.name === 'traditional-inbox' && !LIST_ONLY_FOLDERS.includes(String(route.query.filter))
+  )
+}
+
 // Bootstrap the unread badge and Realtime identity after authentication. The
 // full mailbox page is deferred until the user enters Inbox.
 watch(
@@ -266,17 +275,19 @@ watch(
   (authenticated) => {
     if (authenticated) {
       scheduleIdleTask(() => loadMaterialSymbols())
-      store.loadInboxState()
+      // The first inbox page carries the same counts and Realtime identity,
+      // so a session landing on the inbox list skips the separate state call.
+      if (!landsOnInboxList()) store.loadInboxState()
       // Load the full label palette so the sidebar lists every defined label,
       // not only ones on loaded emails (and without needing settings opened).
       store.loadLabels()
       // Categories are another user-defined palette used by the reader, but
       // each message can carry only one.
       store.loadCategories()
-      // The sidebar's Drafts and Scheduled folders only render once something
-      // is in them, so both counts have to be known before either is opened.
+      // The sidebar's Drafts folder only renders once something is in it, so
+      // its count has to be known before it is opened. Scheduled's count
+      // arrives with the inbox state and first page.
       store.loadDrafts({ silent: true })
-      store.loadScheduledSends()
     }
   },
   { immediate: true },

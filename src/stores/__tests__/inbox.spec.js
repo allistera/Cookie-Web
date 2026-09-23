@@ -756,6 +756,65 @@ describe('Inbox Store', () => {
     expect(store.isInboxLoaded).toBe(false)
   })
 
+  it('shows the Scheduled folder from the bootstrap count until the queue is loaded', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ unreadCount: 0, scheduledCount: 2, userId: 'user-1' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    await store.loadInboxState()
+    expect(store.scheduledSendCount).toBe(2)
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain('/api/send?resource=scheduled')
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ scheduledSends: [{ id: 'sched-1' }] }),
+    })
+    await store.loadScheduledSends()
+    expect(store.scheduledSendCount).toBe(1)
+  })
+
+  it('takes the Scheduled count from the first inbox page too', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ emails: [], nextCursor: null, unreadCount: 0, scheduledCount: 3 }),
+      }),
+    )
+    const store = useInboxStore()
+
+    await store.loadEmails()
+
+    expect(store.scheduledSendCount).toBe(3)
+  })
+
+  it('loads labels and categories once, refetching only when forced', async () => {
+    const fetchMock = vi.fn(async (url) => ({
+      ok: true,
+      json: async () =>
+        String(url).endsWith('/categories')
+          ? { categories: [{ id: 'c1' }] }
+          : { labels: [{ id: 'l1' }] },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    await store.loadLabels()
+    await store.loadLabels()
+    await store.loadCategories()
+    await store.loadCategories()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    await store.loadLabels({ force: true })
+    await store.loadCategories({ force: true })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(store.labels).toEqual([{ id: 'l1' }])
+    expect(store.categories).toEqual([{ id: 'c1' }])
+  })
+
   it('uses the server unread count and cursor when provided', async () => {
     const row = (id) => ({
       id,

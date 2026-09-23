@@ -2,7 +2,7 @@ import { effectScope, nextTick, ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 
-import { useRealtimeInbox } from '../useRealtimeInbox'
+import { RESUME_REFRESH_AFTER_MS, useRealtimeInbox } from '../useRealtimeInbox'
 import { useTitleUnreadBadge } from '../useTitleUnreadBadge'
 import { useInboxStore } from '../../stores/inbox'
 import { NOTIFICATIONS_API_URL } from '../../lib/apiWorkers'
@@ -408,6 +408,7 @@ describe('useRealtimeInbox', () => {
     mount(client)
 
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     setHidden(false)
 
@@ -421,6 +422,7 @@ describe('useRealtimeInbox', () => {
 
     client.ping()
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     vi.advanceTimersByTime(1500)
 
@@ -437,6 +439,7 @@ describe('useRealtimeInbox', () => {
     mount(client)
 
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     client.setStatus('CHANNEL_ERROR')
     client.setStatus('SUBSCRIBED')
@@ -460,6 +463,7 @@ describe('useRealtimeInbox', () => {
     mount(client)
 
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     client.ping()
     vi.advanceTimersByTime(1500)
@@ -470,6 +474,34 @@ describe('useRealtimeInbox', () => {
     await Promise.resolve()
 
     expect(store.refreshInbox).toHaveBeenCalledTimes(2)
+  })
+
+  // Alt-tabbing away and back is not a suspension: the broadcast channel
+  // stayed connected, so nothing was missed and nothing needs refetching.
+  it('does not refetch when the tab was hidden only briefly', () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    mount(client)
+
+    setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS - 1)
+    setHidden(false)
+
+    expect(store.refreshInbox).not.toHaveBeenCalled()
+    expect(store.refreshOpenThread).not.toHaveBeenCalled()
+  })
+
+  it('refetches when the tab was hidden long enough to have been frozen', () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    mount(client)
+
+    setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
+    setHidden(false)
+
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+    expect(store.refreshOpenThread).toHaveBeenCalledTimes(1)
   })
 
   it('runs a trailing refresh when the tab resumes during a slow broadcast refresh', async () => {
@@ -484,6 +516,7 @@ describe('useRealtimeInbox', () => {
     client.ping()
     vi.advanceTimersByTime(1500)
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     expect(store.refreshInbox).toHaveBeenCalledTimes(1)
 
@@ -504,8 +537,10 @@ describe('useRealtimeInbox', () => {
     mount(client)
 
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     expect(store.refreshInbox).toHaveBeenCalledTimes(1)
 
@@ -526,9 +561,11 @@ describe('useRealtimeInbox', () => {
     mount(client)
 
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
     store.userId = 'user-2'
     setHidden(true)
+    vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
     setHidden(false)
 
     expect(store.refreshInbox).toHaveBeenCalledTimes(2)

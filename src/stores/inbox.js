@@ -578,7 +578,9 @@ export const useInboxStore = defineStore('inbox', {
     isDoneLoaded: false,
     isDoneRefreshing: false,
     labels: [], // full palette from /api/labels (settings Labels manager)
+    isLabelsLoaded: false,
     categories: [], // user-defined single-value email categories
+    isCategoriesLoaded: false,
     categoryNotificationSavingIds: new Set(),
     // The inbox tab the user picked: 'priority' (high-rated and due mail),
     // 'other' (the rest with no configured category), or 'category:<id>'.
@@ -644,6 +646,10 @@ export const useInboxStore = defineStore('inbox', {
     // server-side; the client only ever lists/cancels them.
     scheduledSends: [],
     isScheduledSendsLoaded: false,
+    // How many sends are queued, as reported with the folder counts on the
+    // inbox bootstrap; the sidebar shows the Scheduled folder from this
+    // until the queue itself is loaded.
+    scheduledCountHint: 0,
     isScheduledSendsLoading: false,
     // Message shown by the Scheduled view when the queue could not be read.
     scheduledSendsError: null,
@@ -757,7 +763,8 @@ export const useInboxStore = defineStore('inbox', {
     // save lands and goes when the last draft is sent or thrown away.
     draftCount: (state) => state.drafts.length,
     // The sidebar lists Scheduled only while a Send Later is still queued.
-    scheduledSendCount: (state) => state.scheduledSends.length,
+    scheduledSendCount: (state) =>
+      state.isScheduledSendsLoaded ? state.scheduledSends.length : state.scheduledCountHint,
     // Finds a loaded email by id across every list the reader can open from.
     // Returns null for a blank id so an absent one never resolves to the first
     // email of a list.
@@ -898,9 +905,10 @@ export const useInboxStore = defineStore('inbox', {
 
     // Folder counts ride along with every inbox bootstrap and first page;
     // a payload without one (older Worker, cursor page) leaves it as is.
-    applyFolderCounts({ spamCount, snoozedCount }) {
+    applyFolderCounts({ spamCount, snoozedCount, scheduledCount }) {
       if (Number.isFinite(spamCount)) this.spamCount = spamCount
       if (Number.isFinite(snoozedCount)) this.snoozedCount = snoozedCount
+      if (Number.isFinite(scheduledCount)) this.scheduledCountHint = scheduledCount
     },
 
     async loadInboxState({ force = false } = {}) {
@@ -909,9 +917,10 @@ export const useInboxStore = defineStore('inbox', {
         const headers = await this.authHeaders()
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
-        const { unreadCount, spamCount, snoozedCount, userId } = await response.json()
+        const { unreadCount, spamCount, snoozedCount, scheduledCount, userId } =
+          await response.json()
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0
-        this.applyFolderCounts({ spamCount, snoozedCount })
+        this.applyFolderCounts({ spamCount, snoozedCount, scheduledCount })
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -928,7 +937,7 @@ export const useInboxStore = defineStore('inbox', {
       const fetchSeq = inboxFetchSeq()
       this.isRefreshing = true
       try {
-        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, userId } =
+        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, scheduledCount, userId } =
           await this.fetchEmailPage()
         if (seq !== this.listSeq) return
         this.traditionalEmails = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
@@ -937,7 +946,7 @@ export const useInboxStore = defineStore('inbox', {
         this.unreadInboxCount = Number.isFinite(unreadCount)
           ? unreadCount
           : this.traditionalEmails.filter((e) => e.unread).length
-        this.applyFolderCounts({ spamCount, snoozedCount })
+        this.applyFolderCounts({ spamCount, snoozedCount, scheduledCount })
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
         this.isInboxLoaded = true
@@ -988,7 +997,7 @@ export const useInboxStore = defineStore('inbox', {
       const seq = this.listSeq
       const fetchSeq = inboxFetchSeq()
       try {
-        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, userId } =
+        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, scheduledCount, userId } =
           await this.fetchEmailPage()
         if (this.activeSearchQuery || seq !== this.listSeq) return
         const incoming = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
@@ -1004,7 +1013,7 @@ export const useInboxStore = defineStore('inbox', {
           this.hasMoreEmails = Boolean(nextCursor)
         }
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : this.unreadInboxCount
-        this.applyFolderCounts({ spamCount, snoozedCount })
+        this.applyFolderCounts({ spamCount, snoozedCount, scheduledCount })
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -1196,7 +1205,10 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadDonePage(this.donePageIndex - 1)
     },
 
-    async loadLabels() {
+    // Both palettes load at app boot; Settings and the pickers call these
+    // again on open and get the loaded copy unless they ask for a refetch.
+    async loadLabels({ force = false } = {}) {
+      if (this.isLabelsLoaded && !force) return
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${LABELS_API_URL}/labels`, { headers })
@@ -1205,13 +1217,15 @@ export const useInboxStore = defineStore('inbox', {
         }
         const { labels } = await response.json()
         this.labels = labels
+        this.isLabelsLoaded = true
       } catch (error) {
         console.error('Failed to load labels:', error)
         this.notify('Failed to load labels.', 'error')
       }
     },
 
-    async loadCategories() {
+    async loadCategories({ force = false } = {}) {
+      if (this.isCategoriesLoaded && !force) return
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${LABELS_API_URL}/categories`, { headers })
@@ -1220,6 +1234,7 @@ export const useInboxStore = defineStore('inbox', {
         }
         const { categories } = await response.json()
         this.categories = categories
+        this.isCategoriesLoaded = true
       } catch (error) {
         console.error('Failed to load categories:', error)
         this.notify('Failed to load categories.', 'error')
@@ -3590,6 +3605,7 @@ export const useInboxStore = defineStore('inbox', {
         if (handoff) draftId = await handoff
         const { scheduledSend } = await this.sendMail({ ...draft, sendAt })
         if (this.isScheduledSendsLoaded) this.scheduledSends.unshift(scheduledSend)
+        else this.scheduledCountHint += 1
         this.notify(`Email scheduled for ${label}.`)
         // The scheduled_sends row is now the durable copy of this message.
         await this.discardDraft(draftId)
