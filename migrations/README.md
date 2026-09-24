@@ -239,6 +239,27 @@ Apply `0061` before deploying the `cookie-web-drafts` Worker (Cookie-Worker
 repo), which serves `GET /drafts`, `POST /drafts`, and
 `GET/PATCH/DELETE /drafts/:id`.
 
+## Out-of-office replies
+
+`0082_out_of_office.sql` snapshots the enabled responder revision on new inbound
+messages and adds private delivery/cooldown tables. Existing mail has no snapshot
+and can never be revived by enabling or editing the responder. The snapshot
+trigger fails closed without failing mail storage. `auto_reply_suppressed` is the
+integration seam for future screening/blocking: set it before a decision becomes
+visible; the send Worker checks it again before dispatch.
+
+Publish this migration alone and await **Migrate Database** success before
+deploying the emails/send Workers (and the compatible ingest Worker), then publish
+the Web settings and Docs. The migration does not enable any account. The new
+tables have RLS, no browser-role privileges, and explicit server-role access.
+Worker APIs resolve Auth0 subjects through `users.auth0_sub`; these tables do not
+use Supabase Auth UUID assumptions.
+
+Delivery uses a stable provider key and immutable payload. Retry stops after 23
+hours, before Resend's 24-hour key expiry; uncertain outcomes require explicit
+owner review. Do not delete unresolved delivery/cooldown records or retry them
+manually at the provider. See the Worker component documentation for recovery.
+
 ## Historical migration
 
 The production database moved from Neon to Supabase in July 2026. [`supabase-cutover.md`](supabase-cutover.md) is retained as a historical record, not a current runbook.
