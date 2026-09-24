@@ -1472,7 +1472,8 @@ test('saved mail views persist, overlap, reorder, rename, delete, and open from 
   await dialog.getByLabel('Name').fill('Plans')
   await dialog.getByLabel('Folder').selectOption('inbox')
   await dialog.getByRole('button', { name: 'Save view' }).click()
-  await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Plans', exact: true })).toBeVisible()
   await expect(page.getByText('Saved mail view · Inbox · Keyword search')).toBeVisible()
   await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
   await expect(page).toHaveURL(/scope=mail.*mode=keyword.*view=/)
@@ -1505,6 +1506,9 @@ test('saved mail views persist, overlap, reorder, rename, delete, and open from 
   dialog = page.getByRole('dialog', { name: 'Save mail view' })
   await dialog.getByLabel('Name').fill('Client plans')
   await dialog.getByRole('button', { name: 'Save view' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Client plans', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/scope=mail.*mode=keyword.*view=/)
   await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
 
   await page.locator('body').press('/')
@@ -1543,6 +1547,9 @@ test('saved mail view pages follow verified cursors despite misleading estimates
   const dialog = page.getByRole('dialog', { name: 'Save mail view' })
   await dialog.getByLabel('Name').fill('Verified pages')
   await dialog.getByRole('button', { name: 'Save view' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Verified pages', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/scope=mail.*mode=keyword.*view=/)
 
   const firstPage = Array.from({ length: 20 }, (_, index) => ({
     ...fixtureMail,
