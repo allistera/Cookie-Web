@@ -112,6 +112,8 @@ describe('ComposerEditor snippets', () => {
     await editor.trigger('keydown', { key: 'Enter' })
 
     const dialog = document.querySelector('.snippet-preview-dialog')
+    expect(dialog.getAttribute('aria-label')).toBe('Preview /intro')
+    expect(dialog.querySelector('h3').textContent).toBe('Preview /intro')
     expect(dialog.textContent).toContain('Hi Ada, {{fill:topic}}')
     expect(dialog.textContent).toContain('Missing: topic')
     expect(editor.text()).toContain('/intro')

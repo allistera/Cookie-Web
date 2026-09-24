@@ -586,10 +586,10 @@ defineExpose({ focus: () => editorRef.value?.focus(), insertText, replaceContent
         class="snippet-preview-dialog"
         role="dialog"
         aria-modal="true"
-        :aria-label="`Preview /${previewSnippet.name}`"
+        :aria-label="`Preview /${previewSnippet.title}`"
         @submit.prevent="confirmSnippetPreview"
       >
-        <h3>Preview /{{ previewSnippet.name }}</h3>
+        <h3>Preview /{{ previewSnippet.title }}</h3>
         <p>Check the personalised text and fill any missing fields before inserting.</p>
         <div class="snippet-preview-fields">
           <label v-for="(field, index) in previewFields" :key="field.key">
