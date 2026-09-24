@@ -239,6 +239,17 @@ describe('EmailBody', () => {
     expect(wrapper.find('.ni-email-signoff').text()).toContain('Ada')
   })
 
+  it('preserves single line breaks in a plain-text email', () => {
+    const wrapper = mount(EmailBody, {
+      props: {
+        html: null,
+        text: 'Dear Customer,\nYour services expire soon.\nRenew them in the control panel.',
+      },
+    })
+
+    expect(getComputedStyle(wrapper.find('.ni-email-body p').element).whiteSpace).toBe('pre-wrap')
+  })
+
   it('falls back to text when the HTML sanitizes down to nothing', () => {
     const wrapper = mount(EmailBody, {
       props: { html: '<script>bad()</script>', text: 'plain', sender: 'Ada' },

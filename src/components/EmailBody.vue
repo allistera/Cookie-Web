@@ -276,7 +276,9 @@ onBeforeUnmount(() => {
     <div v-if="showSpinner" class="spinner ni-email-spinner"></div>
   </div>
   <div v-else class="ni-email-body">
-    <p v-for="(paragraph, i) in paragraphs" :key="i">{{ paragraph }}</p>
+    <p v-for="(paragraph, i) in paragraphs" :key="i" style="white-space: pre-wrap">
+      {{ paragraph }}
+    </p>
     <p class="ni-email-signoff">Kind regards,<br />{{ sender }}</p>
   </div>
 </template>
