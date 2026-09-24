@@ -2139,6 +2139,22 @@ describe('Inbox Store', () => {
       expect(store.pendingSend).not.toBeNull()
     })
 
+    it('cannot send or schedule while a snippet preview still owns the editor selection', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = true
+      store.composerTextArea = 'Before /intro'
+      store.composerHtml = '<p>Before /intro</p>'
+      store.composerSnippetPreviewOpen = true
+
+      await store.sendEmail()
+      expect(await store.sendEmailLater('2026-10-01T09:00:00Z', 'October 1')).toBe(false)
+      expect(store.pendingSend).toBeNull()
+      expect(store.isComposerActive).toBe(true)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
     it('refuses to schedule a draft with unresolved snippet fields', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()

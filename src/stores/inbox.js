@@ -599,6 +599,7 @@ export const useInboxStore = defineStore('inbox', {
     // Composer state
     isComposerActive: false,
     isSendingEmail: false,
+    composerSnippetPreviewOpen: false,
     composerTo: '',
     composerSubject: '',
     composerTextArea: '', // plain-text body (innerText of the rich editor)
@@ -3031,6 +3032,7 @@ export const useInboxStore = defineStore('inbox', {
     closeComposer({ save = true } = {}) {
       if (save) this.flushComposerDraft()
       this.isComposerActive = false
+      this.composerSnippetPreviewOpen = false
       this.composerTo = ''
       this.composerSubject = ''
       this.composerTextArea = ''
@@ -3591,6 +3593,7 @@ export const useInboxStore = defineStore('inbox', {
     // stop two rapid clicks from queueing a second send.
     async sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
+      if (this.composerSnippetPreviewOpen) return
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
       if (unresolved.length) {
@@ -3725,6 +3728,7 @@ export const useInboxStore = defineStore('inbox', {
     // scheduled-send-flusher Worker cron in Cookie-Worker.
     async sendEmailLater(sendAt, label) {
       if (this.isSendingEmail || this.pendingSend) return false
+      if (this.composerSnippetPreviewOpen) return false
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
       if (unresolved.length) {

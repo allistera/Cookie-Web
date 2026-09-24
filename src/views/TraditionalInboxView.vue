@@ -713,6 +713,7 @@ const handledReplyDrafts = new Set()
 // and the text/plain part.
 const replyHtml = ref('')
 const replyTextPlain = ref('')
+const replySnippetPreviewOpen = ref(false)
 const replyAttachments = ref([])
 const replyAttachInputRef = ref(null)
 const replyFollowUpAt = ref(null)
@@ -846,6 +847,7 @@ watch(
     replyGenerationSeq += 1
     isGeneratingReply.value = false
     isReplyOpen.value = false
+    replySnippetPreviewOpen.value = false
     isReplyAll.value = false
     isAiReply.value = false
     savedReplyTo.value = null
@@ -1059,6 +1061,7 @@ function discardReply() {
   isGeneratingReply.value = false
   if (store.replyDraftId) handledReplyDrafts.add(store.replyDraftId)
   isReplyOpen.value = false
+  replySnippetPreviewOpen.value = false
   isReplyAll.value = false
   isAiReply.value = false
   savedReplyTo.value = null
@@ -1270,7 +1273,7 @@ watch(
 )
 
 async function sendReply() {
-  if (isSendingReply.value || isGeneratingReply.value) return
+  if (isSendingReply.value || isGeneratingReply.value || replySnippetPreviewOpen.value) return
   if (unresolvedReplyFields.value.length) {
     store.notify(unresolvedSnippetWarning(unresolvedReplyFields.value), 'error')
     return
@@ -2137,6 +2140,7 @@ onUnmounted(() => {
               :snippets="store.snippets"
               :recipient-values="replyRecipientValues"
               @update:text="replyTextPlain = $event"
+              @preview-state="replySnippetPreviewOpen = $event"
               @generate="generateReplyDraft"
             />
             <p v-if="unresolvedReplyFields.length" class="snippet-unresolved-warning" role="alert">
@@ -2175,6 +2179,7 @@ onUnmounted(() => {
                 :disabled="
                   isSendingReply ||
                   isGeneratingReply ||
+                  replySnippetPreviewOpen ||
                   store.pendingAttachmentUploads > 0 ||
                   !replyTextPlain.trim()
                 "

@@ -47,6 +47,7 @@ const unresolvedFields = computed(() =>
 const isSendDisabled = computed(
   () =>
     store.isSendingEmail ||
+    store.composerSnippetPreviewOpen ||
     store.pendingAttachmentUploads > 0 ||
     !composerToValid.value ||
     !store.composerTextArea.trim(),
@@ -335,6 +336,7 @@ onUnmounted(() => {
           :snippets="store.snippets"
           :recipient-values="recipientValues"
           @update:text="store.composerTextArea = $event"
+          @preview-state="store.composerSnippetPreviewOpen = $event"
           @generate="store.openAiDraft()"
           @focus-prev="composerToRef?.focus()"
         />

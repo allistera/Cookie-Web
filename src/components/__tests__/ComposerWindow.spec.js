@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import ComposerWindow from '../ComposerWindow.vue'
+import ComposerEditor from '../ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 
 describe('ComposerWindow emoji conversion', () => {
@@ -21,6 +22,33 @@ describe('ComposerWindow emoji conversion', () => {
 
     expect(store.composerSubject).toBe('Hello :) \\o/ 🛸')
     expect(subject.element.value).toBe('Hello :) \\o/ 🛸')
+    wrapper.unmount()
+  })
+})
+
+describe('ComposerWindow snippet preview', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('disables background send actions until the editor closes its preview', async () => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.composerTo = 'alice@example.com'
+    store.composerTextArea = 'Before /intro'
+    const wrapper = mount(ComposerWindow, { attachTo: document.body })
+    const editor = wrapper.findComponent(ComposerEditor)
+
+    editor.vm.$emit('previewState', true)
+    await nextTick()
+    expect(store.composerSnippetPreviewOpen).toBe(true)
+    expect(wrapper.get('.composer-send-btn-split').attributes()).toHaveProperty('disabled')
+    expect(wrapper.get('.composer-schedule-caret').attributes()).toHaveProperty('disabled')
+
+    editor.vm.$emit('previewState', false)
+    await nextTick()
+    expect(store.composerSnippetPreviewOpen).toBe(false)
+    expect(wrapper.get('.composer-send-btn-split').attributes()).not.toHaveProperty('disabled')
     wrapper.unmount()
   })
 })

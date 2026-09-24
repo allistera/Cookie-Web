@@ -130,6 +130,61 @@ describe('ComposerEditor snippets', () => {
     expect(editor.html()).toContain('</p>! after')
     wrapper.unmount()
   })
+
+  it('contains keyboard focus and restores the slash caret when preview is escaped or cancelled', async () => {
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    const wrapper = mount(ComposerEditor, {
+      attachTo: document.body,
+      props: {
+        snippets: [{ id: 'intro', name: 'intro', html: '<p>Hi {{fill:topic}}</p>' }],
+      },
+    })
+    const editor = wrapper.find('.composer-editor')
+
+    async function openPreview() {
+      editor.element.textContent = 'Before /intro after'
+      editor.element.focus()
+      setCaret(editor.element.firstChild, 'Before /intro'.length)
+      await editor.trigger('input')
+      await editor.trigger('keydown', { key: 'Enter' })
+      return document.querySelector('.snippet-preview-dialog')
+    }
+
+    let dialog = await openPreview()
+    const input = dialog.querySelector('input')
+    const insert = dialog.querySelector('button[type="submit"]')
+    expect(document.activeElement).toBe(input)
+    expect(outside.hasAttribute('inert')).toBe(true)
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    )
+    expect(document.activeElement).toBe(insert)
+    insert.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    )
+    expect(document.activeElement).toBe(input)
+    outside.focus()
+    expect(document.activeElement).toBe(input)
+
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await wrapper.vm.$nextTick()
+    expect(document.querySelector('.snippet-preview-dialog')).toBeNull()
+    expect(outside.hasAttribute('inert')).toBe(false)
+    expect(editor.text()).toContain('/intro')
+    wrapper.vm.insertText('!')
+    expect(editor.text()).toContain('Before /intro! after')
+
+    dialog = await openPreview()
+    dialog.querySelector('button[type="button"]').click()
+    await wrapper.vm.$nextTick()
+    expect(editor.text()).toContain('/intro')
+    expect(wrapper.emitted('previewState')).toEqual([[true], [false], [true], [false]])
+    wrapper.unmount()
+    outside.remove()
+  })
 })
 
 describe('ComposerEditor paste and input sanitization', () => {

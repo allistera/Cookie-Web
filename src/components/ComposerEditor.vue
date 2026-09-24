@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 
 import { escapeHtml } from '../lib/composeHtml'
 import { convertEmojiToEmoticons } from '../lib/emoticons'
@@ -16,13 +16,23 @@ const props = defineProps({
   snippets: { type: Array, default: () => [] },
   recipientValues: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['update:modelValue', 'update:text', 'generate', 'focusPrev'])
+const emit = defineEmits([
+  'update:modelValue',
+  'update:text',
+  'generate',
+  'focusPrev',
+  'previewState',
+])
 
 const editorRef = ref(null)
 const previewSnippet = ref(null)
 const previewValues = ref({})
 const previewFirstInputRef = ref(null)
+const previewBackdropRef = ref(null)
+const previewDialogRef = ref(null)
 let previewSelection = null
+let previewBackgroundObserver = null
+const previouslyInert = new Map()
 const previewFields = computed(() => snippetFields(previewSnippet.value?.html))
 const previewResult = computed(() =>
   previewSnippet.value
@@ -300,7 +310,15 @@ function selectCommand(command) {
     previewValues.value = { ...props.recipientValues }
     previewSnippet.value = command
     menuOpen.value = false
-    nextTick(() => previewFirstInputRef.value?.focus())
+    emit('previewState', true)
+    nextTick(() => {
+      if (!previewSnippet.value) return
+      inertPreviewBackground()
+      previewBackgroundObserver = new MutationObserver(inertPreviewBackground)
+      previewBackgroundObserver.observe(document.body, { childList: true })
+      document.addEventListener('focusin', containPreviewFocus, true)
+      previewFirstInputRef.value?.focus()
+    })
     return
   }
   editorRef.value.focus()
@@ -308,6 +326,53 @@ function selectCommand(command) {
   applyCommand(command)
   menuOpen.value = false
   emitUpdate()
+}
+
+function inertPreviewBackground() {
+  for (const child of document.body.children) {
+    if (child === previewBackdropRef.value || previouslyInert.has(child)) continue
+    previouslyInert.set(child, child.hasAttribute('inert'))
+    child.setAttribute('inert', '')
+  }
+}
+
+function containPreviewFocus(event) {
+  if (previewSnippet.value && !previewDialogRef.value?.contains(event.target)) {
+    previewFirstInputRef.value?.focus()
+  }
+}
+
+function releasePreviewBackground() {
+  previewBackgroundObserver?.disconnect()
+  previewBackgroundObserver = null
+  document.removeEventListener('focusin', containPreviewFocus, true)
+  for (const [child, wasInert] of previouslyInert) {
+    if (!wasInert) child.removeAttribute('inert')
+  }
+  previouslyInert.clear()
+}
+
+function onPreviewKeydown(event) {
+  event.stopPropagation()
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelSnippetPreview()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const focusable = [...previewDialogRef.value.querySelectorAll('input, button')].filter(
+    (element) => !element.disabled,
+  )
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (!first) return
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 function restorePreviewSelection() {
@@ -321,6 +386,8 @@ function restorePreviewSelection() {
 
 function cancelSnippetPreview() {
   previewSnippet.value = null
+  releasePreviewBackground()
+  emit('previewState', false)
   restorePreviewSelection()
 }
 
@@ -328,6 +395,8 @@ function confirmSnippetPreview() {
   if (!previewSnippet.value) return
   const html = previewResult.value.html
   previewSnippet.value = null
+  releasePreviewBackground()
+  emit('previewState', false)
   restorePreviewSelection()
   removeSlashText()
   insertSnippet(html)
@@ -467,6 +536,11 @@ onMounted(() => {
   }
 })
 
+onUnmounted(() => {
+  releasePreviewBackground()
+  if (previewSnippet.value) emit('previewState', false)
+})
+
 defineExpose({ focus: () => editorRef.value?.focus(), insertText, replaceContent })
 </script>
 
@@ -502,11 +576,13 @@ defineExpose({ focus: () => editorRef.value?.focus(), insertText, replaceContent
   <Teleport to="body">
     <div
       v-if="previewSnippet"
+      ref="previewBackdropRef"
       class="snippet-preview-backdrop"
       role="presentation"
-      @keydown.esc.prevent.stop="cancelSnippetPreview"
+      @keydown="onPreviewKeydown"
     >
       <form
+        ref="previewDialogRef"
         class="snippet-preview-dialog"
         role="dialog"
         aria-modal="true"

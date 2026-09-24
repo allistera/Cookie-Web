@@ -1381,6 +1381,25 @@ describe('TraditionalInboxView reply send button', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps an inline reply unsent while its snippet preview is open', async () => {
+    const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const sendButton = await openReplyBox()
+    const editor = wrapper.findComponent({ name: 'ComposerEditor' })
+    editor.vm.$emit('previewState', true)
+    await nextTick()
+
+    expect(sendButton.attributes()).toHaveProperty('disabled')
+    await sendButton.trigger('click')
+    expect(send).not.toHaveBeenCalled()
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+
+    editor.vm.$emit('previewState', false)
+    await nextTick()
+    expect(sendButton.attributes()).not.toHaveProperty('disabled')
+    await sendButton.trigger('click')
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
   function seedGroupEmail() {
     store.traditionalEmails = [
       {
