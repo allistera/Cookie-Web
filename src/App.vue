@@ -8,6 +8,7 @@ import { loadMaterialSymbols } from './lib/iconFont'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
 import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
+import { setCalendarsOwner } from './composables/useCalendars'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { useAppBadge } from './composables/useAppBadge'
@@ -177,6 +178,7 @@ function openSettings() {
 }
 
 function handleLogout() {
+  setCalendarsOwner(null)
   store.setComposeOwner(null)
   clearCachedMail()
   logout({ logoutParams: { returnTo: window.location.origin } })
@@ -274,10 +276,11 @@ function landsOnInboxList() {
 watch(
   () => (isAuthenticated.value ? user.value?.sub : null),
   (sub) => {
+    setCalendarsOwner(sub)
     store.setComposeOwner(sub)
     if (sub) store.loadComposePreferences()
   },
-  { immediate: true },
+  { immediate: true, flush: 'sync' },
 )
 
 watch(

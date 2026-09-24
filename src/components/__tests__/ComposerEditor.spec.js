@@ -133,6 +133,21 @@ describe('ComposerEditor snippets', () => {
     wrapper.unmount()
   })
 
+  it('appends reviewed availability as editable escaped text and updates both models', () => {
+    const wrapper = mount(ComposerEditor, { props: { modelValue: '<p>Existing draft</p>' } })
+    wrapper.vm.insertAvailability(
+      'Proposed times (30 minutes; UTC)\n\n<reviewed text>\nNot reserved.',
+    )
+    expect(wrapper.get('.composer-editor').html()).toContain('Existing draft')
+    expect(wrapper.get('.composer-editor').html()).toContain(
+      '&lt;reviewed text&gt;<br>Not reserved.',
+    )
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('Proposed times')
+    expect(wrapper.emitted('update:text').at(-1)[0]).toContain('Not reserved.')
+    expect(wrapper.get('.composer-editor').attributes('contenteditable')).toBe('true')
+    wrapper.unmount()
+  })
+
   it('contains keyboard focus and restores the slash caret when preview is escaped or cancelled', async () => {
     const outside = document.createElement('button')
     document.body.appendChild(outside)

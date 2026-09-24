@@ -1,7 +1,12 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useInboxStore } from '../stores/inbox'
-import { CALENDARS_ENDPOINT, useCalendars } from '../composables/useCalendars'
+import {
+  CALENDARS_ENDPOINT,
+  calendarSession,
+  isCalendarSessionCurrent,
+  useCalendars,
+} from '../composables/useCalendars'
 
 const store = useInboxStore()
 const {
@@ -95,12 +100,14 @@ function closeCreate() {
 }
 
 async function createCalendar() {
+  const session = calendarSession()
   const name = newCalendarName.value.trim()
   const subscriptionUrl = newCalendarSubscriptionUrl.value.trim()
   if (!name || (createMode.value === 'subscription' && !subscriptionUrl)) return
 
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (!isCalendarSessionCurrent(session)) return
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'POST',
       headers,
@@ -116,6 +123,7 @@ async function createCalendar() {
     }
     if (!response.ok) throw new Error(`POST calendars responded ${response.status}`)
     const { calendar } = await response.json()
+    if (!isCalendarSessionCurrent(session)) return
     calendars.value.push(calendar)
     closeCreate()
     if (calendar.subscriptionError) {
@@ -148,12 +156,14 @@ function cancelRenameCalendar() {
 }
 
 async function renameCalendar() {
+  const session = calendarSession()
   const id = editingCalendarId.value
   const name = editingCalendarName.value.trim()
   if (!id || !name) return
 
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (!isCalendarSessionCurrent(session)) return
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'PATCH',
       headers,
@@ -166,6 +176,7 @@ async function renameCalendar() {
     }
     if (!response.ok) throw new Error(`PATCH calendars responded ${response.status}`)
     const { calendar } = await response.json()
+    if (!isCalendarSessionCurrent(session)) return
     const index = calendars.value.findIndex((item) => item.id === id)
     if (index !== -1) calendars.value[index] = calendar
     cancelRenameCalendar()
@@ -198,11 +209,13 @@ function requestDeleteCalendar(id) {
 }
 
 async function confirmDeleteCalendar() {
+  const session = calendarSession()
   const id = confirmingDeleteId.value
   if (!id) return
 
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (!isCalendarSessionCurrent(session)) return
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'DELETE',
       headers,
@@ -216,6 +229,7 @@ async function confirmDeleteCalendar() {
       store.notify(operationError.value, 'error')
       return
     }
+    if (!isCalendarSessionCurrent(session)) return
     calendars.value = calendars.value.filter((calendar) => calendar.id !== id)
     cancelRenameCalendar()
   } catch (error) {

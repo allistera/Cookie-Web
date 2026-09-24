@@ -22,6 +22,19 @@ const calendars = ref([])
 // store uses for isInboxStateLoaded.
 let loaded = false
 let inFlight = null
+let owner = null
+let generation = 0
+
+// App sets this synchronously at the authentication boundary. Outstanding
+// reads and syncs from the previous account must never repopulate the cache.
+export function setCalendarsOwner(sub) {
+  if (owner === (sub || null)) return
+  owner = sub || null
+  resetCalendarsState()
+}
+
+export const calendarSession = () => generation
+export const isCalendarSessionCurrent = (session) => session === generation
 
 const writableCalendars = computed(() =>
   calendars.value.filter((calendar) => !calendar.subscriptionUrl),
@@ -34,22 +47,28 @@ const subscribedCalendars = computed(() =>
 // @param {(message: string, kind?: string) => void} notify
 export function useCalendars(authHeaders, notify) {
   function loadCalendars({ force = false } = {}) {
-    if (loaded && !force) return Promise.resolve()
+    if (loaded && !force) return Promise.resolve(true)
     if (inFlight) return inFlight
-
+    const session = generation
     inFlight = (async () => {
       try {
         const headers = await authHeaders()
+        if (session !== generation) return false
         const response = await fetch(CALENDARS_ENDPOINT, { headers })
         if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
         const body = await response.json()
+        if (session !== generation) return false
+        if (!Array.isArray(body.calendars)) throw new Error('Invalid calendars response')
         calendars.value = body.calendars ?? []
         loaded = true
+        return true
       } catch (error) {
+        if (session !== generation) return false
         console.error('Failed to load calendars:', error)
         notify('Failed to load calendars.', 'error')
+        return false
       } finally {
-        inFlight = null
+        if (session === generation) inFlight = null
       }
     })()
     return inFlight
@@ -58,13 +77,16 @@ export function useCalendars(authHeaders, notify) {
   // Pulls a subscribed calendar's feed now. Updates the shared row with the
   // outcome and returns it, leaving any UI state to the caller.
   async function syncCalendar(id) {
+    const session = generation
     const headers = await authHeaders({ 'Content-Type': 'application/json' })
+    if (session !== generation) return { ok: false, errorMessage: 'Account changed' }
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'sync', id }),
     })
     const body = await response.json().catch(() => ({}))
+    if (session !== generation) return { ok: false, errorMessage: 'Account changed' }
     const errorMessage = body.subscriptionError || body.error || null
     const index = calendars.value.findIndex((item) => item.id === id)
     if (index !== -1) {
@@ -81,13 +103,18 @@ export function useCalendars(authHeaders, notify) {
   return { calendars, writableCalendars, subscribedCalendars, loadCalendars, syncCalendar }
 }
 
+function resetCalendarsState() {
+  generation += 1
+  calendars.value = []
+  loaded = false
+  inFlight = null
+}
+
 // Test-only: this module's state is a real singleton (by design — see the
 // comments above), so specs that mount multiple calendar-touching
 // components/views against a per-test fake backend need a way to clear the
 // "already loaded" flag between tests, or a later test's mount would reuse
 // an earlier test's cached list instead of hitting its own fake backend.
 export function resetCalendarsStateForTests() {
-  calendars.value = []
-  loaded = false
-  inFlight = null
+  resetCalendarsState()
 }

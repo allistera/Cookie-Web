@@ -18,6 +18,7 @@ import {
 import { scheduleChoices } from '../utils/schedule'
 import ComposerEditor from './ComposerEditor.vue'
 import ScheduleMenu from './ScheduleMenu.vue'
+import ShareAvailability from './ShareAvailability.vue'
 
 const store = useInboxStore()
 
@@ -48,6 +49,7 @@ const isSendDisabled = computed(
   () =>
     store.isSendingEmail ||
     store.composerSnippetPreviewOpen ||
+    store.composerAvailabilityPreviewOpen ||
     store.pendingAttachmentUploads > 0 ||
     !composerToValid.value ||
     !store.composerTextArea.trim(),
@@ -339,6 +341,10 @@ onUnmounted(() => {
           @preview-state="store.composerSnippetPreviewOpen = $event"
           @generate="store.openAiDraft()"
           @focus-prev="composerToRef?.focus()"
+        />
+        <ShareAvailability
+          @insert="composerBodyRef?.insertAvailability($event)"
+          @preview-state="store.composerAvailabilityPreviewOpen = $event"
         />
       </div>
 

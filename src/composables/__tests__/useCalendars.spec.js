@@ -5,13 +5,14 @@ describe('useCalendars', () => {
   let notify
   let CALENDARS_ENDPOINT
   let useCalendars
+  let setCalendarsOwner
 
   // The composable's state (calendars, loaded, inFlight) is module-level
   // (shared across every caller by design); reset the module itself between
   // tests so they don't leak into each other.
   beforeEach(async () => {
     vi.resetModules()
-    ;({ CALENDARS_ENDPOINT, useCalendars } = await import('../useCalendars'))
+    ;({ CALENDARS_ENDPOINT, useCalendars, setCalendarsOwner } = await import('../useCalendars'))
     authHeaders = vi.fn().mockResolvedValue({})
     notify = vi.fn()
   })
@@ -40,6 +41,56 @@ describe('useCalendars', () => {
     expect(calendars.value).toHaveLength(2)
     expect(writableCalendars.value.map((c) => c.id)).toEqual(['work'])
     expect(subscribedCalendars.value.map((c) => c.id)).toEqual(['holidays'])
+  })
+
+  it('clears calendars on account switch and ignores a previous account response', async () => {
+    let resolveOld
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve
+          }),
+      )
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ calendars: [{ id: 'new-owner' }] }) })
+    vi.stubGlobal('fetch', fetchMock)
+    setCalendarsOwner('old')
+    const { calendars, loadCalendars } = useCalendars(authHeaders, notify)
+    calendars.value = [{ id: 'old-owner' }]
+    const oldLoad = loadCalendars()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    setCalendarsOwner('new')
+    expect(calendars.value).toEqual([])
+    await loadCalendars()
+    resolveOld({ ok: true, json: async () => ({ calendars: [{ id: 'private-old-calendar' }] }) })
+    await oldLoad
+    expect(calendars.value).toEqual([{ id: 'new-owner' }])
+    setCalendarsOwner(null)
+    expect(calendars.value).toEqual([])
+  })
+
+  it('does not write a delayed sync result into another account cache', async () => {
+    let resolveSync
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveSync = resolve
+          }),
+      ),
+    )
+    setCalendarsOwner('old')
+    const { calendars, syncCalendar } = useCalendars(authHeaders, notify)
+    calendars.value = [{ id: 'shared-test-id' }]
+    const sync = syncCalendar('shared-test-id')
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    setCalendarsOwner('new')
+    calendars.value = [{ id: 'shared-test-id', name: 'New calendar' }]
+    resolveSync({ ok: true, json: async () => ({ subscriptionSyncedAt: 'private-old-timestamp' }) })
+    await sync
+    expect(calendars.value).toEqual([{ id: 'shared-test-id', name: 'New calendar' }])
   })
 
   it('notifies and leaves calendars untouched on a failed load', async () => {

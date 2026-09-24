@@ -10,6 +10,7 @@ import {
 } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
 import ComposerEditor from '../components/ComposerEditor.vue'
+import ShareAvailability from '../components/ShareAvailability.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
 import ContactAddress from '../components/ContactAddress.vue'
@@ -714,6 +715,7 @@ const handledReplyDrafts = new Set()
 const replyHtml = ref('')
 const replyTextPlain = ref('')
 const replySnippetPreviewOpen = ref(false)
+const replyAvailabilityPreviewOpen = ref(false)
 const replyAttachments = ref([])
 const replyAttachInputRef = ref(null)
 const replyFollowUpAt = ref(null)
@@ -848,6 +850,7 @@ watch(
     isGeneratingReply.value = false
     isReplyOpen.value = false
     replySnippetPreviewOpen.value = false
+    replyAvailabilityPreviewOpen.value = false
     isReplyAll.value = false
     isAiReply.value = false
     savedReplyTo.value = null
@@ -1062,6 +1065,7 @@ function discardReply() {
   if (store.replyDraftId) handledReplyDrafts.add(store.replyDraftId)
   isReplyOpen.value = false
   replySnippetPreviewOpen.value = false
+  replyAvailabilityPreviewOpen.value = false
   isReplyAll.value = false
   isAiReply.value = false
   savedReplyTo.value = null
@@ -1273,7 +1277,13 @@ watch(
 )
 
 async function sendReply() {
-  if (isSendingReply.value || isGeneratingReply.value || replySnippetPreviewOpen.value) return
+  if (
+    isSendingReply.value ||
+    isGeneratingReply.value ||
+    replySnippetPreviewOpen.value ||
+    replyAvailabilityPreviewOpen.value
+  )
+    return
   if (unresolvedReplyFields.value.length) {
     store.notify(unresolvedSnippetWarning(unresolvedReplyFields.value), 'error')
     return
@@ -2143,6 +2153,10 @@ onUnmounted(() => {
               @preview-state="replySnippetPreviewOpen = $event"
               @generate="generateReplyDraft"
             />
+            <ShareAvailability
+              @insert="replyEditorRef?.insertAvailability($event)"
+              @preview-state="replyAvailabilityPreviewOpen = $event"
+            />
             <p v-if="unresolvedReplyFields.length" class="snippet-unresolved-warning" role="alert">
               {{ unresolvedSnippetWarning(unresolvedReplyFields) }}
             </p>
@@ -2180,6 +2194,7 @@ onUnmounted(() => {
                   isSendingReply ||
                   isGeneratingReply ||
                   replySnippetPreviewOpen ||
+                  replyAvailabilityPreviewOpen ||
                   store.pendingAttachmentUploads > 0 ||
                   !replyTextPlain.trim()
                 "

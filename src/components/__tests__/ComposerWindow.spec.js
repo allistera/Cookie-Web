@@ -5,6 +5,7 @@ import { nextTick } from 'vue'
 
 import ComposerWindow from '../ComposerWindow.vue'
 import ComposerEditor from '../ComposerEditor.vue'
+import ShareAvailability from '../ShareAvailability.vue'
 import { useInboxStore } from '../../stores/inbox'
 
 describe('ComposerWindow emoji conversion', () => {
@@ -48,6 +49,25 @@ describe('ComposerWindow snippet preview', () => {
     editor.vm.$emit('previewState', false)
     await nextTick()
     expect(store.composerSnippetPreviewOpen).toBe(false)
+    expect(wrapper.get('.composer-send-btn-split').attributes()).not.toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
+  it('guards background send and scheduling while availability is under review', async () => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.composerTo = 'alice@example.com'
+    store.composerTextArea = 'Existing draft'
+    const wrapper = mount(ComposerWindow)
+    wrapper.findComponent(ShareAvailability).vm.$emit('previewState', true)
+    await nextTick()
+    expect(store.composerAvailabilityPreviewOpen).toBe(true)
+    expect(wrapper.get('.composer-send-btn-split').attributes()).toHaveProperty('disabled')
+    expect(await store.sendEmailLater(new Date(Date.now() + 3600000).toISOString(), 'Later')).toBe(
+      false,
+    )
+    wrapper.findComponent(ShareAvailability).vm.$emit('previewState', false)
+    await nextTick()
     expect(wrapper.get('.composer-send-btn-split').attributes()).not.toHaveProperty('disabled')
     wrapper.unmount()
   })

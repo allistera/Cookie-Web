@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 
-import { escapeHtml } from '../lib/composeHtml'
+import { escapeHtml, plainTextToHtml } from '../lib/composeHtml'
 import { convertEmojiToEmoticons } from '../lib/emoticons'
 import { filterSlashCommands } from '../lib/slashCommands'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
@@ -169,6 +169,15 @@ function insertText(text) {
   if (!text) return
   insertHtmlAtCaret(escapeHtml(text))
   emitUpdate()
+}
+
+// The availability review owns focus and selection. Append its reviewed text
+// without replacing the message or signature, then update both draft models.
+function insertAvailability(text) {
+  if (!text || !editorRef.value) return
+  editorRef.value.insertAdjacentHTML('beforeend', `<br>${plainTextToHtml(text)}`)
+  emitUpdate()
+  editorRef.value.focus()
 }
 
 function onPaste(event) {
@@ -541,7 +550,12 @@ onUnmounted(() => {
   if (previewSnippet.value) emit('previewState', false)
 })
 
-defineExpose({ focus: () => editorRef.value?.focus(), insertText, replaceContent })
+defineExpose({
+  focus: () => editorRef.value?.focus(),
+  insertText,
+  insertAvailability,
+  replaceContent,
+})
 </script>
 
 <template>
