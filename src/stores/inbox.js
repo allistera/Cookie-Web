@@ -2717,17 +2717,25 @@ export const useInboxStore = defineStore('inbox', {
 
     async requestAiSnippet(instruction) {
       const prompt = instruction.trim()
-      if (!prompt) return null
+      if (!prompt || !this.composeOwnerSub) return null
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return null
         const response = await fetch(`${AI_API_URL}/compose`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ mode: 'snippet', instruction: prompt }),
         })
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return null
         if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
-        return (await response.json()).snippet
+        const { snippet } = await response.json()
+        return owner === this.composeOwnerSub && generation === this.composeGeneration
+          ? snippet
+          : null
       } catch (error) {
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return null
         console.error('AI snippet generation failed:', error)
         this.notify('AI snippet generation failed. Please try again.', 'error')
         return null

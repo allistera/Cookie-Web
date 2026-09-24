@@ -152,6 +152,7 @@ const snippetError = ref('')
 const snippetConflict = ref(false)
 const signatureDraft = ref(store.signatureHtml)
 const signatureTouched = ref(false)
+const signatureEditVersion = ref(0)
 const signatureError = ref('')
 const signatureConflict = ref(false)
 const legacySignature = ref('')
@@ -165,6 +166,7 @@ const legacyAvailable = computed(() =>
 )
 const aiSnippetInstruction = ref('')
 const isGeneratingSnippet = ref(false)
+let snippetGenerationVersion = 0
 
 function refreshLegacyValues() {
   legacySignature.value = getLegacySignature()
@@ -175,8 +177,9 @@ watch(
   () => user.value?.sub,
   (sub) => {
     store.setComposeOwner(sub)
-    signatureDraft.value = ''
+    signatureDraft.value = store.signatureHtml
     signatureTouched.value = false
+    signatureEditVersion.value += 1
     signatureError.value = ''
     signatureConflict.value = false
     resetSnippetDraft()
@@ -185,6 +188,9 @@ watch(
     importSnippets.value = false
     importError.value = ''
     importConflict.value = false
+    aiSnippetInstruction.value = ''
+    isGeneratingSnippet.value = false
+    snippetGenerationVersion += 1
     refreshLegacyValues()
     if (sub) store.loadComposePreferences()
   },
@@ -201,14 +207,21 @@ watch(
 function updateSignatureDraft(html) {
   signatureDraft.value = html
   signatureTouched.value = true
+  signatureEditVersion.value += 1
 }
 
 async function saveSignature() {
   if (signatureConflict.value || store.composePreferencesSaving) return
-  const saved = await store.saveComposePreferences({ signatureHtml: signatureDraft.value })
+  const ownerGeneration = store.composeGeneration
+  const editVersion = signatureEditVersion.value
+  const draft = signatureDraft.value
+  const saved = await store.saveComposePreferences({ signatureHtml: draft })
+  if (ownerGeneration !== store.composeGeneration) return
   if (saved) {
-    signatureTouched.value = false
-    signatureDraft.value = store.signatureHtml
+    if (editVersion === signatureEditVersion.value) {
+      signatureTouched.value = false
+      signatureDraft.value = store.signatureHtml
+    }
     signatureError.value = ''
   } else {
     signatureError.value = store.composePreferencesError
@@ -234,19 +247,28 @@ async function importLegacyValues() {
     importError.value = 'Choose the local values you want to import.'
     return
   }
+  const ownerGeneration = store.composeGeneration
+  const selectedSignature = importSignature.value
+  const selectedSnippets = importSnippets.value
+  const signature = selectedSignature ? legacySignature.value : store.signatureHtml
+  const snippets = selectedSnippets ? legacySnippets.value : store.snippets
   const saved = await store.saveComposePreferences({
-    signatureHtml: importSignature.value ? legacySignature.value : store.signatureHtml,
-    snippets: importSnippets.value ? legacySnippets.value : store.snippets,
+    signatureHtml: signature,
+    snippets,
   })
+  if (ownerGeneration !== store.composeGeneration) return
   if (!saved) {
     importError.value = store.composePreferencesError
     importConflict.value = store.composePreferencesConflict
     return
   }
-  if (importSignature.value) clearLegacySignature()
-  if (importSnippets.value) clearLegacySnippets()
-  importSignature.value = false
-  importSnippets.value = false
+  // Another tab may change an old key while this request is pending. Remove
+  // only the exact sanitized value the user reviewed and imported.
+  if (selectedSignature && getLegacySignature() === signature) clearLegacySignature()
+  if (selectedSnippets && JSON.stringify(getLegacySnippets()) === JSON.stringify(snippets))
+    clearLegacySnippets()
+  if (selectedSignature) importSignature.value = false
+  if (selectedSnippets) importSnippets.value = false
   importConflict.value = false
   importError.value = ''
   refreshLegacyValues()
@@ -294,15 +316,28 @@ async function saveSnippet() {
     return
   }
   const id = editingSnippetId.value || globalThis.crypto?.randomUUID?.() || `snippet-${Date.now()}`
+  const ownerGeneration = store.composeGeneration
+  const draft = {
+    name: snippetDraft.name,
+    html: snippetDraft.html,
+    editingId: editingSnippetId.value,
+  }
   const saved = await store.saveComposePreferences({
     snippets: [
       ...store.snippets.filter((snippet) => snippet.id !== id),
       { id, name, html: snippetDraft.html },
     ],
   })
+  if (ownerGeneration !== store.composeGeneration) return
   if (saved) {
     snippetConflict.value = false
-    resetSnippetDraft()
+    snippetError.value = ''
+    if (
+      snippetDraft.name === draft.name &&
+      snippetDraft.html === draft.html &&
+      editingSnippetId.value === draft.editingId
+    )
+      resetSnippetDraft()
   } else {
     snippetError.value = store.composePreferencesError
     snippetConflict.value = store.composePreferencesConflict
@@ -311,13 +346,26 @@ async function saveSnippet() {
 
 async function deleteSnippet(id) {
   if (store.composePreferencesSaving) return
+  const ownerGeneration = store.composeGeneration
+  const draft = {
+    name: snippetDraft.name,
+    html: snippetDraft.html,
+    editingId: editingSnippetId.value,
+  }
   const saved = await store.saveComposePreferences({
     snippets: store.snippets.filter((snippet) => snippet.id !== id),
   })
+  if (ownerGeneration !== store.composeGeneration) return
   if (saved) {
     snippetConflict.value = false
     snippetError.value = ''
-    if (editingSnippetId.value === id) resetSnippetDraft()
+    if (
+      editingSnippetId.value === id &&
+      snippetDraft.name === draft.name &&
+      snippetDraft.html === draft.html &&
+      editingSnippetId.value === draft.editingId
+    )
+      resetSnippetDraft()
   } else {
     snippetError.value = store.composePreferencesError
     snippetConflict.value = store.composePreferencesConflict
@@ -326,8 +374,11 @@ async function deleteSnippet(id) {
 
 async function generateSnippet() {
   if (!aiSnippetInstruction.value.trim() || isGeneratingSnippet.value) return
+  const ownerGeneration = store.composeGeneration
+  const version = ++snippetGenerationVersion
   isGeneratingSnippet.value = true
   const snippet = await store.requestAiSnippet(aiSnippetInstruction.value)
+  if (ownerGeneration !== store.composeGeneration || version !== snippetGenerationVersion) return
   isGeneratingSnippet.value = false
   if (!snippet) return
   snippetDraft.name = snippet.name

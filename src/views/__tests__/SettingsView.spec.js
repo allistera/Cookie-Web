@@ -12,13 +12,8 @@ import { AI_API_URL, EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../..
 
 // useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
-const auth0Fake = () => ({
-  user: ref({
-    sub: 'auth0|settings-user',
-    name: 'Allister',
-    email: 'allisteraall@gmail.com',
-    picture: 'https://example.com/avatar.png',
-  }),
+const auth0Fake = (user) => ({
+  user,
   getAccessTokenSilently: vi.fn().mockRejectedValue(new Error('consent_required')),
 })
 
@@ -75,6 +70,7 @@ describe('SettingsView', () => {
   let router
   let store
   let composePreferences
+  let authUser
 
   beforeEach(async () => {
     pinia = createPinia()
@@ -95,6 +91,12 @@ describe('SettingsView', () => {
     await router.push('/settings/account')
     await router.isReady()
     store = useInboxStore()
+    authUser = ref({
+      sub: 'auth0|settings-user',
+      name: 'Allister',
+      email: 'allisteraall@gmail.com',
+      picture: 'https://example.com/avatar.png',
+    })
     localStorage.clear()
     composePreferences = { revision: 0, signatureHtml: '', snippets: [] }
     // The daily-notes pane mounts a real DocumentEditor (Editor.js), which
@@ -178,7 +180,7 @@ describe('SettingsView', () => {
     return mount(SettingsView, {
       global: {
         plugins: [pinia, router],
-        provide: { [AUTH0_INJECTION_KEY]: auth0Fake() },
+        provide: { [AUTH0_INJECTION_KEY]: auth0Fake(authUser) },
       },
     })
   }
@@ -196,6 +198,29 @@ describe('SettingsView', () => {
   async function openPane(wrapper, section) {
     await router.push({ name: 'settings', params: { section } })
     await wrapper.vm.$nextTick()
+  }
+
+  function deferComposePut() {
+    const baseFetch = fetch.getMockImplementation()
+    let complete
+    let requestBody
+    fetch.mockImplementation((url, options) => {
+      if (url === `${EMAILS_API_URL}/emails/compose-preferences` && options?.method === 'PUT') {
+        requestBody = JSON.parse(options.body)
+        return new Promise((resolve) => {
+          complete = resolve
+        })
+      }
+      return baseFetch(url, options)
+    })
+    return {
+      started: () => Boolean(complete),
+      body: () => requestBody,
+      finish: (saved) => {
+        composePreferences = saved
+        complete({ ok: true, status: 200, json: async () => saved })
+      },
+    }
   }
 
   async function openLabelsPane(wrapper) {
@@ -599,6 +624,45 @@ describe('SettingsView', () => {
     expect(composePreferences.revision).toBe(1)
   })
 
+  it('shows a signature already loaded by App when Settings mounts', async () => {
+    store.setComposeOwner('auth0|settings-user')
+    store.applyComposePreferences({
+      revision: 2,
+      signatureHtml: '<p>Already synced</p>',
+      snippets: [],
+    })
+    const wrapper = mountView()
+    await openPane(wrapper, 'signature')
+    expect(wrapper.findComponent(ComposerEditor).props('modelValue')).toBe('<p>Already synced</p>')
+    expect(
+      wrapper.findAll('button').find((button) => button.text() === 'Save signature').element
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('keeps a newer signature edit made while the previous save is pending', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'signature')
+    const pending = deferComposePut()
+    const editor = wrapper.findComponent(ComposerEditor)
+    editor.vm.$emit('update:modelValue', '<p>First edit</p>')
+    await wrapper.vm.$nextTick()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Save signature')
+      .trigger('click')
+    await vi.waitFor(() => expect(pending.started()).toBe(true))
+    editor.vm.$emit('update:modelValue', '<p>Newer edit</p>')
+    pending.finish({ revision: 1, signatureHtml: '<p>First edit</p>', snippets: [] })
+    await flushPromises()
+    expect(store.signatureHtml).toBe('<p>First edit</p>')
+    expect(editor.props('modelValue')).toBe('<p>Newer edit</p>')
+    expect(
+      wrapper.findAll('button').find((button) => button.text() === 'Save signature').element
+        .disabled,
+    ).toBe(false)
+  })
+
   it('saves a synced compose snippet from the Snippets pane', async () => {
     const wrapper = await openView()
     await openPane(wrapper, 'snippets')
@@ -615,6 +679,25 @@ describe('SettingsView', () => {
     ])
     expect(localStorage.getItem('cookie-compose-snippets')).toBeNull()
     expect(composePreferences.snippets[0].name).toBe('hello-world')
+  })
+
+  it('keeps a newer snippet form edit made while a save is pending', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'snippets')
+    const pending = deferComposePut()
+    const name = wrapper.find('.snippet-editor-form > .label-input')
+    const editor = wrapper.findComponent(ComposerEditor)
+    await name.setValue('hello')
+    editor.vm.$emit('update:modelValue', '<p>First</p>')
+    await wrapper.find('.snippet-editor-form').trigger('submit')
+    await vi.waitFor(() => expect(pending.started()).toBe(true))
+    await name.setValue('goodbye')
+    editor.vm.$emit('update:modelValue', '<p>Newer</p>')
+    pending.finish({ ...pending.body(), revision: 1 })
+    await flushPromises()
+    expect(store.snippets[0].name).toBe('hello')
+    expect(name.element.value).toBe('goodbye')
+    expect(editor.props('modelValue')).toBe('<p>Newer</p>')
   })
 
   it('offers a reviewed import and clears only the selected old key after saving', async () => {
@@ -636,6 +719,55 @@ describe('SettingsView', () => {
     expect(localStorage.getItem('cookie-signature-html')).toBeNull()
     expect(localStorage.getItem('cookie-compose-snippets')).not.toBeNull()
     expect(store.snippets).toEqual([])
+  })
+
+  it('clears only the legacy key selected when a delayed import began', async () => {
+    localStorage.setItem('cookie-signature-html', '<p>Old signature</p>')
+    localStorage.setItem(
+      'cookie-compose-snippets',
+      JSON.stringify([{ id: 'old', name: 'greeting', html: '<p>Hello</p>' }]),
+    )
+    const wrapper = await openView()
+    await openPane(wrapper, 'signature')
+    const pending = deferComposePut()
+    const choices = wrapper.findAll('.settings-legacy-option input')
+    await choices[0].setValue(true)
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Import selected values')
+      .trigger('click')
+    await vi.waitFor(() => expect(pending.started()).toBe(true))
+    await choices[0].setValue(false)
+    await choices[1].setValue(true)
+    pending.finish({ ...pending.body(), revision: 1 })
+    await flushPromises()
+    expect(localStorage.getItem('cookie-signature-html')).toBeNull()
+    expect(localStorage.getItem('cookie-compose-snippets')).not.toBeNull()
+    expect(store.snippets).toEqual([])
+  })
+
+  it('discards an AI snippet result after switching accounts', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'snippets')
+    const baseFetch = fetch.getMockImplementation()
+    let completeAi
+    fetch.mockImplementation((url, options) => {
+      if (url === `${AI_API_URL}/compose`)
+        return new Promise((resolve) => {
+          completeAi = resolve
+        })
+      return baseFetch(url, options)
+    })
+    await wrapper.find('.snippet-ai-row input').setValue('Draft a greeting')
+    await wrapper.find('.snippet-ai-row button').trigger('click')
+    await vi.waitFor(() => expect(completeAi).toBeTypeOf('function'))
+    authUser.value = { ...authUser.value, sub: 'auth0|another-user' }
+    await wrapper.vm.$nextTick()
+    completeAi({ ok: true, json: async () => ({ snippet: { name: 'late', text: 'Private' } }) })
+    await flushPromises()
+    expect(wrapper.find('.snippet-ai-row input').element.value).toBe('')
+    expect(wrapper.find('.snippet-editor-form > .label-input').element.value).toBe('')
+    expect(store.composeOwnerSub).toBe('auth0|another-user')
   })
 
   it('keeps the signature draft visible when another browser saved a newer revision', async () => {

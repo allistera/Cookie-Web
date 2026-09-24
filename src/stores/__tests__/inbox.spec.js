@@ -1948,6 +1948,26 @@ describe('Inbox Store', () => {
       expect(store.signatureHtml).toBe('')
       expect(store.composePreferencesLoaded).toBe(false)
     })
+
+    it('discards an AI snippet response after its owner changes', async () => {
+      let finish
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve
+            }),
+        ),
+      )
+      const store = useInboxStore()
+      store.setComposeOwner('auth0|a')
+      const pending = store.requestAiSnippet('Write a greeting')
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+      store.setComposeOwner('auth0|b')
+      finish({ ok: true, json: async () => ({ snippet: { name: 'private', text: 'A only' } }) })
+      expect(await pending).toBeNull()
+    })
   })
 
   it('openComposer does not overwrite an in-progress draft with the signature', () => {
