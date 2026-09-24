@@ -525,6 +525,21 @@ function localApiPlugin(mode) {
     const scope = url.searchParams.get('scope') || 'all'
     const limit = Number(url.searchParams.get('limit')) || 20
     const offset = Number(url.searchParams.get('offset')) || 0
+    const verifiedPagination = url.searchParams.get('pagination') === 'verified'
+    if (verifiedPagination) {
+      const rawOffset = url.searchParams.get('offset') ?? '0'
+      if (
+        scope !== 'mail' ||
+        url.searchParams.get('mode') !== 'keyword' ||
+        !/^(0|[1-9]\d*)$/.test(rawOffset) ||
+        Number(rawOffset) >= 1000
+      ) {
+        res.statusCode = 400
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ error: 'Invalid verified mail pagination' }))
+        return
+      }
+    }
 
     const { parseSearchQuery } = await import('./api/_lib/query-parse.js')
     const { text, filters } = parseSearchQuery(rawQuery)
@@ -615,16 +630,19 @@ function localApiPlugin(mode) {
 
     const combined = [...emailResults, ...docResults, ...taskResults]
     const results = combined.slice(offset, offset + limit)
+    const payload = {
+      query: rawQuery,
+      results,
+      estimatedTotalHits: combined.length,
+      limit,
+      offset,
+    }
+    if (verifiedPagination) {
+      payload.nextOffset = offset + limit < combined.length ? offset + limit : null
+      payload.scanLimitReached = false
+    }
     res.setHeader('Content-Type', 'application/json')
-    res.end(
-      JSON.stringify({
-        query: rawQuery,
-        results,
-        estimatedTotalHits: combined.length,
-        limit,
-        offset,
-      }),
-    )
+    res.end(JSON.stringify(payload))
   }
 
   const handleSearch = async (req, res) => {

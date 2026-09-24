@@ -6,6 +6,9 @@ import { SEARCH_API_URL } from '../../lib/apiWorkers'
 import {
   savedViewDraftFromQuery,
   savedViewMatchesRoute,
+  savedViewNextPageQuery,
+  savedViewPageState,
+  savedViewPreviousPageQuery,
   savedViewRoute,
 } from '../../lib/savedViews'
 import { useSavedViewsStore } from '../savedViews'
@@ -161,5 +164,42 @@ describe('saved view navigation', () => {
       query: 'floor plan',
       folder: 'done',
     })
+  })
+
+  it('does not extract in: from a quoted tag value', () => {
+    expect(savedViewDraftFromQuery('tag:"Project in:inbox Plans"')).toEqual({
+      query: 'tag:"Project in:inbox Plans"',
+      folder: 'all',
+    })
+    expect(savedViewDraftFromQuery('tag:"Project in:inbox Plans" in:sent')).toEqual({
+      query: 'tag:"Project in:inbox Plans"',
+      folder: 'sent',
+    })
+  })
+
+  it('carries verified search cursors forward and backward without changing mail keyword scope', () => {
+    const first = { ...savedViewRoute(view).query }
+    const second = savedViewNextPageQuery(first, 23)
+    expect(second).toEqual({ ...first, cursor: '23', trail: '0' })
+    const third = savedViewNextPageQuery(second, 47)
+    expect(third).toEqual({ ...first, cursor: '47', trail: '0,23' })
+    expect(savedViewPageState(third)).toEqual({ offset: 47, trail: [0, 23] })
+    expect(savedViewPreviousPageQuery(third)).toEqual(second)
+    expect(savedViewPreviousPageQuery(second)).toEqual(first)
+  })
+
+  it('rejects malformed or excessive cursor and trail input from a shared URL', () => {
+    expect(savedViewPageState({ cursor: '-1', trail: '0' })).toEqual({ offset: 0, trail: [] })
+    expect(savedViewPageState({ cursor: '1000', trail: '0' })).toEqual({ offset: 0, trail: [] })
+    expect(savedViewPageState({ cursor: '23', trail: '23,0' })).toEqual({ offset: 0, trail: [] })
+    expect(savedViewPageState({ cursor: ['23'], trail: '0' })).toEqual({ offset: 0, trail: [] })
+    expect(
+      savedViewPageState({
+        cursor: '999',
+        trail: Array.from({ length: 51 }, (_, index) => String(index)).join(','),
+      }),
+    ).toEqual({ offset: 0, trail: [] })
+    expect(savedViewNextPageQuery({ cursor: '23', trail: '0' }, 23)).toBeNull()
+    expect(savedViewNextPageQuery({ cursor: '23', trail: '0' }, 1000)).toBeNull()
   })
 })

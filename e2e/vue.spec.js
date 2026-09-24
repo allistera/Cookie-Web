@@ -5,6 +5,7 @@ import {
   DRAFTS_API_URL,
   EMAILS_API_URL,
   MESSAGES_API_URL,
+  SEARCH_API_URL,
   TASKS_API_URL,
 } from '../src/lib/apiWorkers.js'
 
@@ -1527,6 +1528,74 @@ test('saved mail views persist, overlap, reorder, rename, delete, and open from 
   await expect(nav.getByText('Renamed plans')).toBeVisible()
   await expect(nav.getByText('Client plans')).toHaveCount(0)
   await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+})
+
+test('saved mail view pages follow verified cursors despite misleading estimates, and navigate back', async ({
+  page,
+}) => {
+  await page.goto('/search?q=floor+plan&scope=mail')
+  const fixtureResponse = await page.request.get(
+    new URL('/__e2e__/search-api/search?q=floor+plan&scope=mail', page.url()).toString(),
+  )
+  const fixtureMail = (await fixtureResponse.json()).results.find((row) => row.type === 'email')
+  expect(fixtureMail).toBeTruthy()
+  await page.getByRole('button', { name: 'Save as view' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Save mail view' })
+  await dialog.getByLabel('Name').fill('Verified pages')
+  await dialog.getByRole('button', { name: 'Save view' }).click()
+
+  const firstPage = Array.from({ length: 20 }, (_, index) => ({
+    ...fixtureMail,
+    id: `verified-${index}`,
+    subject: `Verified first-page result ${index}`,
+  }))
+  const laterMail = { ...fixtureMail, id: 'verified-later', subject: 'Verified later result' }
+  let capped = false
+  await page.route(`${SEARCH_API_URL}/search**`, async (route) => {
+    const requestUrl = new URL(route.request().url())
+    if (requestUrl.searchParams.get('pagination') !== 'verified') return route.fallback()
+    const offset = Number(requestUrl.searchParams.get('offset'))
+    const isLaterPage = offset === 37
+    await route.fulfill({
+      json: {
+        query: requestUrl.searchParams.get('q'),
+        results: capped ? [] : isLaterPage ? [laterMail] : firstPage,
+        estimatedTotalHits: isLaterPage ? 999 : 0,
+        limit: 20,
+        offset,
+        nextOffset: capped || isLaterPage ? null : 37,
+        scanLimitReached: capped,
+      },
+    })
+  })
+  await page.reload()
+  await expect(page.getByText('Verified first-page result 0')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByText('Verified later result')).toBeVisible()
+  await expect(page.getByText('Page 2')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+  expect(new URL(page.url()).searchParams.get('cursor')).toBe('37')
+  expect(new URL(page.url()).searchParams.get('trail')).toBe('0')
+  expect(new URL(page.url()).searchParams.get('scope')).toBe('mail')
+  expect(new URL(page.url()).searchParams.get('mode')).toBe('keyword')
+
+  await page.goBack()
+  await expect(page.getByText('Verified first-page result 0')).toBeVisible()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Previous' }).click()
+  await expect(page.getByText('Verified first-page result 0')).toBeVisible()
+  await expect(page.getByText('Page 1')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByText('Verified later result')).toBeVisible()
+  capped = true
+  await page.reload()
+  await expect(page.getByRole('alert')).toContainText('scan limit')
+  await expect(page.getByText('No results for')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Previous' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Previous' }).click()
+  expect(new URL(page.url()).searchParams.has('cursor')).toBe(false)
 })
 
 test('Clicking a mail result in search results opens it in the reader', async ({ page }) => {

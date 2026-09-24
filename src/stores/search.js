@@ -24,6 +24,9 @@ export const useSearchStore = defineStore('search', {
     scope: 'all',
     results: [],
     estimatedTotalHits: 0,
+    nextOffset: null,
+    scanLimitReached: false,
+    verifiedPagination: false,
     limit: DEFAULT_SEARCH_LIMIT,
     offset: 0,
     loading: false,
@@ -37,6 +40,7 @@ export const useSearchStore = defineStore('search', {
 
   getters: {
     hasMore(state) {
+      if (state.verifiedPagination) return state.nextOffset !== null
       return state.offset + state.results.length < state.estimatedTotalHits
     },
   },
@@ -56,7 +60,16 @@ export const useSearchStore = defineStore('search', {
     // arguments over any pre-existing state — the view calls this whenever
     // the route's q/scope/mode/page change, so the route stays the single
     // source of truth (shareable, back-button friendly).
-    async search(query, { scope = 'all', mode, limit = DEFAULT_SEARCH_LIMIT, offset = 0 } = {}) {
+    async search(
+      query,
+      {
+        scope = 'all',
+        mode,
+        limit = DEFAULT_SEARCH_LIMIT,
+        offset = 0,
+        verifiedPagination = false,
+      } = {},
+    ) {
       const q = query.trim()
       if (!q) {
         this.clear()
@@ -69,6 +82,9 @@ export const useSearchStore = defineStore('search', {
       const seq = ++this.seq
       this.loading = true
       this.error = null
+      this.nextOffset = null
+      this.scanLimitReached = false
+      this.verifiedPagination = verifiedPagination
       const completeTiming = startTiming('search')
       try {
         const headers = await this.authHeaders()
@@ -79,6 +95,7 @@ export const useSearchStore = defineStore('search', {
           offset: String(offset),
         })
         if (mode) params.set('mode', mode)
+        if (verifiedPagination) params.set('pagination', 'verified')
         const response = await fetch(`${SEARCH_API_URL}/search?${params}`, {
           headers,
           signal: controller.signal,
@@ -93,10 +110,28 @@ export const useSearchStore = defineStore('search', {
         }
         const data = await response.json()
         if (seq !== this.seq) return
+        if (
+          verifiedPagination &&
+          !(
+            (data.nextOffset === null ||
+              (Number.isSafeInteger(data.nextOffset) &&
+                data.nextOffset > offset &&
+                data.nextOffset < 1000)) &&
+            (data.scanLimitReached === true || data.scanLimitReached === false) &&
+            !(data.nextOffset !== null && data.scanLimitReached)
+          )
+        ) {
+          this.error = 'failed'
+          this.results = []
+          this.estimatedTotalHits = 0
+          return
+        }
         this.query = data.query ?? q
         this.scope = scope
         this.results = data.results ?? []
         this.estimatedTotalHits = data.estimatedTotalHits ?? 0
+        this.nextOffset = verifiedPagination ? (data.nextOffset ?? null) : null
+        this.scanLimitReached = verifiedPagination && data.scanLimitReached === true
         this.limit = data.limit ?? limit
         this.offset = data.offset ?? offset
       } catch (error) {
@@ -122,6 +157,9 @@ export const useSearchStore = defineStore('search', {
       this.query = ''
       this.results = []
       this.estimatedTotalHits = 0
+      this.nextOffset = null
+      this.scanLimitReached = false
+      this.verifiedPagination = false
       this.error = null
       this.loading = false
     },

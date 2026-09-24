@@ -65,6 +65,76 @@ describe('search store', () => {
     )
   })
 
+  it('uses verified continuation rather than estimates for saved mail keyword pages', async () => {
+    const responses = [
+      {
+        query: 'invoice in:inbox',
+        results: [{ type: 'email', id: 'first' }],
+        estimatedTotalHits: 0,
+        limit: 20,
+        offset: 0,
+        nextOffset: 37,
+        scanLimitReached: false,
+      },
+      {
+        query: 'invoice in:inbox',
+        results: [{ type: 'email', id: 'second' }],
+        estimatedTotalHits: 999,
+        limit: 20,
+        offset: 37,
+        nextOffset: null,
+        scanLimitReached: false,
+      },
+    ]
+    const fetchMock = stubFetch({ GET: () => ok(responses.shift()) })
+
+    await store.search('invoice in:inbox', {
+      scope: 'mail',
+      mode: 'keyword',
+      offset: 0,
+      verifiedPagination: true,
+    })
+    expect(store.hasMore).toBe(true)
+    expect(store.nextOffset).toBe(37)
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `${SEARCH_API_URL}/search?q=invoice+in%3Ainbox&scope=mail&limit=20&offset=0&mode=keyword&pagination=verified`,
+    )
+
+    await store.search('invoice in:inbox', {
+      scope: 'mail',
+      mode: 'keyword',
+      offset: 37,
+      verifiedPagination: true,
+    })
+    expect(store.results).toEqual([{ type: 'email', id: 'second' }])
+    expect(store.hasMore).toBe(false)
+    expect(store.nextOffset).toBeNull()
+  })
+
+  it('retains an explicit cap warning even when verified results are empty', async () => {
+    stubFetch({
+      GET: () =>
+        ok({
+          results: [],
+          estimatedTotalHits: 1,
+          limit: 20,
+          offset: 0,
+          nextOffset: null,
+          scanLimitReached: true,
+        }),
+    })
+    await store.search('invoice', { scope: 'mail', mode: 'keyword', verifiedPagination: true })
+    expect(store.hasMore).toBe(false)
+    expect(store.scanLimitReached).toBe(true)
+  })
+
+  it('does not silently treat a missing verified continuation contract as the last page', async () => {
+    stubFetch({ GET: () => ok({ results: [], estimatedTotalHits: 999, limit: 20, offset: 0 }) })
+    await store.search('invoice', { scope: 'mail', mode: 'keyword', verifiedPagination: true })
+    expect(store.error).toBe('failed')
+    expect(store.hasMore).toBe(false)
+  })
+
   it('ignores a stale response superseded by a newer search', async () => {
     let resolveFirst
     const firstResponse = new Promise((resolve) => {

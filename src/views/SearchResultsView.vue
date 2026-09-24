@@ -9,6 +9,9 @@ import {
   SAVED_VIEW_FOLDERS,
   savedViewDraftFromQuery,
   savedViewMatchesRoute,
+  savedViewNextPageQuery,
+  savedViewPageState,
+  savedViewPreviousPageQuery,
   savedViewRoute,
 } from '../lib/savedViews'
 import EmailRow from '../components/EmailRow.vue'
@@ -48,12 +51,21 @@ const currentScope = computed(() =>
   SCOPES.some((s) => s.key === route.query.scope) ? route.query.scope : 'all',
 )
 const currentMode = computed(() => (route.query.mode === 'keyword' ? 'keyword' : undefined))
+const activeSavedView = computed(() =>
+  savedViews.views.find((view) => savedViewMatchesRoute(view, route)),
+)
+const verifiedPagination = computed(() => Boolean(activeSavedView.value))
+const savedPage = computed(() => savedViewPageState(route.query))
 const currentPage = computed(() => {
+  if (verifiedPagination.value) return savedPage.value.trail.length
   const page = Number(route.query.page)
   return Number.isInteger(page) && page > 0 ? page : 0
 })
-const activeSavedView = computed(() =>
-  savedViews.views.find((view) => savedViewMatchesRoute(view, route)),
+const currentOffset = computed(() =>
+  verifiedPagination.value ? savedPage.value.offset : currentPage.value * DEFAULT_SEARCH_LIMIT,
+)
+const canGoPrevious = computed(() =>
+  verifiedPagination.value ? savedPage.value.trail.length > 0 : currentPage.value > 0,
 )
 const activeFolder = computed(() =>
   SAVED_VIEW_FOLDERS.find((option) => option.value === activeSavedView.value?.folder),
@@ -63,7 +75,14 @@ const activeFolder = computed(() =>
 // change to q/scope/mode/page re-fetches. clear() on unmount cancels
 // whatever is in flight so a slow response can't land after the view is gone.
 watch(
-  [currentQuery, currentScope, currentMode, currentPage, () => savedViews.ownerSub],
+  [
+    currentQuery,
+    currentScope,
+    currentMode,
+    currentOffset,
+    verifiedPagination,
+    () => savedViews.ownerSub,
+  ],
   () => {
     if (!currentQuery.value || !savedViews.ownerSub) {
       store.clear()
@@ -73,7 +92,8 @@ watch(
       scope: currentScope.value,
       mode: currentMode.value,
       limit: DEFAULT_SEARCH_LIMIT,
-      offset: currentPage.value * DEFAULT_SEARCH_LIMIT,
+      offset: currentOffset.value,
+      verifiedPagination: verifiedPagination.value,
     })
   },
   { immediate: true },
@@ -85,13 +105,32 @@ function switchScope(scope) {
   if (scope === currentScope.value) return
   router.replace({
     name: 'search',
-    query: { ...route.query, scope, page: undefined, view: undefined },
+    query: {
+      ...route.query,
+      scope,
+      page: undefined,
+      view: undefined,
+      cursor: undefined,
+      trail: undefined,
+    },
   })
 }
 
 function goToPage(page) {
   if (page < 0 || page === currentPage.value || (page > currentPage.value && !store.hasMore)) return
   router.replace({ name: 'search', query: { ...route.query, page: page || undefined } })
+}
+
+function goToNextPage() {
+  if (!verifiedPagination.value) return goToPage(currentPage.value + 1)
+  const query = savedViewNextPageQuery(route.query, store.nextOffset)
+  if (query) router.push({ name: 'search', query })
+}
+
+function goToPreviousPage() {
+  if (!verifiedPagination.value) return goToPage(currentPage.value - 1)
+  const query = savedViewPreviousPageQuery(route.query)
+  if (query) router.push({ name: 'search', query })
 }
 
 function openSaveDialog() {
@@ -238,7 +277,8 @@ const errorMessage = computed(() => {
     </div>
 
     <div v-else-if="!store.results.length" class="search-results-empty">
-      <p>No results for &ldquo;{{ currentQuery }}&rdquo;.</p>
+      <p v-if="store.scanLimitReached">No live messages found within the verified scan limit.</p>
+      <p v-else>No results for &ldquo;{{ currentQuery }}&rdquo;.</p>
     </div>
 
     <ul v-else class="search-results-list">
@@ -300,17 +340,18 @@ const errorMessage = computed(() => {
     </ul>
 
     <div
-      v-if="store.results.length && (currentPage > 0 || store.hasMore)"
+      v-if="(store.results.length || canGoPrevious) && (canGoPrevious || store.hasMore)"
       class="search-results-pagination"
     >
-      <button type="button" :disabled="currentPage === 0" @click="goToPage(currentPage - 1)">
-        Previous
-      </button>
+      <button type="button" :disabled="!canGoPrevious" @click="goToPreviousPage">Previous</button>
       <span>Page {{ currentPage + 1 }}</span>
-      <button type="button" :disabled="!store.hasMore" @click="goToPage(currentPage + 1)">
-        Next
-      </button>
+      <button type="button" :disabled="!store.hasMore" @click="goToNextPage">Next</button>
     </div>
+
+    <p v-if="store.scanLimitReached" class="search-results-scan-warning" role="alert">
+      Search scan limit reached after 1,000 indexed hits. Later mail may exist; this is not a
+      confirmed end of results.
+    </p>
 
     <dialog
       ref="saveDialog"
@@ -640,5 +681,11 @@ const errorMessage = computed(() => {
 .search-results-pagination button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.search-results-scan-warning {
+  margin-top: 16px;
+  color: var(--text-yellow, #e5a900);
+  font-size: 13px;
 }
 </style>
