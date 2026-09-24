@@ -177,6 +177,7 @@ function openSettings() {
 }
 
 function handleLogout() {
+  store.setComposeOwner(null)
   clearCachedMail()
   logout({ logoutParams: { returnTo: window.location.origin } })
 }
@@ -270,6 +271,15 @@ function landsOnInboxList() {
 
 // Bootstrap the unread badge and Realtime identity after authentication. The
 // full mailbox page is deferred until the user enters Inbox.
+watch(
+  () => (isAuthenticated.value ? user.value?.sub : null),
+  (sub) => {
+    store.setComposeOwner(sub)
+    if (sub) store.loadComposePreferences()
+  },
+  { immediate: true },
+)
+
 watch(
   isAuthenticated,
   (authenticated) => {

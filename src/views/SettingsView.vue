@@ -14,6 +14,8 @@ import { settingsSectionGroups, settingsSections } from '../lib/settingsSections
 import { getStoredTheme, setTheme } from '../lib/theme'
 import { plainTextToHtml } from '../lib/composeHtml'
 import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
+import { getLegacySignature, clearLegacySignature } from '../lib/signature'
+import { getLegacySnippets, clearLegacySnippets } from '../lib/snippets'
 import CalendarSettings from '../components/CalendarSettings.vue'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
@@ -105,7 +107,6 @@ async function removeInterest(interest) {
   await persistInterests(store.interests.filter((i) => i !== interest))
 }
 
-// --- Compose snippets (persisted locally through the inbox store) ---
 // --- Spam retention ---
 // The input is a local draft so a half-typed number never hits the server;
 // it re-syncs whenever the stored value changes (initial load, or a save
@@ -144,11 +145,118 @@ async function saveSpamRetention() {
   }
 }
 
+// --- Account-scoped composer preferences and reviewed legacy import ---
 const snippetDraft = reactive({ name: '', html: '' })
 const editingSnippetId = ref(null)
 const snippetError = ref('')
+const snippetConflict = ref(false)
+const signatureDraft = ref(store.signatureHtml)
+const signatureTouched = ref(false)
+const signatureError = ref('')
+const signatureConflict = ref(false)
+const legacySignature = ref('')
+const legacySnippets = ref([])
+const importSignature = ref(false)
+const importSnippets = ref(false)
+const importError = ref('')
+const importConflict = ref(false)
+const legacyAvailable = computed(() =>
+  Boolean(legacySignature.value || legacySnippets.value.length),
+)
 const aiSnippetInstruction = ref('')
 const isGeneratingSnippet = ref(false)
+
+function refreshLegacyValues() {
+  legacySignature.value = getLegacySignature()
+  legacySnippets.value = getLegacySnippets()
+}
+
+watch(
+  () => user.value?.sub,
+  (sub) => {
+    store.setComposeOwner(sub)
+    signatureDraft.value = ''
+    signatureTouched.value = false
+    signatureError.value = ''
+    signatureConflict.value = false
+    resetSnippetDraft()
+    snippetConflict.value = false
+    importSignature.value = false
+    importSnippets.value = false
+    importError.value = ''
+    importConflict.value = false
+    refreshLegacyValues()
+    if (sub) store.loadComposePreferences()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => store.signatureHtml,
+  (html) => {
+    if (!signatureTouched.value) signatureDraft.value = html
+  },
+)
+
+function updateSignatureDraft(html) {
+  signatureDraft.value = html
+  signatureTouched.value = true
+}
+
+async function saveSignature() {
+  if (signatureConflict.value || store.composePreferencesSaving) return
+  const saved = await store.saveComposePreferences({ signatureHtml: signatureDraft.value })
+  if (saved) {
+    signatureTouched.value = false
+    signatureDraft.value = store.signatureHtml
+    signatureError.value = ''
+  } else {
+    signatureError.value = store.composePreferencesError
+    signatureConflict.value = store.composePreferencesConflict
+  }
+}
+
+function useLatestSignature() {
+  signatureDraft.value = store.signatureHtml
+  signatureTouched.value = false
+  signatureConflict.value = false
+  signatureError.value = ''
+}
+
+async function overwriteLatestSignature() {
+  signatureConflict.value = false
+  await saveSignature()
+}
+
+async function importLegacyValues() {
+  if (importConflict.value || store.composePreferencesSaving) return
+  if (!importSignature.value && !importSnippets.value) {
+    importError.value = 'Choose the local values you want to import.'
+    return
+  }
+  const saved = await store.saveComposePreferences({
+    signatureHtml: importSignature.value ? legacySignature.value : store.signatureHtml,
+    snippets: importSnippets.value ? legacySnippets.value : store.snippets,
+  })
+  if (!saved) {
+    importError.value = store.composePreferencesError
+    importConflict.value = store.composePreferencesConflict
+    return
+  }
+  if (importSignature.value) clearLegacySignature()
+  if (importSnippets.value) clearLegacySnippets()
+  importSignature.value = false
+  importSnippets.value = false
+  importConflict.value = false
+  importError.value = ''
+  refreshLegacyValues()
+  if (!signatureTouched.value) signatureDraft.value = store.signatureHtml
+}
+
+function reviewImportAgain() {
+  importConflict.value = false
+  importError.value = ''
+}
 
 function resetSnippetDraft() {
   snippetDraft.name = ''
@@ -164,7 +272,12 @@ function editSnippet(snippet) {
   snippetError.value = ''
 }
 
-function saveSnippet() {
+async function saveSnippet() {
+  if (store.composePreferencesSaving) return
+  if (!editingSnippetId.value && store.snippets.length >= 50) {
+    snippetError.value = 'You can save up to 50 snippets.'
+    return
+  }
   const name = normalizeSnippetName(snippetDraft.name)
   if (!name || !snippetDraft.html.trim()) {
     snippetError.value = 'Give the snippet a name and content.'
@@ -181,16 +294,34 @@ function saveSnippet() {
     return
   }
   const id = editingSnippetId.value || globalThis.crypto?.randomUUID?.() || `snippet-${Date.now()}`
-  store.setSnippets([
-    ...store.snippets.filter((snippet) => snippet.id !== id),
-    { id, name, html: snippetDraft.html },
-  ])
-  resetSnippetDraft()
+  const saved = await store.saveComposePreferences({
+    snippets: [
+      ...store.snippets.filter((snippet) => snippet.id !== id),
+      { id, name, html: snippetDraft.html },
+    ],
+  })
+  if (saved) {
+    snippetConflict.value = false
+    resetSnippetDraft()
+  } else {
+    snippetError.value = store.composePreferencesError
+    snippetConflict.value = store.composePreferencesConflict
+  }
 }
 
-function deleteSnippet(id) {
-  store.setSnippets(store.snippets.filter((snippet) => snippet.id !== id))
-  if (editingSnippetId.value === id) resetSnippetDraft()
+async function deleteSnippet(id) {
+  if (store.composePreferencesSaving) return
+  const saved = await store.saveComposePreferences({
+    snippets: store.snippets.filter((snippet) => snippet.id !== id),
+  })
+  if (saved) {
+    snippetConflict.value = false
+    snippetError.value = ''
+    if (editingSnippetId.value === id) resetSnippetDraft()
+  } else {
+    snippetError.value = store.composePreferencesError
+    snippetConflict.value = store.composePreferencesConflict
+  }
 }
 
 async function generateSnippet() {
@@ -611,6 +742,67 @@ function toggleRuleEnabled(rule) {
         </header>
 
         <div class="settings-pane">
+          <div
+            v-if="
+              (activeSection === 'signature' || activeSection === 'snippets') &&
+              legacyAvailable &&
+              store.composePreferencesLoaded
+            "
+            class="settings-legacy-import"
+          >
+            <h3>Import old values from this browser</h3>
+            <p>
+              These values were saved without an account. Review them before choosing whether to
+              replace this account's synced signature or snippets. Nothing is imported
+              automatically.
+            </p>
+            <label v-if="legacySignature" class="settings-legacy-option">
+              <input v-model="importSignature" type="checkbox" />
+              <span>Replace synced signature with this local signature:</span>
+            </label>
+            <div v-if="legacySignature" class="settings-legacy-preview" v-html="legacySignature" />
+            <label v-if="legacySnippets.length" class="settings-legacy-option">
+              <input v-model="importSnippets" type="checkbox" />
+              <span
+                >Replace synced snippets with these {{ legacySnippets.length }} local
+                snippets:</span
+              >
+            </label>
+            <ul v-if="legacySnippets.length" class="settings-legacy-list">
+              <li v-for="snippet in legacySnippets" :key="snippet.id">
+                /{{ snippet.name }}
+                <div class="settings-legacy-preview" v-html="snippet.html" />
+              </li>
+            </ul>
+            <p v-if="importConflict" class="snippet-error" role="alert">
+              The account's newer values are loaded. Review them below before applying this import.
+              Current snippets:
+              {{ store.snippets.map((snippet) => `/${snippet.name}`).join(', ') || 'none' }}.
+            </p>
+            <div v-if="importConflict" class="settings-legacy-preview">
+              Latest account signature: <span v-html="store.signatureHtml || 'None'" />
+            </div>
+            <p v-else-if="importError" class="snippet-error" role="alert">{{ importError }}</p>
+            <div class="settings-sync-actions">
+              <button
+                v-if="importConflict"
+                type="button"
+                class="btn btn-secondary"
+                @click="reviewImportAgain"
+              >
+                I reviewed the latest values
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                :disabled="importConflict || store.composePreferencesSaving"
+                @click="importLegacyValues"
+              >
+                Import selected values
+              </button>
+            </div>
+          </div>
+
           <!-- Account -->
           <section v-if="activeSection === 'account'" class="settings-section">
             <h3 class="settings-section-title">Profile</h3>
@@ -648,15 +840,66 @@ function toggleRuleEnabled(rule) {
           <section v-if="activeSection === 'signature'" class="settings-section">
             <h3 class="settings-section-title">Email signature</h3>
             <p class="settings-signature-hint">
-              Added to the bottom of new emails you compose. Type “/” for formatting.
+              Synced with your account and added to new emails. Type “/” for formatting.
             </p>
-            <div class="settings-signature-editor">
+            <p v-if="!store.composePreferencesLoaded" role="status">
+              {{
+                store.composePreferencesLoading
+                  ? 'Loading synced signature…'
+                  : store.composePreferencesError || 'Sign in to load your signature.'
+              }}
+            </p>
+            <button
+              v-if="
+                !store.composePreferencesLoaded &&
+                !store.composePreferencesLoading &&
+                store.composeOwnerSub
+              "
+              type="button"
+              class="btn btn-secondary"
+              @click="store.loadComposePreferences()"
+            >
+              Retry
+            </button>
+            <div v-if="store.composePreferencesLoaded" class="settings-signature-editor">
               <ComposerEditor
-                :model-value="store.signatureHtml"
+                :model-value="signatureDraft"
                 :hide-generate="true"
                 placeholder="Your signature…"
-                @update:model-value="store.setSignature($event)"
+                @update:model-value="updateSignatureDraft"
               />
+            </div>
+            <p v-if="signatureError" class="snippet-error" role="alert">{{ signatureError }}</p>
+            <div v-if="signatureConflict" class="settings-legacy-preview">
+              Latest saved signature: <span v-html="store.signatureHtml || 'None'" />
+            </div>
+            <div v-if="store.composePreferencesLoaded" class="settings-sync-actions">
+              <button
+                v-if="signatureConflict"
+                type="button"
+                class="btn btn-secondary"
+                @click="useLatestSignature"
+              >
+                Use latest
+              </button>
+              <button
+                v-if="signatureConflict"
+                type="button"
+                class="btn btn-primary"
+                :disabled="store.composePreferencesSaving"
+                @click="overwriteLatestSignature"
+              >
+                Save my draft over latest
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-primary"
+                :disabled="!signatureTouched || store.composePreferencesSaving"
+                @click="saveSignature"
+              >
+                {{ store.composePreferencesSaving ? 'Saving…' : 'Save signature' }}
+              </button>
             </div>
           </section>
 
@@ -664,81 +907,118 @@ function toggleRuleEnabled(rule) {
           <section v-if="activeSection === 'snippets'" class="settings-section">
             <h3 class="settings-section-title">Compose snippets</h3>
             <p class="settings-section-hint">
-              Reusable templates stored on this device. In a new email, type a trigger such as
+              Reusable templates synced with your account. In a new email, type a trigger such as
               “/hello-world” and choose it from the menu.
             </p>
+            <p v-if="!store.composePreferencesLoaded" role="status">
+              {{
+                store.composePreferencesLoading
+                  ? 'Loading synced snippets…'
+                  : store.composePreferencesError || 'Sign in to load your snippets.'
+              }}
+            </p>
+            <button
+              v-if="
+                !store.composePreferencesLoaded &&
+                !store.composePreferencesLoading &&
+                store.composeOwnerSub
+              "
+              type="button"
+              class="btn btn-secondary"
+              @click="store.loadComposePreferences()"
+            >
+              Retry
+            </button>
 
-            <div v-if="store.snippets.length" class="snippet-list">
-              <div v-for="snippet in store.snippets" :key="snippet.id" class="snippet-row">
-                <span class="snippet-trigger">/{{ snippet.name }}</span>
-                <div class="label-row-actions">
-                  <button
-                    class="ni-action-btn"
-                    :title="`Edit /${snippet.name}`"
-                    :aria-label="`Edit snippet /${snippet.name}`"
-                    @click="editSnippet(snippet)"
-                  >
-                    <span class="material-symbols-outlined">edit</span>
-                  </button>
-                  <button
-                    class="ni-action-btn label-delete-btn"
-                    :title="`Delete /${snippet.name}`"
-                    :aria-label="`Delete snippet /${snippet.name}`"
-                    @click="deleteSnippet(snippet.id)"
-                  >
-                    <span class="material-symbols-outlined">delete</span>
-                  </button>
+            <template v-if="store.composePreferencesLoaded">
+              <div v-if="store.snippets.length" class="snippet-list">
+                <div v-for="snippet in store.snippets" :key="snippet.id" class="snippet-row">
+                  <span class="snippet-trigger">/{{ snippet.name }}</span>
+                  <div class="label-row-actions">
+                    <button
+                      class="ni-action-btn"
+                      :title="`Edit /${snippet.name}`"
+                      :aria-label="`Edit snippet /${snippet.name}`"
+                      :disabled="store.composePreferencesSaving"
+                      @click="editSnippet(snippet)"
+                    >
+                      <span class="material-symbols-outlined">edit</span>
+                    </button>
+                    <button
+                      class="ni-action-btn label-delete-btn"
+                      :title="`Delete /${snippet.name}`"
+                      :aria-label="`Delete snippet /${snippet.name}`"
+                      :disabled="store.composePreferencesSaving"
+                      @click="deleteSnippet(snippet.id)"
+                    >
+                      <span class="material-symbols-outlined">delete</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div class="snippet-ai-row">
-              <input
-                v-model="aiSnippetInstruction"
-                class="label-input"
-                maxlength="1000"
-                placeholder="Describe a template for Cookie AI to draft…"
-                @keydown.enter.prevent="generateSnippet"
-              />
-              <button
-                class="btn btn-secondary"
-                :disabled="!aiSnippetInstruction.trim() || isGeneratingSnippet"
-                @click="generateSnippet"
-              >
-                {{ isGeneratingSnippet ? 'Drafting…' : 'Generate with AI' }}
-              </button>
-            </div>
-
-            <form class="snippet-editor-form" @submit.prevent="saveSnippet">
-              <input
-                v-model="snippetDraft.name"
-                class="label-input"
-                maxlength="50"
-                placeholder="Trigger, e.g. hello-world"
-              />
-              <div class="settings-signature-editor snippet-editor">
-                <ComposerEditor
-                  :model-value="snippetDraft.html"
-                  :hide-generate="true"
-                  placeholder="Write your reusable template…"
-                  @update:model-value="snippetDraft.html = $event"
+              <div class="snippet-ai-row">
+                <input
+                  v-model="aiSnippetInstruction"
+                  class="label-input"
+                  maxlength="1000"
+                  placeholder="Describe a template for Cookie AI to draft…"
+                  @keydown.enter.prevent="generateSnippet"
                 />
-              </div>
-              <p v-if="snippetError" class="snippet-error" role="alert">{{ snippetError }}</p>
-              <div class="label-create-actions">
                 <button
-                  v-if="editingSnippetId"
-                  type="button"
                   class="btn btn-secondary"
-                  @click="resetSnippetDraft"
+                  :disabled="!aiSnippetInstruction.trim() || isGeneratingSnippet"
+                  @click="generateSnippet"
                 >
-                  Cancel
-                </button>
-                <button type="submit" class="btn btn-primary">
-                  {{ editingSnippetId ? 'Save snippet' : 'Add snippet' }}
+                  {{ isGeneratingSnippet ? 'Drafting…' : 'Generate with AI' }}
                 </button>
               </div>
-            </form>
+
+              <form class="snippet-editor-form" @submit.prevent="saveSnippet">
+                <input
+                  v-model="snippetDraft.name"
+                  class="label-input"
+                  maxlength="50"
+                  placeholder="Trigger, e.g. hello-world"
+                />
+                <div class="settings-signature-editor snippet-editor">
+                  <ComposerEditor
+                    :model-value="snippetDraft.html"
+                    :hide-generate="true"
+                    placeholder="Write your reusable template…"
+                    @update:model-value="snippetDraft.html = $event"
+                  />
+                </div>
+                <p v-if="snippetError" class="snippet-error" role="alert">{{ snippetError }}</p>
+                <p v-if="snippetConflict" class="settings-section-hint">
+                  The synced list above is the latest version. Review it, then save your draft again
+                  if you want to apply it.
+                </p>
+                <div class="label-create-actions">
+                  <button
+                    v-if="editingSnippetId"
+                    type="button"
+                    class="btn btn-secondary"
+                    @click="resetSnippetDraft"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    class="btn btn-primary"
+                    :disabled="store.composePreferencesSaving"
+                  >
+                    {{
+                      snippetConflict
+                        ? 'Save my draft over latest'
+                        : editingSnippetId
+                          ? 'Save snippet'
+                          : 'Add snippet'
+                    }}
+                  </button>
+                </div>
+              </form>
+            </template>
           </section>
 
           <!-- Notifications -->

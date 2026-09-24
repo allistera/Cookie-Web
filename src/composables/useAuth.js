@@ -9,6 +9,7 @@ const e2eAuth = {
   isAuthenticated: ref(true),
   isLoading: ref(false),
   user: ref({
+    sub: 'auth0|e2e-user',
     name: 'Allister',
     email: 'allisteraall@gmail.com',
     picture: '/rose_avatar.webp',

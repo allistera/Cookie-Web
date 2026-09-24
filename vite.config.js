@@ -70,6 +70,7 @@ function localApiPlugin(mode) {
         taskItems: [],
         taskLabels: [],
         drafts: [],
+        composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
       })
     }
     return stubMailboxState.get(sessionId)
@@ -85,9 +86,14 @@ function localApiPlugin(mode) {
     const isState = segments.length === 2 && segments[1] === 'state'
     const isSpamRetention = segments.length === 2 && segments[1] === 'spam-retention'
     const isAutoArchive = segments.length === 2 && segments[1] === 'auto-archive'
+    const isComposePreferences = segments.length === 2 && segments[1] === 'compose-preferences'
     if (
       segments[0] !== 'emails' ||
-      (segments.length > 1 && !isState && !isSpamRetention && !isAutoArchive)
+      (segments.length > 1 &&
+        !isState &&
+        !isSpamRetention &&
+        !isAutoArchive &&
+        !isComposePreferences)
     ) {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
@@ -97,6 +103,44 @@ function localApiPlugin(mode) {
     const folder = url.searchParams.get('folder') || 'inbox'
     const labelName = (url.searchParams.get('label') || '').trim()
     const state = fixtureMailboxState(req, res)
+    if (isComposePreferences) {
+      res.setHeader('Content-Type', 'application/json')
+      res.setHeader('Cache-Control', 'private, no-store')
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        if (
+          !Number.isSafeInteger(body?.revision) ||
+          body.revision < 0 ||
+          !Array.isArray(body.snippets)
+        ) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Invalid compose preferences' }))
+          return
+        }
+        if (body.revision !== state.composePreferences.revision) {
+          res.statusCode = 409
+          res.end(
+            JSON.stringify({
+              error: 'Compose preferences changed in another session',
+              current: state.composePreferences,
+            }),
+          )
+          return
+        }
+        state.composePreferences = {
+          revision: body.revision + 1,
+          signatureHtml: body.signatureHtml,
+          snippets: body.snippets,
+        }
+      } else if (req.method !== 'GET') {
+        res.statusCode = 405
+        res.setHeader('Allow', 'GET, PUT')
+        res.end(JSON.stringify({ error: 'Method not allowed' }))
+        return
+      }
+      res.end(JSON.stringify(state.composePreferences))
+      return
+    }
     if (isAutoArchive) {
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'PUT') {

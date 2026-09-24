@@ -4483,6 +4483,43 @@ button.ni-attachment:hover {
   font-size: 13px;
 }
 
+.settings-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-legacy-import {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+
+.settings-legacy-import h3 {
+  margin: 0 0 8px;
+}
+
+.settings-legacy-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-legacy-preview {
+  padding: 8px 12px;
+  margin-top: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.settings-legacy-list {
+  margin: 8px 0;
+}
+
 /* Personalisation topics (settings) */
 .interest-chips {
   display: flex;

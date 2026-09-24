@@ -33,8 +33,8 @@ export const inboxTabForCategory = (id) => `category:${id}`
 export const isImportantCategory = (category) =>
   category?.name?.trim().toLowerCase() === 'important'
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
-import { getStoredSignature, saveStoredSignature } from '../lib/signature'
-import { getStoredSnippets, saveStoredSnippets } from '../lib/snippets'
+import { parseComposePreferences } from '../lib/composePreferences'
+import { sanitizeStoredSnippets } from '../lib/snippets'
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -627,10 +627,18 @@ export const useInboxStore = defineStore('inbox', {
     // browser keeps metadata for removable chips; only ids cross the API.
     composerAttachments: [],
 
-    // Personal email signature (rich HTML), edited in settings and appended to
-    // new emails. Persisted locally.
-    signatureHtml: getStoredSignature(),
-    snippets: getStoredSnippets(),
+    // One authenticated, revisioned document in users.prefs. Legacy browser
+    // values are only read for an explicit import from Settings.
+    signatureHtml: '',
+    snippets: [],
+    composeOwnerSub: null,
+    composeGeneration: 0,
+    composePreferencesRevision: 0,
+    composePreferencesLoaded: false,
+    composePreferencesLoading: false,
+    composePreferencesSaving: false,
+    composePreferencesError: '',
+    composePreferencesConflict: false,
     isAiDraftActive: false,
     isAiDraftLoading: false,
     aiDraftPreview: '',
@@ -2549,6 +2557,7 @@ export const useInboxStore = defineStore('inbox', {
     openComposer() {
       if (!this.isComposerActive) this.composerSessionId += 1
       this.isComposerActive = true
+      if (!this.composePreferencesLoaded) this.loadComposePreferences()
       // Populate the "to" auto-suggest; cached after the first load.
       this.loadContacts()
       // Pre-fill a fresh compose with the saved signature (blank lines above so
@@ -2559,14 +2568,130 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    // Saves the personal signature (from the settings WYSIWYG editor). Keeps the
-    // in-memory copy identical to the sanitized value that was persisted.
-    setSignature(html) {
-      this.signatureHtml = saveStoredSignature(html)
+    setComposeOwner(sub) {
+      const owner = sub || null
+      if (this.composeOwnerSub === owner) return
+      this.composeGeneration += 1
+      this.composeOwnerSub = owner
+      this.signatureHtml = ''
+      this.snippets = []
+      this.composePreferencesRevision = 0
+      this.composePreferencesLoaded = false
+      this.composePreferencesLoading = false
+      this.composePreferencesSaving = false
+      this.composePreferencesError = ''
+      this.composePreferencesConflict = false
+      // An open draft and its signature must never cross an account boundary.
+      this.isComposerActive = false
+      this.composerSessionId += 1
+      this.composerTo = ''
+      this.composerSubject = ''
+      this.composerHtml = ''
+      this.composerTextArea = ''
     },
 
-    setSnippets(snippets) {
-      this.snippets = saveStoredSnippets(snippets)
+    async loadComposePreferences({ force = false } = {}) {
+      if (!this.composeOwnerSub || this.composePreferencesLoading) return
+      if (this.composePreferencesLoaded && !force) return
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      this.composePreferencesLoading = true
+      this.composePreferencesError = ''
+      try {
+        const headers = await this.authHeaders()
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return
+        const response = await fetch(`${EMAILS_API_URL}/emails/compose-preferences`, {
+          headers,
+          cache: 'no-store',
+        })
+        if (!response.ok) throw new Error(`GET compose preferences responded ${response.status}`)
+        const saved = parseComposePreferences(await response.json())
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return
+        // A save that finished during this load is newer than its response.
+        if (this.composePreferencesLoaded && !force) return
+        if (saved.revision < this.composePreferencesRevision) return
+        this.applyComposePreferences(saved)
+        if (
+          this.isComposerActive &&
+          !this.composerHtml &&
+          !this.composerTextArea &&
+          saved.signatureHtml
+        ) {
+          this.composerHtml = `<p><br></p><p><br></p>${saved.signatureHtml}`
+          this.composerTextArea = htmlToText(this.composerHtml)
+        }
+      } catch (error) {
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return
+        this.composePreferencesError = 'Could not load synced composer preferences. Try again.'
+        console.error('Failed to load compose preferences:', error)
+      } finally {
+        if (owner === this.composeOwnerSub && generation === this.composeGeneration)
+          this.composePreferencesLoading = false
+      }
+    },
+
+    applyComposePreferences(preferences) {
+      const saved = parseComposePreferences(preferences)
+      this.composePreferencesRevision = saved.revision
+      this.signatureHtml = saved.signatureHtml
+      this.snippets = saved.snippets
+      this.composePreferencesLoaded = true
+      this.composePreferencesError = ''
+    },
+
+    async saveComposePreferences({
+      signatureHtml = this.signatureHtml,
+      snippets = this.snippets,
+    } = {}) {
+      if (!this.composeOwnerSub || !this.composePreferencesLoaded)
+        throw new Error('Composer preferences must be loaded before saving')
+      if (this.composePreferencesSaving) throw new Error('Composer preferences are already saving')
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      const next = {
+        revision: this.composePreferencesRevision,
+        signatureHtml: sanitizeEmailHtml(signatureHtml),
+        snippets: sanitizeStoredSnippets(snippets),
+      }
+      if (next.snippets.length !== snippets.length) {
+        this.composePreferencesError =
+          'A snippet is empty, duplicated, or exceeds the 50-snippet limit.'
+        return false
+      }
+      this.composePreferencesSaving = true
+      this.composePreferencesError = ''
+      this.composePreferencesConflict = false
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
+        const response = await fetch(`${EMAILS_API_URL}/emails/compose-preferences`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(next),
+        })
+        const payload = await response.json()
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
+        if (response.status === 409) {
+          this.applyComposePreferences(payload.current)
+          this.composePreferencesConflict = true
+          this.composePreferencesError =
+            'These preferences changed in another session. Review the latest version before saving again.'
+          return false
+        }
+        if (!response.ok)
+          throw new Error(payload.error || `PUT compose preferences responded ${response.status}`)
+        this.applyComposePreferences(payload)
+        return true
+      } catch (error) {
+        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
+        this.composePreferencesError =
+          'Could not save composer preferences. Your edit is still here; please try again.'
+        console.error('Failed to save compose preferences:', error)
+        return false
+      } finally {
+        if (owner === this.composeOwnerSub && generation === this.composeGeneration)
+          this.composePreferencesSaving = false
+      }
     },
 
     // Returns an unsaved suggestion. Only createRule/updateRule persist rules.

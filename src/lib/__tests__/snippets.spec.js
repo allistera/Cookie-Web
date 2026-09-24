@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   getSlashSnippetCommands,
+  getLegacySnippets,
+  clearLegacySnippets,
   normalizeSnippetName,
   sanitizeStoredSnippets,
 } from '../snippets.js'
@@ -40,5 +42,21 @@ describe('snippet helpers', () => {
         html: '<p>Hello</p>',
       },
     ])
+  })
+
+  it('reads old unscoped snippets only for import and clears them when selected', () => {
+    localStorage.setItem(
+      'cookie-compose-snippets',
+      JSON.stringify([
+        {
+          id: 'old',
+          name: 'Old Trigger',
+          html: '<p>Safe<script>alert(1)</script></p>',
+        },
+      ]),
+    )
+    expect(getLegacySnippets()).toEqual([{ id: 'old', name: 'old-trigger', html: '<p>Safe</p>' }])
+    clearLegacySnippets()
+    expect(localStorage.getItem('cookie-compose-snippets')).toBeNull()
   })
 })

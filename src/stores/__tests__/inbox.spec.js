@@ -1815,23 +1815,139 @@ describe('Inbox Store', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`${MESSAGES_API_URL}/messages/contacts`)
   })
 
-  it('setSignature persists the signature and openComposer prefills a fresh draft with it', () => {
+  it('loads the account signature and prefills a fresh draft with it', async () => {
     localStorage.clear()
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ contacts: [] }) }),
+      vi.fn(async (url) => ({
+        ok: true,
+        json: async () =>
+          String(url).includes('/compose-preferences')
+            ? { revision: 1, signatureHtml: '<p>Best, <strong>Allister</strong></p>', snippets: [] }
+            : { contacts: [] },
+      })),
     )
     const store = useInboxStore()
+    store.setComposeOwner('auth0|a')
+    await store.loadComposePreferences()
 
-    store.setSignature('<p>Best, <strong>Allister</strong></p>')
     expect(store.signatureHtml).toBe('<p>Best, <strong>Allister</strong></p>')
-    expect(localStorage.getItem('cookie-signature-html')).toBe(
-      '<p>Best, <strong>Allister</strong></p>',
-    )
+    expect(localStorage.getItem('cookie-signature-html')).toBeNull()
 
     store.openComposer()
     expect(store.composerHtml).toContain('<p>Best, <strong>Allister</strong></p>')
     expect(store.composerTextArea).toContain('Best, Allister')
+  })
+
+  describe('Synced composer preferences', () => {
+    const empty = { revision: 0, signatureHtml: '', snippets: [] }
+    const response = (value, status = 200) => ({
+      ok: status < 400,
+      status,
+      json: async () => value,
+    })
+
+    it('saves with the fetched revision and reloads in a fresh store', async () => {
+      let saved = empty
+      const sentRevisions = []
+      const fetchMock = vi.fn(async (_url, options) => {
+        if (options?.method === 'PUT') {
+          const body = JSON.parse(options.body)
+          sentRevisions.push(body.revision)
+          saved = { ...body, revision: body.revision + 1 }
+        }
+        return response(saved)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const first = useInboxStore()
+      first.setComposeOwner('auth0|a')
+      await first.loadComposePreferences()
+      expect(
+        await first.saveComposePreferences({
+          signatureHtml: '<p>Regards</p>',
+          snippets: [{ id: 'one', name: 'hello', html: '<p>Hello</p>' }],
+        }),
+      ).toBe(true)
+      setActivePinia(createPinia())
+      const second = useInboxStore()
+      second.setComposeOwner('auth0|a')
+      await second.loadComposePreferences()
+      expect(second.signatureHtml).toBe('<p>Regards</p>')
+      expect(second.snippets[0].name).toBe('hello')
+      expect(second.composePreferencesRevision).toBe(1)
+      expect(sentRevisions).toEqual([0])
+      expect(localStorage.getItem('cookie-signature-html')).toBeNull()
+    })
+
+    it('adopts the server version on conflict without persisting the stale draft', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(response(empty))
+          .mockResolvedValueOnce(
+            response(
+              {
+                error: 'Conflict',
+                current: { revision: 1, signatureHtml: '<p>Other browser</p>', snippets: [] },
+              },
+              409,
+            ),
+          ),
+      )
+      const store = useInboxStore()
+      store.setComposeOwner('auth0|a')
+      await store.loadComposePreferences()
+      expect(await store.saveComposePreferences({ signatureHtml: '<p>My draft</p>' })).toBe(false)
+      expect(store.signatureHtml).toBe('<p>Other browser</p>')
+      expect(store.composePreferencesConflict).toBe(true)
+      expect(store.composePreferencesRevision).toBe(1)
+    })
+
+    it('keeps the loaded version on a failed save and clears private state on account switch', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(response({ revision: 2, signatureHtml: '<p>A</p>', snippets: [] }))
+          .mockRejectedValueOnce(new Error('offline')),
+      )
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+      store.setComposeOwner('auth0|a')
+      await store.loadComposePreferences()
+      expect(await store.saveComposePreferences({ signatureHtml: '<p>Unsent</p>' })).toBe(false)
+      expect(store.signatureHtml).toBe('<p>A</p>')
+      expect(store.composePreferencesError).toContain('Could not save')
+      store.openComposer()
+      store.setComposeOwner('auth0|b')
+      expect(store.signatureHtml).toBe('')
+      expect(store.snippets).toEqual([])
+      expect(store.composerHtml).toBe('')
+      expect(store.composePreferencesLoaded).toBe(false)
+    })
+
+    it('ignores a late response from the previous account', async () => {
+      let finish
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve
+            }),
+        ),
+      )
+      const store = useInboxStore()
+      store.setComposeOwner('auth0|a')
+      const loading = store.loadComposePreferences()
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+      store.setComposeOwner('auth0|b')
+      finish(response({ revision: 4, signatureHtml: '<p>A private</p>', snippets: [] }))
+      await loading
+      expect(store.signatureHtml).toBe('')
+      expect(store.composePreferencesLoaded).toBe(false)
+    })
   })
 
   it('openComposer does not overwrite an in-progress draft with the signature', () => {

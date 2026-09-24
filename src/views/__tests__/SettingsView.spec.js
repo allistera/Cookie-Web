@@ -14,6 +14,7 @@ import { AI_API_URL, EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../..
 // signed-in user through the real interface.
 const auth0Fake = () => ({
   user: ref({
+    sub: 'auth0|settings-user',
     name: 'Allister',
     email: 'allisteraall@gmail.com',
     picture: 'https://example.com/avatar.png',
@@ -73,6 +74,7 @@ describe('SettingsView', () => {
   let pinia
   let router
   let store
+  let composePreferences
 
   beforeEach(async () => {
     pinia = createPinia()
@@ -94,6 +96,7 @@ describe('SettingsView', () => {
     await router.isReady()
     store = useInboxStore()
     localStorage.clear()
+    composePreferences = { revision: 0, signatureHtml: '', snippets: [] }
     // The daily-notes pane mounts a real DocumentEditor (Editor.js), which
     // probes matchMedia during its async init — jsdom doesn't implement it.
     vi.stubGlobal(
@@ -107,9 +110,19 @@ describe('SettingsView', () => {
     )
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockImplementation(async (url) => ({
+      vi.fn().mockImplementation(async (url, options = {}) => ({
         ok: true,
         json: async () => {
+          if (url === `${EMAILS_API_URL}/emails/compose-preferences`) {
+            if (options.method === 'PUT') {
+              const next = JSON.parse(options.body)
+              if (next.revision !== composePreferences.revision) {
+                return { error: 'Conflict', current: composePreferences }
+              }
+              composePreferences = { ...next, revision: next.revision + 1 }
+            }
+            return composePreferences
+          }
           if (url === `${LABELS_API_URL}/labels/rules`) {
             return {
               rules: FIXTURE_RULES.map((rule) => ({
@@ -172,6 +185,7 @@ describe('SettingsView', () => {
 
   async function openView() {
     const wrapper = mountView()
+    await vi.waitFor(() => expect(store.composePreferencesLoaded).toBe(true))
     await vi.waitFor(() => expect(store.labels).toHaveLength(2))
     await vi.waitFor(() => expect(store.rules).toHaveLength(1))
     await vi.waitFor(() => expect(store.categories).toHaveLength(1))
@@ -563,7 +577,7 @@ describe('SettingsView', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
   })
 
-  it('edits and persists the personal signature from the Signature pane', async () => {
+  it('saves the personal signature to the account only after Save', async () => {
     localStorage.clear()
     const wrapper = await openView()
 
@@ -573,11 +587,19 @@ describe('SettingsView', () => {
     expect(editor.exists()).toBe(true)
 
     editor.vm.$emit('update:modelValue', '<p>Cheers, Allister</p>')
+    await wrapper.vm.$nextTick()
+    expect(store.signatureHtml).toBe('')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Save signature')
+      .trigger('click')
+    await vi.waitFor(() => expect(store.signatureHtml).toBe('<p>Cheers, Allister</p>'))
     expect(store.signatureHtml).toBe('<p>Cheers, Allister</p>')
-    expect(localStorage.getItem('cookie-signature-html')).toBe('<p>Cheers, Allister</p>')
+    expect(localStorage.getItem('cookie-signature-html')).toBeNull()
+    expect(composePreferences.revision).toBe(1)
   })
 
-  it('saves a locally stored compose snippet from the Snippets pane', async () => {
+  it('saves a synced compose snippet from the Snippets pane', async () => {
     const wrapper = await openView()
     await openPane(wrapper, 'snippets')
 
@@ -586,11 +608,68 @@ describe('SettingsView', () => {
       .findComponent(ComposerEditor)
       .vm.$emit('update:modelValue', '<p>Hello <strong>there</strong></p>')
     await wrapper.find('.snippet-editor-form').trigger('submit')
+    await vi.waitFor(() => expect(store.snippets).toHaveLength(1))
 
     expect(store.snippets).toEqual([
       expect.objectContaining({ name: 'hello-world', html: '<p>Hello <strong>there</strong></p>' }),
     ])
-    expect(JSON.parse(localStorage.getItem('cookie-compose-snippets'))[0].name).toBe('hello-world')
+    expect(localStorage.getItem('cookie-compose-snippets')).toBeNull()
+    expect(composePreferences.snippets[0].name).toBe('hello-world')
+  })
+
+  it('offers a reviewed import and clears only the selected old key after saving', async () => {
+    localStorage.setItem('cookie-signature-html', '<p>Old signature</p>')
+    localStorage.setItem(
+      'cookie-compose-snippets',
+      JSON.stringify([{ id: 'old', name: 'greeting', html: '<p>Hello</p>' }]),
+    )
+    const wrapper = await openView()
+    await openPane(wrapper, 'signature')
+    expect(wrapper.find('.settings-legacy-import').text()).toContain('Old signature')
+    expect(store.signatureHtml).toBe('')
+    await wrapper.find('.settings-legacy-option input').setValue(true)
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Import selected values')
+      .trigger('click')
+    await vi.waitFor(() => expect(store.signatureHtml).toBe('<p>Old signature</p>'))
+    expect(localStorage.getItem('cookie-signature-html')).toBeNull()
+    expect(localStorage.getItem('cookie-compose-snippets')).not.toBeNull()
+    expect(store.snippets).toEqual([])
+  })
+
+  it('keeps the signature draft visible when another browser saved a newer revision', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'signature')
+    const baseFetch = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options) => {
+      if (url === `${EMAILS_API_URL}/emails/compose-preferences` && options?.method === 'PUT') {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: 'Conflict',
+            current: { revision: 1, signatureHtml: '<p>Other browser</p>', snippets: [] },
+          }),
+        }
+      }
+      return baseFetch(url, options)
+    })
+    const editor = wrapper.findComponent(ComposerEditor)
+    editor.vm.$emit('update:modelValue', '<p>My unsaved draft</p>')
+    await wrapper.vm.$nextTick()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Save signature')
+      .trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Save my draft over latest'))
+    expect(editor.props('modelValue')).toBe('<p>My unsaved draft</p>')
+    expect(store.signatureHtml).toBe('<p>Other browser</p>')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Use latest')
+      .trigger('click')
+    expect(editor.props('modelValue')).toBe('<p>Other browser</p>')
   })
 
   it('requests browser permission and enables new-mail notifications for the current user', async () => {
