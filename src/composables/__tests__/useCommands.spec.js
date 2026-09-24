@@ -8,6 +8,7 @@ import { useCommands } from '../useCommands'
 import { useInboxStore } from '../../stores/inbox'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useDocumentsStore } from '../../stores/documents'
+import { useSavedViewsStore } from '../../stores/savedViews'
 import { setAuth0Client } from '../../auth0-client'
 
 // useCommands needs a component's injection context for useRoute/useRouter,
@@ -23,6 +24,7 @@ async function setupCommands(routeName = 'ai-inbox') {
       { path: '/drafts', name: 'drafts', component: { template: '<div />' } },
       { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
       { path: '/scheduled', name: 'scheduled-sends', component: { template: '<div />' } },
+      { path: '/search', name: 'search', component: { template: '<div />' } },
       { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
     ],
   })
@@ -76,6 +78,32 @@ describe('useCommands', () => {
     expect(ids).not.toContain('star')
     expect(ids).toContain('go-inbox')
     expect(ids).toContain('open-settings')
+  })
+
+  it('navigates to each saved mail view through the command palette', async () => {
+    const savedViews = useSavedViewsStore()
+    savedViews.views = [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Client mail',
+        query: 'from:client@example.com',
+        folder: 'inbox',
+      },
+    ]
+    const { commands, push } = await setupCommands()
+    const command = commands.value.find((item) => item.title === 'Go to saved view Client mail')
+
+    expect(command).toBeDefined()
+    command.run()
+    expect(push).toHaveBeenCalledWith({
+      name: 'search',
+      query: {
+        q: 'from:client@example.com in:inbox',
+        scope: 'mail',
+        mode: 'keyword',
+        view: savedViews.views[0].id,
+      },
+    })
   })
 
   it('Create Event requests a new event from the store, going to Calendar first when elsewhere', async () => {

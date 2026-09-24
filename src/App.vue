@@ -2,6 +2,8 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
+import { useSearchStore } from './stores/search'
+import { useSavedViewsStore } from './stores/savedViews'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
@@ -22,8 +24,11 @@ const CommandPalette = defineAsyncComponent(() => import('./components/CommandPa
 const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
 const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
 const TasksSidebar = defineAsyncComponent(() => import('./components/TasksSidebar.vue'))
+const SavedViewsSidebar = defineAsyncComponent(() => import('./components/SavedViewsSidebar.vue'))
 
 const store = useInboxStore()
+const searchStore = useSearchStore()
+const savedViewsStore = useSavedViewsStore()
 const contactInsightsStore = useContactInsightsStore()
 const route = useRoute()
 const router = useRouter()
@@ -180,6 +185,8 @@ function openSettings() {
 function handleLogout() {
   setCalendarsOwner(null)
   store.setComposeOwner(null)
+  savedViewsStore.setOwner(null)
+  searchStore.clear()
   clearCachedMail()
   logout({ logoutParams: { returnTo: window.location.origin } })
 }
@@ -278,7 +285,10 @@ watch(
   (sub) => {
     setCalendarsOwner(sub)
     store.setComposeOwner(sub)
+    if (savedViewsStore.ownerSub !== (sub || null)) searchStore.clear()
+    savedViewsStore.setOwner(sub)
     if (sub) store.loadComposePreferences()
+    if (sub) savedViewsStore.load()
   },
   { immediate: true, flush: 'sync' },
 )
@@ -588,6 +598,8 @@ onUnmounted(() => {
               </router-link>
             </template>
           </nav>
+
+          <SavedViewsSidebar />
 
           <template v-if="store.allLabels.length">
             <div class="sb-section-label">Labels</div>

@@ -1,15 +1,37 @@
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useSearchStore, DEFAULT_SEARCH_LIMIT } from '../stores/search'
 import { useInboxStore, mapEmailRow } from '../stores/inbox'
+import { useSavedViewsStore } from '../stores/savedViews'
+import {
+  SAVED_VIEW_FOLDERS,
+  savedViewDraftFromQuery,
+  savedViewMatchesRoute,
+  savedViewRoute,
+} from '../lib/savedViews'
 import EmailRow from '../components/EmailRow.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useSearchStore()
 const inboxStore = useInboxStore()
+const savedViews = useSavedViewsStore()
+const saveDialog = ref(null)
+const viewName = ref('')
+const viewQuery = ref('')
+const viewFolder = ref('all')
+
+watch(
+  () => savedViews.ownerSub,
+  () => {
+    if (saveDialog.value?.open) saveDialog.value.close()
+    viewName.value = ''
+    viewQuery.value = ''
+    viewFolder.value = 'all'
+  },
+)
 
 const SCOPES = [
   { key: 'all', label: 'All' },
@@ -30,14 +52,20 @@ const currentPage = computed(() => {
   const page = Number(route.query.page)
   return Number.isInteger(page) && page > 0 ? page : 0
 })
+const activeSavedView = computed(() =>
+  savedViews.views.find((view) => savedViewMatchesRoute(view, route)),
+)
+const activeFolder = computed(() =>
+  SAVED_VIEW_FOLDERS.find((option) => option.value === activeSavedView.value?.folder),
+)
 
 // The route is the source of truth (shareable, back-button friendly): any
 // change to q/scope/mode/page re-fetches. clear() on unmount cancels
 // whatever is in flight so a slow response can't land after the view is gone.
 watch(
-  [currentQuery, currentScope, currentMode, currentPage],
+  [currentQuery, currentScope, currentMode, currentPage, () => savedViews.ownerSub],
   () => {
-    if (!currentQuery.value) {
+    if (!currentQuery.value || !savedViews.ownerSub) {
       store.clear()
       return
     }
@@ -55,16 +83,39 @@ onBeforeUnmount(() => store.clear())
 
 function switchScope(scope) {
   if (scope === currentScope.value) return
-  router.replace({ name: 'search', query: { ...route.query, scope, page: undefined } })
+  router.replace({
+    name: 'search',
+    query: { ...route.query, scope, page: undefined, view: undefined },
+  })
 }
 
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(store.estimatedTotalHits / DEFAULT_SEARCH_LIMIT)),
-)
-
 function goToPage(page) {
-  if (page < 0 || page >= totalPages.value || page === currentPage.value) return
+  if (page < 0 || page === currentPage.value || (page > currentPage.value && !store.hasMore)) return
   router.replace({ name: 'search', query: { ...route.query, page: page || undefined } })
+}
+
+function openSaveDialog() {
+  const draft = savedViewDraftFromQuery(currentQuery.value)
+  viewName.value = ''
+  viewQuery.value = draft.query
+  viewFolder.value = draft.folder
+  savedViews.error = ''
+  savedViews.conflict = false
+  if (!savedViews.loaded) savedViews.load()
+  saveDialog.value?.showModal()
+}
+
+async function saveView() {
+  const view = {
+    id: crypto.randomUUID(),
+    name: viewName.value.trim(),
+    query: viewQuery.value.trim(),
+    folder: viewFolder.value,
+  }
+  const saved = await savedViews.save([...savedViews.views, view])
+  if (!saved) return
+  saveDialog.value?.close()
+  router.push(savedViewRoute(view))
 }
 
 function askAssistant() {
@@ -128,9 +179,30 @@ const errorMessage = computed(() => {
 <template>
   <div class="search-results-view">
     <header class="search-results-header">
-      <h1>Search results</h1>
+      <div class="search-results-title-row">
+        <h1>{{ activeSavedView?.name || 'Search results' }}</h1>
+        <button
+          v-if="currentQuery && currentScope === 'mail' && !activeSavedView"
+          type="button"
+          class="search-save-view"
+          @click="openSaveDialog"
+        >
+          Save as view
+        </button>
+      </div>
+      <p v-if="activeSavedView" class="search-results-subtitle">
+        Saved mail view · {{ activeFolder?.label }} · Keyword search
+      </p>
       <p v-if="currentQuery" class="search-results-subtitle">
         Showing results for <strong>&ldquo;{{ currentQuery }}&rdquo;</strong>
+      </p>
+      <p v-if="activeSavedView" class="search-results-subtitle">
+        Views can overlap. Saving or deleting a view does not move messages.
+      </p>
+      <p v-if="!store.loading && !store.error && currentQuery" class="search-results-subtitle">
+        About {{ store.estimatedTotalHits }} matching
+        {{ currentScope === 'mail' ? 'emails' : 'items' }}
+        (search estimate).
       </p>
     </header>
 
@@ -227,19 +299,65 @@ const errorMessage = computed(() => {
       </li>
     </ul>
 
-    <div v-if="store.results.length && totalPages > 1" class="search-results-pagination">
+    <div
+      v-if="store.results.length && (currentPage > 0 || store.hasMore)"
+      class="search-results-pagination"
+    >
       <button type="button" :disabled="currentPage === 0" @click="goToPage(currentPage - 1)">
         Previous
       </button>
-      <span>Page {{ currentPage + 1 }} of {{ totalPages }}</span>
-      <button
-        type="button"
-        :disabled="currentPage >= totalPages - 1"
-        @click="goToPage(currentPage + 1)"
-      >
+      <span>Page {{ currentPage + 1 }}</span>
+      <button type="button" :disabled="!store.hasMore" @click="goToPage(currentPage + 1)">
         Next
       </button>
     </div>
+
+    <dialog
+      ref="saveDialog"
+      class="search-save-dialog"
+      aria-label="Save mail view"
+      @click.stop
+      @keydown.stop
+    >
+      <form method="dialog" @submit.prevent="saveView">
+        <h2>Save mail view</h2>
+        <p>Saved views use keyword search. Choose the folder explicitly.</p>
+        <label>
+          Name
+          <input v-model="viewName" type="text" maxlength="60" required autofocus />
+        </label>
+        <label>
+          Search query
+          <input v-model="viewQuery" type="text" maxlength="470" required />
+        </label>
+        <label>
+          Folder
+          <select v-model="viewFolder">
+            <option v-for="folder in SAVED_VIEW_FOLDERS" :key="folder.value" :value="folder.value">
+              {{ folder.label }}
+            </option>
+          </select>
+        </label>
+        <p class="search-save-hint">
+          Supported: from:, sender:, to:, tag:, has:attachment, before:YYYY-MM-DD, after:YYYY-MM-DD,
+          and words. Use each filter once. AND/OR and is:starred are unsupported.
+        </p>
+        <p v-if="savedViews.error" class="search-save-error" role="alert">{{ savedViews.error }}</p>
+        <button
+          v-if="!savedViews.loaded && !savedViews.loading"
+          type="button"
+          @click="savedViews.load()"
+        >
+          Retry loading views
+        </button>
+        <div class="search-save-actions">
+          <button type="button" @click="saveDialog?.close()">Cancel</button>
+          <button type="submit" :disabled="savedViews.saving || !savedViews.loaded">
+            {{ savedViews.conflict ? 'Review latest and save my view' : 'Save view' }}
+          </button>
+        </div>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -254,6 +372,69 @@ const errorMessage = computed(() => {
 .search-results-header h1 {
   margin: 0 0 4px;
   font-size: 20px;
+}
+
+.search-results-title-row,
+.search-save-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.search-save-view {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  padding: 7px 11px;
+  cursor: pointer;
+}
+
+.search-save-dialog {
+  width: min(460px, calc(100vw - 32px));
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.search-save-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.search-save-dialog h2 {
+  margin: 0;
+}
+
+.search-save-dialog label {
+  display: block;
+  margin-top: 14px;
+}
+
+.search-save-dialog input,
+.search-save-dialog select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 5px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.search-save-hint,
+.search-save-dialog > p {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.search-save-error {
+  color: var(--text-red, #c53636);
 }
 
 .search-results-subtitle {

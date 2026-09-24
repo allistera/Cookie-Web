@@ -1461,6 +1461,74 @@ test('/search renders mixed mail and document results from a direct URL', async 
   await expect(page.locator('.search-result-doc', { hasText: 'Floor plan notes' })).toBeVisible()
 })
 
+test('saved mail views persist, overlap, reorder, rename, delete, and open from commands', async ({
+  page,
+}) => {
+  await page.goto('/search?q=floor+plan&scope=mail')
+
+  await page.getByRole('button', { name: 'Save as view' }).click()
+  let dialog = page.getByRole('dialog', { name: 'Save mail view' })
+  await dialog.getByLabel('Name').fill('Plans')
+  await dialog.getByLabel('Folder').selectOption('inbox')
+  await dialog.getByRole('button', { name: 'Save view' }).click()
+  await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible()
+  await expect(page.getByText('Saved mail view · Inbox · Keyword search')).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+  await expect(page).toHaveURL(/scope=mail.*mode=keyword.*view=/)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible()
+  await expect(
+    page.getByRole('navigation', { name: 'Saved mail views' }).getByText('Plans'),
+  ).toBeVisible()
+
+  // The sidebar manager must not dismiss an open reader or pass modal keys
+  // through to the inbox's document-level archive shortcut.
+  await page.goto('/inbox')
+  await page.locator('.ni-row').first().click()
+  const reader = page.locator('.ni-reader')
+  await expect(reader).toBeVisible()
+  await page.getByRole('button', { name: 'Manage' }).click()
+  let manager = page.getByRole('dialog', { name: 'Manage saved views' })
+  await expect(manager).toBeVisible()
+  await expect(reader).toBeVisible()
+  await manager.getByRole('button', { name: 'Cancel' }).press('d')
+  await expect(reader).toBeVisible()
+  await manager.getByRole('button', { name: 'Cancel' }).press('Escape')
+  await expect(manager).toBeHidden()
+  await expect(reader).toBeVisible()
+
+  // A second definition can include the same message; no message is moved.
+  await page.goto('/search?q=floor+plan&scope=mail')
+  await page.getByRole('button', { name: 'Save as view' }).click()
+  dialog = page.getByRole('dialog', { name: 'Save mail view' })
+  await dialog.getByLabel('Name').fill('Client plans')
+  await dialog.getByRole('button', { name: 'Save view' }).click()
+  await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+
+  await page.locator('body').press('/')
+  await page
+    .getByRole('dialog', { name: 'Command palette' })
+    .getByText('Go to saved view Plans')
+    .click()
+  await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Manage' }).click()
+  manager = page.getByRole('dialog', { name: 'Manage saved views' })
+  const rows = manager.locator('.saved-views-editor li')
+  await rows.nth(0).getByLabel('View name').fill('Renamed plans')
+  await rows.nth(0).getByRole('button', { name: 'Down' }).click()
+  await expect(rows.nth(1).getByLabel('View name')).toHaveValue('Renamed plans')
+  await rows.nth(0).getByRole('button', { name: 'Delete' }).click()
+  await manager.getByRole('button', { name: 'Save changes' }).click()
+
+  const nav = page.getByRole('navigation', { name: 'Saved mail views' })
+  await expect(nav.getByText('Renamed plans')).toBeVisible()
+  await expect(nav.getByText('Client plans')).toHaveCount(0)
+  await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+})
+
 test('Clicking a mail result in search results opens it in the reader', async ({ page }) => {
   await page.goto('/search?q=floor+plan')
 

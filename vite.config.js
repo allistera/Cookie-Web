@@ -71,6 +71,7 @@ function localApiPlugin(mode) {
         taskLabels: [],
         drafts: [],
         composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
+        savedViews: { revision: 0, views: [] },
       })
     }
     return stubMailboxState.get(sessionId)
@@ -672,9 +673,66 @@ function localApiPlugin(mode) {
     const url = new URL(req.url, 'http://localhost')
     if (url.pathname === '/search') return handleSearch(req, res)
     if (url.pathname === '/ask') return handleAsk(req, res)
+    if (url.pathname === '/saved-views') return handleSavedViews(req, res)
     res.statusCode = 404
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ error: 'Not Found' }))
+  }
+  const handleSavedViews = async (req, res) => {
+    const state = fixtureMailboxState(req, res)
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.setHeader('Content-Type', 'application/json')
+    if (req.method === 'GET') {
+      res.end(JSON.stringify(state.savedViews))
+      return
+    }
+    if (req.method !== 'PUT') {
+      res.statusCode = 405
+      res.setHeader('Allow', 'GET, PUT')
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
+    let body
+    try {
+      body = await readBody(req)
+    } catch {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+      return
+    }
+    if (
+      !Number.isSafeInteger(body?.revision) ||
+      body.revision < 0 ||
+      !Array.isArray(body.views) ||
+      body.views.length > 30 ||
+      body.views.some(
+        (view) =>
+          !view?.id ||
+          !view?.name?.trim() ||
+          !view?.query?.trim() ||
+          !['all', 'inbox', 'sent', 'spam', 'snoozed', 'done'].includes(view.folder) ||
+          /\b(?:AND|OR|NOT)\b|\b(?:in|is):/i.test(view.query),
+      )
+    ) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid saved view' }))
+      return
+    }
+    if (body.revision !== state.savedViews.revision) {
+      res.statusCode = 409
+      res.end(
+        JSON.stringify({
+          error: 'Saved views changed in another session',
+          current: state.savedViews,
+        }),
+      )
+      return
+    }
+    state.savedViews = {
+      revision: body.revision + 1,
+      views: body.views.map(({ id, name, query, folder }) => ({ id, name, query, folder })),
+    }
+    res.end(JSON.stringify(state.savedViews))
   }
   // cookie-web-ai: /compose and /summarize. Fixture-only, like the other
   // migrated Workers — the real handlers live in Cookie-Worker now.

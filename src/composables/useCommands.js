@@ -13,6 +13,8 @@ import {
 } from '../stores/inbox'
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useDocumentsStore } from '../stores/documents'
+import { useSavedViewsStore } from '../stores/savedViews'
+import { savedViewRoute } from '../lib/savedViews'
 import { scheduleChoices } from '../utils/schedule'
 
 // Snooze presets offered as palette entries. Filtered against the live
@@ -27,6 +29,7 @@ export function useCommands() {
   const store = useInboxStore()
   const tasks = useTaskItemsStore()
   const documents = useDocumentsStore()
+  const savedViews = useSavedViewsStore()
   const router = useRouter()
   const route = useRoute()
   const { subscribedCalendars, loadCalendars, syncCalendar } = useCalendars(
@@ -291,6 +294,12 @@ export function useCommands() {
         icon: 'inbox',
         run: () => router.push('/inbox'),
       },
+      ...savedViews.views.map((view) => ({
+        id: `go-saved-view-${view.id}`,
+        title: `Go to saved view ${view.name}`,
+        icon: 'filter_alt',
+        run: () => router.push(savedViewRoute(view)),
+      })),
       {
         id: 'go-calendar',
         title: 'Go to Calendar',
