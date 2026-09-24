@@ -700,6 +700,73 @@ describe('SettingsView', () => {
     expect(editor.props('modelValue')).toBe('<p>Newer</p>')
   })
 
+  it('updates the created snippet after its body changes during the first save', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'snippets')
+    const normalFetch = fetch.getMockImplementation()
+    const pending = deferComposePut()
+    const name = wrapper.find('.snippet-editor-form > .label-input')
+    const editor = wrapper.findComponent(ComposerEditor)
+    await name.setValue('hello')
+    editor.vm.$emit('update:modelValue', '<p>First</p>')
+    await wrapper.find('.snippet-editor-form').trigger('submit')
+    await vi.waitFor(() => expect(pending.started()).toBe(true))
+
+    editor.vm.$emit('update:modelValue', '<p>Changed while saving</p>')
+    const createdId = pending.body().snippets[0].id
+    pending.finish({ ...pending.body(), revision: 1 })
+    await flushPromises()
+    fetch.mockImplementation(normalFetch)
+
+    expect(name.element.value).toBe('hello')
+    expect(editor.props('modelValue')).toBe('<p>Changed while saving</p>')
+    await wrapper.find('.snippet-editor-form').trigger('submit')
+    await vi.waitFor(() => expect(store.composePreferencesRevision).toBe(2))
+    expect(store.snippets).toEqual([
+      { id: createdId, name: 'hello', html: '<p>Changed while saving</p>' },
+    ])
+    expect(wrapper.find('.snippet-error').exists()).toBe(false)
+  })
+
+  it('does not assign a saved snippet ID to a newer AI draft', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'snippets')
+    const normalFetch = fetch.getMockImplementation()
+    fetch.mockImplementation((url, options) => {
+      if (url === `${AI_API_URL}/compose`)
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ snippet: { name: 'fresh', text: 'AI draft' } }),
+        })
+      return normalFetch(url, options)
+    })
+    const pending = deferComposePut()
+    const name = wrapper.find('.snippet-editor-form > .label-input')
+    await name.setValue('hello')
+    wrapper.findComponent(ComposerEditor).vm.$emit('update:modelValue', '<p>First</p>')
+    await wrapper.find('.snippet-editor-form').trigger('submit')
+    await vi.waitFor(() => expect(pending.started()).toBe(true))
+
+    await wrapper.find('.snippet-ai-row input').setValue('Draft something different')
+    await wrapper.find('.snippet-ai-row button').trigger('click')
+    await vi.waitFor(() => expect(name.element.value).toBe('fresh'))
+    const createdId = pending.body().snippets[0].id
+    pending.finish({ ...pending.body(), revision: 1 })
+    await flushPromises()
+    fetch.mockImplementation(normalFetch)
+
+    expect(wrapper.find('.snippet-editor-form button[type="submit"]').text()).toBe('Add snippet')
+    await wrapper.find('.snippet-editor-form').trigger('submit')
+    await vi.waitFor(() => expect(store.composePreferencesRevision).toBe(2))
+    expect(store.snippets).toHaveLength(2)
+    expect(store.snippets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: createdId, name: 'hello' }),
+        expect.objectContaining({ name: 'fresh' }),
+      ]),
+    )
+  })
+
   it('offers a reviewed import and clears only the selected old key after saving', async () => {
     localStorage.setItem('cookie-signature-html', '<p>Old signature</p>')
     localStorage.setItem(

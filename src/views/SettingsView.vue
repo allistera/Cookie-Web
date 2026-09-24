@@ -167,6 +167,7 @@ const legacyAvailable = computed(() =>
 const aiSnippetInstruction = ref('')
 const isGeneratingSnippet = ref(false)
 let snippetGenerationVersion = 0
+let snippetDraftSession = 0
 
 function refreshLegacyValues() {
   legacySignature.value = getLegacySignature()
@@ -281,6 +282,7 @@ function reviewImportAgain() {
 }
 
 function resetSnippetDraft() {
+  snippetDraftSession += 1
   snippetDraft.name = ''
   snippetDraft.html = ''
   editingSnippetId.value = null
@@ -288,6 +290,7 @@ function resetSnippetDraft() {
 }
 
 function editSnippet(snippet) {
+  snippetDraftSession += 1
   snippetDraft.name = snippet.name
   snippetDraft.html = snippet.html
   editingSnippetId.value = snippet.id
@@ -321,6 +324,7 @@ async function saveSnippet() {
     name: snippetDraft.name,
     html: snippetDraft.html,
     editingId: editingSnippetId.value,
+    session: snippetDraftSession,
   }
   const saved = await store.saveComposePreferences({
     snippets: [
@@ -328,7 +332,7 @@ async function saveSnippet() {
       { id, name, html: snippetDraft.html },
     ],
   })
-  if (ownerGeneration !== store.composeGeneration) return
+  if (ownerGeneration !== store.composeGeneration || draft.session !== snippetDraftSession) return
   if (saved) {
     snippetConflict.value = false
     snippetError.value = ''
@@ -336,8 +340,13 @@ async function saveSnippet() {
       snippetDraft.name === draft.name &&
       snippetDraft.html === draft.html &&
       editingSnippetId.value === draft.editingId
-    )
+    ) {
       resetSnippetDraft()
+    } else if (draft.editingId === null && editingSnippetId.value === null) {
+      // This is still the same new draft, but it changed during creation.
+      // The next save must update the created snippet rather than add a duplicate.
+      editingSnippetId.value = id
+    }
   } else {
     snippetError.value = store.composePreferencesError
     snippetConflict.value = store.composePreferencesConflict
@@ -381,6 +390,7 @@ async function generateSnippet() {
   if (ownerGeneration !== store.composeGeneration || version !== snippetGenerationVersion) return
   isGeneratingSnippet.value = false
   if (!snippet) return
+  snippetDraftSession += 1
   snippetDraft.name = snippet.name
   snippetDraft.html = plainTextToHtml(snippet.text)
   editingSnippetId.value = null
