@@ -356,7 +356,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(16)
+    expect(navItems).toHaveLength(17)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -365,6 +365,7 @@ describe('SettingsView', () => {
       'AI Today',
       'Signature',
       'Snippets',
+      'Out of office',
       'Labels',
       'Categories',
       'Rules',
@@ -401,6 +402,17 @@ describe('SettingsView', () => {
     expect(
       wrapper.findAll('.settings-nav-item').map((item) => item.find('span:last-child').text()),
     ).toEqual(['Rules'])
+  })
+
+  it('opens out-of-office settings from the Email group', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'out-of-office')
+    await flushPromises()
+
+    expect(wrapper.get('.settings-page-header').text()).toBe('Out of office')
+    expect(wrapper.get('[data-testid="out-of-office-settings"]').text()).toContain(
+      'Enable automatic replies',
+    )
   })
 
   it('opens calendar management from the Calendar settings group', async () => {
