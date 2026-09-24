@@ -7,6 +7,7 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 import { bundleBudgetPlugin } from './scripts/bundleBudget.mjs'
+import { outOfOfficeDefaults, outOfOfficeError, outOfOfficeStatus } from './src/lib/outOfOffice.js'
 
 // Mirrors the validation in cookie-web-tasks/src/taskItems.js so the /task-items
 // fixture rejects what the real Worker handler rejects. See cleanText/isUuid there.
@@ -72,6 +73,7 @@ function localApiPlugin(mode) {
         drafts: [],
         composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
         savedViews: { revision: 0, views: [] },
+        outOfOffice: outOfOfficeDefaults(),
       })
     }
     return stubMailboxState.get(sessionId)
@@ -88,13 +90,15 @@ function localApiPlugin(mode) {
     const isSpamRetention = segments.length === 2 && segments[1] === 'spam-retention'
     const isAutoArchive = segments.length === 2 && segments[1] === 'auto-archive'
     const isComposePreferences = segments.length === 2 && segments[1] === 'compose-preferences'
+    const isOutOfOffice = segments.length === 2 && segments[1] === 'out-of-office'
     if (
       segments[0] !== 'emails' ||
       (segments.length > 1 &&
         !isState &&
         !isSpamRetention &&
         !isAutoArchive &&
-        !isComposePreferences)
+        !isComposePreferences &&
+        !isOutOfOffice)
     ) {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
@@ -104,6 +108,51 @@ function localApiPlugin(mode) {
     const folder = url.searchParams.get('folder') || 'inbox'
     const labelName = (url.searchParams.get('label') || '').trim()
     const state = fixtureMailboxState(req, res)
+    if (isOutOfOffice) {
+      res.setHeader('Content-Type', 'application/json')
+      res.setHeader('Cache-Control', 'private, no-store')
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        if (body?.action === 'stop') {
+          state.outOfOffice = {
+            ...state.outOfOffice,
+            enabled: false,
+            activatedAt: null,
+            revision: state.outOfOffice.revision + 1,
+          }
+        } else {
+          const error = outOfOfficeError(body || {})
+          if (
+            error ||
+            ![true, false].includes(body.enabled) ||
+            !Number.isSafeInteger(body.revision)
+          ) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: error || 'Invalid settings.' }))
+            return
+          }
+          if (body.revision !== state.outOfOffice.revision) {
+            res.statusCode = 409
+            res.end(JSON.stringify({ current: state.outOfOffice }))
+            return
+          }
+          state.outOfOffice = {
+            ...body,
+            revision: body.revision + 1,
+            activatedAt: body.enabled ? new Date().toISOString() : null,
+            review: [],
+          }
+        }
+      } else if (req.method !== 'GET') {
+        res.statusCode = 405
+        res.end(JSON.stringify({ error: 'Method not allowed' }))
+        return
+      }
+      res.end(
+        JSON.stringify({ ...state.outOfOffice, status: outOfOfficeStatus(state.outOfOffice) }),
+      )
+      return
+    }
     if (isComposePreferences) {
       res.setHeader('Content-Type', 'application/json')
       res.setHeader('Cache-Control', 'private, no-store')

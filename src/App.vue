@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { useSearchStore } from './stores/search'
 import { useSavedViewsStore } from './stores/savedViews'
+import { useOutOfOfficeStore } from './stores/outOfOffice'
+import OutOfOfficeBanner from './components/OutOfOfficeBanner.vue'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
@@ -29,6 +31,7 @@ const SavedViewsSidebar = defineAsyncComponent(() => import('./components/SavedV
 const store = useInboxStore()
 const searchStore = useSearchStore()
 const savedViewsStore = useSavedViewsStore()
+const outOfOfficeStore = useOutOfOfficeStore()
 const contactInsightsStore = useContactInsightsStore()
 const route = useRoute()
 const router = useRouter()
@@ -287,11 +290,26 @@ watch(
     store.setComposeOwner(sub)
     if (savedViewsStore.ownerSub !== (sub || null)) searchStore.clear()
     savedViewsStore.setOwner(sub)
+    outOfOfficeStore.setOwner(sub)
     if (sub) store.loadComposePreferences()
     if (sub) savedViewsStore.load()
+    if (sub) outOfOfficeStore.load()
   },
   { immediate: true, flush: 'sync' },
 )
+
+// Pick up End now/settings changes made in another browser. The store ignores
+// late responses across account switches and older revisions after a save.
+let outOfOfficePoll
+const refreshOutOfOffice = () => outOfOfficeStore.load({ force: true })
+onMounted(() => {
+  outOfOfficePoll = setInterval(refreshOutOfOffice, 60_000)
+  window.addEventListener('focus', refreshOutOfOffice)
+})
+onUnmounted(() => {
+  clearInterval(outOfOfficePoll)
+  window.removeEventListener('focus', refreshOutOfOffice)
+})
 
 watch(
   isAuthenticated,
@@ -494,6 +512,8 @@ onUnmounted(() => {
           </div>
         </div>
       </header>
+
+      <OutOfOfficeBanner />
 
       <div class="app-body">
         <!-- LEFT SIDEBAR -->

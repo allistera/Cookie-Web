@@ -21,6 +21,7 @@ import ComposerEditor from '../components/ComposerEditor.vue'
 import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
 import DailyNoteSettings from '../components/DailyNoteSettings.vue'
 import AutoArchiveSettings from '../components/AutoArchiveSettings.vue'
+import OutOfOfficeSettings from '../components/OutOfOfficeSettings.vue'
 import AiTodaySettings from '../components/AiTodaySettings.vue'
 import CategorySettings from '../components/CategorySettings.vue'
 import TaskLabelSettings from '../components/TaskLabelSettings.vue'
@@ -803,6 +804,7 @@ function toggleRuleEnabled(rule) {
         </header>
 
         <div class="settings-pane">
+          <OutOfOfficeSettings v-if="activeSection === 'out-of-office'" />
           <div
             v-if="
               (activeSection === 'signature' || activeSection === 'snippets') &&

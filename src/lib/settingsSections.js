@@ -16,6 +16,7 @@ export const settingsSectionGroups = [
     sections: [
       { id: 'signature', label: 'Signature', icon: 'draw' },
       { id: 'snippets', label: 'Snippets', icon: 'bookmark' },
+      { id: 'out-of-office', label: 'Out of office', icon: 'event_busy' },
       { id: 'labels', label: 'Labels', icon: 'label' },
       { id: 'categories', label: 'Categories', icon: 'folder' },
       { id: 'rules', label: 'Rules', icon: 'rule' },
