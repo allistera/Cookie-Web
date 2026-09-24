@@ -5,6 +5,7 @@ import { useInboxStore } from './stores/inbox'
 import { useSearchStore } from './stores/search'
 import { useSavedViewsStore } from './stores/savedViews'
 import { useOutOfOfficeStore } from './stores/outOfOffice'
+import { useSendersStore } from './stores/senders'
 import OutOfOfficeBanner from './components/OutOfOfficeBanner.vue'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearCachedMail } from './lib/serviceWorker'
@@ -32,6 +33,7 @@ const store = useInboxStore()
 const searchStore = useSearchStore()
 const savedViewsStore = useSavedViewsStore()
 const outOfOfficeStore = useOutOfOfficeStore()
+const sendersStore = useSendersStore()
 const contactInsightsStore = useContactInsightsStore()
 const route = useRoute()
 const router = useRouter()
@@ -189,6 +191,7 @@ function handleLogout() {
   setCalendarsOwner(null)
   store.setComposeOwner(null)
   savedViewsStore.setOwner(null)
+  sendersStore.setOwner(null)
   searchStore.clear()
   clearCachedMail()
   logout({ logoutParams: { returnTo: window.location.origin } })
@@ -274,7 +277,16 @@ watch(searchInputVal, (value) => {
 
 // Mirrors TraditionalInboxView's own load: these folders fetch their own list
 // instead of the inbox page, so they still need the state call.
-const LIST_ONLY_FOLDERS = ['sent', 'spam', 'snoozed', 'done', 'starred', 'label']
+const LIST_ONLY_FOLDERS = [
+  'sent',
+  'spam',
+  'snoozed',
+  'done',
+  'starred',
+  'label',
+  'screening',
+  'blocked',
+]
 function landsOnInboxList() {
   return (
     route.name === 'traditional-inbox' && !LIST_ONLY_FOLDERS.includes(String(route.query.filter))
@@ -291,6 +303,7 @@ watch(
     if (savedViewsStore.ownerSub !== (sub || null)) searchStore.clear()
     savedViewsStore.setOwner(sub)
     outOfOfficeStore.setOwner(sub)
+    sendersStore.setOwner(sub)
     if (sub) store.loadComposePreferences()
     if (sub) savedViewsStore.load()
     if (sub) outOfOfficeStore.load()
@@ -548,6 +561,22 @@ onUnmounted(() => {
             >
               <span class="material-symbols-outlined">star</span>
               <span class="nav-text">Starred</span>
+            </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'screening' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'screening' }"
+            >
+              <span class="material-symbols-outlined">person</span
+              ><span class="nav-text">New senders</span>
+            </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'blocked' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'blocked' }"
+            >
+              <span class="material-symbols-outlined">visibility_off</span
+              ><span class="nav-text">Blocked</span>
             </router-link>
             <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
               <span class="material-symbols-outlined">{{

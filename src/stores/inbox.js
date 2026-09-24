@@ -216,6 +216,10 @@ function isSnoozedAt(scheduledFor) {
   return Boolean(scheduledFor) && new Date(scheduledFor) > new Date()
 }
 
+function isWithheld(email) {
+  return ['held', 'blocked'].includes(email?.screeningStatus)
+}
+
 function syncFolderMembership(list, email, belongs) {
   const index = list.findIndex((item) => item.id === email.id)
   if (belongs) {
@@ -374,6 +378,22 @@ function lateDraftIdFor(chain, session, surface) {
 // has its own loader: it additionally tracks the unread count, userId, and
 // search interplay. Folders without consumers of a "loaded" flag omit it.
 const FOLDER_STATE = {
+  screening: {
+    list: 'screeningEmails',
+    cursor: 'screeningCursor',
+    hasMore: 'hasMoreScreening',
+    loaded: 'isScreeningLoaded',
+    refreshing: 'isScreeningRefreshing',
+    label: 'new senders',
+  },
+  blocked: {
+    list: 'blockedEmails',
+    cursor: 'blockedCursor',
+    hasMore: 'hasMoreBlocked',
+    loaded: 'isBlockedLoaded',
+    refreshing: 'isBlockedRefreshing',
+    label: 'blocked mail',
+  },
   sent: {
     list: 'sentEmails',
     cursor: 'sentCursor',
@@ -434,6 +454,7 @@ export function mapEmailRow(message) {
     id: message.id,
     sender: message.from_name || message.from_address,
     address: message.from_address,
+    screeningStatus: message.screening_status ?? 'allowed',
     // Outbound rows render "To: <recipient>" instead of the sender.
     isSent: Boolean(message.is_sent),
     to: firstRecipient ? firstRecipient.name || firstRecipient.address : null,
@@ -537,6 +558,17 @@ export const useInboxStore = defineStore('inbox', {
     isSentLoaded: false,
     isSentRefreshing: false,
     spamEmails: [],
+    screeningEmails: [],
+    screeningCursor: null,
+    hasMoreScreening: false,
+    isScreeningLoaded: false,
+    isScreeningRefreshing: false,
+    blockedEmails: [],
+    blockedCursor: null,
+    hasMoreBlocked: false,
+    isBlockedLoaded: false,
+    isBlockedRefreshing: false,
+    senderQueueGeneration: 0,
     spamCursor: null,
     hasMoreSpam: false,
     // Gates setSpam's move into the Spam list: nothing to insert into until
@@ -787,6 +819,8 @@ export const useInboxStore = defineStore('inbox', {
         state.labelEmails.find((e) => e.id === id) ??
         state.sentEmails.find((e) => e.id === id) ??
         state.spamEmails.find((e) => e.id === id) ??
+        state.screeningEmails.find((e) => e.id === id) ??
+        state.blockedEmails.find((e) => e.id === id) ??
         state.snoozedEmails.find((e) => e.id === id) ??
         state.doneEmails.find((e) => e.id === id) ??
         null
@@ -842,6 +876,7 @@ export const useInboxStore = defineStore('inbox', {
       return Boolean(state.openEmailId && state.messageBodies.has(state.openEmailId))
     },
     openEmailSummary(state) {
+      if (isWithheld(this.openEmail)) return null
       const body = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return body?.threadId ? (state.threadSummaries.get(body.threadId) ?? null) : null
     },
@@ -852,6 +887,7 @@ export const useInboxStore = defineStore('inbox', {
     // included) — empty until the body fetch lands, or when the message is
     // its thread's only one. Drives the reader's threaded view.
     openEmailConversation(state) {
+      if (isWithheld(this.openEmail)) return []
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       const thread = cached?.thread ?? []
       return thread.length > 1 ? thread : []
@@ -1000,6 +1036,8 @@ export const useInboxStore = defineStore('inbox', {
       return Promise.all([
         this.isInboxLoaded ? this.refreshInboxEmails() : this.loadInboxState({ force: true }),
         this.loadDrafts({ silent: true }),
+        this.isScreeningLoaded ? this.loadFolder('screening') : Promise.resolve(),
+        this.isBlockedLoaded ? this.loadFolder('blocked') : Promise.resolve(),
       ])
     },
 
@@ -1041,6 +1079,8 @@ export const useInboxStore = defineStore('inbox', {
     // potentially rendering label A's emails under label B's header.
     async loadFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
+      const generation = this.composeGeneration
+      const queueGeneration = this.senderQueueGeneration
       const seq = folder === 'label' ? ++this.labelSeq : null
       this[keys.refreshing] = true
       try {
@@ -1049,6 +1089,8 @@ export const useInboxStore = defineStore('inbox', {
           ...extra,
         })
         if (seq !== null && seq !== this.labelSeq) return
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return
         this[keys.list] = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(this[keys.list])
@@ -1066,10 +1108,17 @@ export const useInboxStore = defineStore('inbox', {
         }
       } catch (error) {
         if (seq !== null && seq !== this.labelSeq) return
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return
         console.error(`Failed to load ${keys.label}:`, error)
         this.notify(`Failed to load ${keys.label}.`, 'error')
       } finally {
-        if (seq === null || seq === this.labelSeq) this[keys.refreshing] = false
+        if (
+          generation === this.composeGeneration &&
+          queueGeneration === this.senderQueueGeneration &&
+          (seq === null || seq === this.labelSeq)
+        )
+          this[keys.refreshing] = false
       }
     },
 
@@ -1079,6 +1128,8 @@ export const useInboxStore = defineStore('inbox', {
     // label can't land in the new label's list.
     async loadMoreFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
+      const generation = this.composeGeneration
+      const queueGeneration = this.senderQueueGeneration
       if (!this[keys.cursor] || this[keys.refreshing]) return
       const expectedLabel = folder === 'label' ? this.labelFolderName : null
       this[keys.refreshing] = true
@@ -1089,6 +1140,8 @@ export const useInboxStore = defineStore('inbox', {
           ...extra,
         })
         if (expectedLabel !== null && this.labelFolderName !== expectedLabel) return
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return
         const nextEmails = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(nextEmails)
@@ -1097,11 +1150,33 @@ export const useInboxStore = defineStore('inbox', {
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
       } catch (error) {
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return
         console.error(`Failed to load more ${keys.label}:`, error)
         this.notify(`Failed to load more ${keys.label}.`, 'error')
       } finally {
-        this[keys.refreshing] = false
+        if (generation === this.composeGeneration && queueGeneration === this.senderQueueGeneration)
+          this[keys.refreshing] = false
       }
+    },
+
+    async refreshSenderMail() {
+      this.senderQueueGeneration++
+      this.listSeq++
+      this.openEmailId = null
+      this.messageBodies.clear()
+      this.threadSummaries.clear()
+      pendingBodyFetches.clear()
+      await Promise.all([
+        this.refreshInbox(),
+        ...['spam', 'snoozed', 'starred', 'label']
+          .filter((folder) => this[FOLDER_STATE[folder].loaded])
+          .map((folder) =>
+            this.loadFolder(folder, folder === 'label' ? { label: this.labelFolderName } : {}),
+          ),
+        this.doneEmails.length ? this.loadDonePage(0) : Promise.resolve(),
+        this.activeSearchQuery ? this.searchEmails(this.activeSearchQuery) : Promise.resolve(),
+      ])
     },
 
     loadSentEmails() {
@@ -1484,7 +1559,7 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
         const { labels } = await response.json()
         email.labels = labels
-        if (this.isLabelLoaded && this.labelFolderName === label.name) {
+        if (!isWithheld(email) && this.isLabelLoaded && this.labelFolderName === label.name) {
           syncFolderMembership(
             this.labelEmails,
             email,
@@ -1857,13 +1932,15 @@ export const useInboxStore = defineStore('inbox', {
       const pending = pendingBodyFetches.get(id)
       if (pending) return pending
       const request = this.fetchMessageBodyUncached(id).finally(() => {
-        pendingBodyFetches.delete(id)
+        if (pendingBodyFetches.get(id) === request) pendingBodyFetches.delete(id)
       })
       pendingBodyFetches.set(id, request)
       return request
     },
 
     async fetchMessageBodyUncached(id) {
+      const generation = this.composeGeneration
+      const queueGeneration = this.senderQueueGeneration
       // Only flag loading when there is nothing to show yet — cache hits
       // return early in fetchMessageBody so reopening a message never spins,
       // and a refetch over a cached body keeps painting that body meanwhile.
@@ -1871,6 +1948,8 @@ export const useInboxStore = defineStore('inbox', {
       const completeTiming = startTiming('message-body')
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return null
         const response = await fetch(
           `${MESSAGES_API_URL}/messages?id=${encodeURIComponent(id)}&calendar=deferred`,
           {
@@ -1881,6 +1960,10 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/messages responded ${response.status}`)
         }
         const payload = await response.json()
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return null
+        const email = this.emailById(id)
+        if (email && payload.screening_status) email.screeningStatus = payload.screening_status
         const {
           body_html,
           body_text,
@@ -1930,13 +2013,20 @@ export const useInboxStore = defineStore('inbox', {
         }
         return body
       } catch (error) {
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
+          return null
         console.error('Failed to load message body:', error)
         return null
       } finally {
         completeTiming()
         // Always clear, whether the fetch succeeded or failed, but only if this
         // call is still the one in flight (a newer open may have superseded it).
-        if (this.bodyLoadingId === id) this.bodyLoadingId = null
+        if (
+          generation === this.composeGeneration &&
+          queueGeneration === this.senderQueueGeneration &&
+          this.bodyLoadingId === id
+        )
+          this.bodyLoadingId = null
       }
     },
 
@@ -2013,7 +2103,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async ensureThreadSummary(email) {
-      if (!email?.id) return null
+      if (!email?.id || isWithheld(email)) return null
       const body = this.messageBodies.get(email.id)
       if (!body?.threadId || !body.threadLatestMessageId) return null
       if (!Array.isArray(body.thread) || body.thread.length < 2) return null
@@ -2022,7 +2112,9 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async summarizeEmail(email) {
-      if (!email || this.summaryLoadingId) return null
+      if (!email || this.summaryLoadingId || isWithheld(email)) return null
+      const generation = this.composeGeneration
+      const queueGeneration = this.senderQueueGeneration
       const id = email.id
       const body = this.messageBodies.get(id)
       if (!body?.threadId || !body.threadLatestMessageId) return null
@@ -2030,6 +2122,11 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         for (let attempt = 0; attempt < 2; attempt += 1) {
+          if (
+            generation !== this.composeGeneration ||
+            queueGeneration !== this.senderQueueGeneration
+          )
+            return null
           const response = await fetch(`${AI_API_URL}/summarize`, {
             method: 'POST',
             headers,
@@ -2044,6 +2141,11 @@ export const useInboxStore = defineStore('inbox', {
             throw new Error(`POST /summarize responded ${response.status}`)
           }
           const { summary, threadId, latestMessageId } = await response.json()
+          if (
+            generation !== this.composeGeneration ||
+            queueGeneration !== this.senderQueueGeneration
+          )
+            return null
           const normalized = String(summary ?? '')
             .replace(/\s+/g, ' ')
             .trim()
@@ -2164,14 +2266,16 @@ export const useInboxStore = defineStore('inbox', {
     toggleStar(email) {
       const nextStarred = !email.starred
       email.starred = nextStarred
-      if (this.isStarredLoaded) syncFolderMembership(this.starredEmails, email, nextStarred)
+      if (this.isStarredLoaded && !isWithheld(email))
+        syncFolderMembership(this.starredEmails, email, nextStarred)
       serializePerMessage(pendingStarUpdates, email.id, () =>
         this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
           console.error('Failed to update starred state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
           if (email.starred === nextStarred) {
             email.starred = !nextStarred
-            if (this.isStarredLoaded) syncFolderMembership(this.starredEmails, email, !nextStarred)
+            if (this.isStarredLoaded && !isWithheld(email))
+              syncFolderMembership(this.starredEmails, email, !nextStarred)
           }
           this.notify('Failed to update starred state.', 'error')
         }),
@@ -2189,7 +2293,7 @@ export const useInboxStore = defineStore('inbox', {
       const wasUnreadInbox = inboxIndex > -1 && email.unread
       // Spam never shows in Snoozed, so only non-spam moves the count.
       const snoozedDelta =
-        email.isSpam || email.isArchived
+        email.isSpam || email.isArchived || isWithheld(email)
           ? 0
           : Number(isSnoozedAt(scheduledFor)) - Number(isSnoozedAt(previousScheduledFor))
       let applied = false
@@ -2205,7 +2309,12 @@ export const useInboxStore = defineStore('inbox', {
         }
         if (this.openEmailId === email.id) this.openEmailId = null
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
-        if (this.isSnoozedLoaded && snoozedIndex === -1 && !this.snoozedEmails.includes(email)) {
+        if (
+          !isWithheld(email) &&
+          this.isSnoozedLoaded &&
+          snoozedIndex === -1 &&
+          !this.snoozedEmails.includes(email)
+        ) {
           this.snoozedEmails.unshift(email)
         }
       }
@@ -2261,9 +2370,11 @@ export const useInboxStore = defineStore('inbox', {
       // Starred and label lists include Done, where Done again is a no-op
       // for the Spam and Snoozed folders (both exclude archived mail).
       const wasArchived = Boolean(email.isArchived)
-      const leavesSpam = Boolean(email.isSpam) && !wasArchived
-      const leavesSnoozed = !email.isSpam && isSnoozedAt(email.scheduledFor) && !wasArchived
+      const leavesSpam = Boolean(email.isSpam) && !wasArchived && !isWithheld(email)
+      const leavesSnoozed =
+        !email.isSpam && isSnoozedAt(email.scheduledFor) && !wasArchived && !isWithheld(email)
       const addToDone =
+        !isWithheld(email) &&
         this.isDoneLoaded &&
         this.donePageIndex === 0 &&
         !this.doneEmails.some((item) => item.id === email.id)
@@ -2328,7 +2439,7 @@ export const useInboxStore = defineStore('inbox', {
       // email should leave. Archived mail is outside both Spam and Snoozed,
       // so its verdict changes no folder count.
       const searching = Boolean(this.activeSearchQuery)
-      const live = !email.isArchived
+      const live = !email.isArchived && !isWithheld(email)
       const leaving = spam
         ? searching
           ? [this.snoozedEmails]
@@ -2417,11 +2528,13 @@ export const useInboxStore = defineStore('inbox', {
         this.spamEmails,
         this.doneEmails,
         this.sentEmails,
+        this.screeningEmails,
+        this.blockedEmails,
       ])
       const wasUnreadInbox = positions[0].index > -1 && email.unread
       // Done hides spam and snoozed mail too, so only a live row lowers
       // either count.
-      const live = !email.isArchived
+      const live = !email.isArchived && !isWithheld(email)
       const leavesSpam = Boolean(email.isSpam) && live
       const leavesSnoozed = !email.isSpam && isSnoozedAt(email.scheduledFor) && live
       let applied = false
@@ -2576,6 +2689,18 @@ export const useInboxStore = defineStore('inbox', {
       if (this.composeOwnerSub === owner) return
       this.composeGeneration += 1
       this.composeOwnerSub = owner
+      this.senderQueueGeneration++
+      this.screeningEmails = []
+      this.blockedEmails = []
+      this.screeningCursor = this.blockedCursor = null
+      this.hasMoreScreening = this.hasMoreBlocked = false
+      this.isScreeningLoaded = this.isBlockedLoaded = false
+      this.isScreeningRefreshing = this.isBlockedRefreshing = false
+      this.openEmailId = null
+      this.bodyLoadingId = null
+      this.messageBodies.clear()
+      this.threadSummaries.clear()
+      pendingBodyFetches.clear()
       this.signatureHtml = ''
       this.snippets = []
       this.composePreferencesRevision = 0

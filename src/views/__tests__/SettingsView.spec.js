@@ -356,7 +356,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(17)
+    expect(navItems).toHaveLength(18)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -366,6 +366,7 @@ describe('SettingsView', () => {
       'Signature',
       'Snippets',
       'Out of office',
+      'Senders and screening',
       'Labels',
       'Categories',
       'Rules',
@@ -425,6 +426,17 @@ describe('SettingsView', () => {
     expect(wrapper.get('#your-calendars-heading').text()).toBe('Your calendars')
     expect(wrapper.text()).toContain('Work')
     expect(wrapper.text()).toContain('Subscriptions')
+  })
+
+  it('opens sender screening with its off-default trust explanation', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'senders')
+    await flushPromises()
+    expect(wrapper.get('.settings-page-header').text()).toBe('Senders and screening')
+    expect(wrapper.get('.sender-settings').text()).toContain(
+      'Only addresses you explicitly Accept are known senders',
+    )
+    expect(wrapper.get('.sender-settings input[type="checkbox"]').element.checked).toBe(false)
   })
 
   it('opens document template management from the Documents settings group', async () => {

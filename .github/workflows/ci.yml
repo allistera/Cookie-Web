@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'cookie-feature/**']
   pull_request:
     branches: [main]
 
@@ -13,6 +13,22 @@ jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
+    services:
+      screening-postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: screening-test-only
+          POSTGRES_DB: cookie_screening_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SCREENING_TEST_DATABASE_URL: postgres://postgres:screening-test-only@127.0.0.1:5432/cookie_screening_test
 
     steps:
       - name: Checkout repository

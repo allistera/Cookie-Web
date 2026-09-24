@@ -18,6 +18,7 @@ import EmailRow from '../components/EmailRow.vue'
 import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
+import SenderControls from '../components/SenderControls.vue'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
@@ -41,6 +42,8 @@ const threadMutePending = computed(() => store.mutingThreadIds.has(threadMuteBod
 // server-backed lists loaded lazily when opened. The inbox still hides
 // starred rows client-side so starring moves mail out of Inbox immediately.
 const FILTER_META = {
+  screening: { title: 'New senders', icon: 'person', emptyText: 'No senders awaiting review.' },
+  blocked: { title: 'Blocked', icon: 'visibility_off', emptyText: 'No blocked mail.' },
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
   snoozed: { title: 'Snoozed', icon: 'schedule', emptyText: 'No snoozed emails yet.' },
   sent: { title: 'Sent', icon: 'send', emptyText: 'No sent emails yet.' },
@@ -62,8 +65,11 @@ watch(
     if (filter === 'done') store.loadDonePage(0)
     if (filter === 'starred') store.loadStarredEmails()
     if (filter === 'label') store.loadLabelEmails(label)
+    if (filter === 'screening' || filter === 'blocked') store.loadFolder(filter)
     if (
-      !['sent', 'spam', 'snoozed', 'done', 'starred', 'label'].includes(filter) &&
+      !['sent', 'spam', 'snoozed', 'done', 'starred', 'label', 'screening', 'blocked'].includes(
+        filter,
+      ) &&
       !store.isInboxLoaded &&
       store.traditionalEmails.length === 0
     ) {
@@ -157,6 +163,10 @@ const activeTab = computed(() => {
 
 const filteredEmails = computed(() => {
   switch (activeFilter.value) {
+    case 'screening':
+      return store.screeningEmails
+    case 'blocked':
+      return store.blockedEmails
     case 'starred':
       return store.starredEmails
     case 'label':
@@ -212,6 +222,8 @@ const showTabEmpty = computed(
 
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
+  if (activeFilter.value === 'screening') return store.hasMoreScreening
+  if (activeFilter.value === 'blocked') return store.hasMoreBlocked
   if (activeFilter.value === 'sent') return store.hasMoreSent
   if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
@@ -227,6 +239,8 @@ const showDonePager = computed(
 )
 
 const isLoadingMore = computed(() => {
+  if (activeFilter.value === 'screening') return store.isScreeningRefreshing
+  if (activeFilter.value === 'blocked') return store.isBlockedRefreshing
   if (activeFilter.value === 'sent') return store.isSentRefreshing
   if (activeFilter.value === 'spam') return store.isSpamRefreshing
   if (activeFilter.value === 'snoozed') return store.isSnoozedRefreshing
@@ -237,7 +251,9 @@ const isLoadingMore = computed(() => {
 })
 
 function loadMore() {
-  if (activeFilter.value === 'sent') store.loadMoreSentEmails()
+  if (activeFilter.value === 'screening' || activeFilter.value === 'blocked')
+    store.loadMoreFolder(activeFilter.value)
+  else if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
   else if (activeFilter.value === 'snoozed') store.loadMoreSnoozedEmails()
   else if (activeFilter.value === 'starred') store.loadMoreStarredEmails()
@@ -1970,6 +1986,13 @@ onUnmounted(() => {
           <span class="ni-reader-subject-text">{{ openEmail.subject }}</span>
         </h2>
 
+        <SenderControls
+          v-if="!openEmail.isSent"
+          :key="openEmail.id"
+          :email="openEmail"
+          @changed="store.refreshSenderMail()"
+        />
+
         <div
           v-if="isSummarizing || openEmailSummary"
           class="ni-thread-summary"
@@ -2099,7 +2122,10 @@ onUnmounted(() => {
                 :has-html-body="openEmail.hasHtml"
                 :loading="store.isOpenBodyLoading"
                 :body-resolved="store.isOpenBodyResolved"
-                :show-images="isImportantEmail(openEmail)"
+                :show-images="
+                  !['held', 'blocked'].includes(openEmail.screeningStatus) &&
+                  isImportantEmail(openEmail)
+                "
                 @keydown="forwardEmailKeydown"
                 @unsubscribe-link="setContentUnsubscribe"
               />
