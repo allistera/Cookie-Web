@@ -10,6 +10,11 @@ import {
   currentRecipientToken,
   recipientsValid,
 } from '../lib/recipients'
+import {
+  snippetRecipientValues,
+  unresolvedSnippetFields,
+  unresolvedSnippetWarning,
+} from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
 import ComposerEditor from './ComposerEditor.vue'
 import ScheduleMenu from './ScheduleMenu.vue'
@@ -33,6 +38,10 @@ const contactSuggestions = computed(() => {
 })
 
 const composerToValid = computed(() => recipientsValid(store.composerTo))
+const recipientValues = computed(() => snippetRecipientValues(store.composerTo, store.contacts))
+const unresolvedFields = computed(() =>
+  unresolvedSnippetFields(store.composerHtml, store.composerTextArea),
+)
 // An upload still in flight has no attachment id yet, so sending now would
 // quietly drop the file the user is watching upload.
 const isSendDisabled = computed(
@@ -324,6 +333,7 @@ onUnmounted(() => {
           ref="composerBodyRef"
           v-model="store.composerHtml"
           :snippets="store.snippets"
+          :recipient-values="recipientValues"
           @update:text="store.composerTextArea = $event"
           @generate="store.openAiDraft()"
           @focus-prev="composerToRef?.focus()"
@@ -364,6 +374,9 @@ onUnmounted(() => {
         </div>
       </aside>
     </div>
+    <p v-if="unresolvedFields.length" class="snippet-unresolved-warning" role="alert">
+      {{ unresolvedSnippetWarning(unresolvedFields) }}
+    </p>
     <div class="composer-footer">
       <div v-if="aiPromptOpen" class="composer-ai-inline">
         <span class="material-symbols-outlined gemini-color" aria-hidden="true">auto_fix_high</span>

@@ -1363,6 +1363,24 @@ describe('TraditionalInboxView reply send button', () => {
     )
   })
 
+  it('warns about an unresolved snippet in an inline reply and sends after completion', async () => {
+    const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    const sendButton = await openReplyBox()
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>Hi {{fill:topic}}</p>'
+    await editor.trigger('input')
+
+    expect(wrapper.get('.ni-reply-box [role="alert"]').text()).toContain('topic')
+    await sendButton.trigger('click')
+    expect(send).not.toHaveBeenCalled()
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+
+    editor.element.innerHTML = '<p>Hi about the launch</p>'
+    await editor.trigger('input')
+    await sendButton.trigger('click')
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
   function seedGroupEmail() {
     store.traditionalEmails = [
       {

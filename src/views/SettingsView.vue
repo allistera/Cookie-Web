@@ -971,6 +971,13 @@ function toggleRuleEnabled(rule) {
               Reusable templates synced with your account. In a new email, type a trigger such as
               “/hello-world” and choose it from the menu.
             </p>
+            <p class="settings-section-hint">
+              Add <code>&#123;&#123;recipient.first_name&#125;&#125;</code>,
+              <code>&#123;&#123;recipient.name&#125;&#125;</code>, or
+              <code>&#123;&#123;recipient.email&#125;&#125;</code>, and editable fields such as
+              <code>&#123;&#123;fill:meeting time&#125;&#125;</code>. Cookie previews these before
+              insertion. Fill or remove missing fields before sending.
+            </p>
             <p v-if="!store.composePreferencesLoaded" role="status">
               {{
                 store.composePreferencesLoading

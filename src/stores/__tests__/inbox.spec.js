@@ -2121,6 +2121,38 @@ describe('Inbox Store', () => {
       expect(store.isComposerActive).toBe(false)
     })
 
+    it('keeps an unresolved snippet in the composer instead of queuing a send', () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = true
+      store.composerHtml = '<p>Hi {{recipient.first_name}}, {{fill:topic}}</p>'
+
+      store.sendEmail()
+
+      expect(store.pendingSend).toBeNull()
+      expect(store.isComposerActive).toBe(true)
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.toasts.at(-1)?.message).toContain('Recipient first name, topic')
+      store.composerHtml = '<p>Hi Ada, the launch</p>'
+      store.sendEmail()
+      expect(store.pendingSend).not.toBeNull()
+    })
+
+    it('refuses to schedule a draft with unresolved snippet fields', async () => {
+      const fetchMock = stubSendOk()
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = true
+      store.composerHtml = '<p>{{fill:deadline}}</p>'
+
+      expect(await store.sendEmailLater('2026-10-01T09:00:00Z', 'October 1')).toBe(false)
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerHtml).toContain('{{fill:deadline}}')
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(store.toasts.at(-1)?.message).toContain('deadline')
+    })
+
     it('sends once the countdown reaches zero', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()

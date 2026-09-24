@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 
 import { escapeHtml } from '../lib/composeHtml'
 import { convertEmojiToEmoticons } from '../lib/emoticons'
 import { filterSlashCommands } from '../lib/slashCommands'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { getSlashSnippetCommands } from '../lib/snippets'
+import { renderSnippetPreview, snippetFields } from '../lib/snippetVariables'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -13,10 +14,21 @@ const props = defineProps({
   // Hides the AI "Generate Message" slash command (e.g. in the signature editor).
   hideGenerate: { type: Boolean, default: false },
   snippets: { type: Array, default: () => [] },
+  recipientValues: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['update:modelValue', 'update:text', 'generate', 'focusPrev'])
 
 const editorRef = ref(null)
+const previewSnippet = ref(null)
+const previewValues = ref({})
+const previewFirstInputRef = ref(null)
+let previewSelection = null
+const previewFields = computed(() => snippetFields(previewSnippet.value?.html))
+const previewResult = computed(() =>
+  previewSnippet.value
+    ? renderSnippetPreview(previewSnippet.value.html, previewValues.value)
+    : { html: '', unresolved: [] },
+)
 
 // --- Slash menu state ---
 const menuOpen = ref(false)
@@ -281,10 +293,44 @@ function onCodeBlockEnter(event) {
 }
 
 function selectCommand(command) {
+  if (command.type === 'snippet' && snippetFields(command.html).length) {
+    previewSelection = window.getSelection()?.rangeCount
+      ? window.getSelection().getRangeAt(0).cloneRange()
+      : null
+    previewValues.value = { ...props.recipientValues }
+    previewSnippet.value = command
+    menuOpen.value = false
+    nextTick(() => previewFirstInputRef.value?.focus())
+    return
+  }
   editorRef.value.focus()
   removeSlashText()
   applyCommand(command)
   menuOpen.value = false
+  emitUpdate()
+}
+
+function restorePreviewSelection() {
+  editorRef.value?.focus()
+  if (!previewSelection) return
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(previewSelection)
+  previewSelection = null
+}
+
+function cancelSnippetPreview() {
+  previewSnippet.value = null
+  restorePreviewSelection()
+}
+
+function confirmSnippetPreview() {
+  if (!previewSnippet.value) return
+  const html = previewResult.value.html
+  previewSnippet.value = null
+  restorePreviewSelection()
+  removeSlashText()
+  insertSnippet(html)
   emitUpdate()
 }
 
@@ -453,4 +499,50 @@ defineExpose({ focus: () => editorRef.value?.focus(), insertText, replaceContent
       </div>
     </div>
   </div>
+  <Teleport to="body">
+    <div
+      v-if="previewSnippet"
+      class="snippet-preview-backdrop"
+      role="presentation"
+      @keydown.esc.prevent.stop="cancelSnippetPreview"
+    >
+      <form
+        class="snippet-preview-dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="`Preview /${previewSnippet.name}`"
+        @submit.prevent="confirmSnippetPreview"
+      >
+        <h3>Preview /{{ previewSnippet.name }}</h3>
+        <p>Check the personalised text and fill any missing fields before inserting.</p>
+        <div class="snippet-preview-fields">
+          <label v-for="(field, index) in previewFields" :key="field.key">
+            <span>{{ field.label }}</span>
+            <input
+              :ref="
+                (el) => {
+                  if (index === 0) previewFirstInputRef = el
+                }
+              "
+              v-model="previewValues[field.key]"
+              type="text"
+              :placeholder="field.token"
+              :aria-invalid="!String(previewValues[field.key] ?? '').trim()"
+            />
+          </label>
+        </div>
+        <p v-if="previewResult.unresolved.length" class="snippet-preview-warning" role="alert">
+          Missing: {{ previewResult.unresolved.map((field) => field.label).join(', ') }}. You can
+          insert now and complete these before sending.
+        </p>
+        <div class="snippet-preview-content" v-html="previewResult.html" />
+        <div class="snippet-preview-actions">
+          <button type="button" class="btn btn-secondary" @click="cancelSnippetPreview">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary">Insert snippet</button>
+        </div>
+      </form>
+    </div>
+  </Teleport>
 </template>

@@ -21,6 +21,11 @@ import { attachmentIcon, formatFileSize } from '../lib/attachments'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml } from '../lib/composeHtml'
+import {
+  snippetRecipientValues,
+  unresolvedSnippetFields,
+  unresolvedSnippetWarning,
+} from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 
@@ -777,6 +782,12 @@ const replyTo = computed(
   () =>
     savedReplyTo.value ?? replyRecipients.value.map((recipient) => recipient.address).join(', '),
 )
+const replyRecipientValues = computed(() =>
+  snippetRecipientValues(replyTo.value, replyRecipients.value),
+)
+const unresolvedReplyFields = computed(() =>
+  unresolvedSnippetFields(replyHtml.value, replyTextPlain.value),
+)
 const replySubject = computed(() => {
   if (savedReplySubject.value !== null) return savedReplySubject.value
   const subject = openEmail.value?.subject || ''
@@ -1260,6 +1271,10 @@ watch(
 
 async function sendReply() {
   if (isSendingReply.value || isGeneratingReply.value) return
+  if (unresolvedReplyFields.value.length) {
+    store.notify(unresolvedSnippetWarning(unresolvedReplyFields.value), 'error')
+    return
+  }
   const email = openEmail.value
   // Taken before the request so a queued autosave cannot re-create the row
   // while the mail is in flight; deleted only once the send succeeds.
@@ -2120,9 +2135,13 @@ onUnmounted(() => {
               v-model="replyHtml"
               placeholder="Write your reply, or type “/” for commands…"
               :snippets="store.snippets"
+              :recipient-values="replyRecipientValues"
               @update:text="replyTextPlain = $event"
               @generate="generateReplyDraft"
             />
+            <p v-if="unresolvedReplyFields.length" class="snippet-unresolved-warning" role="alert">
+              {{ unresolvedSnippetWarning(unresolvedReplyFields) }}
+            </p>
             <div
               v-if="replyAttachments.length"
               class="composer-attachments"

@@ -54,6 +54,24 @@ describe('ComposerEditor snippets', () => {
     expect(editor.html()).not.toContain('/hello-world')
   })
 
+  it('inserts an older snippet with unrelated braces without opening a preview', async () => {
+    const wrapper = mount(ComposerEditor, {
+      attachTo: document.body,
+      props: { snippets: [{ id: 'old', name: 'old', html: '<p>Use {date} and {{other}}</p>' }] },
+    })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = '/old'
+    editor.element.focus()
+    setCaret(editor.element.firstChild, '/old'.length)
+
+    await editor.trigger('input')
+    await editor.trigger('keydown', { key: 'Enter' })
+
+    expect(editor.html()).toContain('<p>Use {date} and {{other}}</p>')
+    expect(document.querySelector('.snippet-preview-dialog')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('recognizes a trigger immediately after regular text', async () => {
     const wrapper = mount(ComposerEditor, {
       attachTo: document.body,
@@ -69,6 +87,48 @@ describe('ComposerEditor snippets', () => {
     expect(wrapper.find('.composer-slash-menu').text()).toContain('hello-world')
     await editor.trigger('keydown', { key: 'Enter' })
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toContain('Thanks,<p>Hello world</p>')
+  })
+
+  it('previews recipient variables, fills a missing field, and restores the insertion caret', async () => {
+    const wrapper = mount(ComposerEditor, {
+      attachTo: document.body,
+      props: {
+        recipientValues: { 'recipient.first_name': 'Ada' },
+        snippets: [
+          {
+            id: 'intro',
+            name: 'intro',
+            html: '<p>Hi {{recipient.first_name}}, {{fill:topic}}</p>',
+          },
+        ],
+      },
+    })
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = 'Before /intro after'
+    editor.element.focus()
+    setCaret(editor.element.firstChild, 'Before /intro'.length)
+
+    await editor.trigger('input')
+    await editor.trigger('keydown', { key: 'Enter' })
+
+    const dialog = document.querySelector('.snippet-preview-dialog')
+    expect(dialog.textContent).toContain('Hi Ada, {{fill:topic}}')
+    expect(dialog.textContent).toContain('Missing: topic')
+    expect(editor.text()).toContain('/intro')
+
+    const inputs = dialog.querySelectorAll('input')
+    expect(inputs[0].value).toBe('Ada')
+    inputs[1].value = 'release <plan>'
+    inputs[1].dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(dialog.textContent).not.toContain('Missing: topic')
+    dialog.querySelector('button[type="submit"]').click()
+    await wrapper.vm.$nextTick()
+
+    expect(editor.html()).toContain('Before <p>Hi Ada, release &lt;plan&gt;</p> after')
+    wrapper.vm.insertText('!')
+    expect(editor.html()).toContain('</p>! after')
+    wrapper.unmount()
   })
 })
 

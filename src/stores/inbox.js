@@ -35,6 +35,7 @@ export const isImportantCategory = (category) =>
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { parseComposePreferences } from '../lib/composePreferences'
 import { sanitizeStoredSnippets } from '../lib/snippets'
+import { unresolvedSnippetFields, unresolvedSnippetWarning } from '../lib/snippetVariables'
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -3591,6 +3592,11 @@ export const useInboxStore = defineStore('inbox', {
     async sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
+      const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
+      if (unresolved.length) {
+        this.notify(unresolvedSnippetWarning(unresolved), 'error')
+        return
+      }
       const draft = normalizeOutgoingDraft({
         to: this.composerTo,
         subject: this.composerSubject,
@@ -3720,6 +3726,11 @@ export const useInboxStore = defineStore('inbox', {
     async sendEmailLater(sendAt, label) {
       if (this.isSendingEmail || this.pendingSend) return false
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
+      const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
+      if (unresolved.length) {
+        this.notify(unresolvedSnippetWarning(unresolved), 'error')
+        return false
+      }
       const draft = normalizeOutgoingDraft({
         to: this.composerTo,
         subject: this.composerSubject,
