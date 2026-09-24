@@ -62,9 +62,11 @@ async function findTimes(page, surface) {
   await dialog.getByLabel('From date', { exact: true }).fill('2030-01-02')
   await dialog.getByLabel('Through date', { exact: true }).fill('2030-01-02')
   await dialog
-    .getByLabel('Proposal and working-hours timezone', { exact: true })
+    .getByRole('combobox', { name: 'Proposal and working-hours timezone' })
     .selectOption('UTC')
-  await dialog.getByLabel('Calendar interpretation timezone', { exact: true }).selectOption('UTC')
+  await dialog
+    .getByRole('combobox', { name: 'Calendar interpretation timezone' })
+    .selectOption('UTC')
   await dialog.getByLabel('I confirm this timezone', { exact: false }).check()
   await dialog.getByRole('button', { name: 'Find available times' }).click()
   return dialog
@@ -100,6 +102,8 @@ test('new mail reviews, edits and inserts proposed times while protecting the ex
 test('inline replies can insert the same reviewed proposal text', async ({ page }) => {
   await calendarFixtures(page)
   await page.goto('/inbox')
+  // The fixed 2030 clock puts the mailbox fixture in its collapsed Earlier group.
+  await page.getByRole('button', { name: /Earlier/ }).click()
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   const reader = page.locator('.ni-reader')
   await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Reply' }).click()

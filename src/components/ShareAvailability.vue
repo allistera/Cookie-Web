@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, useId, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useCalendars } from '../composables/useCalendars'
 import { CALENDAR_API_URL } from '../lib/apiWorkers'
@@ -18,6 +18,7 @@ const { calendars, loadCalendars } = useCalendars(
   (message, kind) => store.notify(message, kind),
 )
 const dialog = ref(null)
+const formId = useId()
 const trigger = ref(null)
 const open = ref(false)
 const loading = ref(false)
@@ -209,18 +210,20 @@ onUnmounted(() => {
         <div class="availability-fields">
           <label>From date<input v-model="from" type="date" required /></label>
           <label>Through date<input v-model="to" type="date" required /></label>
-          <label
-            >Meeting duration<select v-model="duration">
+          <div class="availability-field">
+            <label :for="`${formId}-duration`">Meeting duration</label>
+            <select :id="`${formId}-duration`" v-model="duration">
               <option v-for="minutes in [15, 30, 45, 60, 90, 120]" :key="minutes" :value="minutes">
                 {{ minutes }} minutes
               </option>
-            </select></label
-          >
-          <label
-            >Proposal and working-hours timezone<select v-model="timeZone">
+            </select>
+          </div>
+          <div class="availability-field">
+            <label :for="`${formId}-proposal-zone`">Proposal and working-hours timezone</label>
+            <select :id="`${formId}-proposal-zone`" v-model="timeZone">
               <option v-for="zone in zones" :key="zone" :value="zone">{{ zone }}</option>
-            </select></label
-          >
+            </select>
+          </div>
           <label
             >Working hours start<input v-model="workStart" type="time" step="900" required
           /></label>
@@ -248,11 +251,12 @@ onUnmounted(() => {
             ></label
           >
         </fieldset>
-        <label class="availability-zone"
-          >Calendar interpretation timezone<select v-model="interpretationTimeZone">
+        <div class="availability-zone">
+          <label :for="`${formId}-interpretation-zone`">Calendar interpretation timezone</label>
+          <select :id="`${formId}-interpretation-zone`" v-model="interpretationTimeZone">
             <option v-for="zone in zones" :key="zone" :value="zone">{{ zone }}</option>
-          </select></label
-        >
+          </select>
+        </div>
         <p>
           Cookie events and all-day or floating feed times have no saved timezone. Interpret them in
           this zone. Subscribed events with a known timezone keep their source instant.
@@ -362,7 +366,8 @@ onUnmounted(() => {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.availability-fields label,
+.availability-fields > label,
+.availability-field,
 .availability-zone {
   display: flex;
   flex-direction: column;
