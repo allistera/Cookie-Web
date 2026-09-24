@@ -1360,7 +1360,15 @@ function isTypingTarget(target) {
   return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'))
 }
 
+function isAvailabilityDialogEvent(event) {
+  // The reply's dialog is teleported to <body>. Keep its event ancestry even
+  // when an insert or cancel click removes the dialog before this listener runs.
+  return event.composedPath().some((node) => node?.classList?.contains('availability-dialog'))
+}
+
 function onKeydown(e) {
+  // The teleported reply dialog owns its keys, including Escape and shortcuts.
+  if (isAvailabilityDialogEvent(e)) return
   // The command palette owns Escape while it is open. Otherwise Escape
   // unchecks the multi-select first; a second press closes the reader.
   if (e.key === 'Escape' && !store.isCommandPaletteOpen) {
@@ -1437,6 +1445,7 @@ function onDocumentClick(e) {
   const path = e.composedPath()
   const within = (className) => path.some((node) => node?.classList?.contains(className))
   const clickedReader = within('ni-reader')
+  const clickedAvailabilityDialog = within('availability-dialog')
   const inScheduleWrap = within('ni-schedule-wrap')
   // The reader's follow-up, label and category menus open from the More
   // menu, so they sit inside its wrapper.
@@ -1461,6 +1470,7 @@ function onDocumentClick(e) {
   // openReader; the bulk bar acts on the list without dismissing the reader.
   if (
     clickedReader ||
+    clickedAvailabilityDialog ||
     e.target.closest('.ni-reader') ||
     e.target.closest('.ni-row') ||
     e.target.closest('.ni-bulk-bar')

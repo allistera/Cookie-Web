@@ -111,11 +111,38 @@ test('inline replies can insert the same reviewed proposal text', async ({ page 
   await reply.locator('.composer-editor').fill('Thanks for your message.')
   const dialog = await findTimes(page, reply)
   await dialog.locator('.availability-slots input').first().check()
+  await expect(reader).toBeVisible()
+  await expect(reply.locator('.composer-editor')).toContainText('Thanks for your message.')
+  await dialog.getByRole('button', { name: 'Review selected times' }).press('d')
+  await expect(reader).toBeVisible()
+  await expect(reply.locator('.composer-editor')).toContainText('Thanks for your message.')
   await dialog.getByRole('button', { name: 'Review selected times' }).click()
   await dialog.getByRole('button', { name: 'Insert proposed times' }).click()
+  await expect(reader).toBeVisible()
+  await expect(reply).toBeVisible()
   await expect(reply.locator('.composer-editor')).toContainText('Thanks for your message.')
   await expect(reply.locator('.composer-editor')).toContainText('Proposed meeting times')
   await expect(page.locator('#composerToast.active')).toHaveCount(0)
+})
+
+test('closing inline availability with Escape keeps the reader and reply draft', async ({
+  page,
+}) => {
+  await calendarFixtures(page)
+  await page.goto('/inbox')
+  await page.getByRole('button', { name: /Earlier/ }).click()
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const reader = page.locator('.ni-reader')
+  await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Reply' }).click()
+  const reply = reader.locator('.ni-reply-box')
+  await reply.locator('.composer-editor').fill('Keep this reply')
+  const dialog = await findTimes(page, reply)
+  await dialog.locator('.availability-slots input').first().check()
+  await expect(reader).toBeVisible()
+  await dialog.getByRole('button', { name: 'Review selected times' }).press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(reader).toBeVisible()
+  await expect(reply.locator('.composer-editor')).toContainText('Keep this reply')
 })
 
 test('failed or incomplete checks cannot produce slots and Escape preserves the draft', async ({
