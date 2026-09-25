@@ -383,6 +383,77 @@ describe('documents store', () => {
     expect(store.documents.find((doc) => doc.id === 'd-1').folder_id).toBe(null)
   })
 
+  it('moves a deleted folder’s documents into the root page and drops its pages', async () => {
+    store.folders = structuredClone(FOLDERS)
+    store.documents = structuredClone(DOCS)
+    store.workspacePaged = true
+    store.isLoaded = true
+    store.pages = {
+      '["root",false,null]': { ids: ['d-2'], loaded: true },
+      '["f-1",false,null]': { ids: ['d-1'], loaded: true },
+    }
+    const unloaded = { ...DOCS[0], id: 'd-3', folder_id: null }
+    stubFetch({
+      DELETE: () => ok({ ok: true }),
+      GET: () => ok({ documents: [DOCS[1], { ...DOCS[0], folder_id: null }, unloaded] }),
+    })
+
+    await store.deleteFolder('f-1')
+
+    expect(store.pageFor({ folder: 'f-1' })).toBeUndefined()
+    expect(
+      store
+        .documentsForPage({ folder: 'root' })
+        .map((doc) => doc.id)
+        .sort(),
+    ).toEqual(['d-1', 'd-2', 'd-3'])
+  })
+
+  it('refetches the root page even when a root load was already in flight', async () => {
+    store.folders = structuredClone(FOLDERS)
+    store.documents = structuredClone(DOCS)
+    store.workspacePaged = true
+    store.isLoaded = true
+    store.pages = {
+      '["root",false,null]': { ids: ['d-2'], loaded: true },
+      '["f-1",false,null]': { ids: ['d-1'], loaded: true },
+    }
+    const gets = []
+    stubFetch({
+      DELETE: () => ok({ ok: true }),
+      GET: () => new Promise((resolve) => gets.push(resolve)),
+    })
+    const stale = store.loadDocumentPage({ folder: 'root' }, { force: true })
+    await vi.waitFor(() => expect(gets).toHaveLength(1))
+
+    const deleting = store.deleteFolder('f-1')
+    await vi.waitFor(() => expect(gets).toHaveLength(2))
+    gets[1](ok({ documents: [DOCS[1], { ...DOCS[0], folder_id: null }] }))
+    await deleting
+    gets[0](ok({ documents: [DOCS[1]] }))
+    await stale
+
+    expect(
+      store
+        .documentsForPage({ folder: 'root' })
+        .map((doc) => doc.id)
+        .sort(),
+    ).toEqual(['d-1', 'd-2'])
+  })
+
+  it('returns null instead of throwing when the month folder cannot be created', async () => {
+    store.isLoaded = true
+    store.dailyNoteSeedLoaded = true
+    const now = new Date()
+    store.folders = [
+      { id: 'daily', parent_id: null, title: 'Daily' },
+      { id: 'year', parent_id: 'daily', title: String(now.getFullYear()) },
+    ]
+    stubFetch({ POST: fail })
+
+    await expect(store.openTodayNote()).resolves.toBeNull()
+  })
+
   it('opens today’s note, creating Daily/2026/Aug and a Tasks heading when none exist', async () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const fetchMock = stubFetch({
@@ -612,6 +683,127 @@ describe('documents store', () => {
     expect(store.openDocId).toBe(null)
     expect(store.openDoc).toBe(null)
     expect(store.documents.map((doc) => doc.id)).toEqual(['d-2'])
+  })
+
+  it('drops a queued edit for a deleted document instead of PATCHing it later', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    const fetchMock = stubFetch({ DELETE: () => ok({ ok: true }) })
+    store.scheduleContentSave('d-1', { title: 'Unsaved' })
+
+    expect(await store.deleteDocument('d-1')).toBe(true)
+    await vi.runAllTimersAsync()
+
+    expect(fetchMock.mock.calls.map(([, options]) => options.method)).toEqual(['DELETE'])
+    expect(store.saveState).toBe('saved')
+  })
+
+  it('requeues the dropped edit when the delete fails', async () => {
+    vi.useFakeTimers()
+    store.documents = structuredClone(DOCS)
+    const fetchMock = stubFetch({
+      DELETE: fail,
+      PATCH: (url, body) => ok({ document: { id: body.id, title: body.title, updated_at: 't1' } }),
+    })
+    store.scheduleContentSave('d-1', { title: 'Unsaved' })
+
+    expect(await store.deleteDocument('d-1')).toBe(false)
+    await vi.runAllTimersAsync()
+
+    const patches = fetchMock.mock.calls.filter(([, options]) => options.method === 'PATCH')
+    expect(patches).toHaveLength(1)
+    expect(JSON.parse(patches[0][1].body)).toMatchObject({ id: 'd-1', title: 'Unsaved' })
+    expect(store.saveState).toBe('saved')
+  })
+
+  it('ignores an older meta PATCH that resolves after a newer one', async () => {
+    store.documents = structuredClone(DOCS)
+    const responses = []
+    stubFetch({
+      PATCH: (url, body) =>
+        new Promise((resolve) => responses.push(() => resolve(ok({ document: { ...body } })))),
+    })
+
+    const first = store.toggleStar('d-1')
+    const second = store.toggleStar('d-1')
+    await vi.waitFor(() => expect(responses).toHaveLength(2))
+    responses[1]()
+    await second
+    responses[0]()
+    await first
+
+    expect(store.documents.find((doc) => doc.id === 'd-1').starred).toBe(false)
+  })
+
+  it('does not roll back a newer meta change when an older PATCH fails', async () => {
+    store.documents = structuredClone(DOCS)
+    const responses = []
+    stubFetch({
+      PATCH: (url, body) =>
+        new Promise((resolve) =>
+          responses.push((failed) => resolve(failed ? fail() : ok({ document: { ...body } }))),
+        ),
+    })
+
+    const first = store.updateDocumentMeta('d-1', { emoji: 'A' })
+    const second = store.updateDocumentMeta('d-1', { emoji: 'B' })
+    await vi.waitFor(() => expect(responses).toHaveLength(2))
+    responses[1](false)
+    await second
+    responses[0](true)
+    await first
+
+    expect(store.documents.find((doc) => doc.id === 'd-1').emoji).toBe('B')
+  })
+
+  it('files a moved document on its new pages even when a newer meta call fails', async () => {
+    store.documents = structuredClone(DOCS)
+    store.workspacePaged = true
+    store.pages = {
+      '["root",false,null]': { ids: ['d-2'], loaded: true },
+      '["f-1",false,null]': { ids: ['d-1'], loaded: true },
+    }
+    const responses = []
+    stubFetch({
+      PATCH: () =>
+        new Promise((resolve) =>
+          responses.push((failed) =>
+            resolve(failed ? fail() : ok({ document: { ...DOCS[0], folder_id: null } })),
+          ),
+        ),
+    })
+
+    const move = store.moveDocument('d-1', null)
+    const star = store.toggleStar('d-1')
+    await vi.waitFor(() => expect(responses).toHaveLength(2))
+    responses[1](true)
+    await star
+    responses[0](false)
+    await move
+
+    expect(store.pageFor({ folder: 'root' }).ids).toContain('d-1')
+    expect(store.pageFor({ folder: 'f-1' }).ids).toEqual([])
+  })
+
+  it('drops an in-flight edit that fails after its document was deleted', async () => {
+    store.documents = structuredClone(DOCS)
+    let failPatch
+    const fetchMock = stubFetch({
+      DELETE: () => ok({ ok: true }),
+      PATCH: () =>
+        failPatch ? fail() : new Promise((resolve) => (failPatch = () => resolve(fail()))),
+    })
+    store.scheduleContentSave('d-1', { title: 'Unsaved' })
+    const flush = store.flushPendingSave()
+    await vi.waitFor(() => expect(failPatch).toBeDefined())
+
+    expect(await store.deleteDocument('d-1')).toBe(true)
+    failPatch()
+    await flush
+
+    expect(await store.flushPendingSave()).toBe(true)
+    expect(fetchMock.mock.calls.filter(([, options]) => options.method === 'PATCH')).toHaveLength(1)
+    expect(store.saveState).toBe('saved')
   })
 })
 

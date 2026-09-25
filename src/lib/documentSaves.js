@@ -5,7 +5,9 @@ const queues = new WeakMap()
 const CONTENT_FIELDS = ['title', 'blocks', 'tags', 'emoji']
 function queueFor(store) {
   store = toRaw(store)
-  if (!queues.has(store)) queues.set(store, { pending: new Map(), timer: null, inFlight: null })
+  if (!queues.has(store)) {
+    queues.set(store, { pending: new Map(), timer: null, inFlight: null, deleted: new Set() })
+  }
   return queues.get(store)
 }
 
@@ -55,6 +57,9 @@ export async function flushPendingSave() {
         if (this.openDoc?.id === id) Object.assign(this.openDoc, update)
         this.saveConflict = false
       } catch (error) {
+        // A PATCH that was in flight when its document was deleted: the edit
+        // has nowhere to go, and re-queuing it would fail every later flush.
+        if (queue.deleted.has(id)) continue
         queue.pending.set(id, { ...content, ...queue.pending.get(id) })
         this.saveState = 'error'
         this.saveConflict = error?.status === 409
@@ -72,6 +77,32 @@ export async function flushPendingSave() {
   }
 }
 
+// Removes a document's queued-but-unsent content (a draft acknowledged via
+// saveConflictAsCopy, or an edit dropped because its row is being deleted).
+// Returns what was dropped — null when nothing was pending — so a caller can
+// hand the edit back to the queue if the delete that prompted this fails.
 export function discardPendingSave(id) {
-  queueFor(this).pending.delete(id)
+  const queue = queueFor(this)
+  const content = queue.pending.get(id) ?? null
+  queue.pending.delete(id)
+  return content
+}
+
+// Hands content taken by discardPendingSave back to the queue (the delete
+// that dropped it failed). Anything edited since stays on top of it.
+export function restorePendingSave(id, content) {
+  if (!content) return
+  const queue = queueFor(this)
+  queue.pending.set(id, { ...content, ...queue.pending.get(id) })
+  this.saveState = 'saving'
+  clearTimeout(queue.timer)
+  queue.timer = setTimeout(() => this.flushPendingSave(), 800)
+}
+
+// A deleted document: drop its queued edit, and any PATCH already in flight
+// for it that fails is dropped too rather than re-queued.
+export function forgetDeletedDocument(id) {
+  const queue = queueFor(this)
+  queue.deleted.add(id)
+  queue.pending.delete(id)
 }

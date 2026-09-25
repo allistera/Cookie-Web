@@ -1,7 +1,13 @@
 import { toRaw } from 'vue'
 import { defineStore } from 'pinia'
 import { jsonRequest } from '../lib/jsonRequest'
-import { scheduleContentSave, flushPendingSave, discardPendingSave } from '../lib/documentSaves'
+import {
+  scheduleContentSave,
+  flushPendingSave,
+  discardPendingSave,
+  restorePendingSave,
+  forgetDeletedDocument,
+} from '../lib/documentSaves'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { AI_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
@@ -16,6 +22,9 @@ import { useInboxStore } from './inbox'
 
 const workspaceLoads = new WeakMap()
 const pageLoads = new WeakMap()
+// Latest updateDocumentMeta call per document id, per store; see there.
+const metaRequests = new WeakMap()
+let metaSeq = 0
 export const documentPageKey = (scope = {}) =>
   JSON.stringify([scope.folder ?? null, Boolean(scope.starred), scope.tag || null])
 
@@ -409,7 +418,7 @@ export const useDocumentsStore = defineStore('documents', {
           this.notify(error.userMessage || 'Failed to load documents.', 'error')
         } finally {
           page.loading = false
-          pending.delete(key)
+          if (pending.get(key) === request) pending.delete(key)
         }
       })()
       pending.set(key, request)
@@ -696,8 +705,8 @@ export const useDocumentsStore = defineStore('documents', {
       const year = await this.findOrCreateFolder(formatDailyYearFolder(now), daily.id)
       if (!year) return null
       const month = await this.findOrCreateFolder(formatDailyMonthFolder(now), year.id)
-      await this.loadDocumentPage({ folder: month.id })
       if (!month) return null
+      await this.loadDocumentPage({ folder: month.id })
 
       const existing = this.documents.find((d) => d.folder_id === month.id && d.title === title)
       if (existing) return existing
@@ -718,21 +727,32 @@ export const useDocumentsStore = defineStore('documents', {
     },
 
     // Metadata updates (star, move, emoji): applied optimistically to the
-    // list row, rolled back if the PATCH fails.
+    // list row, rolled back if the PATCH fails. Only the latest call for a
+    // document applies its response or rollback, so a slower, older PATCH
+    // cannot undo a newer optimistic change.
     async updateDocumentMeta(id, patch) {
       const row = this.documents.find((doc) => doc.id === id)
       if (!row) return
+      const latest = metaRequests.get(toRaw(this)) ?? new Map()
+      metaRequests.set(toRaw(this), latest)
+      const seq = ++metaSeq
+      latest.set(id, seq)
       const before = { ...row }
       Object.assign(row, patch.starred !== undefined ? { starred: patch.starred } : {})
       if (patch.folderId !== undefined) row.folder_id = patch.folderId
       if (patch.emoji !== undefined) row.emoji = patch.emoji
       try {
         const { document } = await this.request('PATCH', { body: { id, ...patch } })
-        Object.assign(row, document)
+        // A superseded call keeps the newer row but still files it on the
+        // right pages: the newer call may be for another field and may fail.
+        if (latest.get(id) === seq) {
+          Object.assign(row, document)
+          if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
+        }
         this.syncDocumentPages(row, before)
-        if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
       } catch (error) {
         console.error('Failed to update document:', error)
+        if (latest.get(id) !== seq) return
         Object.assign(row, before)
         this.notify('Failed to update the document.', 'error')
       }
@@ -796,9 +816,14 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
+    // A queued edit for the document is dropped first so a later flush does
+    // not PATCH a deleted row; it goes back to the queue if the delete fails.
     async deleteDocument(id) {
+      const pending = discardPendingSave.call(this, id)
       try {
         await this.request('DELETE', { body: { kind: 'document', id } })
+        // Edits queued, or a PATCH still in flight, target the deleted row.
+        forgetDeletedDocument.call(this, id)
         this.syncDocumentPages(
           null,
           this.documents.find((doc) => doc.id === id),
@@ -812,6 +837,7 @@ export const useDocumentsStore = defineStore('documents', {
         return true
       } catch (error) {
         console.error('Failed to delete document:', error)
+        restorePendingSave.call(this, id, pending)
         this.notify('Failed to delete the document.', 'error')
         return false
       }
@@ -883,7 +909,23 @@ export const useDocumentsStore = defineStore('documents', {
         // the cached pages so the next visit reloads them.
         this.filePages = {}
         for (const doc of this.documents) {
-          if (doomed.has(doc.folder_id)) doc.folder_id = null
+          if (!doomed.has(doc.folder_id)) continue
+          const previous = { ...doc }
+          doc.folder_id = null
+          this.syncDocumentPages(doc, previous)
+        }
+        // The deleted folders' pages are gone, and the root page gains
+        // documents that were never loaded here, so refetch it.
+        for (const key of Object.keys(this.pages)) {
+          if (doomed.has(JSON.parse(key)[0])) delete this.pages[key]
+        }
+        // A root load already in flight predates the delete: detach it (a new
+        // page object makes it discard its result) so the reload really runs.
+        const rootKey = documentPageKey({ folder: 'root' })
+        if (this.pages[rootKey]) {
+          this.pages[rootKey] = { ...this.pages[rootKey], loading: false }
+          pageLoads.get(toRaw(this))?.delete(rootKey)
+          await this.loadDocumentPage({ folder: 'root' }, { force: true })
         }
         this.notify('Folder deleted.')
       } catch (error) {
