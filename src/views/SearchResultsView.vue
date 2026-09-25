@@ -206,7 +206,9 @@ const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
 })
 
 function formatUpdated(epochMs) {
-  return UPDATED_FMT.format(new Date(epochMs))
+  const date = new Date(epochMs)
+  // Intl.DateTimeFormat throws on an invalid date, unlike toLocaleString.
+  return Number.isNaN(date.getTime()) ? '' : UPDATED_FMT.format(date)
 }
 
 const errorMessage = computed(() => {

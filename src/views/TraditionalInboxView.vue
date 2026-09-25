@@ -2183,7 +2183,7 @@ onUnmounted(() => {
             </div>
             <!-- Locked while sending: the mail carries what was there when Send
                  was pressed, so later edits would silently go nowhere. -->
-            <div class="ni-reply-compose" :inert="isSendingReply">
+            <div class="ni-reply-compose" :inert="isSendingReply || undefined">
               <ComposerEditor
                 ref="replyEditorRef"
                 v-model="replyHtml"

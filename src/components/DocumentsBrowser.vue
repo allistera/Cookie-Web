@@ -281,7 +281,9 @@ const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
 function detail(entry) {
   if (entry.kind === 'file') return formatBytes(entry.item.size_bytes)
   if (entry.kind === 'document' && entry.item.updated_at) {
-    return UPDATED_FMT.format(new Date(entry.item.updated_at))
+    const updated = new Date(entry.item.updated_at)
+    // Intl.DateTimeFormat throws on an invalid date, unlike toLocaleString.
+    if (!Number.isNaN(updated.getTime())) return UPDATED_FMT.format(updated)
   }
   return ''
 }

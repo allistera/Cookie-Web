@@ -321,7 +321,9 @@ const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
 })
 
 function formatUpdated(value) {
-  return UPDATED_FMT.format(new Date(value))
+  const date = new Date(value)
+  // Intl.DateTimeFormat throws on an invalid date, unlike toLocaleString.
+  return Number.isNaN(date.getTime()) ? '' : UPDATED_FMT.format(date)
 }
 
 function newDocument() {

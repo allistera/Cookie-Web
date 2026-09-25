@@ -499,6 +499,7 @@ describe('dragging rows', () => {
         { id: 'd1', content: 'Due today', dueDate: '2026-09-03', position: 3, completedAt: null },
       ]
       items.loadedProject = 'today'
+      items.loadedDate = localToday()
       return items
     }
 
@@ -581,6 +582,7 @@ describe('the Today view', () => {
       { id: 'b', content: 'Second', description: null, dueDate: '2026-08-29', projectId: null },
     ]
     items.loadedProject = 'today'
+    items.loadedDate = localToday()
     const wrapper = mountView()
     await flushPromises()
 
@@ -606,6 +608,7 @@ describe('the Today view', () => {
       { id: 'a', content: 'Late', description: null, dueDate: '2020-01-02', projectId: 'p2' },
     ]
     items.loadedProject = 'today'
+    items.loadedDate = localToday()
     const wrapper = mountView()
     await flushPromises()
 
@@ -620,6 +623,7 @@ describe('the Today view', () => {
       { id: 'a', content: 'Today', description: null, dueDate: localToday(), projectId: 'p2' },
     ]
     items.loadedProject = 'today'
+    items.loadedDate = localToday()
     const wrapper = mountView()
     await flushPromises()
 
@@ -639,6 +643,7 @@ describe('the Today view', () => {
       },
     ]
     items.loadedProject = 'today'
+    items.loadedDate = localToday()
     const wrapper = mountView()
     await flushPromises()
 
@@ -950,6 +955,7 @@ describe('dividers', () => {
       { id: 'a', content: 'One', dueDate: localToday(), position: 1, completedAt: null },
     ]
     items.loadedProject = 'today'
+    items.loadedDate = localToday()
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.find('.task-insert').exists()).toBe(false)
