@@ -65,4 +65,49 @@ describe('FilePreview', () => {
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toContain('could not be loaded')
   })
+
+  it('ignores a stale load that finishes after the file changed', async () => {
+    const pending = {}
+    vi.spyOn(store, 'loadFile').mockImplementation(async (id) => ({
+      id,
+      name: `${id}.png`,
+      mime_type: 'image/png',
+    }))
+    vi.spyOn(store, 'fetchFileBlob').mockImplementation(
+      (id) => new Promise((resolve) => (pending[id] = resolve)),
+    )
+    URL.createObjectURL.mockImplementation((blob) => `blob:${blob.size}`)
+    const wrapper = mount(FilePreview, { props: { fileId: 'old' }, global: { plugins: [router] } })
+    await flushPromises()
+    await wrapper.setProps({ fileId: 'new' })
+    await flushPromises()
+
+    pending.new(new Blob(['new!']))
+    await flushPromises()
+    pending.old(new Blob(['o']))
+    await flushPromises()
+
+    expect(wrapper.find('h1').text()).toBe('new.png')
+    expect(wrapper.find('img').attributes('src')).toBe('blob:4')
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.spinner').exists()).toBe(false)
+  })
+
+  it('does not download a file whose load finishes after unmount', async () => {
+    let finish
+    vi.spyOn(store, 'loadFile').mockResolvedValue({
+      id: 'x-4',
+      name: 'a.zip',
+      mime_type: 'application/zip',
+    })
+    vi.spyOn(store, 'fetchFileBlob').mockImplementation(
+      () => new Promise((resolve) => (finish = resolve)),
+    )
+    const wrapper = mount(FilePreview, { props: { fileId: 'x-4' }, global: { plugins: [router] } })
+    await flushPromises()
+    wrapper.unmount()
+    finish(new Blob(['x']))
+    await flushPromises()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
 })

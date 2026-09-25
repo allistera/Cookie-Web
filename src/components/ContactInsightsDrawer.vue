@@ -9,8 +9,13 @@ const draft = reactive({ company: '', role: '', linkedinUrl: '', notes: '' })
 const lastSaved = ref('')
 const isDirty = ref(false)
 let saveTimer
-let saveChain = Promise.resolve()
+let saveChain = Promise.resolve(true)
 let isClosing = false
+// App.vue keys the drawer by contact address, so switching contacts unmounts
+// this instance — but by then the store already points at the next contact.
+// Pin the address this draft belongs to at first sync so persist() always
+// PATCHes the owner, never whichever contact is live at unmount time.
+let ownerAddress = null
 
 const contact = computed(() => store.contact)
 const displayName = computed(() => contact.value?.name || contact.value?.address || 'Contact')
@@ -32,6 +37,10 @@ function snapshot() {
 
 function syncDraft(value) {
   if (!value || isDirty.value) return
+  // A live-contact change to a different address means this instance is
+  // being replaced; never let the next contact's data into this draft.
+  if (ownerAddress && value.address !== ownerAddress) return
+  ownerAddress = value.address
   draft.company = value.company || ''
   draft.role = value.role || ''
   draft.linkedinUrl = value.linkedinUrl || ''
@@ -43,18 +52,20 @@ watch(contact, syncDraft, { immediate: true })
 
 function persist() {
   window.clearTimeout(saveTimer)
-  const address = contact.value?.address
+  const address = ownerAddress
   const fields = { ...draft }
   const value = JSON.stringify(fields)
-  if (!address || !isDirty.value || value === lastSaved.value) return saveChain
+  if (!address || !isDirty.value || value === lastSaved.value) return Promise.resolve(true)
   isDirty.value = false
-  store.saveState = 'saving'
+  // Don't flag the next contact as saving when this draft is flushed on unmount.
+  if (store.contact?.address === address) store.saveState = 'saving'
   saveChain = saveChain.then(async () => {
     if (await store.saveContact(address, fields)) {
       lastSaved.value = value
-    } else if (snapshot() === value) {
-      isDirty.value = true
+      return true
     }
+    if (snapshot() === value) isDirty.value = true
+    return false
   })
   return saveChain
 }
@@ -66,14 +77,35 @@ function scheduleSave() {
   saveTimer = window.setTimeout(() => void persist(), 700)
 }
 
+// Repeat calls (double-click, Escape while a close is pending) share one
+// attempt, so a second call can't see the retry's cleared dirty flag and
+// close the drawer before that retry has saved.
+let closeTask = null
+
 function close() {
+  closeTask ??= closeAfterSaving().finally(() => {
+    closeTask = null
+  })
+  return closeTask
+}
+
+async function closeAfterSaving() {
   isClosing = true
-  void persist()
+  window.clearTimeout(saveTimer)
+  // Wait for any in-flight save (e.g. from blur) and the final save before
+  // closing: if either fails, keep the drawer open with the error state
+  // visible and the draft dirty so the next persist (typing, blur, or
+  // closing again) retries it.
+  await saveChain
+  if (!(await persist())) {
+    isClosing = false
+    return
+  }
   store.close()
 }
 
 function onKeydown(event) {
-  if (event.key === 'Escape') close()
+  if (event.key === 'Escape') void close()
 }
 
 onBeforeUnmount(() => {

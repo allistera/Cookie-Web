@@ -29,22 +29,32 @@ function download(blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+// Each load takes a token so a slower, stale load (the file changed or the
+// component unmounted) never overwrites the current preview, triggers a
+// download, or leaks an object URL.
+let loadToken = 0
+
 async function load() {
+  const token = ++loadToken
+  const fileId = props.fileId
   release()
   error.value = ''
   loading.value = true
   try {
-    file.value = await store.loadFile(props.fileId)
-    const blob = await store.fetchFileBlob(props.fileId)
-    if (isPreviewable(file.value.mime_type)) {
+    const meta = await store.loadFile(fileId)
+    if (token !== loadToken) return
+    file.value = meta
+    const blob = await store.fetchFileBlob(fileId)
+    if (token !== loadToken) return
+    if (isPreviewable(meta.mime_type)) {
       objectUrl.value = URL.createObjectURL(blob)
     } else {
       download(blob)
     }
   } catch {
-    error.value = 'This file could not be loaded.'
+    if (token === loadToken) error.value = 'This file could not be loaded.'
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 
@@ -62,7 +72,10 @@ function close() {
 }
 
 watch(() => props.fileId, load, { immediate: true })
-onBeforeUnmount(release)
+onBeforeUnmount(() => {
+  loadToken++
+  release()
+})
 </script>
 
 <template>

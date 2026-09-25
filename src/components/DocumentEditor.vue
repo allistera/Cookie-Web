@@ -20,6 +20,7 @@ import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
+import { createImageUploader } from '../lib/documentImageUploader'
 import {
   prepareExportBlocks,
   convertBlocksToMarkdown,
@@ -103,7 +104,6 @@ let editor = null
 const BLOCK_SERIALIZE_DEBOUNCE_MS = 300
 
 // Images are uploaded to Vercel Blob storage to avoid base64 bloat in documents.
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const MAX_IMAGE_DIMENSION = 2048
 const IMAGE_QUALITY = 0.85
 
@@ -174,39 +174,9 @@ async function uploadFileToBlob(file) {
   return data.url
 }
 
-const imageUploader = {
-  async uploadByFile(file) {
-    try {
-      if (file.size > MAX_IMAGE_BYTES) {
-        inbox.notify('Image is too large — pick a file under 5MB.', 'error')
-        throw new Error('File too large')
-      }
-
-      const url = await uploadFileToBlob(file)
-      return { success: 1, file: { url } }
-    } catch (error) {
-      console.error('Image upload failed, falling back to base64:', error)
-      // Fallback to base64 if blob upload fails
-      try {
-        const base64Url = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = (event) => resolve(event.target.result)
-          reader.onerror = (err) => reject(err)
-          reader.readAsDataURL(file)
-        })
-        inbox.notify('Using base64 encoding for this image.', 'info')
-        return { success: 1, file: { url: base64Url } }
-      } catch (fallbackError) {
-        console.error('Base64 fallback also failed:', fallbackError)
-        inbox.notify('Failed to process image. Please try again.', 'error')
-        throw fallbackError
-      }
-    }
-  },
-  uploadByUrl(url) {
-    return Promise.resolve({ success: 1, file: { url } })
-  },
-}
+const imageUploader = createImageUploader(uploadFileToBlob, (message, kind) =>
+  inbox.notify(message, kind),
+)
 
 async function readBlocks(target = editor) {
   if (!target) return []
