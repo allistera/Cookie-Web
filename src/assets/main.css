@@ -4703,6 +4703,7 @@ button.ni-attachment:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   padding: 10px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -4710,6 +4711,7 @@ button.ni-attachment:hover {
 
 .rule-row-main {
   display: flex;
+  flex: 1;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
@@ -4723,6 +4725,7 @@ button.ni-attachment:hover {
 }
 
 .rule-row-summary {
+  max-width: 100%;
   color: var(--text-secondary);
   font-size: 12px;
   overflow: hidden;
@@ -4804,6 +4807,12 @@ button.ni-attachment:hover {
 .rule-row-ai-icon {
   flex-shrink: 0;
   font-size: 15px;
+}
+
+.rule-row-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 760px) {

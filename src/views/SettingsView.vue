@@ -1444,13 +1444,17 @@ function toggleRuleEnabled(rule) {
                   >
                     {{ labelName(rule.label_id) }}
                   </span>
-                  <span v-if="rule.kind === 'ai'" class="rule-row-summary rule-row-summary-ai">
+                  <span
+                    v-if="rule.kind === 'ai'"
+                    class="rule-row-summary rule-row-summary-ai"
+                    :title="rule.prompt"
+                  >
                     <span
                       class="material-symbols-outlined gemini-color rule-row-ai-icon"
                       aria-hidden="true"
                       >auto_fix_high</span
                     >
-                    Cookie AI: "{{ rule.prompt }}"
+                    <span class="rule-row-summary-text">Cookie AI: "{{ rule.prompt }}"</span>
                   </span>
                   <span v-else class="rule-row-summary">
                     {{ rule.match_type === 'any' ? 'Any of' : 'All of' }}:
