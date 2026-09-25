@@ -170,13 +170,14 @@ describe('POST /api/send?resource=attachment', () => {
       size: 10,
       contentType: 'application/pdf',
     })
-    mocks.getSql.mockReturnValue(vi.fn())
+    const sql = vi.fn()
+    mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
 
     await handler(registerRequest({ url: BLOB_URL, filename: 'plan.pdf' }), res)
 
     expect(res.statusCode).toBe(403)
-    expect(mocks.getSql).not.toHaveBeenCalled()
+    expect(sql).not.toHaveBeenCalled()
   })
 
   it('rejects a url that is not a blob store url before calling head', async () => {
@@ -194,13 +195,88 @@ describe('POST /api/send?resource=attachment', () => {
       size: 20 * 1024 * 1024 + 1,
       contentType: 'application/octet-stream',
     })
-    mocks.getSql.mockReturnValue(vi.fn())
+    const sql = vi.fn()
+    mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
 
     await handler(registerRequest({ url: BLOB_URL, filename: 'huge.bin' }), res)
 
     expect(res.statusCode).toBe(400)
-    expect(mocks.getSql).not.toHaveBeenCalled()
+    expect(sql).not.toHaveBeenCalled()
+  })
+
+  it('answers 429 before head() once the per-minute registration allowance is spent', async () => {
+    mocks.allowRequest.mockResolvedValue(false)
+    const sql = vi.fn()
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(registerRequest({ url: BLOB_URL, filename: 'plan.pdf' }), res)
+
+    expect(res.statusCode).toBe(429)
+    expect(mocks.allowRequest).toHaveBeenCalledWith(sql, USER_ID, 'attachment-register', {
+      limit: 30,
+      windowMs: 60_000,
+    })
+    expect(mocks.headBlob).not.toHaveBeenCalled()
+    expect(sql).not.toHaveBeenCalled()
+  })
+
+  it('returns the existing row with 200 when the same blob is registered again', async () => {
+    mocks.headBlob.mockResolvedValue({
+      pathname: `outbound-attachments/${USER_ID}/plan.pdf`,
+      size: 10,
+      contentType: 'application/pdf',
+    })
+    const sql = vi.fn(async () => [
+      {
+        id: ATTACHMENT_ID,
+        filename: 'plan.pdf',
+        content_type: 'application/pdf',
+        size_bytes: 10,
+        created: false,
+      },
+    ])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(registerRequest({ url: BLOB_URL, filename: 'plan.pdf' }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.attachment).toEqual({
+      id: ATTACHMENT_ID,
+      filename: 'plan.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 10,
+    })
+    expect(sql.mock.calls[0][0].join('')).toContain('ON CONFLICT (user_id, blob_url)')
+  })
+
+  it('falls back to a plain insert while the 0083 unique index is missing', async () => {
+    mocks.headBlob.mockResolvedValue({
+      pathname: `outbound-attachments/${USER_ID}/plan.pdf`,
+      size: 10,
+      contentType: 'application/pdf',
+    })
+    const missingIndex = Object.assign(
+      new Error(
+        'there is no unique or exclusion constraint matching the ON CONFLICT specification',
+      ),
+      { code: '42P10' },
+    )
+    const sql = vi
+      .fn()
+      .mockRejectedValueOnce(missingIndex)
+      .mockResolvedValueOnce([{ id: ATTACHMENT_ID, filename: 'plan.pdf', size_bytes: 10 }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(registerRequest({ url: BLOB_URL, filename: 'plan.pdf' }), res)
+
+    expect(res.statusCode).toBe(201)
+    expect(res.body.attachment).toMatchObject({ id: ATTACHMENT_ID })
+    expect(sql).toHaveBeenCalledTimes(2)
+    expect(sql.mock.calls[1][0].join('')).not.toContain('ON CONFLICT')
   })
 })
 
@@ -217,6 +293,20 @@ describe('DELETE /api/send?resource=attachment', () => {
 
     await handler(deleteRequest(ATTACHMENT_ID), res)
 
+    expect(res.statusCode).toBe(204)
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(BLOB_URL)
+  })
+
+  it('deletes the blob only after checking no other upload row of the user shares it', async () => {
+    const sql = vi.fn(async () => [{ blob_url: BLOB_URL, blobUnreferenced: true }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(deleteRequest(ATTACHMENT_ID), res)
+
+    expect(sql.mock.calls[0][0].join('')).toMatch(
+      /FROM outbound_attachments other\s+WHERE other\.user_id = oa\.user_id\s+AND other\.blob_url = oa\.blob_url\s+AND other\.id <> oa\.id/,
+    )
     expect(res.statusCode).toBe(204)
     expect(mocks.deleteBlob).toHaveBeenCalledWith(BLOB_URL)
   })

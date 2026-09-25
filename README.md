@@ -113,7 +113,7 @@ See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.m
 
 Requirements:
 
-- Node.js `^22.18.0` or `>=24.12.0`.
+- Node.js `^22.22.2` or `^24.15.0`.
 - npm.
 - Playwright browsers for end-to-end tests.
 

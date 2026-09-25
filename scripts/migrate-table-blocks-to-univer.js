@@ -25,6 +25,10 @@ import { flattenBlocksToText } from '../api/_lib/documentText.js'
 const BATCH_SIZE = 100
 const APPLY = process.argv.includes('--apply')
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+// Selects rows holding a top-level table block without data.workbook — the
+// exact shape migrateBlocks rewrites. A LIKE over blocks::text cannot do
+// this: jsonb renders as `"type": "table"` (with a space), so it never matched.
+const LEGACY_TABLE_PATH = '$[*] ? (@.type == "table" && !exists(@.data.workbook))'
 
 const { DATABASE_URL } = process.env
 if (!DATABASE_URL) {
@@ -60,7 +64,7 @@ async function migrateDocuments() {
   for (;;) {
     const rows = await sql`
       SELECT id, title, blocks FROM documents
-      WHERE id > ${cursor} AND blocks::text LIKE '%"type":"table"%'
+      WHERE id > ${cursor} AND jsonb_path_exists(blocks, ${LEGACY_TABLE_PATH}::jsonpath)
       ORDER BY id ASC
       LIMIT ${BATCH_SIZE}
     `
@@ -97,7 +101,7 @@ async function migrateTemplates() {
   for (;;) {
     const rows = await sql`
       SELECT id, blocks FROM document_templates
-      WHERE id > ${cursor} AND blocks::text LIKE '%"type":"table"%'
+      WHERE id > ${cursor} AND jsonb_path_exists(blocks, ${LEGACY_TABLE_PATH}::jsonpath)
       ORDER BY id ASC
       LIMIT ${BATCH_SIZE}
     `

@@ -5,7 +5,11 @@ Cookie uses append-only SQL migrations against Supabase Postgres. The same schem
 ## Conventions
 
 - Files use ordered names such as `0010_ai_enrichment.sql`.
-- Every migration is transactional.
+- Every migration is transactional. Write the wrapper as bare column-0
+  `BEGIN;` and `COMMIT;` lines; `migrate.sh` strips them and runs the file
+  and its `schema_migrations` marker in one transaction, and refuses files
+  with any other top-level transaction control (`begin;`, `COMMIT WORK;`,
+  `ROLLBACK;`, ...).
 - Applied filenames are stored in `schema_migrations`.
 - Never change an applied migration; add a new file instead.
 - Runtime code must remain compatible until its required migration is applied.
@@ -325,3 +329,12 @@ one Category; deleting a Category clears it from affected messages. Categories
 remain separate from many-to-many Labels and from Auto Archive's built-in AI
 classifications. Apply this migration before deploying `cookie-web-labels`,
 `cookie-web-emails`, `cookie-web-messages`, `cookie-web-search`, and Cookie-Web.
+
+## Outbound attachment uniqueness
+
+`0083_outbound_attachments_unique.sql` merges duplicate `outbound_attachments`
+rows for the same `(user_id, blob_url)`, repointing draft and scheduled-send
+references to the oldest row, then adds a unique index on that pair. Composer
+upload registration uses it to upsert, so a retried registration returns the
+existing row instead of adding a copy. Web works before and after this
+migration: without the index, registration falls back to a plain insert.

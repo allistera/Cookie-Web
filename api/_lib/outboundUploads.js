@@ -8,6 +8,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const MAX_OUTBOUND_ATTACHMENT_BYTES = 20 * 1024 * 1024
 const ATTACHMENT_BLOB_PREFIX = 'outbound-attachments'
 const ATTACHMENT_UPLOADS_PER_MINUTE = 30
+const ATTACHMENT_REGISTRATIONS_PER_MINUTE = 30
 
 export function sanitizeAttachmentFilename(value) {
   const base = String(value ?? '')
@@ -22,6 +23,11 @@ export function sanitizeAttachmentFilename(value) {
 }
 function isUndefinedOutboundAttachmentsTable(err) {
   return err?.code === '42P01' && /outbound_attachments/i.test(String(err.message ?? ''))
+}
+// 42P10: no unique index matches the ON CONFLICT target, i.e. 0083 has not
+// been applied yet. Postgres does not name the table in this message.
+function isMissingUpsertIndex(err) {
+  return err?.code === '42P10'
 }
 function attachmentPrefix(userId) {
   return `${ATTACHMENT_BLOB_PREFIX}/${userId}/`
@@ -131,6 +137,19 @@ async function registerUploadedAttachment(req, res, userId, services) {
     return
   }
 
+  // Registration costs a Blob head() plus a database write, so it gets the
+  // same per-user budget as token minting instead of running unbounded.
+  const sql = services.getSql()
+  const allowed = await services.allowRequest(sql, userId, 'attachment-register', {
+    limit: ATTACHMENT_REGISTRATIONS_PER_MINUTE,
+    windowMs: 60_000,
+  })
+  if (!allowed) {
+    res.statusCode = 429
+    res.end(JSON.stringify({ error: 'Too many attachment registrations, slow down' }))
+    return
+  }
+
   let blob
   try {
     blob = await services.headBlob(blobUrl)
@@ -163,15 +182,32 @@ async function registerUploadedAttachment(req, res, userId, services) {
   // than trusting whatever the picker reported.
   const filename = sanitizeAttachmentFilename(body?.filename ?? blob?.pathname)
 
+  const contentType = blob?.contentType ?? null
   try {
-    const sql = services.getSql()
-    const [row] = await sql`
-      INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
-      VALUES (${userId}, ${filename}, ${blob?.contentType ?? null}, ${sizeBytes}, ${blobUrl})
-      RETURNING id, filename, content_type, size_bytes
-    `
-    res.statusCode = 201
-    res.end(JSON.stringify({ attachment: row }))
+    // Idempotent on (user_id, blob_url): a retried registration of the same
+    // blob returns the existing row instead of stacking duplicates. The
+    // no-op update exists only so ON CONFLICT still RETURNINGs the row, and
+    // (xmax = 0) distinguishes the fresh insert from that conflict path.
+    let row
+    try {
+      ;[row] = await sql`
+        INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
+        VALUES (${userId}, ${filename}, ${contentType}, ${sizeBytes}, ${blobUrl})
+        ON CONFLICT (user_id, blob_url) DO UPDATE SET blob_url = EXCLUDED.blob_url
+        RETURNING id, filename, content_type, size_bytes, (xmax = 0) AS created
+      `
+    } catch (err) {
+      if (!isMissingUpsertIndex(err)) throw err
+      // Deploy window before 0083: keep registering with the plain insert.
+      ;[row] = await sql`
+        INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
+        VALUES (${userId}, ${filename}, ${contentType}, ${sizeBytes}, ${blobUrl})
+        RETURNING id, filename, content_type, size_bytes
+      `
+    }
+    const { created, ...attachment } = row ?? {}
+    res.statusCode = created === false ? 200 : 201
+    res.end(JSON.stringify({ attachment }))
   } catch (err) {
     if (isUndefinedOutboundAttachmentsTable(err)) {
       res.statusCode = 503
@@ -200,6 +236,12 @@ async function deleteUploadedAttachment(req, res, userId, services) {
       RETURNING oa.blob_url,
                 NOT EXISTS (
                   SELECT 1 FROM attachments a WHERE a.blob_url = oa.blob_url
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM outbound_attachments other
+                  WHERE other.user_id = oa.user_id
+                    AND other.blob_url = oa.blob_url
+                    AND other.id <> oa.id
                 ) AS "blobUnreferenced"
     `
     if (!row) {
