@@ -182,9 +182,14 @@ export function detectCalendarSuggestion(email, now = new Date()) {
   const sentAt = new Date(email.sentAt || now)
   const date = detectedDate(text, Number.isNaN(sentAt.getTime()) ? now : sentAt)
   const startMinutes = detectedTime(text)
-  if (!date || startMinutes === null || date < startOfDay(now)) return null
+  if (!date || startMinutes === null) return null
 
   const endMinutes = Math.min(startMinutes + 60, 23 * 60 + 59)
+  // Match the structured path: an event that has already ended is not offered,
+  // including one earlier today.
+  const endsAt = new Date(date)
+  endsAt.setHours(0, endMinutes, 0, 0)
+  if (endsAt <= now) return null
   const source = email.sender ? `From ${email.sender}: ` : ''
   return {
     title: cleanTitle(subject) || 'Event from email',

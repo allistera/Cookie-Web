@@ -37,6 +37,17 @@ describe('schedule choices', () => {
     expect(laterToday(new Date(2026, 6, 14, 22, 30))).toEqual(new Date(2026, 6, 14, 23, 59))
   })
 
+  it('offers no Later today in the final minute of the day', () => {
+    expect(laterToday(new Date(2026, 6, 14, 23, 58))).toEqual(new Date(2026, 6, 14, 23, 59))
+    expect(laterToday(new Date(2026, 6, 14, 23, 59))).toBeNull()
+    expect(laterToday(new Date(2026, 6, 14, 23, 59, 30))).toBeNull()
+    expect(scheduleChoices(new Date(2026, 6, 14, 23, 59, 30)).map(({ id }) => id)).toEqual([
+      'tomorrow',
+      'this-weekend',
+      'next-week',
+    ])
+  })
+
   it('schedules This weekend for Saturday at 8am', () => {
     expect(thisWeekendMorning(tuesday)).toEqual(new Date(2026, 6, 18, 8, 0))
   })

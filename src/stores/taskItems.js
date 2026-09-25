@@ -128,9 +128,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
         this.items.push(...items.filter((item) => !seen.has(item.id)))
         this.nextCursor = nextCursor ?? null
       } catch (error) {
+        // A page for a list that has since been reloaded is not this list's
+        // failure, and its finally must not free a newer page request.
+        if (seq !== this.loadSeq) return
         this.notify(error.userMessage || 'Failed to load more tasks.', 'error')
       } finally {
-        this.isLoadingMore = false
+        if (seq === this.loadSeq) this.isLoadingMore = false
       }
     },
 

@@ -230,6 +230,34 @@ describe('task items store', () => {
       expect(store.items).toEqual([otherItem])
       expect(store.loadedProject).toBe('p2')
     })
+
+    it('ignores a failed page request for a list that has since been reloaded', async () => {
+      const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+      const otherItem = { ...ITEM, id: 't2', projectId: 'p2' }
+      const pageRequests = []
+      stubFetch((url) => {
+        if (String(url).includes('after=')) {
+          return new Promise((resolve) => pageRequests.push(resolve))
+        }
+        const items = String(url).includes('project=p2') ? [otherItem] : [ITEM]
+        return Promise.resolve({ ok: true, json: async () => ({ items, nextCursor: 'c1' }) })
+      })
+
+      await store.loadItems('p1')
+      const stale = store.loadMoreItems()
+      await vi.waitFor(() => expect(pageRequests).toHaveLength(1))
+      await store.loadItems('p2')
+      // A page request for the new list is already in flight.
+      store.loadMoreItems()
+      await vi.waitFor(() => expect(pageRequests).toHaveLength(2))
+
+      pageRequests[0]({ ok: false, status: 500, json: async () => ({}) })
+      await stale
+
+      expect(notify).not.toHaveBeenCalled()
+      expect(store.isLoadingMore).toBe(true)
+      expect(store.items).toEqual([otherItem])
+    })
   })
 
   describe('countForProjects', () => {

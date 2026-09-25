@@ -162,4 +162,20 @@ describe('detectCalendarSuggestion', () => {
       ),
     ).toBeNull()
   })
+
+  it('does not suggest an event earlier today that has already ended', () => {
+    const email = (time) => ({
+      subject: `Team meeting today`,
+      body: `See you on 28/07/2026 at ${time}.`,
+      sentAt: '2026-07-28T07:00:00',
+    })
+
+    expect(detectCalendarSuggestion(email('09:00'), NOW)).toBeNull()
+    expect(detectCalendarSuggestion(email('11:30'), NOW)).toMatchObject({
+      date: '2026-07-28',
+      start: '11:30',
+      end: '12:30',
+    })
+    expect(detectCalendarSuggestion(email('15:00'), NOW)).toMatchObject({ start: '15:00' })
+  })
 })

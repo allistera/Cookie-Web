@@ -13,6 +13,10 @@ export function tomorrowMorning(now = new Date()) {
   return result
 }
 
+const MINUTE_MS = 60 * 1000
+
+// Returns null in the final minute of the day, when the 23:59 clamp would be
+// in the past or no real time away.
 export function laterToday(now = new Date()) {
   const result = new Date(now)
   result.setHours(result.getHours() + LATER_TODAY_HOURS, 0, 0, 0)
@@ -20,7 +24,7 @@ export function laterToday(now = new Date()) {
     result.setFullYear(now.getFullYear(), now.getMonth(), now.getDate())
     result.setHours(23, 59, 0, 0)
   }
-  return result
+  return result - now >= MINUTE_MS ? result : null
 }
 
 export function thisWeekendMorning(now = new Date()) {
@@ -64,6 +68,7 @@ export function scheduleChoices(now = new Date()) {
 
   const days = new Set()
   return choices.filter(({ date }) => {
+    if (!date) return false
     const day = date.toDateString()
     if (days.has(day)) return false
     days.add(day)

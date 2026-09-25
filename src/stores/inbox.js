@@ -216,6 +216,15 @@ function isSnoozedAt(scheduledFor) {
   return Boolean(scheduledFor) && new Date(scheduledFor) > new Date()
 }
 
+// Whether a row held in traditionalEmails is an inbox row, for the unread
+// badge. That list is the inbox except during a search, when it holds results
+// from every folder; a result is one only if the inbox itself would list it
+// (the server's received-inbox rule: not Done, sent, spam or snoozed).
+function isInboxRow(store, email) {
+  if (!store.activeSearchQuery) return true
+  return !email.isArchived && !email.isSent && !email.isSpam && !isSnoozedAt(email.scheduledFor)
+}
+
 function syncFolderMembership(list, email, belongs) {
   const index = list.findIndex((item) => item.id === email.id)
   if (belongs) {
@@ -342,6 +351,8 @@ let replyHandoff = null
 // while one of these is non-zero.
 let composerSavesPending = 0
 let replySavesPending = 0
+// The newest AI compose request; only it may clear isAiDraftLoading.
+let aiDraftRequestSeq = 0
 
 // A GET /drafts in flight while autosave or a discard changes the list would
 // otherwise replace those changes with an older snapshot. Edits made during a
@@ -491,7 +502,20 @@ function assignChangedFields(target, row) {
   }
 }
 
-export function mergeInboxPage(existing, incoming, pendingStarIds, pendingUnreadIds) {
+// incoming is a fresh copy of the newest rows. A held row it no longer lists
+// is gone (Done, spam or snoozed elsewhere) when it sat among rows the page
+// did return, or when the page is the whole inbox (`complete`); rows past the
+// last one the page returned belong to later pages and are kept. `keepId`
+// (the open email) survives a partial page too: openEmailFromSearch puts an
+// older row at the top, out of page order, and dropping it would close the
+// reader.
+export function mergeInboxPage(
+  existing,
+  incoming,
+  pendingStarIds,
+  pendingUnreadIds,
+  { complete = false, keepId = null } = {},
+) {
   const previousById = new Map(existing.map((email) => [email.id, email]))
   const incomingIds = new Set(incoming.map((email) => email.id))
   const page = incoming.map((row) => {
@@ -506,7 +530,16 @@ export function mergeInboxPage(existing, incoming, pendingStarIds, pendingUnread
     if (keepUnread) previous.unread = unread
     return previous
   })
-  return page.concat(existing.filter((email) => !incomingIds.has(email.id)))
+  let windowEnd = complete ? existing.length - 1 : -1
+  existing.forEach((email, index) => {
+    if (incomingIds.has(email.id)) windowEnd = Math.max(windowEnd, index)
+  })
+  return page.concat(
+    existing.filter(
+      (email, index) =>
+        !incomingIds.has(email.id) && (index > windowEnd || (!complete && email.id === keepId)),
+    ),
+  )
 }
 
 export const useInboxStore = defineStore('inbox', {
@@ -1018,8 +1051,9 @@ export const useInboxStore = defineStore('inbox', {
           incoming,
           pendingStarUpdates,
           pendingUnreadUpdates,
+          { complete: !nextCursor, keepId: this.openEmailId },
         )
-        if (existing.length <= incoming.length) {
+        if (!nextCursor || existing.length <= incoming.length) {
           this.emailsCursor = nextCursor ?? null
           this.hasMoreEmails = Boolean(nextCursor)
         }
@@ -2186,7 +2220,7 @@ export const useInboxStore = defineStore('inbox', {
       const inboxIndex = this.traditionalEmails.indexOf(email)
       const snoozedIndex = this.snoozedEmails.indexOf(email)
       const previousScheduledFor = email.scheduledFor
-      const wasUnreadInbox = inboxIndex > -1 && email.unread
+      const wasUnreadInbox = inboxIndex > -1 && email.unread && isInboxRow(this, email)
       // Spam never shows in Snoozed, so only non-spam moves the count.
       const snoozedDelta =
         email.isSpam || email.isArchived
@@ -2257,7 +2291,7 @@ export const useInboxStore = defineStore('inbox', {
         this.spamEmails,
       ])
       const wasUnread = email.unread
-      const wasUnreadInbox = positions[0].index > -1 && wasUnread
+      const wasUnreadInbox = positions[0].index > -1 && wasUnread && isInboxRow(this, email)
       // Starred and label lists include Done, where Done again is a no-op
       // for the Spam and Snoozed folders (both exclude archived mail).
       const wasArchived = Boolean(email.isArchived)
@@ -2336,7 +2370,12 @@ export const useInboxStore = defineStore('inbox', {
         : [this.spamEmails]
       const positions = captureListPositions(email, leaving)
       const inboxPosition = positions.find(({ list }) => list === this.traditionalEmails)
-      const wasUnreadInbox = Boolean(inboxPosition && inboxPosition.index > -1 && email.unread)
+      // A search result stays put, but the badge still follows the server's
+      // count: it drops when an unread inbox row becomes spam and rises when
+      // an unread, live, unsnoozed email leaves spam.
+      const wasUnreadInbox = searching
+        ? this.traditionalEmails.includes(email) && email.unread && isInboxRow(this, email)
+        : Boolean(inboxPosition && inboxPosition.index > -1 && email.unread)
       let destination = null
       if (!live) destination = null
       else if (spam && this.isSpamLoaded) destination = this.spamEmails
@@ -2344,7 +2383,9 @@ export const useInboxStore = defineStore('inbox', {
       else if (!spam && !snoozed && this.isInboxLoaded && !searching) {
         destination = this.traditionalEmails
       }
-      const entersInbox = destination === this.traditionalEmails
+      const entersInbox =
+        destination === this.traditionalEmails ||
+        (searching && !spam && live && !snoozed && !email.isSent)
       let applied = false
 
       const apply = () => {
@@ -2418,7 +2459,7 @@ export const useInboxStore = defineStore('inbox', {
         this.doneEmails,
         this.sentEmails,
       ])
-      const wasUnreadInbox = positions[0].index > -1 && email.unread
+      const wasUnreadInbox = positions[0].index > -1 && email.unread && isInboxRow(this, email)
       // Done hides spam and snoozed mail too, so only a live row lowers
       // either count.
       const live = !email.isArchived
@@ -2465,7 +2506,7 @@ export const useInboxStore = defineStore('inbox', {
     // toggles can't reach the server out of click order.
     setUnread(email, unread) {
       if (email.unread === unread) return
-      const countsTowardInbox = this.traditionalEmails.includes(email)
+      const countsTowardInbox = this.traditionalEmails.includes(email) && isInboxRow(this, email)
       email.unread = unread
       if (countsTowardInbox) {
         this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
@@ -2947,7 +2988,9 @@ export const useInboxStore = defineStore('inbox', {
             this.spamEmails,
           ])
         : []
-      const wasUnreadInbox = email ? positions[0].index > -1 && email.unread : Boolean(item?.unread)
+      const wasUnreadInbox = email
+        ? positions[0].index > -1 && email.unread && isInboxRow(this, email)
+        : Boolean(item?.unread)
       const addToDone =
         email &&
         this.isDoneLoaded &&
@@ -3031,7 +3074,15 @@ export const useInboxStore = defineStore('inbox', {
     // via consumeComposerDraft() — flushing there would write a fresh row for
     // a message that is on its way out.
     closeComposer({ save = true } = {}) {
-      if (save) this.flushComposerDraft()
+      clearTimeout(composerDraftTimer)
+      // The save can queue behind one still in flight, and by then the fields
+      // below are cleared: it carries a snapshot of this message.
+      const draft = save ? this.composerDraftSnapshot() : null
+      const session = this.composerSessionId
+      // A new session keeps anything still in flight for the closed message
+      // (an autosave's row id, an AI draft) off whatever opens next.
+      this.composerSessionId += 1
+      if (draft) this.saveComposerDraft(session, { ...draft, closing: true })
       this.isComposerActive = false
       this.composerSnippetPreviewOpen = false
       this.composerAvailabilityPreviewOpen = false
@@ -3175,36 +3226,57 @@ export const useInboxStore = defineStore('inbox', {
       return saved.id
     },
 
+    // What a save writes, taken when it is queued; null once the composer
+    // has closed, since there is nothing left on screen to save.
+    composerDraftSnapshot() {
+      if (!this.isComposerActive) return null
+      return {
+        to: this.composerTo,
+        subject: this.composerSubject,
+        text: this.composerTextArea,
+        html: this.composerHtml,
+        replyToMessageId: this.composerReplyToMessageId,
+        followUpAt: this.composerFollowUpAt,
+        attachments: [...this.composerAttachments],
+        draftId: this.composerDraftId,
+        owner: this.composeOwnerSub,
+      }
+    },
+
     // Autosave is best-effort: a failed save must never interrupt typing or
     // steal focus with a toast, so it is logged and retried on the next pause.
-    async writeComposerDraft(session) {
-      if (session !== this.composerSessionId || !this.isComposerActive) return
+    async writeComposerDraft(session, draft) {
+      if (!draft) return
+      // A close's save outlives its session by design; it is dropped only if
+      // the account changed. Any other save is for the message on screen.
+      if (draft.closing ? draft.owner !== this.composeOwnerSub : session !== this.composerSessionId)
+        return
+      // The row this message already has. A close cleared composerDraftId;
+      // when the snapshot had no id yet, a save queued ahead of this one may
+      // have created the row since.
+      let rowId = this.composerDraftId
+      if (draft.closing) {
+        rowId =
+          draft.draftId ?? (lastComposerSave.session === session ? lastComposerSave.draftId : null)
+      }
       try {
-        const draftId = await this.persistDraft(this.composerDraftId, {
-          to: this.composerTo,
-          subject: this.composerSubject,
-          text: this.composerTextArea,
-          html: this.composerHtml,
-          replyToMessageId: this.composerReplyToMessageId,
-          followUpAt: this.composerFollowUpAt,
-          attachments: this.composerAttachments,
-        })
+        const draftId = await this.persistDraft(rowId, draft)
         lastComposerSave = { session, draftId }
-        // A send, a close-and-reopen, or another draft opening while this was
-        // in flight means the id belongs to a message that is no longer the
-        // one on screen. A send that took the message collects the id through
+        // A send, a close, or another draft opening while this was in flight
+        // means the id belongs to a message that is no longer the one on
+        // screen. A send that took the message collects the id through
         // settleComposerHandoff; otherwise the row keeps its content in Drafts.
-        if (session !== this.composerSessionId) return
+        if (session !== this.composerSessionId || !this.isComposerActive) return
         this.composerDraftId = draftId
       } catch (error) {
         console.error('Draft autosave failed:', error)
       }
     },
 
-    saveComposerDraft(session = this.composerSessionId) {
+    saveComposerDraft(session = this.composerSessionId, draft = this.composerDraftSnapshot()) {
       composerSavesPending += 1
       composerSaveChain = composerSaveChain
-        .then(() => this.writeComposerDraft(session))
+        .then(() => this.writeComposerDraft(session, draft))
         .finally(() => {
           composerSavesPending -= 1
         })
@@ -3516,35 +3588,41 @@ export const useInboxStore = defineStore('inbox', {
     async requestAiDraft({ replyToMessageId = this.composerReplyToMessageId } = {}) {
       const instruction = this.composerAiInstruction.trim()
       if (!instruction || this.isAiDraftLoading) return
+      // A reply that lands after the composer closed or moved on to another
+      // message belongs to neither.
+      const session = this.composerSessionId
+      const request = ++aiDraftRequestSeq
       this.isAiDraftActive = true
       this.isAiDraftLoading = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const request = {
+        const body = {
           instruction,
           to: this.composerTo,
           subject: this.composerSubject,
           existingText: bodyWithoutSignature(this.composerTextArea, this.signatureHtml),
         }
-        if (replyToMessageId) request.replyToMessageId = replyToMessageId
+        if (replyToMessageId) body.replyToMessageId = replyToMessageId
         const response = await fetch(`${AI_API_URL}/compose`, {
           method: 'POST',
           headers,
-          body: JSON.stringify(request),
+          body: JSON.stringify(body),
         })
         if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
         const { draft } = await response.json()
+        if (session !== this.composerSessionId) return false
         this.aiDraftPreview = convertEmojiToEmoticons(draft.text)
         if (!this.composerSubject.trim() && draft.subject) {
           this.composerSubject = convertEmojiToEmoticons(draft.subject)
         }
         return true
       } catch (error) {
+        if (session !== this.composerSessionId) return false
         console.error('AI compose failed:', error)
         this.notify('AI compose failed. Please try again.', 'error')
         return false
       } finally {
-        this.isAiDraftLoading = false
+        if (request === aiDraftRequestSeq) this.isAiDraftLoading = false
       }
     },
 
@@ -3564,6 +3642,11 @@ export const useInboxStore = defineStore('inbox', {
     async draftFollowUp(task) {
       if (!task?.message_id || this.followUpDraftTaskId) return false
       this.followUpDraftTaskId = task.id
+      // A fresh message: whatever the composer held (body, attachments, its
+      // Drafts row) is saved and cleared rather than carried into this reply.
+      this.closeComposer()
+      this.openComposer()
+      const session = this.composerSessionId
       this.composerTo = task.reply_to || ''
       this.composerSubject = followUpSubject(task.message_subject)
       this.composerReplyToMessageId = task.message_id
@@ -3574,14 +3657,11 @@ export const useInboxStore = defineStore('inbox', {
       ]
         .filter(Boolean)
         .join(' ')
-      this.aiDraftPreview = ''
       this.isAiDraftActive = true
-      this.isComposerActive = true
-      this.loadContacts()
 
       try {
         const generated = await this.requestAiDraft({ replyToMessageId: task.message_id })
-        if (!generated) return false
+        if (!generated || session !== this.composerSessionId) return false
         this.insertAiDraft()
         return true
       } finally {
@@ -3612,9 +3692,9 @@ export const useInboxStore = defineStore('inbox', {
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
       })
       const draftId = this.consumeComposerDraft()
+      this.closeComposer({ save: false })
       // The session an undo or a failed send restores the message into.
       const session = this.composerSessionId
-      this.closeComposer({ save: false })
       this.startPendingSend({ ...draft, draftId })
       // The first save may still be in flight; its row goes with this send.
       const handoff = draftId ? null : this.settleComposerHandoff()

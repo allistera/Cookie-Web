@@ -666,6 +666,65 @@ describe('Inbox Store', () => {
 
       expect(fetchMock).not.toHaveBeenCalled()
     })
+
+    it('saves what was written when closing behind a save still in flight', async () => {
+      const store = useInboxStore()
+      armComposer(store)
+      const saved = []
+      let finishFirst
+      vi.spyOn(store, 'persistDraft').mockImplementation((draftId, draft) => {
+        saved.push({ draftId, text: draft.text, subject: draft.subject })
+        if (saved.length === 1) {
+          return new Promise((resolve) => {
+            finishFirst = () => resolve(DRAFT_ID)
+          })
+        }
+        return Promise.resolve(draftId ?? 'unexpected-new-row')
+      })
+
+      const first = store.saveComposerDraft()
+      await vi.waitFor(() => expect(saved).toHaveLength(1))
+      store.composerTextArea = 'Checking in, with the last words typed.'
+      store.closeComposer()
+      // Something else opens before the queued close save runs.
+      store.openComposer()
+      finishFirst()
+      await first
+      await vi.waitFor(() => expect(saved).toHaveLength(2))
+
+      // The close save wrote the closed message's last edits to its own row,
+      // and gave that row to nothing on screen now.
+      expect(saved[1]).toEqual({
+        draftId: DRAFT_ID,
+        text: 'Checking in, with the last words typed.',
+        subject: 'Hello',
+      })
+      expect(store.composerDraftId).toBeNull()
+    })
+
+    it('drops a close save queued before the account changed', async () => {
+      const store = useInboxStore()
+      store.composeOwnerSub = 'user-a'
+      armComposer(store)
+      const persist = vi.spyOn(store, 'persistDraft').mockResolvedValue(DRAFT_ID)
+      let finishFirst
+      persist.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = () => resolve(DRAFT_ID)
+          }),
+      )
+
+      const first = store.saveComposerDraft()
+      await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1))
+      store.closeComposer()
+      store.setComposeOwner('user-b')
+      finishFirst()
+      await first
+      await Promise.resolve()
+
+      expect(persist).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('loads emails from the API and maps them for the inbox list', async () => {
@@ -886,6 +945,114 @@ describe('Inbox Store', () => {
     expect(existingA.starred).toBe(true)
     expect(existingA.unread).toBe(false)
     expect(merged[2]).toBe(existingB)
+  })
+
+  it('mergeInboxPage drops rows the refreshed page no longer lists', () => {
+    const rows = ['a', 'b', 'c', 'd'].map((id) => ({ id, starred: false, unread: false }))
+    // b was marked Done elsewhere; d lies past the refreshed page.
+    const merged = mergeInboxPage(rows, [
+      { id: 'a', starred: false, unread: false },
+      { id: 'c', starred: false, unread: false },
+    ])
+    expect(merged.map((email) => email.id)).toEqual(['a', 'c', 'd'])
+
+    // A page with no cursor is the whole inbox, so nothing held survives it.
+    const complete = mergeInboxPage(
+      rows,
+      [{ id: 'a', starred: false, unread: false }],
+      null,
+      null,
+      {
+        complete: true,
+      },
+    )
+    expect(complete.map((email) => email.id)).toEqual(['a'])
+  })
+
+  it('mergeInboxPage keeps the open row a partial page skips, but not a complete one', () => {
+    const rows = ['old', 'a', 'b'].map((id) => ({ id, starred: false, unread: false }))
+    const page = [{ id: 'a', starred: false, unread: false }]
+    expect(mergeInboxPage(rows, page, null, null, { keepId: 'old' }).map((e) => e.id)).toEqual([
+      'a',
+      'old',
+      'b',
+    ])
+    expect(
+      mergeInboxPage(rows, page, null, null, { keepId: 'old', complete: true }).map((e) => e.id),
+    ).toEqual(['a'])
+  })
+
+  it('refreshInboxEmails keeps an older email opened from search open', async () => {
+    const listRow = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [listRow('new'), listRow('a')],
+          nextCursor: 'more',
+          unreadCount: 0,
+          message: {},
+        }),
+      }),
+    )
+    const store = useInboxStore()
+    store.traditionalEmails = [
+      { id: 'a', unread: false, labels: [] },
+      { id: 'b', unread: false, labels: [] },
+    ]
+    store.isInboxLoaded = true
+    store.openEmailFromSearch(listRow('older'))
+
+    await store.refreshInboxEmails()
+
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['new', 'a', 'older', 'b'])
+    expect(store.openEmail?.id).toBe('older')
+  })
+
+  it('refreshInboxEmails removes a row archived elsewhere', async () => {
+    const listRow = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ emails: [listRow('a')], nextCursor: null, unreadCount: 0 }),
+      }),
+    )
+    const store = useInboxStore()
+    store.traditionalEmails = [
+      { id: 'a', unread: false, labels: [] },
+      { id: 'b', unread: false, labels: [] },
+    ]
+    store.emailsCursor = 'stale-cursor'
+    store.hasMoreEmails = true
+    store.isInboxLoaded = true
+
+    await store.refreshInboxEmails()
+
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['a'])
+    expect(store.emailsCursor).toBeNull()
+    expect(store.hasMoreEmails).toBe(false)
   })
 
   it('mergeInboxPage keeps label, recipient and category references when a refresh returns identical data', () => {
@@ -1568,6 +1735,87 @@ describe('Inbox Store', () => {
       subject: 'Re: Delivery date',
       replyToMessageId: '11111111-1111-1111-1111-111111111111',
     })
+  })
+
+  it('starts a follow-up draft clean rather than inside the open draft', async () => {
+    const compose = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ draft: { subject: '', text: 'Tuesday works for me.' } }),
+    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url, options) =>
+        String(url).startsWith(AI_API_URL)
+          ? compose(url, options)
+          : { ok: true, json: async () => ({ contacts: [] }) },
+      ),
+    )
+    const store = useInboxStore()
+    const persist = vi.spyOn(store, 'persistDraft').mockResolvedValue('draft-old')
+    store.isComposerActive = true
+    store.composerTo = 'someone-else@example.com'
+    store.composerTextArea = 'Confidential notes for someone else.'
+    store.composerHtml = '<p>Confidential notes for someone else.</p>'
+    store.composerAttachments = [{ id: 'att-secret', filename: 'secret.pdf', source: 'upload' }]
+    store.composerDraftId = 'draft-old'
+    store.composerFollowUpAt = '2026-09-30T09:00:00Z'
+
+    await store.draftFollowUp({
+      id: 'task-1',
+      content: 'Confirm delivery',
+      message_id: '11111111-1111-1111-1111-111111111111',
+      reply_to: 'contractor@example.com',
+      message_subject: 'Delivery date',
+    })
+
+    // The open draft was saved to its own row, not carried over.
+    await vi.waitFor(() =>
+      expect(persist).toHaveBeenCalledWith(
+        'draft-old',
+        expect.objectContaining({ text: 'Confidential notes for someone else.' }),
+      ),
+    )
+    expect(JSON.parse(compose.mock.calls[0][1].body).existingText).toBe('')
+    expect(store.composerTo).toBe('contractor@example.com')
+    expect(store.composerTextArea).toBe('Tuesday works for me.')
+    expect(store.composerTextArea).not.toContain('Confidential')
+    expect(store.composerAttachments).toEqual([])
+    expect(store.composerDraftId).toBeNull()
+    expect(store.composerFollowUpAt).toBeNull()
+  })
+
+  it('does not apply an AI draft that lands after the composer moved on', async () => {
+    let respond
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            respond = () =>
+              resolve({
+                ok: true,
+                json: async () => ({ draft: { subject: 'AI subject', text: 'AI body' } }),
+              })
+          }),
+      ),
+    )
+    const store = useInboxStore()
+    vi.spyOn(store, 'persistDraft').mockResolvedValue(null)
+    store.isComposerActive = true
+    store.composerAiInstruction = 'Write a reply.'
+
+    const request = store.requestAiDraft()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    store.closeComposer()
+    store.openComposer()
+    store.composerSubject = 'New message'
+    store.composerAiInstruction = 'Something else.'
+    respond()
+
+    await expect(request).resolves.toBe(false)
+    expect(store.aiDraftPreview).toBe('')
+    expect(store.composerSubject).toBe('New message')
+    expect(store.isAiDraftLoading).toBe(false)
   })
 
   it('toggleMessageLabel POSTs the right action and syncs the email labels', async () => {
@@ -3157,6 +3405,28 @@ describe('Inbox Store', () => {
     expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
   })
 
+  it('leaves the inbox badge alone for search results outside the inbox', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+    const store = useInboxStore()
+    const done = { id: 'done-1', unread: false, isArchived: true }
+    const sent = { id: 'sent-1', unread: true, isSent: true }
+    const inbox = { id: 'inbox-1', unread: false }
+    store.activeSearchQuery = 'invoice'
+    store.traditionalEmails = [done, sent, inbox]
+    store.unreadInboxCount = 4
+
+    store.setUnread(done, true)
+    store.archiveEmail(sent, false)
+    expect(store.unreadInboxCount).toBe(4)
+
+    // A result that is an inbox row still moves the badge.
+    store.setUnread(inbox, true)
+    expect(store.unreadInboxCount).toBe(5)
+  })
+
   it('openReader marks the email read and exposes it via the openEmail getter', async () => {
     vi.stubGlobal(
       'fetch',
@@ -3522,7 +3792,7 @@ describe('Inbox Store', () => {
       expect(email.isSpam).toBe(false)
     })
 
-    it('during a search leaves the result in place and the inbox badge alone', async () => {
+    it('during a search leaves the result in place but moves the inbox badge', async () => {
       const store = useInboxStore()
       const email = { id: 'search-1', unread: true, isSpam: false, scheduledFor: null }
       store.activeSearchQuery = 'invoice'
@@ -3534,10 +3804,32 @@ describe('Inbox Store', () => {
       store.setSpam(email, true)
 
       expect(store.traditionalEmails).toEqual([email])
-      expect(store.unreadInboxCount).toBe(3)
+      expect(store.unreadInboxCount).toBe(2)
       expect(email.isSpam).toBe(true)
       expect(store.spamCount).toBe(1)
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+
+      // Not spam again: the unread, unsnoozed result counts toward the inbox.
+      store.setSpam(email, false)
+
+      expect(store.traditionalEmails).toEqual([email])
+      expect(store.unreadInboxCount).toBe(3)
+      expect(store.spamCount).toBe(0)
+    })
+
+    it('during a search leaves the badge alone for results that are not inbox rows', () => {
+      const store = useInboxStore()
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      const snoozed = { id: 's-1', unread: true, isSpam: true, scheduledFor: future }
+      const done = { id: 'd-1', unread: true, isSpam: false, isArchived: true }
+      store.activeSearchQuery = 'invoice'
+      store.traditionalEmails = [snoozed, done]
+      store.unreadInboxCount = 3
+
+      store.setSpam(snoozed, false)
+      store.setSpam(done, true)
+
+      expect(store.unreadInboxCount).toBe(3)
     })
 
     it('changes no folder count for archived mail, which neither folder lists', async () => {
