@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { h } from 'vue'
+import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-router'
 
 import TaskDetailPanel from '../TaskDetailPanel.vue'
 import { useProjectsStore } from '../../stores/projects'
@@ -17,8 +18,21 @@ const ITEMS = [
   { id: 'c', content: 'Third', description: null, dueDate: null, projectId: null },
 ]
 
-function mountPanel(taskId = 'b') {
-  return mount(TaskDetailPanel, { props: { taskId }, global: { plugins: [router] } })
+// Mounts the panel the way TasksView does: keyed on and fed from ?task=, so
+// the prop and the URL always name the same task and a route change swaps it.
+const TasksHost = {
+  setup() {
+    const route = useRoute()
+    return () =>
+      route.query.task
+        ? h(TaskDetailPanel, { key: route.query.task, taskId: route.query.task })
+        : null
+  },
+}
+
+async function mountPanel(taskId = 'b') {
+  await router.replace({ path: '/tasks', query: { task: taskId } })
+  return mount(RouterView, { global: { plugins: [router] } })
 }
 
 // The list is already loaded by the time the panel opens; the panel reads from
@@ -32,9 +46,9 @@ function seed(rows = ITEMS) {
 beforeEach(async () => {
   router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/tasks', name: 'tasks', component: { template: '<div />' } }],
+    routes: [{ path: '/tasks', name: 'tasks', component: TasksHost }],
   })
-  await router.push('/tasks?task=b')
+  await router.push('/tasks')
   await router.isReady()
   setActivePinia(createPinia())
   useTaskLabelsStore().isLoaded = true
@@ -52,7 +66,7 @@ beforeEach(async () => {
 describe('TaskDetailPanel', () => {
   it('has no sibling navigation in the header', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.find('.task-panel-prev').exists()).toBe(false)
@@ -60,17 +74,20 @@ describe('TaskDetailPanel', () => {
     expect(wrapper.find('.task-panel-close').exists()).toBe(true)
   })
 
-  it('renders the task the URL names', async () => {
+  it('renders the task the URL names and follows it when the URL changes', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
-
     expect(wrapper.get('.task-panel-title').text()).toBe('Second')
+
+    await router.push({ path: '/tasks', query: { task: 'c' } })
+    await flushPromises()
+    expect(wrapper.get('.task-panel-title').text()).toBe('Third')
   })
 
   it('names the Inbox when the task belongs to no project', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-project').text()).toContain('Inbox')
@@ -78,7 +95,7 @@ describe('TaskDetailPanel', () => {
 
   it('names the project when the task has one', async () => {
     seed([{ ...ITEMS[1], projectId: 'p1' }])
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-project').text()).toContain('Githup')
@@ -86,7 +103,7 @@ describe('TaskDetailPanel', () => {
 
   it('closes on Escape by dropping task from the query', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
@@ -98,7 +115,7 @@ describe('TaskDetailPanel', () => {
 
   it('closes on a backdrop click but not on a click inside', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel').trigger('click')
@@ -114,8 +131,8 @@ describe('TaskDetailPanel', () => {
     vi.spyOn(items, 'request').mockRejectedValue(
       Object.assign(new Error('Missing'), { status: 404 }),
     )
-    const wrapper = mountPanel('missing')
     seed()
+    const wrapper = await mountPanel('missing')
     await flushPromises()
 
     expect(items.notify).toHaveBeenCalledWith('That task no longer exists.', 'error')
@@ -128,11 +145,11 @@ describe('TaskDetailPanel', () => {
   it('waits for the load to settle before deciding the task is missing', async () => {
     items.loadedProject = null
     items.isLoading = true
-    const wrapper = mountPanel('missing')
+    const wrapper = await mountPanel('missing')
     await flushPromises()
 
     expect(items.notify).not.toHaveBeenCalled()
-    expect(router.currentRoute.value.query.task).toBe('b')
+    expect(router.currentRoute.value.query.task).toBe('missing')
     wrapper.unmount()
   })
 
@@ -147,9 +164,9 @@ describe('TaskDetailPanel', () => {
             resolveDetail = resolve
           }),
       )
-      const wrapper = mountPanel('older-task')
+      const wrapper = await mountPanel('older-task')
       await flushPromises()
-      expect(router.currentRoute.value.query.task).toBe('b')
+      expect(router.currentRoute.value.query.task).toBe('older-task')
       expect(items.notify).not.toHaveBeenCalled()
       resolveDetail({
         item: {
@@ -163,7 +180,7 @@ describe('TaskDetailPanel', () => {
       })
       await flushPromises()
       expect(wrapper.get('.task-panel-title').text()).toBe('Older task')
-      expect(router.currentRoute.value.query.task).toBe('b')
+      expect(router.currentRoute.value.query.task).toBe('older-task')
       wrapper.unmount()
     },
   )
@@ -171,9 +188,9 @@ describe('TaskDetailPanel', () => {
   it('keeps a failed lookup open for retry instead of reporting deletion', async () => {
     seed()
     vi.spyOn(items, 'request').mockRejectedValue(new Error('Offline'))
-    const wrapper = mountPanel('older-task')
+    const wrapper = await mountPanel('older-task')
     await flushPromises()
-    expect(router.currentRoute.value.query.task).toBe('b')
+    expect(router.currentRoute.value.query.task).toBe('older-task')
     expect(wrapper.text()).toContain('Retry')
     expect(items.notify).not.toHaveBeenCalledWith('That task no longer exists.', 'error')
     wrapper.unmount()
@@ -182,7 +199,7 @@ describe('TaskDetailPanel', () => {
   it('renames the task from the title', async () => {
     seed()
     const rename = vi.spyOn(items, 'renameItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-title').trigger('click')
@@ -197,7 +214,7 @@ describe('TaskDetailPanel', () => {
   it('does not rename when the title is cleared', async () => {
     seed()
     const rename = vi.spyOn(items, 'renameItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-title').trigger('click')
@@ -212,7 +229,7 @@ describe('TaskDetailPanel', () => {
   it('saves a description', async () => {
     seed()
     const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-description').trigger('click')
@@ -227,7 +244,7 @@ describe('TaskDetailPanel', () => {
   it('keeps the newlines of a multi-line description', async () => {
     seed()
     const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-description').trigger('click')
@@ -242,7 +259,7 @@ describe('TaskDetailPanel', () => {
   it('clears a description by emptying it', async () => {
     seed([{ ...ITEMS[1], description: 'Existing' }])
     const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-description').trigger('click')
@@ -267,7 +284,7 @@ describe('TaskDetailPanel', () => {
       },
     ])
     const setCompleted = vi.spyOn(items, 'setCompleted').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-subtasks-count').text()).toBe('1/2')
@@ -284,7 +301,7 @@ describe('TaskDetailPanel', () => {
       ...ITEMS,
       { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
     ])
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-subtasks-toggle').trigger('click')
@@ -295,7 +312,7 @@ describe('TaskDetailPanel', () => {
   it('adds a sub-task against the open task', async () => {
     seed()
     const createItem = vi.spyOn(items, 'createItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     // No sub-tasks yet: no header row, just the add affordance.
@@ -312,7 +329,7 @@ describe('TaskDetailPanel', () => {
 
   it('shows the placeholder when there is no description', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-description').text()).toBe('Add a description')
@@ -323,7 +340,7 @@ describe('TaskDetailPanel', () => {
   it('completes the task and closes', async () => {
     seed()
     const complete = vi.spyOn(items, 'setCompleted').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-check').trigger('click')
@@ -335,7 +352,7 @@ describe('TaskDetailPanel', () => {
 
   it("selects the task's current project in the picker", async () => {
     seed([{ ...ITEMS[1], projectId: 'p1' }])
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-project-select').element.value).toBe('p1')
@@ -343,7 +360,7 @@ describe('TaskDetailPanel', () => {
 
   it('selects Inbox when the task belongs to no project', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-project-select').element.value).toBe('inbox')
@@ -351,7 +368,7 @@ describe('TaskDetailPanel', () => {
 
   it('lists the Inbox and every project as options', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     const options = wrapper.findAll('.task-panel-project-select option')
@@ -361,7 +378,7 @@ describe('TaskDetailPanel', () => {
   it('moves the task to another project', async () => {
     seed()
     const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-project-select').setValue('p1')
@@ -374,7 +391,7 @@ describe('TaskDetailPanel', () => {
   it('moves the task to the Inbox as null', async () => {
     seed([{ ...ITEMS[1], projectId: 'p1' }])
     const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-project-select').setValue('inbox')
@@ -386,7 +403,7 @@ describe('TaskDetailPanel', () => {
   it('sets a due date', async () => {
     seed()
     const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-date-input').setValue('2026-09-01')
@@ -397,7 +414,7 @@ describe('TaskDetailPanel', () => {
 
   it('shows the date the task already has', async () => {
     seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-date-input').element.value).toBe('2026-09-01')
@@ -406,7 +423,7 @@ describe('TaskDetailPanel', () => {
   it('clears a due date', async () => {
     seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
     const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-date-clear').trigger('click')
@@ -420,7 +437,7 @@ describe('TaskDetailPanel', () => {
   it('sends null when the date input is emptied', async () => {
     seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
     const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-date-input').setValue('')
@@ -431,7 +448,7 @@ describe('TaskDetailPanel', () => {
 
   it('offers no clear control when there is no date', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.find('.task-panel-date-clear').exists()).toBe(false)
@@ -447,7 +464,7 @@ describe('TaskDetailPanel', () => {
       },
     ])
     const setDueTime = vi.spyOn(items, 'setDueTime').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-time-input').element.value).toBe('15:00')
@@ -460,7 +477,7 @@ describe('TaskDetailPanel', () => {
 
   it('disables due time until the task has a due date', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-time-input').attributes('disabled')).toBeDefined()
@@ -476,7 +493,7 @@ describe('TaskDetailPanel', () => {
       },
     ])
     const setDueTime = vi.spyOn(items, 'setDueTime').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-time-input').setValue('')
@@ -488,7 +505,7 @@ describe('TaskDetailPanel', () => {
   it('shows the labels as chips and saves a change at once', async () => {
     seed([{ ...ITEMS[1], labels: ['home', 'errands'] }])
     const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.findAll('.task-label-chip-text').map((chip) => chip.text())).toEqual([
@@ -506,7 +523,7 @@ describe('TaskDetailPanel', () => {
   // Priority is Todoist's four levels: 1 the most urgent, 4 the default.
   it('shows the default priority for a task that has none', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-priority-short').text()).toBe('P4')
@@ -518,7 +535,7 @@ describe('TaskDetailPanel', () => {
 
   it('shows the priority the task already has', async () => {
     seed([{ ...ITEMS[1], priority: 1 }])
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     expect(wrapper.get('.task-panel-priority-short').text()).toBe('P1')
@@ -532,7 +549,7 @@ describe('TaskDetailPanel', () => {
 
   it('opens a menu of the four levels with the current one marked', async () => {
     seed([{ ...ITEMS[1], priority: 2 }])
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-priority-button').trigger('click')
@@ -555,7 +572,7 @@ describe('TaskDetailPanel', () => {
   it('sets a priority from the menu and closes it', async () => {
     seed()
     const setPriority = vi.spyOn(items, 'setPriority').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-priority-button').trigger('click')
@@ -569,7 +586,7 @@ describe('TaskDetailPanel', () => {
   it('does not send the priority the task already has', async () => {
     seed([{ ...ITEMS[1], priority: 3 }])
     const setPriority = vi.spyOn(items, 'setPriority').mockResolvedValue({})
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-priority-button').trigger('click')
@@ -583,7 +600,7 @@ describe('TaskDetailPanel', () => {
   // Escape with the menu open is asking to leave the menu, not the panel.
   it('closes the priority menu on Escape without closing the panel', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-priority-button').trigger('click')
@@ -596,7 +613,7 @@ describe('TaskDetailPanel', () => {
 
   it('closes the priority menu on a click elsewhere in the panel', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-priority-button').trigger('click')
@@ -613,7 +630,7 @@ describe('TaskDetailPanel', () => {
   // edge. It is fixed to the viewport instead, measured from the button.
   it('places the menu under the button, matching its width', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
     const button = wrapper.get('.task-panel-priority-button').element
     button.getBoundingClientRect = () => ({ left: 100, width: 220, top: 500, bottom: 530 })
@@ -630,7 +647,7 @@ describe('TaskDetailPanel', () => {
 
   it('flips the menu above the button when the viewport has no room below', async () => {
     seed()
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
     const button = wrapper.get('.task-panel-priority-button').element
     button.getBoundingClientRect = () => ({ left: 100, width: 220, top: 500, bottom: 530 })
@@ -647,7 +664,7 @@ describe('TaskDetailPanel', () => {
     seed()
     const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-delete').trigger('click')
@@ -663,7 +680,7 @@ describe('TaskDetailPanel', () => {
     seed()
     const remove = vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
     vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-delete').trigger('click')
@@ -677,7 +694,7 @@ describe('TaskDetailPanel', () => {
     seed()
     vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-delete').trigger('click')
@@ -691,7 +708,7 @@ describe('TaskDetailPanel', () => {
     seed()
     vi.spyOn(items, 'deleteItem').mockResolvedValue(false)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const wrapper = mountPanel()
+    const wrapper = await mountPanel()
     await flushPromises()
 
     await wrapper.get('.task-panel-delete').trigger('click')
@@ -704,7 +721,7 @@ describe('TaskDetailPanel', () => {
 it('edits and removes a repeat schedule', async () => {
   seed()
   const save = vi.spyOn(items, 'setRecurrence').mockResolvedValue({ id: 'b' })
-  const wrapper = mountPanel()
+  const wrapper = await mountPanel()
   await wrapper.get('.task-repeat input').setValue('every 2nd Tuesday')
   await wrapper.get('form.task-panel-field').trigger('submit')
   await flushPromises()
@@ -719,7 +736,7 @@ it('edits and removes a repeat schedule', async () => {
 it('keeps a rejected repeat draft for correction', async () => {
   seed()
   vi.spyOn(items, 'setRecurrence').mockResolvedValue(null)
-  const wrapper = mountPanel()
+  const wrapper = await mountPanel()
   await wrapper.get('.task-repeat input').setValue('every nonsense')
   await wrapper.get('form.task-panel-field').trigger('submit')
   await flushPromises()
@@ -742,7 +759,7 @@ it('closes without a missing-task notification after rescheduling out of Today',
   vi.spyOn(items, 'request').mockResolvedValue({
     item: { ...items.items[0], dueDate: '9999-01-01' },
   })
-  const wrapper = mountPanel()
+  const wrapper = await mountPanel()
   await wrapper.get('.task-repeat input').setValue('every Monday')
   await wrapper.get('form.task-panel-field').trigger('submit')
   await flushPromises()
@@ -755,7 +772,7 @@ it('closes without a missing-task notification after rescheduling out of Today',
 it('stays open when completing fails', async () => {
   seed()
   vi.spyOn(items, 'setCompleted').mockResolvedValue(null)
-  const wrapper = mountPanel()
+  const wrapper = await mountPanel()
   await wrapper.get('.task-panel-check').trigger('click')
   await flushPromises()
   expect(router.currentRoute.value.query.task).toBe('b')

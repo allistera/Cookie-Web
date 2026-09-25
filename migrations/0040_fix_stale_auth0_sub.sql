@@ -7,11 +7,17 @@
 -- which orphaned the mailbox again: every fresh token's sub is 'auth0|...'
 -- and matches no row, so every request 401s. Point auth0_sub at the live
 -- subject.
+--
+-- Guarded so a fresh replay cannot re-point another account at this subject:
+-- it only rewrites the lone mailbox row while it still carries the stale
+-- Google sub (the exact production state), and is a no-op otherwise.
 
 BEGIN;
 
 UPDATE users
 SET auth0_sub = 'auth0|6a53d46804689c37ba15aef5'
-WHERE email = 'allisteraall@gmail.com';
+WHERE email = 'allisteraall@gmail.com'
+  AND auth0_sub LIKE 'google-oauth2|%'
+  AND (SELECT count(*) FROM users) = 1;
 
 COMMIT;

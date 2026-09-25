@@ -4,13 +4,24 @@
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+// Every fixture timestamp counts back from local noon today, not the real
+// clock. The inbox groups mail by calendar day, so ages measured from "now"
+// slid between groups near midnight (at 02:00 the "yesterday" tour email,
+// 1 day 4 hours old, landed two days back and the e2e that opens Yesterday
+// failed). From noon, each row sits in the same day group at any hour.
+export function fixtureNow() {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  return date.getTime()
+}
+
 // The campus-tour email must always carry a *future* date: the reader's
 // calendar suggestion drops events before today, so a hardcoded date rots as
 // the calendar advances (it shipped as "August 12th" and broke the day after
 // August 12th). Exported so e2e assertions derive their expectations from the
 // same date.
 export function fixtureTourDate() {
-  const date = new Date(Date.now() + 21 * DAY)
+  const date = new Date(fixtureNow() + 21 * DAY)
   date.setHours(0, 0, 0, 0)
   return date
 }
@@ -27,7 +38,10 @@ export function fixtureTourDateText() {
   return `${month} ${ordinal(date.getDate())}`
 }
 
-const TOUR_DATE_TEXT = fixtureTourDateText()
+// Filled in per request (see fixtureEmails) rather than once at import, so a
+// long-running dev/e2e server does not keep serving yesterday's date after
+// midnight while the e2e computes today's.
+const TOUR_DATE_TEXT = '{tourDate}'
 
 const rows = [
   {
@@ -286,19 +300,22 @@ const sentRows = [
 ]
 
 export function fixtureEmails() {
-  const now = Date.now()
+  const now = fixtureNow()
+  const tourDate = fixtureTourDateText()
   return rows.map(({ ageMs, ...row }, index) => ({
     id: `fixture-${index + 1}`,
     has_html: false,
     has_ai_summary: false,
     priority: 'normal',
     ...row,
+    subject: row.subject.replace(TOUR_DATE_TEXT, tourDate),
+    body_text: row.body_text.replace(TOUR_DATE_TEXT, tourDate),
     sent_at: new Date(now - ageMs).toISOString(),
   }))
 }
 
 export function fixtureSentEmails() {
-  const now = Date.now()
+  const now = fixtureNow()
   return sentRows.map(({ ageMs, ...row }, index) => ({
     id: `fixture-sent-${index + 1}`,
     has_html: false,

@@ -1253,6 +1253,12 @@ function localApiPlugin(mode) {
       }
       const document = state.documents.find((item) => item.id === body.id)
       if (!document) return json(res, { error: 'Document not found' }, 404)
+      // The Worker's optimistic-concurrency check: a save carrying the
+      // updatedAt it last saw is refused once the row has moved on (compared
+      // at millisecond precision, as there), so e2e can reach the 409 path.
+      if (body.updatedAt && Date.parse(body.updatedAt) !== Date.parse(document.updated_at)) {
+        return json(res, { error: 'Document was updated elsewhere — reload and retry' }, 409)
+      }
       if (Object.hasOwn(body, 'title')) document.title = body.title
       if (Object.hasOwn(body, 'emoji')) document.emoji = body.emoji
       if (Object.hasOwn(body, 'starred')) document.starred = body.starred
