@@ -55,6 +55,9 @@ export async function authHeaders(extra = {}) {
       try {
         await auth0.loginWithRedirect()
       } catch (redirectError) {
+        // No navigation is coming, so release the latch: otherwise this client
+        // is marked as redirecting for good and a later call can never retry.
+        redirecting.delete(auth0)
         console.error('Failed to start a new sign-in after the session expired:', redirectError)
       }
     }

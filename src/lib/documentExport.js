@@ -62,6 +62,12 @@ function listHTML(items, style, start = 1) {
   )
 }
 
+// Math.max(...values) passes every value as an argument, which overflows the
+// call stack once a big sheet or code block yields a few hundred thousand.
+function maxOf(values, floor) {
+  return values.reduce((max, value) => (value > max ? value : max), floor)
+}
+
 function tableSheets(data) {
   if (!data.workbook) {
     return [{ name: '', rows: Array.isArray(data.content) ? data.content : [] }]
@@ -77,8 +83,14 @@ function tableSheets(data) {
         if (value !== '') cells.push([Number(r), Number(c), value])
       }
     }
-    const height = Math.max(0, ...cells.map(([r]) => r + 1))
-    const width = Math.max(0, ...cells.map(([, c]) => c + 1))
+    const height = maxOf(
+      cells.map(([r]) => r + 1),
+      0,
+    )
+    const width = maxOf(
+      cells.map(([, c]) => c + 1),
+      0,
+    )
     if (
       !Number.isSafeInteger(height * width) ||
       height * width > 10000 ||
@@ -96,7 +108,10 @@ function tablesMarkdown(data) {
   return tableSheets(data)
     .map(({ name, rows }) => {
       if (!rows.length) return name ? `### ${escapeHtml(name)}\n\n` : ''
-      const width = Math.max(...rows.map((row) => row.length))
+      const width = maxOf(
+        rows.map((row) => row.length),
+        0,
+      )
       const line = (row) =>
         `| ${Array.from({ length: width }, (_, i) => inline(row[i]).replaceAll('|', '&#124;').replaceAll('\n', '<br>')).join(' | ')} |\n`
       return (
@@ -171,7 +186,12 @@ export function convertBlocksToMarkdown(blocks, title = '') {
         break
       case 'code': {
         const runs = String(data.code ?? '').match(/`+/g) ?? []
-        const fence = '`'.repeat(Math.max(3, ...runs.map((run) => run.length + 1)))
+        const fence = '`'.repeat(
+          maxOf(
+            runs.map((run) => run.length + 1),
+            3,
+          ),
+        )
         markdown += `${fence}${codeLanguage(data)}\n${data.code ?? ''}\n${fence}\n\n`
         break
       }

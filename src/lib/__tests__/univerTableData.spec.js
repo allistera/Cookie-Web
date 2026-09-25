@@ -20,6 +20,13 @@ describe('contentGridToWorkbookData', () => {
     expect(workbook.sheets.sheet1.cellData[0][0]).toEqual({ v: 'Ada & Grace' })
   })
 
+  // A cell that literally reads "&lt;b&gt;" is stored as "&amp;lt;b&amp;gt;";
+  // decoding it twice would turn the text into markup-looking "<b>".
+  it('decodes an escaped entity only once', () => {
+    const workbook = contentGridToWorkbookData([['&amp;lt;b&amp;gt;']])
+    expect(workbook.sheets.sheet1.cellData[0][0]).toEqual({ v: '&lt;b&gt;' })
+  })
+
   it('pads row/column counts to a sensible minimum for a small or blank grid', () => {
     const blank = contentGridToWorkbookData(undefined)
     expect(blank.sheets.sheet1.rowCount).toBeGreaterThanOrEqual(8)

@@ -13,7 +13,9 @@ export function isSafeUnsubscribeUrl(url) {
     return false
   }
 
-  const host = parsed.hostname.toLowerCase()
+  // A fully qualified name may end in a dot ("intranet.local.") and still
+  // resolve to the same host, so strip it before the blocked-host checks.
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, '')
   if (host.startsWith('[') || host.endsWith(']')) return false
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false
   if (!host.includes('.')) return false

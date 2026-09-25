@@ -18,6 +18,11 @@ describe('flattenBlocksToText', () => {
     expect(flattenBlocksToText('', blocks)).toBe('Tom & Jerry <3  cats')
   })
 
+  it('decodes an escaped entity only once', () => {
+    const blocks = [{ type: 'paragraph', data: { text: 'Write &amp;lt;b&amp;gt; for bold' } }]
+    expect(flattenBlocksToText('', blocks)).toBe('Write &lt;b&gt; for bold')
+  })
+
   it('walks nested list items at any depth', () => {
     const blocks = [
       {

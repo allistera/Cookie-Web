@@ -123,4 +123,28 @@ describe('document export', () => {
       'could not be exported',
     )
   })
+
+  // Spreading a few hundred thousand values into Math.max overflows the stack;
+  // a huge sheet should hit the friendly size error instead of a RangeError.
+  it('rejects a very large sheet with the size error rather than crashing', () => {
+    const cellData = {}
+    for (let r = 0; r < 300000; r += 1) cellData[r] = { 0: { v: 'x' } }
+    const blocks = [
+      block('table', { workbook: { sheetOrder: ['s'], sheets: { s: { cellData } } } }),
+    ]
+    expect(() => convertBlocksToMarkdown(blocks)).toThrow('too large to export')
+  })
+
+  // A legacy table has no workbook and so no size cap before Markdown export.
+  it('exports a very large legacy table without overflowing the stack', () => {
+    const content = Array.from({ length: 300000 }, () => ['x'])
+    const markdown = convertBlocksToMarkdown([block('table', { content })])
+    expect(markdown.startsWith('| x |\n| --- |\n')).toBe(true)
+  })
+
+  it('fences a code block with many backtick runs longer than its longest run', () => {
+    const code = 'a``'.repeat(300000)
+    const markdown = convertBlocksToMarkdown([block('code', { code })])
+    expect(markdown.startsWith('```\n')).toBe(true)
+  })
 })

@@ -112,7 +112,53 @@ describe('uploadAttachment', () => {
         authHeaders,
         uploader,
         fetchImpl,
+        retryDelaysMs: [0, 0],
       }),
     ).rejects.toThrow(/responded 500/)
+    // Bounded: the first attempt plus one retry per delay, then it gives up.
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(uploader).toHaveBeenCalledTimes(1)
+  })
+
+  // The blob is already stored, so a blip here would otherwise orphan it.
+  it('retries a transient registration failure and returns the stored row', async () => {
+    const { uploader } = harness()
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ attachment: { id: 'attachment-1', filename: 'plan.pdf' } }),
+      })
+
+    const attachment = await uploadAttachment(fakeFile('plan.pdf', 10), {
+      userId: 'user-1',
+      authHeaders,
+      uploader,
+      fetchImpl,
+      retryDelaysMs: [0, 0],
+    })
+
+    expect(attachment).toEqual({ id: 'attachment-1', filename: 'plan.pdf' })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(uploader).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([400, 429])('does not retry a registration the server answered %i', async (status) => {
+    const { uploader } = harness()
+    const fetchImpl = vi.fn(async () => ({ ok: false, status }))
+
+    await expect(
+      uploadAttachment(fakeFile('plan.pdf', 10), {
+        userId: 'user-1',
+        authHeaders,
+        uploader,
+        fetchImpl,
+        retryDelaysMs: [0, 0],
+      }),
+    ).rejects.toThrow(`responded ${status}`)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })

@@ -159,9 +159,11 @@ export class KanbanBlockTool {
     if (!this.focusRequest) return
     const { laneId, taskId } = this.focusRequest
     this.focusRequest = null
+    // Ids come from saved block data, so escape them before they go into a
+    // selector: a quote or backslash would otherwise make querySelector throw.
     const selector = laneId
-      ? `.kanban-lane[data-lane-id="${laneId}"] > .kanban-lane__header .kanban-lane__title`
-      : `.kanban-task[data-task-id="${taskId}"] .kanban-task__title`
+      ? `.kanban-lane[data-lane-id="${CSS.escape(laneId)}"] > .kanban-lane__header .kanban-lane__title`
+      : `.kanban-task[data-task-id="${CSS.escape(taskId)}"] .kanban-task__title`
     this.board.querySelector(selector)?.focus()
   }
 

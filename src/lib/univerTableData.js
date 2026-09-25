@@ -20,12 +20,13 @@ const DEFAULT_ROW_HEIGHT = 27
 // 6-line string utility isn't worth coupling two unrelated modules over, and
 // the same reasoning applies here.
 function stripHtml(html) {
+  // &amp; is decoded last so an escaped entity like "&amp;lt;" stays "&lt;".
   return String(html ?? '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
     .trim()
 }
 

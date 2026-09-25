@@ -83,6 +83,15 @@ async function loadUniver() {
   }
 }
 
+// Univer reports every command it runs, including selection moves, scrolling
+// and other OPERATIONs that never reach the saved snapshot. Only a MUTATION
+// changes what save() would serialize, so only that should mark the document
+// dirty and schedule an autosave. CommandType comes from the lazily loaded
+// presets bundle, so it is passed in rather than imported here.
+export function isSnapshotMutation(command, CommandType) {
+  return command?.type === CommandType.MUTATION
+}
+
 export class UniverSheetTool {
   static get toolbox() {
     return { title: 'Table', icon: TOOLBOX_ICON }
@@ -230,7 +239,9 @@ export class UniverSheetTool {
       const workbookData = this.data?.workbook ?? contentGridToWorkbookData(this.data?.content)
       univerAPI.createWorkbook(workbookData)
       if (isBlankInsert) univerAPI.getActiveWorkbook()?.getActiveSheet()?.setFrozenRows(1)
-      univerAPI.onCommandExecuted(() => this.scheduleDocumentSave())
+      univerAPI.onCommandExecuted((command) => {
+        if (isSnapshotMutation(command, presets.CommandType)) this.scheduleDocumentSave()
+      })
 
       // Formula recalculation runs asynchronously, off the command that
       // triggered it — save() awaits calculationSettled so a fast edit

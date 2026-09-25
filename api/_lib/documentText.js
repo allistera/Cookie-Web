@@ -11,12 +11,13 @@ import { flattenWorkbookCellText } from '../../src/lib/univerTableData.js'
 // text. Local copy of dailyEventSync.js's identical helper: entangling two
 // unrelated modules through a 6-line string utility isn't worth the coupling.
 function plainText(html) {
+  // &amp; is decoded last so an escaped entity like "&amp;lt;" stays "&lt;".
   return String(html ?? '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
     .trim()
 }
 

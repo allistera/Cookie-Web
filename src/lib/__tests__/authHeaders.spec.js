@@ -111,4 +111,20 @@ describe('authHeaders', () => {
     // The original Auth0 error surfaces, not the redirect's.
     await expect(authHeaders()).rejects.toThrow('nope')
   })
+
+  // A blocked redirect must not leave the client latched as "redirecting",
+  // or the person is stuck on a dead session with no way back to sign-in.
+  it('tries the redirect again on a later call after the first one failed', async () => {
+    const client = auth0Stub({ error: auth0Error('invalid_grant') })
+    client.loginWithRedirect = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('popup blocked'))
+      .mockResolvedValueOnce(undefined)
+    const { authHeaders } = withClient(client)
+
+    await expect(authHeaders()).rejects.toThrow('nope')
+    await expect(authHeaders()).rejects.toThrow('nope')
+
+    expect(client.loginWithRedirect).toHaveBeenCalledTimes(2)
+  })
 })

@@ -65,6 +65,18 @@ describe('KanbanBlockTool', () => {
     document.body.replaceChildren()
   })
 
+  it('focuses a lane whose id needs escaping in a selector', () => {
+    const tool = new KanbanBlockTool({
+      data: { lanes: [{ id: 'lane "1"\\x', title: 'Odd', tasks: [] }] },
+    })
+    document.body.append(tool.render())
+
+    tool.focusRequest = { laneId: 'lane "1"\\x', field: 'lane' }
+    expect(() => tool.renderBoard()).not.toThrow()
+    expect(document.activeElement).toBe(tool.wrapper.querySelector('.kanban-lane__title'))
+    document.body.replaceChildren()
+  })
+
   it('saves edited lane/task text', () => {
     const tool = new KanbanBlockTool({ data: {} })
     const el = tool.render()
