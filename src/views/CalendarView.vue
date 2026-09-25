@@ -20,8 +20,16 @@ const { calendars, writableCalendars, subscribedCalendars, loadCalendars } = use
   (message, kind) => store.notify(message, kind),
 )
 
-const today = new Date()
-const REFERENCE_DATE = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+// Ticks every minute (see onMounted) so the current-time line and "today"
+// follow the wall clock, including past midnight.
+const now = ref(new Date())
+let nowTimer = null
+// Keyed on the day's start timestamp so the per-minute tick only invalidates
+// "today" and its dependants when the date actually rolls over.
+const todayStart = computed(() =>
+  new Date(now.value.getFullYear(), now.value.getMonth(), now.value.getDate()).getTime(),
+)
+const referenceDate = computed(() => new Date(todayStart.value))
 const DAY_HOUR_HEIGHT = 96
 const WEEK_HOUR_HEIGHT = 72
 const START_HOUR = 8
@@ -30,7 +38,7 @@ const END_HOUR = 19
 const SNAP_MINUTES = 15
 
 const viewMode = ref('day')
-const selectedDate = ref(new Date(REFERENCE_DATE))
+const selectedDate = ref(new Date(referenceDate.value))
 const showNewEvent = ref(false)
 const eventForm = ref(null)
 const editingEventId = ref(null)
@@ -139,13 +147,13 @@ let eventsRequestSeq = 0
 
 // The visible grid needs at most ±45 days around selectedDate (a month grid
 // spans six weeks); the insights rail additionally always needs the conflict
-// window and the auto-scheduled week anchored on REFERENCE_DATE.
+// window and the auto-scheduled week anchored on referenceDate ("today").
 function requiredEventRange() {
   const bounds = [
     addDays(selectedDate.value, -EVENT_RANGE_VIEW_DAYS),
     addDays(selectedDate.value, EVENT_RANGE_VIEW_DAYS),
-    addDays(REFERENCE_DATE, -7),
-    addDays(REFERENCE_DATE, CONFLICT_WINDOW_DAYS + 1),
+    addDays(referenceDate.value, -7),
+    addDays(referenceDate.value, CONFLICT_WINDOW_DAYS + 1),
   ].map((date) => date.getTime())
   return { from: new Date(Math.min(...bounds)), to: new Date(Math.max(...bounds)) }
 }
@@ -183,7 +191,7 @@ async function loadEvents() {
   }
 }
 
-watch(selectedDate, () => {
+watch([selectedDate, referenceDate], () => {
   if (!loadedEventRange.value) return
   const required = requiredEventRange()
   if (
@@ -222,11 +230,16 @@ const startOfWeek = (date) => {
   return start
 }
 
-// The real current week (anchored on REFERENCE_DATE/"today"), independent of
+// The real current week (anchored on referenceDate/"today"), independent of
 // whatever day/week/month the user has navigated to — the "Auto-scheduled"
 // insight card reports on this week, not the one being viewed.
-const THIS_WEEK_DATE_KEYS = new Set(
-  Array.from({ length: 7 }, (_, index) => dateKey(addDays(startOfWeek(REFERENCE_DATE), index))),
+const thisWeekDateKeys = computed(
+  () =>
+    new Set(
+      Array.from({ length: 7 }, (_, index) =>
+        dateKey(addDays(startOfWeek(referenceDate.value), index)),
+      ),
+    ),
 )
 // Genuine count, not fabricated copy: true only for events flagged
 // is_auto_scheduled server-side (migration 0033). No feature sets that flag
@@ -234,7 +247,7 @@ const THIS_WEEK_DATE_KEYS = new Set(
 const autoScheduledCount = computed(
   () =>
     visibleEvents.value.filter(
-      (event) => event.autoScheduled && THIS_WEEK_DATE_KEYS.has(event.date),
+      (event) => event.autoScheduled && thisWeekDateKeys.value.has(event.date),
     ).length,
 )
 
@@ -254,8 +267,8 @@ const eventInterval = (event) => {
 // scheduling sense. Exported shape mirrors the card's original hardcoded
 // copy: "<later event>" overlaps "<earlier event>" by N min on <day>.
 const detectedConflict = computed(() => {
-  const windowStart = REFERENCE_DATE
-  const windowEnd = addDays(REFERENCE_DATE, CONFLICT_WINDOW_DAYS)
+  const windowStart = referenceDate.value
+  const windowEnd = addDays(referenceDate.value, CONFLICT_WINDOW_DAYS)
   const candidates = visibleEvents.value
     .filter((event) => !event.allDay && event.kind !== 'task')
     .filter((event) => {
@@ -431,7 +444,7 @@ const eventTime = (event) => {
   return `${displayHour}:${String(minute).padStart(2, '0')} ${suffix}`
 }
 
-const isToday = (date) => dateKey(date) === dateKey(REFERENCE_DATE)
+const isToday = (date) => dateKey(date) === dateKey(referenceDate.value)
 const isCurrentMonth = (date) => date.getMonth() === selectedDate.value.getMonth()
 // One O(N) bucketing pass instead of a full-array filter per month cell —
 // the 42-cell month grid made that O(42×N) on every render.
@@ -454,9 +467,6 @@ const weekDateKeys = computed(() => new Set(weekDays.value.map(dateKey)))
 const weekTimedEvents = computed(() =>
   timedVisibleEvents.value.filter((event) => weekDateKeys.value.has(event.date)),
 )
-
-const now = ref(new Date())
-let nowTimer = null
 
 const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
 // Hide the line entirely when the wall clock falls outside the rendered
@@ -494,7 +504,7 @@ function navigate(direction) {
 }
 
 function goToday() {
-  selectedDate.value = new Date(REFERENCE_DATE)
+  selectedDate.value = new Date(referenceDate.value)
 }
 
 const REPEAT_FREQUENCIES = ['none', 'daily', 'weekly', 'monthly', 'yearly']
@@ -524,7 +534,10 @@ function parseRepeatDays(recurrenceRule) {
   return match ? match[1].split(',') : []
 }
 
+// Neither opener may replace the dialog while a save/delete is in flight: the
+// request closes the dialog when it finishes, which would discard the new one.
 function openNewEvent(prefill) {
+  if (eventSaving.value) return
   editingEventId.value = null
   eventFormReadOnly.value = false
   eventCreationMode.value = prefill ? 'advanced' : 'ai'
@@ -557,6 +570,7 @@ function toggleRepeatDay(code) {
 }
 
 function editEvent(event) {
+  if (eventSaving.value) return
   // A task is edited where it lives: open it in the Tasks app on its project.
   if (event.kind === 'task') {
     router?.push({ path: '/tasks', query: { project: event.projectId, task: event.taskId } })
@@ -589,6 +603,13 @@ function editEvent(event) {
     repeatDays: parseRepeatDays(event.recurrenceRule),
   }
   showNewEvent.value = true
+}
+
+// User-initiated dismissal (Escape, overlay, Close/Cancel). Blocked while a
+// save/delete is in flight, as AddTaskDialog does: those requests resolve
+// against the dialog's state and close it themselves when they finish.
+function dismissEventDialog() {
+  if (!eventSaving.value) closeNewEvent()
 }
 
 function closeNewEvent() {
@@ -678,17 +699,18 @@ async function saveEvent() {
     repeatDays: repeat === 'weekly' && repeatDays.length ? repeatDays : null,
   }
 
+  // Captured before the first await so the request always targets the event
+  // the dialog was opened on.
+  const editingId = editingEventId.value
   eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    if (editingEventId.value) {
-      const existing = events.value.find(
-        (event) => (event.seriesId ?? event.id) === editingEventId.value,
-      )
+    if (editingId) {
+      const existing = events.value.find((event) => (event.seriesId ?? event.id) === editingId)
       const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ id: editingEventId.value, ...fields, tone: existing?.tone ?? null }),
+        body: JSON.stringify({ id: editingId, ...fields, tone: existing?.tone ?? null }),
       })
       if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
       // Non-recurring edits can be applied in place from the server's returned
@@ -696,9 +718,7 @@ async function saveEvent() {
       if (repeat === 'none') {
         const { event: updated } = await response.json()
         events.value = events.value.map((event) =>
-          (event.seriesId ?? event.id) === editingEventId.value
-            ? { ...updated, seriesId: updated.id }
-            : event,
+          (event.seriesId ?? event.id) === editingId ? { ...updated, seriesId: updated.id } : event,
         )
         closeNewEvent()
         return
@@ -745,6 +765,42 @@ async function deleteEvent() {
   }
 }
 
+// The dialog is aria-modal, so focus returns to whatever opened it once it
+// closes. The watcher runs before the DOM update, while the opener still
+// holds focus.
+let eventDialogOpener = null
+watch(showNewEvent, (open) => {
+  if (open) {
+    eventDialogOpener = document.activeElement
+    return
+  }
+  const opener = eventDialogOpener
+  eventDialogOpener = null
+  nextTick(() => {
+    if (opener?.isConnected) opener.focus?.()
+    // A palette "Create Event" request that waited on this dialog opens now.
+    consumeNewEventRequest()
+  })
+})
+
+// Keeps Tab/Shift+Tab cycling inside the modal dialog.
+function onEventDialogKeydown(event) {
+  if (event.key !== 'Tab') return
+  const focusable = [
+    ...event.currentTarget.querySelectorAll('input, select, textarea, button'),
+  ].filter((element) => !element.disabled)
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (!first) return
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 watch([showNewEvent, eventCreationMode], ([open, mode]) => {
   if (!open) return
   nextTick(() => {
@@ -759,6 +815,13 @@ watch(
   () => store.calendarNewEventRequestId,
   () => consumeNewEventRequest(),
 )
+
+// A request that arrived during a save/delete stays pending until the save
+// finishes and its dialog is closed. A failed save keeps the dialog (and the
+// user's edits) open, so the request waits for the close watcher above.
+watch(eventSaving, (saving) => {
+  if (!saving && !showNewEvent.value) consumeNewEventRequest()
+})
 
 // Palette navigation for this view. Immediate so a request raised just
 // before the view mounted is honoured on arrival.
@@ -779,7 +842,7 @@ watch(
 // A request raised before this view mounted (the palette on another route)
 // is still pending, so the mount path opens it once calendars have loaded.
 function consumeNewEventRequest() {
-  if (!store.calendarNewEventPending) return
+  if (!store.calendarNewEventPending || eventSaving.value) return
   const draft = store.calendarNewEventDraft
   store.calendarNewEventPending = false
   store.calendarNewEventDraft = null
@@ -828,7 +891,7 @@ function onDragEnd() {
 }
 
 function onKeydown(event) {
-  if (event.key === 'Escape' && showNewEvent.value) closeNewEvent()
+  if (event.key === 'Escape' && showNewEvent.value) dismissEventDialog()
 }
 
 onMounted(async () => {
@@ -1214,12 +1277,13 @@ onUnmounted(() => {
     </div>
 
     <Transition name="calendar-modal">
-      <div v-if="showNewEvent" class="new-event-overlay" @mousedown.self="closeNewEvent">
+      <div v-if="showNewEvent" class="new-event-overlay" @mousedown.self="dismissEventDialog">
         <section
           class="new-event-dialog"
           role="dialog"
           aria-modal="true"
           :aria-label="editingEventId ? 'Edit event' : 'New event'"
+          @keydown="onEventDialogKeydown"
         >
           <template v-if="eventCreationMode === 'ai' && !editingEventId">
             <header class="new-event-dialog-header">
@@ -1231,7 +1295,7 @@ onUnmounted(() => {
                 type="button"
                 class="new-event-close"
                 aria-label="Close"
-                @click="closeNewEvent"
+                @click="dismissEventDialog"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m6 6 12 12M18 6 6 18" />
@@ -1263,7 +1327,7 @@ onUnmounted(() => {
                 Advanced
               </button>
               <div class="new-event-dialog-actions-right">
-                <button type="button" class="new-event-cancel" @click="closeNewEvent">
+                <button type="button" class="new-event-cancel" @click="dismissEventDialog">
                   Cancel
                 </button>
                 <button
@@ -1304,7 +1368,7 @@ onUnmounted(() => {
                 type="button"
                 class="new-event-close"
                 aria-label="Close"
-                @click="closeNewEvent"
+                @click="dismissEventDialog"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m6 6 12 12M18 6 6 18" />
@@ -1402,7 +1466,9 @@ onUnmounted(() => {
 
             <footer v-if="eventFormReadOnly" class="new-event-dialog-actions">
               <div class="new-event-dialog-actions-right">
-                <button type="button" class="new-event-cancel" @click="closeNewEvent">Close</button>
+                <button type="button" class="new-event-cancel" @click="dismissEventDialog">
+                  Close
+                </button>
               </div>
             </footer>
             <footer v-else class="new-event-dialog-actions">
@@ -1416,7 +1482,7 @@ onUnmounted(() => {
                 {{ eventForm.repeat !== 'none' ? 'Delete series' : 'Delete' }}
               </button>
               <div class="new-event-dialog-actions-right">
-                <button type="button" class="new-event-cancel" @click="closeNewEvent">
+                <button type="button" class="new-event-cancel" @click="dismissEventDialog">
                   Cancel
                 </button>
                 <button

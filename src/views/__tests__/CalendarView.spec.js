@@ -33,7 +33,7 @@ const SEED_EVENTS = [
     tone: 'dark',
     calendar: 'focus',
   },
-  // Dated within the next 30 days (REFERENCE_DATE is 2026-07-24) so the real
+  // Dated within the next 30 days ("today" is 2026-07-24) so the real
   // conflict detector in CalendarView.vue actually finds this overlap.
   {
     id: 'design',
@@ -316,7 +316,7 @@ async function mountCalendar(options) {
 }
 
 beforeEach(() => {
-  // CalendarView reads new Date() once at setup to compute "today" (REFERENCE_DATE).
+  // CalendarView derives "today" from new Date() (re-read every minute).
   // Freeze it to match every fixture date below instead of drifting with the
   // real clock; individual tests can override the time-of-day further.
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -582,6 +582,27 @@ describe('CalendarView', () => {
     expect(wrapper.get('h1').text()).toBe('August 2026')
   })
 
+  it('moves "today" forward when the clock passes midnight', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date(2026, 6, 24, 23, 59))
+    try {
+      const wrapper = await mountCalendar()
+      await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+      expect(wrapper.get('.month-date.today').text()).toBe('24')
+
+      vi.setSystemTime(new Date(2026, 6, 25, 0, 0))
+      vi.advanceTimersByTime(60_000)
+      await flushPromises()
+      expect(wrapper.get('.month-date.today').text()).toBe('25')
+
+      await wrapper.get('.calendar-view-tabs button:nth-child(1)').trigger('click')
+      await wrapper.get('.today-button').trigger('click')
+      expect(wrapper.get('h1').text()).toBe('Saturday, July 25, 2026')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens the New event dialog with the AI text box focused and offers Advanced entry', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 
@@ -664,6 +685,106 @@ describe('CalendarView', () => {
       ([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'POST',
     )
     expect(postCalls).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('keeps the edit dialog open while a save is in flight so it cannot become a create', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const store = useInboxStore()
+
+    const standup = wrapper.findAll('.day-event').find((event) => event.text().includes('Standup'))
+    await standup.trigger('click')
+    await wrapper.get('.new-event-title-input').setValue('Daily Standup')
+
+    let releaseHeaders
+    store.authHeaders.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseHeaders = () => resolve({}))),
+    )
+    await wrapper.get('.new-event-create').trigger('click')
+
+    // Every dismissal path is ignored while the save is pending.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wrapper.get('.new-event-overlay').trigger('mousedown')
+    await wrapper.get('.new-event-cancel').trigger('click')
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(true)
+
+    releaseHeaders()
+    await flushPromises()
+
+    const writes = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url, options]) => url === EVENTS_ENDPOINT && ['POST', 'PATCH'].includes(options?.method),
+      )
+    expect(writes).toHaveLength(1)
+    expect(writes[0][1].method).toBe('PATCH')
+    expect(JSON.parse(writes[0][1].body).id).toBe('standup')
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('holds a palette New event request until an in-flight save has closed its dialog', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const store = useInboxStore()
+
+    const standup = wrapper.findAll('.day-event').find((event) => event.text().includes('Standup'))
+    await standup.trigger('click')
+    await wrapper.get('.new-event-title-input').setValue('Daily Standup')
+
+    let releaseHeaders
+    store.authHeaders.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseHeaders = () => resolve({}))),
+    )
+    await wrapper.get('.new-event-create').trigger('click')
+
+    // The command palette's "Create Event" fires mid-save.
+    store.calendarNewEventPending = true
+    store.calendarNewEventRequestId++
+    await flushPromises()
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('Daily Standup')
+    expect(store.calendarNewEventPending).toBe(true)
+
+    releaseHeaders()
+    await flushPromises()
+
+    const writes = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url, options]) => url === EVENTS_ENDPOINT && ['POST', 'PATCH'].includes(options?.method),
+      )
+    expect(writes).toHaveLength(1)
+    expect(writes[0][1].method).toBe('PATCH')
+    expect(store.calendarNewEventPending).toBe(false)
+    // A fresh New event draft is open, not the edited event and not closed.
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(true)
+    expect(wrapper.find('.new-event-ai-input').exists()).toBe(true)
+    expect(wrapper.find('.new-event-delete').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('traps Tab inside the event dialog and restores focus to its opener on close', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    const opener = wrapper.get('.calendar-sidebar-create')
+    opener.element.focus()
+    await opener.trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('.new-event-dialog')
+    const focusable = dialog
+      .findAll('input, select, textarea, button')
+      .filter((element) => !element.element.disabled)
+    focusable.at(-1).element.focus()
+    await dialog.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(focusable[0].element)
+
+    await dialog.trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(focusable.at(-1).element)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
     wrapper.unmount()
   })
 
