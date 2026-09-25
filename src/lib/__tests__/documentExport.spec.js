@@ -136,11 +136,12 @@ describe('document export', () => {
   })
 
   // A legacy table has no workbook and so no size cap before Markdown export.
+  // Rendering 300k rows takes several seconds on CI runners, hence the timeout.
   it('exports a very large legacy table without overflowing the stack', () => {
     const content = Array.from({ length: 300000 }, () => ['x'])
     const markdown = convertBlocksToMarkdown([block('table', { content })])
     expect(markdown.startsWith('| x |\n| --- |\n')).toBe(true)
-  })
+  }, 30_000)
 
   it('fences a code block with many backtick runs longer than its longest run', () => {
     const code = 'a``'.repeat(300000)
