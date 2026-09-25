@@ -39,7 +39,9 @@ test('the service worker keeps the shell and recently read mail available offlin
     return (await cache.keys()).map((request) => new URL(request.url).pathname)
   })
   expect(shellUrls).toContain('/')
-  expect(shellUrls).toContain('/inbox')
+  // Navigations are cached only under '/', never per URL (so Auth0 callback
+  // and search URLs never land in the cache); /inbox still loads offline via '/'.
+  expect(shellUrls).not.toContain('/inbox')
   // The self-hosted Material Symbols subset is precached at install; without
   // it main.css keeps every icon hidden for an offline start.
   expect(shellUrls).toContain('/fonts/material-symbols-outlined.css')

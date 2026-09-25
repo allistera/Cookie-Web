@@ -34,7 +34,10 @@ function attachmentPrefix(userId) {
 }
 
 // Only our own store's hosts are worth a head() call; anything else is a
-// client-supplied URL we should reject before it reaches the Blob API.
+// client-supplied URL we should reject before it reaches the Blob API. The
+// query and fragment are dropped so one blob always maps to one blob_url:
+// otherwise "x.pdf?a=1" registers a second row, and deleting one row would
+// see the blob as unreferenced while the other still points at it.
 function parseBlobUrl(value) {
   let url
   try {
@@ -46,7 +49,7 @@ function parseBlobUrl(value) {
   if (url.hostname !== 'vercel-storage.com' && !url.hostname.endsWith('.vercel-storage.com')) {
     return null
   }
-  return url.href
+  return `${url.origin}${url.pathname}`
 }
 
 // POST /api/send?resource=upload-token — mints a short-lived Blob client

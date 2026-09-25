@@ -252,6 +252,26 @@ describe('POST /api/send?resource=attachment', () => {
     expect(sql.mock.calls[0][0].join('')).toContain('ON CONFLICT (user_id, blob_url)')
   })
 
+  it('registers the blob under its url without query or fragment', async () => {
+    mocks.headBlob.mockResolvedValue({
+      pathname: `outbound-attachments/${USER_ID}/plan.pdf`,
+      size: 10,
+      contentType: 'application/pdf',
+    })
+    const sql = vi.fn(async () => [{ id: ATTACHMENT_ID, filename: 'plan.pdf', created: true }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      registerRequest({ url: `${BLOB_URL}?download=1#page=2`, filename: 'plan.pdf' }),
+      res,
+    )
+
+    expect(res.statusCode).toBe(201)
+    expect(mocks.headBlob).toHaveBeenCalledWith(BLOB_URL)
+    expect(sql.mock.calls[0]).toContain(BLOB_URL)
+  })
+
   it('falls back to a plain insert while the 0083 unique index is missing', async () => {
     mocks.headBlob.mockResolvedValue({
       pathname: `outbound-attachments/${USER_ID}/plan.pdf`,

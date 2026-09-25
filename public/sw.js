@@ -1,8 +1,13 @@
+// The shell cache holds only SHELL_URLS plus the entry assets index.html
+// references, and is never trimmed: an offline start needs all of it. Lazily
+// loaded chunks go to the bounded runtime cache instead, so they can never
+// evict the shell.
 const SHELL_CACHE = 'cookie-shell-v1'
+const RUNTIME_CACHE = 'cookie-runtime-v1'
 const MAIL_CACHE = 'cookie-recent-mail-v3'
 // Vite development serves a large module graph one file at a time; production
 // bundles need only a small bounded cache across deployments.
-const MAX_SHELL_ENTRIES = self.location.hostname === 'localhost' ? 500 : 60
+const MAX_RUNTIME_ENTRIES = self.location.hostname === 'localhost' ? 500 : 60
 const MAX_MAIL_ENTRIES = 20
 // Every SW update re-runs install, which re-fetches this whole list, so new
 // entries reach existing installs without renaming SHELL_CACHE. The same
@@ -31,7 +36,9 @@ self.addEventListener('install', (event) => {
       await Promise.allSettled(
         SHELL_URLS.map(async (url) => {
           const response = await fetch(url, { cache: 'reload' })
-          if (response.ok) await cache.put(url, response)
+          if (!response.ok) return
+          if (url === '/') await cacheShellDocument(response)
+          else await cache.put(url, response)
         }),
       )
       await self.skipWaiting()
@@ -42,13 +49,16 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const currentCaches = new Set([SHELL_CACHE, MAIL_CACHE])
+      const currentCaches = new Set([SHELL_CACHE, RUNTIME_CACHE, MAIL_CACHE])
       const cacheNames = await caches.keys()
       await Promise.all(
         cacheNames
           .filter((cacheName) => cacheName.startsWith('cookie-') && !currentCaches.has(cacheName))
           .map((cacheName) => caches.delete(cacheName)),
       )
+      // Earlier workers put every navigation URL (Auth0 ?code=&state=
+      // callbacks, search queries) and every lazy chunk into the shell cache.
+      await pruneShellCache()
       await self.clients.claim()
     })(),
   )
@@ -85,7 +95,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return
 
   if (request.mode === 'navigate') {
-    event.respondWith(shellNavigationResponse(request))
+    event.respondWith(shellNavigationResponse(event))
     return
   }
 
@@ -112,31 +122,89 @@ async function recentMailResponse(event) {
   }
 }
 
-async function shellNavigationResponse(request) {
-  const cache = await caches.open(SHELL_CACHE)
+// Every SPA route is the same index.html, so it is cached once under "/"
+// rather than per URL; per-URL keys would also persist Auth0 callback codes
+// and search queries.
+async function shellNavigationResponse(event) {
   try {
-    const response = await fetch(request)
-    if (response.ok) {
-      await cache.put(request, response.clone())
-      await trimCache(cache, MAX_SHELL_ENTRIES)
-    }
+    const response = await fetch(event.request)
+    if (response.ok && isHtml(response)) event.waitUntil(cacheShellDocument(response.clone()))
     return response
   } catch {
-    return (await cache.match(request)) ?? (await cache.match('/'))
+    const cache = await caches.open(SHELL_CACHE)
+    return cache.match('/')
   }
 }
 
 async function staticAssetResponse(request) {
-  const cache = await caches.open(SHELL_CACHE)
-  const cached = await cache.match(request)
+  const cached =
+    (await (await caches.open(SHELL_CACHE)).match(request)) ??
+    (await (await caches.open(RUNTIME_CACHE)).match(request))
   if (cached) return cached
 
   const response = await fetch(request)
-  if (response.ok) {
+  // A missing file answered with the SPA's index.html must not be cached
+  // cache-first under a script or style URL.
+  if (response.ok && !isHtml(response)) {
+    const cache = await caches.open(RUNTIME_CACHE)
     await cache.put(request, response.clone())
-    await trimCache(cache, MAX_SHELL_ENTRIES)
+    await trimCache(cache, MAX_RUNTIME_ENTRIES)
   }
   return response
+}
+
+function isHtml(response) {
+  return (response.headers.get('Content-Type') ?? '').includes('text/html')
+}
+
+// Stores index.html as "/" together with the hashed entry script, styles, and
+// modulepreloads it references, so an offline start does not depend on the
+// bounded runtime cache.
+async function cacheShellDocument(response) {
+  const cache = await caches.open(SHELL_CACHE)
+  const entryUrls = entryAssetUrls(await response.clone().text())
+  const stored = await Promise.all(
+    entryUrls.map(async (url) => {
+      if (await cache.match(url)) return true
+      try {
+        const asset = await fetch(url)
+        if (!asset.ok || isHtml(asset)) return false
+        await cache.put(url, asset)
+        return true
+      } catch {
+        return false
+      }
+    }),
+  )
+  // Only swap in the new document once every entry asset it needs is in the
+  // untrimmed cache; otherwise keep the previous "/" and its assets so an
+  // offline start never depends on the bounded runtime cache.
+  if (!stored.every(Boolean)) return
+  await cache.put('/', response)
+  await pruneShellCache()
+}
+
+function entryAssetUrls(html) {
+  return [...new Set([...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]))]
+}
+
+// Keeps the untrimmed shell cache bounded: anything that is neither a
+// SHELL_URL nor an entry asset of the cached "/" document (a previous
+// deployment's bundle, a navigation cached per URL by an earlier worker)
+// is dropped.
+async function pruneShellCache() {
+  const cache = await caches.open(SHELL_CACHE)
+  const shell = await cache.match('/')
+  const keep = new Set([...SHELL_URLS, ...(shell ? entryAssetUrls(await shell.text()) : [])])
+  const keys = await cache.keys()
+  await Promise.all(
+    keys
+      .filter((key) => {
+        const url = new URL(key.url)
+        return url.search !== '' || !keep.has(url.pathname)
+      })
+      .map((key) => cache.delete(key)),
+  )
 }
 
 async function privateMailCacheKey(request) {
