@@ -53,7 +53,11 @@ export async function authHeaders(extra = {}) {
     if (isDeadSession(error) && !redirecting.has(auth0)) {
       redirecting.add(auth0)
       try {
-        await auth0.loginWithRedirect()
+        // appState.target brings the person back to where they were: the
+        // auth0-vue plugin pushes it on the router after the callback. Read
+        // from window.location because importing the router here would cycle.
+        const { pathname, search, hash } = window.location
+        await auth0.loginWithRedirect({ appState: { target: `${pathname}${search}${hash}` } })
       } catch (redirectError) {
         // No navigation is coming, so release the latch: otherwise this client
         // is marked as redirecting for good and a later call can never retry.

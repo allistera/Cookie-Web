@@ -47,10 +47,32 @@ describe('CodeBlockTool', () => {
     expect(preview.querySelector('i')).toBeNull()
     expect(preview.textContent).toContain('<i>')
 
-    await loadHighlighter()
-    await Promise.resolve()
-    expect(preview.querySelector('.hljs-keyword')).not.toBeNull()
+    await loadHighlighter('javascript')
+    await vi.waitFor(() => expect(preview.querySelector('.hljs-keyword')).not.toBeNull())
     expect(preview.querySelector('i')).toBeNull()
+  })
+
+  it('coalesces typing into one preview refresh per animation frame', () => {
+    const frames = []
+    vi.stubGlobal('requestAnimationFrame', (callback) => frames.push(callback))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    try {
+      const tool = new CodeBlockTool({ data: { code: 'a' } })
+      const el = tool.render()
+      const textarea = el.querySelector('textarea')
+      const preview = el.querySelector('.code-block__preview')
+
+      type(textarea, 'ab')
+      type(textarea, 'abc')
+      expect(frames).toHaveLength(1)
+      expect(preview.textContent).toBe('a\n')
+      expect(tool.save().code).toBe('abc')
+
+      frames[0]()
+      expect(preview.textContent).toBe('abc\n')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('notifies the editor when only the language changes', () => {

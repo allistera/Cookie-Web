@@ -58,7 +58,22 @@ export function clearLegacySnippets() {
   }
 }
 
+// The slash menu rebuilds its list on every keystroke, and re-running
+// DOMPurify over up to 50 snippets each time is wasted work. Snippet arrays are
+// replaced rather than mutated, so the commands are cached per array.
+const commandCache = new WeakMap()
+
 export function getSlashSnippetCommands(snippets) {
+  if (!Array.isArray(snippets)) return buildSlashSnippetCommands(snippets)
+  let commands = commandCache.get(snippets)
+  if (!commands) {
+    commands = buildSlashSnippetCommands(snippets)
+    commandCache.set(snippets, commands)
+  }
+  return commands
+}
+
+function buildSlashSnippetCommands(snippets) {
   return sanitizeStoredSnippets(snippets).map((snippet) => ({
     id: `snippet:${snippet.id}`,
     type: 'snippet',

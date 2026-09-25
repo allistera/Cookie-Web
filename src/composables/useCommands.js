@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, getCurrentScope, onScopeDispose, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { settingsSections } from '../lib/settingsSections'
@@ -36,6 +36,18 @@ export function useCommands() {
     (init) => store.authHeaders(init),
     (message, kind) => store.notify(message, kind),
   )
+
+  // The palette stays mounted, so the theme entry has to follow changes made
+  // anywhere (Settings, this palette, the OS). Every change lands on
+  // <html data-theme>, so that attribute is watched to re-resolve the theme.
+  const resolvedTheme = ref(resolveTheme(getStoredTheme()))
+  if (globalThis.MutationObserver) {
+    const observer = new MutationObserver(() => {
+      resolvedTheme.value = resolveTheme(getStoredTheme())
+    })
+    observer.observe(document.documentElement, { attributeFilter: ['data-theme'] })
+    if (getCurrentScope()) onScopeDispose(() => observer.disconnect())
+  }
 
   // Pulls every subscribed feed; each failure is reported by name.
   async function syncSubscribedCalendars() {
@@ -88,7 +100,7 @@ export function useCommands() {
   const commands = computed(() => {
     const email = store.openEmail
     const onInbox = route.name === 'traditional-inbox'
-    const isDark = resolveTheme(getStoredTheme()) === 'dark'
+    const isDark = resolvedTheme.value === 'dark'
     const onCalendar = route.name === 'calendar'
     const onTasks = route.name === 'tasks'
     const onTaskList = onTasks && !!route.query.project && route.query.project !== 'today'
@@ -130,8 +142,12 @@ export function useCommands() {
         icon: 'schedule',
         visible: !!email,
         // Through the reader so the panel advances to the next email as it
-        // does for the Snooze menu.
-        run: () => goThen('/inbox', onInbox, () => store.requestReaderAction('snooze', choice)),
+        // does for the Snooze menu. The date is recomputed at run time since
+        // the list can be built long before the command is picked.
+        run: () => {
+          const fresh = scheduleChoices().find((item) => item.id === choice.id) ?? choice
+          return goThen('/inbox', onInbox, () => store.requestReaderAction('snooze', fresh))
+        },
       })),
       {
         id: 'star',

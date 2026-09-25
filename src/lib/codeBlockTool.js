@@ -1,5 +1,6 @@
 import {
   CODE_LANGUAGES,
+  PLAIN_LANGUAGE,
   escapeCode,
   highlightCode,
   loadHighlighter,
@@ -25,7 +26,7 @@ export function normalizeCodeBlock(data) {
 // A "/" menu code block with syntax highlighting and a language dropdown.
 // The editing surface is a transparent textarea laid over a <pre> that shows
 // the highlighted copy of the same text, so typing stays native (selection,
-// undo, IME) while the colours update on every input. Plain DOM, like
+// undo, IME) while the colours update once per frame of input. Plain DOM, like
 // KanbanBlockTool - Editor.js owns and destroys the element itself.
 export class CodeBlockTool {
   static get toolbox() {
@@ -66,6 +67,7 @@ export class CodeBlockTool {
     this.preview = null
     this.select = null
     this.destroyed = false
+    this.refreshFrame = null
   }
 
   render() {
@@ -88,6 +90,7 @@ export class CodeBlockTool {
     this.select.addEventListener('change', () => {
       this.data.language = normalizeCodeLanguage(this.select.value)
       this.refresh()
+      this.loadGrammar()
       this.block?.dispatchChange?.()
     })
     bar.append(this.select)
@@ -108,20 +111,36 @@ export class CodeBlockTool {
     this.textarea.value = this.data.code
     this.textarea.addEventListener('input', () => {
       this.data.code = this.textarea.value
-      this.refresh()
+      this.scheduleRefresh()
     })
     this.textarea.addEventListener('keydown', (event) => this.onKeydown(event))
     editor.append(this.preview, this.textarea)
 
     this.wrapper.append(bar, editor)
     this.refresh()
-    loadHighlighter().then(
+    this.loadGrammar()
+    return this.wrapper
+  }
+
+  // Fetches the current language's grammar, then re-renders with colours.
+  loadGrammar() {
+    if (this.data.language === PLAIN_LANGUAGE) return
+    loadHighlighter(this.data.language).then(
       () => {
         if (!this.destroyed) this.refresh()
       },
       () => {},
     )
-    return this.wrapper
+  }
+
+  // Highlighting re-parses the whole block, so bursts of typing are coalesced
+  // into one refresh per animation frame.
+  scheduleRefresh() {
+    if (this.refreshFrame !== null) return
+    this.refreshFrame = requestAnimationFrame(() => {
+      this.refreshFrame = null
+      if (!this.destroyed) this.refresh()
+    })
   }
 
   // Re-renders the highlighted copy. A trailing newline keeps the preview the
@@ -131,7 +150,7 @@ export class CodeBlockTool {
     if (!this.preview) return
     const code = this.data.code
     const html =
-      this.data.language === 'plaintext'
+      this.data.language === PLAIN_LANGUAGE
         ? escapeCode(code)
         : highlightCode(code, this.data.language)
     this.preview.innerHTML = `<code>${html}\n</code>`
@@ -165,5 +184,7 @@ export class CodeBlockTool {
 
   destroy() {
     this.destroyed = true
+    if (this.refreshFrame !== null) cancelAnimationFrame(this.refreshFrame)
+    this.refreshFrame = null
   }
 }

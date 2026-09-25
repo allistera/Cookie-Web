@@ -190,4 +190,31 @@ describe('useCalendars', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('chains one fresh fetch after an in-flight load when forced', async () => {
+    const resolvers = []
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve)
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { calendars, loadCalendars } = useCalendars(authHeaders, notify)
+    const unforced = loadCalendars()
+    const forced = loadCalendars({ force: true })
+    const alsoForced = loadCalendars({ force: true })
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    resolvers[0]({ ok: true, json: async () => ({ calendars: [{ id: 'stale' }] }) })
+    await unforced
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    resolvers[1]({ ok: true, json: async () => ({ calendars: [{ id: 'fresh' }] }) })
+    await expect(Promise.all([forced, alsoForced])).resolves.toEqual([true, true])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(calendars.value).toEqual([{ id: 'fresh' }])
+  })
 })

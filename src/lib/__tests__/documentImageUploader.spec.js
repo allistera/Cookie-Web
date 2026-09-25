@@ -38,14 +38,15 @@ describe('createImageUploader', () => {
     expect(notify).toHaveBeenCalledWith('Image is too large — pick a file under 5MB.', 'error')
   })
 
-  it('falls back to a base64 data URL when the upload fails', async () => {
+  it('reports a failed upload instead of inlining the image as base64', async () => {
     const upload = vi.fn().mockRejectedValue(new Error('offline'))
     const notify = vi.fn()
 
-    const result = await createImageUploader(upload, notify).uploadByFile(imageFile(10))
+    await expect(createImageUploader(upload, notify).uploadByFile(imageFile(10))).rejects.toThrow(
+      'offline',
+    )
 
-    expect(result.success).toBe(1)
-    expect(result.file.url).toMatch(/^data:image\/png;base64,/)
-    expect(notify).toHaveBeenCalledWith('Using base64 encoding for this image.', 'info')
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith('Image upload failed. Please try again.', 'error')
   })
 })

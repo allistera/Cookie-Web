@@ -44,6 +44,14 @@ describe('snippet helpers', () => {
     ])
   })
 
+  it('reuses the commands for the same snippet array', () => {
+    const snippets = [{ id: 'one', name: 'hello-world', html: '<p>Hello</p>' }]
+    const commands = getSlashSnippetCommands(snippets)
+
+    expect(getSlashSnippetCommands(snippets)).toBe(commands)
+    expect(getSlashSnippetCommands([...snippets])).not.toBe(commands)
+  })
+
   it('reads old unscoped snippets only for import and clears them when selected', () => {
     localStorage.setItem(
       'cookie-compose-snippets',

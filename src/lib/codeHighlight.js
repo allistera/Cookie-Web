@@ -1,5 +1,5 @@
-// Syntax highlighting for document code blocks. highlight.js and its grammars
-// are loaded on first use, so a document without code never pays for them.
+// Syntax highlighting for document code blocks. highlight.js and each grammar
+// are loaded on first use, so a document only pays for the languages it shows.
 
 export const PLAIN_LANGUAGE = 'plaintext'
 
@@ -55,6 +55,12 @@ const GRAMMARS = {
   yaml: () => import('highlight.js/lib/languages/yaml'),
 }
 
+// Grammars that highlight embedded code through another grammar. hljs quietly
+// shows a missing sub-language as plain text, so these load together.
+const GRAMMAR_DEPS = {
+  xml: ['css', 'javascript'],
+}
+
 /** Maps any stored value onto a dropdown language, falling back to plain text. */
 export function normalizeCodeLanguage(value) {
   const id = String(value ?? '')
@@ -71,39 +77,68 @@ export function escapeCode(code) {
 }
 
 let highlighter = null
-let loading = null
+let core = null
+const grammarLoads = new Map()
 
-/**
- * Loads highlight.js with every dropdown grammar registered. Resolves to the
- * same instance for every caller; a failed load is retried on the next call.
- */
-export function loadHighlighter() {
-  if (highlighter) return Promise.resolve(highlighter)
-  loading ??= Promise.all([
-    import('highlight.js/lib/core'),
-    ...Object.entries(GRAMMARS).map(async ([name, load]) => [name, (await load()).default]),
-  ])
-    .then(([core, ...grammars]) => {
-      const hljs = core.default
-      for (const [name, grammar] of grammars) hljs.registerLanguage(name, grammar)
-      highlighter = hljs
-      return hljs
-    })
+// The highlight.js grammar name for a stored language, or null for plain text.
+function grammarName(language) {
+  const id = normalizeCodeLanguage(language)
+  if (id === PLAIN_LANGUAGE) return null
+  return CODE_LANGUAGES.find((entry) => entry.id === id)?.hljs ?? id
+}
+
+function loadCore() {
+  core ??= import('highlight.js/lib/core')
+    .then((module) => module.default)
     .catch((error) => {
-      loading = null
+      core = null
       throw error
     })
-  return loading
+  return core
+}
+
+/**
+ * Loads the highlight.js core plus only the grammar `language` needs, so a
+ * document with one Python block never downloads the other grammars. Resolves
+ * to the same instance for every caller; a failed load is retried on the next
+ * call.
+ */
+export function loadHighlighter(language = PLAIN_LANGUAGE) {
+  const name = grammarName(language)
+  return (name ? loadGrammar(name) : loadCore()).then(remember)
+}
+
+// Loads and registers one grammar plus any it embeds, once per name.
+function loadGrammar(name) {
+  let load = grammarLoads.get(name)
+  if (!load) {
+    const deps = GRAMMAR_DEPS[name] ?? []
+    load = Promise.all([loadCore(), GRAMMARS[name](), ...deps.map(loadGrammar)])
+      .then(([hljs, grammar]) => {
+        hljs.registerLanguage(name, grammar.default)
+        return hljs
+      })
+      .catch((error) => {
+        grammarLoads.delete(name)
+        throw error
+      })
+    grammarLoads.set(name, load)
+  }
+  return load
+}
+
+function remember(hljs) {
+  highlighter = hljs
+  return hljs
 }
 
 /**
  * Highlighted HTML for `code`, or escaped text when the language is plain or
- * the highlighter has not loaded yet (see loadHighlighter).
+ * its grammar has not loaded yet (see loadHighlighter).
  */
 export function highlightCode(code, language) {
-  const id = normalizeCodeLanguage(language)
-  const grammar = CODE_LANGUAGES.find((entry) => entry.id === id)?.hljs ?? id
-  if (id === PLAIN_LANGUAGE || !highlighter) return escapeCode(code)
+  const grammar = grammarName(language)
+  if (!grammar || !highlighter?.getLanguage(grammar)) return escapeCode(code)
   try {
     return highlighter.highlight(String(code ?? ''), { language: grammar, ignoreIllegals: true })
       .value

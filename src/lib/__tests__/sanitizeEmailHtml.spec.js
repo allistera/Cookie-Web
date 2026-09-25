@@ -25,6 +25,17 @@ describe('sanitizeEmailHtml', () => {
     expect(out).toContain('<p>hi</p>')
   })
 
+  it('keeps the whole body style when it contains quotes', () => {
+    const out = sanitizeEmailHtml(
+      `<body style='font-family: "Helvetica Neue", sans-serif; background:#000'><p>hi</p></body>`,
+    )
+    const wrapper = new DOMParser().parseFromString(out, 'text/html').body.firstElementChild
+    expect(wrapper.tagName).toBe('DIV')
+    expect(wrapper.getAttribute('style')).toContain('"Helvetica Neue"')
+    expect(wrapper.getAttribute('style')).toContain('background:#000')
+    expect(wrapper.innerHTML).toBe('<p>hi</p>')
+  })
+
   it('adds no wrapper when <body> carries no background', () => {
     expect(sanitizeEmailHtml('<p>hi</p>')).toBe('<p>hi</p>')
     expect(sanitizeEmailHtml('<html><body><p>hi</p></body></html>')).toBe('<p>hi</p>')

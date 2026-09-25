@@ -10,6 +10,7 @@ import { useTaskItemsStore } from '../../stores/taskItems'
 import { useDocumentsStore } from '../../stores/documents'
 import { useSavedViewsStore } from '../../stores/savedViews'
 import { setAuth0Client } from '../../auth0-client'
+import { setTheme } from '../../lib/theme'
 
 // useCommands needs a component's injection context for useRoute/useRouter,
 // so run it inside a bare harness mounted with a real memory-history router.
@@ -259,6 +260,37 @@ describe('useCommands', () => {
     expect(localStorage.getItem('cookie-theme')).toBe('dark')
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
     localStorage.removeItem('cookie-theme')
+  })
+
+  it('updates the theme entry after the theme changes elsewhere', async () => {
+    localStorage.setItem('cookie-theme', 'light')
+    document.documentElement.setAttribute('data-theme', 'light')
+    const { commands } = await setupCommands()
+    const ids = () => commands.value.map((c) => c.id)
+    expect(ids()).toContain('theme-dark')
+
+    setTheme('dark')
+    await vi.waitFor(() => expect(ids()).toContain('theme-light'))
+    expect(ids()).not.toContain('theme-dark')
+    localStorage.removeItem('cookie-theme')
+  })
+
+  it('computes the snooze date when the command runs, not when listed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date(2026, 0, 5, 10, 0))
+      const email = makeEmail()
+      store.traditionalEmails = [email]
+      store.openEmailId = email.id
+      const { commands } = await setupCommands('traditional-inbox')
+      const tomorrow = commands.value.find((c) => c.id === 'snooze-tomorrow')
+
+      vi.setSystemTime(new Date(2026, 0, 7, 10, 0))
+      await tomorrow.run()
+      expect(store.readerActionRequest.payload.date.getDate()).toBe(8)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('always offers a Compose command that opens the composer', async () => {

@@ -69,6 +69,18 @@ describe('authHeaders', () => {
     expect(client.loginWithRedirect).toHaveBeenCalledTimes(1)
   })
 
+  it('returns to the current page after signing in again', async () => {
+    window.history.replaceState({}, '', '/tasks?project=inbox#top')
+    const client = auth0Stub({ error: auth0Error('login_required') })
+    const { authHeaders } = withClient(client)
+
+    await expect(authHeaders()).rejects.toThrow('nope')
+    expect(client.loginWithRedirect).toHaveBeenCalledWith({
+      appState: { target: '/tasks?project=inbox#top' },
+    })
+    window.history.replaceState({}, '', '/')
+  })
+
   it.each(['invalid_grant', 'login_required', 'consent_required', 'missing_refresh_token'])(
     'treats %s as a dead session',
     async (code) => {

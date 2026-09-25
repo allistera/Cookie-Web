@@ -90,17 +90,23 @@ function installLinkHook() {
 // as white on the reader's own light panel. Carry that background across on
 // a wrapper <div>. The wrapper is part of the string DOMPurify sanitizes, so
 // its style is vetted exactly like any other inline style and any other
-// body attribute (event handlers included) is dropped.
+// body attribute (event handlers included) is dropped. The wrapper is built
+// with setAttribute so a quote in the value (a quoted font-family, say) is
+// serialized escaped rather than ending the attribute early.
 function carryBodyBackground(html) {
   if (!globalThis.DOMParser) return html
-  const body = new DOMParser().parseFromString(html, 'text/html').body
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const body = doc.body
   if (!body) return html
   const style = body.getAttribute('style')?.trim() ?? ''
   const bgcolor = body.getAttribute('bgcolor')?.trim() ?? ''
   if (!style && !bgcolor) return html
   const background = bgcolor ? `background-color: ${bgcolor};` : ''
   const separator = background && style ? ' ' : ''
-  return `<div style="${background}${separator}${style}">${body.innerHTML}</div>`
+  const wrapper = doc.createElement('div')
+  wrapper.setAttribute('style', `${background}${separator}${style}`)
+  wrapper.append(...body.childNodes)
+  return wrapper.outerHTML
 }
 
 // Returns a sanitized HTML string safe to embed in the reader iframe's
