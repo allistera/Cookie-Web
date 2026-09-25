@@ -113,6 +113,77 @@ describe('TaskDetailPanel', () => {
     wrapper.unmount()
   })
 
+  it('cancels a title edit on Escape without closing the panel', async () => {
+    seed()
+    // Attached, so the input's keydown bubbles to the panel's document listener.
+    await router.replace({ path: '/tasks', query: { task: 'b' } })
+    const wrapper = mount(RouterView, { global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.task-panel-title').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-title-input').trigger('keydown', { key: 'Escape' })
+    await flushPromises()
+
+    expect(wrapper.find('.task-panel-title-input').exists()).toBe(false)
+    expect(router.currentRoute.value.query.task).toBe('b')
+    wrapper.unmount()
+  })
+
+  it('opens the description editor from the keyboard', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-description').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(wrapper.find('.task-panel-description-input').exists()).toBe(true)
+  })
+
+  it('moves focus in on open, keeps Tab inside, and restores it on close', async () => {
+    seed()
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    opener.focus()
+    await router.replace({ path: '/tasks', query: { task: 'b' } })
+    const wrapper = mount(RouterView, { global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    const close = wrapper.get('.task-panel-close').element
+    expect(document.activeElement).toBe(close)
+
+    // Shift+Tab from the first control wraps to the last one in the panel.
+    wrapper.get('.task-panel-delete').element.focus()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }))
+    expect(wrapper.get('.task-panel').element.contains(document.activeElement)).toBe(true)
+    expect(document.activeElement).not.toBe(wrapper.get('.task-panel-delete').element)
+
+    await router.push('/tasks')
+    await flushPromises()
+    expect(document.activeElement).toBe(opener)
+    wrapper.unmount()
+    opener.remove()
+  })
+
+  it('leaves Tab alone when focus sits in an overlay outside the panel', async () => {
+    seed()
+    await router.replace({ path: '/tasks', query: { task: 'b' } })
+    const wrapper = mount(RouterView, { global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    const overlayInput = document.createElement('input')
+    document.body.appendChild(overlayInput)
+    overlayInput.focus()
+    const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true })
+    document.dispatchEvent(event)
+    expect(document.activeElement).toBe(overlayInput)
+    expect(event.defaultPrevented).toBe(false)
+
+    wrapper.unmount()
+    overlayInput.remove()
+  })
+
   it('closes on a backdrop click but not on a click inside', async () => {
     seed()
     const wrapper = await mountPanel()

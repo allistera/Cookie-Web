@@ -33,6 +33,8 @@ const pageScope = computed(() => ({ folder: props.folderId ?? 'root' }))
 // documents at a time, Older/Newer moving through the folder's page.
 const PAGE_SIZE = 100
 const offset = ref(0)
+// Bumped whenever the folder changes and the offset resets.
+let pageGeneration = 0
 const pagedIds = computed(() =>
   store.workspacePaged ? (store.pageFor(pageScope.value)?.ids ?? []) : [],
 )
@@ -49,7 +51,12 @@ const hasOlder = computed(
 )
 async function olderDocuments() {
   if (offset.value + PAGE_SIZE >= pagedIds.value.length) {
+    // A folder switch mid-load resets the offset for the new folder; don't
+    // skip its first page by advancing it with this folder's result. A
+    // generation counter also catches leaving and returning to this folder.
+    const generation = pageGeneration
     await store.loadDocumentPage(pageScope.value, { more: true })
+    if (generation !== pageGeneration) return
   }
   if (offset.value + PAGE_SIZE < pagedIds.value.length) offset.value += PAGE_SIZE
 }
@@ -76,6 +83,7 @@ function load(force = false) {
 watch(
   () => props.folderId,
   () => {
+    pageGeneration += 1
     offset.value = 0
     load()
   },
@@ -264,15 +272,16 @@ function kindLabel(entry) {
   if (entry.kind === 'document') return 'Document'
   return fileKind(entry.item.mime_type)
 }
+const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
 function detail(entry) {
   if (entry.kind === 'file') return formatBytes(entry.item.size_bytes)
   if (entry.kind === 'document' && entry.item.updated_at) {
-    return new Date(entry.item.updated_at).toLocaleString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return UPDATED_FMT.format(new Date(entry.item.updated_at))
   }
   return ''
 }

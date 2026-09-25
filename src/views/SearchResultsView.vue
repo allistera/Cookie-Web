@@ -198,13 +198,15 @@ function formatDue(dueDate) {
   })
 }
 
+const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function formatUpdated(epochMs) {
-  return new Date(epochMs).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return UPDATED_FMT.format(new Date(epochMs))
 }
 
 const errorMessage = computed(() => {

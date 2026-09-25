@@ -145,6 +145,43 @@ describe('TasksView', () => {
     expect(describeSpy).toHaveBeenCalledWith('p2', 'What this project is for')
   })
 
+  it('reaches the title and description edits from the keyboard', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const trigger = wrapper.get('.tasks-title button')
+    expect(trigger.attributes('type')).toBe('button')
+    expect(trigger.text()).toBe('Githup')
+
+    const description = wrapper.get('.tasks-description')
+    expect(description.attributes('tabindex')).toBe('0')
+    expect(description.attributes('role')).toBe('button')
+    await description.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.find('.tasks-description-input').exists()).toBe(true)
+  })
+
+  // Switching project while the next page is in flight must leave the new
+  // project on its first page, not advance it with the old project's result.
+  it('does not advance the page when the project changes mid-load', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const items = useTaskItemsStore()
+    const rows = (count, prefix) =>
+      Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index}`, content: 'Task' }))
+    items.items = rows(100, 'a')
+    items.nextCursor = 'next'
+    await flushPromises()
+    vi.spyOn(items, 'loadMoreItems').mockImplementation(async () => {
+      await router.push('/tasks?project=p1')
+      items.items = rows(150, 'b')
+    })
+
+    await wrapper.get('.task-pagination button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Previous tasks')
+  })
+
   it('lists tasks with their descriptions', async () => {
     const items = useTaskItemsStore()
     items.items = [
@@ -533,6 +570,7 @@ describe('the Today view', () => {
     await flushPromises()
 
     expect(wrapper.find('.tasks-title-input').exists()).toBe(false)
+    expect(wrapper.find('.tasks-title button').exists()).toBe(false)
   })
 
   // The rows come from different projects, so each says where it lives.

@@ -267,7 +267,36 @@ watch(
   { immediate: true },
 )
 
+// The panel is aria-modal: Tab and Shift+Tab cycle inside it, and a focus
+// that has fallen out of it (an inline edit unmounting, say) comes back in.
+const panel = ref(null)
+const closeButton = ref(null)
+
+function trapTab(event) {
+  const focusable = [
+    ...panel.value.querySelectorAll('input, select, textarea, button, [tabindex="0"]'),
+  ].filter((element) => !element.disabled)
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (!first) return
+  const active = document.activeElement
+  if (!panel.value.contains(active)) {
+    // Only reclaim focus that was lost to the page; focus in another overlay
+    // stacked above the panel (such as the command palette) stays there.
+    if (active && active !== document.body) return
+    event.preventDefault()
+    ;(event.shiftKey ? last : first).focus()
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 function onKeydown(event) {
+  if (event.key === 'Tab' && panel.value) return trapTab(event)
   if (event.key !== 'Escape') return
   // Escape with the menu open is asking to leave the menu, not the panel.
   if (priorityMenuOpen.value) {
@@ -278,13 +307,24 @@ function onKeydown(event) {
   close()
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+// Focus moves into the panel when it opens and returns to whatever opened it
+// once it closes.
+let opener = null
+onMounted(() => {
+  opener = document.activeElement
+  closeButton.value?.focus()
+  document.addEventListener('keydown', onKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  if (opener?.isConnected) opener.focus?.()
+})
 </script>
 
 <template>
   <div class="task-panel-backdrop" @click="close()">
     <div
+      ref="panel"
       class="task-panel"
       role="dialog"
       aria-modal="true"
@@ -309,6 +349,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             <span class="material-symbols-outlined" aria-hidden="true">delete</span>
           </button>
           <button
+            ref="closeButton"
             class="task-panel-close"
             type="button"
             title="Close"
@@ -341,10 +382,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               class="task-panel-title-input"
               aria-label="Task title"
               @keydown.enter.prevent="titleEdit.submit"
-              @keydown.escape="titleEdit.editing.value = false"
+              @keydown.escape.stop="titleEdit.editing.value = false"
               @blur="titleEdit.submit"
             />
-            <h2 v-else class="task-panel-title" @click="titleEdit.start">{{ item?.content }}</h2>
+            <h2 v-else class="task-panel-title" @click="titleEdit.start">
+              <button type="button" class="inline-edit-trigger" title="Rename task">
+                {{ item?.content }}
+              </button>
+            </h2>
           </div>
 
           <textarea
@@ -355,10 +400,19 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             placeholder="Add a description"
             aria-label="Task description"
             :rows="descriptionRows"
-            @keydown.escape="descriptionEdit.editing.value = false"
+            @keydown.escape.stop="descriptionEdit.editing.value = false"
             @blur="descriptionEdit.submit"
           ></textarea>
-          <p v-else class="task-panel-description" @click="descriptionEdit.start">
+          <p
+            v-else
+            class="task-panel-description"
+            role="button"
+            tabindex="0"
+            title="Edit description"
+            @click="descriptionEdit.start"
+            @keydown.enter.prevent="descriptionEdit.start"
+            @keydown.space.prevent="descriptionEdit.start"
+          >
             {{ item?.description || 'Add a description' }}
           </p>
 
@@ -704,6 +758,24 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-size: 14px;
   cursor: text;
   white-space: pre-wrap;
+}
+
+/* The title's click-to-edit is a real button for keyboard reach, stripped
+   back so it reads as the heading text it sits in. */
+.inline-edit-trigger {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: text;
+}
+
+.inline-edit-trigger:focus-visible,
+.task-panel-description:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Editing happens in place: the field carries the same metrics as the text it

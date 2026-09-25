@@ -243,7 +243,13 @@ const visibleItems = computed(() =>
   topLevelItems.value.slice(taskOffset.value, taskOffset.value + 100),
 )
 async function nextTaskPage() {
-  if (taskOffset.value + 100 >= topLevelItems.value.length) await items.loadMoreItems()
+  if (taskOffset.value + 100 >= topLevelItems.value.length) {
+    // A project switch mid-load resets the offset for the new project; don't
+    // skip its first page by advancing it with this project's result.
+    const scope = project.value
+    await items.loadMoreItems()
+    if (project.value !== scope) return
+  }
   if (taskOffset.value + 100 < topLevelItems.value.length) taskOffset.value += 100
 }
 
@@ -436,7 +442,12 @@ async function submitDraft() {
     <h1 v-else-if="isLabel" class="tasks-title">
       <span class="tasks-title-label" :style="labelStyle">{{ title }}</span>
     </h1>
-    <h1 v-else class="tasks-title" @click="titleEdit.start">{{ title }}</h1>
+    <h1 v-else class="tasks-title" @click="titleEdit.start">
+      <button v-if="!isRule" type="button" class="inline-edit-trigger" title="Rename project">
+        {{ title }}
+      </button>
+      <template v-else>{{ title }}</template>
+    </h1>
 
     <textarea
       v-if="descriptionEdit.editing.value"
@@ -449,7 +460,16 @@ async function submitDraft() {
       @keydown.escape="descriptionEdit.editing.value = false"
       @blur="descriptionEdit.submit"
     ></textarea>
-    <p v-else-if="!isRule" class="tasks-description" @click="descriptionEdit.start">
+    <p
+      v-else-if="!isRule"
+      class="tasks-description"
+      role="button"
+      tabindex="0"
+      title="Edit description"
+      @click="descriptionEdit.start"
+      @keydown.enter.prevent="descriptionEdit.start"
+      @keydown.space.prevent="descriptionEdit.start"
+    >
       {{ current?.description || 'Add a description' }}
     </p>
 
@@ -742,6 +762,24 @@ async function submitDraft() {
   font-size: 14px;
   cursor: text;
   white-space: pre-wrap;
+}
+
+/* The title's click-to-edit is a real button for keyboard reach, stripped
+   back so it reads as the heading text it sits in. */
+.inline-edit-trigger {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: text;
+}
+
+.inline-edit-trigger:focus-visible,
+.tasks-description:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Editing happens in place: the field carries the same metrics as the text it

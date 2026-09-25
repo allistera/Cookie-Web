@@ -317,4 +317,47 @@ describe('DocumentsBrowser', () => {
     await wrapper.find('button.browser-page-older').trigger('click')
     expect(store.loadDocumentPage).toHaveBeenCalledWith({ folder: 'root' }, { more: true })
   })
+
+  // A folder switch while the older page is in flight leaves the new folder
+  // on its first page rather than advancing it with the old folder's result.
+  it('does not advance the page when the folder changes mid-load', async () => {
+    const docs = (folderId, prefix) =>
+      Array.from({ length: 150 }, (_, i) => ({
+        id: `${prefix}-${i}`,
+        folder_id: folderId,
+        title: `${prefix} ${i}`,
+        emoji: '🔹',
+        tags: [],
+        updated_at: 't0',
+      }))
+    const rootDocs = docs(null, 'r')
+    const workDocs = docs('f-work', 'w')
+    store.workspacePaged = true
+    store.documents = [...rootDocs, ...workDocs]
+    store.pages[documentPageKey({ folder: 'root' })] = {
+      ids: rootDocs.slice(0, 100).map((doc) => doc.id),
+      nextCursor: 'cursor',
+      loaded: true,
+      loading: false,
+    }
+    store.pages[documentPageKey({ folder: 'f-work' })] = {
+      ids: workDocs.map((doc) => doc.id),
+      nextCursor: null,
+      loaded: true,
+      loading: false,
+    }
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    store.loadDocumentPage.mockImplementation(async (scope, options) => {
+      if (!options?.more) return
+      await wrapper.setProps({ folderId: 'f-work' })
+      store.pages[documentPageKey({ folder: 'root' })].ids = rootDocs.map((doc) => doc.id)
+    })
+
+    await wrapper.find('button.browser-page-older').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('button.browser-page-newer').exists()).toBe(false)
+    expect(wrapper.findAll('.browser-item[data-kind="document"]')).toHaveLength(100)
+  })
 })

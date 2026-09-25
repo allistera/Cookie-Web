@@ -272,7 +272,12 @@ watch(
 const dashboardPage = computed(() => store.pageFor(dashboardScope.value))
 async function nextDashboardPage() {
   if (dashboardOffset.value + 100 >= (dashboardPage.value?.ids.length ?? 0)) {
-    await store.loadDocumentPage(dashboardScope.value, { more: true })
+    // A scope switch mid-load resets the offset for the new scope; don't
+    // skip its first page by advancing it with this scope's result.
+    const scope = dashboardScope.value
+    const version = store.workspaceVersion
+    await store.loadDocumentPage(scope, { more: true })
+    if (dashboardScope.value !== scope || store.workspaceVersion !== version) return
   }
   if (dashboardOffset.value + 100 < (dashboardPage.value?.ids.length ?? 0))
     dashboardOffset.value += 100
@@ -308,13 +313,15 @@ const saveStatusText = computed(() => {
   return ''
 })
 
+const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function formatUpdated(value) {
-  return new Date(value).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return UPDATED_FMT.format(new Date(value))
 }
 
 function newDocument() {
@@ -589,7 +596,11 @@ function onEditorSave(payload) {
             >
               <td class="doc-name-cell">
                 <span aria-hidden="true">{{ doc.emoji }}</span>
-                <span>{{ doc.title || 'Untitled' }}</span>
+                <!-- The row click is a pointer convenience; the link is what a
+                     keyboard or screen reader reaches. -->
+                <router-link :to="`/documents/${doc.id}`" class="doc-name-link" @click.stop>{{
+                  doc.title || 'Untitled'
+                }}</router-link>
               </td>
               <td class="doc-folder-cell">{{ folderTitles(doc) }}</td>
               <td class="doc-updated-cell">{{ formatUpdated(doc.updated_at) }}</td>
@@ -868,6 +879,16 @@ function onEditorSave(payload) {
   align-items: center;
   gap: 8px;
   font-weight: 500;
+}
+
+.doc-name-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.doc-name-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .doc-folder-cell,
