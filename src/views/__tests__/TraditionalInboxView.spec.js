@@ -1363,6 +1363,138 @@ describe('TraditionalInboxView reply send button', () => {
     )
   })
 
+  it('locks the reply editor and Discard while the reply is in flight', async () => {
+    vi.spyOn(store, 'sendMail').mockReturnValue(new Promise(() => {}))
+    const sendButton = await openReplyBox()
+    const discard = wrapper
+      .findAll('.ni-reply-footer .btn-text')
+      .find((b) => b.text() === 'Discard')
+    expect(discard.attributes()).not.toHaveProperty('disabled')
+    expect(wrapper.get('.ni-reply-compose').attributes()).not.toHaveProperty('inert')
+
+    await sendButton.trigger('click')
+
+    expect(discard.attributes()).toHaveProperty('disabled')
+    expect(wrapper.get('.ni-reply-compose').attributes()).toHaveProperty('inert')
+  })
+
+  it('locks the reply attachments while the reply is in flight', async () => {
+    vi.spyOn(store, 'sendMail').mockReturnValue(new Promise(() => {}))
+    vi.spyOn(store, 'uploadAttachmentFiles').mockResolvedValue([
+      { id: 'att-1', filename: 'notes.pdf', size_bytes: 10 },
+    ])
+    const discardUpload = vi.spyOn(store, 'discardUploadedAttachment').mockResolvedValue()
+    const sendButton = await openReplyBox()
+    await wrapper.get('.ni-reply-box .composer-attach-input').trigger('change')
+    await flushPromises()
+    const remove = wrapper.get('.composer-attachment-remove')
+    const attach = wrapper.get('.ni-reply-attach-btn')
+    expect(remove.attributes()).not.toHaveProperty('disabled')
+    expect(attach.attributes()).not.toHaveProperty('disabled')
+
+    await sendButton.trigger('click')
+
+    expect(remove.attributes()).toHaveProperty('disabled')
+    expect(attach.attributes()).toHaveProperty('disabled')
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [expect.objectContaining({ id: 'att-1' })] }),
+    )
+    expect(discardUpload).not.toHaveBeenCalled()
+  })
+
+  it('closes an open follow-up menu once the reply is in flight', async () => {
+    vi.spyOn(store, 'sendMail').mockReturnValue(new Promise(() => {}))
+    const sendButton = await openReplyBox()
+    await wrapper.get('.ni-follow-up-btn').trigger('click')
+    expect(wrapper.find('.ni-reply-footer .ni-schedule-menu').exists()).toBe(true)
+
+    await sendButton.trigger('click')
+
+    expect(wrapper.find('.ni-reply-footer .ni-schedule-menu').exists()).toBe(false)
+  })
+
+  it('sends what was typed to the original sender when the reader moves on mid-save', async () => {
+    store.traditionalEmails.push(makeEmail('today-2', Date.now() - 2 * HOUR))
+    const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    // The reply's first autosave is still in flight when Send is pressed.
+    let finishSave
+    vi.spyOn(store, 'settleReplyHandoff').mockReturnValue(
+      new Promise((resolve) => {
+        finishSave = resolve
+      }),
+    )
+    const sendButton = await openReplyBox()
+
+    await sendButton.trigger('click')
+    store.openReader(store.traditionalEmails[1])
+    await nextTick()
+    finishSave('reply-draft-1')
+    await flushPromises()
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'sender-today-1@example.com',
+        text: 'Sounds good!',
+        html: expect.stringContaining('Sounds good!'),
+        replyToMessageId: 'today-1',
+      }),
+    )
+  })
+
+  it('leaves a reply opened on another email alone when an earlier send succeeds', async () => {
+    store.traditionalEmails.push(makeEmail('today-2', Date.now() - 2 * HOUR))
+    let finishSend
+    vi.spyOn(store, 'sendMail').mockReturnValue(
+      new Promise((resolve) => {
+        finishSend = resolve
+      }),
+    )
+    const sendButton = await openReplyBox()
+    await sendButton.trigger('click')
+
+    store.openReader(store.traditionalEmails[1])
+    await nextTick()
+    await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'A new reply'
+    await editor.trigger('input')
+    finishSend({})
+    await flushPromises()
+
+    expect(store.openEmailId).toBe('today-2')
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('A new reply')
+  })
+
+  it('keeps a failed reply in its own draft without overwriting the reply now open', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    store.traditionalEmails.push(makeEmail('today-2', Date.now() - 2 * HOUR))
+    let failSend
+    vi.spyOn(store, 'sendMail').mockReturnValue(
+      new Promise((resolve, reject) => {
+        failSend = reject
+      }),
+    )
+    const persist = vi.spyOn(store, 'persistDraft').mockResolvedValue('failed-draft')
+    const sendButton = await openReplyBox()
+    await sendButton.trigger('click')
+
+    store.openReader(store.traditionalEmails[1])
+    await nextTick()
+    await wrapper.find('.ni-reader-footer .ni-pill-btn').trigger('click')
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'A new reply'
+    await editor.trigger('input')
+    failSend(new Error('boom'))
+    await flushPromises()
+
+    expect(persist).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ text: 'Sounds good!', replyToMessageId: 'today-1' }),
+    )
+    expect(store.replyDraftId).toBe(null)
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('A new reply')
+  })
+
   it('warns about an unresolved snippet in an inline reply and sends after completion', async () => {
     const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
     const sendButton = await openReplyBox()
@@ -1691,6 +1823,43 @@ describe('TraditionalInboxView multi-select', () => {
     expect(store.traditionalEmails.find((e) => e.id === 'today-2').starred).toBe(true)
     expect(store.traditionalEmails.find((e) => e.id === 'today-3').starred).toBe(false)
     expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+  })
+
+  it('drops the selection when the inbox tab changes', async () => {
+    const wrapper = mountView()
+    await checkbox(wrapper, 0).trigger('click')
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(true)
+
+    const tab = (name) =>
+      wrapper.findAll('.ni-tab').find((t) => t.find('.ni-tab-name').text() === name)
+    await tab('Important').trigger('click')
+    await tab('Other').trigger('click')
+
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    expect(checkbox(wrapper, 0).attributes('aria-checked')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('ignores a selection that has left the list when handling shortcuts', async () => {
+    const archive = vi.spyOn(store, 'archiveEmail')
+    const wrapper = mountView()
+    await wrapper.findAll('.ni-row')[2].trigger('click')
+    await checkbox(wrapper, 0).trigger('click')
+    // Starring hides the selected row from the inbox.
+    store.traditionalEmails.find((e) => e.id === 'today-1').starred = true
+    await nextTick()
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+
+    // Escape goes straight to closing the reader: nothing visible is checked.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(store.openEmailId).toBe(null)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true }))
+    await nextTick()
+    expect(archive).not.toHaveBeenCalled()
+    expect(store.toasts.some((toast) => toast.message?.includes('marked done'))).toBe(false)
+    wrapper.unmount()
   })
 
   it('Escape clears the selection first and only then closes the reader', async () => {

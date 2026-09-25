@@ -102,6 +102,13 @@ const inboxEmails = computed(() => {
       )
 })
 
+// Category ids looked up once per category change, so sorting every loaded
+// row into a tab costs a set lookup instead of a scan of all categories.
+const categoryIds = computed(() => new Set(store.allCategories.map((category) => category.id)))
+const importantCategoryIds = computed(
+  () => new Set(store.allCategories.filter(isImportantCategory).map(({ id }) => id)),
+)
+
 // What the Important tab holds: high-rated mail, due mail, and mail in a
 // category named Important. The reader also trusts these enough to load
 // their remote images without asking.
@@ -109,27 +116,30 @@ function isImportantEmail(email) {
   return (
     Boolean(email.isPriority) ||
     isDueNow(email) ||
-    store.allCategories.some(
-      (category) => category.id === email.category?.id && isImportantCategory(category),
-    )
+    importantCategoryIds.value.has(email.category?.id)
   )
 }
 
 // Important is exclusive: whatever Important holds appears in no other tab,
 // so an email is never listed twice. A category tab therefore only shows the
 // rest of its category, and never a Due Today group.
+function inboxTabOf(email) {
+  if (isImportantEmail(email)) return PRIORITY_TAB
+  const categoryId = email.category?.id
+  return categoryIds.value.has(categoryId) ? categoryTabId(categoryId) : OTHER_TAB
+}
+
 function emailInTab(email, tabId) {
-  const priority = isImportantEmail(email)
-  if (tabId === PRIORITY_TAB) return priority
-  if (priority) return false
-  if (tabId === OTHER_TAB) {
-    return !store.allCategories.some((category) => email.category?.id === category.id)
-  }
-  return categoryTabId(email.category?.id) === tabId
+  return inboxTabOf(email) === tabId
 }
 
 const inboxTabs = computed(() => {
-  const emails = inboxEmails.value
+  // One pass over the list: each email lands in exactly one tab.
+  const counts = new Map()
+  for (const email of inboxEmails.value) {
+    const tabId = inboxTabOf(email)
+    counts.set(tabId, (counts.get(tabId) ?? 0) + 1)
+  }
   return [
     { id: PRIORITY_TAB, name: 'Important' },
     ...store.allCategories
@@ -139,7 +149,7 @@ const inboxTabs = computed(() => {
         name: category.name,
       })),
     { id: OTHER_TAB, name: 'Other' },
-  ].map((tab) => ({ ...tab, count: emails.filter((e) => emailInTab(e, tab.id)).length }))
+  ].map((tab) => ({ ...tab, count: counts.get(tab.id) ?? 0 }))
 })
 
 const showInboxTabs = computed(() => !activeFilter.value && !store.activeSearchQuery)
@@ -416,6 +426,10 @@ function toggleSelect(email) {
 function clearSelection() {
   selectedIds.value = new Set()
 }
+
+// A selection belongs to the list it was made in: switching tab or filter
+// drops it, so bulk shortcuts never act on rows the user can no longer see.
+watch([activeFilter, activeTab], clearSelection)
 
 function markSelectedDone() {
   const emails = [...selectedEmails.value]
@@ -1288,33 +1302,39 @@ async function sendReply() {
     store.notify(unresolvedSnippetWarning(unresolvedReplyFields.value), 'error')
     return
   }
-  const email = openEmail.value
+  // Snapshot what is being sent before the first await: moving to another
+  // email while a first save is still in flight resets the reply box, and
+  // the mail must still go to this email's sender with what was typed.
+  const payload = replyDraftPayload()
   // Taken before the request so a queued autosave cannot re-create the row
   // while the mail is in flight; deleted only once the send succeeds.
   let replyDraftId = store.consumeReplyDraft()
+  // consumeReplyDraft() began a fresh session; navigating away or opening
+  // another reply moves it on again, and the reply box then belongs to that
+  // other reply, which the cleanup below must leave alone.
+  const session = store.replySessionId
   if (replyDraftId) handledReplyDrafts.add(replyDraftId)
   pendingReplyDraft.value = null
   isSendingReply.value = true
+  // A reminder picked from a menu left open would miss the snapshot above.
+  replyFollowUpOpen.value = false
   try {
     // A first save still in flight owns the only row for this reply.
     const handoff = replyDraftId ? null : store.settleReplyHandoff()
     if (handoff) replyDraftId = await handoff
     const result = await store.sendMail({
-      to: replyTo.value,
-      subject: replySubject.value,
-      text: replyTextPlain.value,
+      ...payload,
       // Sanitize the rich body once, here at the send boundary (same as the
       // composer's send path).
-      html: sanitizeEmailHtml(replyHtml.value),
-      replyToMessageId: email.id,
-      followUpAt: replyFollowUpAt.value,
-      attachments: replyAttachments.value,
+      html: sanitizeEmailHtml(payload.html),
     })
-    // The send consumed them; clear before discardReply() so its cleanup
-    // doesn't delete attachments that just went out.
-    replyAttachments.value = []
     await store.discardDraft(replyDraftId)
-    discardReply()
+    if (session === store.replySessionId) {
+      // The send consumed them; clear before discardReply() so its cleanup
+      // doesn't delete attachments that just went out.
+      replyAttachments.value = []
+      discardReply()
+    }
     store.notify(
       result?.followUpScheduled === false
         ? 'Reply sent, but the reminder could not be saved.'
@@ -1326,9 +1346,17 @@ async function sendReply() {
     store.notify('Failed to send reply. Please try again.', 'error')
     // Nothing went out, so the draft is still the only copy of this reply.
     handledReplyDrafts.delete(replyDraftId)
-    store.replyDraftId = replyDraftId
-    pendingReplyDraft.value = replyDraftPayload()
-    store.scheduleReplyDraftSave(pendingReplyDraft.value)
+    if (session === store.replySessionId) {
+      store.replyDraftId = replyDraftId
+      pendingReplyDraft.value = replyDraftPayload()
+      store.scheduleReplyDraftSave(pendingReplyDraft.value)
+    } else {
+      // The reader moved on mid-send: file the failed reply in its own draft
+      // row without touching the reply that is open now.
+      store.persistDraft(replyDraftId, payload).catch((saveError) => {
+        console.error('Reply draft autosave failed:', saveError)
+      })
+    }
   } finally {
     isSendingReply.value = false
   }
@@ -1372,7 +1400,7 @@ function onKeydown(e) {
   // The command palette owns Escape while it is open. Otherwise Escape
   // unchecks the multi-select first; a second press closes the reader.
   if (e.key === 'Escape' && !store.isCommandPaletteOpen) {
-    if (selectedIds.value.size) {
+    if (selectedEmails.value.length) {
       clearSelection()
     } else if (openEmail.value) {
       closeReader()
@@ -1382,7 +1410,7 @@ function onKeydown(e) {
   // Bulk-action shortcuts fire when items are multi-selected.
   // e → archive/done, Shift+I → mark read, # → delete, l → label menu.
   if (
-    selectedIds.value.size &&
+    selectedEmails.value.length &&
     !e.repeat &&
     !e.metaKey &&
     !e.ctrlKey &&
@@ -2153,20 +2181,24 @@ onUnmounted(() => {
                 >AI draft · Review before sending</small
               >
             </div>
-            <ComposerEditor
-              ref="replyEditorRef"
-              v-model="replyHtml"
-              placeholder="Write your reply, or type “/” for commands…"
-              :snippets="store.snippets"
-              :recipient-values="replyRecipientValues"
-              @update:text="replyTextPlain = $event"
-              @preview-state="replySnippetPreviewOpen = $event"
-              @generate="generateReplyDraft"
-            />
-            <ShareAvailability
-              @insert="replyEditorRef?.insertAvailability($event)"
-              @preview-state="replyAvailabilityPreviewOpen = $event"
-            />
+            <!-- Locked while sending: the mail carries what was there when Send
+                 was pressed, so later edits would silently go nowhere. -->
+            <div class="ni-reply-compose" :inert="isSendingReply">
+              <ComposerEditor
+                ref="replyEditorRef"
+                v-model="replyHtml"
+                placeholder="Write your reply, or type “/” for commands…"
+                :snippets="store.snippets"
+                :recipient-values="replyRecipientValues"
+                @update:text="replyTextPlain = $event"
+                @preview-state="replySnippetPreviewOpen = $event"
+                @generate="generateReplyDraft"
+              />
+              <ShareAvailability
+                @insert="replyEditorRef?.insertAvailability($event)"
+                @preview-state="replyAvailabilityPreviewOpen = $event"
+              />
+            </div>
             <p v-if="unresolvedReplyFields.length" class="snippet-unresolved-warning" role="alert">
               {{ unresolvedSnippetWarning(unresolvedReplyFields) }}
             </p>
@@ -2191,6 +2223,7 @@ onUnmounted(() => {
                   type="button"
                   class="composer-attachment-remove"
                   :aria-label="`Remove ${attachment.filename || 'attachment'}`"
+                  :disabled="isSendingReply"
                   @click="removeReplyAttachment(attachment.id)"
                 >
                   <span class="material-symbols-outlined" aria-hidden="true">close</span>
@@ -2236,7 +2269,7 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="btn btn-text ni-reply-attach-btn"
-                :disabled="store.pendingAttachmentUploads > 0"
+                :disabled="isSendingReply || store.pendingAttachmentUploads > 0"
                 :aria-busy="store.pendingAttachmentUploads > 0"
                 title="Attach files"
                 @click="replyAttachInputRef?.click()"
@@ -2258,7 +2291,7 @@ onUnmounted(() => {
                   <span>{{ replyFollowUpLabel }}</span>
                 </button>
                 <ScheduleMenu
-                  v-if="replyFollowUpOpen"
+                  v-if="replyFollowUpOpen && !isSendingReply"
                   :choices="scheduleOptions"
                   submit-label="Remind me"
                   custom-label="Custom follow-up time"
@@ -2271,7 +2304,9 @@ onUnmounted(() => {
                 :disabled="isSendingReply"
                 @select="replyEditorRef?.insertText($event)"
               />
-              <button class="btn btn-text" @click="discardReply">Discard</button>
+              <button class="btn btn-text" :disabled="isSendingReply" @click="discardReply">
+                Discard
+              </button>
             </div>
           </div>
         </Transition>
@@ -2292,6 +2327,12 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Groups the reply editor so it can be made inert as one, without adding
+   a box to the reply's flex layout. */
+.ni-reply-compose {
+  display: contents;
+}
+
 .ni-label-loading {
   display: flex;
   justify-content: center;
