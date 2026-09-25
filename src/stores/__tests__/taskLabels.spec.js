@@ -109,4 +109,22 @@ describe('task labels store', () => {
     expect(await store.deleteLabel('l1')).toBe(false)
     expect(store.labels).toHaveLength(1)
   })
+
+  it('keeps a label created while a failed delete was in flight', async () => {
+    store.labels = [{ ...LABEL }, { ...LABEL, id: 'l2', name: 'work' }]
+    let failDelete
+    vi.spyOn(store, 'request').mockImplementation((method) =>
+      method === 'DELETE'
+        ? new Promise((_, reject) => (failDelete = reject))
+        : Promise.resolve({ label: { ...LABEL, id: 'l3', name: 'admin' } }),
+    )
+
+    const deleting = store.deleteLabel('l1')
+    await vi.waitFor(() => expect(failDelete).toBeDefined())
+    await store.createLabel({ name: 'admin', color: '#1a73e8' })
+    failDelete(new Error('boom'))
+
+    expect(await deleting).toBe(false)
+    expect(store.labels.map((label) => label.name)).toEqual(['admin', 'home', 'work'])
+  })
 })

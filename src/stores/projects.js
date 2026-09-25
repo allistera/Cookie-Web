@@ -166,14 +166,24 @@ export const useProjectsStore = defineStore('projects', {
     async deleteProject(id) {
       await projectLoads.get(toRaw(this))
       const doomed = new Set([id, ...this.descendantIds(id)])
-      const previous = this.projects
+      const removed = []
+      this.projects.forEach((project, index) => {
+        if (doomed.has(project.id)) removed.push({ project, index })
+      })
       this.projects = this.projects.filter((project) => !doomed.has(project.id))
       try {
         await this.request('DELETE', { id })
         return true
       } catch (error) {
         console.error('Failed to delete project:', error)
-        this.projects = previous
+        // Put back only the removed rows, at their old positions, so a create
+        // or rename that landed meanwhile survives the rollback.
+        const projects = [...this.projects]
+        for (const { project, index } of removed) {
+          if (projects.some((row) => row.id === project.id)) continue
+          projects.splice(Math.min(index, projects.length), 0, project)
+        }
+        this.projects = projects
         this.notify(error.userMessage || 'Failed to delete the project.', 'error')
         return false
       }

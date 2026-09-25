@@ -115,6 +115,25 @@ describe('projects store', () => {
     expect(store.projects).toEqual(subtree)
     expect(notify).toHaveBeenCalledWith('Failed to delete the project.', 'error')
   })
+
+  it('keeps a project created while a failed delete was in flight', async () => {
+    const other = { id: 'p0', parentId: null, name: 'Home' }
+    store.projects = [other, { ...PROJECT }, { id: 'p2', parentId: 'p1', name: 'Clients' }]
+    let failDelete
+    vi.spyOn(store, 'request').mockImplementation((method) =>
+      method === 'DELETE'
+        ? new Promise((_, reject) => (failDelete = reject))
+        : Promise.resolve({ project: { id: 'p9', parentId: null, name: 'New' } }),
+    )
+
+    const deleting = store.deleteProject('p1')
+    await vi.waitFor(() => expect(failDelete).toBeDefined())
+    await store.createProject({ name: 'New' })
+    failDelete(new Error('boom'))
+
+    expect(await deleting).toBe(false)
+    expect(store.projects.map((project) => project.id)).toEqual(['p0', 'p1', 'p2', 'p9'])
+  })
 })
 
 it('shares concurrent loads and applies a create after the old snapshot resolves', async () => {

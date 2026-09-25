@@ -523,6 +523,31 @@ describe('documents store', () => {
     })
   })
 
+  it('shares one run between concurrent opens so the note is created once', async () => {
+    vi.setSystemTime(new Date(2026, 7, 13))
+    const fetchMock = stubFetch({
+      GET: (url) =>
+        url.includes('/tasks/daily-note-seed')
+          ? ok({ blocks: [] })
+          : ok({ folders: [], documents: [] }),
+      POST: (url, body) =>
+        body.kind === 'folder'
+          ? ok({ folder: { id: `f-${body.title}`, parent_id: body.parentId, title: body.title } })
+          : ok({ document: { id: 'd-today', folder_id: body.folderId, title: body.title } }),
+      PATCH: (url, body) => ok({ document: { id: body.id, updated_at: 't1' } }),
+    })
+
+    const [fromPalette, fromSidebar] = await Promise.all([
+      store.openTodayNote(),
+      store.openTodayNote(),
+    ])
+
+    expect(fromSidebar).toBe(fromPalette)
+    const posts = fetchMock.mock.calls.filter(([, options]) => options?.method === 'POST')
+    // Daily, 2026 and Aug folders plus the note itself — each exactly once.
+    expect(posts).toHaveLength(4)
+  })
+
   it('seeds a new daily note with the customized default instead of the built-in Tasks heading', async () => {
     vi.setSystemTime(new Date(2026, 7, 13))
     const customSeed = [{ type: 'paragraph', data: { text: 'Standup notes' } }]

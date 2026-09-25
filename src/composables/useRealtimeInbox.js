@@ -13,6 +13,27 @@ const NOTIFICATION_CLAIM_RETRIES = 60
 // catch up on. Browsers only start freezing background tabs after minutes.
 export const RESUME_REFRESH_AFTER_MS = 60_000
 
+// The inbox:<uuid> broadcast channel is public, so anyone holding the anon
+// key and a user's id can send pings. Coalesce broadcast-driven refreshes
+// into at most one per interval — hidden tab or not — so a flood of pings
+// costs the API a refetch every few seconds, not one per ping.
+export const BROADCAST_REFRESH_INTERVAL_MS = 5000
+// Forged INSERT pings can carry any well-formed uuid, so cap how many
+// notification claims one refresh may POST; real inserts rarely burst past it.
+export const MAX_PENDING_NOTIFICATION_EVENTS = 10
+const PING_OPS = new Set(['INSERT', 'UPDATE', 'DELETE'])
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// The trigger only ever sends {op, event_id?}; anything else on the public
+// channel is not ours, so it parses to null and is ignored.
+function parsePing(payload) {
+  const op = payload?.op
+  if (!PING_OPS.has(op)) return null
+  if (payload.event_id === undefined) return { op, eventId: null }
+  const eventId = String(payload.event_id)
+  return UUID_RE.test(eventId) ? { op, eventId } : null
+}
+
 // Subscribes to the authenticated user's content-free Realtime "inbox
 // changed" channel and refreshes the inbox store through the normal
 // Auth0-protected API when a ping arrives. Requires: authenticated, a known
@@ -27,6 +48,10 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
   let refreshPromise = null
   let refreshUserId = null
   let refreshQueued = false
+  let lastBroadcastRefreshAt = -Infinity
+  // An UPDATE ping (flags, labels, AI drafts) rarely touches the open
+  // thread's body; an INSERT/DELETE, or a catch-up after missed pings, may.
+  let openThreadDirty = false
   let wasDisconnected = false
   let hiddenAt = document.hidden ? Date.now() : null
   let lifecycleVersion = 0
@@ -108,6 +133,36 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     }
   }
 
+  // The open email's inbox row as of now, or null when it isn't listed
+  // there (opened from another folder or search) and so can't be compared.
+  function openRowSignature() {
+    const id = store.openEmailId
+    const row = id ? store.traditionalEmails.find((email) => email.id === id) : null
+    return row ? JSON.stringify(row) : null
+  }
+
+  // Refetch the open body only when the thread may have changed: always for
+  // a structural ping or catch-up, otherwise only when the refreshed inbox
+  // page changed the open email's row.
+  function refreshStore(threadDirty) {
+    if (store.activeSearchQuery) return Promise.resolve(store.refreshOpenThread())
+    const before = openRowSignature()
+    const inboxRefresh = Promise.resolve(store.refreshInbox())
+    const threadRefresh =
+      threadDirty || before === null
+        ? Promise.resolve(store.refreshOpenThread())
+        : inboxRefresh.then(() =>
+            openRowSignature() === before ? undefined : store.refreshOpenThread(),
+          )
+    return Promise.all([inboxRefresh, threadRefresh])
+  }
+
+  // Visibility/reconnect catch-ups may have missed any kind of ping.
+  function catchUp() {
+    openThreadDirty = true
+    refreshNow()
+  }
+
   function refreshNow() {
     if (!client() || !isAuthenticated.value || !store.userId) return
     if (debounceTimer) {
@@ -123,10 +178,9 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     const version = lifecycleVersion
     const notificationEventIds = [...pendingNotificationEventIds]
     pendingNotificationEventIds.clear()
-    const storeRefresh = Promise.all([
-      store.activeSearchQuery ? Promise.resolve() : Promise.resolve(store.refreshInbox()),
-      Promise.resolve(store.refreshOpenThread()),
-    ])
+    const threadDirty = openThreadDirty
+    openThreadDirty = false
+    const storeRefresh = refreshStore(threadDirty)
     const refresh = notificationEventIds.length
       ? storeRefresh.then(() =>
           Promise.all(
@@ -148,19 +202,31 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     return refresh
   }
 
+  function broadcastRefresh() {
+    lastBroadcastRefreshAt = Date.now()
+    refreshNow()
+  }
+
   function scheduleRefresh() {
+    // A refresh is already scheduled; it picks this ping up too.
+    if (debounceTimer) return
     // Background tabs throttle timers aggressively. If Realtime delivered the
     // ping before suspension, refresh immediately so the unread count (and tab
-    // title badge) can update without waiting on the visible-tab debounce.
-    if (document.hidden) {
-      refreshNow()
+    // title badge) can update without waiting on the visible-tab debounce —
+    // unless a broadcast refresh ran within the last interval.
+    const sinceLast = Date.now() - lastBroadcastRefreshAt
+    const wait = Math.max(
+      document.hidden ? 0 : DEBOUNCE_MS,
+      BROADCAST_REFRESH_INTERVAL_MS - sinceLast,
+    )
+    if (wait <= 0) {
+      broadcastRefresh()
       return
     }
-    if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       debounceTimer = null
-      refreshNow()
-    }, DEBOUNCE_MS)
+      broadcastRefresh()
+    }, wait)
   }
 
   function teardown() {
@@ -176,6 +242,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     }
     wasDisconnected = false
     refreshQueued = false
+    openThreadDirty = false
     pendingNotificationEventIds.clear()
     for (const timer of notificationRetryTimers) clearTimeout(timer)
     notificationRetryTimers.clear()
@@ -187,17 +254,22 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     channel = channelClient
       .channel(`inbox:${userId}`)
       .on('broadcast', { event: 'inbox-changed' }, (event) => {
-        const payload = event?.payload
-        const eventId = String(payload?.event_id ?? '')
-        if (payload?.op === 'INSERT' && eventId) {
-          pendingNotificationEventIds.add(eventId)
+        const ping = parsePing(event?.payload)
+        if (!ping) return
+        if (ping.op !== 'UPDATE') openThreadDirty = true
+        if (
+          ping.op === 'INSERT' &&
+          ping.eventId &&
+          pendingNotificationEventIds.size < MAX_PENDING_NOTIFICATION_EVENTS
+        ) {
+          pendingNotificationEventIds.add(ping.eventId)
         }
         scheduleRefresh()
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           // Catch pings missed while offline/reconnecting.
-          if (wasDisconnected) refreshNow()
+          if (wasDisconnected) catchUp()
           wasDisconnected = false
         } else {
           wasDisconnected = true
@@ -227,7 +299,7 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     } else if (hiddenAt !== null) {
       const hiddenFor = Date.now() - hiddenAt
       hiddenAt = null
-      if (hiddenFor >= RESUME_REFRESH_AFTER_MS) refreshNow()
+      if (hiddenFor >= RESUME_REFRESH_AFTER_MS) catchUp()
     }
   }
 

@@ -381,6 +381,11 @@ function lateDraftIdFor(chain, session, surface) {
   })
 }
 
+// Per-folder load generation. loadFolder bumps it; a load or an append that
+// sees it moved was superseded and must not touch the list or the
+// refreshing flag the newer load now owns.
+const folderLoadSeq = {}
+
 // State keys for each server-backed folder list (?folder=). The inbox list
 // has its own loader: it additionally tracks the unread count, userId, and
 // search interplay. Folders without consumers of a "loaded" flag omit it.
@@ -600,8 +605,6 @@ export const useInboxStore = defineStore('inbox', {
     labelFolderName: null,
     isLabelLoaded: false,
     isLabelRefreshing: false,
-    // Staleness guard for label loads, mirroring listSeq above.
-    labelSeq: 0,
     // Done archive pager (page replacement, not append): the cursor used to
     // fetch page N lives at donePageCursors[N] (null for page 0), so Newer
     // simply refetches with the earlier cursor.
@@ -1069,23 +1072,25 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Loads (or reloads) a server-backed folder list; see FOLDER_STATE.
-    // Label loads are labelSeq-guarded like loadEmails' listSeq: switching
+    // Loads are folderLoadSeq-guarded like loadEmails' listSeq: switching
     // labels quickly starts concurrent fetches that share one list, and
     // without the guard whichever response resolves last would win —
-    // potentially rendering label A's emails under label B's header.
+    // potentially rendering label A's emails under label B's header. The
+    // bump also strands any in-flight loadMoreFolder page for this folder.
     async loadFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
-      const seq = folder === 'label' ? ++this.labelSeq : null
+      const seq = (folderLoadSeq[folder] = (folderLoadSeq[folder] ?? 0) + 1)
       this[keys.refreshing] = true
       try {
         const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
           folder,
           ...extra,
         })
-        if (seq !== null && seq !== this.labelSeq) return
+        if (seq !== folderLoadSeq[folder]) return
         this[keys.list] = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(this[keys.list])
+          if (seq !== folderLoadSeq[folder]) return
         }
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
@@ -1099,22 +1104,22 @@ export const useInboxStore = defineStore('inbox', {
             : this[keys.list].length
         }
       } catch (error) {
-        if (seq !== null && seq !== this.labelSeq) return
+        if (seq !== folderLoadSeq[folder]) return
         console.error(`Failed to load ${keys.label}:`, error)
         this.notify(`Failed to load ${keys.label}.`, 'error')
       } finally {
-        if (seq === null || seq === this.labelSeq) this[keys.refreshing] = false
+        if (seq === folderLoadSeq[folder]) this[keys.refreshing] = false
       }
     },
 
     // Appends the folder's next keyset page. No-op while a load is already
-    // running or when there is no further page. Label appends verify the
-    // active label hasn't switched mid-flight so page 2 of an abandoned
-    // label can't land in the new label's list.
+    // running or when there is no further page. A reload (or label switch)
+    // started mid-flight supersedes the append, so a stale page 2 can't land
+    // on top of the fresh page 1 or clear the reload's refreshing flag.
     async loadMoreFolder(folder, extra = {}) {
       const keys = FOLDER_STATE[folder]
       if (!this[keys.cursor] || this[keys.refreshing]) return
-      const expectedLabel = folder === 'label' ? this.labelFolderName : null
+      const seq = folderLoadSeq[folder]
       this[keys.refreshing] = true
       try {
         const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
@@ -1122,19 +1127,21 @@ export const useInboxStore = defineStore('inbox', {
           before: this[keys.cursor],
           ...extra,
         })
-        if (expectedLabel !== null && this.labelFolderName !== expectedLabel) return
+        if (seq !== folderLoadSeq[folder]) return
         const nextEmails = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(nextEmails)
+          if (seq !== folderLoadSeq[folder]) return
         }
         this[keys.list].push(...nextEmails)
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
       } catch (error) {
+        if (seq !== folderLoadSeq[folder]) return
         console.error(`Failed to load more ${keys.label}:`, error)
         this.notify(`Failed to load more ${keys.label}.`, 'error')
       } finally {
-        this[keys.refreshing] = false
+        if (seq === folderLoadSeq[folder]) this[keys.refreshing] = false
       }
     },
 

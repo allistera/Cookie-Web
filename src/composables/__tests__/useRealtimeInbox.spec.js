@@ -2,7 +2,12 @@ import { effectScope, nextTick, ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 
-import { RESUME_REFRESH_AFTER_MS, useRealtimeInbox } from '../useRealtimeInbox'
+import {
+  BROADCAST_REFRESH_INTERVAL_MS,
+  MAX_PENDING_NOTIFICATION_EVENTS,
+  RESUME_REFRESH_AFTER_MS,
+  useRealtimeInbox,
+} from '../useRealtimeInbox'
 import { useTitleUnreadBadge } from '../useTitleUnreadBadge'
 import { useInboxStore } from '../../stores/inbox'
 import { NOTIFICATIONS_API_URL } from '../../lib/apiWorkers'
@@ -28,7 +33,7 @@ function makeMockClient() {
     channel: vi.fn(() => channelObj),
     removeChannel: vi.fn(),
     channelObj,
-    ping(payload = {}) {
+    ping(payload = { op: 'UPDATE' }) {
       onBroadcast?.({ payload })
     },
     setStatus(status) {
@@ -331,6 +336,128 @@ describe('useRealtimeInbox', () => {
     await vi.advanceTimersByTimeAsync(1500)
 
     expect(Notification).not.toHaveBeenCalled()
+  })
+
+  // The broadcast channel is public: a flood of forged pings must not turn
+  // into a refetch per ping, visible tab or hidden.
+  it('coalesces a flood of pings into one refresh per interval while hidden', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    mount(client)
+
+    setHidden(true)
+    for (let i = 0; i < 20; i += 1) client.ping()
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+
+    // The async advance also settles the first refresh, so the timer-driven
+    // one below really refetches rather than queueing behind it.
+    await vi.advanceTimersByTimeAsync(BROADCAST_REFRESH_INTERVAL_MS - 1)
+    for (let i = 0; i < 20; i += 1) client.ping()
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('spaces visible-tab broadcast refreshes by the interval', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    mount(client)
+
+    client.ping()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+
+    client.ping()
+    await vi.advanceTimersByTimeAsync(BROADCAST_REFRESH_INTERVAL_MS - 1)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('caps notification claims from a flood of forged insert pings', async () => {
+    const client = makeMockClient()
+    store.userId = '11111111-1111-1111-1111-111111111111'
+    localStorage.setItem(
+      `cookie-browser-notifications:${store.userId}`,
+      JSON.stringify({ enabled: true }),
+    )
+    vi.stubGlobal('Notification', Object.assign(vi.fn(), { permission: 'granted' }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+    mount(client)
+
+    setHidden(true)
+    for (let i = 0; i < 50; i += 1) {
+      const suffix = String(i).padStart(12, '0')
+      client.ping({ op: 'INSERT', event_id: `aaaaaaaa-aaaa-4aaa-8aaa-${suffix}` })
+    }
+    await vi.advanceTimersByTimeAsync(BROADCAST_REFRESH_INTERVAL_MS)
+
+    // The first ping refreshes immediately with its own claim; the other 49
+    // coalesce into one timed refresh that claims at most the cap.
+    expect(store.refreshInbox).toHaveBeenCalledTimes(2)
+    expect(fetch).toHaveBeenCalledTimes(1 + MAX_PENDING_NOTIFICATION_EVENTS)
+  })
+
+  it('ignores malformed pings', () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    vi.stubGlobal('fetch', vi.fn())
+    mount(client)
+
+    setHidden(true)
+    client.ping(null)
+    client.ping('INSERT')
+    client.ping({})
+    client.ping({ op: 'TRUNCATE' })
+    client.ping({ op: 'INSERT', event_id: 'not-a-uuid' })
+    client.ping({ op: 'INSERT', event_id: 42 })
+
+    expect(store.refreshInbox).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('skips the open body refetch when an update ping leaves the open row unchanged', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    store.traditionalEmails = [{ id: 'message-1', unread: false }]
+    store.openEmailId = 'message-1'
+    mount(client)
+
+    client.ping({ op: 'UPDATE' })
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+    expect(store.refreshOpenThread).not.toHaveBeenCalled()
+  })
+
+  it('refetches the open body when the refreshed page changed the open row', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    store.traditionalEmails = [{ id: 'message-1', unread: false }]
+    store.openEmailId = 'message-1'
+    store.refreshInbox.mockImplementation(async () => {
+      store.traditionalEmails[0].unread = true
+    })
+    mount(client)
+
+    client.ping({ op: 'UPDATE' })
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(store.refreshOpenThread).toHaveBeenCalledTimes(1)
+  })
+
+  it('refetches the open body for an insert ping', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    store.traditionalEmails = [{ id: 'message-1', unread: false }]
+    store.openEmailId = 'message-1'
+    mount(client)
+
+    client.ping({ op: 'INSERT' })
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(store.refreshOpenThread).toHaveBeenCalledTimes(1)
   })
 
   it('does not refresh while a search is active', () => {

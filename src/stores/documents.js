@@ -22,6 +22,9 @@ import { useInboxStore } from './inbox'
 
 const workspaceLoads = new WeakMap()
 const pageLoads = new WeakMap()
+// The in-flight openTodayNote per store: the palette and the sidebar can both
+// ask at once, and two runs would each create the Daily folders and the note.
+const todayNoteOpens = new WeakMap()
 // Latest updateDocumentMeta call per document id, per store; see there.
 const metaRequests = new WeakMap()
 let metaSeq = 0
@@ -692,8 +695,19 @@ export const useDocumentsStore = defineStore('documents', {
     // Daily/<year>/<month> (e.g. Daily/2026/Aug), seeding a fresh note with
     // the user's customized daily-note default (or DEFAULT_DAILY_NOTE_SEED_BLOCKS
     // if they haven't customized one) so it isn't blank the first time it's
-    // opened.
-    async openTodayNote() {
+    // opened. Concurrent calls share one run.
+    openTodayNote() {
+      const store = toRaw(this)
+      const inFlight = todayNoteOpens.get(store)
+      if (inFlight) return inFlight
+      const open = this.findOrCreateTodayNote().finally(() => {
+        if (todayNoteOpens.get(store) === open) todayNoteOpens.delete(store)
+      })
+      todayNoteOpens.set(store, open)
+      return open
+    },
+
+    async findOrCreateTodayNote() {
       // loadWorkspace and loadDailyNoteSeed are independent — run them
       // concurrently instead of sequentially to halve the waterfall depth.
       await Promise.all([this.loadWorkspace(), this.loadDailyNoteSeed()])

@@ -659,6 +659,23 @@ describe('the Today list', () => {
     vi.useRealTimers()
   })
 
+  it('refetches Today once the local date has moved on', async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 24, 23, 0))
+
+    await store.loadItems('today')
+    await store.loadItems('today')
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    vi.setSystemTime(new Date(2026, 8, 25, 0, 30))
+    await store.loadItems('today')
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls[1][0]).toContain('date=2026-09-25')
+    vi.useRealTimers()
+  })
+
   it('does not send a date for an ordinary project', async () => {
     stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
 

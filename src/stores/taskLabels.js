@@ -127,7 +127,6 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
       await labelLoads.get(toRaw(this))
       const doomed = this.labels.find((row) => row.id === id)
       if (!doomed) return false
-      const previous = this.labels
       this.labels = this.labels.filter((label) => label.id !== id)
       try {
         await this.request('DELETE', { id })
@@ -135,7 +134,11 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
         return true
       } catch (error) {
         console.error('Failed to delete label:', error)
-        this.labels = previous
+        // Put back only the deleted label, so a create or rename that landed
+        // meanwhile survives the rollback.
+        if (!this.labels.some((label) => label.id === id)) {
+          this.labels = [...this.labels, doomed].sort(byNameOrder)
+        }
         this.notify(error.userMessage || 'Failed to delete the label.', 'error')
         return false
       }

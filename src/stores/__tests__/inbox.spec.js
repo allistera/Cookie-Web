@@ -1391,6 +1391,52 @@ describe('Inbox Store', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('drops a stale next page when the folder reloads mid-append', async () => {
+    const row = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: id,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    const page = (ids, nextCursor = null) => ({
+      ok: true,
+      json: async () => ({ emails: ids.map(row), nextCursor }),
+    })
+    let finishStalePage
+    let finishReload
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(page(['a'], '2026-07-01T00:00:00Z|a'))
+        .mockReturnValueOnce(new Promise((resolve) => (finishStalePage = resolve)))
+        .mockReturnValueOnce(new Promise((resolve) => (finishReload = resolve))),
+    )
+
+    const store = useInboxStore()
+    await store.loadStarredEmails()
+    const append = store.loadMoreStarredEmails()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    const reload = store.loadStarredEmails()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3))
+
+    finishStalePage(page(['b']))
+    await append
+    // The reload still owns the refreshing flag.
+    expect(store.isStarredRefreshing).toBe(true)
+    expect(store.starredEmails.map((email) => email.id)).toEqual(['a'])
+
+    finishReload(page(['new', 'a']))
+    await reload
+    expect(store.starredEmails.map((email) => email.id)).toEqual(['new', 'a'])
+    expect(store.isStarredRefreshing).toBe(false)
+  })
+
   it('hydrates best-effort read status after loading sent mail', async () => {
     const openedAt = '2026-07-24T10:30:00.000Z'
     const row = {

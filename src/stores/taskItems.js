@@ -32,6 +32,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // Which project the loaded items belong to ('inbox' or a project id), so
     // navigating between projects refetches rather than showing the last one.
     loadedProject: null,
+    // The localToday() the loaded Today list was fetched for, so a list left
+    // open past midnight refetches instead of staying on yesterday.
+    loadedDate: null,
     isLoading: false,
     loadSeq: 0,
     // Action asked for by the command palette: 'new-task' and 'add-divider'
@@ -78,7 +81,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     async loadItems(project, { force = false } = {}) {
-      if (this.loadedProject === project && !force) return
+      const today = project === 'today' ? localToday() : null
+      if (this.loadedProject === project && this.loadedDate === today && !force) return
       // Clear the previous project's tasks and disown loadedProject before
       // the request goes out, so a switch never leaves the last project's
       // rows on screen under the new heading — whether the fetch is slow or
@@ -97,7 +101,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       try {
         // Today spans every project and needs the caller's own date; the
         // Worker refuses the request without one.
-        const date = project === 'today' ? `&date=${localToday()}` : ''
+        const date = today ? `&date=${today}` : ''
         const { items, nextCursor } = await this.request('GET', {
           params: `?project=${encodeURIComponent(project)}${date}&view=page`,
         })
@@ -105,6 +109,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         this.items = items
         this.nextCursor = nextCursor ?? null
         this.loadedProject = project
+        this.loadedDate = today
       } catch (error) {
         if (seq !== this.loadSeq) return
         console.error('Failed to load tasks:', error)
@@ -121,7 +126,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
       this.isLoadingMore = true
       try {
         const params = new URLSearchParams({ project, view: 'page', after: this.nextCursor })
-        if (project === 'today') params.set('date', localToday())
+        // Later pages continue the list the first page started.
+        if (project === 'today') params.set('date', this.loadedDate)
         const { items, nextCursor } = await this.request('GET', { params: `?${params}` })
         if (seq !== this.loadSeq) return
         const seen = new Set(this.items.map((item) => item.id))
