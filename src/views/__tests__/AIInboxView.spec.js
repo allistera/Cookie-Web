@@ -321,6 +321,25 @@ describe('AIInboxView (AI Today)', () => {
     expect(nextVisit.find('[data-testid="news-empty"]').exists()).toBe(false)
   })
 
+  it('still mounts and toggles The World Today when storage is blocked', async () => {
+    const blocked = () => {
+      throw new DOMException('Storage disabled', 'SecurityError')
+    }
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(blocked)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(blocked)
+
+    try {
+      const wrapper = mountView()
+      const toggle = wrapper.get('[data-testid="world-today-toggle"]')
+      expect(toggle.attributes('aria-expanded')).toBe('true')
+
+      await toggle.trigger('click')
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
   it('shows a news empty state pointing at the settings pane', () => {
     const wrapper = mountView()
     expect(wrapper.find('[data-testid="news-sections"]').exists()).toBe(false)

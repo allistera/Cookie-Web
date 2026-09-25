@@ -44,11 +44,23 @@ const noiseSummary = computed(() =>
 )
 const newsSections = computed(() => store.news?.sections ?? [])
 const newsCollapsedKey = 'cookie-world-today-collapsed'
-const newsCollapsed = ref(localStorage.getItem(newsCollapsedKey) === 'true')
+// Storage can be blocked (SecurityError); the toggle then just isn't remembered.
+function readNewsCollapsed() {
+  try {
+    return localStorage.getItem(newsCollapsedKey) === 'true'
+  } catch {
+    return false
+  }
+}
+const newsCollapsed = ref(readNewsCollapsed())
 
 function toggleNews() {
   newsCollapsed.value = !newsCollapsed.value
-  localStorage.setItem(newsCollapsedKey, String(newsCollapsed.value))
+  try {
+    localStorage.setItem(newsCollapsedKey, String(newsCollapsed.value))
+  } catch {
+    // Storage disabled; keep the in-memory state.
+  }
 }
 
 const completingTaskIds = ref(new Set())

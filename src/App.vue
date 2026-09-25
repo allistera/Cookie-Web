@@ -471,27 +471,33 @@ onUnmounted(() => {
               v-model="searchInputVal"
               @keydown.enter.prevent="handleSearchEnter"
             />
-            <span
+            <button
+              type="button"
               class="material-symbols-outlined search-clear-icon"
               v-if="searchInputVal.length > 0"
+              aria-label="Clear search"
               @click="clearSearch"
             >
               close
-            </span>
+            </button>
           </div>
         </div>
 
         <div class="header-right">
-          <div
-            class="profile-container"
-            :title="user?.name || 'Account'"
-            @click="showLogoutMenu = !showLogoutMenu"
-          >
-            <img
-              :src="user?.picture || '/rose_avatar.webp'"
-              :alt="user?.name || 'Account'"
-              class="profile-img"
-            />
+          <div class="profile-container" :title="user?.name || 'Account'">
+            <button
+              type="button"
+              class="profile-trigger"
+              aria-haspopup="menu"
+              :aria-expanded="showLogoutMenu"
+              @click="showLogoutMenu = !showLogoutMenu"
+            >
+              <img
+                :src="user?.picture || '/rose_avatar.webp'"
+                :alt="user?.name || 'Account'"
+                class="profile-img"
+              />
+            </button>
 
             <!-- Dropdown/Logout menu -->
             <div class="profile-dropdown" v-if="showLogoutMenu" @click.stop>
@@ -715,3 +721,22 @@ onUnmounted(() => {
     <ComposerWindow v-if="composerLoaded" />
   </template>
 </template>
+
+<style scoped>
+/* Native buttons for keyboard access; strip the UA chrome so they keep the
+   look of the icon/avatar they wrap. */
+.profile-trigger,
+.search-clear-icon {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.profile-trigger {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  cursor: pointer;
+}
+</style>

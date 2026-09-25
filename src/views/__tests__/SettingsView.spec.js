@@ -352,6 +352,30 @@ describe('SettingsView', () => {
     expect(store.rules).toHaveLength(1)
   })
 
+  it('keeps a rule opened for editing while an earlier save finishes', async () => {
+    const wrapper = await openView()
+    await openRulesPane(wrapper)
+    await generateRule(wrapper)
+    let finish
+    fetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    await wrapper.get('.rule-editor-form').trigger('submit')
+    await flushPromises()
+    await wrapper.get('[title="Edit Bills"]').trigger('click')
+    finish({
+      ok: true,
+      json: async () => ({ rule: { ...FIXTURE_RULES[0], id: 'r2', name: 'Generated rule' } }),
+    })
+    await flushPromises()
+    expect(store.rules).toHaveLength(2)
+    expect(wrapper.get('[aria-label="Rule name"]').element.value).toBe('Bills')
+    expect(wrapper.get('button[type="submit"].btn-primary').text()).toBe('Save rule')
+  })
+
   it('renders as a full page with grouped navigation and the Account pane', async () => {
     const wrapper = await openView()
 

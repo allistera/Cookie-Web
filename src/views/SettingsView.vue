@@ -734,15 +734,19 @@ async function submitRule() {
   // mark_done must drop the key rather than null it out.
   if (ruleDraft.action === 'apply_label') payload.label_id = ruleDraft.label_id
 
+  const savingRuleId = editingRuleId.value
   let ok
-  if (editingRuleId.value) {
-    const rule = store.rules.find((r) => r.id === editingRuleId.value)
+  if (savingRuleId) {
+    const rule = store.rules.find((r) => r.id === savingRuleId)
     ok = rule ? await store.updateRule(rule, payload) : false
   } else {
     ok = Boolean(await store.createRule(payload))
   }
 
   isSavingRule.value = false
+  // Edit may have opened another rule while this save was in flight; leave
+  // that newer draft (and its error slot) alone.
+  if (editingRuleId.value !== savingRuleId) return
   if (ok) resetRuleDraft()
   else ruleError.value = 'Failed to save the rule.'
 }
