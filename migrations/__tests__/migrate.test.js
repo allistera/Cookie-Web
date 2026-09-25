@@ -88,6 +88,14 @@ describe('migrations/migrate.sh', () => {
     expect(body.indexOf('INSERT INTO schema_migrations')).toBeLessThan(
       body.indexOf('CREATE TABLE t'),
     )
+    // Timeouts are transaction-scoped, set after the runner lock (so waiting
+    // on another runner is not cut short) and before the migration body.
+    const lockAt = body.indexOf('pg_advisory_xact_lock')
+    const bodyAt = body.indexOf('CREATE TABLE t')
+    for (const setting of ["SET LOCAL lock_timeout = '5s';", 'SET LOCAL statement_timeout =']) {
+      expect(body.indexOf(setting)).toBeGreaterThan(lockAt)
+      expect(body.indexOf(setting)).toBeLessThan(bodyAt)
+    }
     // The file's own top-level transaction lines are stripped so they cannot
     // commit early; the plpgsql block keeps its BEGIN/END.
     expect(body).not.toMatch(/^BEGIN;$/m)

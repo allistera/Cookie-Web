@@ -26,6 +26,13 @@ The script creates `schema_migrations` if needed, applies pending files in order
 
 Pushes to `main` that change `migrations/**` run the same script through the `Migrate Database` GitHub Actions workflow.
 
+Each file runs with `lock_timeout = '5s'` and `statement_timeout = '5min'`,
+set after the runner's advisory lock. A migration that needs longer can raise
+either with `SET LOCAL` at the top of its body. For an index on a large hot
+table, build it by hand first with `CREATE INDEX CONCURRENTLY` outside a
+transaction, then let the migration's `CREATE INDEX IF NOT EXISTS` no-op; the
+header comment in `migrate.sh` has the steps.
+
 ## Connection guidance
 
 Use the Supavisor session pooler on port `5432` for GitHub-hosted migrations. GitHub runners cannot depend on an IPv6-only direct database host.
@@ -338,3 +345,23 @@ references to the oldest row, then adds a unique index on that pair. Composer
 upload registration uses it to upsert, so a retried registration returns the
 existing row instead of adding a copy. Web works before and after this
 migration: without the index, registration falls back to a plain insert.
+
+## Missing indexes
+
+`0084_missing_indexes.sql` adds indexes for the orphaned-upload `blob_url`
+probe, the `draft_attachments` and `task_projects` cascades, per-user deletes
+of notification events, and the sender block/screening match on
+`lower(btrim(from_address))`. It is safe to apply at any time.
+
+## Enrichment attempt limit
+
+`0085_message_ai_enrichment_attempts.sql` adds `message_ai.enrichment_attempts`.
+Apply it before deploying the `mail-app-ingest` Worker version whose recovery
+sweep and failure upsert read and increment that column; older Worker code
+ignores it.
+
+## Document revision trigger hardening
+
+`0086_document_workspace_revision_hardening.sql` pins the `0075` trigger
+function's `search_path`, schema-qualifies its names, and revokes client-role
+access to `document_workspace_revisions`. Behaviour is unchanged.
