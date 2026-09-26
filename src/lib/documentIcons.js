@@ -356,6 +356,7 @@ export const DOCUMENT_ICON_GROUPS = GROUPS.map((group) => ({
 export const ALL_DOCUMENT_ICONS = DOCUMENT_ICON_GROUPS.flatMap((group) => group.items)
 
 export const DOCUMENT_ICON_NAMES = ALL_DOCUMENT_ICONS.map((icon) => icon.name)
+const KNOWN_ICON_NAMES = new Set(DOCUMENT_ICON_NAMES)
 
 // Same contract as filterEmoji: every group for an empty query, otherwise one
 // "Search results" group whose items match every whitespace-separated term.
@@ -376,6 +377,9 @@ export function parseDocumentIcon(value) {
   if (!trimmed) return null
   if (!trimmed.startsWith(DOCUMENT_ICON_PREFIX)) return { emoji: trimmed }
   const name = trimmed.slice(DOCUMENT_ICON_PREFIX.length)
-  if (!ICON_NAME_PATTERN.test(name)) return null
+  // Only glyphs in the bundled font: anything else (a name cut short by an
+  // older server, or one dropped from the set) would render as its raw
+  // ligature text.
+  if (!ICON_NAME_PATTERN.test(name) || !KNOWN_ICON_NAMES.has(name)) return null
   return { symbol: name, label: labelFor(name) }
 }

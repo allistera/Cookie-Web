@@ -62,5 +62,7 @@ describe('parseDocumentIcon', () => {
     expect(parseDocumentIcon('ms:')).toBeNull()
     expect(parseDocumentIcon('ms:Rocket Launch')).toBeNull()
     expect(parseDocumentIcon(`ms:${'a'.repeat(65)}`)).toBeNull()
+    // A name the bundled font lacks, e.g. one truncated by an older server.
+    expect(parseDocumentIcon('ms:check_box_out')).toBeNull()
   })
 })
