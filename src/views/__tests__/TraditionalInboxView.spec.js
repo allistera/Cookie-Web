@@ -2038,6 +2038,42 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(wrapper.find('.ni-reader-topbar [title="Not spam"]').exists()).toBe(false)
   })
 
+  it('offers Not important only for mail that classification put in Important', async () => {
+    store.traditionalEmails = [{ ...makeEmail('priority-1', Date.now() - HOUR), isPriority: true }]
+    const markNotImportant = vi.spyOn(store, 'markNotImportant').mockResolvedValue(true)
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
+
+    const item = wrapper
+      .findAll('.ni-reader-topbar .ni-more-item')
+      .find((button) => button.text().includes('Not important'))
+    expect(item).toBeDefined()
+    expect(item.text()).toContain('low_priority')
+    await item.trigger('click')
+    expect(markNotImportant).toHaveBeenCalledWith(expect.objectContaining({ id: 'priority-1' }))
+    expect(wrapper.find('.ni-reader-topbar .ni-more-menu').exists()).toBe(false)
+  })
+
+  it('offers Not important for mail in a category named Important, but not for other mail', async () => {
+    const important = { id: 'c-imp', name: 'Important', color: '#d93025' }
+    store.categories = [important]
+    store.traditionalEmails = [{ ...makeEmail('cat-1', Date.now() - HOUR), category: important }]
+    let wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
+    expect(wrapper.find('.ni-reader-topbar .ni-more-menu').text()).toContain('Not important')
+    wrapper.unmount()
+
+    store.categories = []
+    store.traditionalEmails = [makeEmail('plain-1', Date.now() - HOUR)]
+    store.openEmailId = null
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await openMoreMenu(wrapper)
+    expect(wrapper.find('.ni-reader-topbar .ni-more-menu').text()).not.toContain('Not important')
+  })
+
   it('hides Report spam and Snooze for sent mail', async () => {
     store.traditionalEmails = [{ ...makeEmail('sent-1', Date.now() - HOUR), isSent: true }]
     const wrapper = mountView()

@@ -943,6 +943,20 @@ function archiveOpenEmail() {
 // Spam folder (and vice versa), so the reader advances like Done does. In
 // lists that show spam regardless (Starred, labels, search) the email stays
 // put and the reader stays on it.
+// Offered while classification put the open email in Important: a high
+// priority or a category named Important (mail due now is Important because
+// of its date, which "Not important" cannot change).
+const canMarkNotImportant = computed(() => {
+  const email = openEmail.value
+  if (!email || email.isSent) return false
+  return Boolean(email.isPriority) || importantCategoryIds.value.has(email.category?.id)
+})
+
+function markOpenEmailNotImportant() {
+  readerMoreOpen.value = false
+  if (openEmail.value) store.markNotImportant(openEmail.value)
+}
+
 function toggleOpenEmailSpam() {
   removeOpenEmail((email) => store.setSpam(email, !email.isSpam))
 }
@@ -1880,6 +1894,17 @@ onUnmounted(() => {
                   <span class="ni-more-label">{{
                     threadMuteBody?.threadMuted ? 'Unmute thread' : 'Mute thread'
                   }}</span>
+                </button>
+                <button
+                  v-if="canMarkNotImportant"
+                  type="button"
+                  role="menuitem"
+                  class="ni-more-item"
+                  title="Not important: future mail from this sender won't be marked important"
+                  @click="markOpenEmailNotImportant"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">low_priority</span>
+                  <span class="ni-more-label">Not important</span>
                 </button>
                 <button
                   v-if="!openEmail.isSent"

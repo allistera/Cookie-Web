@@ -511,6 +511,28 @@ export function mapEmailRow(message) {
   }
 }
 
+// Every cached copy of an email (the open reader can hold a different object
+// than the list rows), so an importance change moves it between inbox tabs
+// everywhere at once.
+function setImportanceFields(store, email, isPriority, category) {
+  const lists = [
+    store.traditionalEmails,
+    store.starredEmails,
+    store.labelEmails,
+    store.sentEmails,
+    store.spamEmails,
+    store.snoozedEmails,
+    store.doneEmails,
+  ]
+  for (const row of [
+    email,
+    ...lists.flatMap((list) => list.filter((item) => item.id === email.id)),
+  ]) {
+    row.isPriority = isPriority
+    row.category = category
+  }
+}
+
 // mapEmailRow builds labels, recipients and category afresh for every row, so
 // a refresh that returns identical data would still hand each existing row
 // three new object references. Vue treats that as a change and re-renders
@@ -1413,6 +1435,60 @@ export const useInboxStore = defineStore('inbox', {
         error.retryAfterSeconds = details.retryAfterSeconds
         throw error
       }
+      return response.json()
+    },
+
+    // "Not important" from the reader's More menu. The Worker remembers the
+    // sender, so ingest classification never rates their mail high priority
+    // or files it under a category named Important, and takes this email
+    // out of Important now. Applied optimistically; the toast offers Undo.
+    async markNotImportant(email) {
+      if (!email) return false
+      const before = { isPriority: email.isPriority, category: email.category ?? null }
+      setImportanceFields(
+        this,
+        email,
+        false,
+        isImportantCategory(before.category) ? null : before.category,
+      )
+      try {
+        const result = await this.postImportance(email, { action: 'mark_not_important' })
+        const sender = result.sender || 'this sender'
+        this.notify(`Mail from ${sender} won't be marked important.`, 'info', {
+          label: 'Undo',
+          run: () => this.undoNotImportant(email, before, result.previous),
+        })
+        return true
+      } catch (error) {
+        console.error('Failed to mark email not important:', error)
+        setImportanceFields(this, email, before.isPriority, before.category)
+        this.notify('Failed to mark the email not important.', 'error')
+        return false
+      }
+    },
+
+    async undoNotImportant(email, before, previous) {
+      const after = { isPriority: email.isPriority, category: email.category ?? null }
+      setImportanceFields(this, email, before.isPriority, before.category)
+      try {
+        await this.postImportance(email, { action: 'undo_not_important', previous })
+        return true
+      } catch (error) {
+        console.error('Failed to undo not important:', error)
+        setImportanceFields(this, email, after.isPriority, after.category)
+        this.notify('Failed to undo. The sender is still marked not important.', 'error')
+        return false
+      }
+    },
+
+    async postImportance(email, body) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${MESSAGES_API_URL}/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ id: email.id, ...body }),
+      })
+      if (!response.ok) throw new Error(`POST /messages responded ${response.status}`)
       return response.json()
     },
 

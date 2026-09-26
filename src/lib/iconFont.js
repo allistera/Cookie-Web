@@ -67,6 +67,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'light_mode',
   'link',
   'logout',
+  'low_priority',
   'mail',
   'mark_email_read',
   'mark_email_unread',

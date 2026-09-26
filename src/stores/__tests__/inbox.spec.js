@@ -5230,6 +5230,62 @@ describe('email Categories', () => {
     expect(store.starredEmails[0].category).toEqual(category)
   })
 
+  it('marks an email not important everywhere and offers Undo', async () => {
+    const store = useInboxStore()
+    const important = { id: 'c1', name: 'Important', color: '#d93025' }
+    const previous = { priority: 'high', category_id: 'c1' }
+    store.traditionalEmails = [{ id: 'm1', isPriority: true, category: important }]
+    store.starredEmails = [{ id: 'm1', isPriority: true, category: important }]
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ sender: 'news@shop.example', priority: 'normal', previous }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ restored: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await store.markNotImportant(store.traditionalEmails[0])).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      id: 'm1',
+      action: 'mark_not_important',
+    })
+    for (const row of [store.traditionalEmails[0], store.starredEmails[0]]) {
+      expect(row).toMatchObject({ isPriority: false, category: null })
+    }
+    const toast = store.toasts.at(-1)
+    expect(toast.message).toContain('news@shop.example')
+
+    expect(await toast.action.run()).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      id: 'm1',
+      action: 'undo_not_important',
+      previous,
+    })
+    expect(store.starredEmails[0]).toMatchObject({ isPriority: true, category: important })
+  })
+
+  it('keeps an ordinary category and restores everything when the request fails', async () => {
+    const store = useInboxStore()
+    const projects = { id: 'c2', name: 'Projects' }
+    store.traditionalEmails = [{ id: 'm1', isPriority: true, category: projects }]
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    let resolve
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((done) => (resolve = done))),
+    )
+
+    const pending = store.markNotImportant(store.traditionalEmails[0])
+    await vi.waitFor(() => expect(resolve).toBeTypeOf('function'))
+    expect(store.traditionalEmails[0]).toMatchObject({ isPriority: false, category: projects })
+
+    resolve({ ok: false, status: 500 })
+    expect(await pending).toBe(false)
+    expect(store.traditionalEmails[0]).toMatchObject({ isPriority: true, category: projects })
+    expect(store.toasts.at(-1).kind).toBe('error')
+  })
+
   it('clears loaded message assignments when a Category is deleted', async () => {
     const store = useInboxStore()
     const category = { id: 'c1', name: 'Projects', color: '#1a73e8' }
