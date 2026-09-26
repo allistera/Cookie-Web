@@ -21,6 +21,15 @@ if (databaseUrl) {
       'Screening migration tests require the isolated localhost cookie_screening_test database',
     )
 }
+// Applies a migration the way migrations/migrate.sh does: its bare column-0
+// BEGIN;/COMMIT; wrapper is stripped and the body runs in one transaction.
+// (postgres.js refuses raw transaction control on a pooled client.)
+async function applyMigration(sql, name) {
+  const file = await readFile(new URL(`../../migrations/${name}`, import.meta.url), 'utf8')
+  const body = file.replace(/^(BEGIN|COMMIT);[ \t]*$/gm, '')
+  await sql.begin((tx) => tx.unsafe(body))
+}
+
 const OWNER = '11111111-1111-4111-8111-111111111111'
 const OTHER = '22222222-2222-4222-8222-222222222222'
 const THREAD = '33333333-3333-4333-8333-333333333333'
@@ -53,23 +62,11 @@ describe.skipIf(!databaseUrl)('0088 sender screening on PostgreSQL', () => {
       CREATE FUNCTION realtime.send(jsonb, text, text, boolean) RETURNS void LANGUAGE sql AS
         'INSERT INTO realtime.pings (payload) VALUES ($1)';
     `)
-    await sql.unsafe(
-      await readFile(
-        new URL('../../migrations/0080_quiet_inbox_ping.sql', import.meta.url),
-        'utf8',
-      ),
-    )
+    await applyMigration(sql, '0080_quiet_inbox_ping.sql')
     await sql.unsafe(`CREATE TRIGGER messages_notify AFTER INSERT OR UPDATE OR DELETE ON public.messages
       FOR EACH ROW EXECUTE FUNCTION public.notify_inbox_changed()`)
-    await sql.unsafe(
-      await readFile(new URL('../../migrations/0082_out_of_office.sql', import.meta.url), 'utf8'),
-    )
-    await sql.unsafe(
-      await readFile(
-        new URL('../../migrations/0088_sender_screening.sql', import.meta.url),
-        'utf8',
-      ),
-    )
+    await applyMigration(sql, '0082_out_of_office.sql')
+    await applyMigration(sql, '0088_sender_screening.sql')
   })
   beforeEach(async () => {
     await sql.unsafe(`TRUNCATE public.message_ai, public.messages, public.threads, public.users,
