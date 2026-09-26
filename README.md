@@ -280,7 +280,7 @@ The Documents dashboard shows one folder at a time: subfolders first, then docum
 
 ### Document icons
 
-Open a document and click its icon to the left of the title to choose an emoji. Icons autosave with other edits and appear in the sidebar and document list. If saving fails, the selection stays open for **Retry save** or **Save a copy**.
+Open a document and click its icon to the left of the title to choose one. The **Icons** tab offers a searchable set of Material Symbols icons that look the same on every device; the **Emoji** tab keeps the OS emoji. A Material Symbols icon is stored in the document's `emoji` field as `ms:<icon_name>` (the list lives in `src/lib/documentIcons.js`; run `npm run fetch:icon-font` after changing it so the self-hosted font subset includes the new glyphs). Icons autosave with other edits and appear in the sidebar and document list. If saving fails, the selection stays open for **Retry save** or **Save a copy**.
 
 The AI button beside the document back arrow opens a panel on the right. Close it with the close button or Escape; the chat layout shows the document context, a scrollable conversation area, and a message composer. Drafts stay while the panel is closed and reset when switching documents. Send an instruction to GPT-5.6 Sol with the latest document snapshot and recent conversation. Review the response and use **Apply changes** to update the document, or **Create document** when starting from the dashboard. Newer local edits prevent stale suggestions from being applied; images, drawings and other non-text blocks are preserved. Failed requests keep the draft message for retry.
 

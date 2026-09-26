@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import DocumentIcon from './DocumentIcon.vue'
 import VirtualList from './VirtualList.vue'
 import { useDocumentsStore } from '../stores/documents'
 import { confirmDocumentDelete, confirmFolderDelete } from '../lib/documentDeleteConfirmation'
@@ -250,7 +251,7 @@ function onDragEnd() {
               class="nav-item doc-item"
               :class="{ active: route.params.id === doc.id }"
             >
-              <span class="doc-emoji" aria-hidden="true">{{ doc.emoji }}</span>
+              <DocumentIcon class="doc-emoji" :value="doc.emoji" />
               <span class="nav-text">{{ doc.title || 'Untitled' }}</span>
             </router-link>
           </template>
@@ -387,7 +388,7 @@ function onDragEnd() {
             @dragstart="onDragStart(row.item, $event)"
             @dragend="onDragEnd"
           >
-            <span class="doc-emoji" aria-hidden="true">{{ row.item.emoji }}</span>
+            <DocumentIcon class="doc-emoji" :value="row.item.emoji" />
             <span class="nav-text">{{ row.item.title || 'Untitled' }}</span>
             <span class="row-actions" @click.prevent.stop>
               <button

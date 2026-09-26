@@ -9,6 +9,7 @@ import {
   MATERIAL_SYMBOL_NAMES,
   MATERIAL_SYMBOLS_STYLESHEET_URL,
 } from '../iconFont'
+import { DOCUMENT_ICON_NAMES } from '../documentIcons'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -78,6 +79,14 @@ describe('self-hosted Material Symbols subset', () => {
 
     const woff2 = readFileSync(join(ROOT, 'public/fonts/material-symbols-outlined.woff2'))
     expect(woff2.subarray(0, 4).toString('latin1')).toBe('wOF2')
+  })
+
+  // scripts/fetch-icon-font.mjs merges the document icon set into the subset;
+  // a changed list without a regenerated font renders raw names in the picker.
+  it('was regenerated for the current app and document icon lists', () => {
+    const css = readFileSync(join(ROOT, 'public/fonts/material-symbols-outlined.css'), 'utf8')
+    const expected = new Set([...MATERIAL_SYMBOL_NAMES, ...DOCUMENT_ICON_NAMES]).size
+    expect(css).toContain(`Subset of ${expected} icons`)
   })
 
   it('precaches the font files in the service worker shell', () => {

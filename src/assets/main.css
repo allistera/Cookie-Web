@@ -3604,6 +3604,45 @@ button.ni-attachment:hover {
   border-color: var(--text-blue);
 }
 
+/* Icons / Emoji tabs, shown only by the document icon picker */
+.composer-emoji-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 8px 8px 0;
+}
+
+.composer-emoji-tab {
+  flex: 1;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer-emoji-tab:hover,
+.composer-emoji-tab[aria-selected='true'] {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.composer-emoji-tab:focus-visible {
+  outline: 2px solid var(--text-blue);
+  outline-offset: -2px;
+}
+
+.composer-emoji-symbol {
+  color: var(--text-primary);
+}
+
+.composer-emoji-symbol .material-symbols-outlined {
+  font-size: 22px;
+}
+
 .composer-emoji-scroll {
   max-height: 280px;
   overflow-y: auto;

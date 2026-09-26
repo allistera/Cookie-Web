@@ -417,6 +417,7 @@ async function exportToPDF() {
         class="document-icon-picker"
         label="Change document icon"
         :emoji="doc.emoji || '🔹'"
+        icons
         @select="emit('save', { id: doc.id, emoji: $event })"
       />
       <h1

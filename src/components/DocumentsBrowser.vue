@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import DocumentIcon from './DocumentIcon.vue'
 import FileThumbnail from './FileThumbnail.vue'
 import { useDocumentsStore } from '../stores/documents'
 import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
@@ -404,9 +405,11 @@ function detail(entry) {
           aria-hidden="true"
           >folder</span
         >
-        <span v-else-if="entry.kind === 'document'" class="item-icon item-emoji" aria-hidden="true">
-          {{ entry.item.emoji }}
-        </span>
+        <DocumentIcon
+          v-else-if="entry.kind === 'document'"
+          class="item-icon item-emoji"
+          :value="entry.item.emoji"
+        />
         <FileThumbnail
           v-else
           class="item-icon"

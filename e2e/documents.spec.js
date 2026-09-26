@@ -1061,6 +1061,7 @@ test('Document icons autosave alongside title edits and survive reload', async (
 
   await page.locator('.document-title').fill('Rocket notes')
   await icon.click()
+  await page.getByRole('tab', { name: 'Emoji' }).click()
   await page.getByRole('searchbox', { name: 'Search emoji' }).fill('rocket')
   const saved = page.waitForResponse(
     (response) =>
@@ -1080,6 +1081,33 @@ test('Document icons autosave alongside title edits and survive reload', async (
   await expect(icon).toHaveText('🚀')
 })
 
+test('A document icon can be chosen from the built-in icon set and persists', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  const icon = page.getByRole('button', { name: 'Change document icon' })
+  await icon.click()
+
+  await expect(page.getByRole('tab', { name: 'Icons' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('searchbox', { name: 'Search icons' }).fill('rocket')
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('ms:rocket_launch'),
+  )
+  await page.getByRole('button', { name: 'rocket launch', exact: true }).click()
+  await saved
+
+  // Rendered as a glyph from the bundled font, never as the stored text.
+  await expect(icon.locator('.document-icon-glyph')).toHaveText('rocket_launch')
+  const sidebarItem = page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' })
+  await expect(sidebarItem.locator('.document-icon-glyph')).toHaveText('rocket_launch')
+  await expect(sidebarItem).not.toContainText('ms:')
+
+  await page.reload()
+  await expect(icon.locator('.document-icon-glyph')).toHaveText('rocket_launch')
+})
+
 test('A failed document icon save keeps the selection available for retry', async ({ page }) => {
   await page.goto('/documents')
   await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
@@ -1089,6 +1117,8 @@ test('A failed document icon save keeps the selection available for retry', asyn
   })
   const icon = page.getByRole('button', { name: 'Change document icon' })
   await icon.click()
+  // Document icons open on the Icons tab; this retry path uses an emoji.
+  await page.getByRole('tab', { name: 'Emoji' }).click()
   await page.getByRole('searchbox', { name: 'Search emoji' }).fill('rocket')
   await page.getByRole('button', { name: 'rocket', exact: true }).click()
   await expect(page.locator('.save-status')).toContainText('Save failed')

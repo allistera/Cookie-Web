@@ -13,6 +13,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useDocumentsStore } from '../stores/documents'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
 import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
+import DocumentIcon from '../components/DocumentIcon.vue'
 import DocumentsBrowser from '../components/DocumentsBrowser.vue'
 import FilePreview from '../components/FilePreview.vue'
 import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
@@ -597,7 +598,7 @@ function onEditorSave(payload) {
               @click="router.push(`/documents/${doc.id}`)"
             >
               <td class="doc-name-cell">
-                <span aria-hidden="true">{{ doc.emoji }}</span>
+                <DocumentIcon :value="doc.emoji" />
                 <!-- The row click is a pointer convenience; the link is what a
                      keyboard or screen reader reaches. -->
                 <router-link :to="`/documents/${doc.id}`" class="doc-name-link" @click.stop>{{

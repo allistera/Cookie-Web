@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import DocumentIcon from './DocumentIcon.vue'
 import { useDocumentsStore } from '../stores/documents'
 
 const store = useDocumentsStore()
@@ -159,9 +160,7 @@ async function createAiDocument() {
             :disabled="isCreating"
             @click="createDocument(template.id)"
           >
-            <span class="new-document-option-icon" aria-hidden="true">{{
-              template.emoji || '📄'
-            }}</span>
+            <DocumentIcon class="new-document-option-icon" :value="template.emoji" fallback="📄" />
             <span>
               <strong>{{ template.title }}</strong>
               <small>Use this template</small>

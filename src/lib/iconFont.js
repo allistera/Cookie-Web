@@ -5,7 +5,9 @@
 // The subset is self-hosted (public/fonts/, precached by public/sw.js) rather
 // than fetched from fonts.googleapis.com, so an installed PWA started offline
 // still renders icons. After editing this list run `npm run fetch:icon-font`
-// to regenerate the woff2 and its stylesheet from the same names.
+// to regenerate the woff2 and its stylesheet from the same names. The script
+// also adds the document icon set (DOCUMENT_ICON_NAMES in documentIcons.js),
+// which is kept out of this module so the startup bundle does not carry it.
 export const MATERIAL_SYMBOL_NAMES = [
   'add',
   'add_reaction',
