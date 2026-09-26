@@ -5199,6 +5199,40 @@ describe('finding an email by id', () => {
   })
 })
 
+describe('sidebar folder counts', () => {
+  it('takes Starred, New senders and Blocked counts from the inbox state', async () => {
+    const store = useInboxStore()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          unreadCount: 1,
+          starredCount: 2,
+          screeningCount: 3,
+          blockedCount: 4,
+          userId: 'u1',
+        }),
+      }),
+    )
+    await store.loadInboxState({ force: true })
+    expect(store).toMatchObject({ starredCount: 2, screeningCount: 3, blockedCount: 4 })
+  })
+
+  it('keeps the Starred count in step when an email is starred or the star fails', async () => {
+    const store = useInboxStore()
+    store.starredCount = 0
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const updateMessage = vi.spyOn(store, 'updateMessage').mockRejectedValue(new Error('down'))
+    const email = { id: 'm1', starred: false }
+
+    store.toggleStar(email)
+    expect(store.starredCount).toBe(1)
+    await vi.waitFor(() => expect(updateMessage).toHaveBeenCalled())
+    await vi.waitFor(() => expect(store.starredCount).toBe(0))
+  })
+})
+
 describe('email Categories', () => {
   it('maps the one category returned by list and search endpoints', () => {
     const category = { id: 'c1', name: 'Projects', color: '#1a73e8' }

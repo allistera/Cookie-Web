@@ -560,7 +560,10 @@ onUnmounted(() => {
                 store.unreadInboxCount
               }}</span>
             </router-link>
+            <!-- Starred and New senders only show while they hold mail (the
+                 counts arrive with the inbox state), or while they are open. -->
             <router-link
+              v-if="store.starredCount || route.query.filter === 'starred'"
               :to="{ path: '/inbox', query: { filter: 'starred' } }"
               class="nav-item"
               :class="{ active: route.query.filter === 'starred' }"
@@ -569,20 +572,13 @@ onUnmounted(() => {
               <span class="nav-text">Starred</span>
             </router-link>
             <router-link
+              v-if="store.screeningCount || route.query.filter === 'screening'"
               :to="{ path: '/inbox', query: { filter: 'screening' } }"
               class="nav-item"
               :class="{ active: route.query.filter === 'screening' }"
             >
               <span class="material-symbols-outlined" aria-hidden="true">person</span
               ><span class="nav-text">New senders</span>
-            </router-link>
-            <router-link
-              :to="{ path: '/inbox', query: { filter: 'blocked' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'blocked' }"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span
-              ><span class="nav-text">Blocked</span>
             </router-link>
             <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
               <span class="material-symbols-outlined">{{
@@ -650,6 +646,16 @@ onUnmounted(() => {
               >
                 <span class="material-symbols-outlined">report</span>
                 <span class="nav-text">Spam</span>
+              </router-link>
+              <!-- Blocked likewise only exists while it holds mail. -->
+              <router-link
+                v-if="store.blockedCount || route.query.filter === 'blocked'"
+                :to="{ path: '/inbox', query: { filter: 'blocked' } }"
+                class="nav-item"
+                :class="{ active: route.query.filter === 'blocked' }"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span>
+                <span class="nav-text">Blocked</span>
               </router-link>
             </template>
           </nav>

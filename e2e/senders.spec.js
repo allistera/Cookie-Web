@@ -31,6 +31,8 @@ test('reader block is recoverable and screening decisions stay explicit across r
     controls.getByRole('button', { name: 'Block sender', exact: true }).click(),
   )
   await expect(controls).toBeHidden()
+  // Blocked lives under More and appears once it holds mail.
+  await page.locator('.nav-item', { hasText: 'More' }).click()
   await page.getByRole('link', { name: 'Blocked', exact: true }).click()
   await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
   await expect(controls.getByRole('button', { name: 'Unblock sender', exact: true })).toBeEnabled()

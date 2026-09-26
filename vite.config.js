@@ -375,6 +375,12 @@ function localApiPlugin(mode) {
       (email) => !archived.has(email.id) && Date.parse(email.scheduled_for) > now,
     ).length
     const scheduledCount = state.scheduledSends.length
+    // Starred, New senders and Blocked are likewise listed only while they
+    // hold mail (cookie-web-emails fetchPresenceCounts).
+    const starredCount = [...inbox, ...sent].filter((email) => email.is_starred).length
+    const screeningCount = allInbox.filter((email) => email.screening_status === 'held').length
+    const blockedCount = allInbox.filter((email) => email.screening_status === 'blocked').length
+    const presenceCounts = { starredCount, screeningCount, blockedCount }
     res.setHeader('Content-Type', 'application/json')
     if (isState) {
       res.end(
@@ -383,6 +389,7 @@ function localApiPlugin(mode) {
           spamCount,
           snoozedCount,
           scheduledCount,
+          ...presenceCounts,
           userId: '11111111-1111-4111-8111-111111111111',
         }),
       )
@@ -397,6 +404,7 @@ function localApiPlugin(mode) {
         spamCount,
         snoozedCount,
         scheduledCount,
+        ...presenceCounts,
         userId: '11111111-1111-4111-8111-111111111111',
         readReceiptsAvailable: folder === 'sent',
       }),

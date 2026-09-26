@@ -643,6 +643,11 @@ export const useInboxStore = defineStore('inbox', {
     // Same for the Snoozed folder, adjusted by snoozing and by the actions
     // that take a snoozed message out of it.
     snoozedCount: 0,
+    // Starred, New senders (held) and Blocked are likewise listed only while
+    // they hold mail; the counts arrive with the inbox state and first page.
+    starredCount: 0,
+    screeningCount: 0,
+    blockedCount: 0,
     snoozedEmails: [],
     snoozedCursor: null,
     hasMoreSnoozed: false,
@@ -1010,10 +1015,20 @@ export const useInboxStore = defineStore('inbox', {
 
     // Folder counts ride along with every inbox bootstrap and first page;
     // a payload without one (older Worker, cursor page) leaves it as is.
-    applyFolderCounts({ spamCount, snoozedCount, scheduledCount }) {
+    applyFolderCounts({
+      spamCount,
+      snoozedCount,
+      scheduledCount,
+      starredCount,
+      screeningCount,
+      blockedCount,
+    }) {
       if (Number.isFinite(spamCount)) this.spamCount = spamCount
       if (Number.isFinite(snoozedCount)) this.snoozedCount = snoozedCount
       if (Number.isFinite(scheduledCount)) this.scheduledCountHint = scheduledCount
+      if (Number.isFinite(starredCount)) this.starredCount = starredCount
+      if (Number.isFinite(screeningCount)) this.screeningCount = screeningCount
+      if (Number.isFinite(blockedCount)) this.blockedCount = blockedCount
     },
 
     async loadInboxState({ force = false } = {}) {
@@ -1022,10 +1037,10 @@ export const useInboxStore = defineStore('inbox', {
         const headers = await this.authHeaders()
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
-        const { unreadCount, spamCount, snoozedCount, scheduledCount, userId } =
-          await response.json()
+        const state = await response.json()
+        const { unreadCount, userId } = state
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0
-        this.applyFolderCounts({ spamCount, snoozedCount, scheduledCount })
+        this.applyFolderCounts(state)
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -1042,8 +1057,8 @@ export const useInboxStore = defineStore('inbox', {
       const fetchSeq = inboxFetchSeq()
       this.isRefreshing = true
       try {
-        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, scheduledCount, userId } =
-          await this.fetchEmailPage()
+        const page = await this.fetchEmailPage()
+        const { emails, nextCursor, unreadCount, userId } = page
         if (seq !== this.listSeq) return
         this.traditionalEmails = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
         this.emailsCursor = nextCursor ?? null
@@ -1051,7 +1066,7 @@ export const useInboxStore = defineStore('inbox', {
         this.unreadInboxCount = Number.isFinite(unreadCount)
           ? unreadCount
           : this.traditionalEmails.filter((e) => e.unread).length
-        this.applyFolderCounts({ spamCount, snoozedCount, scheduledCount })
+        this.applyFolderCounts(page)
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
         this.isInboxLoaded = true
@@ -1104,8 +1119,8 @@ export const useInboxStore = defineStore('inbox', {
       const seq = this.listSeq
       const fetchSeq = inboxFetchSeq()
       try {
-        const { emails, nextCursor, unreadCount, spamCount, snoozedCount, scheduledCount, userId } =
-          await this.fetchEmailPage()
+        const page = await this.fetchEmailPage()
+        const { emails, nextCursor, unreadCount, userId } = page
         if (this.activeSearchQuery || seq !== this.listSeq) return
         const incoming = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
         const existing = this.traditionalEmails
@@ -1121,7 +1136,7 @@ export const useInboxStore = defineStore('inbox', {
           this.hasMoreEmails = Boolean(nextCursor)
         }
         this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : this.unreadInboxCount
-        this.applyFolderCounts({ spamCount, snoozedCount, scheduledCount })
+        this.applyFolderCounts(page)
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
       } catch (error) {
@@ -2384,9 +2399,14 @@ export const useInboxStore = defineStore('inbox', {
     // Optimistically flips starred state and persists it; reverts on failure.
     // PATCHes are serialized per message (see pendingStarUpdates) so two rapid
     // toggles can't reach the server out of click order.
+    adjustStarredCount(delta) {
+      this.starredCount = Math.max(0, this.starredCount + delta)
+    },
+
     toggleStar(email) {
       const nextStarred = !email.starred
       email.starred = nextStarred
+      if (!isWithheld(email)) this.adjustStarredCount(nextStarred ? 1 : -1)
       if (this.isStarredLoaded && !isWithheld(email))
         syncFolderMembership(this.starredEmails, email, nextStarred)
       serializePerMessage(pendingStarUpdates, email.id, () =>
@@ -2395,6 +2415,7 @@ export const useInboxStore = defineStore('inbox', {
           // Only revert if a later toggle hasn't already moved past this one.
           if (email.starred === nextStarred) {
             email.starred = !nextStarred
+            if (!isWithheld(email)) this.adjustStarredCount(nextStarred ? -1 : 1)
             if (this.isStarredLoaded && !isWithheld(email))
               syncFolderMembership(this.starredEmails, email, !nextStarred)
           }
