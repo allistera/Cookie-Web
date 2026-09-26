@@ -587,9 +587,11 @@ test('Pasted code from an IDE or a Markdown fence becomes a code block with its 
     await paragraph.evaluate((element, entries) => {
       const clipboardData = new DataTransfer()
       for (const [type, value] of Object.entries(entries)) clipboardData.setData(type, value)
-      element.dispatchEvent(
-        new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
-      )
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
+      // Firefox ignores clipboardData in a synthetic event's init dict (a
+      // real paste carries it), so attach it directly.
+      Object.defineProperty(event, 'clipboardData', { value: clipboardData })
+      element.dispatchEvent(event)
     }, data)
   }
 
