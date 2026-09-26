@@ -373,3 +373,15 @@ row per sender (stored as `lower(btrim(from_address))`) that the owner marked
 "Not important" from the reader. Apply it before deploying the
 `cookie-web-messages` and `mail-app-ingest` Workers that read and write it;
 Cookie-Web's "Not important" menu item needs those Workers deployed.
+
+## Sender screening
+
+`0088_sender_screening.sql` adds the server-only `sender_decisions` table
+(exact lowercased sender addresses, `accepted` or `blocked`), the
+`messages.screening_status` disposition (`allowed`, `held`, `blocked`;
+existing rows are `allowed`), and the insert trigger that assigns it before
+notification events are queued. Screening stays off unless
+`users.prefs.senderScreening` is `true`. It was developed as `0083` on the
+sender-screening branch and renumbered on merge because `0083` was already
+taken on main. Deploy the Workers in the order Cookie-Docs gives before
+relying on the Web sender controls.

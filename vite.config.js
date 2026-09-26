@@ -74,6 +74,9 @@ function localApiPlugin(mode) {
         composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
         savedViews: { revision: 0, views: [] },
         outOfOffice: outOfOfficeDefaults(),
+        senderScreening: false,
+        senderDecisions: new Map(),
+        screeningStates: new Map(),
       })
     }
     return stubMailboxState.get(sessionId)
@@ -91,6 +94,7 @@ function localApiPlugin(mode) {
     const isAutoArchive = segments.length === 2 && segments[1] === 'auto-archive'
     const isComposePreferences = segments.length === 2 && segments[1] === 'compose-preferences'
     const isOutOfOffice = segments.length === 2 && segments[1] === 'out-of-office'
+    const isSenders = segments.length === 2 && segments[1] === 'senders'
     if (
       segments[0] !== 'emails' ||
       (segments.length > 1 &&
@@ -98,7 +102,8 @@ function localApiPlugin(mode) {
         !isSpamRetention &&
         !isAutoArchive &&
         !isComposePreferences &&
-        !isOutOfOffice)
+        !isOutOfOffice &&
+        !isSenders)
     ) {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')
@@ -108,6 +113,57 @@ function localApiPlugin(mode) {
     const folder = url.searchParams.get('folder') || 'inbox'
     const labelName = (url.searchParams.get('label') || '').trim()
     const state = fixtureMailboxState(req, res)
+    if (isSenders) {
+      res.setHeader('Content-Type', 'application/json')
+      res.setHeader('Cache-Control', 'private, no-store')
+      if (req.method === 'PUT') {
+        const body = await readBody(req)
+        const address = String(body.address || '')
+          .trim()
+          .toLowerCase()
+        if (body.action === 'settings') {
+          state.senderScreening = body.enabled === true
+          res.end(JSON.stringify({ enabled: state.senderScreening }))
+          return
+        }
+        if (body.action === 'restore') state.screeningStates.set(body.messageId, 'allowed')
+        else {
+          if (['block', 'accept'].includes(body.action))
+            state.senderDecisions.set(address, body.action === 'block' ? 'blocked' : 'accepted')
+          else state.senderDecisions.delete(address)
+          const status =
+            body.action === 'block'
+              ? 'blocked'
+              : body.action === 'accept' || !state.senderScreening
+                ? 'allowed'
+                : 'held'
+          for (const email of fixtureEmails()) {
+            const previous = state.screeningStates.get(email.id) || 'allowed'
+            if (
+              email.from_address.toLowerCase() === address &&
+              (previous !== 'allowed' || (body.action === 'block' && email.id === body.messageId))
+            )
+              state.screeningStates.set(email.id, status)
+          }
+        }
+        res.end(JSON.stringify({ address, decision: state.senderDecisions.get(address) || null }))
+        return
+      }
+      const requested = url.searchParams.get('address')
+      const after = url.searchParams.get('after') || ''
+      const decisions = [...state.senderDecisions]
+        .map(([address, decision]) => ({ address, decision }))
+        .filter((entry) => entry.address > after && (!requested || requested === entry.address))
+        .sort((a, b) => a.address.localeCompare(b.address))
+      res.end(
+        JSON.stringify({
+          enabled: state.senderScreening,
+          decisions: decisions.slice(0, 50),
+          nextCursor: decisions.length > 50 ? decisions[49].address : null,
+        }),
+      )
+      return
+    }
     if (isOutOfOffice) {
       res.setHeader('Content-Type', 'application/json')
       res.setHeader('Cache-Control', 'private, no-store')
@@ -255,6 +311,7 @@ function localApiPlugin(mode) {
     // the static row, so a list reflects what the test just did to it.
     const withState = (email) => ({
       ...email,
+      screening_status: state.screeningStates.get(email.id) || 'allowed',
       is_starred: stars.get(email.id) ?? email.is_starred,
       labels: messageLabels.get(email.id) ?? email.labels,
       category: messageCategories.has(email.id)
@@ -263,10 +320,11 @@ function localApiPlugin(mode) {
       has_ai_summary: email.has_ai_summary || summaries.has(fixtureThreadId(email.id)),
       follow_up_at: followUps.get(email.id) ?? email.follow_up_at ?? null,
     })
-    const inbox = fixtureEmails().map((email) => ({
+    const allInbox = fixtureEmails().map((email) => ({
       ...withState(email),
       scheduled_for: schedules.get(email.id) ?? null,
     }))
+    const inbox = allInbox.filter((email) => email.screening_status === 'allowed')
     const sent = fixtureSentEmails().map(withState)
     const byNewest = (rows) =>
       [...rows].sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))
@@ -274,6 +332,10 @@ function localApiPlugin(mode) {
     // folders of their own, and both span every non-deleted message —
     // archived and sent rows included — rather than filtering the inbox.
     const selectFolder = () => {
+      if (folder === 'screening' || folder === 'blocked')
+        return allInbox.filter(
+          (email) => email.screening_status === (folder === 'screening' ? 'held' : 'blocked'),
+        )
       if (folder === 'sent') return sent
       if (folder === 'done') return inbox.filter((email) => archived.has(email.id))
       if (folder === 'spam') return []

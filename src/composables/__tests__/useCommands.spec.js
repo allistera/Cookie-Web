@@ -410,12 +410,13 @@ describe('useCommands', () => {
     const { commands, push } = await setupCommands()
     const sections = commands.value.filter((c) => c.id.startsWith('settings-'))
     expect(sections.map((c) => c.title)).toContain('Settings: Appearance')
-    expect(sections).toHaveLength(17)
+    expect(sections).toHaveLength(18)
     expect(sections.map((c) => c.title)).toContain('Settings: Categories')
     expect(sections.map((c) => c.title)).toContain('Settings: Task Labels')
     expect(sections.map((c) => c.title)).toContain('Settings: Auto Archive')
     expect(sections.map((c) => c.title)).toContain('Settings: AI Today')
     expect(sections.map((c) => c.title)).toContain('Settings: Out of office')
+    expect(sections.map((c) => c.title)).toContain('Settings: Senders and screening')
 
     sections.find((c) => c.id === 'settings-rules').run()
     expect(push).toHaveBeenCalledWith({ name: 'settings', params: { section: 'rules' } })
@@ -424,6 +425,8 @@ describe('useCommands', () => {
       name: 'settings',
       params: { section: 'out-of-office' },
     })
+    sections.find((c) => c.id === 'settings-senders').run()
+    expect(push).toHaveBeenLastCalledWith({ name: 'settings', params: { section: 'senders' } })
   })
 
   it('creates one navigation command per label', async () => {
