@@ -365,3 +365,11 @@ ignores it.
 `0086_document_workspace_revision_hardening.sql` pins the `0075` trigger
 function's `search_path`, schema-qualifies its names, and revokes client-role
 access to `document_workspace_revisions`. Behaviour is unchanged.
+
+## Sender importance feedback
+
+`0087_sender_importance_feedback.sql` adds `sender_importance_feedback`, one
+row per sender (stored as `lower(btrim(from_address))`) that the owner marked
+"Not important" from the reader. Apply it before deploying the
+`cookie-web-messages` and `mail-app-ingest` Workers that read and write it;
+Cookie-Web's "Not important" menu item needs those Workers deployed.
