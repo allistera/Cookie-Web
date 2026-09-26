@@ -6,6 +6,7 @@ import {
   loadHighlighter,
   normalizeCodeLanguage,
 } from './codeHighlight'
+import { languageFromElement, preText } from './codePaste'
 
 const TOOLBOX_ICON = `
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -53,8 +54,10 @@ export class CodeBlockTool {
     return { import: 'code', export: 'code' }
   }
 
+  // Keeps the language hints a <pre> carries through Editor.js's paste
+  // sanitising (a lone <pre> is handled earlier by codePaste.js).
   static get pasteConfig() {
-    return { tags: ['pre'] }
+    return { tags: [{ pre: { class: true, 'data-lang': true, 'data-language': true } }] }
   }
 
   constructor({ data, block, readOnly, config }) {
@@ -170,8 +173,11 @@ export class CodeBlockTool {
   onPaste(event) {
     if (event.type !== 'tag') return
     const pre = event.detail.data
-    this.data.code = pre?.textContent ?? ''
+    this.data.code = pre ? preText(pre) : ''
+    const language = pre ? languageFromElement(pre) : PLAIN_LANGUAGE
+    if (language !== PLAIN_LANGUAGE) this.data.language = language
     if (this.textarea) this.textarea.value = this.data.code
+    if (this.select) this.select.value = this.data.language
     this.refresh()
   }
 

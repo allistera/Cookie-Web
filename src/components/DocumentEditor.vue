@@ -19,6 +19,7 @@ import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { TocBlockTool } from '../lib/tocBlockTool'
 import { createHeadingCollapse } from '../lib/headingCollapse'
+import { attachCodePaste } from '../lib/codePaste'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
@@ -100,6 +101,8 @@ const tagDraft = ref('')
 let editor = null
 // Collapsed-heading view state for the mounted editor (headingCollapse.js).
 let headingCollapse = null
+// Detaches the pasted-code interceptor (codePaste.js) for the mounted editor.
+let detachCodePaste = null
 
 // Editor.js emits a change for each block mutation. Serializing every block on
 // every keystroke makes editing cost grow with the whole document, even though
@@ -246,6 +249,8 @@ function mountEditor() {
   tagDraft.value = ''
   headingCollapse?.destroy()
   headingCollapse = null
+  detachCodePaste?.()
+  detachCodePaste = null
   editor?.destroy?.()
   // Pinia wraps document rows in reactive proxies. Editor.js tools may clone
   // their input internally, and structuredClone cannot copy a Vue Proxy, so
@@ -282,6 +287,7 @@ function mountEditor() {
       if (!editor || !holder.value?.isConnected) return
       editorReady.value = true
       new DragDrop(editor)
+      detachCodePaste = attachCodePaste({ editor, holder: holder.value })
       headingCollapse = createHeadingCollapse({
         editor,
         holder: holder.value,
@@ -305,6 +311,8 @@ onBeforeUnmount(() => {
   const activeEditor = editor
   headingCollapse?.destroy()
   headingCollapse = null
+  detachCodePaste?.()
+  detachCodePaste = null
   Promise.resolve(flushPendingBlocks()).finally(() => {
     editor = null
     blockSaveScheduler.cancel()

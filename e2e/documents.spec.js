@@ -573,6 +573,64 @@ test('A heading section collapses from the hover toolbar and stays collapsed aft
   await expect(body).toBeVisible()
 })
 
+test('Pasted code from an IDE or a Markdown fence becomes a code block with its language', async ({
+  page,
+}) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+  await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').last()
+  async function paste(data) {
+    await paragraph.click()
+    await paragraph.evaluate((element, entries) => {
+      const clipboardData = new DataTransfer()
+      for (const [type, value] of Object.entries(entries)) clipboardData.setData(type, value)
+      element.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
+      )
+    }, data)
+  }
+
+  const blocks = page.locator('.codex-editor .code-block')
+  const setup = page.locator('.codex-editor .ce-paragraph', { hasText: 'Setup:' })
+
+  // A Markdown fence pasted into a paragraph with text lands after it.
+  await paragraph.click()
+  await page.keyboard.type('Setup:')
+  await paste({ 'text/plain': '```bash\nnpm install\n```' })
+  await expect(blocks).toHaveCount(1)
+  await expect(blocks.first().locator('select')).toHaveValue('bash')
+  await expect(blocks.first().locator('textarea')).toHaveValue('npm install')
+  await expect(setup).toHaveCount(1)
+
+  // VS Code's copy (coloured HTML plus its language mode) replaces an empty
+  // paragraph rather than leaving it above the code.
+  await setup.click()
+  await setup.press('End')
+  await setup.press('Enter')
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('item.price'),
+  )
+  await paste({
+    'text/plain': 'const total = items\n  .map((item) => item.price)',
+    'text/html':
+      '<div style="font-family: Menlo, monospace; white-space: pre;"><div><span style="color: #569cd6;">const</span> total = items</div><div>  .map((item) =&gt; item.price)</div></div>',
+    'vscode-editor-data': JSON.stringify({ mode: 'typescriptreact' }),
+  })
+  await expect(blocks).toHaveCount(2)
+  await expect(blocks.first().locator('select')).toHaveValue('typescript')
+  await expect(blocks.first().locator('textarea')).toHaveValue(
+    'const total = items\n  .map((item) => item.price)',
+  )
+  await expect(page.locator('.codex-editor .ce-paragraph')).toHaveCount(1)
+  await saved
+})
+
 test('A Kanban board can be inserted from the slash menu, edited, and persists', async ({
   page,
 }) => {

@@ -110,4 +110,15 @@ describe('CodeBlockTool', () => {
     expect(readOnly.querySelector('textarea').readOnly).toBe(true)
     expect(readOnly.querySelector('select').disabled).toBe(true)
   })
+
+  it('keeps the language and line breaks of a pasted <pre>', () => {
+    const tool = new CodeBlockTool({ data: {} })
+    const el = tool.render()
+    const pre = document.createElement('pre')
+    pre.className = 'language-ts'
+    pre.innerHTML = 'let a = 1<br>let b = 2'
+    tool.onPaste({ type: 'tag', detail: { data: pre } })
+    expect(el.querySelector('select').value).toBe('typescript')
+    expect(tool.save()).toEqual({ code: 'let a = 1\nlet b = 2', language: 'typescript' })
+  })
 })
