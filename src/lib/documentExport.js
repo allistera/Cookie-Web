@@ -171,10 +171,73 @@ export async function prepareExportBlocks(blocks) {
   ).then((prepared) => prepared.filter(Boolean))
 }
 
+function plainText(value) {
+  return DOMPurify.sanitize(String(value ?? ''), { ALLOWED_TAGS: [], RETURN_DOM: true })
+    .textContent.replace(/\s+/g, ' ')
+    .trim()
+}
+
+// GitHub-style anchor: lower case, punctuation dropped, spaces to hyphens,
+// with -1, -2... on repeats so every heading gets its own target.
+function headingOutline(blocks) {
+  const outline = new Map()
+  const used = new Map()
+  blocks.forEach(({ type, data }, index) => {
+    if (type !== 'header') return
+    const text = plainText(data?.text)
+    if (!text) return
+    const base =
+      text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s-]/gu, '')
+        .trim()
+        .replace(/\s/g, '-') || 'section'
+    const seen = used.get(base) ?? 0
+    used.set(base, seen + 1)
+    const level = Math.min(6, Math.max(1, data.level || 1))
+    outline.set(index, { level, text, slug: seen ? `${base}-${seen}` : base })
+  })
+  return outline
+}
+
+function tocMarkdown(outline) {
+  const entries = [...outline.values()]
+  if (!entries.length) return ''
+  const top = Math.min(...entries.map((entry) => entry.level))
+  return (
+    entries
+      .map(
+        ({ level, text, slug }) =>
+          `${'  '.repeat(level - top)}- [${escapeHtml(text).replaceAll(']', '&#93;')}](#${slug})\n`,
+      )
+      .join('') + '\n'
+  )
+}
+
+function tocHTML(outline) {
+  const entries = [...outline.values()]
+  if (!entries.length) return ''
+  const top = Math.min(...entries.map((entry) => entry.level))
+  return (
+    '<nav aria-label="Table of contents"><ul>' +
+    entries
+      .map(
+        ({ level, text, slug }) =>
+          `<li style="margin-left:${(level - top) * 1.5}em"><a href="#${slug}">${escapeHtml(text)}</a></li>`,
+      )
+      .join('') +
+    '</ul></nav>'
+  )
+}
+
 export function convertBlocksToMarkdown(blocks, title = '') {
   let markdown = title ? `# ${escapeHtml(title)}\n\n` : ''
+  const outline = headingOutline(blocks)
   for (const { type, data } of blocks) {
     switch (type) {
+      case 'toc':
+        markdown += tocMarkdown(outline)
+        break
       case 'header':
         markdown += `${'#'.repeat(Math.min(6, Math.max(1, data.level || 1)))} ${inline(data.text)}\n\n`
         break
@@ -295,11 +358,17 @@ export function convertBlocksToHTML(blocks, title = '') {
   ${title ? `<h1>${escapeHtml(title)}</h1>` : ''}
 `
 
-  for (const { type, data } of blocks) {
+  const outline = headingOutline(blocks)
+  for (const [index, { type, data }] of blocks.entries()) {
     switch (type) {
+      case 'toc':
+        html += tocHTML(outline)
+        break
       case 'header': {
         const level = Math.min(6, Math.max(1, data.level || 1))
-        html += `<h${level}>${inline(data.text)}</h${level}>`
+        const slug = outline.get(index)?.slug
+        const id = slug ? ` id="${slug}"` : ''
+        html += `<h${level}${id}>${inline(data.text)}</h${level}>`
         break
       }
       case 'paragraph':

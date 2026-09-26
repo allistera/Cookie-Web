@@ -17,6 +17,7 @@ import { createDocumentSaveScheduler } from '../lib/documentSaveScheduler'
 import { CodeBlockTool } from '../lib/codeBlockTool'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
+import { TocBlockTool } from '../lib/tocBlockTool'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
@@ -265,6 +266,7 @@ function mountEditor() {
       excalidraw: { class: ExcalidrawBlockTool, config: { onChange: scheduleBlocksSave } },
       image: { class: ImageTool, config: { uploader: imageUploader } },
       kanban: KanbanBlockTool,
+      toc: TocBlockTool,
     },
     onChange: () => {
       scheduleBlocksSave()
@@ -952,6 +954,62 @@ async function exportToPDF() {
   .document-blocks :deep(.excalidraw-block__loading) {
     height: 360px;
   }
+}
+
+.document-blocks :deep(.toc-block) {
+  display: block;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.document-blocks :deep(.toc-block__title) {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.document-blocks :deep(.toc-block__list) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.document-blocks :deep(.toc-block__item) {
+  padding-left: calc(var(--toc-depth, 0) * 16px);
+}
+
+.document-blocks :deep(.toc-block__link) {
+  display: block;
+  width: 100%;
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--accent-color);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.document-blocks :deep(.toc-block__link:hover) {
+  text-decoration: underline;
+}
+
+.document-blocks :deep(.toc-block__link:focus-visible) {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.document-blocks :deep(.toc-block__empty) {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .document-blocks :deep(.kanban-block) {

@@ -3,6 +3,14 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from './workerFixtures.js'
 import { AI_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
 
+// Picks a "/" menu entry by its exact title: "Table" would otherwise also
+// match "Table of contents".
+function menuItem(menu, title) {
+  return menu.locator('.ce-popover-item').filter({
+    has: menu.page().locator('.ce-popover-item__title', { hasText: new RegExp(`^${title}$`) }),
+  })
+}
+
 test('The app switcher opens Documents: tree, editor with autosave, and starring all work', async ({
   page,
 }) => {
@@ -236,7 +244,7 @@ test('A table block computes formulas, recalculates on change, and persists acro
 
   const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
   await expect(insertMenu).toBeVisible()
-  await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+  await menuItem(insertMenu, 'Table').click()
   await page.getByRole('button', { name: 'Open spreadsheet', exact: true }).click()
   await waitForSheet(page)
 
@@ -316,8 +324,15 @@ test('A settings template can create a pre-filled independent document', async (
   await expect(page.getByRole('heading', { name: 'Templates', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'New template' }).click()
   await page.locator('.document-title').fill('Weekly meeting')
+  // The editor holder stays inert until Editor.js is ready; a fill before
+  // then is silently dropped and the template saves empty.
+  await expect(page.locator('.document-template-editor-surface .document-blocks')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  )
   const paragraph = page.locator('.document-template-editor-surface .ce-paragraph').first()
   await paragraph.fill('Agenda and attendees')
+  await expect(paragraph).toHaveText('Agenda and attendees')
 
   const templateResponse = page.waitForResponse(
     (response) =>
@@ -413,6 +428,79 @@ test('An Excalidraw drawing can be inserted from the document slash menu and per
   const markdown = await readFile(await download.path(), 'utf8')
   expect(markdown).toContain('data:image/png;base64,')
   expect(markdown).not.toContain('[Excalidraw')
+})
+
+test('A table of contents lists headings live, jumps to them, and persists', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+  await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
+
+  const menu = page.locator('.ce-popover--opened .ce-popover__container')
+  // Editor.js only opens the "/" menu for the block it has made current,
+  // which a click does reliably and Enter alone does not.
+  async function insert(title) {
+    const target = page.locator('.codex-editor .ce-paragraph').last()
+    await target.click()
+    await target.pressSequentially('/')
+    await expect(menu).toBeVisible()
+    await menuItem(menu, title).click()
+  }
+
+  const paragraphs = page.locator('.codex-editor .ce-paragraph')
+  async function heading(text) {
+    await insert('Heading')
+    const header = page.locator('.codex-editor .ce-header').last()
+    await expect(header).toBeFocused()
+    await page.keyboard.type(text)
+    await expect(header).toHaveText(text)
+    // Clicking makes the heading Editor.js's current block, so Enter splits
+    // it rather than being dropped.
+    await header.click()
+    await header.press('End')
+    await header.press('Enter')
+    // Enter at the end of a heading starts a fresh paragraph below it.
+    await expect(paragraphs.last()).toBeFocused()
+  }
+
+  await heading('Overview')
+  await heading('Details')
+
+  const inserted = page.waitForResponse(
+    (response) =>
+      response.url().includes('/documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('"type":"toc"'),
+  )
+  await insert('Table of contents')
+  await inserted
+
+  const toc = page.getByRole('navigation', { name: 'Table of contents' })
+  await expect(toc.locator('.toc-block__link')).toHaveText(['Overview', 'Details'])
+
+  // Renaming a heading updates the list without a reload.
+  const details = page.locator('.codex-editor .ce-header', { hasText: 'Details' })
+  const renamed = page.waitForResponse(
+    (response) =>
+      response.url().includes('/documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('Details and scope'),
+  )
+  await details.click()
+  await details.press('End')
+  await page.keyboard.type(' and scope')
+  await expect(toc.locator('.toc-block__link')).toHaveText(['Overview', 'Details and scope'])
+
+  // An entry moves the caret to its heading.
+  await toc.getByRole('button', { name: 'Overview' }).click()
+  await expect(page.locator('.codex-editor .ce-header', { hasText: 'Overview' })).toBeFocused()
+
+  await renamed
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+  await expect(
+    page.getByRole('navigation', { name: 'Table of contents' }).locator('.toc-block__link'),
+  ).toHaveText(['Overview', 'Details and scope'])
 })
 
 test('A Kanban board can be inserted from the slash menu, edited, and persists', async ({
@@ -737,7 +825,7 @@ test('Multiple spreadsheet blocks load independently and retain their own values
     await empty.pressSequentially('/')
     const insertMenu = page.locator('.ce-popover--opened .ce-popover__container')
     const started = performance.now()
-    await insertMenu.locator('.ce-popover-item', { hasText: 'Table' }).click()
+    await menuItem(insertMenu, 'Table').click()
     await page.getByRole('button', { name: 'Open spreadsheet', exact: true }).click()
     // Offscreen sheets retain a preview until they enter the viewport.
     for (const sheet of await page.locator('.univer-sheet-block').all()) {

@@ -116,6 +116,38 @@ describe('document export', () => {
     expect(html).toContain('<b>Safe</b>')
   })
 
+  it('exports a table of contents that links to each heading', () => {
+    const blocks = [
+      block('toc', {}),
+      block('header', { level: 2, text: 'Getting <b>started</b>' }),
+      block('paragraph', { text: 'Body' }),
+      block('header', { level: 3, text: 'Install & run' }),
+      block('header', { level: 2, text: 'Getting started' }),
+      block('header', { level: 2, text: '' }),
+    ]
+
+    const markdown = convertBlocksToMarkdown(blocks)
+    expect(markdown).toContain(
+      '- [Getting started](#getting-started)\n' +
+        '  - [Install &amp; run](#install--run)\n' +
+        '- [Getting started](#getting-started-1)\n',
+    )
+
+    const html = convertBlocksToHTML(blocks)
+    expect(html).toContain('<nav aria-label="Table of contents">')
+    expect(html).toContain('<a href="#getting-started">Getting started</a>')
+    expect(html).toContain('<a href="#install--run">Install &amp; run</a>')
+    expect(html).toContain('<h2 id="getting-started">Getting <b>started</b></h2>')
+    expect(html).toContain('<h3 id="install--run">')
+    expect(html).toContain('<h2 id="getting-started-1">')
+  })
+
+  it('exports nothing for a table of contents in a document without headings', () => {
+    const blocks = [block('toc', {}), block('paragraph', { text: 'Only text' })]
+    expect(convertBlocksToMarkdown(blocks)).toBe('Only text\n\n')
+    expect(convertBlocksToHTML(blocks)).not.toContain('<nav')
+  })
+
   it('omits an empty drawing and refuses unsupported content instead of silently losing it', async () => {
     expect(await prepareExportBlocks([block('excalidraw', { elements: [] })])).toEqual([])
     expect(() => convertBlocksToMarkdown([block('unknown', {})])).toThrow('cannot be exported')
