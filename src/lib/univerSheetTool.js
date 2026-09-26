@@ -108,6 +108,7 @@ export class UniverSheetTool {
     this.calculating = false
     this.calculationSettled = Promise.resolve()
     this.formulaDisposables = []
+    this.commandListener = null
   }
 
   render() {
@@ -239,7 +240,8 @@ export class UniverSheetTool {
       const workbookData = this.data?.workbook ?? contentGridToWorkbookData(this.data?.content)
       univerAPI.createWorkbook(workbookData)
       if (isBlankInsert) univerAPI.getActiveWorkbook()?.getActiveSheet()?.setFrozenRows(1)
-      univerAPI.onCommandExecuted((command) => {
+      // Univer 1.0 removed onCommandExecuted; the event carries the same type.
+      this.commandListener = univerAPI.addEvent(univerAPI.Event.CommandExecuted, (command) => {
         if (isSnapshotMutation(command, presets.CommandType)) this.scheduleDocumentSave()
       })
 
@@ -302,6 +304,8 @@ export class UniverSheetTool {
     this.changeFrame = null
     this.themeObserver?.disconnect()
     this.themeObserver = null
+    this.commandListener?.dispose()
+    this.commandListener = null
     for (const disposable of this.formulaDisposables) disposable.dispose()
     this.formulaDisposables = []
     this.univer?.dispose()
