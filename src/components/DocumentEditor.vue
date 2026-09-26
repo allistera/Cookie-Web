@@ -18,6 +18,7 @@ import { CodeBlockTool } from '../lib/codeBlockTool'
 import { ExcalidrawBlockTool } from '../lib/excalidrawBlockTool'
 import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { TocBlockTool } from '../lib/tocBlockTool'
+import { createHeadingCollapse } from '../lib/headingCollapse'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
@@ -97,6 +98,8 @@ const titleEl = ref(null)
 const tags = ref([])
 const tagDraft = ref('')
 let editor = null
+// Collapsed-heading view state for the mounted editor (headingCollapse.js).
+let headingCollapse = null
 
 // Editor.js emits a change for each block mutation. Serializing every block on
 // every keystroke makes editing cost grow with the whole document, even though
@@ -241,6 +244,8 @@ function mountEditor() {
   if (titleEl.value) titleEl.value.textContent = props.doc.title ?? ''
   tags.value = [...(props.doc.tags ?? [])]
   tagDraft.value = ''
+  headingCollapse?.destroy()
+  headingCollapse = null
   editor?.destroy?.()
   // Pinia wraps document rows in reactive proxies. Editor.js tools may clone
   // their input internally, and structuredClone cannot copy a Vue Proxy, so
@@ -270,12 +275,18 @@ function mountEditor() {
     },
     onChange: () => {
       scheduleBlocksSave()
+      headingCollapse?.refresh()
       if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
     onReady: () => {
       if (!editor || !holder.value?.isConnected) return
       editorReady.value = true
       new DragDrop(editor)
+      headingCollapse = createHeadingCollapse({
+        editor,
+        holder: holder.value,
+        docId: props.doc.id,
+      })
       if (props.isDailyNote) highlightScheduleLines(holder.value)
     },
   })
@@ -292,6 +303,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('pagehide', onPageHide)
   const activeEditor = editor
+  headingCollapse?.destroy()
+  headingCollapse = null
   Promise.resolve(flushPendingBlocks()).finally(() => {
     editor = null
     blockSaveScheduler.cancel()
@@ -954,6 +967,46 @@ async function exportToPDF() {
   .document-blocks :deep(.excalidraw-block__loading) {
     height: 360px;
   }
+}
+
+.document-blocks :deep(.ce-block--collapsed-hidden) {
+  display: none;
+}
+
+/* A collapsed heading says so even when the toolbar isn't showing. */
+.document-blocks :deep(.ce-block--collapsed .ce-block__content::after) {
+  content: '…';
+  display: block;
+  margin-top: -4px;
+  color: var(--text-secondary);
+}
+
+.document-blocks :deep(.ce-toolbar__collapse) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--toolbox-buttons-size, 26px);
+  height: var(--toolbox-buttons-size, 26px);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.document-blocks :deep(.ce-toolbar__collapse[hidden]) {
+  display: none;
+}
+
+.document-blocks :deep(.ce-toolbar__collapse:hover) {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  color: var(--text-primary);
+}
+
+.document-blocks :deep(.ce-toolbar__collapse:focus-visible) {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
 }
 
 .document-blocks :deep(.toc-block) {

@@ -11,6 +11,48 @@ function menuItem(menu, title) {
   })
 }
 
+// Builds a blank document block by block through the "/" menu.
+function blockBuilders(page) {
+  const menu = page.locator('.ce-popover--opened .ce-popover__container')
+  const paragraphs = page.locator('.codex-editor .ce-paragraph')
+  // Editor.js only opens the "/" menu for the block it has made current,
+  // which a click does reliably and Enter alone does not.
+  async function insert(title) {
+    const target = paragraphs.last()
+    await target.click()
+    await target.pressSequentially('/')
+    await expect(menu).toBeVisible()
+    await menuItem(menu, title).click()
+  }
+
+  async function heading(text) {
+    await insert('Heading')
+    const header = page.locator('.codex-editor .ce-header').last()
+    await expect(header).toBeFocused()
+    await page.keyboard.type(text)
+    await expect(header).toHaveText(text)
+    // Clicking makes the heading Editor.js's current block, so Enter splits
+    // it rather than being dropped.
+    await header.click()
+    await header.press('End')
+    await header.press('Enter')
+    // Enter at the end of a heading starts a fresh paragraph below it.
+    await expect(paragraphs.last()).toBeFocused()
+  }
+
+  async function paragraph(text) {
+    const target = paragraphs.last()
+    await target.click()
+    await page.keyboard.type(text)
+    await expect(target).toHaveText(text)
+    await target.press('End')
+    await target.press('Enter')
+    await expect(paragraphs.last()).toBeFocused()
+  }
+
+  return { insert, heading, paragraph }
+}
+
 test('The app switcher opens Documents: tree, editor with autosave, and starring all work', async ({
   page,
 }) => {
@@ -436,32 +478,7 @@ test('A table of contents lists headings live, jumps to them, and persists', asy
   await page.getByRole('button', { name: /Blank document/ }).click()
   await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
 
-  const menu = page.locator('.ce-popover--opened .ce-popover__container')
-  // Editor.js only opens the "/" menu for the block it has made current,
-  // which a click does reliably and Enter alone does not.
-  async function insert(title) {
-    const target = page.locator('.codex-editor .ce-paragraph').last()
-    await target.click()
-    await target.pressSequentially('/')
-    await expect(menu).toBeVisible()
-    await menuItem(menu, title).click()
-  }
-
-  const paragraphs = page.locator('.codex-editor .ce-paragraph')
-  async function heading(text) {
-    await insert('Heading')
-    const header = page.locator('.codex-editor .ce-header').last()
-    await expect(header).toBeFocused()
-    await page.keyboard.type(text)
-    await expect(header).toHaveText(text)
-    // Clicking makes the heading Editor.js's current block, so Enter splits
-    // it rather than being dropped.
-    await header.click()
-    await header.press('End')
-    await header.press('Enter')
-    // Enter at the end of a heading starts a fresh paragraph below it.
-    await expect(paragraphs.last()).toBeFocused()
-  }
+  const { insert, heading } = blockBuilders(page)
 
   await heading('Overview')
   await heading('Details')
@@ -501,6 +518,59 @@ test('A table of contents lists headings live, jumps to them, and persists', asy
   await expect(
     page.getByRole('navigation', { name: 'Table of contents' }).locator('.toc-block__link'),
   ).toHaveText(['Overview', 'Details and scope'])
+})
+
+test('A heading section collapses from the hover toolbar and stays collapsed after reload', async ({
+  page,
+}) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+  await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
+
+  const { heading, paragraph } = blockBuilders(page)
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('Second section'),
+  )
+  await heading('First section')
+  await paragraph('Hidden when collapsed')
+  await heading('Second section')
+  await saved
+
+  const body = page.locator('.codex-editor .ce-paragraph', { hasText: 'Hidden when collapsed' })
+  const first = page.locator('.codex-editor .ce-header', { hasText: 'First section' })
+  const toggle = page.locator('.ce-toolbar__collapse')
+
+  // Paragraphs get no toggle; headings get one left of "+".
+  await body.hover()
+  await expect(toggle).toBeHidden()
+  await first.hover()
+  await expect(toggle).toBeVisible()
+  await expect(toggle).toHaveAccessibleName('Collapse section')
+  const [toggleBox, plusBox] = await Promise.all([
+    toggle.boundingBox(),
+    page.locator('.ce-toolbar__plus').boundingBox(),
+  ])
+  expect(toggleBox.x).toBeLessThan(plusBox.x)
+
+  await toggle.click()
+  await expect(body).toBeHidden()
+  await expect(
+    page.locator('.codex-editor .ce-header', { hasText: 'Second section' }),
+  ).toBeVisible()
+  await expect(toggle).toHaveAccessibleName('Expand section')
+
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+  await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
+  await expect(body).toBeHidden()
+
+  await first.hover()
+  await toggle.click()
+  await expect(body).toBeVisible()
 })
 
 test('A Kanban board can be inserted from the slash menu, edited, and persists', async ({

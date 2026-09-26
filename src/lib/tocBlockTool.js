@@ -25,7 +25,7 @@ export function collectHeadings(blocks) {
     const element = block.holder?.querySelector('h1, h2, h3, h4, h5, h6')
     const text = element?.textContent?.trim()
     if (!text) continue
-    headings.push({ index, level: Number(element.tagName.slice(1)), text, element })
+    headings.push({ id: block.id, index, level: Number(element.tagName.slice(1)), text, element })
   }
   return headings
 }
@@ -138,6 +138,11 @@ export class TocBlockTool {
       (entry) => entry.text === text && entry.level === level,
     )[occurrence]
     if (!target) return
+    // Lets the editor expand a collapsed section hiding this heading first
+    // (see headingCollapse.js), so there is something to scroll to.
+    this.wrapper?.dispatchEvent(
+      new CustomEvent('cookie:reveal-block', { bubbles: true, detail: { id: target.id } }),
+    )
     target.element.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     this.api.caret?.setToBlock?.(target.index, 'end')
   }
