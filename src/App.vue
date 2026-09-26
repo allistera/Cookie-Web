@@ -573,7 +573,7 @@ onUnmounted(() => {
               class="nav-item"
               :class="{ active: route.query.filter === 'screening' }"
             >
-              <span class="material-symbols-outlined">person</span
+              <span class="material-symbols-outlined" aria-hidden="true">person</span
               ><span class="nav-text">New senders</span>
             </router-link>
             <router-link
@@ -581,7 +581,7 @@ onUnmounted(() => {
               class="nav-item"
               :class="{ active: route.query.filter === 'blocked' }"
             >
-              <span class="material-symbols-outlined">visibility_off</span
+              <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span
               ><span class="nav-text">Blocked</span>
             </router-link>
             <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">

@@ -2014,13 +2014,6 @@ onUnmounted(() => {
           <span class="ni-reader-subject-text">{{ openEmail.subject }}</span>
         </h2>
 
-        <SenderControls
-          v-if="!openEmail.isSent"
-          :key="openEmail.id"
-          :email="openEmail"
-          @changed="store.refreshSenderMail()"
-        />
-
         <div
           v-if="isSummarizing || openEmailSummary"
           class="ni-thread-summary"
@@ -2034,6 +2027,13 @@ onUnmounted(() => {
             openEmailSummary || 'Summarizing thread…'
           }}</span>
         </div>
+
+        <SenderControls
+          v-if="!openEmail.isSent"
+          :key="openEmail.id"
+          :email="openEmail"
+          @changed="store.refreshSenderMail()"
+        />
 
         <div class="ni-reader-labels" v-if="openEmail.labels?.length">
           <span

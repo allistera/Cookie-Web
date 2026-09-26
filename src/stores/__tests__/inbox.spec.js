@@ -768,6 +768,7 @@ describe('Inbox Store', () => {
         isSpam: false,
         isPriority: false,
         isArchived: false,
+        screeningStatus: 'allowed',
         to: null,
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
