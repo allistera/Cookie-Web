@@ -179,7 +179,11 @@ describe('saved view changes', () => {
   it('creates a view with a new id and trimmed fields', async () => {
     const api = server([view])
     await store.load()
-    const created = await store.createView({ name: ' Plans ', query: 'floor plan ', folder: 'inbox' })
+    const created = await store.createView({
+      name: ' Plans ',
+      query: 'floor plan ',
+      folder: 'inbox',
+    })
     expect(created).toMatchObject({ name: 'Plans', query: 'floor plan', folder: 'inbox' })
     expect(created.id).toMatch(/^[0-9a-f-]{36}$/)
     expect(api.document().views).toEqual([view, created])
@@ -203,7 +207,11 @@ describe('saved view changes', () => {
     await store.load()
     api.changeElsewhere([view, { ...other, name: 'All receipts' }])
 
-    const updated = await store.updateView(view.id, { ...view, query: 'from:boss@example.com' }, view)
+    const updated = await store.updateView(
+      view.id,
+      { ...view, query: 'from:boss@example.com' },
+      view,
+    )
 
     expect(updated.query).toBe('from:boss@example.com')
     expect(api.document().views).toEqual([updated, { ...other, name: 'All receipts' }])
