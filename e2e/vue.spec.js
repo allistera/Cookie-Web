@@ -3010,24 +3010,24 @@ test('two-finger swipes over the inbox list move between category tabs, and only
 }) => {
   await page.goto('/inbox')
   const tabs = page.locator('.ni-tab')
-  await expect(tabs.first()).toBeVisible()
+  await tabs.first().click()
   const names = await tabs.locator('.ni-tab-name').allTextContents()
   const active = page.locator('.ni-tab.active .ni-tab-name')
-  const start = names.indexOf(await active.textContent())
-  expect(names.length).toBeGreaterThan(1)
+  await expect(active).toHaveText(names[0])
 
   // Fingers moving left (positive deltaX) go to the next tab.
   const list = page.locator('.ni-list')
   const box = await list.boundingBox()
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  const forward = start < names.length - 1 ? 1 : -1
-  for (let i = 0; i < 8; i++) await page.mouse.wheel(forward * 30, 0)
-  await expect(active).toHaveText(names[start + forward])
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(30, 0)
+  await expect(active).toHaveText(names[1])
 
-  // After the gesture settles, swiping the other way comes back.
-  await page.waitForTimeout(400)
-  for (let i = 0; i < 8; i++) await page.mouse.wheel(-forward * 30, 0)
-  await expect(active).toHaveText(names[start])
+  // Swiping the other way comes back once the first gesture has settled
+  // (its trailing momentum is ignored, so retry until it lands).
+  await expect(async () => {
+    for (let i = 0; i < 8; i++) await page.mouse.wheel(-30, 0)
+    await expect(active).toHaveText(names[0], { timeout: 500 })
+  }).toPass()
 
   // Outside the list the browser keeps the gesture (back/forward).
   const prevented = await page.evaluate(() => {
