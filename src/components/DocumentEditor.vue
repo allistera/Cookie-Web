@@ -1041,10 +1041,7 @@ async function exportToPDF() {
 .document-blocks :deep(.toc-block) {
   display: block;
   margin: 12px 0;
-  padding: 12px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-card);
+  padding: 4px 0;
 }
 
 .document-blocks :deep(.toc-block__title) {
