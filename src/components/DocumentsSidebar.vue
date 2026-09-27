@@ -332,7 +332,7 @@ function onDragEnd() {
               @keydown.escape="renamingFolderId = null"
               @blur="submitRename(row.item)"
             />
-            <span v-else class="nav-text">{{ row.item.title }}</span>
+            <span v-else class="nav-text" :title="row.item.title">{{ row.item.title }}</span>
             <span class="row-actions" @click.stop>
               <button
                 class="row-action-btn"
@@ -389,7 +389,9 @@ function onDragEnd() {
             @dragend="onDragEnd"
           >
             <DocumentIcon class="doc-emoji" :value="row.item.emoji" />
-            <span class="nav-text">{{ row.item.title || 'Untitled' }}</span>
+            <span class="nav-text" :title="row.item.title || 'Untitled'">{{
+              row.item.title || 'Untitled'
+            }}</span>
             <span class="row-actions" @click.prevent.stop>
               <button
                 class="row-action-btn"
@@ -501,17 +503,33 @@ function onDragEnd() {
 
 /* Hidden by opacity, not display, so the buttons keep their geometry and
    accessibility-tree entry (display:none rows made them unreachable to
-   assistive tech and to WebKit's hit testing until a hover re-rendered). */
+   assistive tech and to WebKit's hit testing until a hover re-rendered).
+   They float over the end of the row instead of taking space in it, so a
+   title (however deeply nested) uses the full row width until the row is
+   hovered or focused; the background is the row's own colour on the app
+   canvas, so the buttons cleanly cover the end of the title beneath them. */
 .nav-item .row-actions {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
   display: inline-flex;
-  margin-left: auto;
   gap: 2px;
+  padding-left: 4px;
   opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-app);
+  border-radius: 4px;
+}
+
+.nav-item.active .row-actions {
+  background: linear-gradient(var(--bg-sidebar-active), var(--bg-sidebar-active)), var(--bg-app);
 }
 
 .nav-item:hover .row-actions,
 .nav-item:focus-within .row-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .row-action-btn {
