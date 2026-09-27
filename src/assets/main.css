@@ -531,7 +531,9 @@ body {
 
 /* Left Sidebar (Linear style: borderless, sits on the gray canvas) */
 .left-sidebar {
-  width: 240px;
+  /* --sidebar-width is set on .app-body while the user has dragged the
+     sidebar to a temporary width (SidebarResizer). */
+  width: var(--sidebar-width, 240px);
   padding: 8px 8px 12px;
   display: flex;
   flex-direction: column;
@@ -5347,4 +5349,11 @@ button.ni-attachment:hover {
   background: var(--bg-card);
   color: var(--text-primary);
   cursor: pointer;
+}
+
+/* While a sidebar is being dragged, keep the resize cursor everywhere and
+   stop text selection following the pointer. */
+body.sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
 }

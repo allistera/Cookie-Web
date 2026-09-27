@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 import { useCalendars } from '../composables/useCalendars'
+import SidebarResizer from '../components/SidebarResizer.vue'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import {
   TASKS_CALENDAR_COLOR,
@@ -955,6 +956,7 @@ onUnmounted(() => {
         <span class="nav-text">Manage calendars</span>
       </router-link>
     </aside>
+    <SidebarResizer />
 
     <div class="calendar-content">
       <div class="calendar-page">
@@ -1562,7 +1564,7 @@ onUnmounted(() => {
 }
 
 .calendar-sidebar.left-sidebar {
-  width: 230px;
+  width: var(--sidebar-width, 230px);
   padding: 12px;
   gap: 10px;
   overflow-y: auto;

@@ -7,6 +7,8 @@ import { useSavedViewsStore } from './stores/savedViews'
 import { useOutOfOfficeStore } from './stores/outOfOffice'
 import { useSendersStore } from './stores/senders'
 import OutOfOfficeBanner from './components/OutOfOfficeBanner.vue'
+import SidebarResizer from './components/SidebarResizer.vue'
+import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
@@ -41,6 +43,12 @@ const router = useRouter()
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 const showMoreNav = ref(false)
+// A temporary sidebar width set by dragging SidebarResizer; unset keeps
+// each sidebar's own default.
+const { width: sidebarWidth } = useSidebarWidth()
+const sidebarWidthStyle = computed(() =>
+  sidebarWidth.value ? { '--sidebar-width': `${sidebarWidth.value}px` } : undefined,
+)
 
 // Which Cookie app the current route belongs to; drives the header switcher,
 // the logo suffix, and which left sidebar (if any) renders.
@@ -534,7 +542,7 @@ onUnmounted(() => {
 
       <OutOfOfficeBanner />
 
-      <div class="app-body">
+      <div class="app-body" :style="sidebarWidthStyle">
         <!-- LEFT SIDEBAR -->
         <aside v-if="activeApp === 'email'" class="left-sidebar">
           <button class="compose-btn" @click="store.openComposer()">
@@ -686,6 +694,8 @@ onUnmounted(() => {
 
         <!-- Tasks: its own sidebar replaces the mail one -->
         <TasksSidebar v-else-if="activeApp === 'tasks'" />
+
+        <SidebarResizer v-if="['email', 'documents', 'tasks'].includes(activeApp)" />
 
         <!-- MAIN CONTENT PANEL -->
         <main class="main-content">
