@@ -94,7 +94,7 @@ onBeforeUnmount(stopDragging)
   margin: 0 -3px;
   cursor: col-resize;
   touch-action: none;
-  z-index: 2;
+  z-index: 1;
 }
 
 /* A thin line that appears on hover, focus and while dragging. */
