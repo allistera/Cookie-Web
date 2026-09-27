@@ -1962,8 +1962,21 @@ function localApiPlugin(mode) {
       return json(res, { ok: true })
     }
     if (sub === 'image-upload') {
-      // Inlined as a data: URL — the real Worker writes to blob storage.
-      return json(res, { url: 'data:image/png;base64,iVBORw0KGgo=' })
+      // Like the real Worker: a private-store URL the browser cannot load
+      // directly, so the editor has to fetch a signed link (below).
+      return json(res, {
+        url: `https://fixture.private.blob.vercel-storage.com/documents/fixture-user/${randomUUID()}.png`,
+      })
+    }
+    if (sub === 'document-image') {
+      const requested = new URL(req.url, 'http://localhost').searchParams.get('url') ?? ''
+      if (!requested.startsWith('https://fixture.private.blob.vercel-storage.com/documents/'))
+        return json(res, { error: 'Image not found' }, 404)
+      // Stands in for Vercel Blob's signed link: a real 1x1 PNG.
+      return json(res, {
+        url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
     }
     if (sub === 'interests') {
       state.interests ??= ['Cloudflare Workers', 'Vue', 'self-hosting']

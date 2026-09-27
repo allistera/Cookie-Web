@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   convertBlocksToHTML,
   convertBlocksToMarkdown,
@@ -146,6 +146,28 @@ describe('document export', () => {
     const blocks = [block('toc', {}), block('paragraph', { text: 'Only text' })]
     expect(convertBlocksToMarkdown(blocks)).toBe('Only text\n\n')
     expect(convertBlocksToHTML(blocks)).not.toContain('<nav')
+  })
+
+  it('embeds private document images so exports work outside the app', async () => {
+    const privateUrl = 'https://abc.private.blob.vercel-storage.com/documents/u1/pic.png'
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const resolveImage = vi.fn(async () => 'https://signed/pic')
+
+    const [prepared] = await prepareExportBlocks(
+      [block('image', { file: { url: privateUrl }, caption: 'Pic' })],
+      { resolveImage },
+    )
+
+    expect(resolveImage).toHaveBeenCalledWith(privateUrl)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://signed/pic')
+    expect(prepared.data.file.url).toMatch(/^data:image\/png;base64,/)
+    expect(prepared.data.caption).toBe('Pic')
+    expect(convertBlocksToHTML([prepared])).toContain('src="data:image/png;base64,')
+    vi.unstubAllGlobals()
   })
 
   it('omits an empty drawing and refuses unsupported content instead of silently losing it', async () => {

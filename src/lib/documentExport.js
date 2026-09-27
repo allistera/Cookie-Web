@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
 
 import { PLAIN_LANGUAGE, normalizeCodeLanguage } from './codeHighlight'
+import { isPrivateDocumentImage, resolveDocumentImageUrl } from './documentImages'
 
 // The fence/class language tag for a code block; plain text carries none.
 function codeLanguage(data) {
@@ -141,16 +142,41 @@ function tablesHTML(data) {
 
 function imageURL(data) {
   const url = data.file?.url || data.url || ''
-  if (!/^(https?:|data:image\/(png|jpeg|webp);base64,)/i.test(url))
+  if (!/^(https?:|data:image\/(png|jpeg|gif|webp);base64,)/i.test(url))
     throw new Error('An image could not be exported.')
   return url
 }
 
 // Render saved scenes only when exporting; neither the drawing runtime nor
 // the image conversion adds work to ordinary document loading.
-export async function prepareExportBlocks(blocks) {
+function blobToDataUrl(blob, failure) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error(failure))
+    reader.readAsDataURL(blob)
+  })
+}
+
+// Private document images only open through a short-lived signed link, so an
+// export embeds the image itself; the file then works outside the app.
+async function inlinePrivateImage(block, resolveImage) {
+  const signedUrl = await resolveImage(block.data.file.url)
+  const response = await fetch(signedUrl)
+  if (!response.ok) throw new Error('An image could not be exported.')
+  const url = await blobToDataUrl(await response.blob(), 'An image could not be exported.')
+  return { ...block, data: { ...block.data, file: { ...block.data.file, url } } }
+}
+
+export async function prepareExportBlocks(
+  blocks,
+  { resolveImage = (url) => resolveDocumentImageUrl(url) } = {},
+) {
   return Promise.all(
     blocks.map(async (block) => {
+      if (block.type === 'image' && isPrivateDocumentImage(block.data?.file?.url)) {
+        return inlinePrivateImage(block, resolveImage)
+      }
       if (block.type !== 'excalidraw' || block.data.file?.url || block.data.url) return block
       if (!block.data.elements?.some((element) => !element.isDeleted)) return null
       const { exportToBlob } = await import('@excalidraw/excalidraw')

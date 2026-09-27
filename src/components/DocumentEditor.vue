@@ -20,6 +20,7 @@ import { KanbanBlockTool } from '../lib/kanbanBlockTool'
 import { TocBlockTool } from '../lib/tocBlockTool'
 import { createHeadingCollapse } from '../lib/headingCollapse'
 import { attachCodePaste } from '../lib/codePaste'
+import { withPrivateDocumentImages } from '../lib/documentImages'
 import { highlightScheduleLines } from '../lib/documentScheduleHighlight'
 import { MAX_DOCUMENT_TAGS, normalizeDocumentTag } from '../lib/documentTags'
 import { UniverSheetTool } from '../lib/univerSheetTool'
@@ -181,6 +182,9 @@ async function uploadFileToBlob(file) {
   return data.url
 }
 
+// Uploaded images are private; the wrapped tool shows them via signed links.
+const DocumentImageTool = withPrivateDocumentImages(ImageTool)
+
 const imageUploader = createImageUploader(uploadFileToBlob, (message, kind) =>
   inbox.notify(message, kind),
 )
@@ -274,7 +278,7 @@ function mountEditor() {
       delimiter: Delimiter,
       date: InsertDateTool,
       excalidraw: { class: ExcalidrawBlockTool, config: { onChange: scheduleBlocksSave } },
-      image: { class: ImageTool, config: { uploader: imageUploader } },
+      image: { class: DocumentImageTool, config: { uploader: imageUploader } },
       kanban: KanbanBlockTool,
       toc: TocBlockTool,
     },

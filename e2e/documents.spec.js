@@ -633,6 +633,54 @@ test('Pasted code from an IDE or a Markdown fence becomes a code block with its 
   await saved
 })
 
+test('An uploaded image is stored privately and shown through a signed link', async ({ page }) => {
+  await page.goto('/documents')
+  await page.locator('.new-doc-button').click()
+  await page.getByRole('button', { name: /Blank document/ }).click()
+  await expect(page.locator('.document-blocks')).toHaveAttribute('aria-busy', 'false')
+
+  const paragraph = page.locator('.codex-editor .ce-paragraph').last()
+  await paragraph.click()
+  await paragraph.pressSequentially('/')
+  const menu = page.locator('.ce-popover--opened .ce-popover__container')
+  await expect(menu).toBeVisible()
+  await menuItem(menu, 'Image').click()
+
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/documents') &&
+      response.request().method() === 'PATCH' &&
+      (response.request().postData() || '').includes('.private.blob.vercel-storage.com'),
+  )
+  // The image tool opens a file picker from its button rather than keeping
+  // a file input in the page.
+  const chooser = page.waitForEvent('filechooser')
+  await page.locator('.image-tool .cdx-button').click()
+  await (
+    await chooser
+  ).setFiles({
+    name: 'pixel.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    ),
+  })
+
+  // The document keeps the private URL; the page shows the signed link.
+  await saved
+  const image = page.locator('.image-tool__image-picture')
+  await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
+  await expect(page.locator('.image-tool')).toHaveClass(/image-tool--filled/)
+
+  await expect(page.locator('.save-status')).toHaveText('All changes saved')
+  await page.reload()
+  await expect(page.locator('.image-tool__image-picture')).toHaveAttribute(
+    'src',
+    /^data:image\/png;base64,/,
+  )
+})
+
 test('A Kanban board can be inserted from the slash menu, edited, and persists', async ({
   page,
 }) => {
