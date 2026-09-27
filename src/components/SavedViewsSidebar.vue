@@ -63,17 +63,15 @@ function folderLabel(folder) {
 </script>
 
 <template>
-  <section class="saved-views-section" aria-label="Saved mail views">
+  <!-- Only shown once there is a saved view: an empty, loading or
+       unavailable list adds nothing to the sidebar. Views are created from
+       Search ("Save as view"), which does not depend on this section. -->
+  <section v-if="store.views.length" class="saved-views-section" aria-label="Saved mail views">
     <div class="sb-section-label saved-views-heading">
       <span>Saved views</span>
-      <button v-if="store.views.length" type="button" @click.stop="openManager">Manage</button>
+      <button type="button" @click.stop="openManager">Manage</button>
     </div>
-    <div v-if="store.loading" class="saved-views-status">Loading views…</div>
-    <div v-else-if="!store.loaded" class="saved-views-status">
-      <span>{{ store.error || 'Saved views are unavailable.' }}</span>
-      <button type="button" @click="store.load()">Retry</button>
-    </div>
-    <nav v-else-if="store.views.length" class="sidebar-nav" aria-label="Saved mail views">
+    <nav class="sidebar-nav" aria-label="Saved mail views">
       <router-link
         v-for="view in store.views"
         :key="view.id"
@@ -85,7 +83,6 @@ function folderLabel(folder) {
         <span class="nav-text">{{ view.name }}</span>
       </router-link>
     </nav>
-    <p v-else class="saved-views-status">Search mail, then save a view here.</p>
 
     <dialog
       ref="dialog"
@@ -136,19 +133,12 @@ function folderLabel(folder) {
   align-items: center;
 }
 
-.saved-views-heading button,
-.saved-views-status button {
+.saved-views-heading button {
   border: 0;
   background: none;
   color: var(--accent);
   cursor: pointer;
   font: inherit;
-}
-
-.saved-views-status {
-  margin: 8px 18px 14px;
-  color: var(--text-secondary);
-  font-size: 12px;
 }
 
 .saved-views-dialog {

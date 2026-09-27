@@ -1467,6 +1467,11 @@ test('saved mail views persist, overlap, reorder, rename, delete, and open from 
 }) => {
   await page.goto('/search?q=floor+plan&scope=mail')
 
+  // The sidebar section only appears once a view exists.
+  const savedSection = page.getByRole('region', { name: 'Saved mail views' })
+  await expect(page.getByRole('button', { name: 'Save as view' })).toBeVisible()
+  await expect(savedSection).toHaveCount(0)
+
   await page.getByRole('button', { name: 'Save as view' }).click()
   let dialog = page.getByRole('dialog', { name: 'Save mail view' })
   await dialog.getByLabel('Name').fill('Plans')
@@ -1475,6 +1480,7 @@ test('saved mail views persist, overlap, reorder, rename, delete, and open from 
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('heading', { name: 'Plans', exact: true })).toBeVisible()
   await expect(page.getByText('Saved mail view · Inbox · Keyword search')).toBeVisible()
+  await expect(savedSection).toBeVisible()
   await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
   await expect(page).toHaveURL(/scope=mail.*mode=keyword.*view=/)
 
