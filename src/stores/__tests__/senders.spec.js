@@ -86,6 +86,30 @@ describe('account-scoped sender state', () => {
     await old
     expect(store.known['a@example.com']).toBe('blocked')
   })
+  it("records the same contact's other addresses that an accept also covered", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        response({
+          address: 'offers@smarty.co.uk',
+          decision: 'accepted',
+          related: ['help@smarty.co.uk', 'news@email.smarty.co.uk'],
+        }),
+      ),
+    )
+    expect(await store.update({ action: 'accept', address: 'offers@smarty.co.uk' })).toBe(true)
+    expect(store.lastRelated).toEqual(['help@smarty.co.uk', 'news@email.smarty.co.uk'])
+    expect(store.known).toMatchObject({
+      'offers@smarty.co.uk': 'accepted',
+      'help@smarty.co.uk': 'accepted',
+      'news@email.smarty.co.uk': 'accepted',
+    })
+    expect(store.decisions.map((entry) => entry.address)).toEqual([
+      'help@smarty.co.uk',
+      'news@email.smarty.co.uk',
+      'offers@smarty.co.uk',
+    ])
+  })
   it('reports failed decisions without optimistic release or enabling screening', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: 'Message not found' }, 404)))
     store.known['a@example.com'] = 'blocked'

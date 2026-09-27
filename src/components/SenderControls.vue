@@ -1,10 +1,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useInboxStore } from '../stores/inbox'
 import { normalizeSender, useSendersStore } from '../stores/senders'
 
 const props = defineProps({ email: { type: Object, required: true } })
 const emit = defineEmits(['changed'])
 const store = useSendersStore()
+const inbox = useInboxStore()
 const address = computed(() => normalizeSender(props.email.address))
 const ready = ref(false)
 const decision = computed(() => store.known[address.value])
@@ -19,7 +21,17 @@ async function reloadDecision() {
 watch([address, () => store.ownerSub], reloadDecision, { immediate: true })
 async function act(action) {
   const id = props.email.id
-  if (await store.update({ action, address: address.value, messageId: id })) emit('changed')
+  if (!(await store.update({ action, address: address.value, messageId: id }))) return
+  // Accept/Block also cover the same contact's other addresses waiting in
+  // New senders; say so, as those emails leave the list too.
+  const related = store.lastRelated
+  if (related.length) {
+    const verb = action === 'block' ? 'blocked' : 'accepted'
+    const shown = related.slice(0, 2).join(', ')
+    const more = related.length > 2 ? ` and ${related.length - 2} more` : ''
+    inbox.notify(`Also ${verb} ${shown}${more} from the same sender.`)
+  }
+  emit('changed')
 }
 </script>
 

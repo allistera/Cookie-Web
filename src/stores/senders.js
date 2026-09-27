@@ -19,6 +19,9 @@ export const useSendersStore = defineStore('senders', {
     loading: false,
     saving: false,
     error: '',
+    // Other addresses of the same contact that the last Accept/Block also
+    // covered (cookie-web-emails applies it to their held mail too).
+    lastRelated: [],
   }),
   actions: {
     setOwner(sub) {
@@ -107,12 +110,13 @@ export const useSendersStore = defineStore('senders', {
           return false
         }
         if (body.action === 'settings') this.enabled = data.enabled === true
-        if (data.address) {
-          this.known[data.address] = data.decision
-          this.decisions = this.decisions.filter((entry) => entry.address !== data.address)
-          if (data.decision) this.decisions.push({ address: data.address, decision: data.decision })
-          this.decisions.sort((a, b) => a.address.localeCompare(b.address))
+        this.lastRelated = Array.isArray(data.related) ? data.related : []
+        for (const address of data.address ? [data.address, ...this.lastRelated] : []) {
+          this.known[address] = data.decision
+          this.decisions = this.decisions.filter((entry) => entry.address !== address)
+          if (data.decision) this.decisions.push({ address, decision: data.decision })
         }
+        this.decisions.sort((a, b) => a.address.localeCompare(b.address))
         // Invalidate pre-save reads without changing the account identity.
         this.generation++
         this.loading = false
