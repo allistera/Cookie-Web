@@ -1022,6 +1022,22 @@ async function exportToPDF() {
   outline-offset: 1px;
 }
 
+.document-blocks :deep(.image-tool__caption) {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  text-align: center;
+}
+
+/* The "Caption" placeholder is absolutely positioned inside the caption, so
+   it needs its own full width to centre with the text. */
+.document-blocks :deep(.image-tool__caption[data-placeholder]::before) {
+  left: 0;
+  right: 0;
+  width: auto;
+  text-align: center;
+}
+
 .document-blocks :deep(.toc-block) {
   display: block;
   margin: 12px 0;
