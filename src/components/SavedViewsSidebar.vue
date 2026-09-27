@@ -1,11 +1,15 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { savedViewMatchesRoute, savedViewRoute, SAVED_VIEW_FOLDERS } from '../lib/savedViews'
+import { useInboxStore } from '../stores/inbox'
 import { useSavedViewsStore } from '../stores/savedViews'
 
 const store = useSavedViewsStore()
+const inbox = useInboxStore()
+// The view whose "⋯" menu is open, if any.
+const menuViewId = ref(null)
 const route = useRoute()
 const router = useRouter()
 const dialog = ref(null)
@@ -37,10 +41,6 @@ function move(index, delta) {
   draft.value.splice(target, 0, item)
 }
 
-function remove(index) {
-  draft.value.splice(index, 1)
-}
-
 async function saveChanges() {
   const next = draft.value.map((view) => ({ ...view, name: view.name.trim() }))
   const saved = await store.save(next)
@@ -57,6 +57,46 @@ function resetDraft() {
   store.conflict = false
 }
 
+function toggleMenu(id) {
+  menuViewId.value = menuViewId.value === id ? null : id
+}
+
+function closeMenu() {
+  menuViewId.value = null
+}
+
+function onDocumentPointer(event) {
+  if (!event.target?.closest?.('.saved-view-row')) closeMenu()
+}
+document.addEventListener('pointerdown', onDocumentPointer)
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointer))
+
+function editView(view) {
+  closeMenu()
+  store.openEditor({ view })
+}
+
+// Deleting removes only the definition, never mail, so it happens at once
+// with an Undo that puts the view back where it was.
+async function deleteView(view) {
+  closeMenu()
+  const removed = await store.deleteView(view.id)
+  if (!removed) {
+    inbox.notify(store.error || 'Could not delete the view. Please try again.', 'error')
+    return
+  }
+  if (route.query.view === view.id) {
+    await router.replace({ name: 'search', query: { ...route.query, view: undefined } })
+  }
+  inbox.notify(`Deleted saved view "${view.name}".`, 'info', {
+    label: 'Undo',
+    run: async () => {
+      const restored = await store.restoreView(removed.view, removed.index)
+      if (!restored) inbox.notify(store.error || 'Could not restore the view.', 'error')
+    },
+  })
+}
+
 function folderLabel(folder) {
   return SAVED_VIEW_FOLDERS.find((option) => option.value === folder)?.label ?? folder
 }
@@ -64,24 +104,56 @@ function folderLabel(folder) {
 
 <template>
   <!-- Only shown once there is a saved view: an empty, loading or
-       unavailable list adds nothing to the sidebar. Views are created from
-       Search ("Save as view"), which does not depend on this section. -->
+       unavailable list adds nothing to the sidebar. The first view is created
+       from Search ("Save as view") or the "New saved view" command. -->
   <section v-if="store.views.length" class="saved-views-section" aria-label="Saved mail views">
     <div class="sb-section-label saved-views-heading">
       <span>Saved views</span>
-      <button type="button" @click.stop="openManager">Manage</button>
+      <span class="saved-views-heading-actions">
+        <button
+          type="button"
+          class="saved-views-new"
+          aria-label="New saved view"
+          title="New saved view"
+          @click.stop="store.openEditor()"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">add</span>
+        </button>
+        <button type="button" @click.stop="openManager">Manage</button>
+      </span>
     </div>
     <nav class="sidebar-nav" aria-label="Saved mail views">
-      <router-link
+      <div
         v-for="view in store.views"
         :key="view.id"
-        :to="savedViewRoute(view)"
-        class="nav-item"
-        :class="{ active: savedViewMatchesRoute(view, route) }"
+        class="saved-view-row"
+        @keydown.escape="closeMenu"
       >
-        <span class="material-symbols-outlined">filter_alt</span>
-        <span class="nav-text">{{ view.name }}</span>
-      </router-link>
+        <router-link
+          :to="savedViewRoute(view)"
+          class="nav-item"
+          :class="{ active: savedViewMatchesRoute(view, route) }"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">filter_alt</span>
+          <span class="nav-text">{{ view.name }}</span>
+        </router-link>
+        <button
+          type="button"
+          class="saved-view-menu-btn"
+          :aria-label="`Actions for ${view.name}`"
+          aria-haspopup="menu"
+          :aria-expanded="menuViewId === view.id"
+          @click.stop="toggleMenu(view.id)"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
+        </button>
+        <div v-if="menuViewId === view.id" class="saved-view-menu" role="menu">
+          <button type="button" role="menuitem" @click="editView(view)">Edit</button>
+          <button type="button" role="menuitem" :disabled="store.saving" @click="deleteView(view)">
+            Delete
+          </button>
+        </div>
+      </div>
     </nav>
 
     <dialog
@@ -96,7 +168,7 @@ function folderLabel(folder) {
           <h2>Manage saved views</h2>
           <button type="button" aria-label="Close" @click="closeManager">×</button>
         </header>
-        <p>Rename, reorder, or delete definitions. Deleting never changes messages.</p>
+        <p>Rename or reorder views. Edit or delete one from its ⋯ menu in the sidebar.</p>
         <ol class="saved-views-editor">
           <li v-for="(view, index) in draft" :key="view.id">
             <label>
@@ -109,7 +181,6 @@ function folderLabel(folder) {
               <button type="button" :disabled="index === draft.length - 1" @click="move(index, 1)">
                 Down
               </button>
-              <button type="button" @click="remove(index)">Delete</button>
             </div>
           </li>
         </ol>
@@ -127,6 +198,91 @@ function folderLabel(folder) {
 </template>
 
 <style scoped>
+.saved-views-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.saved-views-new {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+}
+
+.saved-views-new .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.saved-view-row {
+  position: relative;
+}
+
+.saved-view-row .nav-item {
+  padding-right: 28px;
+}
+
+.saved-view-menu-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.saved-view-menu-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.saved-view-row:hover .saved-view-menu-btn,
+.saved-view-menu-btn:focus-visible,
+.saved-view-menu-btn[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.saved-view-menu {
+  position: absolute;
+  top: 100%;
+  right: 4px;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+
+.saved-view-menu button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-view-menu button:hover,
+.saved-view-menu button:focus-visible {
+  background: var(--bg-hover);
+}
+
 .saved-views-heading {
   display: flex;
   justify-content: space-between;

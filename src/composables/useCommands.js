@@ -14,7 +14,7 @@ import {
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useDocumentsStore } from '../stores/documents'
 import { useSavedViewsStore } from '../stores/savedViews'
-import { savedViewRoute } from '../lib/savedViews'
+import { savedViewDraftFromQuery, savedViewRoute } from '../lib/savedViews'
 import { scheduleChoices } from '../utils/schedule'
 
 // Snooze presets offered as palette entries. Filtered against the live
@@ -309,6 +309,19 @@ export function useCommands() {
         title: 'Go to Inbox',
         icon: 'inbox',
         run: () => router.push('/inbox'),
+      },
+      {
+        id: 'new-saved-view',
+        title: 'New saved view',
+        icon: 'filter_alt',
+        // On a search, start from that search.
+        run: () =>
+          savedViews.openEditor({
+            draft:
+              route.name === 'search' && route.query.q
+                ? savedViewDraftFromQuery(String(route.query.q))
+                : {},
+          }),
       },
       ...savedViews.views.map((view) => ({
         id: `go-saved-view-${view.id}`,

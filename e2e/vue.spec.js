@@ -1531,13 +1531,78 @@ test('saved mail views persist, overlap, reorder, rename, delete, and open from 
   await rows.nth(0).getByLabel('View name').fill('Renamed plans')
   await rows.nth(0).getByRole('button', { name: 'Down' }).click()
   await expect(rows.nth(1).getByLabel('View name')).toHaveValue('Renamed plans')
-  await rows.nth(0).getByRole('button', { name: 'Delete' }).click()
   await manager.getByRole('button', { name: 'Save changes' }).click()
 
   const nav = page.getByRole('navigation', { name: 'Saved mail views' })
-  await expect(nav.getByText('Renamed plans')).toBeVisible()
+  await expect(nav.locator('.nav-text')).toHaveText(['Client plans', 'Renamed plans'])
+
+  // Deleting from a view's menu is immediate and can be undone; Undo puts
+  // the view back in its old position.
+  await nav.getByRole('button', { name: 'Actions for Client plans' }).click()
+  await nav.getByRole('menuitem', { name: 'Delete' }).click()
+  await expect(nav.locator('.nav-text')).toHaveText(['Renamed plans'])
+  const toast = page.locator('.toast', { hasText: 'Deleted saved view "Client plans"' })
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect(nav.locator('.nav-text')).toHaveText(['Client plans', 'Renamed plans'])
+
+  await nav.getByRole('button', { name: 'Actions for Client plans' }).click()
+  await nav.getByRole('menuitem', { name: 'Delete' }).click()
   await expect(nav.getByText('Client plans')).toHaveCount(0)
+  await page.reload()
+  await expect(nav.locator('.nav-text')).toHaveText(['Renamed plans'])
   await expect(page.locator('.ni-row', { hasText: 'Revised Floor Plan' })).toBeVisible()
+})
+
+test('a saved view can be created from the command palette and edited, with a preview', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+  await expect(page.getByRole('region', { name: 'Saved mail views' })).toHaveCount(0)
+
+  // The palette opens the form even while the empty sidebar section is hidden.
+  await page.locator('body').press('/')
+  await page.getByRole('dialog', { name: 'Command palette' }).getByText('New saved view').click()
+  let editor = page.getByRole('dialog', { name: 'Save mail view' })
+  await editor.getByLabel('Name').fill('Floor plans')
+  await editor.getByLabel('Search query').fill('floor plan')
+  await editor.getByRole('button', { name: 'Preview' }).click()
+  await expect(editor.getByRole('status')).toContainText('matching emails')
+  await expect(editor.getByText('Revised Floor Plan', { exact: false })).toBeVisible()
+  await editor.getByRole('button', { name: 'Save view' }).click()
+  await expect(editor).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Floor plans', exact: true })).toBeVisible()
+
+  // Edit from the sidebar menu: the open view updates to the new definition.
+  const nav = page.getByRole('navigation', { name: 'Saved mail views' })
+  await nav.getByRole('button', { name: 'Actions for Floor plans' }).click()
+  await nav.getByRole('menuitem', { name: 'Edit' }).click()
+  editor = page.getByRole('dialog', { name: 'Edit saved view' })
+  await expect(editor.getByLabel('Search query')).toHaveValue('floor plan')
+  await editor.getByLabel('Name').fill('Inbox plans')
+  await editor.getByLabel('Folder').selectOption('inbox')
+  await editor.getByRole('button', { name: 'Save changes' }).click()
+  await expect(editor).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Inbox plans', exact: true })).toBeVisible()
+  await expect(page.getByText('Saved mail view · Inbox · Keyword search')).toBeVisible()
+
+  // "Save as new view" from the edit form keeps the original.
+  await page.getByRole('button', { name: 'Edit view' }).click()
+  editor = page.getByRole('dialog', { name: 'Edit saved view' })
+  await editor.getByLabel('Name').fill('All plans')
+  await editor.getByLabel('Folder').selectOption('all')
+  await editor.getByRole('button', { name: 'Save as new view' }).click()
+  await expect(page.getByRole('heading', { name: 'All plans', exact: true })).toBeVisible()
+  await expect(nav.locator('.nav-text')).toHaveText(['Inbox plans', 'All plans'])
+
+  // The Worker's validation message shows in the form, which stays open.
+  await nav.getByRole('button', { name: 'Actions for All plans' }).click()
+  await nav.getByRole('menuitem', { name: 'Edit' }).click()
+  editor = page.getByRole('dialog', { name: 'Edit saved view' })
+  await editor.getByLabel('Search query').fill('floor OR plan')
+  await editor.getByRole('button', { name: 'Save changes' }).click()
+  await expect(editor.getByRole('alert')).toBeVisible()
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  await expect(editor).toBeHidden()
 })
 
 test('saved mail view pages follow verified cursors despite misleading estimates, and navigate back', async ({

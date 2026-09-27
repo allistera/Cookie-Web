@@ -143,6 +143,116 @@ describe('saved views store', () => {
   })
 })
 
+describe('saved view changes', () => {
+  const other = {
+    id: '22222222-2222-4222-8222-222222222222',
+    name: 'Receipts',
+    query: 'tag:receipts',
+    folder: 'all',
+  }
+
+  // A fake Worker holding the account document: a PUT at a stale revision
+  // gets 409 with the latest list, like cookie-web-search.
+  function server(initial) {
+    let document = { revision: 1, views: initial }
+    const requests = []
+    const fetchMock = vi.fn(async (_url, options = {}) => {
+      if (options.method !== 'PUT') return ok(document)
+      const body = JSON.parse(options.body)
+      requests.push(body)
+      if (body.revision !== document.revision)
+        return failure(409, { error: 'changed', current: document })
+      document = { revision: document.revision + 1, views: body.views }
+      return ok(document)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return {
+      requests,
+      document: () => document,
+      // Another session saving in between.
+      changeElsewhere(views) {
+        document = { revision: document.revision + 1, views }
+      },
+    }
+  }
+
+  it('creates a view with a new id and trimmed fields', async () => {
+    const api = server([view])
+    await store.load()
+    const created = await store.createView({ name: ' Plans ', query: 'floor plan ', folder: 'inbox' })
+    expect(created).toMatchObject({ name: 'Plans', query: 'floor plan', folder: 'inbox' })
+    expect(created.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(api.document().views).toEqual([view, created])
+  })
+
+  it('re-applies a change to the latest list when another session saved first', async () => {
+    const api = server([view])
+    await store.load()
+    api.changeElsewhere([view, other])
+
+    const created = await store.createView({ name: 'Plans', query: 'plan', folder: 'all' })
+
+    expect(created).not.toBeNull()
+    expect(api.requests).toHaveLength(2)
+    expect(api.document().views.map((v) => v.name)).toEqual(['Client mail', 'Receipts', 'Plans'])
+    expect(store.error).toBe('')
+  })
+
+  it('edits a view, keeping the others as the latest list has them', async () => {
+    const api = server([view, other])
+    await store.load()
+    api.changeElsewhere([view, { ...other, name: 'All receipts' }])
+
+    const updated = await store.updateView(view.id, { ...view, query: 'from:boss@example.com' }, view)
+
+    expect(updated.query).toBe('from:boss@example.com')
+    expect(api.document().views).toEqual([updated, { ...other, name: 'All receipts' }])
+  })
+
+  it('stops instead of overwriting a view edited in another session', async () => {
+    const api = server([view])
+    await store.load()
+    store.openEditor({ view })
+    const changed = { ...view, name: 'Clients' }
+    api.changeElsewhere([changed])
+
+    expect(await store.updateView(view.id, { ...view, query: 'x' }, view)).toBeNull()
+    expect(store.error).toContain('changed in another session')
+    expect(store.conflict).toBe(true)
+    expect(store.editor.base).toEqual(changed)
+    expect(api.document().views).toEqual([changed])
+  })
+
+  it('reports a view deleted in another session', async () => {
+    const api = server([view])
+    await store.load()
+    api.changeElsewhere([])
+    expect(await store.updateView(view.id, view, view)).toBeNull()
+    expect(store.error).toContain('deleted in another session')
+  })
+
+  it('deletes a view and Undo restores it to the same position', async () => {
+    const api = server([view, other])
+    await store.load()
+
+    const removed = await store.deleteView(view.id)
+    expect(removed).toEqual({ view, index: 0 })
+    expect(api.document().views).toEqual([other])
+
+    expect(await store.restoreView(removed.view, removed.index)).toBe(true)
+    expect(api.document().views).toEqual([view, other])
+  })
+
+  it('opens the create form prefilled and the edit form with the view as its base', () => {
+    store.openEditor({ draft: { query: 'plan', folder: 'inbox' } })
+    expect(store.editor).toMatchObject({ mode: 'create', name: '', query: 'plan', folder: 'inbox' })
+    store.openEditor({ view })
+    expect(store.editor).toMatchObject({ mode: 'edit', id: view.id, base: view, name: view.name })
+    store.closeEditor()
+    expect(store.editor).toBeNull()
+  })
+})
+
 describe('saved view navigation', () => {
   it('uses the existing paginated, mail-only keyword route', () => {
     const target = savedViewRoute(view)

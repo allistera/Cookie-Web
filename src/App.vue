@@ -30,6 +30,7 @@ const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerW
 const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
 const TasksSidebar = defineAsyncComponent(() => import('./components/TasksSidebar.vue'))
 const SavedViewsSidebar = defineAsyncComponent(() => import('./components/SavedViewsSidebar.vue'))
+const SavedViewEditor = defineAsyncComponent(() => import('./components/SavedViewEditor.vue'))
 
 const store = useInboxStore()
 const searchStore = useSearchStore()
@@ -715,6 +716,7 @@ onUnmounted(() => {
 
       <!-- Command palette (Cmd+K) -->
       <CommandPalette v-if="commandPaletteLoaded" />
+      <SavedViewEditor v-if="savedViewsStore.editor" />
     </div>
 
     <!-- Toast notifications -->
