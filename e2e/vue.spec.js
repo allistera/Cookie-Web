@@ -121,25 +121,38 @@ test('The header app switcher opens the interactive Calendar views and returns t
   await expect(page.locator('.left-sidebar')).toBeVisible()
 })
 
-test('The header notification count opens the section that raised the first notification', async ({
+test('The header notification shows New senders awaiting approval and opens that list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 })
+  // No sender is waiting in the fixture mailbox: no bell, even with unread mail.
   await page.goto('/documents')
+  await expect(page.locator('.header-notification-btn')).toHaveCount(0)
 
+  // Two senders awaiting approval, as the emails Worker reports them.
+  await page.route('**/emails/state', (route) =>
+    route.fulfill({
+      json: {
+        unreadCount: 3,
+        spamCount: 0,
+        snoozedCount: 0,
+        scheduledCount: 0,
+        starredCount: 0,
+        screeningCount: 2,
+        blockedCount: 0,
+        userId: '11111111-1111-4111-8111-111111111111',
+      },
+    }),
+  )
+  await page.reload()
   const notificationButton = page.getByRole('button', {
-    name: /Open \d+ notifications?: \d+ unread emails?/,
+    name: 'Open 2 notifications: 2 new senders to review',
   })
   await expect(notificationButton).toBeVisible()
-
-  const count = await notificationButton.locator('.header-notification-count').textContent()
-  expect(Number(count)).toBeGreaterThan(0)
+  await expect(notificationButton.locator('.header-notification-count')).toHaveText('2')
 
   await notificationButton.click()
-  await expect(page).toHaveURL(/\/inbox$/)
-  await expect(page.locator('.nav-item', { hasText: 'Inbox' }).locator('.nav-badge')).toHaveText(
-    count,
-  )
+  await expect(page).toHaveURL(/\/inbox\?filter=screening$/)
 })
 
 test('Calendar shows a task on its due date and opens it in Tasks', async ({ page }) => {

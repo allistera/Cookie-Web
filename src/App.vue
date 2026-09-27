@@ -71,17 +71,18 @@ const otherApps = computed(() =>
     .map(([key, app]) => ({ key, ...app })),
 )
 
-// Header notifications stay backed by each app's existing unread state. Email
-// is the first source today; keeping the destinations together makes the
-// button route to the first source without introducing a second state store.
+// Header notifications flag things waiting on the user. Today that is New
+// senders awaiting approval (the held-mail count arrives with the inbox
+// state); unread mail already shows on the Inbox nav badge. Keeping the
+// sources together lets the button route to the first one.
 const notificationSources = computed(() => {
   const sources = []
-  if (store.unreadInboxCount > 0) {
+  if (store.screeningCount > 0) {
     sources.push({
-      key: 'email',
-      count: store.unreadInboxCount,
-      to: '/inbox',
-      label: `${store.unreadInboxCount} unread email${store.unreadInboxCount === 1 ? '' : 's'}`,
+      key: 'new-senders',
+      count: store.screeningCount,
+      to: { path: '/inbox', query: { filter: 'screening' } },
+      label: `${store.screeningCount} new sender${store.screeningCount === 1 ? '' : 's'} to review`,
     })
   }
   return sources
