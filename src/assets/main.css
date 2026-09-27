@@ -1110,6 +1110,17 @@ body {
   padding: 0 8px 24px;
 }
 
+/* The category list takes two-finger horizontal swipes (useSwipeTabs), so
+   only here the browser's swipe-to-go-back is switched off, and the inbox
+   panel clips the list while it slides between tabs. */
+.ni-list-swipeable {
+  overscroll-behavior-x: contain;
+}
+
+#traditionalInboxView {
+  overflow-x: hidden;
+}
+
 /* Linear-style group band: a full-width tinted strip above each day group. */
 .ni-group-header {
   display: flex;

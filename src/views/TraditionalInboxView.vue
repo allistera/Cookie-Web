@@ -29,6 +29,7 @@ import {
   unresolvedSnippetWarning,
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
+import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 
 const store = useInboxStore()
@@ -360,6 +361,23 @@ const emailGroups = computed(() => {
 })
 
 const mailList = ref(null)
+
+// Two-finger trackpad swipes over the list move between the category tabs,
+// the list following the fingers like side-by-side pages. Only the list opts
+// out of the browser's back/forward swipe; it works as usual elsewhere.
+function neighbourTab(direction) {
+  const tabs = inboxTabs.value
+  const index = tabs.findIndex((tab) => tab.id === activeTab.value)
+  return index === -1 ? null : (tabs[index + direction] ?? null)
+}
+const { style: swipeStyle } = useSwipeTabs(() => mailList.value?.$el, {
+  enabled: () => showInboxTabs.value && inboxTabs.value.length > 1,
+  canGo: (direction) => Boolean(neighbourTab(direction)),
+  go: (direction) => {
+    const tab = neighbourTab(direction)
+    if (tab) store.setInboxTab(tab.id)
+  },
+})
 const virtualMailRows = computed(() =>
   emailGroups.value.flatMap((group) => [
     { key: `group:${group.label}`, kind: 'group', group },
@@ -1582,6 +1600,8 @@ onUnmounted(() => {
     <VirtualList
       ref="mailList"
       class="ni-list"
+      :class="{ 'ni-list-swipeable': showInboxTabs }"
+      :style="swipeStyle"
       :items="virtualMailRows"
       :estimate="estimateMailRow"
     >

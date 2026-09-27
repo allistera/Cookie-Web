@@ -3004,3 +3004,39 @@ test('Contact insights opens from an email address and saves private context', a
   await expect(drawer.getByPlaceholder('Add role')).toHaveValue('Project team')
   await expect(drawer.getByPlaceholder('Add a private note about this contact…')).toHaveValue(note)
 })
+
+test('two-finger swipes over the inbox list move between category tabs, and only there', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+  const tabs = page.locator('.ni-tab')
+  await expect(tabs.first()).toBeVisible()
+  const names = await tabs.locator('.ni-tab-name').allTextContents()
+  const active = page.locator('.ni-tab.active .ni-tab-name')
+  const start = names.indexOf(await active.textContent())
+  expect(names.length).toBeGreaterThan(1)
+
+  // Fingers moving left (positive deltaX) go to the next tab.
+  const list = page.locator('.ni-list')
+  const box = await list.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  const forward = start < names.length - 1 ? 1 : -1
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(forward * 30, 0)
+  await expect(active).toHaveText(names[start + forward])
+
+  // After the gesture settles, swiping the other way comes back.
+  await page.waitForTimeout(400)
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(-forward * 30, 0)
+  await expect(active).toHaveText(names[start])
+
+  // Outside the list the browser keeps the gesture (back/forward).
+  const prevented = await page.evaluate(() => {
+    const sidebar = document.querySelector('.left-sidebar')
+    const event = new WheelEvent('wheel', { deltaX: 60, bubbles: true, cancelable: true })
+    sidebar.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(prevented).toBe(false)
+  await expect(list).toHaveCSS('overscroll-behavior-x', 'contain')
+  await expect(page.locator('.left-sidebar')).toHaveCSS('overscroll-behavior-x', 'auto')
+})
