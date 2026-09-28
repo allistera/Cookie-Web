@@ -151,7 +151,25 @@ const TASK_DRAG_TYPE = 'application/x-cookie-task'
 // A divider carries this type as well: it has no date to set, so Today
 // refuses it while it is still in the air.
 const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
+// A multi-select drag from TasksView carries every selected id as JSON.
+const TASKS_DRAG_TYPE = 'application/x-cookie-tasks'
 const taskDropTarget = ref(null)
+
+// The ids a task drop applies to: the whole selection when several tasks
+// were dragged together, else the one task.
+function draggedTaskIds(event) {
+  const many = event.dataTransfer.getData(TASKS_DRAG_TYPE)
+  if (many) {
+    try {
+      const ids = JSON.parse(many)
+      if (Array.isArray(ids) && ids.length) return ids.map(String)
+    } catch {
+      // Fall back to the single task below.
+    }
+  }
+  const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
+  return id ? [id] : []
+}
 
 function isTaskDrag(event) {
   return Array.from(event.dataTransfer?.types ?? []).includes(TASK_DRAG_TYPE)
@@ -182,11 +200,16 @@ function onTaskDrop(target, event) {
   if (target === null) return isTaskDrag(event)
   if (!isTaskDrag(event)) return false
   taskDropTarget.value = null
-  const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
-  if (!id) return true
+  const ids = draggedTaskIds(event)
+  if (!ids.length) return true
   if (target === 'today') {
-    if (!isDividerDrag(event)) taskItems.setDueDate(id, localToday())
-  } else taskItems.moveItem(id, target === 'inbox' ? null : target)
+    if (!isDividerDrag(event)) {
+      for (const id of ids) taskItems.setDueDate(id, localToday())
+      taskItems.clearSelection()
+    }
+  } else if (ids.length > 1) {
+    taskItems.moveItems(ids, target === 'inbox' ? null : target)
+  } else taskItems.moveItem(ids[0], target === 'inbox' ? null : target)
   return true
 }
 
@@ -312,10 +335,12 @@ function onLabelDragOver(label, event) {
 function onLabelDrop(label, event) {
   taskDropTarget.value = null
   if (!isTaskDrag(event) || isDividerDrag(event)) return
-  const id = event.dataTransfer.getData(TASK_DRAG_TYPE)
-  const task = taskItems.items.find((row) => row.id === id)
-  if (!task || task.labels?.includes(label.name)) return
-  taskItems.setLabels(id, [...(task.labels ?? []), label.name])
+  for (const id of draggedTaskIds(event)) {
+    const task = taskItems.items.find((row) => row.id === id)
+    if (!task || task.labels?.includes(label.name)) continue
+    taskItems.setLabels(id, [...(task.labels ?? []), label.name])
+  }
+  taskItems.clearSelection()
 }
 </script>
 

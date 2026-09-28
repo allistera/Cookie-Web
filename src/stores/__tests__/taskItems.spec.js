@@ -986,3 +986,49 @@ describe('divider text', () => {
     expect(store.items[0].content).toBe('Later')
   })
 })
+
+describe('selecting several tasks', () => {
+  it('toggles tasks in and out of the selection and clears it', () => {
+    store.toggleSelected('t1')
+    store.toggleSelected('t2')
+    expect(store.selectedIds).toEqual(['t1', 't2'])
+    store.toggleSelected('t1')
+    expect(store.selectedIds).toEqual(['t2'])
+    store.clearSelection()
+    expect(store.selectedIds).toEqual([])
+  })
+
+  it('moves every selected task, then reloads the list once', async () => {
+    store.loadedProject = 'p1'
+    store.selectedIds = ['t1', 't2']
+    stubFetch(async (_url, options) => ({
+      ok: true,
+      json: async () => (options.method === 'PATCH' ? { item: { ...ITEM } } : { items: [] }),
+    }))
+
+    expect(await store.moveItems(['t1', 't2'], 'p2')).toBe(2)
+
+    const patches = fetch.mock.calls.filter(([, options]) => options.method === 'PATCH')
+    expect(patches.map(([, options]) => JSON.parse(options.body))).toEqual([
+      { id: 't1', projectId: 'p2' },
+      { id: 't2', projectId: 'p2' },
+    ])
+    expect(fetch.mock.calls.filter(([, options]) => options.method !== 'PATCH')).toHaveLength(1)
+    expect(store.selectedIds).toEqual([])
+  })
+
+  it('keeps going past a refused task and says how many moved', async () => {
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    stubFetch(async (_url, options) =>
+      JSON.parse(options.body).id === 't1'
+        ? { ok: false, status: 404, json: async () => ({ error: 'Not found' }) }
+        : { ok: true, json: async () => ({ item: { ...ITEM } }) },
+    )
+
+    expect(await store.moveItems(['t1', 't2'], null)).toBe(1)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(notify).toHaveBeenCalledWith('Moved 1 of 2 tasks. Please try the rest again.', 'error')
+  })
+})

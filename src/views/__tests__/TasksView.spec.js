@@ -1033,3 +1033,103 @@ describe('label colours', () => {
     expect(homeColumn.get('.task-column-dot').attributes('style')).toContain('rgb(26, 115, 232)')
   })
 })
+
+describe('selecting several tasks', () => {
+  const dataTransfer = () => ({ effectAllowed: '', dropEffect: '', setData: vi.fn() })
+
+  async function mountWithTasks() {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 't1', content: 'One', position: 1, completedAt: null },
+      { id: 't2', content: 'Two', position: 2, completedAt: null },
+      { id: 't3', content: 'Three', position: 3, completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+    return { items, wrapper }
+  }
+
+  it('selects with a Shift-click instead of opening, then toggles with plain clicks', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    const buttons = wrapper.findAll('.task-open')
+
+    await buttons[0].trigger('click', { shiftKey: true })
+    await buttons[2].trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+    expect(items.selectedIds).toEqual(['t1', 't3'])
+    const rows = wrapper.findAll('.task-row')
+    expect(rows[0].classes()).toContain('selected')
+    expect(rows[1].classes()).not.toContain('selected')
+    expect(buttons[0].attributes('aria-pressed')).toBe('true')
+    expect(buttons[1].attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('.task-selection-bar').text()).toContain('2 selected')
+
+    await buttons[0].trigger('click')
+    expect(items.selectedIds).toEqual(['t3'])
+  })
+
+  it('leaves the mode on Escape or Clear, and plain clicks open again', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    await wrapper.findAll('.task-open')[0].trigger('click', { shiftKey: true })
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(items.selectedIds).toEqual([])
+    expect(wrapper.find('.task-selection-bar').exists()).toBe(false)
+
+    await wrapper.findAll('.task-open')[1].trigger('click', { shiftKey: true })
+    await wrapper.get('.task-selection-bar button').trigger('click')
+    expect(items.selectedIds).toEqual([])
+
+    await wrapper.findAll('.task-open')[1].trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('t2')
+  })
+
+  it('drags the whole selection for the sidebar and does not re-arrange rows', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const buttons = wrapper.findAll('.task-open')
+    await buttons[0].trigger('click', { shiftKey: true })
+    await buttons[1].trigger('click', { shiftKey: true })
+    const rows = wrapper.findAll('.task-row')
+    const transfer = dataTransfer()
+
+    await rows[0].get('.task-grip').trigger('dragstart', { dataTransfer: transfer })
+
+    expect(transfer.setData).toHaveBeenCalledWith(
+      'application/x-cookie-tasks',
+      JSON.stringify(['t1', 't2']),
+    )
+    expect(rows[0].classes()).toContain('dragging')
+    expect(rows[1].classes()).toContain('dragging')
+    await rows[2].trigger('dragover', { dataTransfer: transfer, clientY: 10 })
+    expect(rows[2].classes()).not.toContain('drop-after')
+    await rows[2].trigger('drop')
+    expect(reorder).not.toHaveBeenCalled()
+
+    await rows[0].get('.task-grip').trigger('dragend')
+    expect(rows[1].classes()).not.toContain('dragging')
+  })
+
+  it('drags only the one task when it is not part of the selection', async () => {
+    const { wrapper } = await mountWithTasks()
+    const buttons = wrapper.findAll('.task-open')
+    await buttons[0].trigger('click', { shiftKey: true })
+    await buttons[1].trigger('click', { shiftKey: true })
+    const transfer = dataTransfer()
+
+    await wrapper.findAll('.task-row')[2].get('.task-grip').trigger('dragstart', {
+      dataTransfer: transfer,
+    })
+
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-cookie-task', 't3')
+    expect(transfer.setData).not.toHaveBeenCalledWith(
+      'application/x-cookie-tasks',
+      expect.anything(),
+    )
+  })
+})

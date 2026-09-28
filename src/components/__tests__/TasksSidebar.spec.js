@@ -734,3 +734,87 @@ describe('dropping a task on a label', () => {
     expect(setLabels).not.toHaveBeenCalled()
   })
 })
+
+// A multi-select drag carries every selected id as JSON under its own type,
+// alongside the single-task type the sidebar already recognises.
+describe('dropping several selected tasks', () => {
+  const selectionTransfer = (ids) => ({
+    types: ['application/x-cookie-task', 'application/x-cookie-tasks', 'text/plain'],
+    dropEffect: '',
+    getData: vi.fn((type) =>
+      type === 'application/x-cookie-tasks' ? JSON.stringify(ids) : ids[0],
+    ),
+  })
+
+  it('moves every selected task into the project', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work' }]
+    store.isLoaded = true
+    const items = useTaskItemsStore()
+    const moveItems = vi.spyOn(items, 'moveItems').mockResolvedValue(2)
+    const moveItem = vi.spyOn(items, 'moveItem').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper
+      .get('.project-item')
+      .trigger('drop', { dataTransfer: selectionTransfer(['t1', 't2']) })
+
+    expect(moveItems).toHaveBeenCalledWith(['t1', 't2'], 'p1')
+    expect(moveItem).not.toHaveBeenCalled()
+  })
+
+  it('moves every selected task to the Inbox', async () => {
+    const moveItems = vi.spyOn(useTaskItemsStore(), 'moveItems').mockResolvedValue(2)
+    const wrapper = mountSidebar()
+
+    await wrapper
+      .findAll('.tasks-views-nav .nav-item')[0]
+      .trigger('drop', { dataTransfer: selectionTransfer(['t1', 't2']) })
+
+    expect(moveItems).toHaveBeenCalledWith(['t1', 't2'], null)
+  })
+
+  it('makes every selected task due today and ends the selection', async () => {
+    const items = useTaskItemsStore()
+    items.selectedIds = ['t1', 't2']
+    const setDueDate = vi.spyOn(items, 'setDueDate').mockResolvedValue(null)
+    const wrapper = mountSidebar()
+
+    await wrapper
+      .findAll('.tasks-views-nav .nav-item')[1]
+      .trigger('drop', { dataTransfer: selectionTransfer(['t1', 't2']) })
+
+    expect(setDueDate.mock.calls).toEqual([
+      ['t1', localToday()],
+      ['t2', localToday()],
+    ])
+    expect(items.selectedIds).toEqual([])
+  })
+
+  it('adds the label to each selected task that lacks it', async () => {
+    const labels = useTaskLabelsStore()
+    labels.labels = [{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }]
+    labels.isLoaded = true
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 't1', content: 'One', labels: [] },
+      { id: 't2', content: 'Two', labels: ['home'] },
+      { id: 't3', content: 'Three', labels: ['calls'] },
+    ]
+    items.selectedIds = ['t1', 't2', 't3']
+    const setLabels = vi.spyOn(items, 'setLabels').mockResolvedValue({})
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper
+      .get('.label-item')
+      .trigger('drop', { dataTransfer: selectionTransfer(['t1', 't2', 't3']) })
+
+    expect(setLabels.mock.calls).toEqual([
+      ['t1', ['home']],
+      ['t3', ['calls', 'home']],
+    ])
+    expect(items.selectedIds).toEqual([])
+  })
+})

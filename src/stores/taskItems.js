@@ -22,6 +22,9 @@ const itemMutations = new WeakMap()
 export const useTaskItemsStore = defineStore('taskItems', {
   state: () => ({
     items: [],
+    // Multi-select (Shift-click in the list): ids of the selected tasks.
+    // Dragging any of them carries them all; switching lists clears it.
+    selectedIds: [],
     nextCursor: null,
     isLoadingMore: false,
     detailLoading: {},
@@ -91,6 +94,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // than stuck believing it already "loaded" nothing.
       const seq = ++this.loadSeq
       this.items = []
+      this.selectedIds = []
       this.nextCursor = null
       this.detailErrors = {}
       this.detailCursors = {}
@@ -384,6 +388,36 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // absence of a project rather than a project of its own.
     moveItem(id, projectId) {
       return this.patchItem(id, { projectId }, { projectId }, 'Failed to move the task.')
+    },
+
+    toggleSelected(id) {
+      this.selectedIds = this.selectedIds.includes(id)
+        ? this.selectedIds.filter((selected) => selected !== id)
+        : [...this.selectedIds, id]
+    },
+
+    clearSelection() {
+      this.selectedIds = []
+    },
+
+    // Moves several tasks (a multi-select drag) to a project (null: Inbox),
+    // one request each, then reloads the list once rather than per task.
+    async moveItems(ids, projectId) {
+      let moved = 0
+      for (const id of ids) {
+        try {
+          await this.request('PATCH', { body: { id, projectId } })
+          moved++
+        } catch (error) {
+          console.error('Failed to move task:', error)
+        }
+      }
+      this.clearSelection()
+      if (this.loadedProject) await this.loadItems(this.loadedProject, { force: true })
+      if (moved < ids.length) {
+        this.notify(`Moved ${moved} of ${ids.length} tasks. Please try the rest again.`, 'error')
+      }
+      return moved
     },
 
     // Drag-and-drop re-arranging: `ids` are the rows of one list (or, in

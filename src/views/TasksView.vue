@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
@@ -287,7 +287,11 @@ const TASK_DRAG_TYPE = 'application/x-cookie-task'
 // A divider carries a second type so the sidebar's Today, which sets a due
 // date, can refuse it before it lands.
 const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
+// A multi-select drag also carries every selected id, as JSON.
+const TASKS_DRAG_TYPE = 'application/x-cookie-tasks'
 const dragTaskId = ref(null)
+// More than one task in the air: only the sidebar takes the drop.
+const draggingMany = ref(false)
 const dropRowId = ref(null)
 const dropPlace = ref('after')
 const draggedItem = computed(() =>
@@ -295,7 +299,7 @@ const draggedItem = computed(() =>
 )
 
 function canDropOn(item) {
-  if (taskLayout.value === 'board') return false
+  if (taskLayout.value === 'board' || draggingMany.value) return false
   if (!draggedItem.value || draggedItem.value.id === item.id) return false
   return !isToday.value || draggedItem.value.dueDate === item.dueDate
 }
@@ -312,6 +316,11 @@ function onTaskDragStart(item, event) {
   dragTaskId.value = item.id
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData(TASK_DRAG_TYPE, item.id)
+  // Dragging one of the selected tasks takes the whole selection along;
+  // an unselected one moves on its own as before.
+  const selected = items.selectedIds
+  draggingMany.value = selected.length > 1 && selected.includes(item.id)
+  if (draggingMany.value) event.dataTransfer.setData(TASKS_DRAG_TYPE, JSON.stringify(selected))
   if (isDivider(item)) event.dataTransfer.setData(DIVIDER_DRAG_TYPE, item.id)
   event.dataTransfer.setData('text/plain', item.id)
 }
@@ -348,7 +357,27 @@ function onTaskDragLeave(item) {
 function clearTaskDrag() {
   dragTaskId.value = null
   dropRowId.value = null
+  draggingMany.value = false
 }
+
+// Multi-select: Shift-click selects a task (and starts selecting); while
+// any are selected a plain click adds or removes one instead of opening it.
+function onTaskClick(item, event) {
+  if (event.shiftKey || items.selectedIds.length) {
+    items.toggleSelected(item.id)
+    return
+  }
+  open(item.id)
+}
+
+function onSelectionKeydown(event) {
+  if (event.key === 'Escape' && items.selectedIds.length) items.clearSelection()
+}
+onMounted(() => document.addEventListener('keydown', onSelectionKeydown))
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onSelectionKeydown)
+  items.clearSelection()
+})
 
 // A drop counts only on the row the last dragover accepted.
 function onTaskDrop(item) {
@@ -476,6 +505,14 @@ async function submitDraft() {
     <!-- The store clears items.items before a switch goes out, so this only
        ever shows while genuinely waiting on the newly-selected project —
        never the previous project's rows. -->
+    <div v-if="items.selectedIds.length" class="task-selection-bar" role="status">
+      <span
+        >{{ items.selectedIds.length }} selected · drag onto a project, Inbox, Today or a
+        label</span
+      >
+      <button type="button" class="btn btn-secondary" @click="items.clearSelection()">Clear</button>
+    </div>
+
     <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
     <div v-else :class="{ 'task-board': taskLayout === 'board' }">
       <section
@@ -500,7 +537,9 @@ async function submitDraft() {
               class="task-row"
               :class="{
                 'task-divider': isDivider(item),
-                dragging: dragTaskId === item.id,
+                dragging:
+                  dragTaskId === item.id || (draggingMany && items.selectedIds.includes(item.id)),
+                selected: items.selectedIds.includes(item.id),
                 'drop-before': dropRowId === item.id && dropPlace === 'before',
                 'drop-after': dropRowId === item.id && dropPlace === 'after',
               }"
@@ -571,7 +610,15 @@ async function submitDraft() {
                   :aria-label="`Complete ${item.content}`"
                   @click="items.setCompleted(item.id, true)"
                 ></button>
-                <button class="task-open" type="button" @click="open(item.id)">
+                <button
+                  class="task-open"
+                  type="button"
+                  :aria-pressed="
+                    items.selectedIds.length ? items.selectedIds.includes(item.id) : undefined
+                  "
+                  @mousedown="$event.shiftKey && $event.preventDefault()"
+                  @click="onTaskClick(item, $event)"
+                >
                   <span class="task-content">{{ item.content }}</span>
                   <span v-if="item.description" class="task-description">{{
                     item.description
@@ -835,6 +882,27 @@ async function submitDraft() {
 
 .task-row.dragging {
   opacity: 0.5;
+}
+
+.task-row.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.task-selection-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-size: 13px;
 }
 
 /* A divider: the grip, then a rule where a task's circle and title would be,

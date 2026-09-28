@@ -2599,6 +2599,41 @@ test('Tasks: rows drag to re-arrange, and onto Today or a project', async ({ pag
   await expect(page.locator('.task-content')).toHaveText(['First'])
 })
 
+test('Tasks: Shift-click selects several tasks, which drag onto a project together', async ({
+  page,
+}) => {
+  await page.goto('/tasks?project=inbox')
+  for (const name of ['Alpha', 'Beta', 'Gamma']) {
+    await page.locator('.add-task-btn').click()
+    await page.locator('.add-task-row input').fill(name)
+    await page.locator('.add-task-row input').press('Enter')
+  }
+  await expect(page.locator('.task-content')).toHaveText(['Alpha', 'Beta', 'Gamma'])
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.locator('.new-project-btn').click()
+  await sidebar.locator('.new-project-row input').fill('Errands')
+  await sidebar.locator('.new-project-row input').press('Enter')
+  await sidebar.locator('.nav-item', { hasText: 'Inbox' }).click()
+  await expect(page.locator('.task-content')).toHaveText(['Alpha', 'Beta', 'Gamma'])
+
+  // Shift-click enters the mode without opening the task; in the mode a
+  // plain click adds to the selection.
+  await page.locator('.task-open', { hasText: 'Alpha' }).click({ modifiers: ['Shift'] })
+  await page.locator('.task-open', { hasText: 'Gamma' }).click()
+  await expect(page).not.toHaveURL(/task=/)
+  await expect(page.locator('.task-selection-bar')).toContainText('2 selected')
+  await expect(page.locator('.task-row.selected')).toHaveCount(2)
+
+  await page
+    .locator('.task-row', { hasText: 'Gamma' })
+    .locator('.task-grip')
+    .dragTo(sidebar.locator('.project-item', { hasText: 'Errands' }))
+  await expect(page.locator('.task-content')).toHaveText(['Beta'])
+  await expect(page.locator('.task-selection-bar')).toHaveCount(0)
+  await sidebar.locator('.project-item', { hasText: 'Errands' }).click()
+  await expect(page.locator('.task-content')).toHaveText(['Alpha', 'Gamma'])
+})
+
 test('Tasks: a divider is added from the line under a row and deleted from its middle', async ({
   page,
 }) => {
