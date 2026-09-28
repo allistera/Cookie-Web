@@ -848,6 +848,52 @@ describe('TraditionalInboxView filtered views', () => {
     vi.unstubAllGlobals()
   })
 
+  describe('New senders review', () => {
+    const held = (id, minutesAgo) => ({
+      ...makeEmail(id, Date.now() - minutesAgo * 60 * 1000),
+      screeningStatus: 'held',
+    })
+
+    async function reviewWith(emails, openId, remainingIds) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => ({ enabled: true, decisions: [] }) })),
+      )
+      store.screeningEmails = emails
+      store.isScreeningLoaded = true
+      await router.replace({ path: '/inbox', query: { filter: 'screening' } })
+      const wrapper = mountView()
+      await wrapper
+        .findAll('.ni-row')
+        .find((row) => row.text().includes(`Subject ${openId}`))
+        .trigger('click')
+      expect(store.openEmailId).toBe(openId)
+      // The decision reloads the list without the sender's held mail.
+      vi.spyOn(store, 'refreshSenderMail').mockImplementation(async () => {
+        store.openEmailId = null
+        store.screeningEmails = emails.filter((email) => remainingIds.includes(email.id))
+      })
+      wrapper.findComponent({ name: 'SenderControls' }).vm.$emit('changed')
+      await flushPromises()
+      return wrapper
+    }
+
+    it('opens the next email awaiting approval after a decision', async () => {
+      await reviewWith([held('a', 1), held('b', 2), held('c', 3)], 'a', ['b', 'c'])
+      expect(store.openEmailId).toBe('b')
+    })
+
+    it('opens the new last email when the decided one was last', async () => {
+      await reviewWith([held('a', 1), held('b', 2), held('c', 3)], 'c', ['a', 'b'])
+      expect(store.openEmailId).toBe('b')
+    })
+
+    it('leaves the reader closed when nothing else awaits approval', async () => {
+      await reviewWith([held('a', 1)], 'a', [])
+      expect(store.openEmailId).toBeNull()
+    })
+  })
+
   it('filter=starred shows only starred emails with a Starred header', async () => {
     await router.replace({ path: '/inbox', query: { filter: 'starred' } })
     const wrapper = mountView()

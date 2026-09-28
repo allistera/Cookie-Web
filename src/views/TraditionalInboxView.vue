@@ -953,6 +953,19 @@ function removeOpenEmail(remove) {
   }
 }
 
+// Accept or Block in New senders clears that sender's held mail from the
+// list; like Done, the reader then moves on to the next email still waiting
+// for approval (the one that took its place, else the new last one).
+async function onSenderDecision() {
+  const reviewing = activeFilter.value === 'screening'
+  const index = openIndex.value
+  await store.refreshSenderMail()
+  if (!reviewing || activeFilter.value !== 'screening') return
+  const remaining = flatEmails.value
+  const next = remaining[Math.max(index, 0)] ?? remaining[remaining.length - 1]
+  if (next) openReader(next)
+}
+
 function archiveOpenEmail() {
   removeOpenEmail(removeEmail)
 }
@@ -2077,7 +2090,7 @@ onUnmounted(() => {
           v-if="!openEmail.isSent"
           :key="openEmail.id"
           :email="openEmail"
-          @changed="store.refreshSenderMail()"
+          @changed="onSenderDecision"
         />
 
         <div class="ni-reader-labels" v-if="openEmail.labels?.length">
