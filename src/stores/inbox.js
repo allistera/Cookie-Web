@@ -24,6 +24,7 @@ import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
 import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
+import { stripReplyQuote } from '../lib/forwardEmail'
 
 // Inbox tab ids. Important and Other are fixed; other categories get their own.
 // Category ids are stable across renames and cannot collide with fixed tabs.
@@ -4131,8 +4132,11 @@ export const useInboxStore = defineStore('inbox', {
       this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
       this.composerTo = canceled.toAddresses
       this.composerSubject = canceled.subject
-      this.composerTextArea = canceled.text
-      this.composerHtml = canceled.html || plainTextToHtml(canceled.text)
+      // A scheduled reply went in with the original quoted below it; sending
+      // it again quotes afresh, so the composer gets the reply alone.
+      const html = stripReplyQuote(canceled.html)
+      this.composerTextArea = html === (canceled.html ?? '') ? canceled.text : htmlToText(html)
+      this.composerHtml = html || plainTextToHtml(canceled.text)
       this.composerReplyToMessageId = canceled.replyToMessageId
       this.composerFollowUpAt = canceled.followUpAt
       this.composerAttachments = canceled.attachments ?? []

@@ -2535,7 +2535,9 @@ describe('Inbox Store', () => {
       store.sendEmail()
       await vi.advanceTimersByTimeAsync(5000)
 
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body).replyToMessageId).toBe(
+      // The reply first loads the original to quote it, then sends.
+      const [, sendOptions] = fetchMock.mock.calls.find(([url]) => url === '/api/send')
+      expect(JSON.parse(sendOptions.body).replyToMessageId).toBe(
         '11111111-1111-1111-1111-111111111111',
       )
     })
@@ -2870,6 +2872,30 @@ describe('Inbox Store', () => {
         expect.objectContaining({ id: 'att-1', filename: 'plan.pdf' }),
       ])
       expect(store.isComposerActive).toBe(true)
+    })
+
+    it('reopens a cancelled scheduled reply without the quote it went out with', async () => {
+      const canceled = {
+        id: 'sched-1',
+        toAddresses: 'someone@example.com',
+        subject: 'Re: Hello',
+        text: 'Sounds good.\n\nOn 1 Sept 2026, Alex wrote:\n> Hello',
+        html: '<p>Sounds good.</p><div class="cookie-reply-quote"><p>On 1 Sept 2026, Alex wrote:</p><blockquote>Hello</blockquote></div>',
+        replyToMessageId: '11111111-1111-1111-1111-111111111111',
+        followUpAt: null,
+        attachments: [],
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ scheduledSend: canceled }) }),
+      )
+      const store = useInboxStore()
+
+      await store.cancelScheduledSend({ id: 'sched-1' })
+
+      expect(store.composerHtml).toBe('<p>Sounds good.</p>')
+      expect(store.composerTextArea).toBe('Sounds good.')
+      expect(store.composerReplyToMessageId).toBe('11111111-1111-1111-1111-111111111111')
     })
 
     it('throws if the scheduled send can no longer be canceled', async () => {
