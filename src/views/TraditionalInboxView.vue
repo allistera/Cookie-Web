@@ -521,7 +521,8 @@ function deleteSelected() {
 // address is enough: it covers that sender's other held mail and the same
 // contact's other addresses (reported back as related), so those are skipped.
 const senders = useSendersStore()
-const decidingSenders = ref(false)
+// The action in flight ('accept' or 'block'), or null.
+const decidingSenders = ref(null)
 
 async function decideSelectedSenders(action) {
   if (decidingSenders.value) return
@@ -530,7 +531,7 @@ async function decideSelectedSenders(action) {
     const address = normalizeSender(email.address)
     if (address && !firstEmailByAddress.has(address)) firstEmailByAddress.set(address, email.id)
   }
-  decidingSenders.value = true
+  decidingSenders.value = action
   const covered = new Set()
   let decided = 0
   let failed = 0
@@ -546,7 +547,7 @@ async function decideSelectedSenders(action) {
     clearSelection()
     await store.refreshSenderMail()
   } finally {
-    decidingSenders.value = false
+    decidingSenders.value = null
   }
   const verb = action === 'block' ? 'Blocked' : 'Accepted'
   const noun = (count) => `${count} ${count === 1 ? 'sender' : 'senders'}`
@@ -1764,19 +1765,31 @@ onUnmounted(() => {
         <template v-if="activeFilter === 'screening'">
           <button
             class="ni-bulk-pill"
-            :disabled="decidingSenders"
+            :disabled="Boolean(decidingSenders)"
+            :aria-busy="decidingSenders === 'accept'"
             @click="decideSelectedSenders('accept')"
           >
-            <span class="material-symbols-outlined">how_to_reg</span>
-            <span>Accept</span>
+            <span
+              v-if="decidingSenders === 'accept'"
+              class="ni-bulk-spinner"
+              aria-hidden="true"
+            ></span>
+            <span v-else class="material-symbols-outlined">how_to_reg</span>
+            <span>{{ decidingSenders === 'accept' ? 'Accepting…' : 'Accept' }}</span>
           </button>
           <button
             class="ni-bulk-pill ni-bulk-pill--danger"
-            :disabled="decidingSenders"
+            :disabled="Boolean(decidingSenders)"
+            :aria-busy="decidingSenders === 'block'"
             @click="decideSelectedSenders('block')"
           >
-            <span class="material-symbols-outlined">block</span>
-            <span>Block</span>
+            <span
+              v-if="decidingSenders === 'block'"
+              class="ni-bulk-spinner"
+              aria-hidden="true"
+            ></span>
+            <span v-else class="material-symbols-outlined">block</span>
+            <span>{{ decidingSenders === 'block' ? 'Blocking…' : 'Block' }}</span>
           </button>
         </template>
         <button class="ni-bulk-pill" @click="starSelected">

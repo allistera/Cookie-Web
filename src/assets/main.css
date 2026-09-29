@@ -1314,6 +1314,26 @@ body {
   background: color-mix(in srgb, var(--danger, #e5484d) 8%, transparent);
 }
 
+.ni-bulk-pill:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ni-bulk-pill:disabled:hover {
+  background: transparent;
+}
+
+/* Bulk Accept/Block in New senders: the clicked pill swaps its icon for
+   this while every selected sender is decided. */
+.ni-bulk-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
 .ni-label-dot {
   width: 10px;
   height: 10px;

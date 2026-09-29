@@ -966,6 +966,35 @@ describe('TraditionalInboxView filtered views', () => {
       )
     })
 
+    it('shows a spinner and disables Accept and Block until every sender is decided', async () => {
+      const senders = useSendersStore()
+      let finish
+      vi.spyOn(senders, 'update').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            senders.lastRelated = []
+            finish = resolve
+          }),
+      )
+      const wrapper = await selectInReview([held('a', 1), held('b', 2)], ['a', 'b'])
+
+      await pill(wrapper, 'Accept').trigger('click')
+
+      const accept = pill(wrapper, 'Accepting')
+      expect(accept.find('.ni-bulk-spinner').exists()).toBe(true)
+      expect(accept.attributes('aria-busy')).toBe('true')
+      expect(accept.attributes('disabled')).toBeDefined()
+      expect(pill(wrapper, 'Block').attributes('disabled')).toBeDefined()
+
+      finish(true)
+      await flushPromises()
+      finish(true)
+      await flushPromises()
+
+      expect(senders.update).toHaveBeenCalledTimes(2)
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    })
+
     it('offers Accept and Block only in New senders', async () => {
       const wrapper = mountView()
       await wrapper.findAll('.ni-row .ni-checkbox')[0].trigger('click')
