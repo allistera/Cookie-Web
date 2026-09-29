@@ -1565,25 +1565,53 @@ body {
   flex-shrink: 0;
 }
 
+/* Row selection: a circle drawn in CSS so it fits the 14px lead column
+   exactly (an icon-font box was wider and lost its right edge). Checked,
+   it fills with the accent and shows a tick. */
 .ni-checkbox {
   display: none;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--text-secondary);
+  position: relative;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast);
 }
 
 .ni-row:hover .ni-checkbox {
   display: inline-block;
 }
 
-.ni-checkbox {
-  cursor: pointer;
+.ni-checkbox:hover {
+  border-color: var(--ni-accent);
 }
 
-/* A checked box stays visible without hover and takes the dot's place. */
+.ni-checkbox:focus-visible {
+  outline: 2px solid var(--ni-accent);
+  outline-offset: 2px;
+}
+
+/* A checked circle stays visible without hover and takes the dot's place. */
 .ni-checkbox.checked {
   display: inline-block;
-  color: var(--ni-accent);
+  border-color: var(--ni-accent);
+  background: var(--ni-accent);
+}
+
+.ni-checkbox.checked::after {
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 1px;
+  width: 3px;
+  height: 6.5px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
 }
 
 .ni-row.checked {

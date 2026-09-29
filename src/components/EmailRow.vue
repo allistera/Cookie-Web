@@ -45,7 +45,7 @@ function followUpTitle(followUpAt) {
   >
     <div class="ni-lead">
       <span
-        class="material-symbols-outlined ni-checkbox"
+        class="ni-checkbox"
         :class="{ checked }"
         role="checkbox"
         tabindex="0"
@@ -54,8 +54,7 @@ function followUpTitle(followUpAt) {
         @click.stop="$emit('toggle-select', email)"
         @keydown.enter.stop.prevent="$emit('toggle-select', email)"
         @keydown.space.stop.prevent="$emit('toggle-select', email)"
-        >{{ checked ? 'check_box' : 'check_box_outline_blank' }}</span
-      >
+      ></span>
       <span class="ni-dot" v-if="email.unread"></span>
     </div>
     <div class="ni-sender">{{ sender }}</div>

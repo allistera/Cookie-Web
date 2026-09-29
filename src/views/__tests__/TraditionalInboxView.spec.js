@@ -1910,7 +1910,7 @@ describe('TraditionalInboxView multi-select', () => {
     await checkbox(wrapper, 0).trigger('click')
 
     expect(checkbox(wrapper, 0).attributes('aria-checked')).toBe('true')
-    expect(checkbox(wrapper, 0).text()).toContain('check_box')
+    expect(checkbox(wrapper, 0).classes()).toContain('checked')
     expect(store.openEmailId).toBe(null)
     expect(wrapper.find('.ni-bulk-bar').text()).toContain('1 selected')
   })
