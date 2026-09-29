@@ -1760,11 +1760,25 @@ onUnmounted(() => {
 
     <!-- Bulk action bar: floats over the list while any row is checked -->
     <Transition name="ni-bulk">
-      <div class="ni-bulk-bar" v-if="selectedEmails.length">
+      <div
+        class="ni-bulk-bar"
+        v-if="selectedEmails.length"
+        role="toolbar"
+        aria-label="Selected emails"
+      >
+        <button
+          class="ni-bulk-icon"
+          title="Clear selection (Esc)"
+          aria-label="Clear selection"
+          @click="clearSelection"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
         <span class="ni-bulk-count">{{ selectedEmails.length }} selected</span>
+        <span class="ni-bulk-divider" aria-hidden="true"></span>
         <template v-if="activeFilter === 'screening'">
           <button
-            class="ni-bulk-pill"
+            class="ni-bulk-pill ni-bulk-pill--primary"
             :disabled="Boolean(decidingSenders)"
             :aria-busy="decidingSenders === 'accept'"
             @click="decideSelectedSenders('accept')"
@@ -1774,7 +1788,7 @@ onUnmounted(() => {
               class="ni-bulk-spinner"
               aria-hidden="true"
             ></span>
-            <span v-else class="material-symbols-outlined">how_to_reg</span>
+            <span v-else class="material-symbols-outlined" aria-hidden="true">how_to_reg</span>
             <span>{{ decidingSenders === 'accept' ? 'Accepting…' : 'Accept' }}</span>
           </button>
           <button
@@ -1788,17 +1802,21 @@ onUnmounted(() => {
               class="ni-bulk-spinner"
               aria-hidden="true"
             ></span>
-            <span v-else class="material-symbols-outlined">block</span>
+            <span v-else class="material-symbols-outlined" aria-hidden="true">block</span>
             <span>{{ decidingSenders === 'block' ? 'Blocking…' : 'Block' }}</span>
           </button>
         </template>
-        <button class="ni-bulk-pill" @click="starSelected">
-          <span class="material-symbols-outlined">star</span>
-          <span>Star</span>
-        </button>
-        <button v-if="activeFilter !== 'done'" class="ni-bulk-pill" @click="markSelectedDone">
-          <span class="material-symbols-outlined">check_box</span>
+        <button
+          v-if="activeFilter !== 'done'"
+          class="ni-bulk-pill"
+          :class="{ 'ni-bulk-pill--primary': activeFilter !== 'screening' }"
+          title="Done (E)"
+          aria-keyshortcuts="E"
+          @click="markSelectedDone"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">check</span>
           <span>Done</span>
+          <kbd v-if="activeFilter !== 'screening'" class="ni-bulk-kbd" aria-hidden="true">E</kbd>
         </button>
         <div v-if="activeFilter !== 'done'" class="ni-schedule-wrap ni-schedule-wrap-bulk">
           <button
@@ -1807,7 +1825,7 @@ onUnmounted(() => {
             :aria-expanded="bulkScheduleOpen"
             @click="bulkScheduleOpen = !bulkScheduleOpen"
           >
-            <span class="material-symbols-outlined">schedule</span>
+            <span class="material-symbols-outlined" aria-hidden="true">schedule</span>
             <span>Reschedule</span>
           </button>
           <ScheduleMenu
@@ -1816,18 +1834,25 @@ onUnmounted(() => {
             @select="scheduleSelected"
           />
         </div>
-        <button class="ni-bulk-pill" @click="markSelectedRead">
-          <span class="material-symbols-outlined">mark_email_read</span>
+        <button
+          class="ni-bulk-pill"
+          title="Mark read (Shift+I)"
+          aria-keyshortcuts="Shift+I"
+          @click="markSelectedRead"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">mark_email_read</span>
           <span>Mark Read</span>
         </button>
         <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
           <button
             class="ni-bulk-pill"
+            title="Label (L)"
             aria-haspopup="menu"
+            aria-keyshortcuts="L"
             :aria-expanded="bulkLabelOpen"
             @click="toggleBulkLabelMenu"
           >
-            <span class="material-symbols-outlined">sell</span>
+            <span class="material-symbols-outlined" aria-hidden="true">sell</span>
             <span>Label</span>
           </button>
           <div v-if="bulkLabelOpen" class="ni-schedule-menu" role="menu">
@@ -1850,7 +1875,7 @@ onUnmounted(() => {
             :aria-expanded="bulkCategoryOpen"
             @click="toggleBulkCategoryMenu"
           >
-            <span class="material-symbols-outlined">folder</span>
+            <span class="material-symbols-outlined" aria-hidden="true">folder</span>
             <span>Category</span>
           </button>
           <div v-if="bulkCategoryOpen" class="ni-schedule-menu" role="menu">
@@ -1872,9 +1897,19 @@ onUnmounted(() => {
             </span>
           </div>
         </div>
-        <button class="ni-bulk-pill ni-bulk-pill--danger" @click="deleteSelected">
-          <span class="material-symbols-outlined">delete</span>
-          <span>Delete</span>
+        <span class="ni-bulk-divider" aria-hidden="true"></span>
+        <button class="ni-bulk-pill ni-bulk-pill--icon" title="Star" @click="starSelected">
+          <span class="material-symbols-outlined" aria-hidden="true">star</span>
+          <span class="visually-hidden">Star</span>
+        </button>
+        <button
+          class="ni-bulk-pill ni-bulk-pill--icon"
+          title="Delete (#)"
+          aria-keyshortcuts="#"
+          @click="deleteSelected"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+          <span class="visually-hidden">Delete</span>
         </button>
       </div>
     </Transition>
