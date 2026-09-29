@@ -19,6 +19,7 @@ import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
 import SenderControls from '../components/SenderControls.vue'
+import { normalizeSender, useSendersStore } from '../stores/senders'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
@@ -514,6 +515,47 @@ function deleteSelected() {
     label: 'Undo',
     run: () => Promise.all(undoActions.toReversed().map((undo) => undo())),
   })
+}
+
+// Accept or Block every sender selected in New senders. One decision per
+// address is enough: it covers that sender's other held mail and the same
+// contact's other addresses (reported back as related), so those are skipped.
+const senders = useSendersStore()
+const decidingSenders = ref(false)
+
+async function decideSelectedSenders(action) {
+  if (decidingSenders.value) return
+  const firstEmailByAddress = new Map()
+  for (const email of selectedEmails.value) {
+    const address = normalizeSender(email.address)
+    if (address && !firstEmailByAddress.has(address)) firstEmailByAddress.set(address, email.id)
+  }
+  decidingSenders.value = true
+  const covered = new Set()
+  let decided = 0
+  let failed = 0
+  try {
+    for (const [address, messageId] of firstEmailByAddress) {
+      if (covered.has(address)) continue
+      if (await senders.update({ action, address, messageId })) {
+        decided++
+        covered.add(address)
+        for (const related of senders.lastRelated) covered.add(related)
+      } else failed++
+    }
+    clearSelection()
+    await store.refreshSenderMail()
+  } finally {
+    decidingSenders.value = false
+  }
+  const verb = action === 'block' ? 'Blocked' : 'Accepted'
+  const noun = (count) => `${count} ${count === 1 ? 'sender' : 'senders'}`
+  if (!failed) store.notify(`${verb} ${noun(decided)}.`)
+  else
+    store.notify(
+      `${verb} ${noun(decided)}; ${noun(failed)} could not be changed. ${senders.error}`.trim(),
+      'error',
+    )
 }
 
 // Applies a label to every selected email. Unlike toggleTag (which toggles),
@@ -1719,6 +1761,24 @@ onUnmounted(() => {
     <Transition name="ni-bulk">
       <div class="ni-bulk-bar" v-if="selectedEmails.length">
         <span class="ni-bulk-count">{{ selectedEmails.length }} selected</span>
+        <template v-if="activeFilter === 'screening'">
+          <button
+            class="ni-bulk-pill"
+            :disabled="decidingSenders"
+            @click="decideSelectedSenders('accept')"
+          >
+            <span class="material-symbols-outlined">how_to_reg</span>
+            <span>Accept</span>
+          </button>
+          <button
+            class="ni-bulk-pill ni-bulk-pill--danger"
+            :disabled="decidingSenders"
+            @click="decideSelectedSenders('block')"
+          >
+            <span class="material-symbols-outlined">block</span>
+            <span>Block</span>
+          </button>
+        </template>
         <button class="ni-bulk-pill" @click="starSelected">
           <span class="material-symbols-outlined">star</span>
           <span>Star</span>

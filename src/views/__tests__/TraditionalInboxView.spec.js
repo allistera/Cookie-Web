@@ -8,6 +8,7 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { useSendersStore } from '../../stores/senders'
 import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
 import { scheduleChoices } from '../../utils/schedule'
 import { setAuth0Client } from '../../auth0-client'
@@ -891,6 +892,86 @@ describe('TraditionalInboxView filtered views', () => {
     it('leaves the reader closed when nothing else awaits approval', async () => {
       await reviewWith([held('a', 1)], 'a', [])
       expect(store.openEmailId).toBeNull()
+    })
+
+    async function selectInReview(emails, ids) {
+      store.screeningEmails = emails
+      store.isScreeningLoaded = true
+      await router.replace({ path: '/inbox', query: { filter: 'screening' } })
+      const wrapper = mountView()
+      const rows = wrapper.findAll('.ni-row')
+      for (const id of ids) {
+        await rows
+          .find((row) => row.text().includes(`Subject ${id}`))
+          .find('.ni-checkbox')
+          .trigger('click')
+      }
+      vi.spyOn(store, 'refreshSenderMail').mockResolvedValue()
+      vi.spyOn(store, 'notify').mockImplementation(() => {})
+      return wrapper
+    }
+
+    const pill = (wrapper, name) =>
+      wrapper.findAll('.ni-bulk-pill').find((button) => button.text().includes(name))
+
+    it('accepts every selected sender once, skipping the same contact covered by another', async () => {
+      const senders = useSendersStore()
+      const decided = []
+      vi.spyOn(senders, 'update').mockImplementation(async (body) => {
+        decided.push(body)
+        // Deciding a covers b's address too: the same contact.
+        senders.lastRelated =
+          body.address === 'sender-a@example.com' ? ['sender-b@example.com'] : []
+        return true
+      })
+      const second = { ...held('a2', 4), address: 'Sender-A@example.com' }
+      const wrapper = await selectInReview(
+        [held('a', 1), held('b', 2), held('c', 3), second],
+        ['a', 'b', 'c', 'a2'],
+      )
+
+      await pill(wrapper, 'Accept').trigger('click')
+      await flushPromises()
+
+      expect(decided).toEqual([
+        { action: 'accept', address: 'sender-a@example.com', messageId: 'a' },
+        { action: 'accept', address: 'sender-c@example.com', messageId: 'c' },
+      ])
+      expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
+      expect(store.notify).toHaveBeenCalledWith('Accepted 2 senders.')
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    })
+
+    it('blocks the selection and reports any sender that could not be changed', async () => {
+      const senders = useSendersStore()
+      vi.spyOn(senders, 'update').mockImplementation(async (body) => {
+        senders.lastRelated = []
+        if (body.address === 'sender-b@example.com') {
+          senders.error = 'Could not change this sender.'
+          return false
+        }
+        return true
+      })
+      const wrapper = await selectInReview([held('a', 1), held('b', 2)], ['a', 'b'])
+
+      await pill(wrapper, 'Block').trigger('click')
+      await flushPromises()
+
+      expect(senders.update).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'block', address: 'sender-a@example.com' }),
+      )
+      expect(store.notify).toHaveBeenCalledWith(
+        'Blocked 1 sender; 1 sender could not be changed. Could not change this sender.',
+        'error',
+      )
+    })
+
+    it('offers Accept and Block only in New senders', async () => {
+      const wrapper = mountView()
+      await wrapper.findAll('.ni-row .ni-checkbox')[0].trigger('click')
+
+      expect(pill(wrapper, 'Accept')).toBeUndefined()
+      expect(pill(wrapper, 'Block')).toBeUndefined()
     })
   })
 
