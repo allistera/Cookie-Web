@@ -33,7 +33,7 @@ Cloudflare Email Routing
 Vue 3 browser application
   -> Auth0-protected Cloudflare Workers (and `/api/send`, still on Vercel)
        -> Supabase Postgres
-       -> Meilisearch Cloud
+       -> Meilisearch (self-hosted)
        -> OpenAI Responses API
        -> Resend
 ```
@@ -105,7 +105,7 @@ See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.m
 | Authentication  | Auth0                                             |
 | Database        | Supabase Postgres                                 |
 | Realtime        | Supabase Realtime broadcast                       |
-| Search          | Meilisearch Cloud (hybrid)                        |
+| Search          | Meilisearch, self-hosted (hybrid)                 |
 | AI              | OpenAI Responses API                              |
 | Outbound email  | Resend                                            |
 
