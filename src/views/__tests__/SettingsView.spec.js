@@ -458,7 +458,7 @@ describe('SettingsView', () => {
     await flushPromises()
     expect(wrapper.get('.settings-page-header').text()).toBe('Senders and screening')
     expect(wrapper.get('.sender-settings').text()).toContain(
-      'Only addresses you explicitly Accept are known senders',
+      'Only senders you explicitly Accept are known',
     )
     expect(wrapper.get('.sender-settings input[type="checkbox"]').element.checked).toBe(false)
   })
