@@ -29,9 +29,9 @@ const props = defineProps({
   // True once the owned-message body request has resolved and header-derived
   // unsubscribe metadata is therefore known (including a confirmed null).
   bodyResolved: { type: Boolean, default: false },
-  // Load remote images from the start instead of behind "Show images". The
-  // reader sets this for Important mail, which the owner trusts enough to
-  // read with its images in place.
+  // Load remote images instead of behind "Show images". The reader sets this
+  // for Important mail and mail from accepted senders, which the owner trusts
+  // enough to read with its images in place.
   showImages: { type: Boolean, default: false },
 })
 
@@ -89,9 +89,15 @@ const hasHtml = computed(() => safeHtml.value.trim().length > 0)
 // sender's tracking pixel can't silently fire just by opening the message.
 // The reader is remounted per message (v-key on openEmail.id), so this
 // naturally resets to blocked for every new email rather than needing a watch.
-// Important mail opts out via showImages; the flag is read once at mount for
-// the same reason.
+// Trusted mail opts out via showImages. It can only widen: the sender
+// decision may resolve after mount, but images are never re-blocked mid-read.
 const imagesAllowed = ref(props.showImages)
+watch(
+  () => props.showImages,
+  (show) => {
+    if (show) imagesAllowed.value = true
+  },
+)
 const remoteImagesBlocked = computed(
   () => !imagesAllowed.value && hasBlockedRemoteImages(safeHtml.value),
 )

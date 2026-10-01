@@ -2524,6 +2524,33 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(wrapper.findComponent(EmailBody).props('showImages')).toBe(true)
   })
 
+  it('shows remote images by default for mail from an accepted sender', async () => {
+    store.traditionalEmails = [
+      { ...makeEmail('known-1', Date.now() - HOUR), hasHtml: true },
+      {
+        ...makeEmail('held-1', Date.now() - 2 * HOUR),
+        hasHtml: true,
+        screeningStatus: 'held',
+      },
+    ]
+    const senders = useSendersStore()
+    const wrapper = mountView()
+
+    store.openReader(store.traditionalEmails[0])
+    await nextTick()
+    expect(wrapper.findComponent(EmailBody).props('showImages')).toBe(false)
+    // The reader's sender lookup resolves to an accepted (domain) decision.
+    senders.known['sender-known-1@example.com'] = 'accepted'
+    await nextTick()
+    expect(wrapper.findComponent(EmailBody).props('showImages')).toBe(true)
+
+    // Held mail stays blocked even if its sender reads as accepted.
+    senders.known['sender-held-1@example.com'] = 'accepted'
+    store.openReader(store.traditionalEmails[1])
+    await nextTick()
+    expect(wrapper.findComponent(EmailBody).props('showImages')).toBe(false)
+  })
+
   it('the reader offers Forward beside Reply', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')

@@ -113,6 +113,23 @@ describe('EmailBody', () => {
     expect(csp).toContain('img-src data: cid: https: http:')
   })
 
+  it('loads remote images once showImages turns on after mount, and never re-blocks them', async () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: '<img src="https://tracker.example/logo.png">', showImages: false },
+    })
+    const csp = () =>
+      wrapper
+        .find('iframe')
+        .attributes('srcdoc')
+        .match(/Content-Security-Policy" content="([^"]+)/)?.[1]
+    expect(csp()).not.toContain('https:')
+    await wrapper.setProps({ showImages: true })
+    expect(wrapper.find('.ni-email-images-notice').exists()).toBe(false)
+    expect(csp()).toContain('img-src data: cid: https: http:')
+    await wrapper.setProps({ showImages: false })
+    expect(csp()).toContain('img-src data: cid: https: http:')
+  })
+
   it('forwards key presses from the iframe document to the reader', async () => {
     const wrapper = mount(EmailBody, {
       props: { html: '<p><a href="https://example.com">link</a></p>', text: 'fallback' },

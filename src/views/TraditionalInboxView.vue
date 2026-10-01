@@ -128,6 +128,14 @@ function isImportantEmail(email) {
   )
 }
 
+// Mail from a sender you accepted (that address, or its domain) is trusted
+// like Important mail and opens with its remote images. The decision comes
+// from the reader's Sender controls lookup, so it can arrive just after the
+// body renders; EmailBody widens to images when it does.
+function senderAccepted(email) {
+  return senders.known[normalizeSender(email.address)] === 'accepted'
+}
+
 // Important is exclusive: whatever Important holds appears in no other tab,
 // so an email is never listed twice. A category tab therefore only shows the
 // rest of its category, and never a Due Today group.
@@ -2318,7 +2326,7 @@ onUnmounted(() => {
                 :body-resolved="store.isOpenBodyResolved"
                 :show-images="
                   !['held', 'blocked'].includes(openEmail.screeningStatus) &&
-                  isImportantEmail(openEmail)
+                  (isImportantEmail(openEmail) || senderAccepted(openEmail))
                 "
                 @keydown="forwardEmailKeydown"
                 @unsubscribe-link="setContentUnsubscribe"
