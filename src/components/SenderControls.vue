@@ -22,14 +22,14 @@ watch([address, () => store.ownerSub], reloadDecision, { immediate: true })
 async function act(action) {
   const id = props.email.id
   if (!(await store.update({ action, address: address.value, messageId: id }))) return
-  // Accept/Block also cover the same contact's other addresses waiting in
-  // New senders; say so, as those emails leave the list too.
+  // A domain decision also moves other senders' held mail on that domain;
+  // say so, as those emails leave the list too.
   const related = store.lastRelated
   if (related.length) {
     const verb = action === 'block' ? 'blocked' : 'accepted'
     const shown = related.slice(0, 2).join(', ')
     const more = related.length > 2 ? ` and ${related.length - 2} more` : ''
-    inbox.notify(`Also ${verb} ${shown}${more} from the same sender.`)
+    inbox.notify(`Also ${verb} ${shown}${more} on the same domain.`)
   }
   emit('changed')
 }
@@ -54,12 +54,14 @@ async function act(action) {
       preserved when it is released.
     </p>
     <p v-else>
-      Block this exact address to move this message to Blocked and hold future arrivals. Older
-      ordinary mail stays where it is.
+      Block this sender's domain to move this message to Blocked and hold future arrivals from it.
+      Public email providers (gmail.com and similar) block only this exact address. Older ordinary
+      mail stays where it is.
     </p>
     <p>
-      Accepted addresses bypass new-sender screening; independent spam protection still applies.
-      Original forwarding is unchanged.
+      Accepted senders bypass new-sender screening for their whole domain (or just this address on a
+      public email provider); independent spam protection still applies. Original forwarding is
+      unchanged.
     </p>
     <div class="sender-actions">
       <button

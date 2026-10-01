@@ -19,8 +19,8 @@ export const useSendersStore = defineStore('senders', {
     loading: false,
     saving: false,
     error: '',
-    // Other addresses of the same contact that the last Accept/Block also
-    // covered (cookie-web-emails applies it to their held mail too).
+    // Other sender addresses whose held mail the last decision also moved
+    // (a domain decision covers every address on that domain).
     lastRelated: [],
   }),
   actions: {
@@ -111,10 +111,29 @@ export const useSendersStore = defineStore('senders', {
         }
         if (body.action === 'settings') this.enabled = data.enabled === true
         this.lastRelated = Array.isArray(data.related) ? data.related : []
-        for (const address of data.address ? [data.address, ...this.lastRelated] : []) {
-          this.known[address] = data.decision
-          this.decisions = this.decisions.filter((entry) => entry.address !== address)
-          if (data.decision) this.decisions.push({ address, decision: data.decision })
+        if (data.address) {
+          // data.address is the decision's key: '@domain' for most senders,
+          // the exact address for public email providers. A domain change can
+          // alter what applies to many senders, so cached lookups are dropped
+          // except the sender this request named.
+          const sender = normalizeSender(body.address)
+          // An API from before domain decisions has no `effective`; its key is
+          // the exact sender, so `decision` is what applies.
+          const effective = 'effective' in data ? data.effective : data.decision
+          this.known =
+            sender.includes('@') && !sender.startsWith('@') ? { [sender]: effective ?? null } : {}
+          // The server also replaced the sender's own older exact decision
+          // (Accept/Block) or removed it when it matched (Unblock/Remove).
+          const removed = { unblock: 'blocked', forget: 'accepted' }[body.action]
+          this.decisions = this.decisions.filter(
+            (entry) =>
+              entry.address !== data.address &&
+              !(
+                entry.address === sender &&
+                (['accept', 'block'].includes(body.action) || entry.decision === removed)
+              ),
+          )
+          if (data.decision) this.decisions.push({ address: data.address, decision: data.decision })
         }
         this.decisions.sort((a, b) => a.address.localeCompare(b.address))
         // Invalidate pre-save reads without changing the account identity.

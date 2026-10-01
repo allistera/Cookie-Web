@@ -77,7 +77,9 @@ describe('account-scoped sender state', () => {
               finish = resolve
             }),
         )
-        .mockResolvedValue(response({ address: 'a@example.com', decision: 'blocked' })),
+        .mockResolvedValue(
+          response({ address: '@example.com', decision: 'blocked', effective: 'blocked' }),
+        ),
     )
     const old = store.lookup('a@example.com')
     await vi.waitFor(() => expect(finish).toBeDefined())
@@ -86,29 +88,40 @@ describe('account-scoped sender state', () => {
     await old
     expect(store.known['a@example.com']).toBe('blocked')
   })
-  it("records the same contact's other addresses that an accept also covered", async () => {
+  it('records a domain decision once and the other senders it covered', async () => {
+    store.decisions = [{ address: 'offers@smarty.co.uk', decision: 'blocked' }]
+    store.known = { 'help@smarty.co.uk': 'blocked' }
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
         response({
-          address: 'offers@smarty.co.uk',
+          address: '@smarty.co.uk',
           decision: 'accepted',
+          effective: 'accepted',
           related: ['help@smarty.co.uk', 'news@email.smarty.co.uk'],
         }),
       ),
     )
     expect(await store.update({ action: 'accept', address: 'offers@smarty.co.uk' })).toBe(true)
     expect(store.lastRelated).toEqual(['help@smarty.co.uk', 'news@email.smarty.co.uk'])
-    expect(store.known).toMatchObject({
-      'offers@smarty.co.uk': 'accepted',
-      'help@smarty.co.uk': 'accepted',
-      'news@email.smarty.co.uk': 'accepted',
-    })
-    expect(store.decisions.map((entry) => entry.address)).toEqual([
-      'help@smarty.co.uk',
-      'news@email.smarty.co.uk',
-      'offers@smarty.co.uk',
-    ])
+    // Other cached lookups may no longer apply after a domain change.
+    expect(store.known).toEqual({ 'offers@smarty.co.uk': 'accepted' })
+    // The sender's older exact decision was replaced by the domain decision.
+    expect(store.decisions).toEqual([{ address: '@smarty.co.uk', decision: 'accepted' }])
+  })
+  it('keeps a domain decision the sender did not remove', async () => {
+    store.decisions = [{ address: '@badco.example', decision: 'blocked' }]
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          response({ address: 'vip@gmail.com', decision: null, effective: null, related: [] }),
+        ),
+    )
+    expect(await store.update({ action: 'forget', address: 'vip@gmail.com' })).toBe(true)
+    expect(store.decisions).toEqual([{ address: '@badco.example', decision: 'blocked' }])
+    expect(store.known).toEqual({ 'vip@gmail.com': null })
   })
   it('reports failed decisions without optimistic release or enabling screening', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: 'Message not found' }, 404)))

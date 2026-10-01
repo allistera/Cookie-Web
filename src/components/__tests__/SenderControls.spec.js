@@ -72,4 +72,23 @@ describe('reader sender controls', () => {
     expect(store.enabled).toBe(false)
     wrapper.unmount()
   })
+  it('lists domain decisions by domain and lets Settings save a bare domain', async () => {
+    const store = useSendersStore()
+    store.loaded = true
+    store.decisions = [
+      { address: '@shop.example', decision: 'accepted' },
+      { address: 'friend@gmail.com', decision: 'blocked' },
+    ]
+    const update = vi.spyOn(store, 'update').mockResolvedValue(true)
+    const wrapper = mount(SenderSettings, { global: { stubs: { RouterLink: true } } })
+    const rows = wrapper.findAll('li').map((row) => row.get('span').text())
+    expect(rows).toEqual([
+      'shop.example and its subdomains — accepted',
+      'friend@gmail.com — blocked',
+    ])
+    await wrapper.get('input[type="text"]').setValue('badco.example')
+    await wrapper.get('form').trigger('submit')
+    expect(update).toHaveBeenCalledWith({ action: 'accept', address: 'badco.example' })
+    wrapper.unmount()
+  })
 })

@@ -6,6 +6,9 @@ const store = useSendersStore()
 const inbox = useInboxStore()
 const address = ref('')
 const decision = ref('accept')
+// Domain decisions are stored as '@example.com'.
+const label = (entry) =>
+  entry.address.startsWith('@') ? `${entry.address.slice(1)} and its subdomains` : entry.address
 async function change(body) {
   if (await store.update(body)) {
     address.value = ''
@@ -27,9 +30,11 @@ watch(
   <section class="sender-settings">
     <h3>Senders and screening</h3>
     <p>
-      Only addresses you explicitly Accept are known senders. Past incoming mail, contacts and sent
-      mail do not automatically grant trust. Addresses match exactly after trimming spaces and
-      ignoring letter case; aliases, plus-addresses and domains are not grouped.
+      Only senders you explicitly Accept are known. Past incoming mail, contacts and sent mail do
+      not automatically grant trust. Accept and Block apply to the sender's whole domain and its
+      subdomains (accepting news@shop.example also accepts orders@mail.shop.example). Public email
+      providers such as gmail.com and outlook.com are the exception: there, a decision covers only
+      that exact address. A decision saved for an exact address always wins over its domain.
     </p>
     <label class="sender-toggle"
       ><input
@@ -62,12 +67,12 @@ watch(
     </p>
     <form @submit.prevent="change({ action: decision, address })">
       <label
-        >Exact email address<input
+        >Email address or domain<input
           v-model="address"
-          type="email"
+          type="text"
           required
           maxlength="320"
-          placeholder="person@example.com"
+          placeholder="person@example.com or example.com"
       /></label>
       <label
         >Decision<select v-model="decision">
@@ -80,8 +85,8 @@ watch(
     <p>
       Blocking from this list applies to future arrivals and already-held mail. Use Block sender in
       the reader to move a particular existing message too. Unblock removes the block; with
-      screening enabled its held mail returns to New senders. Accept releases all held mail from
-      that address.
+      screening enabled its held mail returns to New senders. Accept releases all held mail the
+      decision covers.
     </p>
     <p v-if="store.error" role="alert">{{ store.error }}</p>
     <button
@@ -95,7 +100,7 @@ watch(
     <p v-else-if="store.loaded && !store.decisions.length">No saved sender decisions.</p>
     <ul>
       <li v-for="entry in store.decisions" :key="entry.address">
-        <span>{{ entry.address }} — {{ entry.decision }}</span>
+        <span>{{ label(entry) }} — {{ entry.decision }}</span>
         <button
           class="btn btn-secondary"
           :disabled="store.saving"

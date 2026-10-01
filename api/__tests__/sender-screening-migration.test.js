@@ -35,7 +35,7 @@ const OTHER = '22222222-2222-4222-8222-222222222222'
 const THREAD = '33333333-3333-4333-8333-333333333333'
 const OTHER_THREAD = '44444444-4444-4444-8444-444444444444'
 
-describe.skipIf(!databaseUrl)('0088 sender screening on PostgreSQL', () => {
+describe.skipIf(!databaseUrl)('0088/0089 sender screening on PostgreSQL', () => {
   let sql
   beforeAll(async () => {
     sql = postgres(databaseUrl, { max: 2 })
@@ -67,6 +67,7 @@ describe.skipIf(!databaseUrl)('0088 sender screening on PostgreSQL', () => {
       FOR EACH ROW EXECUTE FUNCTION public.notify_inbox_changed()`)
     await applyMigration(sql, '0082_out_of_office.sql')
     await applyMigration(sql, '0088_sender_screening.sql')
+    await applyMigration(sql, '0089_sender_domain_decisions.sql')
   })
   beforeEach(async () => {
     await sql.unsafe(`TRUNCATE public.message_ai, public.messages, public.threads, public.users,
@@ -172,6 +173,35 @@ describe.skipIf(!databaseUrl)('0088 sender screening on PostgreSQL', () => {
     expect((await arrive()).screening_status).toBe('held')
     expect(await sql`SELECT count(*)::int AS count FROM realtime.pings`).toEqual([{ count: 3 }])
   })
+  it('applies a domain decision to the domain and its subdomains, not lookalikes', async () => {
+    await enable()
+    await decide('@smarty.co.uk', 'accepted')
+    await decide('@spam.example', 'blocked')
+    expect((await arrive({ address: 'offers@smarty.co.uk' })).screening_status).toBe('allowed')
+    expect((await arrive({ address: 'News@Email.Smarty.co.uk' })).screening_status).toBe('allowed')
+    expect((await arrive({ address: 'x@notsmarty.co.uk' })).screening_status).toBe('held')
+    expect((await arrive({ address: 'x@smarty.co.uk.evil.example' })).screening_status).toBe('held')
+    expect(await arrive({ address: 'a@deep.spam.example' })).toMatchObject({
+      screening_status: 'blocked',
+      auto_reply_suppressed: true,
+    })
+    expect(await alerts()).toEqual([{ browser: 2, ntfy: 2 }])
+  })
+  it('lets an exact address override its domain, and a subdomain override its parent', async () => {
+    await enable()
+    await decide('@badco.example', 'blocked')
+    await decide('vip@badco.example', 'accepted')
+    await decide('@help.badco.example', 'accepted')
+    expect((await arrive({ address: 'vip@badco.example' })).screening_status).toBe('allowed')
+    expect((await arrive({ address: 'spam@badco.example' })).screening_status).toBe('blocked')
+    expect((await arrive({ address: 'desk@help.badco.example' })).screening_status).toBe('allowed')
+    const [resolved] = await sql`SELECT address, decision
+      FROM public.effective_sender_decision(${OWNER}, ${' Desk@HELP.badco.example '})`
+    expect(resolved).toEqual({ address: '@help.badco.example', decision: 'accepted' })
+    expect(
+      await sql`SELECT * FROM public.effective_sender_decision(${OTHER}, 'vip@badco.example')`,
+    ).toEqual([])
+  })
   it('fails closed while preserving stored mail if a sender lookup fails', async () => {
     await sql.unsafe('ALTER TABLE public.sender_decisions RENAME TO sender_decisions_unavailable')
     try {
@@ -190,5 +220,9 @@ describe.skipIf(!databaseUrl)('0088 sender screening on PostgreSQL', () => {
       has_table_privilege('authenticated', 'public.sender_decisions', 'INSERT') AS browser_write
       FROM pg_class WHERE oid = 'public.sender_decisions'::regclass`
     expect(privacy).toEqual({ rls: true, anon_read: false, browser_write: false })
+    const [resolver] = await sql`SELECT
+      has_function_privilege('anon', 'public.effective_sender_decision(uuid, text)', 'EXECUTE') AS anon,
+      has_function_privilege('authenticated', 'public.effective_sender_decision(uuid, text)', 'EXECUTE') AS browser`
+    expect(resolver).toEqual({ anon: false, browser: false })
   })
 })

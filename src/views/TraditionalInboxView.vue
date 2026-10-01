@@ -518,8 +518,8 @@ function deleteSelected() {
 }
 
 // Accept or Block every sender selected in New senders. One decision per
-// address is enough: it covers that sender's other held mail and the same
-// contact's other addresses (reported back as related), so those are skipped.
+// domain is enough: it covers the other addresses on that domain (reported
+// back as related), so those are skipped.
 const senders = useSendersStore()
 // The action in flight ('accept' or 'block'), or null.
 const decidingSenders = ref(null)

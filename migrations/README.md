@@ -385,3 +385,12 @@ notification events are queued. Screening stays off unless
 sender-screening branch and renumbered on merge because `0083` was already
 taken on main. Deploy the Workers in the order Cookie-Docs gives before
 relying on the Web sender controls.
+
+## Sender domain decisions
+
+`0089_sender_domain_decisions.sql` lets a `sender_decisions` row hold `@domain`,
+covering that domain and its subdomains, and adds
+`effective_sender_decision(user_id, from_address)` to resolve which decision
+applies (exact address first, then the longest matching domain). The arrival
+trigger uses it. Apply this migration before deploying `cookie-web-emails` and
+`cookie-web-notifications`, which call the function.
