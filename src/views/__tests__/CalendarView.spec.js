@@ -762,6 +762,17 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  it('keeps a pending New event request when the view unmounts before its first load', async () => {
+    const store = useInboxStore()
+    store.calendarNewEventPending = true
+
+    const wrapper = mount(CalendarView)
+    wrapper.unmount()
+    await flushPromises()
+
+    expect(store.calendarNewEventPending).toBe(true)
+  })
+
   it('traps Tab inside the event dialog and restores focus to its opener on close', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 

@@ -360,7 +360,8 @@ function clearTaskDrag() {
   draggingMany.value = false
 }
 
-// Multi-select: Shift-click selects a task (and starts selecting); while
+// Multi-select: Shift-click (or Shift+Enter/Space on the row from the
+// keyboard) selects a task (and starts selecting); while
 // any are selected a plain click adds or removes one instead of opening it.
 function onTaskClick(item, event) {
   if (event.shiftKey || items.selectedIds.length) {
@@ -389,6 +390,35 @@ function onTaskDrop(item) {
   if (!allowed) return
   const order = orderAfterDrop(ids, draggedId, item.id, place)
   if (order) items.reorderItems(order)
+}
+
+// The keyboard twin of a drop: Alt+ArrowUp/Down on the grip moves the row
+// one place within the rows a drag could re-arrange, under the same rules,
+// then keeps focus on the grip so the move can be repeated.
+async function onGripKeydown(item, step) {
+  const group = isToday.value
+    ? visibleItems.value.filter((row) => row.dueDate === item.dueDate)
+    : visibleItems.value
+  const ids = group.map((row) => row.id)
+  const target = group[ids.indexOf(item.id) + step]
+  if (!target) return
+  const order = orderAfterDrop(ids, item.id, target.id, step < 0 ? 'before' : 'after')
+  if (!order) return
+  // Like a drop, a divider is not moved beside another.
+  if (isDivider(item)) {
+    const at = order.indexOf(item.id)
+    const besideDivider = [order[at - 1], order[at + 1]].some((id) => {
+      const row = group.find((candidate) => candidate.id === id)
+      return Boolean(row) && isDivider(row)
+    })
+    if (besideDivider) return
+  }
+  items.reorderItems(order)
+  await nextTick()
+  const grips = document.querySelectorAll('.task-grip')
+  Array.from(grips)
+    .find((grip) => grip.dataset.itemId === item.id)
+    ?.focus()
 }
 
 const composing = ref(false)
@@ -554,8 +584,13 @@ async function submitDraft() {
                 class="task-grip"
                 type="button"
                 draggable="true"
-                title="Drag to re-arrange or move"
+                :data-item-id="item.id"
+                title="Drag to re-arrange or move (Alt+Up or Alt+Down moves it one place)"
                 :aria-label="`Drag ${labelOf(item)}`"
+                aria-description="Alt+Up or Alt+Down moves it one place"
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                @keydown.alt.up.prevent="onGripKeydown(item, -1)"
+                @keydown.alt.down.prevent="onGripKeydown(item, 1)"
                 @dragstart="onTaskDragStart(item, $event)"
                 @dragend="clearTaskDrag"
                 @click.prevent
@@ -618,6 +653,8 @@ async function submitDraft() {
                   "
                   @mousedown="$event.shiftKey && $event.preventDefault()"
                   @click="onTaskClick(item, $event)"
+                  @keydown.shift.enter.prevent="onTaskClick(item, $event)"
+                  @keydown.shift.space.prevent="onTaskClick(item, $event)"
                 >
                   <span class="task-content">{{ item.content }}</span>
                   <span v-if="item.description" class="task-description">{{

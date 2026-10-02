@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, nextTick, watch } from 'vue'
 
 import { useInboxStore } from '../stores/inbox'
 import { useCommands } from '../composables/useCommands'
@@ -31,36 +31,15 @@ watch(
   { immediate: true },
 )
 
-function open() {
-  store.isCommandPaletteOpen = true
-  query.value = ''
-  selectedIndex.value = 0
-}
-
 function close() {
   inputRef.value?.blur()
   store.isCommandPaletteOpen = false
 }
 
-// '/' opens the palette — but never while the user is typing somewhere
-// (search bar, composer, reply box, the palette's own input). Close with
-// Escape, the backdrop, or by running a command.
-function onGlobalKeydown(e) {
-  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
-  if (store.isCommandPaletteOpen) return
-  const target = e.target
-  if (
-    target instanceof HTMLElement &&
-    (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-  ) {
-    return
-  }
-  e.preventDefault()
-  open()
-}
-
-onMounted(() => document.addEventListener('keydown', onGlobalKeydown))
-onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
+// App.vue owns the '/' shortcut (it has to, since this component is lazy and
+// not mounted until first use); it sets store.isCommandPaletteOpen, and the
+// watcher above resets and focuses the palette. Close with Escape, the
+// backdrop, or by running a command.
 
 function move(delta) {
   const count = visibleCommands.value.length

@@ -895,15 +895,19 @@ function onKeydown(event) {
   if (event.key === 'Escape' && showNewEvent.value) dismissEventDialog()
 }
 
+// Leaving before the first load settles must not take a pending new-event
+// request with it: consuming it here would drop it with this unmounted view.
+let unmounted = false
 onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
   nowTimer = setInterval(() => {
     now.value = new Date()
   }, 60_000)
   await Promise.all([loadVisibleCalendars(), loadEvents()])
-  consumeNewEventRequest()
+  if (!unmounted) consumeNewEventRequest()
 })
 onUnmounted(() => {
+  unmounted = true
   clearInterval(nowTimer)
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('mousemove', onDragMove)

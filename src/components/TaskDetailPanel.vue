@@ -39,7 +39,7 @@ async function saveRecurrence() {
   savingRecurrence.value = true
   try {
     const updated = await items.setRecurrence(props.taskId, recurrenceDraft.value.trim() || null)
-    if (updated && !item.value) close()
+    if (updated && !item.value) closeIfStillOpen()
   } finally {
     savingRecurrence.value = false
   }
@@ -223,7 +223,7 @@ async function complete() {
   if (completing.value) return
   completing.value = true
   const updated = await items.setCompleted(props.taskId, true)
-  if (updated) close()
+  if (updated) closeIfStillOpen()
   else completing.value = false
 }
 
@@ -235,13 +235,21 @@ async function remove() {
   const deleted = await items.deleteItem(props.taskId)
   // A failed delete has already notified; stay put rather than close over a
   // task that is still there.
-  if (deleted) close()
+  if (deleted) closeIfStillOpen()
 }
 
 function close() {
   const query = { ...route.query }
   delete query.task
   router.push({ path: '/tasks', query })
+}
+
+// The panel is keyed by task id, so by the time a slow request settles the
+// person may have opened another task (or left Tasks). Closing then would
+// shut that other panel, so only close while this one is still the one shown.
+let unmounted = false
+function closeIfStillOpen() {
+  if (!unmounted && route.query.task === props.taskId) close()
 }
 
 // A task id naming nothing in the loaded list is a stale link, a deleted task,
@@ -316,6 +324,7 @@ onMounted(() => {
   document.addEventListener('keydown', onKeydown)
 })
 onBeforeUnmount(() => {
+  unmounted = true
   document.removeEventListener('keydown', onKeydown)
   if (opener?.isConnected) opener.focus?.()
 })

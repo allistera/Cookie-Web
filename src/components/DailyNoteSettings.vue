@@ -16,10 +16,22 @@ const editorComponent = ref(null)
 // the element :key too, as a second guarantee of a fresh mount.
 const editorGeneration = ref(0)
 
-onMounted(async () => {
-  await store.loadDailyNoteSeed()
-  resetDraft()
-})
+// A failed load leaves the editor empty and Save disabled: showing the
+// built-in default instead would let one click overwrite the person's own
+// template with it.
+const loading = ref(false)
+const loadFailed = ref(false)
+async function load() {
+  loading.value = true
+  loadFailed.value = false
+  try {
+    if (await store.loadDailyNoteSeed()) resetDraft()
+    else loadFailed.value = true
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
 
 // The editor always shows what a new daily note actually looks like today,
 // whether that's the built-in default or a prior customization.
@@ -45,7 +57,7 @@ function updateDraft(patch) {
 const isCustomized = computed(() => store.dailyNoteSeed.length > 0)
 
 async function save() {
-  if (isSaving.value || !draft.value) return
+  if (isSaving.value || !draft.value || !store.dailyNoteSeedLoaded) return
   isSaving.value = true
   try {
     if (editorComponent.value) updateDraft(await editorComponent.value.snapshot())
@@ -101,8 +113,27 @@ async function resetToDefault() {
       />
     </div>
 
+    <template v-if="loadFailed">
+      <p class="settings-error" role="alert">
+        Could not load your daily note default. Please retry before editing it.
+      </p>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        data-testid="retry-daily-note"
+        :disabled="loading"
+        @click="load"
+      >
+        Retry
+      </button>
+    </template>
     <div class="daily-note-settings-actions">
-      <button type="button" class="btn btn-primary" :disabled="isSaving" @click="save">
+      <button
+        type="button"
+        class="btn btn-primary"
+        :disabled="isSaving || loading || !draft || !store.dailyNoteSeedLoaded"
+        @click="save"
+      >
         {{ isSaving ? 'Saving…' : 'Save' }}
       </button>
     </div>

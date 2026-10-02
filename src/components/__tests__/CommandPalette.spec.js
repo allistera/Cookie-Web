@@ -16,6 +16,10 @@ describe('CommandPalette', () => {
   let wrapper
   let push
 
+  function openPalette() {
+    store.isCommandPaletteOpen = true
+  }
+
   beforeEach(async () => {
     setActivePinia(createPinia())
     setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
@@ -35,10 +39,11 @@ describe('CommandPalette', () => {
     vi.unstubAllGlobals()
   })
 
-  it("is hidden until '/' opens it, with the first item selected", async () => {
+  // App.vue owns the '/' shortcut and opens the palette through the store.
+  it('is hidden until the store opens it, with the first item selected', async () => {
     expect(wrapper.find('.cp-overlay').classes()).not.toContain('active')
 
-    pressSlash()
+    openPalette()
     await wrapper.vm.$nextTick()
 
     expect(store.isCommandPaletteOpen).toBe(true)
@@ -48,35 +53,26 @@ describe('CommandPalette', () => {
     expect(items[0].classes()).toContain('selected')
   })
 
-  it('releases the hidden input so the keyboard shortcut can reopen the palette', async () => {
+  it("leaves the '/' shortcut to App instead of listening for it itself", async () => {
     pressSlash()
+    await wrapper.vm.$nextTick()
+
+    expect(store.isCommandPaletteOpen).toBe(false)
+  })
+
+  // A focused (hidden) input would count as typing and block App's '/'.
+  it('releases the hidden input so the keyboard shortcut can reopen the palette', async () => {
+    openPalette()
     await wrapper.vm.$nextTick()
     const input = wrapper.find('.cp-input')
     input.element.focus()
     await input.trigger('keydown', { key: 'Enter' })
     expect(document.activeElement).not.toBe(input.element)
-    pressSlash(document.activeElement)
-    await wrapper.vm.$nextTick()
-    expect(store.isCommandPaletteOpen).toBe(true)
-  })
-
-  it("'/' does not open the palette while typing in an input or textarea", async () => {
-    const input = document.createElement('input')
-    document.body.appendChild(input)
-    const textarea = document.createElement('textarea')
-    document.body.appendChild(textarea)
-
-    pressSlash(input)
-    pressSlash(textarea)
-    await wrapper.vm.$nextTick()
-
     expect(store.isCommandPaletteOpen).toBe(false)
-    input.remove()
-    textarea.remove()
   })
 
-  it("typing '/' inside the palette input does not close or reopen it", async () => {
-    pressSlash()
+  it("typing '/' inside the palette input does not close it", async () => {
+    openPalette()
     await wrapper.vm.$nextTick()
 
     pressSlash(wrapper.find('.cp-input').element)
@@ -86,7 +82,7 @@ describe('CommandPalette', () => {
   })
 
   it('typing filters the command list', async () => {
-    pressSlash()
+    openPalette()
     await wrapper.vm.$nextTick()
 
     await wrapper.find('.cp-input').setValue('open settings')
@@ -97,7 +93,7 @@ describe('CommandPalette', () => {
   })
 
   it('arrow keys move the selection and Enter runs the command', async () => {
-    pressSlash()
+    openPalette()
     await wrapper.vm.$nextTick()
 
     const input = wrapper.find('.cp-input')
@@ -117,7 +113,7 @@ describe('CommandPalette', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    pressSlash()
+    openPalette()
     await wrapper.vm.$nextTick()
 
     const input = wrapper.find('.cp-input')
@@ -135,7 +131,7 @@ describe('CommandPalette', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    pressSlash()
+    openPalette()
     await wrapper.vm.$nextTick()
 
     await wrapper.find('.cp-input').trigger('keydown', { key: 'Escape' })
@@ -149,7 +145,7 @@ describe('CommandPalette', () => {
     store.traditionalEmails = [email]
     store.openEmailId = email.id
 
-    pressSlash()
+    openPalette()
     await wrapper.vm.$nextTick()
 
     const first = wrapper.findAll('.cp-item')[0]

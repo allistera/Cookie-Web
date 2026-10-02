@@ -487,6 +487,45 @@ describe('dragging rows', () => {
     expect(reorder).not.toHaveBeenCalled()
   })
 
+  it('moves a row with Alt+ArrowUp/Down on its grip and keeps focus there', async () => {
+    const items = threeTasks()
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mount(TasksView, { global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+    const grip = wrapper.findAll('.task-grip')[0]
+    expect(grip.attributes('aria-keyshortcuts')).toBe('Alt+ArrowUp Alt+ArrowDown')
+    expect(grip.attributes('aria-description')).toContain('Alt+Up or Alt+Down')
+
+    await grip.trigger('keydown', { key: 'ArrowDown', altKey: true })
+    await flushPromises()
+    expect(reorder).toHaveBeenCalledWith(['t2', 't1', 't3'])
+    expect(document.activeElement?.dataset.itemId).toBe('t1')
+
+    // Without Alt, or past the top, nothing moves.
+    reorder.mockClear()
+    await grip.trigger('keydown', { key: 'ArrowDown' })
+    await wrapper.findAll('.task-grip')[0].trigger('keydown', { key: 'ArrowUp', altKey: true })
+    await flushPromises()
+    expect(reorder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not move a divider next to another by keyboard', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'd1', kind: 'divider', content: '', position: 1, completedAt: null },
+      { id: 't1', content: 'One', position: 2, completedAt: null },
+      { id: 'd2', kind: 'divider', content: '', position: 3, completedAt: null },
+    ]
+    items.loadedProject = 'p2'
+    const reorder = vi.spyOn(items, 'reorderItems').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.task-grip')[0].trigger('keydown', { key: 'ArrowDown', altKey: true })
+    expect(reorder).not.toHaveBeenCalled()
+  })
+
   // Today is ordered by due date, so a row there can be re-arranged among
   // the rows due the same day — and only those are sent — but not across
   // days, where the drop would visibly do nothing.
@@ -1068,6 +1107,20 @@ describe('selecting several tasks', () => {
     expect(wrapper.get('.task-selection-bar').text()).toContain('2 selected')
 
     await buttons[0].trigger('click')
+    expect(items.selectedIds).toEqual(['t3'])
+  })
+
+  it('toggles selection from the keyboard with Shift+Enter or Shift+Space', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    const buttons = wrapper.findAll('.task-open')
+
+    await buttons[0].trigger('keydown', { key: 'Enter', shiftKey: true })
+    await buttons[2].trigger('keydown', { key: ' ', shiftKey: true })
+    await flushPromises()
+    expect(items.selectedIds).toEqual(['t1', 't3'])
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+
+    await buttons[0].trigger('keydown', { key: ' ', shiftKey: true })
     expect(items.selectedIds).toEqual(['t3'])
   })
 

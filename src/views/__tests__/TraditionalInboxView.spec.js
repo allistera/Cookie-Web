@@ -365,6 +365,35 @@ describe('automatic priority reply drafts', () => {
     wrapper.unmount()
   })
 
+  // A 409 on autosave hands back the server's draft; the open reply box
+  // shows it in place of what it held.
+  it('loads the newer draft from another tab into the reply box on a save conflict', async () => {
+    store.drafts = [{ ...draft }]
+    vi.spyOn(store, 'scheduleReplyDraftSave').mockImplementation(() => {})
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    const session = store.replySessionId
+
+    store.replyDraftConflict = {
+      session: session - 1,
+      draft: { ...draft, text: 'Stale session', updatedAt: '2026-10-02T10:00:00Z' },
+    }
+    await flushPromises()
+    expect(store.replyDraftConflict).toBeNull()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe(draft.text)
+
+    store.replyDraftConflict = {
+      session,
+      draft: { ...draft, text: 'Edited in another tab', updatedAt: '2026-10-02T10:01:00Z' },
+    }
+    await flushPromises()
+    expect(store.replyDraftConflict).toBeNull()
+    expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe('Edited in another tab')
+    expect(store.replyDraftId).toBe(draft.id)
+    wrapper.unmount()
+  })
+
   it('opens a generated draft arriving after the reader, and keeps the user’s edits on refresh', async () => {
     const wrapper = mountView()
     store.openReader(store.traditionalEmails[0])

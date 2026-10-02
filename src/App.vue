@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { useSearchStore } from './stores/search'
@@ -20,17 +20,17 @@ import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { useAppBadge } from './composables/useAppBadge'
 import { getRealtimeClient } from './lib/supabase'
+import { lazyComponent } from './router/chunkReload'
 
-const ChatDrawer = defineAsyncComponent(() => import('./components/ChatDrawer.vue'))
-const ContactInsightsDrawer = defineAsyncComponent(
-  () => import('./components/ContactInsightsDrawer.vue'),
-)
-const CommandPalette = defineAsyncComponent(() => import('./components/CommandPalette.vue'))
-const ComposerWindow = defineAsyncComponent(() => import('./components/ComposerWindow.vue'))
-const DocumentsSidebar = defineAsyncComponent(() => import('./components/DocumentsSidebar.vue'))
-const TasksSidebar = defineAsyncComponent(() => import('./components/TasksSidebar.vue'))
-const SavedViewsSidebar = defineAsyncComponent(() => import('./components/SavedViewsSidebar.vue'))
-const SavedViewEditor = defineAsyncComponent(() => import('./components/SavedViewEditor.vue'))
+// Lazy chunks: one retry, then the stale-chunk reload (see router/chunkReload).
+const ChatDrawer = lazyComponent(() => import('./components/ChatDrawer.vue'))
+const ContactInsightsDrawer = lazyComponent(() => import('./components/ContactInsightsDrawer.vue'))
+const CommandPalette = lazyComponent(() => import('./components/CommandPalette.vue'))
+const ComposerWindow = lazyComponent(() => import('./components/ComposerWindow.vue'))
+const DocumentsSidebar = lazyComponent(() => import('./components/DocumentsSidebar.vue'))
+const TasksSidebar = lazyComponent(() => import('./components/TasksSidebar.vue'))
+const SavedViewsSidebar = lazyComponent(() => import('./components/SavedViewsSidebar.vue'))
+const SavedViewEditor = lazyComponent(() => import('./components/SavedViewEditor.vue'))
 
 const store = useInboxStore()
 const searchStore = useSearchStore()
@@ -171,8 +171,8 @@ watch(
   },
 )
 
-// Opens the palette and, on first use, mounts it (it is lazy-loaded, so its
-// own '/' listener does not exist until this has run once).
+// The one '/' shortcut for the command palette: opens it and, on first use,
+// mounts it (it is lazy-loaded, so it cannot listen for the key itself).
 function onCommandPaletteKeydown(event) {
   const target = event.target instanceof HTMLElement ? event.target : null
   const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
@@ -323,10 +323,15 @@ watch(
 
 // Pick up End now/settings changes made in another browser. The store ignores
 // late responses across account switches and older revisions after a save.
+// A hidden tab skips the poll; returning to it focuses the window, and the
+// focus listener refreshes then, so no separate visibilitychange handler.
 let outOfOfficePoll
 const refreshOutOfOffice = () => outOfOfficeStore.load({ force: true })
+const pollOutOfOffice = () => {
+  if (document.visibilityState === 'visible') refreshOutOfOffice()
+}
 onMounted(() => {
-  outOfOfficePoll = setInterval(refreshOutOfOffice, 60_000)
+  outOfOfficePoll = setInterval(pollOutOfOffice, 60_000)
   window.addEventListener('focus', refreshOutOfOffice)
 })
 onUnmounted(() => {

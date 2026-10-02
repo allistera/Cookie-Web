@@ -421,6 +421,50 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBeUndefined()
   })
 
+  // The panel is keyed by task id: a completion that settles after another
+  // task was opened must not close that other task's panel.
+  it('leaves the next task open when a completion settles after switching', async () => {
+    seed()
+    let settle
+    vi.spyOn(items, 'setCompleted').mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve
+      }),
+    )
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-check').trigger('click')
+    await router.push({ path: '/tasks', query: { task: 'c' } })
+    await flushPromises()
+    settle({})
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBe('c')
+    expect(wrapper.get('.task-panel-title').text()).toBe('Third')
+  })
+
+  it('leaves the next task open when a delete settles after switching', async () => {
+    seed()
+    let settle
+    vi.spyOn(items, 'deleteItem').mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve
+      }),
+    )
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-delete').trigger('click')
+    await router.push({ path: '/tasks', query: { task: 'a' } })
+    await flushPromises()
+    settle(true)
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBe('a')
+  })
+
   it("selects the task's current project in the picker", async () => {
     seed([{ ...ITEMS[1], projectId: 'p1' }])
     const wrapper = await mountPanel()

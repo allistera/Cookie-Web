@@ -3,6 +3,7 @@ import { startTiming } from '../lib/performance'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { getAuth0 } from '../auth0-client'
+import { installRouterChunkReload } from './chunkReload'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -114,5 +115,9 @@ router.beforeEach(async (to) => {
   }
   return auth0.isAuthenticated.value
 })
+
+// A view chunk that 404s after a deploy reloads the tab onto the route it was
+// opening; see chunkReload.js.
+installRouterChunkReload(router)
 
 export default router

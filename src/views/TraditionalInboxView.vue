@@ -1388,6 +1388,29 @@ watch(
   { immediate: true },
 )
 
+// An autosave found this reply's draft changed in another tab: the store
+// hands back the server's version, which replaces what the box holds — the
+// same fields an existing draft fills. A conflict for an earlier session (the
+// person has since moved to another message) is dropped.
+watch(
+  () => store.replyDraftConflict,
+  (conflict) => {
+    if (!conflict) return
+    store.replyDraftConflict = null
+    const { session, draft } = conflict
+    if (session !== store.replySessionId || !isReplyOpen.value || !draft) return
+    savedReplyTo.value = draft.to || null
+    savedReplySubject.value = draft.subject ?? null
+    replyHtml.value = draft.html ? sanitizeEmailHtml(draft.html) : plainTextToHtml(draft.text)
+    replyTextPlain.value = draft.text || ''
+    replyAttachments.value = draft.attachments || []
+    replyFollowUpAt.value = draft.followUpAt || null
+    // The editor ignores a new model value while focused (so typing is not
+    // clobbered), and a conflict usually lands mid-typing; replace it outright.
+    replyEditorRef.value?.replaceContent(replyHtml.value)
+  },
+)
+
 watch(
   () => [
     replyTextPlain.value,
