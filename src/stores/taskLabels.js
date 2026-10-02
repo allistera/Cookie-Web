@@ -4,10 +4,13 @@ import { jsonRequest } from '../lib/jsonRequest'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
+import { createSharedLoad } from '../lib/sharedLoad'
 import { useInboxStore } from './inbox'
 import { useTaskItemsStore } from './taskItems'
 
-const labelLoads = new WeakMap()
+const labelLoads = createSharedLoad()
+// Pending edits per label id, per store: one PATCH at a time per label.
+const labelMutations = new WeakMap()
 
 function byNameOrder(a, b) {
   return a.name.localeCompare(b.name)
@@ -53,30 +56,32 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
       return jsonRequest(`${TASKS_API_URL}/task-labels`, { method, headers, body })
     },
 
-    async loadLabels({ force = false } = {}) {
-      if (this.isLoaded && !force) return
-      const inFlight = labelLoads.get(toRaw(this))
-      if (inFlight) return inFlight
-      this.isLoading = true
-      const load = (async () => {
-        try {
-          const { labels } = await this.request('GET')
-          this.labels = [...labels].sort(byNameOrder)
-          this.isLoaded = true
-        } catch (error) {
-          console.error('Failed to load labels:', error)
-          this.notify('Failed to load labels.', 'error')
-        } finally {
-          this.isLoading = false
-          labelLoads.delete(toRaw(this))
-        }
-      })()
-      labelLoads.set(toRaw(this), load)
-      return load
+    // Resolves true once labels are loaded, false when the load failed.
+    loadLabels({ force = false } = {}) {
+      if (this.isLoaded && !force) return Promise.resolve(true)
+      return labelLoads(
+        toRaw(this),
+        async () => {
+          this.isLoading = true
+          try {
+            const { labels } = await this.request('GET')
+            this.labels = [...labels].sort(byNameOrder)
+            this.isLoaded = true
+            return true
+          } catch (error) {
+            console.error('Failed to load labels:', error)
+            this.notify('Failed to load labels.', 'error')
+            return false
+          } finally {
+            this.isLoading = false
+          }
+        },
+        { force },
+      )
     },
 
     async createLabel({ name, color }) {
-      await labelLoads.get(toRaw(this))
+      await labelLoads.current(toRaw(this))
       try {
         const { label } = await this.request('POST', { name, color })
         this.labels = [...this.labels, label].sort(byNameOrder)
@@ -88,31 +93,56 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
       }
     },
 
+    // Edits to one label run one at a time, so responses land in order. A
+    // failed edit undoes only the fields it changed, and only where they
+    // still hold its values, so it never reverts a later edit that worked.
     async patchLabel(id, changes, failureMessage) {
-      await labelLoads.get(toRaw(this))
-      const label = this.labels.find((row) => row.id === id)
-      if (!label) {
+      await labelLoads.current(toRaw(this))
+      if (!this.labels.some((row) => row.id === id)) {
         this.notify(failureMessage, 'error')
         return null
       }
-      const previous = { ...label }
-      Object.assign(label, changes)
-      try {
-        const { label: updated } = await this.request('PATCH', { id, ...changes })
-        Object.assign(label, updated)
-        if (updated.name !== previous.name) {
-          this.labels = [...this.labels].sort(byNameOrder)
-          rewriteLoadedTasks((labels) =>
-            labels.map((name) => (name === previous.name ? updated.name : name)),
-          )
+      const perform = async () => {
+        const label = this.labels.find((row) => row.id === id)
+        if (!label) {
+          this.notify(failureMessage, 'error')
+          return null
         }
-        return label
-      } catch (error) {
-        console.error('Failed to update label:', error)
-        Object.assign(label, previous)
-        this.notify(error.userMessage || failureMessage, 'error')
-        return null
+        const previous = Object.fromEntries(Object.keys(changes).map((key) => [key, label[key]]))
+        const previousName = label.name
+        Object.assign(label, changes)
+        try {
+          const { label: updated } = await this.request('PATCH', { id, ...changes })
+          const current = this.labels.find((row) => row.id === id) ?? label
+          Object.assign(current, updated)
+          if (updated.name !== previousName) {
+            this.labels = [...this.labels].sort(byNameOrder)
+            rewriteLoadedTasks((labels) =>
+              labels.map((name) => (name === previousName ? updated.name : name)),
+            )
+          }
+          return current
+        } catch (error) {
+          console.error('Failed to update label:', error)
+          const current = this.labels.find((row) => row.id === id)
+          if (current) {
+            for (const [key, value] of Object.entries(previous)) {
+              if (current[key] === changes[key]) current[key] = value
+            }
+          }
+          this.notify(error.userMessage || failureMessage, 'error')
+          return null
+        }
       }
+      const store = toRaw(this)
+      const queue = labelMutations.get(store) ?? new Map()
+      labelMutations.set(store, queue)
+      const prior = queue.get(id)
+      const pending = prior ? prior.then(perform) : perform()
+      queue.set(id, pending)
+      return pending.finally(() => {
+        if (queue.get(id) === pending) queue.delete(id)
+      })
     },
 
     renameLabel(id, name) {
@@ -124,7 +154,7 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
     },
 
     async deleteLabel(id) {
-      await labelLoads.get(toRaw(this))
+      await labelLoads.current(toRaw(this))
       const doomed = this.labels.find((row) => row.id === id)
       if (!doomed) return false
       this.labels = this.labels.filter((label) => label.id !== id)

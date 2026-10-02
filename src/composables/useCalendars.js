@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 // Shared with GET/POST/PATCH/DELETE bodies by CalendarSettings' own CRUD
 // actions - exported so this stays the single source of truth for the path.
 import { CALENDAR_API_URL } from '../lib/apiWorkers'
+import { createSharedLoad } from '../lib/sharedLoad'
 
 export const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 
@@ -21,11 +22,11 @@ const calendars = ref([])
 // explicit force is the same "loaded once, refresh on demand" idiom the inbox
 // store uses for isInboxStateLoaded.
 let loaded = false
-let inFlight = null
-// A forced load that arrived while another load was in flight: that load may
-// have been sent before whatever change the caller wants to see, so one fresh
-// fetch is chained after it and shared by every forced caller meanwhile.
-let forcedReload = null
+// One in-flight GET shared by every caller. A forced load that arrives while
+// another is in flight may want a change that load predates, so sharedLoad
+// chains one fresh fetch after it, shared by every forced caller meanwhile.
+const calendarLoads = createSharedLoad()
+const LOADS = {}
 let owner = null
 let generation = 0
 
@@ -52,39 +53,28 @@ const subscribedCalendars = computed(() =>
 export function useCalendars(authHeaders, notify) {
   function loadCalendars({ force = false } = {}) {
     if (loaded && !force) return Promise.resolve(true)
-    if (inFlight && !force) return inFlight
-    if (inFlight) {
-      const session = generation
-      forcedReload ??= inFlight.then(() => {
-        if (session !== generation) return false
-        forcedReload = null
-        return loadCalendars({ force: true })
-      })
-      return forcedReload
-    }
+    return calendarLoads(LOADS, fetchCalendars, { force })
+  }
+
+  async function fetchCalendars() {
     const session = generation
-    inFlight = (async () => {
-      try {
-        const headers = await authHeaders()
-        if (session !== generation) return false
-        const response = await fetch(CALENDARS_ENDPOINT, { headers })
-        if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
-        const body = await response.json()
-        if (session !== generation) return false
-        if (!Array.isArray(body.calendars)) throw new Error('Invalid calendars response')
-        calendars.value = body.calendars ?? []
-        loaded = true
-        return true
-      } catch (error) {
-        if (session !== generation) return false
-        console.error('Failed to load calendars:', error)
-        notify('Failed to load calendars.', 'error')
-        return false
-      } finally {
-        if (session === generation) inFlight = null
-      }
-    })()
-    return inFlight
+    try {
+      const headers = await authHeaders()
+      if (session !== generation) return false
+      const response = await fetch(CALENDARS_ENDPOINT, { headers })
+      if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
+      const body = await response.json()
+      if (session !== generation) return false
+      if (!Array.isArray(body.calendars)) throw new Error('Invalid calendars response')
+      calendars.value = body.calendars ?? []
+      loaded = true
+      return true
+    } catch (error) {
+      if (session !== generation) return false
+      console.error('Failed to load calendars:', error)
+      notify('Failed to load calendars.', 'error')
+      return false
+    }
   }
 
   // Pulls a subscribed calendar's feed now. Updates the shared row with the
@@ -120,8 +110,7 @@ function resetCalendarsState() {
   generation += 1
   calendars.value = []
   loaded = false
-  inFlight = null
-  forcedReload = null
+  calendarLoads.reset(LOADS)
 }
 
 // Test-only: this module's state is a real singleton (by design — see the

@@ -1095,3 +1095,126 @@ describe('documents store — files', () => {
     expect(store.filePages).toEqual({})
   })
 })
+
+describe('today’s note refuses to build on a failed load', () => {
+  const DAILY_FOLDERS = [
+    { id: 'f-daily', parent_id: null, title: 'Daily' },
+    { id: 'f-year', parent_id: 'f-daily', title: '2026' },
+    { id: 'f-month', parent_id: 'f-year', title: 'Aug' },
+  ]
+
+  beforeEach(() => {
+    vi.setSystemTime(new Date(2026, 7, 13))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  it('creates nothing when the workspace fails to load', async () => {
+    const notify = vi.spyOn(store, 'notify')
+    const fetchMock = stubFetch({
+      GET: (url) => (url.includes('/tasks/daily-note-seed') ? ok({ blocks: [] }) : fail()),
+    })
+
+    await expect(store.openTodayNote()).resolves.toBeNull()
+
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+    expect(notify).toHaveBeenCalledWith('Failed to load documents.', 'error')
+  })
+
+  it('creates nothing when the daily note default fails to load', async () => {
+    const notify = vi.spyOn(store, 'notify')
+    const fetchMock = stubFetch({
+      GET: (url) =>
+        url.includes('/tasks/daily-note-seed')
+          ? fail()
+          : ok({ folders: DAILY_FOLDERS, documents: [] }),
+    })
+
+    await expect(store.openTodayNote()).resolves.toBeNull()
+
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+    expect(notify).toHaveBeenCalledWith('Failed to load the daily note default.', 'error')
+  })
+
+  it('creates no note when the month’s page fails to load', async () => {
+    store.dailyNoteSeedLoaded = true
+    const create = vi.spyOn(store, 'createDocument')
+    vi.spyOn(store, 'request').mockImplementation(async (_, { params }) => {
+      const url = new URL(`https://fixture.invalid/${params}`)
+      if (url.searchParams.get('view') === 'meta') {
+        return { folders: DAILY_FOLDERS, tags: [], version: '1' }
+      }
+      if (url.searchParams.get('folder') === 'f-month') throw new Error('offline')
+      return { documents: [], nextCursor: null }
+    })
+
+    await expect(store.openTodayNote()).resolves.toBeNull()
+
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('does not create folders while the workspace is not loaded', async () => {
+    const create = vi.spyOn(store, 'createFolder')
+
+    await expect(store.findOrCreateFolder('Daily', null)).resolves.toBeNull()
+
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('shares one daily note default request between concurrent callers', async () => {
+    const fetchMock = stubFetch({ GET: () => ok({ blocks: [{ type: 'paragraph', data: {} }] }) })
+
+    const results = await Promise.all([store.loadDailyNoteSeed(), store.loadDailyNoteSeed()])
+
+    expect(results).toEqual([true, true])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('syncDocumentPages', () => {
+  beforeEach(() => {
+    store.workspacePaged = true
+    store.workspaceTags = [{ name: 'home', count: 3 }]
+    store.documents = DOCS.map((doc) => ({ ...doc }))
+    store.pages = {
+      '[null,false,null]': { ids: ['d-1', 'd-2'], loaded: true },
+      '["root",false,null]': { ids: ['d-2'], loaded: true },
+    }
+  })
+
+  it('leaves pages and tag counts alone for a content-only edit', () => {
+    const pages = Object.values(store.pages).map((page) => page.ids)
+    const tags = store.workspaceTags
+    const row = store.documents[0]
+    const previous = { ...row }
+    row.title = 'Renamed'
+    row.emoji = '📌'
+
+    store.syncDocumentPages(row, previous)
+
+    expect(Object.values(store.pages).map((page) => page.ids)).toEqual(pages)
+    expect(Object.values(store.pages)[0].ids).toBe(pages[0])
+    expect(store.workspaceTags).toBe(tags)
+  })
+
+  it('reorders pages when a save moves updated_at on', () => {
+    const row = store.documents[1]
+    const previous = { ...row }
+    row.updated_at = 't9'
+
+    store.syncDocumentPages(row, previous)
+
+    expect(store.pageFor({}).ids).toEqual(['d-2', 'd-1'])
+  })
+
+  it('files every document of a deleted folder in one pass', async () => {
+    store.documents.push({ ...DOCS[0], id: 'd-3', updated_at: 't1' })
+    store.folders = [...FOLDERS]
+    stubFetch({ DELETE: () => ok({}), GET: () => ok({ documents: [], nextCursor: null }) })
+    const sync = vi.spyOn(store, 'syncDocumentPagesBatch')
+
+    await store.deleteFolder('f-1')
+
+    expect(sync).toHaveBeenCalledTimes(1)
+    expect(sync.mock.calls[0][0].map(({ document }) => document.id)).toEqual(['d-1', 'd-3'])
+  })
+})

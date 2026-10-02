@@ -4,9 +4,10 @@ import { jsonRequest } from '../lib/jsonRequest'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
+import { createSharedLoad } from '../lib/sharedLoad'
 import { useInboxStore } from './inbox'
 
-const projectLoads = new WeakMap()
+const projectLoads = createSharedLoad()
 const projectMutations = new WeakMap()
 
 // Cookie-owned projects for the Tasks sidebar. Shaped after stores/documents.js:
@@ -75,32 +76,34 @@ export const useProjectsStore = defineStore('projects', {
       return jsonRequest(`${TASKS_API_URL}/projects`, { method, headers, body })
     },
 
-    async loadProjects({ force = false } = {}) {
-      if (this.isLoaded && !force) return
-      const inFlight = projectLoads.get(toRaw(this))
-      if (inFlight) return inFlight
-      this.isLoading = true
-      const load = (async () => {
-        try {
-          const { projects } = await this.request('GET')
-          this.projects = projects
-          this.isLoaded = true
-        } catch (error) {
-          console.error('Failed to load projects:', error)
-          this.notify('Failed to load projects.', 'error')
-        } finally {
-          this.isLoading = false
-          projectLoads.delete(toRaw(this))
-        }
-      })()
-      projectLoads.set(toRaw(this), load)
-      return load
+    // Resolves true once projects are loaded, false when the load failed.
+    loadProjects({ force = false } = {}) {
+      if (this.isLoaded && !force) return Promise.resolve(true)
+      return projectLoads(
+        toRaw(this),
+        async () => {
+          this.isLoading = true
+          try {
+            const { projects } = await this.request('GET')
+            this.projects = projects
+            this.isLoaded = true
+            return true
+          } catch (error) {
+            console.error('Failed to load projects:', error)
+            this.notify('Failed to load projects.', 'error')
+            return false
+          } finally {
+            this.isLoading = false
+          }
+        },
+        { force },
+      )
     },
 
     // Created rows come back from the server rather than being guessed at
     // locally, so the id in state is the one that was stored.
     async createProject({ name, parentId = null }) {
-      await projectLoads.get(toRaw(this))
+      await projectLoads.current(toRaw(this))
       try {
         const { project } = await this.request('POST', { name, parentId })
         this.projects.push(project)
@@ -113,7 +116,7 @@ export const useProjectsStore = defineStore('projects', {
     },
 
     async patchProject(id, changes, failureMessage) {
-      await projectLoads.get(toRaw(this))
+      await projectLoads.current(toRaw(this))
       let project = this.projects.find((row) => row.id === id)
       if (!project) {
         // The sidebar only ever calls this with an id from a row it is
@@ -164,7 +167,7 @@ export const useProjectsStore = defineStore('projects', {
     // The server cascades to sub-projects, so local state has to drop the
     // whole subtree or the sidebar would keep rendering rows that are gone.
     async deleteProject(id) {
-      await projectLoads.get(toRaw(this))
+      await projectLoads.current(toRaw(this))
       const doomed = new Set([id, ...this.descendantIds(id)])
       const removed = []
       this.projects.forEach((project, index) => {

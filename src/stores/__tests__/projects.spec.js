@@ -174,3 +174,23 @@ it('serializes project edits so a late full-row response cannot undo the next ed
   await Promise.all([rename, move])
   expect(store.projects[0]).toMatchObject({ name: 'Renamed', parentId: 'p2' })
 })
+
+it('refetches after an in-flight load when a forced reload arrives meanwhile', async () => {
+  const responses = []
+  vi.spyOn(store, 'request').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        responses.push(resolve)
+      }),
+  )
+
+  const first = store.loadProjects()
+  const forced = store.loadProjects({ force: true })
+  responses[0]({ projects: [PROJECT] })
+  await first
+  await vi.waitFor(() => expect(responses).toHaveLength(2))
+  responses[1]({ projects: [PROJECT, { ...PROJECT, id: 'p2' }] })
+
+  await expect(forced).resolves.toBe(true)
+  expect(store.projects).toHaveLength(2)
+})

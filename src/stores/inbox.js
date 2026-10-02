@@ -1,7 +1,7 @@
 import { startTiming } from '../lib/performance'
 import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
-import { markRaw } from 'vue'
+import { markRaw, toRaw } from 'vue'
 import { parseAutoArchive } from '../lib/autoArchive'
 import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
@@ -328,6 +328,9 @@ export function localDayKey(sentAt) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
 }
 
+// How many composer attachments upload at once.
+const ATTACHMENT_UPLOAD_CONCURRENCY = 3
+
 // Autosave cadence. Short enough that a crashed tab loses at most a phrase,
 // long enough that ordinary typing produces one write per pause rather than
 // one per keystroke. The composer and the inline reply box each get their own
@@ -356,6 +359,39 @@ let replyHandoff = null
 // while one of these is non-zero.
 let composerSavesPending = 0
 let replySavesPending = 0
+// The newest save queued on each surface. A queued save that a newer one for
+// the same message has overtaken is skipped when its turn comes: the newer
+// one carries everything it would have written (coalescing typing pauses
+// into one write rather than a backlog of stale ones).
+let composerSaveTicket = 0
+let latestComposerSave = { ticket: 0, session: -1 }
+let replySaveTicket = 0
+let latestReplySave = { ticket: 0, session: -1 }
+// Bumped when a conflict replaces a surface's content with the server's
+// draft: saves queued before that carry the content it replaced.
+let composerAdoptions = 0
+let replyAdoptions = 0
+// Optimistic concurrency for PATCH /drafts/:id: the updatedAt of the version
+// this client last received for each draft, sent back as expectedUpdatedAt so
+// a save cannot silently overwrite an edit made in another tab. Writes to one
+// draft run one at a time (draftWrites) so each sends the version the
+// previous one returned, whichever surface (composer or reply box) sent it.
+// Kept per store, so a fresh store (a new account) starts with none.
+const draftSyncs = new WeakMap()
+function draftSyncFor(store) {
+  store = toRaw(store)
+  if (!draftSyncs.has(store)) draftSyncs.set(store, { versions: new Map(), writes: new Map() })
+  return draftSyncs.get(store)
+}
+
+// A save refused because the draft changed elsewhere; carries the server's
+// current draft, which the caller adopts.
+class DraftConflictError extends Error {
+  constructor(draft) {
+    super('Draft changed elsewhere')
+    this.draft = draft
+  }
+}
 // The newest AI compose request; only it may clear isAiDraftLoading.
 let aiDraftRequestSeq = 0
 
@@ -712,6 +748,10 @@ export const useInboxStore = defineStore('inbox', {
     // first save of a session creates one.
     composerDraftId: null,
     replyDraftId: null,
+    // Set when a reply-box save found its draft changed in another tab:
+    // { session, draft } with the server's draft, for the reply box (which
+    // owns its own content) to load in place of what it holds.
+    replyDraftConflict: null,
     // Identifies one composing session — one message being written. Bumped
     // whenever a surface starts a new message or hands the current one off to
     // a send. Uploads and saves capture it and refuse to apply their result to
@@ -1136,7 +1176,12 @@ export const useInboxStore = defineStore('inbox', {
           this.emailsCursor = nextCursor ?? null
           this.hasMoreEmails = Boolean(nextCursor)
         }
-        this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : this.unreadInboxCount
+        // Like the rows above, the count keeps its optimistic value while a
+        // read/unread change is still on its way: the server's count may
+        // predate it, and taking it would undo the change on screen.
+        if (Number.isFinite(unreadCount) && !pendingUnreadUpdates.size) {
+          this.unreadInboxCount = unreadCount
+        }
         this.applyFolderCounts(page)
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
@@ -3265,7 +3310,9 @@ export const useInboxStore = defineStore('inbox', {
       const response = await fetch(`${TASKS_API_URL}/tasks`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ id, action: 'complete' }),
+        // The person's own date: completing a recurring task schedules its
+        // next occurrence from today, and the Worker's clock is UTC.
+        body: JSON.stringify({ id, action: 'complete', today: localToday() }),
       })
       if (!response.ok) {
         throw new Error(`POST /api/tasks responded ${response.status}`)
@@ -3412,6 +3459,7 @@ export const useInboxStore = defineStore('inbox', {
 
     forgetDraft(draftId) {
       if (!draftId) return
+      draftSyncFor(this).versions.delete(draftId)
       this.applyDraftEdit({ kind: 'drop', id: draftId })
     },
 
@@ -3422,8 +3470,23 @@ export const useInboxStore = defineStore('inbox', {
 
     // Creates the row on first save and replaces it on every save after.
     // Returns the draft id, or null when the save left nothing worth keeping
-    // (the worker deletes a draft that has been emptied out).
-    async persistDraft(draftId, draft) {
+    // (the worker deletes a draft that has been emptied out). Throws a
+    // DraftConflictError (with the server's draft, already listed) when the
+    // draft changed in another tab since this client last saw it.
+    persistDraft(draftId, draft) {
+      if (!draftId) return this.writeDraft(null, draft)
+      return serializePerMessage(draftSyncFor(this).writes, draftId, () =>
+        this.writeDraft(draftId, draft),
+      )
+    },
+
+    // The version of a draft this client's content is based on, as last
+    // received from the server (a save's response, or opening the draft).
+    noteDraftVersion(draft) {
+      if (draft?.id && draft.updatedAt) draftSyncFor(this).versions.set(draft.id, draft.updatedAt)
+    },
+
+    async writeDraft(draftId, draft) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const payload = {
         to: draft.to ?? '',
@@ -3434,6 +3497,8 @@ export const useInboxStore = defineStore('inbox', {
         followUpAt: draft.followUpAt ?? null,
         attachmentIds: (draft.attachments ?? []).map(({ id }) => id),
       }
+      const expectedUpdatedAt = draftId ? draftSyncFor(this).versions.get(draftId) : null
+      if (expectedUpdatedAt) payload.expectedUpdatedAt = expectedUpdatedAt
       const response = await fetch(
         draftId
           ? `${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}`
@@ -3453,9 +3518,20 @@ export const useInboxStore = defineStore('inbox', {
         this.forgetDraft(draftId)
         return this.persistDraft(null, draft)
       }
+      // Changed in another tab: nothing was written. The server's version
+      // becomes the one this client holds.
+      if (response.status === 409 && draftId) {
+        const { draft: current } = await response.json().catch(() => ({}))
+        if (current?.id) {
+          this.noteDraftVersion(current)
+          this.rememberDraft(current)
+          throw new DraftConflictError(current)
+        }
+      }
       if (!response.ok) throw new Error(`Draft save responded ${response.status}`)
       const { draft: saved } = await response.json()
       if (!saved?.id) return null
+      this.noteDraftVersion(saved)
       this.rememberDraft({ ...draft, id: saved.id, updatedAt: saved.updatedAt })
       return saved.id
     },
@@ -3474,7 +3550,32 @@ export const useInboxStore = defineStore('inbox', {
         attachments: [...this.composerAttachments],
         draftId: this.composerDraftId,
         owner: this.composeOwnerSub,
+        adoption: composerAdoptions,
       }
+    },
+
+    // A composer save found its draft changed in another tab. If that draft
+    // is still the one on screen, the composer takes the server's version
+    // (the save wrote nothing, so this tab's edits since then are dropped).
+    adoptConflictingComposerDraft(session, draft, closing) {
+      const onScreen =
+        !closing &&
+        this.isComposerActive &&
+        session === this.composerSessionId &&
+        this.composerDraftId === draft.id
+      if (!onScreen) {
+        this.notify('This draft was changed in another tab, so your latest edits were not saved.')
+        return
+      }
+      composerAdoptions += 1
+      this.composerTo = draft.to ?? ''
+      this.composerSubject = draft.subject ?? ''
+      this.composerTextArea = draft.text ?? ''
+      this.composerHtml = draft.html ?? ''
+      this.composerReplyToMessageId = draft.replyToMessageId ?? null
+      this.composerFollowUpAt = draft.followUpAt ?? null
+      this.composerAttachments = draft.attachments ?? []
+      this.notify('This draft was changed in another tab. Showing the latest version.')
     },
 
     // Autosave is best-effort: a failed save must never interrupt typing or
@@ -3485,6 +3586,8 @@ export const useInboxStore = defineStore('inbox', {
       // the account changed. Any other save is for the message on screen.
       if (draft.closing ? draft.owner !== this.composeOwnerSub : session !== this.composerSessionId)
         return
+      // Taken before a conflict replaced the composer's content.
+      if (draft.adoption !== undefined && draft.adoption !== composerAdoptions) return
       // The row this message already has. A close cleared composerDraftId;
       // when the snapshot had no id yet, a save queued ahead of this one may
       // have created the row since.
@@ -3503,14 +3606,32 @@ export const useInboxStore = defineStore('inbox', {
         if (session !== this.composerSessionId || !this.isComposerActive) return
         this.composerDraftId = draftId
       } catch (error) {
+        if (error instanceof DraftConflictError) {
+          lastComposerSave = { session, draftId: rowId }
+          this.adoptConflictingComposerDraft(session, error.draft, draft.closing)
+          return
+        }
         console.error('Draft autosave failed:', error)
       }
     },
 
     saveComposerDraft(session = this.composerSessionId, draft = this.composerDraftSnapshot()) {
       composerSavesPending += 1
+      const ticket = ++composerSaveTicket
+      if (draft) latestComposerSave = { ticket, session }
       composerSaveChain = composerSaveChain
-        .then(() => this.writeComposerDraft(session, draft))
+        .then(() => {
+          // Overtaken by a newer save of the same message: that one writes.
+          // A close's save is never skipped; it is the message's last word.
+          if (
+            draft &&
+            !draft.closing &&
+            latestComposerSave.session === session &&
+            latestComposerSave.ticket > ticket
+          )
+            return
+          return this.writeComposerDraft(session, draft)
+        })
         .finally(() => {
           composerSavesPending -= 1
         })
@@ -3535,22 +3656,42 @@ export const useInboxStore = defineStore('inbox', {
       return this.saveComposerDraft()
     },
 
-    async writeReplyDraft(draft, session) {
-      if (session !== this.replySessionId) return
+    async writeReplyDraft(draft, session, adoption = replyAdoptions) {
+      if (session !== this.replySessionId || adoption !== replyAdoptions) return
+      const rowId = this.replyDraftId
       try {
-        const draftId = await this.persistDraft(this.replyDraftId, draft)
+        const draftId = await this.persistDraft(rowId, draft)
         lastReplySave = { session, draftId }
         if (session !== this.replySessionId) return
         this.replyDraftId = draftId
       } catch (error) {
+        if (error instanceof DraftConflictError) {
+          lastReplySave = { session, draftId: rowId }
+          if (session === this.replySessionId && this.replyDraftId === error.draft.id) {
+            replyAdoptions += 1
+            this.replyDraftConflict = { session, draft: error.draft }
+            this.notify('This draft was changed in another tab. Showing the latest version.')
+          } else {
+            this.notify(
+              'This draft was changed in another tab, so your latest edits were not saved.',
+            )
+          }
+          return
+        }
         console.error('Reply draft autosave failed:', error)
       }
     },
 
     saveReplyDraft(draft, session = this.replySessionId) {
       replySavesPending += 1
+      const ticket = ++replySaveTicket
+      const adoption = replyAdoptions
+      latestReplySave = { ticket, session }
       replySaveChain = replySaveChain
-        .then(() => this.writeReplyDraft(draft, session))
+        .then(() => {
+          if (latestReplySave.session === session && latestReplySave.ticket > ticket) return
+          return this.writeReplyDraft(draft, session, adoption)
+        })
         .finally(() => {
           replySavesPending -= 1
         })
@@ -3582,6 +3723,10 @@ export const useInboxStore = defineStore('inbox', {
         const savedId = draftId || (handoff ? await handoff : null)
         await this.persistDraft(savedId, draft)
       } catch (error) {
+        if (error instanceof DraftConflictError) {
+          this.notify('This draft was changed in another tab, so your latest edits were not saved.')
+          return
+        }
         console.error('Reply draft autosave failed:', error)
         this.notify('Could not save your reply draft.', 'error')
       }
@@ -3673,7 +3818,9 @@ export const useInboxStore = defineStore('inbox', {
           headers,
         })
         if (!response.ok) throw new Error(`GET draft responded ${response.status}`)
-        return (await response.json()).draft
+        const { draft: loaded } = await response.json()
+        this.noteDraftVersion(loaded)
+        return loaded
       } catch (error) {
         console.error('Failed to open draft:', error)
         this.notify('Could not open your draft. Please try again.', 'error')
@@ -3693,6 +3840,8 @@ export const useInboxStore = defineStore('inbox', {
       // edits to the server before its state is overwritten, and await it so
       // the write cannot land after this draft has taken the composer over.
       if (this.isComposerActive) await this.flushComposerDraft()
+      // The composer's content is now this version of the draft.
+      this.noteDraftVersion(draft)
       this.composerSessionId += 1
       this.composerTo = draft.to ?? ''
       this.composerSubject = draft.subject ?? ''
@@ -3721,23 +3870,39 @@ export const useInboxStore = defineStore('inbox', {
         this.notify(`Only the first ${room} of those files were attached.`, 'info')
       }
 
-      const uploaded = []
-      for (const file of picked.slice(0, room)) {
-        this.pendingAttachmentUploads += 1
-        try {
-          const attachment = await uploadAttachment(file, {
-            userId: this.userId,
-            authHeaders: (extra) => this.authHeaders(extra),
-          })
-          uploaded.push({ ...attachment, source: 'upload' })
-        } catch (error) {
-          console.error('Attachment upload failed:', error)
-          this.notify(`Could not attach ${file.name}.`, 'error')
-        } finally {
-          this.pendingAttachmentUploads -= 1
+      // A few uploads at once rather than one after another; results keep
+      // the order the files were picked in.
+      const queue = picked.slice(0, room)
+      const results = Array.from({ length: queue.length }, () => null)
+      let next = 0
+      const worker = async () => {
+        while (next < queue.length) {
+          const index = next++
+          const file = queue[index]
+          this.pendingAttachmentUploads += 1
+          try {
+            const attachment = await this.uploadAttachmentFile(file)
+            results[index] = { ...attachment, source: 'upload' }
+          } catch (error) {
+            console.error('Attachment upload failed:', error)
+            this.notify(`Could not attach ${file.name}.`, 'error')
+          } finally {
+            this.pendingAttachmentUploads -= 1
+          }
         }
       }
-      return uploaded
+      await Promise.all(
+        Array.from({ length: Math.min(ATTACHMENT_UPLOAD_CONCURRENCY, queue.length) }, worker),
+      )
+      return results.filter(Boolean)
+    },
+
+    // One file to storage; the stored attachment row.
+    uploadAttachmentFile(file) {
+      return uploadAttachment(file, {
+        userId: this.userId,
+        authHeaders: (extra) => this.authHeaders(extra),
+      })
     },
 
     // Uploads that outlived the message they were picked for have no owner:

@@ -27,6 +27,12 @@ export function isDeadSession(error) {
 // — a new sign-in attempt — starts clean.
 const redirecting = new WeakSet()
 
+// How long a started redirect holds the latch. Leaving the page normally ends
+// this document first; if the person is still here after this (they chose
+// "Stay" on a leave-page prompt, or the navigation was cancelled), the latch
+// is released so a later failure can send them to sign in again.
+export const REDIRECT_LATCH_MS = 5000
+
 /**
  * Bearer-token headers for a Worker call, plus whatever `extra` carries.
  *
@@ -58,6 +64,7 @@ export async function authHeaders(extra = {}) {
         // from window.location because importing the router here would cycle.
         const { pathname, search, hash } = window.location
         await auth0.loginWithRedirect({ appState: { target: `${pathname}${search}${hash}` } })
+        setTimeout(() => redirecting.delete(auth0), REDIRECT_LATCH_MS)
       } catch (redirectError) {
         // No navigation is coming, so release the latch: otherwise this client
         // is marked as redirecting for good and a later call can never retry.

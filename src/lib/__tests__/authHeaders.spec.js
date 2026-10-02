@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { setAuth0Client } from '../../auth0-client'
-import { authHeaders } from '../authHeaders'
+import { REDIRECT_LATCH_MS, authHeaders } from '../authHeaders'
 
 // The redirect latch is keyed on the client, so a fresh stub per test is all
 // the isolation these need — no module reset, and no re-importing auth0-vue.
@@ -138,5 +138,25 @@ describe('authHeaders', () => {
     await expect(authHeaders()).rejects.toThrow('nope')
 
     expect(client.loginWithRedirect).toHaveBeenCalledTimes(2)
+  })
+
+  // A leave-page prompt can keep the person here ("Stay"): the latch must not
+  // outlive that, or no later failure could send them to sign in.
+  it('redirects again once a redirect that never navigated has timed out', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = auth0Stub({ error: auth0Error('invalid_grant') })
+      const { authHeaders } = withClient(client)
+
+      await expect(authHeaders()).rejects.toThrow('nope')
+      await expect(authHeaders()).rejects.toThrow('nope')
+      expect(client.loginWithRedirect).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(REDIRECT_LATCH_MS)
+      await expect(authHeaders()).rejects.toThrow('nope')
+      expect(client.loginWithRedirect).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

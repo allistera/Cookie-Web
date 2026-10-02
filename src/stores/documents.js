@@ -18,9 +18,11 @@ import {
   formatDailyYearFolder,
   parseDailyNoteDate,
 } from '../lib/documentDates'
+import { createSharedLoad } from '../lib/sharedLoad'
 import { useInboxStore } from './inbox'
 
-const workspaceLoads = new WeakMap()
+const workspaceLoads = createSharedLoad()
+const dailyNoteSeedLoads = createSharedLoad()
 const pageLoads = new WeakMap()
 // The in-flight openTodayNote per store: the palette and the sidebar can both
 // ask at once, and two runs would each create the Daily folders and the note.
@@ -30,6 +32,20 @@ const metaRequests = new WeakMap()
 let metaSeq = 0
 export const documentPageKey = (scope = {}) =>
   JSON.stringify([scope.folder ?? null, Boolean(scope.starred), scope.tag || null])
+
+// Whether a row's page membership and order (folder, star, tag, updated_at)
+// are unchanged, so a content-only edit need not touch the pages.
+function samePageFields(document, previous) {
+  return Boolean(
+    document &&
+    previous &&
+    document.id === previous.id &&
+    (document.folder_id ?? null) === (previous.folder_id ?? null) &&
+    Boolean(document.starred) === Boolean(previous.starred) &&
+    document.updated_at === previous.updated_at &&
+    JSON.stringify(document.tags ?? []) === JSON.stringify(previous.tags ?? []),
+  )
+}
 
 // Search: mirrors inbox.js's searchAbortController, kept at module scope for
 // the same reason (an AbortController isn't reactive state).
@@ -305,68 +321,70 @@ export const useDocumentsStore = defineStore('documents', {
       return response.blob()
     },
 
-    async loadWorkspace({ force = false } = {}) {
-      if (this.isLoaded && !force) return
-      const inFlight = workspaceLoads.get(toRaw(this))
-      if (inFlight) return inFlight
+    // Resolves true once the folders and the default pages are loaded, false
+    // when the load failed (it has already told the person). Callers that
+    // build on the workspace, like openTodayNote, must check it.
+    loadWorkspace({ force = false } = {}) {
+      if (this.isLoaded && !force) return Promise.resolve(true)
+      return workspaceLoads(toRaw(this), () => this.fetchWorkspace(), { force })
+    },
+
+    async fetchWorkspace() {
       this.isLoading = true
-      const load = (async () => {
-        try {
-          const version = this.workspaceVersion
-            ? `&version=${encodeURIComponent(this.workspaceVersion)}`
-            : ''
-          const metadata = await this.request('GET', { params: `?view=meta${version}` })
-          if (metadata.unchanged) {
-            await Promise.all(
-              Object.entries(this.pages)
-                .filter(([, page]) => !page.loaded)
-                .map(([key]) => {
-                  const [folder, starred, tag] = JSON.parse(key)
-                  return this.loadDocumentPage({ folder, starred, tag })
-                }),
-            )
-            return
-          }
-          this.folders = metadata.folders
-          if (Array.isArray(metadata.documents)) {
-            // Older Workers and local fixtures still return the full workspace.
-            this.workspacePaged = false
-            this.workspaceVersion = null
-            this.pages = {}
-            this.documents = metadata.documents
-          } else {
-            this.workspacePaged = true
-            this.workspaceVersion = metadata.version
-            this.workspaceTags = metadata.tags ?? []
-            // Whatever was on screen (or asked for before this load landed)
-            // comes back alongside the defaults; a reset that reloaded only
-            // the defaults left the open folder empty until the next visit.
-            const wanted = Object.keys(this.pages).map((key) => {
-              const [folder, starred, tag] = JSON.parse(key)
-              return { folder, starred, tag }
-            })
-            this.pages = {}
-            pageLoads.delete(toRaw(this))
-            this.documents = []
-            const scopes = new Map(
-              [{}, { folder: 'root' }, { starred: true }, ...wanted].map((scope) => [
-                documentPageKey(scope),
-                scope,
-              ]),
-            )
-            await Promise.all([...scopes.values()].map((scope) => this.loadDocumentPage(scope)))
-          }
-          this.isLoaded = true
-        } catch (error) {
-          console.error('Failed to load documents:', error)
-          this.notify('Failed to load documents.', 'error')
-        } finally {
-          this.isLoading = false
-          workspaceLoads.delete(toRaw(this))
+      try {
+        const version = this.workspaceVersion
+          ? `&version=${encodeURIComponent(this.workspaceVersion)}`
+          : ''
+        const metadata = await this.request('GET', { params: `?view=meta${version}` })
+        if (metadata.unchanged) {
+          await Promise.all(
+            Object.entries(this.pages)
+              .filter(([, page]) => !page.loaded)
+              .map(([key]) => {
+                const [folder, starred, tag] = JSON.parse(key)
+                return this.loadDocumentPage({ folder, starred, tag })
+              }),
+          )
+          return true
         }
-      })()
-      workspaceLoads.set(toRaw(this), load)
-      return load
+        this.folders = metadata.folders
+        if (Array.isArray(metadata.documents)) {
+          // Older Workers and local fixtures still return the full workspace.
+          this.workspacePaged = false
+          this.workspaceVersion = null
+          this.pages = {}
+          this.documents = metadata.documents
+        } else {
+          this.workspacePaged = true
+          this.workspaceVersion = metadata.version
+          this.workspaceTags = metadata.tags ?? []
+          // Whatever was on screen (or asked for before this load landed)
+          // comes back alongside the defaults; a reset that reloaded only
+          // the defaults left the open folder empty until the next visit.
+          const wanted = Object.keys(this.pages).map((key) => {
+            const [folder, starred, tag] = JSON.parse(key)
+            return { folder, starred, tag }
+          })
+          this.pages = {}
+          pageLoads.delete(toRaw(this))
+          this.documents = []
+          const scopes = new Map(
+            [{}, { folder: 'root' }, { starred: true }, ...wanted].map((scope) => [
+              documentPageKey(scope),
+              scope,
+            ]),
+          )
+          await Promise.all([...scopes.values()].map((scope) => this.loadDocumentPage(scope)))
+        }
+        this.isLoaded = true
+        return true
+      } catch (error) {
+        console.error('Failed to load documents:', error)
+        this.notify('Failed to load documents.', 'error')
+        return false
+      } finally {
+        this.isLoading = false
+      }
     },
 
     pageFor(scope = {}) {
@@ -380,6 +398,8 @@ export const useDocumentsStore = defineStore('documents', {
       return ids.map((id) => byId.get(id)).filter(Boolean)
     },
 
+    // Resolves true when the page's rows are in `documents`, false when they
+    // are not (the load failed and said so, or the workspace isn't loaded).
     async loadDocumentPage(scope = {}, { more = false, force = false } = {}) {
       const key = documentPageKey(scope)
       if (!this.workspacePaged) {
@@ -390,11 +410,11 @@ export const useDocumentsStore = defineStore('documents', {
         if (!this.isLoaded) {
           this.pages[key] ??= { ids: [], nextCursor: null, loaded: false, loading: false }
         }
-        return
+        return this.isLoaded
       }
       const old = this.pages[key]
-      if (old?.loaded && !more && !force) return
-      if (more && !old?.nextCursor) return
+      if (old?.loaded && !more && !force) return true
+      if (more && !old?.nextCursor) return Boolean(old?.loaded)
       const pending = pageLoads.get(toRaw(this)) ?? new Map()
       pageLoads.set(toRaw(this), pending)
       if (pending.has(key)) return pending.get(key)
@@ -410,15 +430,23 @@ export const useDocumentsStore = defineStore('documents', {
       const request = (async () => {
         try {
           const { documents, nextCursor } = await this.request('GET', { params: `?${params}` })
-          if (version !== this.workspaceVersion || this.pages[key] !== page) return
+          if (version !== this.workspaceVersion || this.pages[key] !== page) {
+            // Superseded by a workspace reload or a reset page: answer with
+            // whatever replaced this load rather than this stale result.
+            const next = pageLoads.get(toRaw(this))?.get(key)
+            if (next && next !== request) return next
+            return Boolean(this.pages[key]?.loaded)
+          }
           const byId = new Map(this.documents.map((doc) => [doc.id, doc]))
           for (const doc of documents) byId.set(doc.id, doc)
           this.documents = [...byId.values()]
           page.ids = [...new Set([...(more ? page.ids : []), ...documents.map((doc) => doc.id)])]
           page.nextCursor = nextCursor ?? null
           page.loaded = true
+          return true
         } catch (error) {
           this.notify(error.userMessage || 'Failed to load documents.', 'error')
+          return false
         } finally {
           page.loading = false
           if (pending.get(key) === request) pending.delete(key)
@@ -431,33 +459,61 @@ export const useDocumentsStore = defineStore('documents', {
     // Opening a new document flushes any edit still waiting on the debounce
     // timer so switching documents never drops the tail of the last one.
     syncDocumentPages(document, previous = null) {
+      this.syncDocumentPagesBatch([{ document, previous }])
+    },
+
+    // Files changed rows on the cached pages (and the tag counts) in one pass:
+    // each change is { document, previous }, where either may be null for a
+    // created or deleted row. Changes that leave a row's folder, star, tags
+    // and updated_at alone (title, emoji or block edits) touch nothing.
+    syncDocumentPagesBatch(changes) {
       if (!this.workspacePaged) return
-      const counts = new Map(this.workspaceTags.map(({ name, count }) => [name, count]))
-      for (const tag of previous?.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) - 1)
-      for (const tag of document?.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1)
-      this.workspaceTags = [...counts]
-        .filter(([, count]) => count > 0)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([name, count]) => ({ name, count }))
-      const id = document?.id ?? previous?.id
+      changes = changes.filter(({ document, previous }) => !samePageFields(document, previous))
+      if (!changes.length) return
+      const tagsChanged = changes.some(
+        ({ document, previous }) =>
+          JSON.stringify(document?.tags ?? []) !== JSON.stringify(previous?.tags ?? []),
+      )
+      if (tagsChanged) {
+        const counts = new Map(this.workspaceTags.map(({ name, count }) => [name, count]))
+        for (const { document, previous } of changes) {
+          for (const tag of previous?.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) - 1)
+          for (const tag of document?.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+        }
+        this.workspaceTags = [...counts]
+          .filter(([, count]) => count > 0)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, count]) => ({ name, count }))
+      }
+      const ids = new Set(changes.map(({ document, previous }) => document?.id ?? previous?.id))
+      let byId = null
       for (const [key, page] of Object.entries(this.pages)) {
         const [folder, starred, tag] = JSON.parse(key)
-        page.ids = page.ids.filter((existing) => existing !== id)
-        if (
-          document &&
-          (!folder || (folder === 'root' ? !document.folder_id : document.folder_id === folder)) &&
-          (!starred || document.starred) &&
-          (!tag || document.tags?.includes(tag))
-        ) {
-          page.ids.unshift(id)
-          const byId = new Map(this.documents.map((row) => [row.id, row]))
-          page.ids.sort(
-            (a, b) =>
-              String(byId.get(b)?.updated_at ?? '').localeCompare(
-                String(byId.get(a)?.updated_at ?? ''),
-              ) || b.localeCompare(a),
+        const kept = page.ids.filter((existing) => !ids.has(existing))
+        const added = changes
+          .map(({ document }) => document)
+          .filter(
+            (document) =>
+              document &&
+              (!folder ||
+                (folder === 'root' ? !document.folder_id : document.folder_id === folder)) &&
+              (!starred || document.starred) &&
+              (!tag || document.tags?.includes(tag)),
           )
+        if (!added.length) {
+          if (kept.length !== page.ids.length) page.ids = kept
+          continue
         }
+        if (!byId) {
+          byId = new Map(this.documents.map((row) => [row.id, row]))
+          for (const { document } of changes) if (document) byId.set(document.id, document)
+        }
+        page.ids = [...new Set([...added.map((document) => document.id), ...kept])].sort(
+          (a, b) =>
+            String(byId.get(b)?.updated_at ?? '').localeCompare(
+              String(byId.get(a)?.updated_at ?? ''),
+            ) || b.localeCompare(a),
+        )
       }
     },
 
@@ -604,23 +660,35 @@ export const useDocumentsStore = defineStore('documents', {
     // The user's customized default content for new daily notes (Settings >
     // Documents > Time Management). [] means "not customized" — callers fall
     // back to DEFAULT_DAILY_NOTE_SEED_BLOCKS themselves.
-    async loadDailyNoteSeed({ force = false } = {}) {
-      if ((this.dailyNoteSeedLoaded && !force) || this.dailyNoteSeedLoading) return
-      this.dailyNoteSeedLoading = true
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`${TASKS_API_URL}/tasks/daily-note-seed`, { headers })
-        if (!response.ok) {
-          throw new Error(`GET daily-note-seed responded ${response.status}`)
-        }
-        const { blocks } = await response.json()
-        this.dailyNoteSeed = blocks
-        this.dailyNoteSeedLoaded = true
-      } catch (error) {
-        console.error('Failed to load the daily note default:', error)
-      } finally {
-        this.dailyNoteSeedLoading = false
-      }
+    // Resolves true once the seed is known, false when the load failed (it
+    // has already told the person). Concurrent calls share one request, so
+    // openTodayNote never reads the seed while the settings pane loads it.
+    loadDailyNoteSeed({ force = false } = {}) {
+      if (this.dailyNoteSeedLoaded && !force) return Promise.resolve(true)
+      return dailyNoteSeedLoads(
+        toRaw(this),
+        async () => {
+          this.dailyNoteSeedLoading = true
+          try {
+            const headers = await this.authHeaders()
+            const response = await fetch(`${TASKS_API_URL}/tasks/daily-note-seed`, { headers })
+            if (!response.ok) {
+              throw new Error(`GET daily-note-seed responded ${response.status}`)
+            }
+            const { blocks } = await response.json()
+            this.dailyNoteSeed = blocks
+            this.dailyNoteSeedLoaded = true
+            return true
+          } catch (error) {
+            console.error('Failed to load the daily note default:', error)
+            this.notify('Failed to load the daily note default.', 'error')
+            return false
+          } finally {
+            this.dailyNoteSeedLoading = false
+          }
+        },
+        { force },
+      )
     },
 
     async saveDailyNoteSeed(blocks) {
@@ -685,7 +753,13 @@ export const useDocumentsStore = defineStore('documents', {
 
     // Looks up a folder by parent + title among already-loaded folders,
     // creating it if missing — used to lazily build the Daily/Year/Month tree.
+    // Refuses while the folders aren't loaded: "missing" would only mean
+    // "not fetched", and creating it would duplicate the folder.
     async findOrCreateFolder(title, parentId) {
+      if (!this.isLoaded) {
+        this.notify('Documents are not loaded yet. Please try again.', 'error')
+        return null
+      }
       const existing = this.folders.find((f) => f.parent_id === parentId && f.title === title)
       if (existing) return existing
       return await this.createFolder({ title, parentId })
@@ -710,7 +784,14 @@ export const useDocumentsStore = defineStore('documents', {
     async findOrCreateTodayNote() {
       // loadWorkspace and loadDailyNoteSeed are independent — run them
       // concurrently instead of sequentially to halve the waterfall depth.
-      await Promise.all([this.loadWorkspace(), this.loadDailyNoteSeed()])
+      // Either failing stops here (each has already said so): without the
+      // folders every Daily folder looks missing and gets created again, and
+      // without the seed the note would be filled with the wrong content.
+      const [workspaceLoaded, seedLoaded] = await Promise.all([
+        this.loadWorkspace(),
+        this.loadDailyNoteSeed(),
+      ])
+      if (!workspaceLoaded || !seedLoaded) return null
       const now = new Date()
       const title = formatDailyNoteTitle(now)
 
@@ -720,7 +801,9 @@ export const useDocumentsStore = defineStore('documents', {
       if (!year) return null
       const month = await this.findOrCreateFolder(formatDailyMonthFolder(now), year.id)
       if (!month) return null
-      await this.loadDocumentPage({ folder: month.id })
+      // Likewise today's note only counts as missing once the month's page
+      // has really loaded.
+      if (!(await this.loadDocumentPage({ folder: month.id }))) return null
 
       const existing = this.documents.find((d) => d.folder_id === month.id && d.title === title)
       if (existing) return existing
@@ -736,6 +819,10 @@ export const useDocumentsStore = defineStore('documents', {
         })
       } catch (error) {
         console.error('Failed to seed the daily note:', error)
+        this.notify(
+          'The daily note was created but its default content could not be saved.',
+          'error',
+        )
       }
       return document
     },
@@ -922,12 +1009,14 @@ export const useDocumentsStore = defineStore('documents', {
         // Files in a deleted folder fall back to the root on the server; drop
         // the cached pages so the next visit reloads them.
         this.filePages = {}
+        const moved = []
         for (const doc of this.documents) {
           if (!doomed.has(doc.folder_id)) continue
           const previous = { ...doc }
           doc.folder_id = null
-          this.syncDocumentPages(doc, previous)
+          moved.push({ document: doc, previous })
         }
+        this.syncDocumentPagesBatch(moved)
         // The deleted folders' pages are gone, and the root page gains
         // documents that were never loaded here, so refetch it.
         for (const key of Object.keys(this.pages)) {

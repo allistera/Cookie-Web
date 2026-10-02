@@ -2327,7 +2327,7 @@ describe('Inbox Store', () => {
     const [url, options] = fetchMock.mock.calls[0]
     expect(url).toBe(`${TASKS_API_URL}/tasks`)
     expect(options.method).toBe('POST')
-    expect(JSON.parse(options.body)).toEqual({ id: 't1', action: 'complete' })
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', action: 'complete', today: localToday() })
     expect(store.tasks.map((t) => t.id)).toEqual(['t2'])
   })
 
@@ -5527,5 +5527,278 @@ describe('ntfy subscription toggle', () => {
 
     expect(store.ntfySubscription).toEqual({ ...subscription, enabled: true })
     expect(store.isNtfyEnabled).toBe(true)
+  })
+})
+
+describe('draft optimistic concurrency', () => {
+  const DRAFT_ID = 'draft-occ'
+  const V1 = '2026-10-02T10:00:00.000Z'
+  const V2 = '2026-10-02T10:00:05.000Z'
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  function armComposer(store) {
+    store.isComposerActive = true
+    store.composerTo = 'someone@example.com'
+    store.composerSubject = 'Hello'
+    store.composerTextArea = 'Checking in.'
+  }
+
+  it('sends back the updatedAt each save received', async () => {
+    let version = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ draft: { id: DRAFT_ID, updatedAt: `v${++version}` } }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    armComposer(store)
+
+    await store.saveComposerDraft()
+    await store.saveComposerDraft()
+    await store.saveComposerDraft()
+
+    const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+    expect(bodies[0].expectedUpdatedAt).toBeUndefined()
+    expect(bodies[1].expectedUpdatedAt).toBe('v1')
+    expect(bodies[2].expectedUpdatedAt).toBe('v2')
+  })
+
+  it('sends the version of a draft it opened', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ draft: { id: DRAFT_ID, updatedAt: V2 } }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    await store.openDraft({ id: DRAFT_ID, to: 'a@b.com', text: 'Body', updatedAt: V1 })
+
+    await store.saveComposerDraft()
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).expectedUpdatedAt).toBe(V1)
+  })
+
+  it('adopts the server draft and says so when another tab changed it', async () => {
+    const current = {
+      id: DRAFT_ID,
+      to: 'other@example.com',
+      subject: 'Edited elsewhere',
+      text: 'Newer words',
+      html: '<p>Newer words</p>',
+      attachments: [],
+      updatedAt: V2,
+    }
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'Draft changed elsewhere', draft: current }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    await store.openDraft({ id: DRAFT_ID, to: 'a@b.com', text: 'Old words', updatedAt: V1 })
+    store.composerTextArea = 'Old words, edited here'
+
+    await store.saveComposerDraft()
+
+    expect(store.composerTextArea).toBe('Newer words')
+    expect(store.composerSubject).toBe('Edited elsewhere')
+    expect(store.composerDraftId).toBe(DRAFT_ID)
+    expect(store.drafts[0]).toMatchObject({ id: DRAFT_ID, text: 'Newer words', updatedAt: V2 })
+    expect(notify).toHaveBeenCalledWith(
+      'This draft was changed in another tab. Showing the latest version.',
+    )
+
+    // The next save is based on the adopted version.
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ draft: { id: DRAFT_ID, updatedAt: '2026-10-02T10:00:09.000Z' } }),
+    }))
+    await store.saveComposerDraft()
+    expect(JSON.parse(fetchMock.mock.calls.at(-1)[1].body).expectedUpdatedAt).toBe(V2)
+  })
+
+  it('writes only the newest of the saves queued behind one in flight', async () => {
+    const store = useInboxStore()
+    armComposer(store)
+    store.composerDraftId = DRAFT_ID
+    const written = []
+    let finishFirst
+    vi.spyOn(store, 'persistDraft').mockImplementation((draftId, draft) => {
+      written.push(draft.text)
+      if (written.length === 1) {
+        return new Promise((resolve) => {
+          finishFirst = () => resolve(DRAFT_ID)
+        })
+      }
+      return Promise.resolve(DRAFT_ID)
+    })
+
+    const first = store.saveComposerDraft()
+    await vi.waitFor(() => expect(written).toHaveLength(1))
+    store.composerTextArea = 'Second pause'
+    const second = store.saveComposerDraft()
+    store.composerTextArea = 'Third pause'
+    const third = store.saveComposerDraft()
+    finishFirst()
+    await Promise.all([first, second, third])
+
+    expect(written).toEqual(['Checking in.', 'Third pause'])
+  })
+
+  it('runs writes to one draft one at a time across surfaces', async () => {
+    const resolvers = []
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve)
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+
+    const one = store.persistDraft(DRAFT_ID, { text: 'one' })
+    const two = store.persistDraft(DRAFT_ID, { text: 'two' })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    resolvers[0]({
+      ok: true,
+      status: 200,
+      json: async () => ({ draft: { id: DRAFT_ID, updatedAt: V1 } }),
+    })
+    await one
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).expectedUpdatedAt).toBe(V1)
+    resolvers[1]({
+      ok: true,
+      status: 200,
+      json: async () => ({ draft: { id: DRAFT_ID, updatedAt: V2 } }),
+    })
+    await expect(two).resolves.toBe(DRAFT_ID)
+  })
+})
+
+describe('unread count during a refresh', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const listRow = (id, unread) => ({
+    id,
+    from_name: 'Sender',
+    from_address: 's@example.com',
+    subject: `Subject ${id}`,
+    snippet: '',
+    body_text: '',
+    sent_at: new Date().toISOString(),
+    is_unread: unread,
+    is_starred: false,
+  })
+
+  it('keeps the optimistic count while a mark-read is in flight, then takes the server’s', async () => {
+    let finishPatch
+    const fetchMock = vi.fn((url, options = {}) => {
+      if (options.method === 'PATCH') {
+        return new Promise((resolve) => {
+          finishPatch = () => resolve({ ok: true, status: 200, json: async () => ({}) })
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ emails: [listRow('a', true)], nextCursor: null, unreadCount: 1 }),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const email = { id: 'a', unread: true, labels: [] }
+    store.traditionalEmails = [email]
+    store.unreadInboxCount = 1
+    store.isInboxLoaded = true
+
+    store.setUnread(store.traditionalEmails[0], false)
+    expect(store.unreadInboxCount).toBe(0)
+    await vi.waitFor(() => expect(finishPatch).toBeDefined())
+
+    // The server's count predates the mark-read.
+    await store.refreshInboxEmails()
+    expect(store.unreadInboxCount).toBe(0)
+    expect(store.traditionalEmails[0].unread).toBe(false)
+
+    finishPatch()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await store.refreshInboxEmails()
+    expect(store.unreadInboxCount).toBe(1)
+  })
+})
+
+describe('composer attachment uploads', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('uploads a few files at once and keeps the picked order', async () => {
+    const store = useInboxStore()
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    const finish = new Map()
+    let running = 0
+    let peak = 0
+    vi.spyOn(store, 'uploadAttachmentFile').mockImplementation(
+      (file) =>
+        new Promise((resolve, reject) => {
+          running += 1
+          peak = Math.max(peak, running)
+          finish.set(file.name, (ok) => {
+            running -= 1
+            if (ok) resolve({ id: `att-${file.name}`, filename: file.name })
+            else reject(new Error('upload failed'))
+          })
+        }),
+    )
+    const files = ['a', 'b', 'c', 'd', 'e'].map((name) => ({ name, size: 10 }))
+
+    const uploading = store.uploadAttachmentFiles(files)
+    await vi.waitFor(() => expect(finish.size).toBe(3))
+    expect(store.pendingAttachmentUploads).toBe(3)
+    // Finish out of order; one fails.
+    finish.get('c')(true)
+    finish.get('b')(false)
+    await vi.waitFor(() => expect(finish.size).toBe(5))
+    finish.get('e')(true)
+    finish.get('a')(true)
+    finish.get('d')(true)
+    const uploaded = await uploading
+
+    expect(peak).toBe(3)
+    expect(uploaded.map((attachment) => attachment.id)).toEqual([
+      'att-a',
+      'att-c',
+      'att-d',
+      'att-e',
+    ])
+    expect(uploaded.every((attachment) => attachment.source === 'upload')).toBe(true)
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith('Could not attach b.', 'error')
+    expect(store.pendingAttachmentUploads).toBe(0)
   })
 })
