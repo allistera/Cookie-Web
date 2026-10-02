@@ -35,7 +35,7 @@ const OTHER = '22222222-2222-4222-8222-222222222222'
 const THREAD = '33333333-3333-4333-8333-333333333333'
 const OTHER_THREAD = '44444444-4444-4444-8444-444444444444'
 
-describe.skipIf(!databaseUrl)('0088/0089 sender screening on PostgreSQL', () => {
+describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on PostgreSQL', () => {
   let sql
   beforeAll(async () => {
     sql = postgres(databaseUrl, { max: 2 })
@@ -50,8 +50,18 @@ describe.skipIf(!databaseUrl)('0088/0089 sender screening on PostgreSQL', () => 
         thread_id uuid NOT NULL REFERENCES public.threads(id), from_address text NOT NULL,
         message_id text, is_sent boolean NOT NULL DEFAULT false, is_deleted boolean NOT NULL DEFAULT false,
         is_unread boolean NOT NULL DEFAULT true, is_archived boolean NOT NULL DEFAULT false,
-        sent_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now(), search_indexed_at timestamptz
+        sent_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now(), search_indexed_at timestamptz,
+        search tsvector GENERATED ALWAYS AS (to_tsvector('simple', from_address)) STORED
       );
+      CREATE EXTENSION pg_trgm;
+      CREATE INDEX messages_from_address_trgm_idx ON public.messages USING gin (from_address gin_trgm_ops);
+      CREATE TABLE public.documents (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, title text NOT NULL DEFAULT '',
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        search tsvector GENERATED ALWAYS AS (to_tsvector('simple', title)) STORED
+      );
+      CREATE INDEX documents_user_updated_idx ON public.documents (user_id, updated_at DESC);
+      CREATE TABLE public.document_files (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), folder_id uuid);
       CREATE UNIQUE INDEX messages_message_id_owner_idx ON public.messages(user_id, message_id) WHERE message_id IS NOT NULL;
       CREATE TABLE public.message_ai (message_id uuid PRIMARY KEY REFERENCES public.messages(id), spam_verdict text);
       CREATE TABLE public.browser_notification_events (event_id uuid DEFAULT gen_random_uuid(), user_id uuid, message_id uuid);
@@ -63,11 +73,12 @@ describe.skipIf(!databaseUrl)('0088/0089 sender screening on PostgreSQL', () => 
         'INSERT INTO realtime.pings (payload) VALUES ($1)';
     `)
     await applyMigration(sql, '0080_quiet_inbox_ping.sql')
-    await sql.unsafe(`CREATE TRIGGER messages_notify AFTER INSERT OR UPDATE OR DELETE ON public.messages
-      FOR EACH ROW EXECUTE FUNCTION public.notify_inbox_changed()`)
+    await sql.unsafe(`CREATE TRIGGER messages_notify_inbox_changed AFTER INSERT OR UPDATE OR DELETE
+      ON public.messages FOR EACH ROW EXECUTE FUNCTION public.notify_inbox_changed()`)
     await applyMigration(sql, '0082_out_of_office.sql')
     await applyMigration(sql, '0088_sender_screening.sql')
     await applyMigration(sql, '0089_sender_domain_decisions.sql')
+    await applyMigration(sql, '0090_write_path_cleanup.sql')
   })
   beforeEach(async () => {
     await sql.unsafe(`TRUNCATE public.message_ai, public.messages, public.threads, public.users,
@@ -213,6 +224,46 @@ describe.skipIf(!databaseUrl)('0088/0089 sender screening on PostgreSQL', () => 
     } finally {
       await sql.unsafe('ALTER TABLE public.sender_decisions_unavailable RENAME TO sender_decisions')
     }
+  })
+  it('pings once per affected user for a multi-row UPDATE or DELETE', async () => {
+    await arrive()
+    await arrive()
+    await arrive({ user: OTHER })
+    await sql`TRUNCATE realtime.pings`
+    await sql`UPDATE messages SET is_unread = false`
+    await sql`DELETE FROM messages WHERE user_id = ${OWNER}`
+    await sql`UPDATE messages SET is_unread = true WHERE false`
+    const pings = await sql`SELECT payload->>'op' AS op FROM realtime.pings ORDER BY 1`
+    expect(pings.map((row) => row.op)).toEqual(['DELETE', 'UPDATE', 'UPDATE'])
+    expect(
+      await sql`SELECT count(*)::int AS count FROM realtime.pings WHERE payload <> jsonb_build_object('op', payload->>'op')`,
+    ).toEqual([{ count: 0 }])
+  })
+  it('sends no ping for an UPDATE that only restamps search_indexed_at', async () => {
+    const message = await arrive()
+    await sql`TRUNCATE realtime.pings`
+    await sql`UPDATE messages SET search_indexed_at = now() WHERE id = ${message.id}`
+    expect(await sql`SELECT count(*)::int AS count FROM realtime.pings`).toEqual([{ count: 0 }])
+    await sql`UPDATE messages SET search_indexed_at = now(), is_unread = false WHERE id = ${message.id}`
+    expect(await sql`SELECT count(*)::int AS count FROM realtime.pings`).toEqual([{ count: 1 }])
+  })
+  it('drops the unused search columns, trigram indexes, and leaves the resolver inlinable', async () => {
+    const [state] = await sql`SELECT
+      (SELECT count(*)::int FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name IN ('messages', 'documents')
+          AND column_name = 'search') AS search_columns,
+      (SELECT count(*)::int FROM pg_extension WHERE extname = 'pg_trgm') AS trgm,
+      to_regclass('public.documents_user_updated_idx') IS NULL AS prefix_index_gone,
+      to_regclass('public.document_files_folder_id_idx') IS NOT NULL AS folder_index,
+      (SELECT proconfig IS NULL FROM pg_proc
+        WHERE oid = 'public.effective_sender_decision(uuid, text)'::regprocedure) AS inlinable`
+    expect(state).toEqual({
+      search_columns: 0,
+      trgm: 0,
+      prefix_index_gone: true,
+      folder_index: true,
+      inlinable: true,
+    })
   })
   it('keeps new decision data private from browser roles', async () => {
     const [privacy] = await sql`SELECT relrowsecurity AS rls,

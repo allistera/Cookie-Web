@@ -394,3 +394,26 @@ covering that domain and its subdomains, and adds
 applies (exact address first, then the longest matching domain). The arrival
 trigger uses it. Apply this migration before deploying `cookie-web-emails` and
 `cookie-web-notifications`, which call the function.
+
+## Write-path cleanup
+
+`0090_write_path_cleanup.sql` removes structures nothing reads any more and
+coalesces per-row inbox pings:
+
+- drops the generated `messages.search` and `documents.search` tsvectors
+  (Meilisearch replaced them; 0081 already dropped their indexes);
+- drops the 0042/0050 trigram indexes and the `pg_trgm` extension, without
+  `CASCADE`, so an unexpected dependent object fails the migration instead of
+  disappearing;
+- drops `documents_user_updated_idx`, a strict prefix of
+  `documents_workspace_page_idx`, and indexes `document_files (folder_id)` for
+  the folder `ON DELETE SET NULL`;
+- removes `SET search_path` from `effective_sender_decision` (its body is
+  fully schema-qualified) so the planner can inline it;
+- keeps the per-row INSERT inbox trigger, but replaces UPDATE and DELETE with
+  statement-level triggers that send one `{"op": ...}` ping per affected user.
+  A search-index restamp alone still sends nothing.
+
+The 0075 workspace revision still bumps on `blocks`: a content save changes
+`updated_at`, which the paged document listing returns and sorts by. No
+deploy ordering is needed.
