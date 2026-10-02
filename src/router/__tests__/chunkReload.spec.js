@@ -102,11 +102,13 @@ describe('installRouterChunkReload', () => {
 
 describe('lazyComponent', () => {
   const Loaded = { render: () => h('p', { class: 'loaded' }, 'Loaded') }
+  // An async component mounted as the root has no instance to query, so host it.
+  const host = (component) => ({ render: () => h(component) })
 
   it('retries a failed chunk once before giving up on it', async () => {
     const loader = vi.fn().mockRejectedValueOnce(staleChunk()).mockResolvedValue(Loaded)
     const navigate = vi.fn()
-    const wrapper = mount(lazyComponent(loader, { storage: makeStorage(), navigate }))
+    const wrapper = mount(host(lazyComponent(loader, { storage: makeStorage(), navigate })))
     await flushPromises()
 
     expect(loader).toHaveBeenCalledTimes(2)
@@ -129,7 +131,7 @@ describe('lazyComponent', () => {
     const navigate = vi.fn()
     const storage = makeStorage({ [RELOAD_KEY]: String(Date.now()) })
     const errorHandler = vi.fn()
-    const wrapper = mount(lazyComponent(loader, { storage, navigate }), {
+    const wrapper = mount(host(lazyComponent(loader, { storage, navigate })), {
       global: { config: { errorHandler } },
     })
     await flushPromises()

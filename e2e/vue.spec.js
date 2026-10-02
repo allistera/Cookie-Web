@@ -557,7 +557,9 @@ test('Marking a built-in task done removes it from AI Today and confirms with a 
     page.locator('.toast', { hasText: 'Marked "Renew car insurance" done.' }),
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: /Hi Allister/ })).toContainText('2 to-dos')
-  expect(completions).toEqual([{ id: 'stub-task-1', action: 'complete' }])
+  expect(completions).toEqual([
+    { id: 'stub-task-1', action: 'complete', today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
+  ])
 })
 
 test('AI Today reschedules a to-do through its day menu', async ({ page }) => {
