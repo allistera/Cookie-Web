@@ -1,7 +1,7 @@
 // Converts between the two shapes a document's `table` block has ever
 // stored, plus flattening either shape to plain text for search indexing.
 // No DOM, no Univer runtime import — safe to use from the browser tool
-// (univerSheetTool.js), the server (api/_lib/documentText.js), and the
+// (univerSheetTool.js), the text extractor (scripts/documentText.js), and the
 // one-time DB migration script (scripts/migrate-table-blocks-to-univer.js).
 //
 // Legacy shape (pre-Univer @editorjs/table tool, now removed):

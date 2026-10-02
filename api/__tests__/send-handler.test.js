@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHandler } from '../send.js'
-import { responseRecorder } from '../_fixtures/sendTestResponse.js'
+import { responseRecorder } from './sendTestResponse.js'
 
 describe('send adapter failures', () => {
   it.each([401, 403, 409, 429, 503])(

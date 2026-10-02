@@ -20,7 +20,7 @@ import {
 // silently broke that way: each endpoint moved to a Worker, the stubs kept
 // matching the retired same-origin URL, and so never fired at all.
 
-// The calendar fixture (api/_fixtures/calendarEvents.js) and CalendarView.vue's
+// The calendar fixture (scripts/localApi/fixtures/calendarEvents.js) and CalendarView.vue's
 // "today" both used to be pinned to this date; CalendarView now reads the real
 // clock, so freeze it here instead of drifting the fixture and every date
 // assertion below along with the real calendar. Must run before the first
@@ -905,7 +905,8 @@ test('Reader offers to add a detected email event to Calendar with details prefi
 }) => {
   // The fixture's tour date is computed (always in the future — the reader
   // suppresses past events), so the expectations derive from the same date.
-  const { fixtureTourDate, fixtureTourDateText } = await import('../api/_fixtures/emails.js')
+  const { fixtureTourDate, fixtureTourDateText } =
+    await import('../scripts/localApi/fixtures/emails.js')
   const tourDate = fixtureTourDate()
   const tourDateText = fixtureTourDateText()
   const pad2 = (n) => String(n).padStart(2, '0')

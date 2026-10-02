@@ -1,0 +1,254 @@
+// Mirrors Cookie-Worker's workers/cookie-web-calendar/test/calendarEvents.test.js
+// (the recurrence half), so this hand-synced dev copy cannot drift silently.
+import { describe, expect, it } from 'vitest'
+
+import { buildRecurrenceRule, expandEvents, parseRangeParams } from '../recurrence.js'
+
+describe('buildRecurrenceRule', () => {
+  it('returns null for "none"', () => {
+    expect(buildRecurrenceRule('none', null, null)).toBeNull()
+  })
+
+  it('omits BYDAY for non-weekly frequencies even if repeatDays is set', () => {
+    expect(buildRecurrenceRule('daily', null, ['MO', 'TU'])).toBe('DAILY')
+  })
+
+  it('includes BYDAY for weekly with specific days, before UNTIL', () => {
+    expect(buildRecurrenceRule('weekly', '2026-12-31', ['MO', 'TU', 'WE', 'TH', 'FR'])).toBe(
+      'WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=2026-12-31',
+    )
+  })
+
+  it('omits BYDAY for weekly with no days selected', () => {
+    expect(buildRecurrenceRule('weekly', null, [])).toBe('WEEKLY')
+  })
+})
+
+describe('expandEvents', () => {
+  const now = new Date('2026-07-28T00:00:00Z')
+
+  it('passes non-recurring events through unchanged, with seriesId set to their own id', () => {
+    const event = { id: 'abc', date: '2026-08-01', start: '09:00', recurrenceRule: null }
+
+    expect(expandEvents([event], now)).toEqual([{ ...event, seriesId: 'abc' }])
+  })
+
+  it('expands a weekly series into occurrences within the window', () => {
+    const event = {
+      id: 'abc',
+      date: '2026-07-01',
+      start: '09:00',
+      recurrenceRule: 'WEEKLY;UNTIL=2026-07-22',
+    }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual([
+      '2026-07-01',
+      '2026-07-08',
+      '2026-07-15',
+      '2026-07-22',
+    ])
+    expect(occurrences.every((occurrence) => occurrence.seriesId === 'abc')).toBe(true)
+    expect(occurrences.every((occurrence) => occurrence.seriesDate === '2026-07-01')).toBe(true)
+    expect(new Set(occurrences.map((occurrence) => occurrence.id)).size).toBe(occurrences.length)
+  })
+
+  it('clips recurring expansion to an explicit range instead of the now-relative window', () => {
+    const event = { id: 'abc', date: '2026-01-05', start: '09:00', recurrenceRule: 'WEEKLY' }
+
+    const occurrences = expandEvents([event], now, { from: '2026-08-03', to: '2026-08-16' })
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual(['2026-08-03', '2026-08-10'])
+    expect(occurrences.every((occurrence) => occurrence.seriesDate === '2026-01-05')).toBe(true)
+  })
+
+  it('clamps monthly recurrence to short months without drifting off the 31st', () => {
+    const event = {
+      id: 'abc',
+      date: '2026-01-31',
+      start: '09:00',
+      recurrenceRule: 'MONTHLY;UNTIL=2026-05-31',
+    }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual([
+      '2026-01-31',
+      '2026-02-28',
+      '2026-03-31',
+      '2026-04-30',
+      '2026-05-31',
+    ])
+  })
+
+  it('lands a 31st-of-the-month series on Feb 29 in a leap year', () => {
+    const event = {
+      id: 'abc',
+      date: '2028-01-31',
+      start: '09:00',
+      recurrenceRule: 'MONTHLY;UNTIL=2028-03-31',
+    }
+
+    expect(
+      expandEvents([event], now, { from: '2028-01-01', to: '2028-12-31' }).map(
+        (occurrence) => occurrence.date,
+      ),
+    ).toEqual(['2028-01-31', '2028-02-29', '2028-03-31'])
+  })
+
+  it('keeps a Feb 29 yearly series on Feb 28 in common years and Feb 29 in leap years', () => {
+    const event = { id: 'abc', date: '2024-02-29', start: '09:00', recurrenceRule: 'YEARLY' }
+
+    expect(
+      expandEvents([event], now, { from: '2024-01-01', to: '2029-01-01' }).map(
+        (occurrence) => occurrence.date,
+      ),
+    ).toEqual(['2024-02-29', '2025-02-28', '2026-02-28', '2027-02-28', '2028-02-29'])
+  })
+
+  it('gives the same dates when the window starts far into the future as when stepping', () => {
+    const monthly = { id: 'm', date: '2026-01-31', start: '09:00', recurrenceRule: 'MONTHLY' }
+    const yearly = { id: 'y', date: '2024-02-29', start: '09:00', recurrenceRule: 'YEARLY' }
+    const range = { from: '2120-01-01', to: '2122-12-31' }
+
+    // Reference dates computed independently from the series start.
+    /** @param {number} year @param {number} month 1-based @param {number} day */
+    const clamped = (year, month, day) => {
+      const last = new Date(Date.UTC(year, month, 0)).getUTCDate()
+      return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`
+    }
+    const expectedMonthly = []
+    const expectedYearly = []
+    for (let year = 2120; year <= 2122; year += 1) {
+      for (let month = 1; month <= 12; month += 1) expectedMonthly.push(clamped(year, month, 31))
+      expectedYearly.push(clamped(year, 2, 29))
+    }
+
+    expect(expandEvents([monthly], now, range).map((occurrence) => occurrence.date)).toEqual(
+      expectedMonthly,
+    )
+    expect(expandEvents([yearly], now, range).map((occurrence) => occurrence.date)).toEqual(
+      expectedYearly,
+    )
+    // 2120 is a leap year; 2121 and 2122 are not.
+    expect(expectedYearly).toEqual(['2120-02-29', '2121-02-28', '2122-02-28'])
+  })
+
+  it('keeps an occurrence id stable across differently-windowed requests', () => {
+    const event = { id: 'abc', date: '2026-01-05', start: '09:00', recurrenceRule: 'WEEKLY' }
+
+    const wide = expandEvents([event], now, { from: '2026-01-01', to: '2026-12-31' })
+    const narrow = expandEvents([event], now, { from: '2026-08-03', to: '2026-08-16' })
+
+    expect(narrow.map((occurrence) => occurrence.id)).toEqual(['abc:2026-08-03', 'abc:2026-08-10'])
+    for (const occurrence of narrow) {
+      expect(wide.find((candidate) => candidate.date === occurrence.date)?.id).toBe(occurrence.id)
+    }
+  })
+
+  it('stops generating occurrences once the window ends when there is no UNTIL', () => {
+    const event = { id: 'abc', date: '2026-07-27', start: '09:00', recurrenceRule: 'DAILY' }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.length).toBeGreaterThan(0)
+    expect(occurrences.at(-1).date <= '2029-07-28').toBe(true)
+  })
+
+  // Occurrences before the window are stepped over without being emitted, so
+  // the per-series occurrence cap alone leaves the loop unbounded. Both
+  // DATE_RE and migration 0022's CHECK accept a year-0001 event_date, so any
+  // user could otherwise make every calendar load burn ~740k steps per series.
+  it('bounds stepping for a series dated far before the window', () => {
+    const ancient = { id: 'abc', date: '0001-01-01', start: '09:00', recurrenceRule: 'DAILY' }
+
+    const started = Date.now()
+    const occurrences = expandEvents(
+      Array.from({ length: 20 }, (_unused, index) => ({ ...ancient, id: `e${index}` })),
+      now,
+    )
+
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(occurrences.length).toBeLessThanOrEqual(20 * 366)
+  })
+
+  it('still expands long-running realistic series that predate the window', () => {
+    const birthday = { id: 'abc', date: '1985-03-04', start: '09:00', recurrenceRule: 'YEARLY' }
+
+    expect(expandEvents([birthday], now).map((occurrence) => occurrence.date)).toEqual([
+      '2026-03-04',
+      '2027-03-04',
+      '2028-03-04',
+    ])
+  })
+
+  it('expands a weekly BYDAY series onto only the selected weekdays', () => {
+    // 2026-07-27 is a Monday.
+    const event = {
+      id: 'abc',
+      date: '2026-07-27',
+      start: '09:00',
+      recurrenceRule: 'WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=2026-08-07',
+    }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual([
+      '2026-07-27',
+      '2026-07-28',
+      '2026-07-29',
+      '2026-07-30',
+      '2026-07-31',
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+    ])
+    expect(occurrences.every((occurrence) => occurrence.seriesId === 'abc')).toBe(true)
+    expect(new Set(occurrences.map((occurrence) => occurrence.id)).size).toBe(occurrences.length)
+  })
+
+  it('skips the series start date for a weekly BYDAY series if its weekday is not selected', () => {
+    // 2026-08-01 is a Saturday, not in the Monday-Friday selection.
+    const event = {
+      id: 'abc',
+      date: '2026-08-01',
+      start: '09:00',
+      recurrenceRule: 'WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=2026-08-05',
+    }
+
+    const occurrences = expandEvents([event], now)
+
+    expect(occurrences.map((occurrence) => occurrence.date)).toEqual([
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+    ])
+  })
+})
+
+describe('parseRangeParams', () => {
+  it('defaults an omitted range to the expand window rather than the full date domain', () => {
+    const now = new Date('2026-07-28T00:00:00Z')
+    const range = /** @type {{from: string, to: string}} */ (
+      parseRangeParams(new URL('/calendar-events', 'http://localhost').searchParams, now).range
+    )
+    expect(range.from).toBe(
+      now.toISOString().slice(0, 10) === '2026-07-28'
+        ? new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        : range.from,
+    )
+    expect(range.to).toBe(
+      new Date(now.getTime() + 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    )
+    expect(range.from < range.to).toBe(true)
+    expect(range.from).not.toBe('0001-01-01')
+  })
+
+  it('rejects a range longer than 800 days', () => {
+    const url = new URL('/calendar-events?from=2020-01-01&to=2024-01-01', 'http://localhost')
+    expect(parseRangeParams(url.searchParams).error).toBe(true)
+  })
+})

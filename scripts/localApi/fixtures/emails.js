@@ -55,7 +55,7 @@ const rows = [
     ageMs: 0.5 * HOUR,
     is_unread: true,
     is_starred: false,
-    // Matches api/_fixtures/messages.js: fixture-1 (index 0) carries an HTML
+    // Matches scripts/localApi/fixtures/messages.js: fixture-1 (index 0) carries an HTML
     // body, so the reader shows a spinner during the on-demand fetch. All other
     // fixture rows are text-only (has_html false) and render instantly.
     priority: 'high',
@@ -230,7 +230,7 @@ const rows = [
     labels: [{ name: 'Finance', color: '#2f9e44' }],
   },
   {
-    // Newsletter with a List-Unsubscribe header — api/_fixtures/messages.js
+    // Newsletter with a List-Unsubscribe header — scripts/localApi/fixtures/messages.js
     // returns parsed unsubscribe info for this row (fixture-15) so the
     // reader's Unsubscribe button is exercisable without a database.
     from_name: 'Daily Bites',

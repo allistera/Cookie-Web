@@ -1,10 +1,9 @@
-// Flattens a document's title + Editor.js blocks into plain text for search:
-// the generated tsvector column (migration 0048) reads from content_text,
-// computed by flattenBlocksToText and written alongside every title/blocks
-// save in documents.js. Keeping the block-walking logic here, once, means
-// the SQL generated column doesn't have to re-implement it.
+// Flattens a document's title + Editor.js blocks into plain text, the shape of
+// documents.content_text. The production copy lives in Cookie-Worker
+// (cookie-web-tasks/src/documentText.js); this one serves only the one-off
+// scripts/migrate-table-blocks-to-univer.js backfill.
 
-import { flattenWorkbookCellText } from '../../src/lib/univerTableData.js'
+import { flattenWorkbookCellText } from '../src/lib/univerTableData.js'
 
 // Editor.js paragraph/header/list-item text is HTML (inline bold/italic/link
 // markup from the toolbar) — strip tags so formatting can't leak into search

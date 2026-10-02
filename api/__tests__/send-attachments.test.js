@@ -7,6 +7,7 @@ import { createHandler, sanitizeAttachmentFilename } from '../send.js'
 const USER_ID = '11111111-1111-1111-1111-111111111111'
 const OTHER_USER_ID = '99999999-9999-4999-8999-999999999999'
 const ATTACHMENT_ID = '22222222-2222-4222-8222-222222222222'
+const DRAFT_ID = '33333333-3333-4333-8333-333333333333'
 const BLOB_URL = 'https://store.private.blob.vercel-storage.com/outbound-attachments/file.pdf'
 
 const mocks = {
@@ -271,33 +272,6 @@ describe('POST /api/send?resource=attachment', () => {
     expect(mocks.headBlob).toHaveBeenCalledWith(BLOB_URL)
     expect(sql.mock.calls[0]).toContain(BLOB_URL)
   })
-
-  it('falls back to a plain insert while the 0083 unique index is missing', async () => {
-    mocks.headBlob.mockResolvedValue({
-      pathname: `outbound-attachments/${USER_ID}/plan.pdf`,
-      size: 10,
-      contentType: 'application/pdf',
-    })
-    const missingIndex = Object.assign(
-      new Error(
-        'there is no unique or exclusion constraint matching the ON CONFLICT specification',
-      ),
-      { code: '42P10' },
-    )
-    const sql = vi
-      .fn()
-      .mockRejectedValueOnce(missingIndex)
-      .mockResolvedValueOnce([{ id: ATTACHMENT_ID, filename: 'plan.pdf', size_bytes: 10 }])
-    mocks.getSql.mockReturnValue(sql)
-    const res = makeRes()
-
-    await handler(registerRequest({ url: BLOB_URL, filename: 'plan.pdf' }), res)
-
-    expect(res.statusCode).toBe(201)
-    expect(res.body.attachment).toMatchObject({ id: ATTACHMENT_ID })
-    expect(sql).toHaveBeenCalledTimes(2)
-    expect(sql.mock.calls[1][0].join('')).not.toContain('ON CONFLICT')
-  })
 })
 
 describe('DELETE /api/send?resource=attachment', () => {
@@ -307,7 +281,7 @@ describe('DELETE /api/send?resource=attachment', () => {
 
   it('deletes the blob when no sent copy still references it', async () => {
     mocks.getSql.mockReturnValue(
-      vi.fn(async () => [{ blob_url: BLOB_URL, blobUnreferenced: true }]),
+      vi.fn(async () => [{ found: true, blob_url: BLOB_URL, blobUnreferenced: true }]),
     )
     const res = makeRes()
 
@@ -318,7 +292,7 @@ describe('DELETE /api/send?resource=attachment', () => {
   })
 
   it('deletes the blob only after checking no other upload row of the user shares it', async () => {
-    const sql = vi.fn(async () => [{ blob_url: BLOB_URL, blobUnreferenced: true }])
+    const sql = vi.fn(async () => [{ found: true, blob_url: BLOB_URL, blobUnreferenced: true }])
     mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
 
@@ -333,7 +307,7 @@ describe('DELETE /api/send?resource=attachment', () => {
 
   it('keeps the bytes when a sent message shares the same blob', async () => {
     mocks.getSql.mockReturnValue(
-      vi.fn(async () => [{ blob_url: BLOB_URL, blobUnreferenced: false }]),
+      vi.fn(async () => [{ found: true, blob_url: BLOB_URL, blobUnreferenced: false }]),
     )
     const res = makeRes()
 
@@ -344,13 +318,69 @@ describe('DELETE /api/send?resource=attachment', () => {
   })
 
   it('404s an id belonging to someone else', async () => {
-    mocks.getSql.mockReturnValue(vi.fn(async () => []))
+    mocks.getSql.mockReturnValue(
+      vi.fn(async () => [{ found: false, blob_url: null, blobUnreferenced: null }]),
+    )
     const res = makeRes()
 
     await handler(deleteRequest(ATTACHMENT_ID), res)
 
     expect(res.statusCode).toBe(404)
     expect(mocks.deleteBlob).not.toHaveBeenCalled()
+  })
+
+  it('keeps an upload another draft or a pending scheduled send still references', async () => {
+    const sql = vi.fn(async () => [{ found: true, blob_url: null, blobUnreferenced: null }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(deleteRequest(ATTACHMENT_ID), res)
+
+    const query = sql.mock.calls[0][0].join('')
+    expect(query).toMatch(/FROM draft_attachments da\s+WHERE da\.outbound_attachment_id = oa\.id/)
+    expect(query).toMatch(/s\.status IN \('pending', 'sending'\)/)
+    expect(res.statusCode).toBe(409)
+    expect(mocks.deleteBlob).not.toHaveBeenCalled()
+  })
+
+  it('unlinks the upload from the caller draft before checking other references', async () => {
+    const sql = vi.fn(async () => [{ found: true, blob_url: BLOB_URL, blobUnreferenced: true }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      {
+        method: 'DELETE',
+        url: `/api/send?resource=attachment&id=${ATTACHMENT_ID}&draftId=${DRAFT_ID}`,
+        headers: {},
+      },
+      res,
+    )
+
+    const [strings, ...values] = sql.mock.calls[0]
+    expect(strings.join('')).toMatch(/DELETE FROM draft_attachments da\s+USING drafts d/)
+    expect(values).toContain(DRAFT_ID)
+    expect(values).toContain(USER_ID)
+    expect(res.statusCode).toBe(204)
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(BLOB_URL)
+  })
+
+  it('rejects a malformed draftId', async () => {
+    const sql = vi.fn()
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+
+    await handler(
+      {
+        method: 'DELETE',
+        url: `/api/send?resource=attachment&id=${ATTACHMENT_ID}&draftId=nope`,
+        headers: {},
+      },
+      res,
+    )
+
+    expect(res.statusCode).toBe(400)
+    expect(sql).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fixtureEmails, fixtureSentEmails, fixtureTourDateText } from '../_fixtures/emails.js'
+import { fixtureEmails, fixtureSentEmails, fixtureTourDateText } from '../fixtures/emails.js'
 
 const DAY = 24 * 60 * 60 * 1000
 

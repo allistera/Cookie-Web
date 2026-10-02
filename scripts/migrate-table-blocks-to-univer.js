@@ -20,7 +20,7 @@ import process from 'node:process'
 import postgres from 'postgres'
 
 import { contentGridToWorkbookData } from '../src/lib/univerTableData.js'
-import { flattenBlocksToText } from '../api/_lib/documentText.js'
+import { flattenBlocksToText } from './documentText.js'
 
 const BATCH_SIZE = 100
 const APPLY = process.argv.includes('--apply')

@@ -20,7 +20,7 @@ import {
 // production Worker and 401s — which is what broke 28 of the 64 specs.
 //
 // Each origin is routed back to the dev/preview server's own fixture handlers
-// (the /__e2e__/* mounts in vite.config.js), preserving method, path, query and
+// (the /__e2e__/* mounts in scripts/localApi/plugin.js), preserving method, path, query and
 // body. Going through the server rather than answering in-process is
 // deliberate: /api/emails, /api/search and the Worker handlers all read the
 // same per-session fixture state, so a label added through the messages Worker

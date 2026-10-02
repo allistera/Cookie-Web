@@ -21,14 +21,6 @@ export function sanitizeAttachmentFilename(value) {
   if (!cleaned || cleaned === '.' || cleaned === '..') return 'attachment'
   return cleaned.slice(0, 200)
 }
-function isUndefinedOutboundAttachmentsTable(err) {
-  return err?.code === '42P01' && /outbound_attachments/i.test(String(err.message ?? ''))
-}
-// 42P10: no unique index matches the ON CONFLICT target, i.e. 0083 has not
-// been applied yet. Postgres does not name the table in this message.
-function isMissingUpsertIndex(err) {
-  return err?.code === '42P10'
-}
 function attachmentPrefix(userId) {
   return `${ATTACHMENT_BLOB_PREFIX}/${userId}/`
 }
@@ -186,56 +178,87 @@ async function registerUploadedAttachment(req, res, userId, services) {
   const filename = sanitizeAttachmentFilename(body?.filename ?? blob?.pathname)
 
   const contentType = blob?.contentType ?? null
-  try {
-    // Idempotent on (user_id, blob_url): a retried registration of the same
-    // blob returns the existing row instead of stacking duplicates. The
-    // no-op update exists only so ON CONFLICT still RETURNINGs the row, and
-    // (xmax = 0) distinguishes the fresh insert from that conflict path.
-    let row
-    try {
-      ;[row] = await sql`
-        INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
-        VALUES (${userId}, ${filename}, ${contentType}, ${sizeBytes}, ${blobUrl})
-        ON CONFLICT (user_id, blob_url) DO UPDATE SET blob_url = EXCLUDED.blob_url
-        RETURNING id, filename, content_type, size_bytes, (xmax = 0) AS created
-      `
-    } catch (err) {
-      if (!isMissingUpsertIndex(err)) throw err
-      // Deploy window before 0083: keep registering with the plain insert.
-      ;[row] = await sql`
-        INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
-        VALUES (${userId}, ${filename}, ${contentType}, ${sizeBytes}, ${blobUrl})
-        RETURNING id, filename, content_type, size_bytes
-      `
-    }
-    const { created, ...attachment } = row ?? {}
-    res.statusCode = created === false ? 200 : 201
-    res.end(JSON.stringify({ attachment }))
-  } catch (err) {
-    if (isUndefinedOutboundAttachmentsTable(err)) {
-      res.statusCode = 503
-      res.end(JSON.stringify({ error: 'Attachment uploads are not available yet' }))
-      return
-    }
-    throw err
-  }
+  // Idempotent on (user_id, blob_url): a retried registration of the same
+  // blob returns the existing row instead of stacking duplicates. The no-op
+  // update exists only so ON CONFLICT still RETURNINGs the row, and
+  // (xmax = 0) distinguishes the fresh insert from that conflict path.
+  const [row] = await sql`
+    INSERT INTO outbound_attachments (user_id, filename, content_type, size_bytes, blob_url)
+    VALUES (${userId}, ${filename}, ${contentType}, ${sizeBytes}, ${blobUrl})
+    ON CONFLICT (user_id, blob_url) DO UPDATE SET blob_url = EXCLUDED.blob_url
+    RETURNING id, filename, content_type, size_bytes, (xmax = 0) AS created
+  `
+  const { created, ...attachment } = row ?? {}
+  res.statusCode = created === false ? 200 : 201
+  res.end(JSON.stringify({ attachment }))
 }
 
-// DELETE /api/send?resource=attachment&id=... — drops an upload the user
-// removed from the composer before sending.
+// DELETE /api/send?resource=attachment&id=...[&draftId=...] — drops an
+// upload the user removed from the composer before sending.
+//
+// draft_attachments and scheduled_send_attachments cascade from the upload,
+// so deleting a row another draft or a queued send still uses would silently
+// strip the file from that message. Instead:
+//   - with draftId (a draft the caller owns), the upload is unlinked from that
+//     draft first, so only references elsewhere keep it alive;
+//   - the upload is deleted (204) only when no draft and no pending or sending
+//     scheduled send references it any more;
+//   - otherwise it is kept (409) and the flush job's orphaned-upload sweep
+//     collects it once the last reference is gone — e.g. after the composer's
+//     own draft autosaves without it.
 async function deleteUploadedAttachment(req, res, userId, services) {
-  const id = new URL(req.url, 'http://localhost').searchParams.get('id')
+  const params = new URL(req.url, 'http://localhost').searchParams
+  const id = params.get('id')
   if (!id || !UUID_RE.test(id)) {
     res.statusCode = 400
     res.end(JSON.stringify({ error: 'A valid attachment id is required' }))
     return
   }
+  const draftId = params.get('draftId')
+  if (draftId !== null && !UUID_RE.test(draftId)) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'draftId must be a valid id' }))
+    return
+  }
 
-  try {
-    const sql = services.getSql()
-    const [row] = await sql`
-      DELETE FROM outbound_attachments oa
+  const sql = services.getSql()
+  // One statement, so the unlink, the reference check and the delete share a
+  // snapshot. The CTEs all see the pre-statement draft_attachments, hence the
+  // explicit exclusion of the rows "unlinked" removes. FOR UPDATE conflicts
+  // with the key-share lock a concurrent draft save takes to reference the
+  // upload, so a new reference cannot slip in between check and delete.
+  const [row] = await sql`
+    WITH unlinked AS (
+      DELETE FROM draft_attachments da
+      USING drafts d
+      WHERE d.id = ${draftId}::uuid
+        AND d.user_id = ${userId}
+        AND da.draft_id = d.id
+        AND da.outbound_attachment_id = ${id}::uuid
+      RETURNING da.draft_id
+    ),
+    target AS (
+      SELECT oa.id
+      FROM outbound_attachments oa
       WHERE oa.id = ${id}::uuid AND oa.user_id = ${userId}
+      FOR UPDATE
+    ),
+    deleted AS (
+      DELETE FROM outbound_attachments oa
+      USING target
+      WHERE oa.id = target.id
+        AND NOT EXISTS (
+          SELECT 1 FROM draft_attachments da
+          WHERE da.outbound_attachment_id = oa.id
+            AND da.draft_id NOT IN (SELECT draft_id FROM unlinked)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM scheduled_send_attachments ssa
+          JOIN scheduled_sends s ON s.id = ssa.scheduled_send_id
+          WHERE ssa.outbound_attachment_id = oa.id
+            AND s.status IN ('pending', 'sending')
+        )
       RETURNING oa.blob_url,
                 NOT EXISTS (
                   SELECT 1 FROM attachments a WHERE a.blob_url = oa.blob_url
@@ -246,31 +269,38 @@ async function deleteUploadedAttachment(req, res, userId, services) {
                     AND other.blob_url = oa.blob_url
                     AND other.id <> oa.id
                 ) AS "blobUnreferenced"
-    `
-    if (!row) {
-      res.statusCode = 404
-      res.end(JSON.stringify({ error: 'Attachment not found' }))
-      return
-    }
-    // Best effort: the row is already gone, and a stranded blob is the
-    // orphan sweep's problem rather than a failed removal for the user.
-    if (row.blobUnreferenced) {
-      try {
-        await services.deleteBlob(row.blob_url)
-      } catch (err) {
-        console.error('failed to delete attachment blob:', err.message)
-      }
-    }
-    res.statusCode = 204
-    res.end()
-  } catch (err) {
-    if (isUndefinedOutboundAttachmentsTable(err)) {
-      res.statusCode = 404
-      res.end(JSON.stringify({ error: 'Attachment not found' }))
-      return
-    }
-    throw err
+    )
+    SELECT EXISTS (SELECT 1 FROM target) AS found,
+           deleted.blob_url,
+           deleted."blobUnreferenced"
+    FROM (SELECT 1) AS one
+    LEFT JOIN deleted ON true
+  `
+  if (!row?.found) {
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: 'Attachment not found' }))
+    return
   }
+  if (!row.blob_url) {
+    res.statusCode = 409
+    res.end(
+      JSON.stringify({
+        error: 'Attachment is still used by another draft or a pending scheduled send',
+      }),
+    )
+    return
+  }
+  // Best effort: the row is already gone, and a stranded blob is the
+  // orphan sweep's problem rather than a failed removal for the user.
+  if (row.blobUnreferenced) {
+    try {
+      await services.deleteBlob(row.blob_url)
+    } catch (err) {
+      console.error('failed to delete attachment blob:', err.message)
+    }
+  }
+  res.statusCode = 204
+  res.end()
 }
 
 async function handleAttachment(req, res, userId, services) {

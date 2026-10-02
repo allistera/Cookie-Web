@@ -70,7 +70,7 @@ export function parseSearchQuery(raw) {
 // Documents accept only the two operators that map to real document columns
 // (tag:, is:starred); everything else stays free text, including a bare "is:"
 // with an unrecognized value. Mirrors Cookie-Worker's cookie-web-tasks
-// queryParse.js — kept in sync by hand, and used here only by vite.config.js's
+// queryParse.js — kept in sync by hand, and used here only by the local API plugin's
 // e2e document-search fixture.
 const DOCUMENT_OPERATOR_RE = /(tag|is):("[^"]*"|\S+)/gi
 

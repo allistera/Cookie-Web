@@ -69,7 +69,7 @@ export function fixtureMessageBody(id) {
       ],
     }
   }
-  // The Daily Bites newsletter (see api/_fixtures/emails.js) advertises
+  // The Daily Bites newsletter (see scripts/localApi/fixtures/emails.js) advertises
   // one-click unsubscribe, in the same parsed shape GET /api/messages returns.
   if (id === 'fixture-15') {
     return {
