@@ -3260,6 +3260,53 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(store.inboxTab).toBe('category:c-team')
   })
 
+  function pressArrow(key, target = document, init = {}) {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+    )
+    return nextTick()
+  }
+
+  it('Right and Left arrows move to the neighbouring tab and stop at the ends', async () => {
+    const wrapper = mountView()
+    const activeName = () => wrapper.find('.ni-tab.active .ni-tab-name').text()
+
+    await pressArrow('ArrowLeft')
+    expect(activeName()).toBe('Important')
+
+    await pressArrow('ArrowRight')
+    expect(activeName()).toBe('Docs')
+    expect(store.inboxTab).toBe('category:c-docs')
+    expect(rowSubjects(wrapper)).toEqual(['Subject both-1'])
+
+    for (let i = 0; i < 5; i++) await pressArrow('ArrowRight')
+    expect(activeName()).toBe('Other')
+
+    await pressArrow('ArrowLeft')
+    expect(activeName()).toBe('Team')
+    wrapper.unmount()
+  })
+
+  it('leaves the arrows alone while typing, with a modifier, or with the reader open', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    const activeName = () => wrapper.find('.ni-tab.active .ni-tab-name').text()
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    await pressArrow('ArrowRight', input)
+    input.remove()
+    expect(activeName()).toBe('Important')
+
+    await pressArrow('ArrowRight', document, { altKey: true })
+    expect(activeName()).toBe('Important')
+
+    store.openReader(store.traditionalEmails.find((email) => email.id === 'urgent-1'))
+    await nextTick()
+    await pressArrow('ArrowRight')
+    expect(activeName()).toBe('Important')
+    wrapper.unmount()
+  })
+
   it('keeps an empty category selectable and selected when its last email leaves', async () => {
     const wrapper = mountView()
     await clickTab(wrapper, 'Finance')

@@ -1575,6 +1575,30 @@ function onKeydown(e) {
     }
   }
 
+  // Left/Right move between the category tabs, like the trackpad swipe. Only
+  // while the list has the keys: an open reader keeps them for scrolling, and
+  // a control that already used the press (the sidebar resizer, the emoji
+  // picker) has prevented its default. Modified arrows stay with the browser.
+  if (
+    (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+    !e.defaultPrevented &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !e.shiftKey &&
+    showInboxTabs.value &&
+    !openEmail.value &&
+    !store.isCommandPaletteOpen &&
+    !isTypingTarget(e.target)
+  ) {
+    const tab = neighbourTab(e.key === 'ArrowLeft' ? -1 : 1)
+    if (tab) {
+      e.preventDefault()
+      store.setInboxTab(tab.id)
+    }
+    return
+  }
+
   // 'd' archives the email open in the reader. Plain keypress only — modified
   // combos (Cmd+D bookmark, etc.) stay with the browser. e.repeat is ignored:
   // with auto-advance, a held key would chain-archive emails the user never
