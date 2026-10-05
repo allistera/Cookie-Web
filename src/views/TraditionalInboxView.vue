@@ -1594,11 +1594,11 @@ function onKeydown(e) {
 
   // Left/Right move between the category tabs, wrapping round at either end.
   // Only while the list is all there is on screen (see isListAlone), and not
-  // for a press another control already used (the sidebar resizer prevents
-  // its default). Modified arrows stay with the browser.
+  // from a control that takes the arrows itself (the sidebar resizer).
+  // Modified arrows stay with the browser.
   if (
     (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
-    !e.defaultPrevented &&
+    !e.target?.closest?.('[role="separator"], [role="slider"], [role="menu"]') &&
     !e.metaKey &&
     !e.ctrlKey &&
     !e.altKey &&
