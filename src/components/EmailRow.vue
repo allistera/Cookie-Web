@@ -13,6 +13,7 @@ defineProps({
   readReceiptTitle: { type: String, default: '' },
   checked: { type: Boolean, default: false },
   open: { type: Boolean, default: false },
+  highlighted: { type: Boolean, default: false },
   hasAiSummary: { type: Boolean, default: false },
   showDone: { type: Boolean, default: true },
 })
@@ -35,7 +36,7 @@ function followUpTitle(followUpAt) {
        Space like the checkbox inside it. -->
   <div
     class="ni-row"
-    :class="{ unread: email.unread, selected: open, checked }"
+    :class="{ unread: email.unread, selected: open, checked, highlighted }"
     role="button"
     tabindex="0"
     :aria-label="`${sender}: ${email.subject}`"

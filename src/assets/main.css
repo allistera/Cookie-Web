@@ -1654,6 +1654,13 @@ body {
   background: var(--bg-hover);
 }
 
+/* The row the Up/Down keys are on (see moveHighlight in
+   TraditionalInboxView.vue): the hover tint plus a slim accent bar. */
+.ni-row.highlighted {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .ni-lead {
   display: flex;
   align-items: center;

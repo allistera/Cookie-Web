@@ -3474,3 +3474,104 @@ describe('reader recipient tooltip', () => {
     }
   })
 })
+
+describe('TraditionalInboxView keyboard highlight', () => {
+  let store
+
+  function press(key, target = document, init = {}) {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+    )
+    return nextTick()
+  }
+
+  function highlighted(wrapper) {
+    return wrapper.findAll('.ni-row.highlighted').map((row) => row.find('.ni-subject-text').text())
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    // Seconds apart, so all three stay in the same (open) day group.
+    store.traditionalEmails = [
+      makeEmail('one', Date.now() - 1000),
+      makeEmail('two', Date.now() - 2000),
+      makeEmail('three', Date.now() - 3000),
+    ]
+  })
+
+  it('Down and Up move the highlight through the list without opening anything', async () => {
+    const wrapper = mountView()
+    expect(highlighted(wrapper)).toEqual([])
+
+    await press('ArrowDown')
+    expect(highlighted(wrapper)).toEqual(['Subject one'])
+
+    await press('ArrowDown')
+    expect(highlighted(wrapper)).toEqual(['Subject two'])
+
+    await press('ArrowUp')
+    await press('ArrowUp')
+    expect(highlighted(wrapper)).toEqual(['Subject one'])
+
+    for (let i = 0; i < 5; i++) await press('ArrowDown')
+    expect(highlighted(wrapper)).toEqual(['Subject three'])
+
+    expect(store.openEmailId).toBe(null)
+    expect(store.traditionalEmails.every((email) => email.unread)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('Up with nothing highlighted starts from the last email', async () => {
+    const wrapper = mountView()
+
+    await press('ArrowUp')
+
+    expect(highlighted(wrapper)).toEqual(['Subject three'])
+    wrapper.unmount()
+  })
+
+  it('Enter opens the highlighted email, and nothing when none is highlighted', async () => {
+    const wrapper = mountView()
+
+    await press('Enter')
+    expect(store.openEmailId).toBe(null)
+
+    await press('ArrowDown')
+    await press('ArrowDown')
+    await press('Enter')
+
+    expect(store.openEmailId).toBe('two')
+    wrapper.unmount()
+  })
+
+  it('leaves Enter to a focused control that acts on it itself', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    await press('ArrowDown')
+
+    await press('Enter', wrapper.find('.ni-tab').element)
+
+    expect(store.openEmailId).toBe(null)
+    wrapper.unmount()
+  })
+
+  it('leaves the keys alone while the reader is open or while typing', async () => {
+    const wrapper = mountView()
+    await press('ArrowDown')
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    await press('ArrowDown', input)
+    input.remove()
+    expect(highlighted(wrapper)).toEqual(['Subject one'])
+
+    store.openReader(store.traditionalEmails[2])
+    await nextTick()
+    await press('ArrowDown')
+    await press('Enter')
+
+    expect(highlighted(wrapper)).toEqual(['Subject one'])
+    expect(store.openEmailId).toBe('three')
+    wrapper.unmount()
+  })
+})

@@ -401,6 +401,27 @@ const estimateMailRow = (row) => (row.kind === 'group' ? 56 : 40)
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 
+// The row the Up/Down keys have moved to. It is only highlighted; Enter opens
+// it. Kept by id, so a row that leaves the list simply stops being
+// highlighted and the next press starts from the top (or bottom) again.
+const highlightedId = ref(null)
+
+// Moves the highlight one email up or down among the rows on show (a
+// collapsed day's emails are skipped), stopping at either end.
+function moveHighlight(step) {
+  const emails = virtualMailRows.value.filter((row) => row.kind === 'email')
+  if (!emails.length) return
+  const index = emails.findIndex((row) => row.email.id === highlightedId.value)
+  const next =
+    index === -1
+      ? step > 0
+        ? 0
+        : emails.length - 1
+      : Math.min(Math.max(index + step, 0), emails.length - 1)
+  highlightedId.value = emails[next].email.id
+  mailList.value?.scrollToKey(emails[next].key)
+}
+
 // Separated from emailGroups so a single email's unread toggle only
 // recomputes these counts, not the entire grouping cascade (flatEmails,
 // selectedEmails, openIndex).
@@ -1525,18 +1546,39 @@ function isTypingTarget(target) {
   return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'))
 }
 
-// Whether the email list has the screen to itself: no reader, composer,
-// command palette, chat or contact drawer, no multi-select bar (and so none of
-// its menus), and no dialog opened from elsewhere in the app.
+// Whether anything sits over the email list: the reader, composer, command
+// palette, chat or contact drawer, one of the multi-select bar's menus, or a
+// dialog opened from elsewhere in the app.
+function isListCovered() {
+  return Boolean(
+    openEmail.value ||
+    store.isComposerActive ||
+    store.isCommandPaletteOpen ||
+    store.isChatDrawerActive ||
+    contactInsights.isOpen ||
+    bulkLabelOpen.value ||
+    bulkCategoryOpen.value ||
+    bulkScheduleOpen.value ||
+    document.querySelector('dialog[open], [aria-modal="true"]'),
+  )
+}
+
+// Whether the email list has the screen to itself: nothing over it and no
+// multi-select bar.
 function isListAlone() {
+  return !isListCovered() && !selectedEmails.value.length
+}
+
+// A plain press of a list-navigation key, from somewhere that does not take
+// the key itself (a text field, the sidebar resizer, a menu).
+function isListKey(e) {
   return (
-    !openEmail.value &&
-    !selectedEmails.value.length &&
-    !store.isComposerActive &&
-    !store.isCommandPaletteOpen &&
-    !store.isChatDrawerActive &&
-    !contactInsights.isOpen &&
-    !document.querySelector('dialog[open], [aria-modal="true"]')
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !e.shiftKey &&
+    !isTypingTarget(e.target) &&
+    !e.target?.closest?.('[role="separator"], [role="slider"], [role="menu"]')
   )
 }
 
@@ -1592,21 +1634,43 @@ function onKeydown(e) {
     }
   }
 
+  // Up/Down move a highlight through the emails without opening any; Enter
+  // opens the highlighted one. Only while nothing covers the list. Enter is
+  // left to a focused control (a row, a tab, a button) that acts on it itself.
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isListKey(e) && !isListCovered()) {
+    e.preventDefault()
+    moveHighlight(e.key === 'ArrowUp' ? -1 : 1)
+    return
+  }
+  if (
+    e.key === 'Enter' &&
+    !e.repeat &&
+    isListKey(e) &&
+    !isListCovered() &&
+    !e.target?.closest?.('button, a, [role="button"], [role="checkbox"], [role="tab"]')
+  ) {
+    // Looked up among the rows on show, so a highlight left behind in a day
+    // that was then collapsed opens nothing.
+    const row = virtualMailRows.value.find(
+      (candidate) => candidate.key === `email:${highlightedId.value}`,
+    )
+    if (row) {
+      e.preventDefault()
+      openReader(row.email)
+    }
+    return
+  }
+
   // Left/Right move between the category tabs, wrapping round at either end.
   // Only while the list is all there is on screen (see isListAlone), and not
   // from a control that takes the arrows itself (the sidebar resizer).
   // Modified arrows stay with the browser.
   if (
     (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
-    !e.target?.closest?.('[role="separator"], [role="slider"], [role="menu"]') &&
-    !e.metaKey &&
-    !e.ctrlKey &&
-    !e.altKey &&
-    !e.shiftKey &&
+    isListKey(e) &&
     showInboxTabs.value &&
     inboxTabs.value.length > 1 &&
-    isListAlone() &&
-    !isTypingTarget(e.target)
+    isListAlone()
   ) {
     const tabs = inboxTabs.value
     const index = tabs.findIndex((tab) => tab.id === activeTab.value)
@@ -1772,6 +1836,7 @@ onUnmounted(() => {
           :read-receipt-title="row.email.isSent ? readReceiptTitle(row.email) : ''"
           :checked="isSelected(row.email)"
           :open="openEmail === row.email"
+          :highlighted="highlightedId === row.email.id"
           :has-ai-summary="emailHasAiSummary(row.email)"
           :show-done="activeFilter !== 'done'"
           @open="openReader"

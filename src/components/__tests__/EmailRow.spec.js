@@ -27,6 +27,11 @@ describe('EmailRow', () => {
     expect(row.attributes('aria-label')).toContain('Quarterly numbers')
   })
 
+  it('marks the row the arrow keys are on', () => {
+    expect(mountRow().get('.ni-row').classes()).not.toContain('highlighted')
+    expect(mountRow({ highlighted: true }).get('.ni-row').classes()).toContain('highlighted')
+  })
+
   // The action buttons are icon-only, so without a label a screen reader
   // reads the icon ligature ("star_border") - and in a list of rows it has to
   // say which message the action belongs to.
