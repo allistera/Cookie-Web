@@ -20,6 +20,7 @@ import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
 import SenderControls from '../components/SenderControls.vue'
 import { normalizeSender, useSendersStore } from '../stores/senders'
+import { useContactInsightsStore } from '../stores/contactInsights'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
@@ -34,6 +35,7 @@ import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 
 const store = useInboxStore()
+const contactInsights = useContactInsightsStore()
 const route = useRoute()
 const router = useRouter()
 const threadMuteBody = computed(() => store.messageBodies.get(store.openEmailId))
@@ -1523,6 +1525,21 @@ function isTypingTarget(target) {
   return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'))
 }
 
+// Whether the email list has the screen to itself: no reader, composer,
+// command palette, chat or contact drawer, no multi-select bar (and so none of
+// its menus), and no dialog opened from elsewhere in the app.
+function isListAlone() {
+  return (
+    !openEmail.value &&
+    !selectedEmails.value.length &&
+    !store.isComposerActive &&
+    !store.isCommandPaletteOpen &&
+    !store.isChatDrawerActive &&
+    !contactInsights.isOpen &&
+    !document.querySelector('dialog[open], [aria-modal="true"]')
+  )
+}
+
 function isAvailabilityDialogEvent(event) {
   // The reply's dialog is teleported to <body>. Keep its event ancestry even
   // when an insert or cancel click removes the dialog before this listener runs.
@@ -1575,10 +1592,10 @@ function onKeydown(e) {
     }
   }
 
-  // Left/Right move between the category tabs, like the trackpad swipe. Only
-  // while the list has the keys: an open reader keeps them for scrolling, and
-  // a control that already used the press (the sidebar resizer, the emoji
-  // picker) has prevented its default. Modified arrows stay with the browser.
+  // Left/Right move between the category tabs, wrapping round at either end.
+  // Only while the list is all there is on screen (see isListAlone), and not
+  // for a press another control already used (the sidebar resizer prevents
+  // its default). Modified arrows stay with the browser.
   if (
     (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
     !e.defaultPrevented &&
@@ -1587,15 +1604,16 @@ function onKeydown(e) {
     !e.altKey &&
     !e.shiftKey &&
     showInboxTabs.value &&
-    !openEmail.value &&
-    !store.isCommandPaletteOpen &&
+    inboxTabs.value.length > 1 &&
+    isListAlone() &&
     !isTypingTarget(e.target)
   ) {
-    const tab = neighbourTab(e.key === 'ArrowLeft' ? -1 : 1)
-    if (tab) {
-      e.preventDefault()
-      store.setInboxTab(tab.id)
-    }
+    const tabs = inboxTabs.value
+    const index = tabs.findIndex((tab) => tab.id === activeTab.value)
+    if (index === -1) return
+    const step = e.key === 'ArrowLeft' ? -1 : 1
+    e.preventDefault()
+    store.setInboxTab(tabs[(index + step + tabs.length) % tabs.length].id)
     return
   }
 

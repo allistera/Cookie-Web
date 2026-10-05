@@ -9,6 +9,7 @@ import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { useSendersStore } from '../../stores/senders'
+import { useContactInsightsStore } from '../../stores/contactInsights'
 import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
 import { scheduleChoices } from '../../utils/schedule'
 import { setAuth0Client } from '../../auth0-client'
@@ -3267,28 +3268,28 @@ describe('TraditionalInboxView inbox tabs', () => {
     return nextTick()
   }
 
-  it('Right and Left arrows move to the neighbouring tab and stop at the ends', async () => {
+  it('Right and Left arrows move to the neighbouring tab and wrap round at the ends', async () => {
     const wrapper = mountView()
     const activeName = () => wrapper.find('.ni-tab.active .ni-tab-name').text()
-
-    await pressArrow('ArrowLeft')
-    expect(activeName()).toBe('Important')
 
     await pressArrow('ArrowRight')
     expect(activeName()).toBe('Docs')
     expect(store.inboxTab).toBe('category:c-docs')
     expect(rowSubjects(wrapper)).toEqual(['Subject both-1'])
 
-    for (let i = 0; i < 5; i++) await pressArrow('ArrowRight')
-    expect(activeName()).toBe('Other')
+    await pressArrow('ArrowLeft')
+    expect(activeName()).toBe('Important')
 
     await pressArrow('ArrowLeft')
-    expect(activeName()).toBe('Team')
+    expect(activeName()).toBe('Other')
+
+    await pressArrow('ArrowRight')
+    expect(activeName()).toBe('Important')
     wrapper.unmount()
   })
 
-  it('leaves the arrows alone while typing, with a modifier, or with the reader open', async () => {
-    const wrapper = mountView({ attachTo: document.body })
+  it('leaves the arrows alone while typing or with a modifier held', async () => {
+    const wrapper = mountView()
     const activeName = () => wrapper.find('.ni-tab.active .ni-tab-name').text()
 
     const input = document.createElement('input')
@@ -3299,11 +3300,34 @@ describe('TraditionalInboxView inbox tabs', () => {
 
     await pressArrow('ArrowRight', document, { altKey: true })
     expect(activeName()).toBe('Important')
+    wrapper.unmount()
+  })
 
-    store.openReader(store.traditionalEmails.find((email) => email.id === 'urgent-1'))
+  it.each([
+    ['the reader', () => store.openReader(store.traditionalEmails[4])],
+    ['the composer', () => (store.isComposerActive = true)],
+    ['the command palette', () => (store.isCommandPaletteOpen = true)],
+    ['the chat drawer', () => (store.isChatDrawerActive = true)],
+    ['the contact drawer', () => (useContactInsightsStore().isOpen = true)],
+  ])('leaves the arrows alone while %s is on screen', async (_name, show) => {
+    const wrapper = mountView()
+    show()
     await nextTick()
+
     await pressArrow('ArrowRight')
-    expect(activeName()).toBe('Important')
+
+    expect(wrapper.find('.ni-tab.active .ni-tab-name').text()).toBe('Important')
+    wrapper.unmount()
+  })
+
+  it('leaves the arrows alone while emails are multi-selected', async () => {
+    const wrapper = mountView()
+    await wrapper.find('.ni-row .ni-checkbox').trigger('click')
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(true)
+
+    await pressArrow('ArrowRight')
+
+    expect(wrapper.find('.ni-tab.active .ni-tab-name').text()).toBe('Important')
     wrapper.unmount()
   })
 
