@@ -1635,28 +1635,30 @@ function onKeydown(e) {
   }
 
   // Up/Down move a highlight through the emails without opening any; Enter
-  // opens the highlighted one. Only while nothing covers the list. Enter is
-  // left to a focused control (a row, a tab, a button) that acts on it itself.
+  // opens the highlighted one and Space ticks or unticks its checkbox. Only
+  // while nothing covers the list. Enter and Space are left to a focused
+  // control (a row, a tab, a button) that acts on them itself.
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isListKey(e) && !isListCovered()) {
     e.preventDefault()
     moveHighlight(e.key === 'ArrowUp' ? -1 : 1)
     return
   }
   if (
-    e.key === 'Enter' &&
+    (e.key === 'Enter' || e.key === ' ') &&
     !e.repeat &&
     isListKey(e) &&
     !isListCovered() &&
     !e.target?.closest?.('button, a, [role="button"], [role="checkbox"], [role="tab"]')
   ) {
     // Looked up among the rows on show, so a highlight left behind in a day
-    // that was then collapsed opens nothing.
+    // that was then collapsed does nothing.
     const row = virtualMailRows.value.find(
       (candidate) => candidate.key === `email:${highlightedId.value}`,
     )
     if (row) {
       e.preventDefault()
-      openReader(row.email)
+      if (e.key === 'Enter') openReader(row.email)
+      else toggleSelect(row.email)
     }
     return
   }

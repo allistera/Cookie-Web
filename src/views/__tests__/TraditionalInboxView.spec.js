@@ -3545,6 +3545,29 @@ describe('TraditionalInboxView keyboard highlight', () => {
     wrapper.unmount()
   })
 
+  it('Space ticks and unticks the highlighted email without opening it', async () => {
+    const wrapper = mountView()
+    const checked = () =>
+      wrapper.findAll('.ni-row.checked').map((row) => row.find('.ni-subject-text').text())
+
+    await press(' ')
+    expect(checked()).toEqual([])
+
+    await press('ArrowDown')
+    await press('ArrowDown')
+    await press(' ')
+    expect(checked()).toEqual(['Subject two'])
+
+    await press('ArrowDown')
+    await press(' ')
+    expect(checked()).toEqual(['Subject two', 'Subject three'])
+
+    await press(' ')
+    expect(checked()).toEqual(['Subject two'])
+    expect(store.openEmailId).toBe(null)
+    wrapper.unmount()
+  })
+
   it('leaves Enter to a focused control that acts on it itself', async () => {
     const wrapper = mountView({ attachTo: document.body })
     await press('ArrowDown')
