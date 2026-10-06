@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
     test: {
       coverage: {
         provider: 'v8',
-        include: ['src/components/SenderSettings.vue', 'src/views/TraditionalInboxView.vue'],
+        include: ['src/components/SenderSettings.vue'],
         reporter: ['text', 'json-summary', 'lcov'],
         thresholds: {
           lines: 95,

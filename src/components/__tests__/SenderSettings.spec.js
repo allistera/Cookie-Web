@@ -1,8 +1,9 @@
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import SenderSettings from '../SenderSettings.vue'
 import { useSendersStore } from '../../stores/senders'
+import { useInboxStore } from '../../stores/inbox'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -44,6 +45,58 @@ describe('sender settings', () => {
     await wrapper.get('select').setValue('block')
     await wrapper.get('form').trigger('submit')
     expect(update).toHaveBeenCalledWith({ action: 'block', address: 'badco.example' })
+    wrapper.unmount()
+  })
+  it('manages existing decisions and pagination from Settings', async () => {
+    const store = useSendersStore()
+    const inbox = useInboxStore()
+    store.loaded = true
+    store.error = 'Could not load senders.'
+    store.nextCursor = 'next-page'
+    store.decisions = [
+      { address: '@shop.example', decision: 'accepted' },
+      { address: 'blocked@example.com', decision: 'blocked' },
+    ]
+    const update = vi.spyOn(store, 'update').mockResolvedValue(true)
+    const refreshSenderMail = vi.spyOn(inbox, 'refreshSenderMail').mockResolvedValue()
+    const wrapper = mount(SenderSettings, { global: { stubs: { RouterLink: true } } })
+
+    expect(wrapper.get('[role=alert]').text()).toBe('Could not load senders.')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Remove acceptance')
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Block')
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Unblock')
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Accept and release')
+      .trigger('click')
+    await flushPromises()
+
+    expect(update.mock.calls.map(([body]) => body)).toEqual([
+      { action: 'forget', address: '@shop.example' },
+      { action: 'block', address: '@shop.example' },
+      { action: 'unblock', address: 'blocked@example.com' },
+      { action: 'accept', address: 'blocked@example.com' },
+    ])
+    expect(refreshSenderMail).toHaveBeenCalledTimes(4)
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Reload senders')
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Load more senders')
+      .trigger('click')
+    expect(store.load).toHaveBeenLastCalledWith({ more: true })
     wrapper.unmount()
   })
 })

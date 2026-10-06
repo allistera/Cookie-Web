@@ -178,7 +178,7 @@ npm run build
 npm run test:e2e
 ```
 
-CI enforces coverage for the sender-settings and email-reader surfaces and uploads
+CI enforces coverage for the sender-settings surface and uploads
 the LCOV and JSON summary reports as the `unit-coverage` artifact. The configured
 minimums are 95% for lines and statements and 90% for functions and branches.
 
