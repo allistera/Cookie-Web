@@ -54,7 +54,10 @@ function resetDraft() {
 }
 
 function updateDraft(patch) {
-  if (draft.value && patch.blocks !== undefined) draft.value.blocks = patch.blocks
+  // An unmounting editor still flushes its last blocks; after a reset they
+  // belong to the previous generation's draft, not this one.
+  if (!draft.value || (patch.id !== undefined && patch.id !== draft.value.id)) return
+  if (patch.blocks !== undefined) draft.value.blocks = patch.blocks
 }
 
 const isCustomized = computed(() => store.dailyNoteSeed.length > 0)
