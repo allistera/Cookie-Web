@@ -885,45 +885,6 @@ describe('TraditionalInboxView filtered views', () => {
       screeningStatus: 'held',
     })
 
-    async function reviewWith(emails, openId, remainingIds) {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => ({ ok: true, json: async () => ({ enabled: true, decisions: [] }) })),
-      )
-      store.screeningEmails = emails
-      store.isScreeningLoaded = true
-      await router.replace({ path: '/inbox', query: { filter: 'screening' } })
-      const wrapper = mountView()
-      await wrapper
-        .findAll('.ni-row')
-        .find((row) => row.text().includes(`Subject ${openId}`))
-        .trigger('click')
-      expect(store.openEmailId).toBe(openId)
-      // The decision reloads the list without the sender's held mail.
-      vi.spyOn(store, 'refreshSenderMail').mockImplementation(async () => {
-        store.openEmailId = null
-        store.screeningEmails = emails.filter((email) => remainingIds.includes(email.id))
-      })
-      wrapper.findComponent({ name: 'SenderControls' }).vm.$emit('changed')
-      await flushPromises()
-      return wrapper
-    }
-
-    it('opens the next email awaiting approval after a decision', async () => {
-      await reviewWith([held('a', 1), held('b', 2), held('c', 3)], 'a', ['b', 'c'])
-      expect(store.openEmailId).toBe('b')
-    })
-
-    it('opens the new last email when the decided one was last', async () => {
-      await reviewWith([held('a', 1), held('b', 2), held('c', 3)], 'c', ['a', 'b'])
-      expect(store.openEmailId).toBe('b')
-    })
-
-    it('leaves the reader closed when nothing else awaits approval', async () => {
-      await reviewWith([held('a', 1)], 'a', [])
-      expect(store.openEmailId).toBeNull()
-    })
-
     async function selectInReview(emails, ids) {
       store.screeningEmails = emails
       store.isScreeningLoaded = true
@@ -1032,6 +993,20 @@ describe('TraditionalInboxView filtered views', () => {
       expect(pill(wrapper, 'Accept')).toBeUndefined()
       expect(pill(wrapper, 'Block')).toBeUndefined()
     })
+  })
+
+  it('keeps sender controls off incoming email in every folder', async () => {
+    const ordinaryWrapper = mountView()
+    await ordinaryWrapper.findAll('.ni-row')[0].trigger('click')
+    expect(ordinaryWrapper.find('.sender-controls').exists()).toBe(false)
+
+    ordinaryWrapper.unmount()
+    store.screeningEmails = [{ ...makeEmail('held-1', Date.now() - HOUR), screeningStatus: 'held' }]
+    store.isScreeningLoaded = true
+    await router.replace({ path: '/inbox', query: { filter: 'screening' } })
+    const screeningWrapper = mountView()
+    await screeningWrapper.find('.ni-row').trigger('click')
+    expect(screeningWrapper.find('.sender-controls').exists()).toBe(false)
   })
 
   it('filter=starred shows only starred emails with a Starred header', async () => {

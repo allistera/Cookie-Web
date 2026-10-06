@@ -18,7 +18,6 @@ import EmailRow from '../components/EmailRow.vue'
 import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
-import SenderControls from '../components/SenderControls.vue'
 import { normalizeSender, useSendersStore } from '../stores/senders'
 import { useContactInsightsStore } from '../stores/contactInsights'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
@@ -131,9 +130,8 @@ function isImportantEmail(email) {
 }
 
 // Mail from a sender you accepted (that address, or its domain) is trusted
-// like Important mail and opens with its remote images. The decision comes
-// from the reader's Sender controls lookup, so it can arrive just after the
-// body renders; EmailBody widens to images when it does.
+// like Important mail and opens with its remote images. The decision can
+// arrive just after the body renders; EmailBody widens to images when it does.
 function senderAccepted(email) {
   return senders.known[normalizeSender(email.address)] === 'accepted'
 }
@@ -721,6 +719,16 @@ async function scheduleSelected(choice) {
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
 
+// The reader no longer renders sender controls, but still needs the sender
+// decision so accepted mail can reveal remote images.
+watch(
+  [() => openEmail.value?.address, () => senders.ownerSub],
+  ([address]) => {
+    if (address) void senders.lookup(address)
+  },
+  { immediate: true },
+)
+
 // The AI Inbox's triage rows link here as /inbox?open=<message id>. The list
 // is usually still in flight when the route lands, so this waits for the email
 // to arrive rather than giving up on the first miss. Each id opens once, so
@@ -1025,19 +1033,6 @@ function removeOpenEmail(remove) {
   if (next) {
     openReader(next)
   }
-}
-
-// Accept or Block in New senders clears that sender's held mail from the
-// list; like Done, the reader then moves on to the next email still waiting
-// for approval (the one that took its place, else the new last one).
-async function onSenderDecision() {
-  const reviewing = activeFilter.value === 'screening'
-  const index = openIndex.value
-  await store.refreshSenderMail()
-  if (!reviewing || activeFilter.value !== 'screening') return
-  const remaining = flatEmails.value
-  const next = remaining[Math.max(index, 0)] ?? remaining[remaining.length - 1]
-  if (next) openReader(next)
 }
 
 function archiveOpenEmail() {
@@ -2333,13 +2328,6 @@ onUnmounted(() => {
             openEmailSummary || 'Summarizing thread…'
           }}</span>
         </div>
-
-        <SenderControls
-          v-if="!openEmail.isSent"
-          :key="openEmail.id"
-          :email="openEmail"
-          @changed="onSenderDecision"
-        />
 
         <div class="ni-reader-labels" v-if="openEmail.labels?.length">
           <span

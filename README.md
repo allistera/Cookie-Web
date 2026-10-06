@@ -173,9 +173,14 @@ The `Migrate Database` workflow runs automatically when migration files reach `m
 ```sh
 npm run lint
 npm run test:unit -- --run
+npm run test:coverage
 npm run build
 npm run test:e2e
 ```
+
+CI enforces coverage for the sender-settings and email-reader surfaces and uploads
+the LCOV and JSON summary reports as the `unit-coverage` artifact. The configured
+minimums are 95% for lines and statements and 90% for functions and branches.
 
 Install Playwright browsers once if required:
 
