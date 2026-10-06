@@ -874,6 +874,8 @@ export const useInboxStore = defineStore('inbox', {
 
     // Command palette (Cmd+K)
     isCommandPaletteOpen: false,
+    // Keyboard shortcuts help, opened with '?' or from the command palette.
+    isShortcutsHelpOpen: false,
     // Bumped by the command palette's "Create Event" command; CalendarView
     // watches it to open its New Event dialog without the two views needing
     // a direct reference to each other. The pending flag survives a route

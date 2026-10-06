@@ -62,6 +62,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'image',
   'inbox',
   'interests',
+  'keyboard',
   'keyboard_arrow_down',
   'keyboard_arrow_right',
   'keyboard_arrow_up',

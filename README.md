@@ -47,6 +47,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   to a category named Important (ignoring case and surrounding spaces). Each email
   is counted once, and the command menu offers the same combined tab.
 - Auth0 authentication and per-user mailbox queries.
+- Press `?` (or pick Keyboard Shortcuts in the `/` command palette) for a list of
+  every keyboard shortcut.
 - Debounced hybrid search over stored mail, served by Meilisearch, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.

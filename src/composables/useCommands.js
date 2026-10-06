@@ -299,6 +299,15 @@ export function useCommands() {
         run: () => setTheme('light'),
       },
       {
+        id: 'keyboard-shortcuts',
+        title: 'Keyboard Shortcuts',
+        icon: 'keyboard',
+        keyHint: '?',
+        run: () => {
+          store.isShortcutsHelpOpen = true
+        },
+      },
+      {
         id: 'go-ai-today',
         title: 'Go to AI Today',
         icon: 'auto_awesome',
