@@ -34,10 +34,7 @@ test('settings block is recoverable and screening decisions stay explicit across
     settings.getByRole('button', { name: 'Save sender', exact: true }).click(),
   )
   await expect(settings).toContainText('updates@cityconstruction.com — blocked')
-  // Blocked lives under More and appears once it holds mail.
-  await page.goto('/inbox')
-  await page.locator('.nav-item', { hasText: 'More' }).click()
-  await page.getByRole('link', { name: 'Blocked', exact: true }).click()
+  await page.goto('/inbox?filter=blocked')
   await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
   await expect(controls).toHaveCount(0)
   await page.goto('/settings/senders')
