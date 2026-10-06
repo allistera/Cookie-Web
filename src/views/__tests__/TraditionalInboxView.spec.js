@@ -3923,15 +3923,21 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     try {
       wrapper = mountView()
       const list = wrapper.get('.ni-list')
-      list.element.dispatchEvent(new WheelEvent('wheel', { deltaX: -130, cancelable: true }))
+      list.element.dispatchEvent(
+        new WheelEvent('wheel', { deltaX: -130, bubbles: true, cancelable: true }),
+      )
       await nextTick()
       expect(wrapper.get('.ni-tab.active').text()).toContain('Important')
       await vi.advanceTimersByTimeAsync(230)
-      list.element.dispatchEvent(new WheelEvent('wheel', { deltaX: 130, cancelable: true }))
+      list.element.dispatchEvent(
+        new WheelEvent('wheel', { deltaX: 130, bubbles: true, cancelable: true }),
+      )
       await nextTick()
       expect(wrapper.get('.ni-tab.active').text()).toContain('Other')
       await vi.advanceTimersByTimeAsync(230)
-      list.element.dispatchEvent(new WheelEvent('wheel', { deltaX: 130, cancelable: true }))
+      list.element.dispatchEvent(
+        new WheelEvent('wheel', { deltaX: 130, bubbles: true, cancelable: true }),
+      )
       await nextTick()
       expect(wrapper.get('.ni-tab.active').text()).toContain('Other')
     } finally {
