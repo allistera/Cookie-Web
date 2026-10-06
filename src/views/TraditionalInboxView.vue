@@ -152,9 +152,11 @@ function emailInTab(email, tabId) {
 const inboxTabs = computed(() => {
   // One pass over the list: each email lands in exactly one tab.
   const counts = new Map()
+  const unreadTabs = new Set()
   for (const email of inboxEmails.value) {
     const tabId = inboxTabOf(email)
     counts.set(tabId, (counts.get(tabId) ?? 0) + 1)
+    if (email.unread) unreadTabs.add(tabId)
   }
   return [
     { id: PRIORITY_TAB, name: 'Important' },
@@ -165,7 +167,11 @@ const inboxTabs = computed(() => {
         name: category.name,
       })),
     { id: OTHER_TAB, name: 'Other' },
-  ].map((tab) => ({ ...tab, count: counts.get(tab.id) ?? 0 }))
+  ].map((tab) => ({
+    ...tab,
+    count: counts.get(tab.id) ?? 0,
+    hasUnread: unreadTabs.has(tab.id),
+  }))
 })
 
 const showInboxTabs = computed(() => !activeFilter.value && !store.activeSearchQuery)
@@ -1788,7 +1794,7 @@ onUnmounted(() => {
         v-for="tab in inboxTabs"
         :key="tab.id"
         class="ni-tab"
-        :class="{ active: tab.id === activeTab }"
+        :class="{ active: tab.id === activeTab, unread: tab.hasUnread }"
         role="tab"
         :aria-selected="tab.id === activeTab ? 'true' : 'false'"
         @click="store.setInboxTab(tab.id)"

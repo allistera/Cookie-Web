@@ -3283,6 +3283,20 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(rowSubjects(wrapper)).toEqual(['Subject team-1'])
   })
 
+  it('bolds category names while they contain unread email', async () => {
+    const wrapper = mountView()
+    const tab = (name) =>
+      wrapper.findAll('.ni-tab').find((item) => item.find('.ni-tab-name').text() === name)
+
+    expect(tab('Team').classes()).toContain('unread')
+    expect(tab('Finance').classes()).not.toContain('unread')
+
+    store.traditionalEmails.find((email) => email.id === 'team-1').unread = false
+    await nextTick()
+
+    expect(tab('Team').classes()).not.toContain('unread')
+  })
+
   it.each(['Important', ' important '])(
     'combines the %s category with priority mail without duplicate tabs or counts',
     async (name) => {
