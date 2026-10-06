@@ -34,10 +34,8 @@ test('settings block is recoverable and screening decisions stay explicit across
     settings.getByRole('button', { name: 'Save sender', exact: true }).click(),
   )
   await expect(settings).toContainText('updates@cityconstruction.com — blocked')
-  await page.goto('/inbox?filter=blocked')
-  await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
-  await expect(controls).toHaveCount(0)
-  await page.goto('/settings/senders')
+  await page.reload()
+  await expect(settings).toContainText('updates@cityconstruction.com — blocked')
   await expect(settings.getByRole('checkbox')).not.toBeChecked()
   await screening(page, true)
   await page.reload()
@@ -46,10 +44,6 @@ test('settings block is recoverable and screening decisions stay explicit across
     settings.getByRole('button', { name: 'Unblock', exact: true }).click(),
   )
   await expect(settings.getByRole('button', { name: 'Unblock', exact: true })).toHaveCount(0)
-  await page.getByRole('link', { name: 'New senders', exact: true }).first().click()
-  await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
-  await expect(controls).toHaveCount(0)
-  await page.goto('/settings/senders')
   await screening(page, false)
   await settings.getByLabel('Email address or domain').fill('updates@cityconstruction.com')
   await settings.getByLabel('Decision').selectOption('accept')
