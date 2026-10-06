@@ -867,7 +867,9 @@ export const useInboxStore = defineStore('inbox', {
     // Live one-line summaries are cached by thread id. message_ai summaries
     // remain per-message enrichment and are intentionally separate.
     threadSummaries: new Map(),
-    summaryLoadingId: null,
+    // Ids of messages with a summary request in flight. Per message, so a
+    // thread opened while another one is still summarizing gets its own.
+    summaryLoadingIds: new Set(),
 
     // Id of the message with an unsubscribe request in flight (null when idle).
     unsubscribingId: null,
@@ -987,7 +989,7 @@ export const useInboxStore = defineStore('inbox', {
       return body?.threadId ? (state.threadSummaries.get(body.threadId) ?? null) : null
     },
     isOpenSummaryLoading(state) {
-      return state.summaryLoadingId !== null && state.summaryLoadingId === state.openEmailId
+      return state.summaryLoadingIds.has(state.openEmailId)
     },
     // The open email's whole conversation (oldest first, the open message
     // included) — empty until the body fetch lands, or when the message is
@@ -1135,7 +1137,11 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const { emails, nextCursor } = await this.fetchEmailPage({ before: this.emailsCursor })
         if (seq !== this.listSeq) return
-        this.traditionalEmails.push(...dropPendingRemovals(emails.map(mapEmailRow), fetchSeq))
+        // A refresh merged since the cursor was taken may already hold rows
+        // from this page (mail arriving shifts the page boundary).
+        const loadedIds = new Set(this.traditionalEmails.map((email) => email.id))
+        const incoming = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
+        this.traditionalEmails.push(...incoming.filter((email) => !loadedIds.has(email.id)))
         this.emailsCursor = nextCursor ?? null
         this.hasMoreEmails = Boolean(nextCursor)
       } catch (error) {
@@ -1292,13 +1298,18 @@ export const useInboxStore = defineStore('inbox', {
 
     async refreshSenderMail() {
       this.senderQueueGeneration++
+      // Strands any loadEmails/loadMoreEmails in flight, which then never
+      // clear isRefreshing themselves; a first load stranded here is rerun.
+      const strandedFirstLoad = this.isRefreshing && !this.isInboxLoaded && !this.activeSearchQuery
       this.listSeq++
+      this.isRefreshing = false
       this.openEmailId = null
       this.messageBodies.clear()
       this.threadSummaries.clear()
       pendingBodyFetches.clear()
       await Promise.all([
         this.refreshInbox(),
+        strandedFirstLoad ? this.loadEmails() : Promise.resolve(),
         ...['spam', 'snoozed', 'starred', 'label']
           .filter((folder) => this[FOLDER_STATE[folder].loaded])
           .map((folder) =>
@@ -2296,13 +2307,13 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async summarizeEmail(email) {
-      if (!email || this.summaryLoadingId || isWithheld(email)) return null
+      if (!email || this.summaryLoadingIds.has(email.id) || isWithheld(email)) return null
       const generation = this.composeGeneration
       const queueGeneration = this.senderQueueGeneration
       const id = email.id
       const body = this.messageBodies.get(id)
       if (!body?.threadId || !body.threadLatestMessageId) return null
-      this.summaryLoadingId = id
+      this.summaryLoadingIds.add(id)
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -2358,7 +2369,7 @@ export const useInboxStore = defineStore('inbox', {
         this.notify('AI summarization failed. Please try again.', 'error')
         return null
       } finally {
-        if (this.summaryLoadingId === id) this.summaryLoadingId = null
+        this.summaryLoadingIds.delete(id)
       }
     },
 
@@ -2748,13 +2759,14 @@ export const useInboxStore = defineStore('inbox', {
       const restore = () => {
         if (!applied) return
         applied = false
+        untrackInboxRemoval(email.id)
         restoreCapturedLists(email, positions)
         if (wasUnreadInbox) this.unreadInboxCount++
         if (leavesSpam) this.spamCount++
         if (leavesSnoozed) this.snoozedCount++
       }
 
-      const { undo } = reversibleMessageUpdate(this, {
+      const { persistence, undo } = reversibleMessageUpdate(this, {
         email,
         apply,
         restore,
@@ -2764,6 +2776,7 @@ export const useInboxStore = defineStore('inbox', {
         errorMessage: 'Failed to delete email.',
         shouldNotify,
       })
+      if (positions[0].index > -1) trackInboxRemoval(email.id, persistence)
       if (undoActions) undoActions.push(undo)
       return undo
     },
@@ -3856,6 +3869,25 @@ export const useInboxStore = defineStore('inbox', {
       this.isComposerActive = true
     },
 
+    // Puts a message that left the composer back into it (an undone or
+    // failed send, a canceled scheduled send). Anything opened meanwhile is
+    // a different message: closing it saves its last edits to its own row,
+    // and the new session keeps its in-flight autosave from claiming
+    // composerDraftId for the restored message. Returns that session.
+    restoreComposerMessage(message, draftId) {
+      this.closeComposer({ save: this.isComposerActive })
+      this.composerTo = message.to
+      this.composerSubject = message.subject
+      this.composerTextArea = message.text
+      this.composerHtml = message.html
+      this.composerReplyToMessageId = message.replyToMessageId
+      this.composerFollowUpAt = message.followUpAt
+      this.composerAttachments = message.attachments ?? []
+      this.composerDraftId = draftId ?? null
+      this.isComposerActive = true
+      return this.composerSessionId
+    },
+
     // Uploads picked files and returns the stored attachment rows. Shared by
     // the composer and the inline reply box, which keep their own draft
     // state. Each file is independent: one failure notifies and drops that
@@ -4094,8 +4126,6 @@ export const useInboxStore = defineStore('inbox', {
       })
       const draftId = this.consumeComposerDraft()
       this.closeComposer({ save: false })
-      // The session an undo or a failed send restores the message into.
-      const session = this.composerSessionId
       this.startPendingSend({ ...draft, draftId })
       // The first save may still be in flight; its row goes with this send.
       const handoff = draftId ? null : this.settleComposerHandoff()
@@ -4110,8 +4140,9 @@ export const useInboxStore = defineStore('inbox', {
       } else if (pending.outcome === 'sent') {
         await this.discardDraft(lateDraftId)
       } else {
-        // Undone or failed: the message is back in the composer.
-        this.adoptLateComposerDraft(session, lateDraftId)
+        // Undone or failed: the message is back in the composer, in the
+        // session the restore recorded.
+        this.adoptLateComposerDraft(pending.restoredSession, lateDraftId)
       }
     },
 
@@ -4141,20 +4172,10 @@ export const useInboxStore = defineStore('inbox', {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
       const pending = this.pendingSend
-      const { to, subject, text, html, replyToMessageId, followUpAt, attachments, draftId } =
-        pending
       this.pendingSend = null
       pending.outcome = 'undone'
       // Keep writing into the same row the composer was autosaving before.
-      this.composerDraftId = draftId ?? null
-      this.composerTo = to
-      this.composerSubject = subject
-      this.composerTextArea = text
-      this.composerHtml = html
-      this.composerReplyToMessageId = replyToMessageId
-      this.composerFollowUpAt = followUpAt
-      this.composerAttachments = attachments ?? []
-      this.isComposerActive = true
+      pending.restoredSession = this.restoreComposerMessage(pending, pending.draftId)
     },
 
     // Fires when the countdown reaches zero: performs the real send. On failure
@@ -4190,15 +4211,7 @@ export const useInboxStore = defineStore('inbox', {
         draft.outcome = 'failed'
         console.error('Failed to send email:', error)
         this.notify('Failed to send email. Please try again.', 'error')
-        this.composerTo = draft.to
-        this.composerSubject = draft.subject
-        this.composerTextArea = draft.text
-        this.composerHtml = draft.html
-        this.composerReplyToMessageId = draft.replyToMessageId
-        this.composerFollowUpAt = draft.followUpAt
-        this.composerAttachments = draft.attachments ?? []
-        this.composerDraftId = draft.draftId ?? null
-        this.isComposerActive = true
+        draft.restoredSession = this.restoreComposerMessage(draft, draft.draftId)
       } finally {
         this.isSendingEmail = false
       }
@@ -4244,15 +4257,7 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         console.error('Failed to schedule email:', error)
         this.notify('Failed to schedule email. Please try again.', 'error')
-        this.composerTo = draft.to
-        this.composerSubject = draft.subject
-        this.composerTextArea = draft.text
-        this.composerHtml = draft.html
-        this.composerReplyToMessageId = draft.replyToMessageId
-        this.composerFollowUpAt = draft.followUpAt
-        this.composerAttachments = draft.attachments ?? []
-        this.composerDraftId = draftId ?? null
-        this.isComposerActive = true
+        this.restoreComposerMessage(draft, draftId)
         return false
       } finally {
         this.isSendingEmail = false
@@ -4297,17 +4302,20 @@ export const useInboxStore = defineStore('inbox', {
       }
       const { scheduledSend: canceled } = await response.json()
       this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
-      this.composerTo = canceled.toAddresses
-      this.composerSubject = canceled.subject
       // A scheduled reply went in with the original quoted below it; sending
       // it again quotes afresh, so the composer gets the reply alone.
       const html = stripReplyQuote(canceled.html)
-      this.composerTextArea = html === (canceled.html ?? '') ? canceled.text : htmlToText(html)
-      this.composerHtml = html || plainTextToHtml(canceled.text)
-      this.composerReplyToMessageId = canceled.replyToMessageId
-      this.composerFollowUpAt = canceled.followUpAt
-      this.composerAttachments = canceled.attachments ?? []
-      this.isComposerActive = true
+      // It has no draft row (scheduling discarded it), so autosave starts a
+      // new one rather than writing over whatever draft is open now.
+      this.restoreComposerMessage({
+        to: canceled.toAddresses,
+        subject: canceled.subject,
+        text: html === (canceled.html ?? '') ? canceled.text : htmlToText(html),
+        html: html || plainTextToHtml(canceled.text),
+        replyToMessageId: canceled.replyToMessageId,
+        followUpAt: canceled.followUpAt,
+        attachments: canceled.attachments,
+      })
     },
 
     // Real RAG: /ask retrieves the most relevant stored emails via

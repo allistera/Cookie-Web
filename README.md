@@ -49,6 +49,11 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Auth0 authentication and per-user mailbox queries.
 - Press `?` (or pick Keyboard Shortcuts in the `/` command palette) for a list of
   every keyboard shortcut.
+- Manage sender acceptance and blocking in Settings → Senders. In New senders,
+  select one held email and choose **Restore this message only** to release it
+  without accepting its sender. With screening enabled, future mail stays held.
+  Accept and Block apply
+  to the sender's domain (or exact address for public email providers).
 - Debounced hybrid search over stored mail, served by Meilisearch, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.
@@ -175,9 +180,16 @@ The `Migrate Database` workflow runs automatically when migration files reach `m
 ```sh
 npm run lint
 npm run test:unit -- --run
+npm run test:coverage
 npm run build
 npm run test:e2e
 ```
+
+CI enforces coverage per file for `SenderSettings.vue` and `TraditionalInboxView.vue`,
+the executable source changed by the sender-controls work. It uploads the LCOV and JSON
+summary reports as the `unit-coverage` artifact so measured files and source lines remain
+traceable to the tested revision. The minimums are 95% for lines and statements and 90%
+for functions and branches.
 
 Install Playwright browsers once if required:
 
