@@ -75,11 +75,11 @@ test('New senders restores one selected message without accepting the sender', a
   expect(result.ok()).toBe(true)
   await page.goto('/inbox?filter=screening')
   await expect(page.locator('.ni-row')).toHaveCount(2)
-  await page
+  const heldMessage = page
     .locator('.ni-row')
     .filter({ hasText: 'Item Sold! Baby winter coat bundle' })
-    .locator('.ni-checkbox')
-    .click()
+  await heldMessage.hover()
+  await heldMessage.locator('.ni-checkbox').click()
   await saveSender(page, 'restore', () =>
     page.getByRole('button', { name: 'Restore this message only', exact: true }).click(),
   )
