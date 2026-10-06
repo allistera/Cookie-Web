@@ -89,8 +89,13 @@ const props = defineProps({
   // highlight only appears there too, so it never implies a regular
   // document's line is doing something it isn't.
   isDailyNote: { type: Boolean, default: false },
+  // `@save` arrives as a prop rather than a declared emit (emit('save') still
+  // reaches it while mounted): the unmount flush reads Editor.js
+  // asynchronously, and Vue drops emits from an unmounted component, so block
+  // saves call the handler directly.
+  onSave: { type: Function, default: null },
 })
-const emit = defineEmits(['save', 'dirty'])
+const emit = defineEmits(['dirty'])
 
 const inbox = useInboxStore()
 const documents = useDocumentsStore()
@@ -205,7 +210,7 @@ async function serializeAndEmitBlocks() {
   const documentId = props.doc.id
   try {
     const blocks = await readBlocks(activeEditor)
-    emit('save', { id: documentId, blocks })
+    props.onSave?.({ id: documentId, blocks })
   } catch (error) {
     console.error('Reading editor content failed:', error)
   }

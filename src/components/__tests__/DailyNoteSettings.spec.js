@@ -68,4 +68,28 @@ describe('DailyNoteSettings', () => {
     expect(wrapper.find('.editor-stub').exists()).toBe(true)
     expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
   })
+  // An editor unmounting after a reset still flushes its last blocks, tagged
+  // with the id of the draft it was showing; they must not land on the new one.
+  it('ignores a block save from an editor whose draft was replaced', async () => {
+    vi.spyOn(store, 'loadDailyNoteSeed').mockImplementation(async () => {
+      store.dailyNoteSeed = [{ type: 'paragraph', data: { text: 'Mine' } }]
+      store.dailyNoteSeedLoaded = true
+      return true
+    })
+    const wrapper = mountSettings()
+    await flushPromises()
+    const editor = wrapper.findComponent(DocumentEditor)
+    const blocks = [
+      { type: 'paragraph', data: { text: 'a' } },
+      { type: 'paragraph', data: { text: 'b' } },
+    ]
+
+    editor.vm.$emit('save', { id: 'daily-note-seed-0', blocks })
+    await flushPromises()
+    expect(wrapper.find('.editor-stub').text()).toBe('1')
+
+    editor.vm.$emit('save', { id: editor.props('doc').id, blocks })
+    await flushPromises()
+    expect(wrapper.find('.editor-stub').text()).toBe('2')
+  })
 })

@@ -2,8 +2,12 @@
 import { onMounted, ref } from 'vue'
 
 import DocumentIcon from './DocumentIcon.vue'
-import DocumentEditor from './DocumentEditor.vue'
+import { lazyComponent } from '../router/chunkReload'
 import { useDocumentsStore } from '../stores/documents'
+
+// Editor.js and its tools only load once a template is opened, not with the
+// Settings route.
+const DocumentEditor = lazyComponent(() => import('./DocumentEditor.vue'))
 
 const store = useDocumentsStore()
 
@@ -13,13 +17,19 @@ const isSaving = ref(false)
 const error = ref('')
 const confirmingDeleteId = ref(null)
 const editorComponent = ref(null)
+// Each new template gets its own editor id, so a previous editor's late
+// block flush can be told apart from the draft that replaced it.
+let newTemplateCount = 0
+const NEW_TEMPLATE_PREFIX = 'new-template-'
+const isNewTemplate = (doc) => doc?.id?.startsWith(NEW_TEMPLATE_PREFIX) ?? false
 
 onMounted(() => store.loadTemplates())
 
 function newTemplate() {
   confirmingDeleteId.value = null
   error.value = ''
-  draft.value = { id: 'new-template', title: '', blocks: [] }
+  newTemplateCount += 1
+  draft.value = { id: `${NEW_TEMPLATE_PREFIX}${newTemplateCount}`, title: '', blocks: [] }
 }
 
 async function editTemplate(template) {
@@ -37,7 +47,10 @@ function closeEditor() {
 }
 
 function updateDraft(patch) {
-  if (draft.value) Object.assign(draft.value, patch)
+  // An unmounting editor still flushes its last blocks; they belong to the
+  // draft it was showing, not to one opened since.
+  if (!draft.value || (patch.id !== undefined && patch.id !== draft.value.id)) return
+  Object.assign(draft.value, patch)
 }
 
 async function saveTemplate() {
@@ -53,10 +66,9 @@ async function saveTemplate() {
 
     error.value = ''
     const payload = { title, blocks: draft.value.blocks ?? [] }
-    const saved =
-      draft.value.id === 'new-template'
-        ? await store.createTemplate(payload)
-        : await store.updateTemplate(draft.value.id, payload)
+    const saved = isNewTemplate(draft.value)
+      ? await store.createTemplate(payload)
+      : await store.updateTemplate(draft.value.id, payload)
     if (saved) {
       closeEditor()
       store.notify('Document template saved.')
@@ -93,7 +105,7 @@ function formatUpdated(value) {
       <div class="document-template-editor-header">
         <div>
           <h3 class="settings-section-title">
-            {{ draft.id === 'new-template' ? 'New template' : 'Edit template' }}
+            {{ isNewTemplate(draft) ? 'New template' : 'Edit template' }}
           </h3>
           <p class="settings-section-hint">
             This title and content will be copied into each new document.

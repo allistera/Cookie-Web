@@ -923,6 +923,82 @@ describe('Inbox Store', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('loadMoreEmails skips rows a refresh already put in the list', async () => {
+    const row = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ emails: [row('b'), row('c')], nextCursor: null }),
+      }),
+    )
+    const store = useInboxStore()
+    store.traditionalEmails = [mapEmailRow(row('a')), mapEmailRow(row('b'))]
+    store.emailsCursor = 'cursor-1'
+
+    await store.loadMoreEmails()
+
+    expect(store.traditionalEmails.map((e) => e.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('refreshSenderMail does not leave a stranded page load refreshing', async () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    vi.spyOn(store, 'refreshInbox').mockResolvedValue()
+    store.isInboxLoaded = true
+    store.traditionalEmails = [{ id: 'a' }]
+    store.emailsCursor = 'cursor-1'
+
+    store.loadMoreEmails()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await store.refreshSenderMail()
+
+    expect(store.isRefreshing).toBe(false)
+    // The next scroll can page again instead of returning early forever.
+    store.loadMoreEmails()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshSenderMail reruns a first inbox load it stranded', async () => {
+    const row = {
+      id: 'a',
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: 'Subject a',
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    }
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue({ ok: true, json: async () => ({ emails: [row], nextCursor: null }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    vi.spyOn(store, 'refreshInbox').mockResolvedValue()
+
+    store.loadEmails()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await store.refreshSenderMail()
+
+    expect(store.isInboxLoaded).toBe(true)
+    expect(store.isRefreshing).toBe(false)
+    expect(store.traditionalEmails.map((e) => e.id)).toEqual(['a'])
+  })
+
   it('mergeInboxPage reuses existing row objects and keeps extra pages', () => {
     const existingA = { id: 'a', starred: true, unread: false, subject: 'old a' }
     const existingB = { id: 'b', starred: false, unread: true, subject: 'old b' }
@@ -1163,6 +1239,81 @@ describe('Inbox Store', () => {
     page = [listRow('a'), listRow('b')]
     await store.refreshInbox()
     expect(store.traditionalEmails.map((email) => email.id)).toEqual(['a', 'b'])
+  })
+
+  it('does not let a refresh put back an email deleted before the PATCH landed', async () => {
+    const listRow = (id) => ({
+      id,
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: `Subject ${id}`,
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    })
+    let resolveDelete
+    const fetchMock = vi.fn((url, options = {}) => {
+      if (options.method === 'PATCH') {
+        return new Promise((resolve) => {
+          resolveDelete = resolve
+        })
+      }
+      return {
+        ok: true,
+        json: async () => ({ emails: [listRow('d1'), listRow('d2')], unreadCount: 0 }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useInboxStore()
+    store.traditionalEmails = [
+      { id: 'd1', sender: 'Sender', subject: 'Subject d1', unread: false, labels: [] },
+      { id: 'd2', sender: 'Sender', subject: 'Subject d2', unread: false, labels: [] },
+    ]
+    store.isInboxLoaded = true
+
+    store.deleteEmail(store.traditionalEmails[0], false)
+    await store.refreshInbox()
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['d2'])
+
+    resolveDelete({ ok: true, json: async () => ({ message: {} }) })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it('lets an undone delete reappear in later inbox pages', async () => {
+    const listRow = {
+      id: 'd3',
+      from_name: 'Sender',
+      from_address: 's@example.com',
+      subject: 'Subject d3',
+      snippet: '',
+      body_text: '',
+      sent_at: new Date().toISOString(),
+      is_unread: false,
+      is_starred: false,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url, options = {}) =>
+        options.method === 'PATCH'
+          ? { ok: true, json: async () => ({ message: {} }) }
+          : { ok: true, json: async () => ({ emails: [listRow], unreadCount: 0 }) },
+      ),
+    )
+    const store = useInboxStore()
+    store.traditionalEmails = [
+      { id: 'd3', sender: 'Sender', subject: 'Subject d3', unread: false, labels: [] },
+    ]
+    store.isInboxLoaded = true
+
+    const undo = store.deleteEmail(store.traditionalEmails[0], false)
+    expect(store.traditionalEmails).toHaveLength(0)
+    await undo()
+    await store.loadEmails()
+
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['d3'])
   })
 
   it('lets an undone Done reappear in later inbox pages', async () => {
@@ -1938,6 +2089,45 @@ describe('Inbox Store', () => {
     expect(store.isOpenSummaryLoading).toBe(false)
   })
 
+  it('summarizes a thread opened while another one is still summarizing', async () => {
+    const pending = new Map()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (url, options) =>
+          new Promise((resolve) => pending.set(JSON.parse(options.body).id, resolve)),
+      ),
+    )
+    const store = useInboxStore()
+    const first = { id: '11111111-1111-1111-1111-111111111111', unread: false }
+    const second = { id: '22222222-2222-2222-2222-222222222222', unread: false }
+    store.traditionalEmails = [first, second]
+    store.messageBodies.set(first.id, { threadId: 'thread-1', threadLatestMessageId: first.id })
+    store.messageBodies.set(second.id, { threadId: 'thread-2', threadLatestMessageId: second.id })
+    const answer = (threadId, latestMessageId) => ({
+      ok: true,
+      json: async () => ({ summary: `About ${threadId}.`, threadId, latestMessageId }),
+    })
+
+    store.openEmailId = first.id
+    const firstSummary = store.summarizeEmail(first)
+    await vi.waitFor(() => expect(pending.has(first.id)).toBe(true))
+    store.openEmailId = second.id
+    const secondSummary = store.summarizeEmail(second)
+    await vi.waitFor(() => expect(pending.has(second.id)).toBe(true))
+    expect(store.isOpenSummaryLoading).toBe(true)
+
+    pending.get(first.id)(answer('thread-1', first.id))
+    expect(await firstSummary).toBe('About thread-1.')
+    // The other request finishing leaves the open thread's spinner alone.
+    expect(store.isOpenSummaryLoading).toBe(true)
+
+    pending.get(second.id)(answer('thread-2', second.id))
+    expect(await secondSummary).toBe('About thread-2.')
+    expect(store.openEmailSummary).toBe('About thread-2.')
+    expect(store.isOpenSummaryLoading).toBe(false)
+  })
+
   it('refetches and regenerates an open thread when its latest message changes', async () => {
     const email = { id: '11111111-1111-1111-1111-111111111111', unread: false }
     const oldBody = {
@@ -2619,6 +2809,102 @@ describe('Inbox Store', () => {
       expect(store.composerTextArea).toBe('Checking in.')
     })
 
+    function stubDraftWrites(handle) {
+      const fetchMock = vi.fn(async (url, options = {}) => {
+        if (String(url).includes('/drafts')) {
+          return (
+            handle?.(url, options) ?? {
+              ok: true,
+              status: 200,
+              json: async () => ({ draft: { id: 'draft-new' } }),
+            }
+          )
+        }
+        throw new Error('network down')
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+
+    const draftWrites = (fetchMock) =>
+      fetchMock.mock.calls.filter(([url]) => String(url).includes('/drafts'))
+
+    it('undo saves a message started during the countdown to its own row', async () => {
+      const fetchMock = stubDraftWrites()
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = true
+      store.composerDraftId = 'draft-sent'
+
+      store.sendEmail()
+      // Another message, already autosaved, is open when Undo is clicked.
+      store.openComposer()
+      store.composerTo = 'other@example.com'
+      store.composerTextArea = 'Another message.'
+      store.composerDraftId = 'draft-new'
+      store.undoPendingSend()
+
+      expect(store.composerTo).toBe('someone@example.com')
+      expect(store.composerDraftId).toBe('draft-sent')
+      await vi.waitFor(() => expect(draftWrites(fetchMock)).toHaveLength(1))
+      const [url, options] = draftWrites(fetchMock)[0]
+      expect(url).toContain('/drafts/draft-new')
+      expect(options.method).toBe('PATCH')
+      expect(JSON.parse(options.body).text).toBe('Another message.')
+      expect(store.composerDraftId).toBe('draft-sent')
+    })
+
+    it("undo keeps an in-flight first autosave's row off the restored message", async () => {
+      let finishCreate
+      const fetchMock = stubDraftWrites((url, options) =>
+        options.method === 'POST'
+          ? new Promise((resolve) => {
+              finishCreate = resolve
+            })
+          : undefined,
+      )
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = true
+      store.composerDraftId = 'draft-sent'
+
+      store.sendEmail()
+      store.openComposer()
+      store.composerTo = 'other@example.com'
+      store.composerTextArea = 'Another message.'
+      store.saveComposerDraft()
+      await vi.waitFor(() => expect(finishCreate).toBeDefined())
+      store.undoPendingSend()
+      finishCreate({ ok: true, status: 201, json: async () => ({ draft: { id: 'draft-new' } }) })
+
+      // The closing save of the other message lands on the row it created.
+      await vi.waitFor(() => expect(draftWrites(fetchMock)).toHaveLength(2))
+      expect(draftWrites(fetchMock)[1][0]).toContain('/drafts/draft-new')
+      expect(store.composerDraftId).toBe('draft-sent')
+    })
+
+    it('a failed send saves a message started during the countdown to its own row', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const fetchMock = stubDraftWrites()
+      const store = useInboxStore()
+      armComposer(store)
+      store.isComposerActive = true
+      store.composerDraftId = 'draft-sent'
+
+      store.sendEmail()
+      store.openComposer()
+      store.composerTo = 'other@example.com'
+      store.composerTextArea = 'Another message.'
+      store.composerDraftId = 'draft-new'
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(store.composerTo).toBe('someone@example.com')
+      expect(store.composerDraftId).toBe('draft-sent')
+      await vi.waitFor(() => expect(draftWrites(fetchMock)).toHaveLength(1))
+      expect(draftWrites(fetchMock)[0][0]).toContain('/drafts/draft-new')
+      expect(JSON.parse(draftWrites(fetchMock)[0][1].body).text).toBe('Another message.')
+    })
+
     it('undoLatestAction prioritizes a queued send', async () => {
       const fetchMock = stubSendOk()
       const store = useInboxStore()
@@ -2872,6 +3158,44 @@ describe('Inbox Store', () => {
         expect.objectContaining({ id: 'att-1', filename: 'plan.pdf' }),
       ])
       expect(store.isComposerActive).toBe(true)
+    })
+
+    it('saves the open draft before a cancelled scheduled send takes the composer', async () => {
+      const canceled = {
+        id: 'sched-1',
+        toAddresses: 'someone@example.com',
+        subject: 'Hello',
+        text: 'Checking in.',
+        html: '<p>Checking in.</p>',
+        replyToMessageId: null,
+        followUpAt: null,
+        attachments: [],
+      }
+      const fetchMock = vi.fn(async (url) =>
+        String(url).includes('/drafts')
+          ? { ok: true, status: 200, json: async () => ({ draft: { id: 'draft-open' } }) }
+          : { ok: true, json: async () => ({ scheduledSend: canceled }) },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.isComposerActive = true
+      store.composerTo = 'other@example.com'
+      store.composerTextArea = 'Unrelated draft.'
+      store.composerDraftId = 'draft-open'
+      const session = store.composerSessionId
+
+      await store.cancelScheduledSend({ id: 'sched-1' })
+
+      expect(store.composerTo).toBe('someone@example.com')
+      expect(store.composerTextArea).toBe('Checking in.')
+      // A fresh row for this message: autosave must not PATCH draft-open.
+      expect(store.composerDraftId).toBeNull()
+      expect(store.composerSessionId).toBeGreaterThan(session)
+      const draftCalls = () => fetchMock.mock.calls.filter(([url]) => url.includes('/drafts'))
+      await vi.waitFor(() => expect(draftCalls()).toHaveLength(1))
+      expect(draftCalls()[0][0]).toContain('/drafts/draft-open')
+      expect(JSON.parse(draftCalls()[0][1].body).text).toBe('Unrelated draft.')
+      expect(store.composerDraftId).toBeNull()
     })
 
     it('reopens a cancelled scheduled reply without the quote it went out with', async () => {

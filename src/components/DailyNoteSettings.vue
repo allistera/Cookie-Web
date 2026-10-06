@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 
-import DocumentEditor from './DocumentEditor.vue'
+import { lazyComponent } from '../router/chunkReload'
 import { DEFAULT_DAILY_NOTE_SEED_BLOCKS, useDocumentsStore } from '../stores/documents'
+
+// Kept out of the Settings route chunk: Editor.js loads with this pane only.
+const DocumentEditor = lazyComponent(() => import('./DocumentEditor.vue'))
 
 const store = useDocumentsStore()
 
@@ -51,7 +54,10 @@ function resetDraft() {
 }
 
 function updateDraft(patch) {
-  if (draft.value && patch.blocks !== undefined) draft.value.blocks = patch.blocks
+  // An unmounting editor still flushes its last blocks; after a reset they
+  // belong to the previous generation's draft, not this one.
+  if (!draft.value || (patch.id !== undefined && patch.id !== draft.value.id)) return
+  if (patch.blocks !== undefined) draft.value.blocks = patch.blocks
 }
 
 const isCustomized = computed(() => store.dailyNoteSeed.length > 0)

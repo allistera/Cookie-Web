@@ -186,22 +186,26 @@ async function loadEvents() {
         (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
     }))
     loadedEventRange.value = { from, to }
+    // Navigation during the request may have moved past the window it asked
+    // for (the watcher only compares against the previous window).
+    ensureEventRange()
   } catch (error) {
     console.error('Failed to load calendar events:', error)
     store.notify('Failed to load calendar events.', 'error')
   }
 }
 
-watch([selectedDate, referenceDate], () => {
-  if (!loadedEventRange.value) return
+// Nothing loaded yet (first load failed or is still in flight) always
+// refetches; the seq guard in loadEvents drops any superseded response.
+function ensureEventRange() {
+  const loaded = loadedEventRange.value
   const required = requiredEventRange()
-  if (
-    dateKey(required.from) < loadedEventRange.value.from ||
-    dateKey(required.to) > loadedEventRange.value.to
-  ) {
+  if (!loaded || dateKey(required.from) < loaded.from || dateKey(required.to) > loaded.to) {
     loadEvents()
   }
-})
+}
+
+watch([selectedDate, referenceDate], ensureEventRange)
 
 const visibleEvents = computed(() =>
   [...events.value, ...calendarTasks.value].filter((event) =>
