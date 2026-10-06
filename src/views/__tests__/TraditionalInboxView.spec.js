@@ -3940,6 +3940,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   it.each(['set', 'clear'])(
     'reports a failed %s reminder without losing the reader',
     async (action) => {
+      store.traditionalEmails[0].isSent = true
       store.traditionalEmails[0].followUpAt = new Date(Date.now() + DAY).toISOString()
       vi.spyOn(store, 'setMessageFollowUp').mockRejectedValue(new Error('Unavailable'))
       await reader()
