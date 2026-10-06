@@ -2960,6 +2960,23 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.openEmailId).toBe(null)
   })
 
+  it('keeps the reader open when the keyboard shortcuts help is closed by a click', () => {
+    // The help's close button and backdrop are outside the reader; closing it
+    // unmounts it, so the exemption must hold for a click that removes it.
+    const overlay = document.createElement('div')
+    overlay.className = 'ks-overlay'
+    const close = document.createElement('button')
+    overlay.append(close)
+    document.body.append(overlay)
+    close.addEventListener('click', () => overlay.remove())
+
+    close.click()
+    expect(store.openEmailId).toBe('today-1')
+
+    document.body.click()
+    expect(store.openEmailId).toBe(null)
+  })
+
   it("keeps 'd' working when a message is opened while a text field was focused", async () => {
     // Reproduces opening a search result: focus is in the search input, and the
     // clicked row is a non-focusable div, so focus would otherwise stay there

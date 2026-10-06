@@ -5446,6 +5446,113 @@ button.ni-attachment:hover {
   font-size: 14px;
 }
 
+/* Keyboard shortcuts help ('?') — dark like the command palette, whose
+   .cp-keycap it reuses for the keys */
+.ks-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh 16px 16px;
+  z-index: var(--z-palette);
+}
+
+.ks-panel {
+  width: 640px;
+  max-width: 100%;
+  max-height: 80vh;
+  background: #17181a;
+  color: #e8e8e8;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 12px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ks-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ks-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+
+.ks-close:hover,
+.ks-close:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+.ks-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px 28px;
+  padding: 12px 20px 20px;
+  overflow-y: auto;
+}
+
+.ks-section h3 {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ks-section dl {
+  margin: 0;
+}
+
+.ks-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.ks-row dt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 84px;
+  flex-shrink: 0;
+}
+
+.ks-row dd {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ks-joiner {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+
 /* Univer table block — ribbon "⋮" overflow panel (ALL-28)
 
    The sheet's toolbar collapses whatever doesn't fit into a "⋮" dropdown.

@@ -249,6 +249,15 @@ describe('useCommands', () => {
     expect(useTaskItemsStore().viewActionRequest).toMatchObject({ action: 'add-divider' })
   })
 
+  it('opens the keyboard shortcuts help from anywhere', async () => {
+    const { commands } = await setupCommands('calendar')
+    const command = commands.value.find((c) => c.id === 'keyboard-shortcuts')
+    expect(command.keyHint).toBe('?')
+
+    command.run()
+    expect(store.isShortcutsHelpOpen).toBe(true)
+  })
+
   it('offers a theme switch to the opposite of the resolved theme', async () => {
     localStorage.setItem('cookie-theme', 'light')
     const { commands } = await setupCommands()

@@ -26,6 +26,9 @@ import { lazyComponent } from './router/chunkReload'
 const ChatDrawer = lazyComponent(() => import('./components/ChatDrawer.vue'))
 const ContactInsightsDrawer = lazyComponent(() => import('./components/ContactInsightsDrawer.vue'))
 const CommandPalette = lazyComponent(() => import('./components/CommandPalette.vue'))
+const KeyboardShortcutsDialog = lazyComponent(
+  () => import('./components/KeyboardShortcutsDialog.vue'),
+)
 const ComposerWindow = lazyComponent(() => import('./components/ComposerWindow.vue'))
 const DocumentsSidebar = lazyComponent(() => import('./components/DocumentsSidebar.vue'))
 const TasksSidebar = lazyComponent(() => import('./components/TasksSidebar.vue'))
@@ -144,6 +147,7 @@ function onUndoKeydown(event) {
 const chatDrawerLoaded = ref(store.isChatDrawerActive)
 const contactInsightsLoaded = ref(contactInsightsStore.isOpen)
 const commandPaletteLoaded = ref(store.isCommandPaletteOpen)
+const shortcutsHelpLoaded = ref(store.isShortcutsHelpOpen)
 const composerLoaded = ref(store.isComposerActive)
 
 watch(
@@ -191,6 +195,38 @@ function onCommandPaletteKeydown(event) {
   commandPaletteLoaded.value = true
   store.isCommandPaletteOpen = true
 }
+
+// '?' opens the keyboard shortcuts help (and mounts it, on first use, like the
+// palette above). The open dialog catches its own keys, '?' included, to close.
+function onShortcutsHelpKeydown(event) {
+  const target = event.target instanceof Element ? event.target : null
+  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
+  if (
+    event.key !== '?' ||
+    event.repeat ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    isTyping ||
+    store.isCommandPaletteOpen ||
+    store.isShortcutsHelpOpen ||
+    // Another modal (a native <dialog> sits in the top layer, above the help)
+    // keeps its keys.
+    document.querySelector('dialog[open], [aria-modal="true"]')
+  ) {
+    return
+  }
+  event.preventDefault()
+  shortcutsHelpLoaded.value = true
+  store.isShortcutsHelpOpen = true
+}
+
+watch(
+  () => store.isShortcutsHelpOpen,
+  (open) => {
+    if (open) shortcutsHelpLoaded.value = true
+  },
+)
 
 function openSettings() {
   showLogoutMenu.value = false
@@ -398,6 +434,7 @@ function onDocumentClick(e) {
 onMounted(() => {
   document.addEventListener('keydown', onUndoKeydown)
   document.addEventListener('keydown', onCommandPaletteKeydown)
+  document.addEventListener('keydown', onShortcutsHelpKeydown)
   document.addEventListener('click', onDocumentClick)
 })
 
@@ -405,6 +442,7 @@ onUnmounted(() => {
   cancelScheduledSearch()
   document.removeEventListener('keydown', onUndoKeydown)
   document.removeEventListener('keydown', onCommandPaletteKeydown)
+  document.removeEventListener('keydown', onShortcutsHelpKeydown)
   document.removeEventListener('click', onDocumentClick)
 })
 </script>
@@ -722,6 +760,7 @@ onUnmounted(() => {
 
       <!-- Command palette (Cmd+K) -->
       <CommandPalette v-if="commandPaletteLoaded" />
+      <KeyboardShortcutsDialog v-if="shortcutsHelpLoaded" />
       <SavedViewEditor v-if="savedViewsStore.editor" />
     </div>
 

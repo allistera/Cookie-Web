@@ -47,6 +47,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   to a category named Important (ignoring case and surrounding spaces). Each email
   is counted once, and the command menu offers the same combined tab.
 - Auth0 authentication and per-user mailbox queries.
+- Press `?` (or pick Keyboard Shortcuts in the `/` command palette) for a list of
+  every keyboard shortcut.
 - Manage sender acceptance and blocking in Settings → Senders. In New senders,
   select one held email and choose **Restore this message only** to release it
   without accepting its sender. With screening enabled, future mail stays held.
