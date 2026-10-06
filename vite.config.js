@@ -22,5 +22,19 @@ export default defineConfig(({ mode }) => {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
+    test: {
+      coverage: {
+        provider: 'v8',
+        include: ['src/components/SenderSettings.vue', 'src/views/TraditionalInboxView.vue'],
+        reporter: ['text', 'json-summary', 'lcov'],
+        thresholds: {
+          perFile: true,
+          lines: 95,
+          statements: 95,
+          functions: 90,
+          branches: 90,
+        },
+      },
+    },
   }
 })

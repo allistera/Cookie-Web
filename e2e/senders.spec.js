@@ -19,25 +19,23 @@ async function screening(page, enabled) {
   await expect(toggle).toHaveJSProperty('checked', enabled)
 }
 
-test('reader block is recoverable and screening decisions stay explicit across reloads', async ({
+test('settings block is recoverable and screening decisions stay explicit across reloads', async ({
   page,
 }) => {
   await page.goto('/inbox')
   await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
   const controls = page.locator('.sender-controls')
-  await controls.locator('summary').click()
-  await expect(controls).toContainText('updates@cityconstruction.com')
-  await saveSender(page, 'block', () =>
-    controls.getByRole('button', { name: 'Block sender', exact: true }).click(),
-  )
-  await expect(controls).toBeHidden()
-  // Blocked lives under More and appears once it holds mail.
-  await page.locator('.nav-item', { hasText: 'More' }).click()
-  await page.getByRole('link', { name: 'Blocked', exact: true }).click()
-  await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
-  await expect(controls.getByRole('button', { name: 'Unblock sender', exact: true })).toBeEnabled()
+  await expect(controls).toHaveCount(0)
   await page.goto('/settings/senders')
   const settings = page.locator('.sender-settings')
+  await settings.getByLabel('Email address or domain').fill('updates@cityconstruction.com')
+  await settings.getByLabel('Decision').selectOption('block')
+  await saveSender(page, 'block', () =>
+    settings.getByRole('button', { name: 'Save sender', exact: true }).click(),
+  )
+  await expect(settings).toContainText('updates@cityconstruction.com — blocked')
+  await page.reload()
+  await expect(settings).toContainText('updates@cityconstruction.com — blocked')
   await expect(settings.getByRole('checkbox')).not.toBeChecked()
   await screening(page, true)
   await page.reload()
@@ -46,23 +44,50 @@ test('reader block is recoverable and screening decisions stay explicit across r
     settings.getByRole('button', { name: 'Unblock', exact: true }).click(),
   )
   await expect(settings.getByRole('button', { name: 'Unblock', exact: true })).toHaveCount(0)
-  await page.getByRole('link', { name: 'New senders', exact: true }).first().click()
-  await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
-  await expect(controls).toContainText('Review new sender')
-  // Controls own their keyboard events: reader shortcuts must not archive or close mail.
-  await controls.getByRole('button', { name: 'Accept sender', exact: true }).focus()
-  await page.keyboard.press('e')
-  await page.keyboard.press('Escape')
-  await expect(controls).toBeVisible()
-  await page.goto('/settings/senders')
   await screening(page, false)
-  await page.getByRole('link', { name: 'New senders', exact: true }).first().click()
-  await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
+  await settings.getByLabel('Email address or domain').fill('updates@cityconstruction.com')
+  await settings.getByLabel('Decision').selectOption('accept')
   await saveSender(page, 'accept', () =>
-    controls.getByRole('button', { name: 'Accept sender', exact: true }).click(),
+    settings.getByRole('button', { name: 'Save sender', exact: true }).click(),
   )
+  await page.getByRole('link', { name: 'New senders', exact: true }).first().click()
   await expect(page.getByText('No senders awaiting review.', { exact: true })).toBeVisible()
   await page.goto('/settings/senders')
   await expect(settings).toContainText('updates@cityconstruction.com — accepted')
   await expect(settings.getByRole('checkbox')).not.toBeChecked()
+})
+
+test('New senders restores one selected message without accepting the sender', async ({ page }) => {
+  await page.goto('/settings/senders')
+  await screening(page, true)
+  // Seed two held messages from the same unknown sender using fixture-only
+  // actions. Unblock with screening enabled returns blocked mail to review.
+  const address = 'no-reply@resalemarketplace.com'
+  for (const messageId of ['fixture-5', 'fixture-13']) {
+    const result = await page.request.put('/__e2e__/emails-api/emails/senders', {
+      data: { action: 'block', address, messageId },
+    })
+    expect(result.ok()).toBe(true)
+  }
+  const result = await page.request.put('/__e2e__/emails-api/emails/senders', {
+    data: { action: 'unblock', address },
+  })
+  expect(result.ok()).toBe(true)
+  await page.goto('/inbox?filter=screening')
+  await expect(page.locator('.ni-row')).toHaveCount(2)
+  const heldMessage = page
+    .locator('.ni-row')
+    .filter({ hasText: 'Item Sold! Baby winter coat bundle' })
+  await heldMessage.hover()
+  await heldMessage.locator('.ni-checkbox').click()
+  await saveSender(page, 'restore', () =>
+    page.getByRole('button', { name: 'Restore this message only', exact: true }).click(),
+  )
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await expect(page.locator('.ni-row')).toContainText('Inquiry: Toddler shoe lot availability')
+  await page.reload()
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await page.goto('/settings/senders')
+  await expect(page.locator('.sender-settings')).not.toContainText(`${address} — accepted`)
+  await expect(page.locator('.sender-settings').getByRole('checkbox')).toBeChecked()
 })

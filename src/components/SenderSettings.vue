@@ -83,10 +83,9 @@ watch(
       <button class="btn btn-primary" :disabled="!store.loaded || store.saving">Save sender</button>
     </form>
     <p>
-      Blocking from this list applies to future arrivals and already-held mail. Use Block sender in
-      the reader to move a particular existing message too. Unblock removes the block; with
-      screening enabled its held mail returns to New senders. Accept releases all held mail the
-      decision covers.
+      Blocking from this list applies to future arrivals and already-held mail. Unblock removes the
+      block; with screening enabled its held mail returns to New senders. Accept releases all held
+      mail the decision covers.
     </p>
     <p v-if="store.error" role="alert">{{ store.error }}</p>
     <button
