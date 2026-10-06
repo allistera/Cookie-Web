@@ -550,8 +550,29 @@ function deleteSelected() {
 // domain is enough: it covers the other addresses on that domain (reported
 // back as related), so those are skipped.
 const senders = useSendersStore()
-// The action in flight ('accept' or 'block'), or null.
+// The sender/release action in flight, or null.
 const decidingSenders = ref(null)
+
+async function restoreSelectedMessage() {
+  if (decidingSenders.value || selectedEmails.value.length !== 1) return
+  const email = selectedEmails.value[0]
+  decidingSenders.value = 'restore'
+  try {
+    if (
+      await senders.update({
+        action: 'restore',
+        address: normalizeSender(email.address),
+        messageId: email.id,
+      })
+    ) {
+      clearSelection()
+      await store.refreshSenderMail()
+      store.notify('Message restored. Future mail from this sender is still screened.')
+    } else store.notify(senders.error || 'Could not restore this message.', 'error')
+  } finally {
+    decidingSenders.value = null
+  }
+}
 
 async function decideSelectedSenders(action) {
   if (decidingSenders.value) return
@@ -1912,6 +1933,17 @@ onUnmounted(() => {
         <span class="ni-bulk-count">{{ selectedEmails.length }} selected</span>
         <span class="ni-bulk-divider" aria-hidden="true"></span>
         <template v-if="activeFilter === 'screening'">
+          <button
+            v-if="selectedEmails.length === 1"
+            class="ni-bulk-pill"
+            :disabled="Boolean(decidingSenders)"
+            :aria-busy="decidingSenders === 'restore'"
+            @click="restoreSelectedMessage"
+          >
+            <span>{{
+              decidingSenders === 'restore' ? 'Restoring…' : 'Restore this message only'
+            }}</span>
+          </button>
           <button
             class="ni-bulk-pill ni-bulk-pill--primary"
             :disabled="Boolean(decidingSenders)"

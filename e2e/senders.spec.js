@@ -56,3 +56,34 @@ test('settings block is recoverable and screening decisions stay explicit across
   await expect(settings).toContainText('updates@cityconstruction.com — accepted')
   await expect(settings.getByRole('checkbox')).not.toBeChecked()
 })
+
+test('New senders restores one selected message without accepting the sender', async ({ page }) => {
+  await page.goto('/settings/senders')
+  await screening(page, true)
+  // Seed two held messages from the same unknown sender using fixture-only
+  // actions. Unblock with screening enabled returns blocked mail to review.
+  const address = 'no-reply@resalemarketplace.com'
+  for (const messageId of ['fixture-5', 'fixture-13']) {
+    const result = await page.request.put('/__e2e__/emails-api/emails/senders', {
+      data: { action: 'block', address, messageId },
+    })
+    expect(result.ok()).toBe(true)
+  }
+  const result = await page.request.put('/__e2e__/emails-api/emails/senders', {
+    data: { action: 'unblock', address },
+  })
+  expect(result.ok()).toBe(true)
+  await page.goto('/inbox?filter=screening')
+  await expect(page.locator('.ni-row')).toHaveCount(2)
+  await page.getByRole('checkbox', { name: 'Select Item Sold! Baby winter coat bundle' }).click()
+  await saveSender(page, 'restore', () =>
+    page.getByRole('button', { name: 'Restore this message only', exact: true }).click(),
+  )
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await expect(page.locator('.ni-row')).toContainText('Inquiry: Toddler shoe lot availability')
+  await page.reload()
+  await expect(page.locator('.ni-row')).toHaveCount(1)
+  await page.goto('/settings/senders')
+  await expect(page.locator('.sender-settings')).not.toContainText(`${address} — accepted`)
+  await expect(page.locator('.sender-settings').getByRole('checkbox')).toBeChecked()
+})

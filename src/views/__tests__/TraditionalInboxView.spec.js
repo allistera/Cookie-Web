@@ -986,6 +986,71 @@ describe('TraditionalInboxView filtered views', () => {
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     })
 
+    it('restores only the selected message without accepting its sender', async () => {
+      const senders = useSendersStore()
+      vi.spyOn(senders, 'update').mockResolvedValue(true)
+      const wrapper = await selectInReview([held('a', 1), held('b', 2)], ['a'])
+      await pill(wrapper, 'Restore this message only').trigger('click')
+      await flushPromises()
+      expect(senders.update).toHaveBeenCalledExactlyOnceWith({
+        action: 'restore',
+        address: 'sender-a@example.com',
+        messageId: 'a',
+      })
+      expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
+      expect(store.notify).toHaveBeenCalledWith(
+        'Message restored. Future mail from this sender is still screened.',
+      )
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it.each(['Could not confirm the change.', ''])(
+      'preserves the selection and offers retry when restoring fails (%s)',
+      async (error) => {
+        const senders = useSendersStore()
+        senders.error = error
+        vi.spyOn(senders, 'update').mockResolvedValue(false)
+        const wrapper = await selectInReview([held('a', 1)], ['a'])
+        await pill(wrapper, 'Restore this message only').trigger('click')
+        await flushPromises()
+        expect(store.refreshSenderMail).not.toHaveBeenCalled()
+        expect(store.notify).toHaveBeenCalledWith(
+          error || 'Could not restore this message.',
+          'error',
+        )
+        expect(pill(wrapper, 'Restore this message only').element.disabled).toBe(false)
+        expect(wrapper.get('.ni-checkbox').attributes('aria-checked')).toBe('true')
+        wrapper.unmount()
+      },
+    )
+
+    it('offers single-message release only for one selected held message', async () => {
+      const wrapper = await selectInReview([held('a', 1), held('b', 2)], ['a', 'b'])
+      expect(pill(wrapper, 'Restore this message only')).toBeUndefined()
+      wrapper.unmount()
+    })
+
+    it('prevents sender decisions during a release and shows progress', async () => {
+      let finish
+      const senders = useSendersStore()
+      vi.spyOn(senders, 'update').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      )
+      const wrapper = await selectInReview([held('a', 1)], ['a'])
+      await pill(wrapper, 'Restore this message only').trigger('click')
+      expect(pill(wrapper, 'Restoring').attributes('aria-busy')).toBe('true')
+      expect(pill(wrapper, 'Accept').element.disabled).toBe(true)
+      expect(pill(wrapper, 'Block').element.disabled).toBe(true)
+      finish(true)
+      await flushPromises()
+      expect(senders.update).toHaveBeenCalledTimes(1)
+      wrapper.unmount()
+    })
+
     it('offers Accept and Block only in New senders', async () => {
       const wrapper = mountView()
       await wrapper.findAll('.ni-row .ni-checkbox')[0].trigger('click')
@@ -3571,5 +3636,502 @@ describe('TraditionalInboxView keyboard highlight', () => {
     expect(highlighted(wrapper)).toEqual(['Subject one'])
     expect(store.openEmailId).toBe('three')
     wrapper.unmount()
+  })
+})
+
+// Exercise the list/reader paths enforced by the per-file coverage gate,
+// including failed mutations and menus that keyboard users can reach.
+describe('TraditionalInboxView list and reader action coverage', () => {
+  let store
+  let wrapper
+  const label = { id: 'home', name: 'Home', color: '#123456' }
+  const category = { id: 'work', name: 'Work', color: '#654321' }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    store.traditionalEmails = [
+      makeEmail('one', Date.now() - HOUR),
+      makeEmail('two', Date.now() - HOUR),
+    ]
+    vi.spyOn(store, 'loadDrafts').mockResolvedValue()
+    vi.spyOn(store, 'fetchMessageBody').mockResolvedValue({
+      text: 'Body',
+      attachments: [],
+      thread: [],
+    })
+    vi.spyOn(store, 'notify').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.restoreAllMocks()
+  })
+
+  const button = (scope, text) => scope.findAll('button').find((item) => item.text().includes(text))
+  async function select(count = 2) {
+    wrapper = mountView()
+    for (const row of wrapper.findAll('.ni-checkbox').slice(0, count)) await row.trigger('click')
+  }
+  async function reader() {
+    wrapper = mountView()
+    await wrapper.get('.ni-row').trigger('click')
+    await flushPromises()
+  }
+  async function reply() {
+    await reader()
+    await wrapper.get('.ni-email-card [title="Reply"]').trigger('click')
+  }
+  async function key(key, options = {}) {
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }),
+    )
+    await nextTick()
+  }
+
+  it('toggles row read state without opening the reader', async () => {
+    const unread = vi.spyOn(store, 'setUnread')
+    wrapper = mountView()
+    await wrapper.get('.ni-row [title="Mark as read"]').trigger('click')
+    await wrapper.get('.ni-row [title="Mark as unread"]').trigger('click')
+    expect(unread.mock.calls.map(([, value]) => value)).toEqual([false, true])
+    expect(store.openEmailId).toBe(null)
+  })
+
+  it.each(['button', 'shortcut'])(
+    'marks only unread selected mail read with %s',
+    async (action) => {
+      store.traditionalEmails[1].unread = false
+      const unread = vi.spyOn(store, 'setUnread')
+      await select()
+      if (action === 'button')
+        await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
+      else await key('I', { shiftKey: true })
+      expect(unread).toHaveBeenCalledExactlyOnceWith(store.traditionalEmails[0], false)
+      expect(store.notify).toHaveBeenCalledWith('Marked as read.')
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    },
+  )
+
+  it.each(['button', 'shortcut'])(
+    'deletes selected mail with %s and provides a working undo',
+    async (action) => {
+      const undo = vi.fn().mockResolvedValue()
+      vi.spyOn(store, 'deleteEmail').mockImplementation((_email, _notify, actions) =>
+        actions.push(undo),
+      )
+      await select(action === 'button' ? 1 : 2)
+      if (action === 'button') await wrapper.get('[title="Delete (#)"]').trigger('click')
+      else await key('#')
+      expect(store.deleteEmail).toHaveBeenCalledTimes(action === 'button' ? 1 : 2)
+      const [message, , toast] = store.notify.mock.calls.at(-1)
+      expect(message).toBe(action === 'button' ? '1 email deleted.' : '2 emails deleted.')
+      await toast.run()
+      expect(undo).toHaveBeenCalledTimes(action === 'button' ? 1 : 2)
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    },
+  )
+
+  it('marks a selection done from the keyboard and runs its undo', async () => {
+    const undo = vi.fn().mockResolvedValue()
+    vi.spyOn(store, 'archiveEmail').mockImplementation((_email, _notify, actions) =>
+      actions.push(undo),
+    )
+    await select(1)
+    await key('e')
+    expect(store.notify).toHaveBeenCalledWith('1 email marked done.', 'info', expect.any(Object))
+    await store.notify.mock.calls.at(-1)[2].run()
+    expect(undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('adds a bulk label only to messages that do not already have it', async () => {
+    store.allLabels = [label]
+    store.traditionalEmails[0].labels = [{ name: 'Home' }]
+    const apply = vi.spyOn(store, 'toggleMessageLabel').mockResolvedValue()
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
+    await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
+    expect(wrapper.findAll('.ni-bulk-bar [role="menu"]')).toHaveLength(1)
+    await button(wrapper.get('.ni-bulk-bar [role="menu"]'), 'Home').trigger('click')
+    expect(apply).toHaveBeenCalledExactlyOnceWith(store.traditionalEmails[1], label)
+    expect(store.notify).toHaveBeenCalledWith('Label "Home" applied.')
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+  })
+
+  it('opens and closes the bulk label menu with its keyboard shortcut', async () => {
+    store.allLabels = [label]
+    await select(1)
+    await key('l')
+    expect(wrapper.get('.ni-bulk-bar [role="menu"]').text()).toContain('Home')
+    await key('l')
+    expect(wrapper.find('.ni-bulk-bar [role="menu"]').exists()).toBe(false)
+  })
+
+  it.each([
+    ['Work', 2, 'Category "Work" applied to 2 emails.'],
+    ['No category', 1, 'Category cleared from 1 email.'],
+    ['Work', 0, null],
+  ])(
+    'applies bulk category %s and reports %s successful changes',
+    async (name, successes, message) => {
+      store.allCategories = [category]
+      vi.spyOn(store, 'setMessageCategory').mockResolvedValue(false)
+      for (let index = 0; index < successes; index++)
+        store.setMessageCategory.mockResolvedValueOnce(true)
+      await select()
+      await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
+      await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
+      expect(wrapper.findAll('.ni-bulk-bar [role="menu"]')).toHaveLength(1)
+      await button(wrapper.get('.ni-bulk-bar [role="menu"]'), name).trigger('click')
+      await flushPromises()
+      expect(store.setMessageCategory).toHaveBeenCalledTimes(2)
+      expect(store.setMessageCategory).toHaveBeenCalledWith(
+        store.traditionalEmails[0],
+        name === 'Work' ? category : null,
+      )
+      expect(store.notify.mock.calls).toEqual(message ? [[message]] : [])
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    },
+  )
+
+  it.each([0, 1, 2])(
+    'reports only the %s successful bulk snoozes and provides undo',
+    async (successes) => {
+      const undo = vi.fn().mockResolvedValue()
+      let attempts = 0
+      vi.spyOn(store, 'scheduleEmail').mockImplementation(
+        async (_email, _date, _label, _notify, actions) => {
+          if (attempts++ >= successes) return false
+          actions.push(undo)
+          return true
+        },
+      )
+      await select()
+      await button(wrapper.get('.ni-bulk-bar'), 'Reschedule').trigger('click')
+      await button(wrapper.get('.ni-bulk-bar .ni-schedule-menu'), 'Tomorrow').trigger('click')
+      await flushPromises()
+      expect(store.scheduleEmail).toHaveBeenCalledTimes(2)
+      if (successes) {
+        await store.notify.mock.calls.at(-1)[2].run()
+      }
+      const toast = expect.any(Object)
+      expect(store.notify.mock.calls).toEqual(
+        successes
+          ? [
+              [
+                `${successes} ${successes === 1 ? 'email' : 'emails'} scheduled for Tomorrow.`,
+                'info',
+                toast,
+              ],
+            ]
+          : [],
+      )
+      expect(undo).toHaveBeenCalledTimes(successes)
+      expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    },
+  )
+
+  it.each([
+    ['screening', 'Screening', 'loadMoreFolder'],
+    ['blocked', 'Blocked', 'loadMoreFolder'],
+    ['sent', 'Sent', 'loadMoreSentEmails'],
+    ['spam', 'Spam', 'loadMoreSpamEmails'],
+    ['snoozed', 'Snoozed', 'loadMoreSnoozedEmails'],
+    ['starred', 'Starred', 'loadMoreStarredEmails'],
+    ['label', 'Label', 'loadMoreLabelEmails'],
+    [null, 'Emails', 'loadMoreEmails'],
+  ])(
+    'loads more %s mail and disables pagination while refreshing',
+    async (filter, suffix, method) => {
+      for (const action of [
+        'loadFolder',
+        'loadSentEmails',
+        'loadSpamEmails',
+        'loadSnoozedEmails',
+        'loadStarredEmails',
+        'loadLabelEmails',
+      ])
+        vi.spyOn(store, action).mockResolvedValue()
+      vi.spyOn(store, method).mockResolvedValue()
+      store[`hasMore${suffix}`] = true
+      if (filter) await router.replace({ path: '/inbox', query: { filter, label: 'Home' } })
+      wrapper = mountView()
+      await wrapper.get('.ni-load-more').trigger('click')
+      expect(store[method].mock.calls).toEqual(method === 'loadMoreFolder' ? [[filter]] : [[]])
+      store[filter ? `is${suffix}Refreshing` : 'isRefreshing'] = true
+      await nextTick()
+      expect(wrapper.get('.ni-load-more').element.disabled).toBe(true)
+      expect(wrapper.get('.ni-load-more').text()).toContain('Loading')
+    },
+  )
+
+  it('paginates the Done archive in both directions', async () => {
+    vi.spyOn(store, 'loadDonePage').mockResolvedValue()
+    vi.spyOn(store, 'nextDonePage').mockResolvedValue()
+    vi.spyOn(store, 'prevDonePage').mockResolvedValue()
+    store.donePageIndex = 1
+    store.doneHasNext = true
+    await router.replace({ path: '/inbox', query: { filter: 'done' } })
+    wrapper = mountView()
+    await button(wrapper, 'Older').trigger('click')
+    await button(wrapper, 'Newer').trigger('click')
+    expect(store.nextDonePage).toHaveBeenCalledTimes(1)
+    expect(store.prevDonePage).toHaveBeenCalledTimes(1)
+    store.isDoneRefreshing = true
+    await nextTick()
+    expect(wrapper.findAll('.ni-pager-btn').every((item) => item.element.disabled)).toBe(true)
+  })
+
+  it('uses the label colour in its folder header', async () => {
+    store.allLabels = [label]
+    vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
+    await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Home' } })
+    wrapper = mountView()
+    expect(wrapper.get('.ni-title-icon').attributes('style')).toContain('rgb(18, 52, 86)')
+  })
+
+  it('marks a day read from the keyboard without collapsing it', async () => {
+    const unread = vi.spyOn(store, 'setUnread')
+    wrapper = mountView()
+    await wrapper.get('.ni-group-mark-read').trigger('keydown', { key: 'Enter' })
+    expect(unread).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('.ni-row')).toHaveLength(2)
+  })
+
+  it('moves between neighbouring tabs with trackpad swipes and stops at their edges', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    try {
+      wrapper = mountView()
+      const list = wrapper.get('.ni-list')
+      list.element.dispatchEvent(new WheelEvent('wheel', { deltaX: -130, cancelable: true }))
+      await nextTick()
+      expect(wrapper.get('.ni-tab.active').text()).toContain('Important')
+      await vi.advanceTimersByTimeAsync(230)
+      list.element.dispatchEvent(new WheelEvent('wheel', { deltaX: 130, cancelable: true }))
+      await nextTick()
+      expect(wrapper.get('.ni-tab.active').text()).toContain('Other')
+      await vi.advanceTimersByTimeAsync(230)
+      list.element.dispatchEvent(new WheelEvent('wheel', { deltaX: 130, cancelable: true }))
+      await nextTick()
+      expect(wrapper.get('.ni-tab.active').text()).toContain('Other')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('toggles an applied reader label and clears its category', async () => {
+    store.allLabels = [label]
+    store.traditionalEmails[0].labels = [label]
+    store.traditionalEmails[0].category = category
+    store.allCategories = [category]
+    vi.spyOn(store, 'toggleMessageLabel').mockResolvedValue()
+    vi.spyOn(store, 'setMessageCategory').mockResolvedValue()
+    await reader()
+    await openMoreMenu(wrapper)
+    await wrapper.get('[aria-label="Add label"]').trigger('click')
+    const applied = wrapper.get('[role="menuitemcheckbox"]')
+    expect(applied.attributes('aria-checked')).toBe('true')
+    await applied.trigger('click')
+    expect(store.toggleMessageLabel).toHaveBeenCalledWith(store.openEmail, label)
+    await openMoreMenu(wrapper)
+    await wrapper.get('[aria-label="Set category"]').trigger('click')
+    await button(wrapper.get('.ni-tag-menu'), 'No category').trigger('click')
+    expect(store.setMessageCategory).toHaveBeenCalledWith(store.openEmail, null)
+  })
+
+  it.each(['set', 'clear'])(
+    'reports a failed %s reminder without losing the reader',
+    async (action) => {
+      store.traditionalEmails[0].followUpAt = new Date(Date.now() + DAY).toISOString()
+      vi.spyOn(store, 'setMessageFollowUp').mockRejectedValue(new Error('Unavailable'))
+      await reader()
+      await openMoreMenu(wrapper)
+      await wrapper.get('[aria-label="Remind me"]').trigger('click')
+      if (action === 'set')
+        await button(wrapper.get('.ni-more-wrap .ni-schedule-menu'), 'Tomorrow').trigger('click')
+      else
+        await button(wrapper.get('.ni-more-wrap .ni-schedule-menu'), 'Clear reminder').trigger(
+          'click',
+        )
+      await flushPromises()
+      expect(store.notify).toHaveBeenCalledWith(
+        action === 'set'
+          ? 'Failed to set reminder. The thread may already have a reply.'
+          : 'Failed to clear reminder.',
+        'error',
+      )
+      expect(store.openEmailId).toBe('one')
+    },
+  )
+
+  it('downloads only available message attachments', async () => {
+    const available = {
+      id: 'a1',
+      filename: 'invoice.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 2048,
+      downloadable: true,
+    }
+    const unavailable = { id: 'a2', filename: '', downloadable: false }
+    store.messageBodies.set('one', {
+      text: 'Body',
+      attachments: [available, unavailable],
+      thread: [],
+    })
+    vi.spyOn(store, 'downloadAttachment').mockResolvedValue()
+    await reader()
+    const attachments = wrapper.findAll('.ni-attachment')
+    expect(attachments[0].text()).toContain('invoice.pdf')
+    expect(attachments[1].text()).toContain('Attachment')
+    await attachments[0].trigger('click')
+    await attachments[1].trigger('click')
+    expect(store.downloadAttachment).toHaveBeenCalledExactlyOnceWith(available)
+  })
+
+  it('removes reply uploads and clears a selected reminder', async () => {
+    const uploaded = { id: 'upload-1', filename: 'notes.txt', size_bytes: 12 }
+    vi.spyOn(store, 'uploadAttachmentFiles').mockResolvedValue([uploaded])
+    vi.spyOn(store, 'discardUploadedAttachment').mockRejectedValue(new Error('Unavailable'))
+    await reply()
+    const input = wrapper.get('.composer-attach-input')
+    const click = vi.spyOn(input.element, 'click').mockImplementation(() => {})
+    await wrapper.get('.ni-reply-attach-btn').trigger('click')
+    expect(click).toHaveBeenCalledTimes(1)
+    await input.trigger('change')
+    await flushPromises()
+    expect(wrapper.get('.composer-attachment-chip').text()).toContain('12 B')
+    await wrapper.get('.composer-attachment-remove').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.composer-attachment-chip').exists()).toBe(false)
+    expect(store.discardUploadedAttachment).toHaveBeenCalledWith('upload-1')
+    await wrapper.get('.ni-follow-up-btn').trigger('click')
+    await button(wrapper.get('.ni-reply-footer .ni-schedule-menu'), 'Tomorrow').trigger('click')
+    await wrapper.get('.ni-follow-up-btn').trigger('click')
+    await button(wrapper.get('.ni-reply-footer .ni-schedule-menu'), 'Clear reminder').trigger(
+      'click',
+    )
+    expect(wrapper.get('.ni-follow-up-btn').text()).toContain('Remind me')
+  })
+
+  it.each(['empty', 'failed', 'navigate'])(
+    'keeps a reply unchanged after an %s upload',
+    async (outcome) => {
+      let finish
+      vi.spyOn(store, 'uploadAttachmentFiles').mockImplementation(
+        () =>
+          new Promise((resolve, reject) => {
+            finish = outcome === 'failed' ? reject : resolve
+          }),
+      )
+      vi.spyOn(store, 'discardUploads').mockResolvedValue()
+      await reply()
+      await wrapper.get('.composer-attach-input').trigger('change')
+      if (outcome === 'navigate') {
+        store.closeReader()
+        await nextTick()
+      }
+      finish(
+        outcome === 'failed'
+          ? new Error('Unavailable')
+          : outcome === 'empty'
+            ? []
+            : [{ id: 'late' }],
+      )
+      await flushPromises()
+      expect(wrapper.find('.composer-attachment-chip').exists()).toBe(false)
+      expect(store.discardUploads.mock.calls).toEqual(
+        outcome === 'navigate' ? [[[{ id: 'late' }]]] : [],
+      )
+    },
+  )
+
+  it('reclaims abandoned reply files even when cleanup fails', async () => {
+    vi.spyOn(store, 'uploadAttachmentFiles').mockResolvedValue([
+      { id: 'orphan', filename: 'notes.txt' },
+    ])
+    vi.spyOn(store, 'discardUploadedAttachment').mockRejectedValue(new Error('Unavailable'))
+    await reply()
+    await wrapper.get('.composer-attach-input').trigger('change')
+    await flushPromises()
+    await button(wrapper.get('.ni-reply-footer'), 'Discard').trigger('click')
+    await flushPromises()
+    expect(store.discardUploadedAttachment).toHaveBeenCalledWith('orphan')
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(false)
+  })
+
+  it.each([
+    [2048, '2.0 KB'],
+    [2097152, '2.0 MB'],
+    [-1, ''],
+    ['bad', ''],
+  ])('formats reply attachment size %s as %s', async (bytes, size) => {
+    vi.spyOn(store, 'uploadAttachmentFiles').mockResolvedValue([
+      { id: 'file', filename: 'data.bin', size_bytes: bytes },
+    ])
+    await reply()
+    await wrapper.get('.composer-attach-input').trigger('change')
+    await flushPromises()
+    expect(wrapper.get('.composer-attachment-size').text()).toBe(size)
+  })
+
+  it('inserts availability into the reply and blocks Send during its preview', async () => {
+    vi.spyOn(store, 'sendMail').mockResolvedValue({ followUpScheduled: false })
+    await reply()
+    const availability = wrapper.findComponent({ name: 'ShareAvailability' })
+    availability.vm.$emit('insert', '<p>Tuesday 10am</p>')
+    await nextTick()
+    expect(wrapper.get('.composer-editor').text()).toContain('Tuesday 10am')
+    availability.vm.$emit('previewState', true)
+    await nextTick()
+    expect(wrapper.get('.ni-reply-footer .btn-primary').element.disabled).toBe(true)
+    availability.vm.$emit('previewState', false)
+    await nextTick()
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    expect(store.notify).toHaveBeenCalledWith(
+      'Reply sent, but the reminder could not be saved.',
+      'error',
+    )
+  })
+
+  it('adopts a reply draft that finishes saving after handing it to the AI composer', async () => {
+    let finish
+    vi.spyOn(store, 'settleReplyHandoff').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    vi.spyOn(store, 'adoptLateComposerDraft').mockImplementation(() => {})
+    await reply()
+    wrapper.findComponent({ name: 'ComposerEditor' }).vm.$emit('generate')
+    await nextTick()
+    expect(store.isComposerActive).toBe(true)
+    finish('late-draft')
+    await flushPromises()
+    expect(store.adoptLateComposerDraft).toHaveBeenCalledWith(store.composerSessionId, 'late-draft')
+  })
+
+  it('reports when saving a failed reply after navigation also fails', async () => {
+    let fail
+    vi.spyOn(store, 'sendMail').mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject
+        }),
+    )
+    vi.spyOn(store, 'persistDraft').mockRejectedValue(new Error('Save failed'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await reply()
+    const editor = wrapper.get('.composer-editor')
+    editor.element.textContent = 'Keep my reply'
+    await editor.trigger('input')
+    await wrapper.get('.ni-reply-footer .btn-primary').trigger('click')
+    await flushPromises()
+    store.closeReader()
+    await nextTick()
+    fail(new Error('Send failed'))
+    await flushPromises()
+    expect(error).toHaveBeenCalledWith('Reply draft autosave failed:', expect.any(Error))
   })
 })

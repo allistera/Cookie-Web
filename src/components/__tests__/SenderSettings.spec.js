@@ -10,6 +10,7 @@ beforeEach(() => {
   const store = useSendersStore()
   store.setOwner('account-a')
   vi.spyOn(store, 'load').mockResolvedValue(true)
+  vi.spyOn(useInboxStore(), 'refreshSenderMail').mockResolvedValue()
 })
 afterEach(() => vi.restoreAllMocks())
 describe('sender settings', () => {
