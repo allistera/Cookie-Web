@@ -209,7 +209,10 @@ function onShortcutsHelpKeydown(event) {
     event.altKey ||
     isTyping ||
     store.isCommandPaletteOpen ||
-    store.isShortcutsHelpOpen
+    store.isShortcutsHelpOpen ||
+    // Another modal (a native <dialog> sits in the top layer, above the help)
+    // keeps its keys.
+    document.querySelector('dialog[open], [aria-modal="true"]')
   ) {
     return
   }

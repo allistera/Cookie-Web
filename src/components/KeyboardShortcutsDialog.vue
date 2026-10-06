@@ -92,7 +92,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>
-  <div v-if="store.isShortcutsHelpOpen" class="ks-overlay" @mousedown.self="close">
+  <div v-if="store.isShortcutsHelpOpen" class="ks-overlay" @click.self="close">
     <section class="ks-panel" role="dialog" aria-modal="true" aria-labelledby="ks-title">
       <header class="ks-header">
         <h2 id="ks-title">Keyboard shortcuts</h2>

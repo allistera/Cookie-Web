@@ -109,7 +109,7 @@ describe('KeyboardShortcutsDialog', () => {
     wrapper = mount(KeyboardShortcutsDialog, { attachTo: document.body })
     await nextTick()
 
-    await wrapper.get('.ks-overlay').trigger('mousedown')
+    await wrapper.get('.ks-overlay').trigger('click')
     expect(store.isShortcutsHelpOpen).toBe(false)
   })
 })
