@@ -998,9 +998,7 @@ describe('TraditionalInboxView filtered views', () => {
         messageId: 'a',
       })
       expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
-      expect(store.notify).toHaveBeenCalledWith(
-        'Message restored. Future mail from this sender is still screened.',
-      )
+      expect(store.notify).toHaveBeenCalledWith('Message restored without accepting its sender.')
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
       wrapper.unmount()
     })
@@ -3744,7 +3742,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   })
 
   it('adds a bulk label only to messages that do not already have it', async () => {
-    store.allLabels = [label]
+    store.labels = [label]
     store.traditionalEmails[0].labels = [{ name: 'Home' }]
     const apply = vi.spyOn(store, 'toggleMessageLabel').mockResolvedValue()
     await select()
@@ -3758,7 +3756,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   })
 
   it('opens and closes the bulk label menu with its keyboard shortcut', async () => {
-    store.allLabels = [label]
+    store.labels = [label]
     await select(1)
     await key('l')
     expect(wrapper.get('.ni-bulk-bar [role="menu"]').text()).toContain('Home')
@@ -3773,7 +3771,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   ])(
     'applies bulk category %s and reports %s successful changes',
     async (name, successes, message) => {
-      store.allCategories = [category]
+      store.categories = [category]
       vi.spyOn(store, 'setMessageCategory').mockResolvedValue(false)
       for (let index = 0; index < successes; index++)
         store.setMessageCategory.mockResolvedValueOnce(true)
@@ -3882,7 +3880,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   })
 
   it('uses the label colour in its folder header', async () => {
-    store.allLabels = [label]
+    store.labels = [label]
     vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
     await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Home' } })
     wrapper = mountView()
@@ -3920,15 +3918,15 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   })
 
   it('toggles an applied reader label and clears its category', async () => {
-    store.allLabels = [label]
+    store.labels = [label]
     store.traditionalEmails[0].labels = [label]
     store.traditionalEmails[0].category = category
-    store.allCategories = [category]
+    store.categories = [category]
     vi.spyOn(store, 'toggleMessageLabel').mockResolvedValue()
     vi.spyOn(store, 'setMessageCategory').mockResolvedValue()
     await reader()
     await openMoreMenu(wrapper)
-    await wrapper.get('[aria-label="Add label"]').trigger('click')
+    await wrapper.get('[title="Tag"]').trigger('click')
     const applied = wrapper.get('[role="menuitemcheckbox"]')
     expect(applied.attributes('aria-checked')).toBe('true')
     await applied.trigger('click')
@@ -3946,7 +3944,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
       vi.spyOn(store, 'setMessageFollowUp').mockRejectedValue(new Error('Unavailable'))
       await reader()
       await openMoreMenu(wrapper)
-      await wrapper.get('[aria-label="Remind me"]').trigger('click')
+      await button(wrapper.get('.ni-more-menu'), 'Remind me').trigger('click')
       if (action === 'set')
         await button(wrapper.get('.ni-more-wrap .ni-schedule-menu'), 'Tomorrow').trigger('click')
       else

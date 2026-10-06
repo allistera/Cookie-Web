@@ -567,7 +567,7 @@ async function restoreSelectedMessage() {
     ) {
       clearSelection()
       await store.refreshSenderMail()
-      store.notify('Message restored. Future mail from this sender is still screened.')
+      store.notify('Message restored without accepting its sender.')
     } else store.notify(senders.error || 'Could not restore this message.', 'error')
   } finally {
     decidingSenders.value = null

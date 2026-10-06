@@ -49,7 +49,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Auth0 authentication and per-user mailbox queries.
 - Manage sender acceptance and blocking in Settings → Senders. In New senders,
   select one held email and choose **Restore this message only** to release it
-  while keeping future mail from that sender screened. Accept and Block apply
+  without accepting its sender. With screening enabled, future mail stays held.
+  Accept and Block apply
   to the sender's domain (or exact address for public email providers).
 - Debounced hybrid search over stored mail, served by Meilisearch, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
