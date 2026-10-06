@@ -3043,7 +3043,7 @@ test('Contact insights opens from an email address and saves private context', a
   await expect(drawer.getByPlaceholder('Add a private note about this contact…')).toHaveValue(note)
 })
 
-test('two-finger swipes over the inbox list move between category tabs, and only there', async ({
+test('two-finger swipes over the full inbox panel move between category tabs, and only there', async ({
   page,
 }) => {
   await page.goto('/inbox')
@@ -3054,9 +3054,9 @@ test('two-finger swipes over the inbox list move between category tabs, and only
   await expect(active).toHaveText(names[0])
 
   // Fingers moving left (positive deltaX) go to the next tab.
-  const list = page.locator('.ni-list')
-  const box = await list.boundingBox()
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  const panel = page.locator('#traditionalInboxView')
+  const box = await panel.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height - 20)
   for (let i = 0; i < 8; i++) await page.mouse.wheel(30, 0)
   await expect(active).toHaveText(names[1])
 
@@ -3067,7 +3067,7 @@ test('two-finger swipes over the inbox list move between category tabs, and only
     await expect(active).toHaveText(names[0], { timeout: 500 })
   }).toPass()
 
-  // Outside the list the browser keeps the gesture (back/forward).
+  // Outside the inbox panel the browser keeps the gesture (back/forward).
   const prevented = await page.evaluate(() => {
     const sidebar = document.querySelector('.left-sidebar')
     const event = new WheelEvent('wheel', { deltaX: 60, bubbles: true, cancelable: true })
@@ -3075,6 +3075,7 @@ test('two-finger swipes over the inbox list move between category tabs, and only
     return event.defaultPrevented
   })
   expect(prevented).toBe(false)
-  await expect(list).toHaveCSS('overscroll-behavior-x', 'contain')
+  await expect(panel).toHaveCSS('overscroll-behavior-x', 'contain')
+  await expect(page.locator('.ni-list')).toHaveCSS('overscroll-behavior-x', 'auto')
   await expect(page.locator('.left-sidebar')).toHaveCSS('overscroll-behavior-x', 'auto')
 })
