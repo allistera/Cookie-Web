@@ -501,6 +501,52 @@ describe('CalendarView', () => {
     expect(lastTo > initialTo).toBe(true)
   })
 
+  it('retries the event load on navigation after the first load fails', async () => {
+    const fetchMock = globalThis.fetch
+    const realFetch = fetchMock.getMockImplementation()
+    let failNext = true
+    fetchMock.mockImplementation(async (url, options) => {
+      if (isEventsEndpoint(String(url)) && !options?.method && failNext) {
+        failNext = false
+        return { ok: false, status: 500, json: async () => ({}) }
+      }
+      return realFetch(url, options)
+    })
+    const wrapper = await mountCalendar()
+    expect(wrapper.text()).not.toContain('Standup')
+
+    // Even a hop inside the would-be window refetches, since nothing loaded.
+    await wrapper.get('[aria-label="Next period"]').trigger('click')
+    await wrapper.get('[aria-label="Previous period"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Standup')
+  })
+
+  it('fetches the new window when navigation jumps away during the first load', async () => {
+    const fetchMock = globalThis.fetch
+    const realFetch = fetchMock.getMockImplementation()
+    const eventUrls = []
+    let releaseFirst
+    const firstHeld = new Promise((resolve) => (releaseFirst = resolve))
+    fetchMock.mockImplementation(async (url, options) => {
+      if (isEventsEndpoint(String(url)) && !options?.method) {
+        eventUrls.push(String(url))
+        if (eventUrls.length === 1) await firstHeld
+      }
+      return realFetch(url, options)
+    })
+    const wrapper = mount(CalendarView)
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    for (let i = 0; i < 6; i += 1) {
+      await wrapper.get('[aria-label="Next period"]').trigger('click')
+    }
+    releaseFirst()
+    await flushPromises()
+    const lastTo = new URLSearchParams(eventUrls.at(-1).split('?')[1]).get('to')
+    // January 2027 plus the 45+60 day pad, well past the first window.
+    expect(lastTo > '2027-03-01').toBe(true)
+  })
+
   it('positions the current-time line from the real clock in Day and Week views', async () => {
     // Fake only Date so flushPromises (which relies on real setTimeout) still works.
     vi.useFakeTimers({ toFake: ['Date'] })

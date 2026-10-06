@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 
-import DocumentEditor from './DocumentEditor.vue'
+import { lazyComponent } from '../router/chunkReload'
 import { DEFAULT_DAILY_NOTE_SEED_BLOCKS, useDocumentsStore } from '../stores/documents'
+
+// Kept out of the Settings route chunk: Editor.js loads with this pane only.
+const DocumentEditor = lazyComponent(() => import('./DocumentEditor.vue'))
 
 const store = useDocumentsStore()
 

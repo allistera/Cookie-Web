@@ -2,8 +2,12 @@
 import { onMounted, ref } from 'vue'
 
 import DocumentIcon from './DocumentIcon.vue'
-import DocumentEditor from './DocumentEditor.vue'
+import { lazyComponent } from '../router/chunkReload'
 import { useDocumentsStore } from '../stores/documents'
+
+// Editor.js and its tools only load once a template is opened, not with the
+// Settings route.
+const DocumentEditor = lazyComponent(() => import('./DocumentEditor.vue'))
 
 const store = useDocumentsStore()
 
