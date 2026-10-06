@@ -1110,9 +1110,8 @@ body {
   padding: 0 8px 24px;
 }
 
-/* The category list takes two-finger horizontal swipes (useSwipeTabs), so
-   only here the browser's swipe-to-go-back is switched off, and the inbox
-   panel clips the list while it slides between tabs. */
+/* The category inbox takes two-finger horizontal swipes (useSwipeTabs), so
+   only this panel switches off the browser's swipe-to-go-back. */
 .ni-list-swipeable {
   overscroll-behavior-x: contain;
 }

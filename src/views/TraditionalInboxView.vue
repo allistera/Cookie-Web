@@ -369,17 +369,18 @@ const emailGroups = computed(() => {
   return groups
 })
 
+const inboxPanel = ref(null)
 const mailList = ref(null)
 
-// Two-finger trackpad swipes over the list move between the category tabs,
-// the list following the fingers like side-by-side pages. Only the list opts
-// out of the browser's back/forward swipe; it works as usual elsewhere.
+// Two-finger trackpad swipes anywhere in the inbox panel move between the
+// category tabs, while only the list follows the fingers like side-by-side
+// pages. Other views retain the browser's back/forward swipe.
 function neighbourTab(direction) {
   const tabs = inboxTabs.value
   const index = tabs.findIndex((tab) => tab.id === activeTab.value)
   return index === -1 ? null : (tabs[index + direction] ?? null)
 }
-const { style: swipeStyle } = useSwipeTabs(() => mailList.value?.$el, {
+const { style: swipeStyle } = useSwipeTabs(inboxPanel, {
   enabled: () => showInboxTabs.value && inboxTabs.value.length > 1,
   canGo: (direction) => Boolean(neighbourTab(direction)),
   go: (direction) => {
@@ -1780,7 +1781,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="view-panel active" id="traditionalInboxView">
+  <div
+    ref="inboxPanel"
+    class="view-panel active"
+    :class="{ 'ni-list-swipeable': showInboxTabs }"
+    id="traditionalInboxView"
+  >
     <!-- Category tabs: partition the inbox by its single-value category -->
     <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox tabs">
       <button
@@ -1811,7 +1817,6 @@ onUnmounted(() => {
     <VirtualList
       ref="mailList"
       class="ni-list"
-      :class="{ 'ni-list-swipeable': showInboxTabs }"
       :style="swipeStyle"
       :items="virtualMailRows"
       :estimate="estimateMailRow"

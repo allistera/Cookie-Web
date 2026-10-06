@@ -3299,6 +3299,28 @@ describe('TraditionalInboxView inbox tabs', () => {
     expect(store.inboxTab).toBe('category:c-team')
   })
 
+  it('swipes between categories from the full-height inbox panel', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true })),
+    )
+    const wrapper = mountView()
+    const panel = wrapper.get('#traditionalInboxView')
+    const event = new WheelEvent('wheel', {
+      deltaX: 130,
+      bubbles: true,
+      cancelable: true,
+    })
+
+    panel.element.dispatchEvent(event)
+    await nextTick()
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(store.inboxTab).toBe('category:c-docs')
+    expect(panel.classes()).toContain('ni-list-swipeable')
+    expect(wrapper.get('.ni-list').classes()).not.toContain('ni-list-swipeable')
+  })
+
   function pressArrow(key, target = document, init = {}) {
     target.dispatchEvent(
       new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
