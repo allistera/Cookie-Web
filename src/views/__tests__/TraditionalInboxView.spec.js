@@ -920,6 +920,7 @@ describe('TraditionalInboxView filtered views', () => {
         [held('a', 1), held('b', 2), held('c', 3), second],
         ['a', 'b', 'c', 'a2'],
       )
+      const unread = vi.spyOn(store, 'setUnread').mockResolvedValue()
 
       await pill(wrapper, 'Accept').trigger('click')
       await flushPromises()
@@ -928,9 +929,49 @@ describe('TraditionalInboxView filtered views', () => {
         { action: 'accept', address: 'sender-a@example.com', messageId: 'a' },
         { action: 'accept', address: 'sender-c@example.com', messageId: 'c' },
       ])
+      // Approved mail is read, including mail covered by another's decision.
+      expect(unread.mock.calls.map(([email, value]) => [email.id, value])).toEqual([
+        ['a', false],
+        ['b', false],
+        ['c', false],
+        ['a2', false],
+      ])
       expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
       expect(store.notify).toHaveBeenCalledWith('Accepted 2 senders.')
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    })
+
+    it('marks accepted mail read before the lists reload, leaving a failed sender unread', async () => {
+      const senders = useSendersStore()
+      vi.spyOn(senders, 'update').mockImplementation(async (body) => {
+        senders.lastRelated = []
+        if (body.address === 'sender-b@example.com') {
+          senders.error = 'Could not change this sender.'
+          return false
+        }
+        return true
+      })
+      const wrapper = await selectInReview([held('a', 1), held('b', 2)], ['a', 'b'])
+      const order = []
+      let settle
+      vi.spyOn(store, 'setUnread').mockImplementation(
+        (email) =>
+          new Promise((resolve) => {
+            order.push(`read:${email.id}`)
+            settle = resolve
+          }),
+      )
+      store.refreshSenderMail.mockImplementation(async () => {
+        order.push('refresh')
+      })
+
+      await pill(wrapper, 'Accept').trigger('click')
+      await flushPromises()
+      expect(order).toEqual(['read:a'])
+
+      settle()
+      await flushPromises()
+      expect(order).toEqual(['read:a', 'refresh'])
     })
 
     it('blocks the selection and reports any sender that could not be changed', async () => {
@@ -944,6 +985,7 @@ describe('TraditionalInboxView filtered views', () => {
         return true
       })
       const wrapper = await selectInReview([held('a', 1), held('b', 2)], ['a', 'b'])
+      const unread = vi.spyOn(store, 'setUnread')
 
       await pill(wrapper, 'Block').trigger('click')
       await flushPromises()
@@ -951,6 +993,7 @@ describe('TraditionalInboxView filtered views', () => {
       expect(senders.update).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'block', address: 'sender-a@example.com' }),
       )
+      expect(unread).not.toHaveBeenCalled()
       expect(store.notify).toHaveBeenCalledWith(
         'Blocked 1 sender; 1 sender could not be changed. Could not change this sender.',
         'error',
@@ -1099,6 +1142,9 @@ describe('TraditionalInboxView filtered views', () => {
       const emails = [held('a', 1), held('b', 2), held('c', 3)]
       const wrapper = await openInReview(emails, 'a')
       releaseOnRefresh(emails, ['b', 'c'])
+      // Opening marked it read; flagging it unread again does not survive Accept.
+      emails[0].unread = true
+      const unread = vi.spyOn(store, 'setUnread').mockResolvedValue()
 
       await readerPill(wrapper, 'Accept').trigger('click')
       await flushPromises()
@@ -1108,6 +1154,8 @@ describe('TraditionalInboxView filtered views', () => {
         address: 'sender-a@example.com',
         messageId: 'a',
       })
+      // The first read update is the approval; opening the next email adds its own.
+      expect(unread.mock.calls[0]).toEqual([emails[0], false])
       expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
       expect(store.notify).toHaveBeenCalledWith('Accepted sender-a@example.com.')
       expect(store.openEmailId).toBe('b')
@@ -1119,6 +1167,7 @@ describe('TraditionalInboxView filtered views', () => {
       const emails = [held('a', 1), held('b', 2), held('c', 3)]
       const wrapper = await openInReview(emails, 'c')
       releaseOnRefresh(emails, ['a', 'b'])
+      const unread = vi.spyOn(store, 'setUnread')
 
       await readerPill(wrapper, 'Block').trigger('click')
       await flushPromises()
@@ -1128,6 +1177,8 @@ describe('TraditionalInboxView filtered views', () => {
         address: 'sender-c@example.com',
         messageId: 'c',
       })
+      // Only opening the next email touches read state; blocking does not.
+      expect(unread.mock.calls.map(([email]) => email.id)).toEqual(['b'])
       expect(store.notify).toHaveBeenCalledWith('Blocked sender-c@example.com.')
       expect(store.openEmailId).toBe('b')
       wrapper.unmount()
