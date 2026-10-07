@@ -1096,6 +1096,10 @@ body {
   color: var(--ni-tab-active);
 }
 
+.ni-tab.unread .ni-tab-name {
+  font-weight: 700;
+}
+
 .ni-tab-count {
   font-size: 16px;
   font-weight: 400;
