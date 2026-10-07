@@ -1056,12 +1056,192 @@ describe('TraditionalInboxView filtered views', () => {
       expect(pill(wrapper, 'Accept')).toBeUndefined()
       expect(pill(wrapper, 'Block')).toBeUndefined()
     })
+
+    // Opens one held email from New senders in the reader.
+    async function openInReview(emails, openId) {
+      store.screeningEmails = emails
+      store.isScreeningLoaded = true
+      await router.replace({ path: '/inbox', query: { filter: 'screening' } })
+      const wrapper = mountView()
+      await wrapper
+        .findAll('.ni-row')
+        .find((row) => row.text().includes(`Subject ${openId}`))
+        .trigger('click')
+      expect(store.openEmailId).toBe(openId)
+      vi.spyOn(store, 'notify').mockImplementation(() => {})
+      return wrapper
+    }
+
+    const readerPill = (wrapper, name) =>
+      wrapper
+        .findAll('.ni-reader-topbar .ni-reader-pill')
+        .find((button) => button.text().includes(name))
+
+    // The decision reloads the lists without the sender's held mail.
+    function releaseOnRefresh(emails, remainingIds) {
+      vi.spyOn(store, 'refreshSenderMail').mockImplementation(async () => {
+        store.openEmailId = null
+        store.screeningEmails = emails.filter((email) => remainingIds.includes(email.id))
+      })
+    }
+
+    function decideFromStore(related = []) {
+      const senders = useSendersStore()
+      vi.spyOn(senders, 'update').mockImplementation(async () => {
+        senders.lastRelated = related
+        return true
+      })
+      return senders
+    }
+
+    it('accepts the open sender from the reader and opens the next email awaiting review', async () => {
+      const senders = decideFromStore()
+      const emails = [held('a', 1), held('b', 2), held('c', 3)]
+      const wrapper = await openInReview(emails, 'a')
+      releaseOnRefresh(emails, ['b', 'c'])
+
+      await readerPill(wrapper, 'Accept').trigger('click')
+      await flushPromises()
+
+      expect(senders.update).toHaveBeenCalledExactlyOnceWith({
+        action: 'accept',
+        address: 'sender-a@example.com',
+        messageId: 'a',
+      })
+      expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
+      expect(store.notify).toHaveBeenCalledWith('Accepted sender-a@example.com.')
+      expect(store.openEmailId).toBe('b')
+      wrapper.unmount()
+    })
+
+    it('blocks from the reader and opens the new last email when the decided one was last', async () => {
+      const senders = decideFromStore()
+      const emails = [held('a', 1), held('b', 2), held('c', 3)]
+      const wrapper = await openInReview(emails, 'c')
+      releaseOnRefresh(emails, ['a', 'b'])
+
+      await readerPill(wrapper, 'Block').trigger('click')
+      await flushPromises()
+
+      expect(senders.update).toHaveBeenCalledExactlyOnceWith({
+        action: 'block',
+        address: 'sender-c@example.com',
+        messageId: 'c',
+      })
+      expect(store.notify).toHaveBeenCalledWith('Blocked sender-c@example.com.')
+      expect(store.openEmailId).toBe('b')
+      wrapper.unmount()
+    })
+
+    it('leaves the reader closed when nothing else awaits review', async () => {
+      decideFromStore()
+      const emails = [held('a', 1)]
+      const wrapper = await openInReview(emails, 'a')
+      releaseOnRefresh(emails, [])
+
+      await readerPill(wrapper, 'Accept').trigger('click')
+      await flushPromises()
+
+      expect(store.openEmailId).toBeNull()
+      expect(wrapper.find('.ni-reader').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('mentions the other senders on the same domain a reader decision covered', async () => {
+      decideFromStore(['billing@example.com', 'news@example.com'])
+      const emails = [held('a', 1)]
+      const wrapper = await openInReview(emails, 'a')
+      releaseOnRefresh(emails, [])
+
+      await readerPill(wrapper, 'Accept').trigger('click')
+      await flushPromises()
+
+      expect(store.notify).toHaveBeenCalledWith(
+        'Accepted sender-a@example.com. Also accepted billing@example.com, news@example.com on the same domain.',
+      )
+      wrapper.unmount()
+    })
+
+    it('keeps the reader where it is when a held email is decided outside New senders', async () => {
+      decideFromStore()
+      const heldInInbox = held('a', 1)
+      store.traditionalEmails = [heldInInbox, ...store.traditionalEmails]
+      const wrapper = mountView()
+      await wrapper.find('.ni-row').trigger('click')
+      expect(store.openEmailId).toBe('a')
+      vi.spyOn(store, 'notify').mockImplementation(() => {})
+      vi.spyOn(store, 'refreshSenderMail').mockImplementation(async () => {
+        store.openEmailId = null
+      })
+
+      await readerPill(wrapper, 'Block').trigger('click')
+      await flushPromises()
+
+      expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
+      expect(store.openEmailId).toBeNull()
+      wrapper.unmount()
+    })
+
+    it.each(['Could not change this sender.', ''])(
+      'keeps the held email open and reports a failed reader decision (%s)',
+      async (error) => {
+        const senders = useSendersStore()
+        senders.error = error
+        vi.spyOn(senders, 'update').mockResolvedValue(false)
+        const wrapper = await openInReview([held('a', 1)], 'a')
+        vi.spyOn(store, 'refreshSenderMail').mockResolvedValue()
+
+        await readerPill(wrapper, 'Accept').trigger('click')
+        await flushPromises()
+
+        expect(store.refreshSenderMail).not.toHaveBeenCalled()
+        expect(store.notify).toHaveBeenCalledWith(error || 'Could not change this sender.', 'error')
+        expect(store.openEmailId).toBe('a')
+        expect(readerPill(wrapper, 'Accept').element.disabled).toBe(false)
+        expect(readerPill(wrapper, 'Block').element.disabled).toBe(false)
+        wrapper.unmount()
+      },
+    )
+
+    it('shows progress and disables both reader decisions while one is in flight', async () => {
+      let finish
+      const senders = useSendersStore()
+      vi.spyOn(senders, 'update').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            senders.lastRelated = []
+            finish = resolve
+          }),
+      )
+      const wrapper = await openInReview([held('a', 1)], 'a')
+      vi.spyOn(store, 'refreshSenderMail').mockResolvedValue()
+
+      await readerPill(wrapper, 'Accept').trigger('click')
+
+      const accept = readerPill(wrapper, 'Accepting')
+      expect(accept.find('.ni-bulk-spinner').exists()).toBe(true)
+      expect(accept.attributes('aria-busy')).toBe('true')
+      expect(accept.attributes('disabled')).toBeDefined()
+      expect(readerPill(wrapper, 'Block').attributes('disabled')).toBeDefined()
+      // A second press while in flight is ignored.
+      await readerPill(wrapper, 'Block').trigger('click')
+
+      finish(true)
+      await flushPromises()
+
+      expect(senders.update).toHaveBeenCalledTimes(1)
+      // The stubbed refresh leaves the email held, so the pills come back.
+      expect(readerPill(wrapper, 'Accept').element.disabled).toBe(false)
+      expect(readerPill(wrapper, 'Block').element.disabled).toBe(false)
+      wrapper.unmount()
+    })
   })
 
-  it('keeps sender controls off incoming email in every folder', async () => {
+  it('offers Accept and Block in the reader only for held mail', async () => {
     const ordinaryWrapper = mountView()
     await ordinaryWrapper.findAll('.ni-row')[0].trigger('click')
     expect(ordinaryWrapper.find('.sender-controls').exists()).toBe(false)
+    expect(ordinaryWrapper.find('.ni-reader-pill').exists()).toBe(false)
 
     ordinaryWrapper.unmount()
     store.screeningEmails = [{ ...makeEmail('held-1', Date.now() - HOUR), screeningStatus: 'held' }]
@@ -1070,6 +1250,11 @@ describe('TraditionalInboxView filtered views', () => {
     const screeningWrapper = mountView()
     await screeningWrapper.find('.ni-row').trigger('click')
     expect(screeningWrapper.find('.sender-controls').exists()).toBe(false)
+    const pills = screeningWrapper.findAll('.ni-reader-topbar .ni-reader-pill')
+    // The label span only: the icon span carries a ligature name.
+    expect(pills.map((pill) => pill.find('span:not([class])').text())).toEqual(['Accept', 'Block'])
+    expect(pills[0].attributes('title')).toBe('Accept sender')
+    expect(pills[1].attributes('title')).toBe('Block sender')
   })
 
   it('filter=starred shows only starred emails with a Starred header', async () => {

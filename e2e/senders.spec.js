@@ -24,8 +24,11 @@ test('settings block is recoverable and screening decisions stay explicit across
 }) => {
   await page.goto('/inbox')
   await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
+  // Ordinary mail has no sender decisions in the reader; those live in Settings.
   const controls = page.locator('.sender-controls')
+  const readerDecisions = page.locator('.ni-reader-topbar .ni-reader-pill')
   await expect(controls).toHaveCount(0)
+  await expect(readerDecisions).toHaveCount(0)
   await page.goto('/settings/senders')
   const settings = page.locator('.sender-settings')
   await settings.getByLabel('Email address or domain').fill('updates@cityconstruction.com')
@@ -40,20 +43,27 @@ test('settings block is recoverable and screening decisions stay explicit across
   await screening(page, true)
   await page.reload()
   await expect(settings.getByRole('checkbox')).toBeChecked()
+  // A Settings block leaves ordinary mail where it is, so hold the message
+  // with the fixture-only action: a block naming it moves it to Blocked, and
+  // Unblock with screening on returns it to New senders, where opening it
+  // offers Accept and Block in the reader.
+  const held = await page.request.put('/__e2e__/emails-api/emails/senders', {
+    data: { action: 'block', address: 'updates@cityconstruction.com', messageId: 'fixture-1' },
+  })
+  expect(held.ok()).toBe(true)
   await saveSender(page, 'unblock', () =>
     settings.getByRole('button', { name: 'Unblock', exact: true }).click(),
   )
   await expect(settings.getByRole('button', { name: 'Unblock', exact: true })).toHaveCount(0)
-  await screening(page, false)
-  await settings.getByLabel('Email address or domain').fill('updates@cityconstruction.com')
-  await settings.getByLabel('Decision').selectOption('accept')
-  await saveSender(page, 'accept', () =>
-    settings.getByRole('button', { name: 'Save sender', exact: true }).click(),
-  )
-  await page.getByRole('link', { name: 'New senders', exact: true }).first().click()
+  await page.goto('/inbox?filter=screening')
+  await page.getByText('Revised Floor Plan - Natural Light adjustments', { exact: true }).click()
+  await expect(controls).toHaveCount(0)
+  await expect(readerDecisions.filter({ hasText: 'Block' })).toBeEnabled()
+  await saveSender(page, 'accept', () => readerDecisions.filter({ hasText: 'Accept' }).click())
   await expect(page.getByText('No senders awaiting review.', { exact: true })).toBeVisible()
   await page.goto('/settings/senders')
   await expect(settings).toContainText('updates@cityconstruction.com — accepted')
+  await screening(page, false)
   await expect(settings.getByRole('checkbox')).not.toBeChecked()
 })
 

@@ -2006,6 +2006,81 @@ body {
   cursor: default;
 }
 
+/* Accept/Block for a held email open in the reader: labelled pills beside
+   the icon actions, a touch shorter than the bulk bar's so the topbar keeps
+   its height. */
+.ni-reader-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.ni-reader-pill .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.ni-reader-pill:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.ni-reader-pill:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 0;
+}
+
+.ni-reader-pill--primary {
+  background: var(--text-primary);
+  color: var(--bg-dialog);
+}
+
+.ni-reader-pill--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 86%, var(--bg-dialog));
+}
+
+.ni-reader-pill--danger {
+  color: var(--danger, #e5484d);
+}
+
+.ni-reader-pill--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger, #e5484d) 8%, transparent);
+}
+
+.ni-reader-pill:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Narrow screens: the pills go icon-only (the label stays for screen
+   readers) so the topbar's triage icons keep their room. */
+@media (max-width: 720px) {
+  .ni-reader-pill {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .ni-reader-pill > span:not([class]) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .ni-reader-divider {
   width: 1px;
   height: 20px;

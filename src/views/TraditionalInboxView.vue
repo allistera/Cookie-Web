@@ -615,6 +615,42 @@ async function decideSelectedSenders(action) {
     )
 }
 
+// Accept or Block the sender of the held email open in the reader (mail
+// waiting in New senders). The decision clears that sender's held mail from
+// the list; like Done, the reader then moves on to the next email still
+// waiting for review (the one that took its place, else the new last one).
+const decidingOpenSender = ref(null)
+
+async function decideOpenSender(action) {
+  const email = openEmail.value
+  if (!email || decidingOpenSender.value || decidingSenders.value) return
+  const address = normalizeSender(email.address)
+  decidingOpenSender.value = action
+  try {
+    if (!(await senders.update({ action, address, messageId: email.id }))) {
+      store.notify(senders.error || 'Could not change this sender.', 'error')
+      return
+    }
+    const verb = action === 'block' ? 'Blocked' : 'Accepted'
+    // A domain decision also moves other senders' held mail on that domain;
+    // say so, as those emails leave the list too.
+    const related = senders.lastRelated
+    const also = related.length
+      ? ` Also ${verb.toLowerCase()} ${related.join(', ')} on the same domain.`
+      : ''
+    store.notify(`${verb} ${address}.${also}`)
+    const reviewing = activeFilter.value === 'screening'
+    const index = openIndex.value
+    await store.refreshSenderMail()
+    if (!reviewing || activeFilter.value !== 'screening') return
+    const remaining = flatEmails.value
+    const next = remaining[Math.max(index, 0)] ?? remaining[remaining.length - 1]
+    if (next) openReader(next)
+  } finally {
+    decidingOpenSender.value = null
+  }
+}
+
 // Applies a label to every selected email. Unlike toggleTag (which toggles),
 // bulk-label always adds because the selection may be a mix.
 const bulkLabelOpen = ref(false)
@@ -2094,6 +2130,43 @@ onUnmounted(() => {
         <div class="ni-reader-topbar">
           <div class="ni-reader-nav"></div>
           <div class="ni-reader-nav">
+            <!-- Mail waiting in New senders: decide its sender without
+                 going back to the list. -->
+            <template v-if="openEmail.screeningStatus === 'held'">
+              <button
+                type="button"
+                class="ni-reader-pill ni-reader-pill--primary"
+                title="Accept sender"
+                :disabled="Boolean(decidingOpenSender || decidingSenders)"
+                :aria-busy="decidingOpenSender === 'accept'"
+                @click="decideOpenSender('accept')"
+              >
+                <span
+                  v-if="decidingOpenSender === 'accept'"
+                  class="ni-bulk-spinner"
+                  aria-hidden="true"
+                ></span>
+                <span v-else class="material-symbols-outlined" aria-hidden="true">how_to_reg</span>
+                <span>{{ decidingOpenSender === 'accept' ? 'Accepting…' : 'Accept' }}</span>
+              </button>
+              <button
+                type="button"
+                class="ni-reader-pill ni-reader-pill--danger"
+                title="Block sender"
+                :disabled="Boolean(decidingOpenSender || decidingSenders)"
+                :aria-busy="decidingOpenSender === 'block'"
+                @click="decideOpenSender('block')"
+              >
+                <span
+                  v-if="decidingOpenSender === 'block'"
+                  class="ni-bulk-spinner"
+                  aria-hidden="true"
+                ></span>
+                <span v-else class="material-symbols-outlined" aria-hidden="true">block</span>
+                <span>{{ decidingOpenSender === 'block' ? 'Blocking…' : 'Block' }}</span>
+              </button>
+              <span class="ni-reader-divider" role="separator" aria-orientation="vertical"></span>
+            </template>
             <button
               v-if="activeFilter !== 'done'"
               class="ni-reader-btn"
