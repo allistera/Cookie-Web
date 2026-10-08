@@ -53,7 +53,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   select one held email and choose **Restore this message only** to release it
   without accepting its sender. With screening enabled, future mail stays held.
   Accept and Block apply
-  to the sender's domain (or exact address for public email providers).
+  to the sender's domain (or exact address for public email providers). Accepting
+  marks the approved email read, so it reaches the inbox as mail already seen.
 - Debounced hybrid search over stored mail, served by Meilisearch, with filters such as
   `tag:Personal`, `sender:foo@bar.com`, `to:`, `has:attachment`, `before:`, and `after:`.
 - Mailbox Q&A with retrieved email sources.

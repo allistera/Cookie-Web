@@ -3802,6 +3802,36 @@ describe('Inbox Store', () => {
     expect(store.toasts.some((t) => t.kind === 'error')).toBe(true)
   })
 
+  it('waits for a pending read PATCH when the state is already set', async () => {
+    let finishPatch
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          finishPatch = () => resolve({ ok: true, json: async () => ({ message: {} }) })
+        }),
+      ),
+    )
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.traditionalEmails = [email]
+
+    const first = store.setUnread(email, false)
+    // A caller that reloads afterwards must not outrun the write in flight.
+    const second = store.setUnread(email, false)
+    let settled = false
+    second.then(() => (settled = true))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+
+    finishPatch()
+    await first
+    await second
+    expect(settled).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves the inbox badge alone for search results outside the inbox', async () => {
     vi.stubGlobal(
       'fetch',

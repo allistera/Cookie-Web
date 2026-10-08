@@ -600,6 +600,16 @@ async function decideSelectedSenders(action) {
         for (const related of senders.lastRelated) covered.add(related)
       } else failed++
     }
+    // Approving mail counts as reading it: the accepted emails reach the
+    // inbox already read instead of arriving there as new unread mail. The
+    // PATCHes settle before the reload so it can't fetch them unread again.
+    if (action === 'accept') {
+      await Promise.all(
+        selectedEmails.value
+          .filter((email) => covered.has(normalizeSender(email.address)))
+          .map((email) => store.setUnread(email, false)),
+      )
+    }
     clearSelection()
     await store.refreshSenderMail()
   } finally {
@@ -639,6 +649,9 @@ async function decideOpenSender(action) {
       ? ` Also ${verb.toLowerCase()} ${related.join(', ')} on the same domain.`
       : ''
     store.notify(`${verb} ${address}.${also}`)
+    // Opening marked it read already; approving it keeps it so even if the
+    // user flagged it unread again before deciding.
+    if (action === 'accept') await store.setUnread(email, false)
     const reviewing = activeFilter.value === 'screening'
     const index = openIndex.value
     await store.refreshSenderMail()

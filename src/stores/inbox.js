@@ -2785,15 +2785,17 @@ export const useInboxStore = defineStore('inbox', {
     // The count adjusts incrementally: with pagination (and during search)
     // the loaded list is a subset, so recounting it would be wrong. PATCHes
     // are serialized per message (see pendingUnreadUpdates) so two rapid
-    // toggles can't reach the server out of click order.
+    // toggles can't reach the server out of click order. Resolves once the
+    // PATCH has settled (never rejects), for callers that reload afterwards;
+    // a no-op still waits for a write in flight, so a reload can't outrun it.
     setUnread(email, unread) {
-      if (email.unread === unread) return
+      if (email.unread === unread) return pendingUnreadUpdates.get(email.id) ?? Promise.resolve()
       const countsTowardInbox = this.traditionalEmails.includes(email) && isInboxRow(this, email)
       email.unread = unread
       if (countsTowardInbox) {
         this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
       }
-      serializePerMessage(pendingUnreadUpdates, email.id, () =>
+      return serializePerMessage(pendingUnreadUpdates, email.id, () =>
         this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
           console.error('Failed to update read state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
