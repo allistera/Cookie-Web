@@ -2788,7 +2788,7 @@ export const useInboxStore = defineStore('inbox', {
     // toggles can't reach the server out of click order. Resolves once the
     // PATCH has settled (never rejects), for callers that reload afterwards.
     setUnread(email, unread) {
-      if (email.unread === unread) return Promise.resolve()
+      if (email.unread === unread) return pendingUnreadUpdates.get(email.id) ?? Promise.resolve()
       const countsTowardInbox = this.traditionalEmails.includes(email) && isInboxRow(this, email)
       email.unread = unread
       if (countsTowardInbox) {
