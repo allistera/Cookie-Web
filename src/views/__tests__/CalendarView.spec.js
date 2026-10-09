@@ -338,6 +338,35 @@ afterEach(() => {
 })
 
 describe('CalendarView', () => {
+  it('opens a linked event after loading and follows a different occurrence without remounting', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/calendar', component: { template: '<div />' } }],
+    })
+    await router.push('/calendar?date=2026-07-25&event=design')
+    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+    expect(wrapper.get('.day-calendar > h2').text()).toContain('25')
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('Design review')
+    expect(wrapper.get('input[type="date"]').element.value).toBe('2026-07-25')
+    await router.push('/calendar?date=2026-07-24&event=recurring-review-2026-07-24')
+    await flushPromises()
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('Recurring review')
+    expect(wrapper.get('.day-calendar > h2').text()).toContain('24')
+    wrapper.unmount()
+  })
+  it('ignores a missing event or an invalid linked date', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/calendar', component: { template: '<div />' } }],
+    })
+    await router.push('/calendar?date=2026-02-31&event=design')
+    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    await router.push('/calendar?date=2026-07-24&event=missing')
+    await flushPromises()
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('shows the calendar sidebar and filters events by calendar', async () => {
     const wrapper = await mountCalendar()
     const calendarButtons = wrapper.findAll('.calendar-list-item')

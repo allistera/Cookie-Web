@@ -47,7 +47,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   to a category named Important (ignoring case and surrounding spaces). Each email
   is counted once, and the command menu offers the same combined tab.
 - The Mail inbox tabs show a compact chip for today's next timed calendar event,
-  including its start time, title, and live countdown. It is hidden when no
+  including its start time, title, and live countdown. Clicking the chip opens
+  Calendar on that date with the event details showing. It is hidden when no
   upcoming timed event remains; all-day events are excluded. Events refresh
   every five minutes while visible and when returning to the tab.
 - Auth0 authentication and per-user mailbox queries.
