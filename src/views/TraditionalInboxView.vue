@@ -15,6 +15,7 @@ import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
 import ContactAddress from '../components/ContactAddress.vue'
 import EmailRow from '../components/EmailRow.vue'
+import NextCalendarEvent from '../components/NextCalendarEvent.vue'
 import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
@@ -1838,19 +1839,23 @@ onUnmounted(() => {
 <template>
   <div class="view-panel active" id="traditionalInboxView">
     <!-- Category tabs: partition the inbox by its single-value category -->
-    <div v-if="showInboxTabs" class="ni-tabs" role="tablist" aria-label="Inbox tabs">
-      <button
-        v-for="tab in inboxTabs"
-        :key="tab.id"
-        class="ni-tab"
-        :class="{ active: tab.id === activeTab, unread: tab.hasUnread }"
-        role="tab"
-        :aria-selected="tab.id === activeTab ? 'true' : 'false'"
-        @click="store.setInboxTab(tab.id)"
-      >
-        <span class="ni-tab-name">{{ tab.name }}</span>
-        <span v-if="tab.count > 0" class="ni-tab-count">{{ tab.count }}</span>
-      </button>
+    <div v-if="showInboxTabs" class="ni-tabs-row">
+      <div class="ni-tabs" role="tablist" aria-label="Inbox tabs">
+        <button
+          v-for="tab in inboxTabs"
+          :key="tab.id"
+          class="ni-tab"
+          :class="{ active: tab.id === activeTab, unread: tab.hasUnread }"
+          role="tab"
+          :aria-selected="tab.id === activeTab ? 'true' : 'false'"
+          @click="store.setInboxTab(tab.id)"
+        >
+          <span class="ni-tab-name">{{ tab.name }}</span>
+          <span v-if="tab.count > 0" class="ni-tab-count">{{ tab.count }}</span>
+        </button>
+      </div>
+
+      <NextCalendarEvent :key="user?.sub" />
     </div>
 
     <!-- Header -->

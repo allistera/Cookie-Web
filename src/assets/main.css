@@ -1047,6 +1047,14 @@ body {
 /* Inbox tabs: Important | <category>… | Other. Large regular-weight names
    with a smaller muted count beside each; the active name turns
    periwinkle. No underline, no border: whitespace does the separating. */
+.ni-tabs-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 20px 24px 12px;
+}
+
 .ni-tabs {
   --ni-tab-name: #3a3a3a;
   --ni-tab-count: #b0b0b0;
@@ -1054,7 +1062,9 @@ body {
   display: flex;
   align-items: baseline;
   gap: 26px;
-  padding: 20px 24px 12px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -5358,7 +5368,7 @@ button.ni-attachment:hover {
     padding: 16px 12px 8px;
   }
 
-  .ni-tabs {
+  .ni-tabs-row {
     padding: 16px 12px 8px;
   }
 
