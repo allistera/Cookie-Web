@@ -621,7 +621,12 @@ function editEvent(event) {
 // Wait for both events and calendar permissions before opening a deep link.
 const calendarReady = ref(false)
 let openedEventLink = null
+// Protect a submitted dialog until it closes, including after failure. Set
+// this at the operation boundary: batched route watchers can run after the
+// request has already failed and cleared eventSaving.
+let linkedEventWaitingForDialog = false
 function openLinkedEvent() {
+  if (!showNewEvent.value) linkedEventWaitingForDialog = false
   const query = router?.currentRoute.value.query
   const date = linkedEventDate()
   if (
@@ -629,6 +634,7 @@ function openLinkedEvent() {
     !date ||
     !query?.event ||
     Array.isArray(query.event) ||
+    linkedEventWaitingForDialog ||
     eventSaving.value
   )
     return
@@ -641,12 +647,12 @@ function openLinkedEvent() {
   editEvent(event)
   openedEventLink = key
 }
-watch([events, calendarReady, eventSaving], openLinkedEvent)
+watch([events, calendarReady, eventSaving, showNewEvent], openLinkedEvent)
 watch(
   () => [router?.currentRoute.value.query.date, router?.currentRoute.value.query.event],
   () => {
     openedEventLink = null
-    if (!eventSaving.value) closeNewEvent()
+    if (!eventSaving.value && !linkedEventWaitingForDialog) closeNewEvent()
     const date = linkedEventDate()
     if (date) selectedDate.value = date
     openLinkedEvent()
@@ -682,6 +688,7 @@ async function createEventFromText() {
     return
   }
 
+  linkedEventWaitingForDialog = true
   eventSaving.value = true
   eventAiError.value = ''
   try {
@@ -750,6 +757,7 @@ async function saveEvent() {
   // Captured before the first await so the request always targets the event
   // the dialog was opened on.
   const editingId = editingEventId.value
+  linkedEventWaitingForDialog = true
   eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
@@ -794,6 +802,7 @@ async function saveEvent() {
 async function deleteEvent() {
   if (!editingEventId.value || eventSaving.value) return
   const id = editingEventId.value
+  linkedEventWaitingForDialog = true
   eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
