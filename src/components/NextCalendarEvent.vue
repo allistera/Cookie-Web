@@ -1,4 +1,5 @@
 <script setup>
+import { RouterLink } from 'vue-router'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { calendarSession, isCalendarSessionCurrent } from '../composables/useCalendars'
@@ -86,7 +87,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="nextEvent" class="next-calendar-event" :aria-label="eventLabel" :title="eventLabel">
+  <RouterLink
+    v-if="nextEvent"
+    :to="{ name: 'calendar', query: { date: nextEvent.date, event: nextEvent.id } }"
+    class="next-calendar-event"
+    :aria-label="eventLabel"
+    :title="eventLabel"
+  >
     <span class="material-symbols-outlined next-calendar-icon" aria-hidden="true"
       >calendar_month</span
     >
@@ -95,7 +102,7 @@ onUnmounted(() => {
     }}</time>
     <span class="next-calendar-title">{{ nextEvent.title }}</span>
     <span class="next-calendar-countdown">· {{ countdown }}</span>
-  </div>
+  </RouterLink>
 </template>
 
 <style scoped>
@@ -115,6 +122,14 @@ onUnmounted(() => {
   font-size: 14px;
   line-height: 18px;
   white-space: nowrap;
+  text-decoration: none;
+}
+.next-calendar-event:hover {
+  background: var(--accent-soft);
+}
+.next-calendar-event:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .next-calendar-icon {
   color: var(--text-blue);

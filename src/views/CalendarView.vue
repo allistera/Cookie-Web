@@ -13,8 +13,7 @@ import {
 } from '../lib/taskCalendarItems'
 
 const store = useInboxStore()
-// Optional: the view's own tests mount without a router; only a task click
-// navigates.
+// Optional in standalone view tests; used for task navigation and event links.
 const router = useRouter()
 const { calendars, writableCalendars, subscribedCalendars, loadCalendars } = useCalendars(
   (init) => store.authHeaders(init),
@@ -39,7 +38,16 @@ const END_HOUR = 19
 const SNAP_MINUTES = 15
 
 const viewMode = ref('day')
-const selectedDate = ref(new Date(referenceDate.value))
+function linkedEventDate() {
+  const value = router?.currentRoute.value.query.date
+  if (!value || Array.isArray(value) || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const date = new Date(`${value}T12:00:00`)
+  const [year, month, day] = value.split('-').map(Number)
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    ? date
+    : null
+}
+const selectedDate = ref(linkedEventDate() ?? new Date(referenceDate.value))
 const showNewEvent = ref(false)
 const eventForm = ref(null)
 const editingEventId = ref(null)
@@ -610,6 +618,41 @@ function editEvent(event) {
   showNewEvent.value = true
 }
 
+// Wait for both events and calendar permissions before opening a deep link.
+const calendarReady = ref(false)
+let openedEventLink = null
+function openLinkedEvent() {
+  const query = router?.currentRoute.value.query
+  const date = linkedEventDate()
+  if (
+    !calendarReady.value ||
+    !date ||
+    !query?.event ||
+    Array.isArray(query.event) ||
+    eventSaving.value
+  )
+    return
+  const key = `${query.date}/${query.event}`
+  if (openedEventLink === key) return
+  const event = events.value.find((item) => item.id === query.event && item.date === query.date)
+  if (!event) return
+  viewMode.value = 'day'
+  visibleCalendars.value.add(event.calendar)
+  editEvent(event)
+  openedEventLink = key
+}
+watch([events, calendarReady, eventSaving], openLinkedEvent)
+watch(
+  () => [router?.currentRoute.value.query.date, router?.currentRoute.value.query.event],
+  () => {
+    openedEventLink = null
+    if (!eventSaving.value) closeNewEvent()
+    const date = linkedEventDate()
+    if (date) selectedDate.value = date
+    openLinkedEvent()
+  },
+)
+
 // User-initiated dismissal (Escape, overlay, Close/Cancel). Blocked while a
 // save/delete is in flight, as AddTaskDialog does: those requests resolve
 // against the dialog's state and close it themselves when they finish.
@@ -908,7 +951,10 @@ onMounted(async () => {
     now.value = new Date()
   }, 60_000)
   await Promise.all([loadVisibleCalendars(), loadEvents()])
-  if (!unmounted) consumeNewEventRequest()
+  if (!unmounted) {
+    calendarReady.value = true
+    consumeNewEventRequest()
+  }
 })
 onUnmounted(() => {
   unmounted = true

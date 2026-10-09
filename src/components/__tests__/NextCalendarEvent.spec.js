@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import NextCalendarEvent from '../NextCalendarEvent.vue'
@@ -15,15 +16,24 @@ const event = (title, start, extra = {}) => ({
   ...extra,
 })
 let wrapper
+let router
 function respond(events) {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events }) }))
 }
 async function render() {
-  wrapper = mount(NextCalendarEvent)
+  wrapper = mount(NextCalendarEvent, { global: { plugins: [router] } })
   await flushPromises()
   return wrapper
 }
-beforeEach(() => {
+beforeEach(async () => {
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/inbox', component: { template: '<div />' } },
+      { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
+    ],
+  })
+  await router.push('/inbox')
   vi.useFakeTimers()
   vi.setSystemTime(new Date(2026, 9, 9, 16, 2))
   setActivePinia(createPinia())
@@ -36,6 +46,17 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('NextCalendarEvent', () => {
+  it('links to the exact calendar occurrence and date', async () => {
+    respond([event('Sprint planning', '16:30', { id: 'series-2026-10-09', seriesId: 'series' })])
+    await render()
+    await wrapper.get('a.next-calendar-event').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/calendar')
+    expect(router.currentRoute.value.query).toEqual({
+      date: '2026-10-09',
+      event: 'series-2026-10-09',
+    })
+  })
   it('shows the earliest upcoming timed event, excluding all-day and past events', async () => {
     respond([
       event('Later', '18:00'),
@@ -109,7 +130,7 @@ describe('NextCalendarEvent', () => {
           }),
       ),
     )
-    wrapper = mount(NextCalendarEvent)
+    wrapper = mount(NextCalendarEvent, { global: { plugins: [router] } })
     await flushPromises()
     setCalendarsOwner('new-account')
     resolve({ ok: true, json: async () => ({ events: [event('Private', '16:30')] }) })
