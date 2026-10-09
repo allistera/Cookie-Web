@@ -621,7 +621,11 @@ function editEvent(event) {
 // Wait for both events and calendar permissions before opening a deep link.
 const calendarReady = ref(false)
 let openedEventLink = null
+// A link received mid-operation must wait for this dialog to close, including
+// after a failed save/delete leaves its edits open for retry.
+let linkedEventWaitingForDialog = false
 function openLinkedEvent() {
+  if (!showNewEvent.value) linkedEventWaitingForDialog = false
   const query = router?.currentRoute.value.query
   const date = linkedEventDate()
   if (
@@ -629,6 +633,7 @@ function openLinkedEvent() {
     !date ||
     !query?.event ||
     Array.isArray(query.event) ||
+    linkedEventWaitingForDialog ||
     eventSaving.value
   )
     return
@@ -641,12 +646,13 @@ function openLinkedEvent() {
   editEvent(event)
   openedEventLink = key
 }
-watch([events, calendarReady, eventSaving], openLinkedEvent)
+watch([events, calendarReady, eventSaving, showNewEvent], openLinkedEvent)
 watch(
   () => [router?.currentRoute.value.query.date, router?.currentRoute.value.query.event],
   () => {
     openedEventLink = null
-    if (!eventSaving.value) closeNewEvent()
+    linkedEventWaitingForDialog ||= eventSaving.value && showNewEvent.value
+    if (!eventSaving.value && !linkedEventWaitingForDialog) closeNewEvent()
     const date = linkedEventDate()
     if (date) selectedDate.value = date
     openLinkedEvent()

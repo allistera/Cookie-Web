@@ -769,6 +769,72 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  async function startOperationWithPendingLink(action, succeeds) {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/calendar', component: { template: '<div />' } },
+        { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/calendar?date=2026-07-24&event=standup')
+    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+    await wrapper.get('.new-event-title-input').setValue('My unsaved standup edits')
+
+    const api = fetch.getMockImplementation()
+    let finishRequest
+    const pending = new Promise((resolve) => {
+      finishRequest = resolve
+    })
+    const method = action === 'save' ? 'PATCH' : 'DELETE'
+    fetch.mockImplementation(async (url, options = {}) => {
+      if (url === EVENTS_ENDPOINT && options.method === method) {
+        await pending
+        if (!succeeds) return { ok: false, status: 500 }
+      }
+      return api(url, options)
+    })
+    await wrapper
+      .get(action === 'save' ? '.new-event-create' : '.new-event-delete')
+      .trigger('click')
+    await flushPromises()
+    await router.push('/calendar?date=2026-07-25&event=design')
+    await flushPromises()
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('My unsaved standup edits')
+
+    return { wrapper, router, finishRequest }
+  }
+
+  it.each(['save', 'delete'])(
+    'opens the pending link after a successful %s closes its dialog',
+    async (action) => {
+      const { wrapper, finishRequest } = await startOperationWithPendingLink(action, true)
+      finishRequest()
+      await flushPromises()
+      expect(wrapper.get('.new-event-title-input').element.value).toBe('Design review')
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['save', 'delete'])(
+    'preserves failed %s edits until dismissal, then opens the latest link',
+    async (action) => {
+      const { wrapper, router, finishRequest } = await startOperationWithPendingLink(action, false)
+      finishRequest()
+      await flushPromises()
+      expect(wrapper.get('.new-event-title-input').element.value).toBe('My unsaved standup edits')
+      expect(useInboxStore().notify).toHaveBeenCalledWith(`Failed to ${action} event.`, 'error')
+      // Further navigation must keep the failed form and remember only the latest link.
+      await router.push('/calendar?date=2026-07-24&event=coffee')
+      await flushPromises()
+      expect(wrapper.get('.new-event-title-input').element.value).toBe('My unsaved standup edits')
+      await wrapper.get('.new-event-cancel').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('.new-event-title-input').element.value).toBe('Coffee with Sam')
+      wrapper.unmount()
+    },
+  )
+
   it('keeps the edit dialog open while a save is in flight so it cannot become a create', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
     const store = useInboxStore()
