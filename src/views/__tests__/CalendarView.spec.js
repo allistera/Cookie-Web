@@ -341,7 +341,10 @@ describe('CalendarView', () => {
   it('opens a linked event after loading and follows a different occurrence without remounting', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/calendar', component: { template: '<div />' } }],
+      routes: [
+        { path: '/calendar', component: { template: '<div />' } },
+        { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
+      ],
     })
     await router.push('/calendar?date=2026-07-25&event=design')
     const wrapper = await mountCalendar({ global: { plugins: [router] } })
@@ -357,7 +360,10 @@ describe('CalendarView', () => {
   it('ignores a missing event or an invalid linked date', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/calendar', component: { template: '<div />' } }],
+      routes: [
+        { path: '/calendar', component: { template: '<div />' } },
+        { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
+      ],
     })
     await router.push('/calendar?date=2026-02-31&event=design')
     const wrapper = await mountCalendar({ global: { plugins: [router] } })
