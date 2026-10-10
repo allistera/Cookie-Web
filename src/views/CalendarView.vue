@@ -783,10 +783,18 @@ async function createEventFromText() {
       throw error
     }
     const { draft } = await interpretResponse.json()
+    // Same rules as saveEvent: a Google-bound event takes no repeat rule from
+    // here, and the zone tells Google what wall-clock time the draft means.
+    const fields = { ...draft, calendar, tone: 'accepted', timeZone }
+    if (isGoogleCalendarId(calendar)) {
+      fields.repeat = 'none'
+      fields.repeatUntil = null
+      fields.repeatDays = null
+    }
     const createResponse = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ...draft, calendar, tone: 'accepted' }),
+      body: JSON.stringify(fields),
     })
     if (!createResponse.ok) {
       throw new Error(`POST /calendar-events responded ${createResponse.status}`)

@@ -225,6 +225,7 @@ function mockCalendarApi({ google = false, googleError = null, defaultCalendarId
           return { ok: true, json: async () => clone(payload) }
         }
         if (method === 'POST' && body.action === 'interpret') {
+          const weekly = body.text.includes('every')
           return {
             ok: true,
             json: async () =>
@@ -236,9 +237,9 @@ function mockCalendarApi({ google = false, googleError = null, defaultCalendarId
                   date: '2026-07-25',
                   start: '19:00',
                   duration: 120,
-                  repeat: 'none',
+                  repeat: weekly ? 'weekly' : 'none',
                   repeatUntil: null,
-                  repeatDays: null,
+                  repeatDays: weekly ? [5] : null,
                 },
               }),
           }
@@ -822,6 +823,34 @@ describe('CalendarView', () => {
     expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
     await wrapper.findAll('.calendar-navigation button')[1].trigger('click')
     expect(wrapper.text()).toContain('Dinner with Sam')
+    wrapper.unmount()
+  })
+
+  it('sends an AI-drafted event to a Google default without a repeat rule', async () => {
+    mockCalendarApi({ google: true, defaultCalendarId: 'google:me@example.com' })
+    resetCalendarsStateForTests()
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-ai-input').setValue('Dinner with Sam every Saturday at 7pm')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const created = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'POST')
+      .map(([, options]) => JSON.parse(options.body))
+      .find((body) => body.action !== 'interpret')
+    expect(created).toEqual(
+      expect.objectContaining({
+        calendar: 'google:me@example.com',
+        repeat: 'none',
+        repeatUntil: null,
+        repeatDays: null,
+        timeZone: expect.any(String),
+      }),
+    )
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
     wrapper.unmount()
   })
 
