@@ -18,9 +18,12 @@ const router = useRouter()
 const navigateTo = inject(NAVIGATE_TO, leaveTo)
 const {
   calendars,
+  defaultCalendarId,
   localCalendars,
   subscribedCalendars,
+  writableCalendars,
   loadCalendars: fetchCalendars,
+  setDefaultCalendar,
   syncCalendar,
 } = useCalendars(
   (init) => store.authHeaders(init),
@@ -39,6 +42,8 @@ const NEW_CALENDAR_PALETTE = [
 ]
 
 const isLoading = ref(true)
+const defaultSaving = ref(false)
+const defaultError = ref('')
 const createMode = ref(null)
 const newCalendarName = ref('')
 const newCalendarSubscriptionUrl = ref('')
@@ -84,6 +89,31 @@ async function loadCalendars() {
 function clearError() {
   operationError.value = ''
   errorCalendarId.value = null
+}
+
+// --- Default calendar ------------------------------------------------------
+//
+// Where a new event starts out. The Worker keeps the choice with the person's
+// other preferences and only reports it while the calendar still accepts
+// events, so an empty selection here means "pick automatically" (Personal,
+// else the first calendar that accepts events).
+
+async function chooseDefaultCalendar(event) {
+  const id = String(event.target.value ?? '') || null
+  if (id === defaultCalendarId.value) return
+  const previous = defaultCalendarId.value
+  defaultSaving.value = true
+  defaultError.value = ''
+  try {
+    if (!(await setDefaultCalendar(id))) throw new Error('PATCH calendars rejected the default')
+  } catch (error) {
+    console.error('Failed to save the default calendar:', error)
+    defaultError.value = 'The default calendar could not be saved.'
+    // Put the control back on what is actually saved.
+    event.target.value = previous ?? ''
+  } finally {
+    defaultSaving.value = false
+  }
 }
 
 function openCreate(mode) {
@@ -430,6 +460,28 @@ onMounted(() => {
     <p class="settings-section-hint">
       Create calendars for your events, or subscribe to an external calendar using its URL.
     </p>
+
+    <section class="calendar-settings-group" aria-labelledby="default-calendar-heading">
+      <div class="calendar-settings-group-header">
+        <div>
+          <h3 id="default-calendar-heading" class="settings-section-title">Default calendar</h3>
+          <p>New events are created in this calendar unless you pick another one.</p>
+        </div>
+        <select
+          class="settings-select calendar-settings-default"
+          aria-label="Default calendar"
+          :value="defaultCalendarId ?? ''"
+          :disabled="isLoading || defaultSaving"
+          @change="chooseDefaultCalendar"
+        >
+          <option value="">Choose automatically</option>
+          <option v-for="calendar in writableCalendars" :key="calendar.id" :value="calendar.id">
+            {{ calendar.name }}
+          </option>
+        </select>
+      </div>
+      <p v-if="defaultError" class="calendar-settings-error" role="alert">{{ defaultError }}</p>
+    </section>
 
     <section
       v-for="group in calendarGroups"

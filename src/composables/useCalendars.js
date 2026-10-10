@@ -29,6 +29,13 @@ export const isGoogleCalendarId = (id) => String(id ?? '').startsWith('google:')
 // Settings is visible in the already-mounted Calendar view's sidebar/color
 // map immediately, instead of only after a remount re-fetches it.
 const calendars = ref([])
+// The calendar new events open in, chosen in Settings and kept by the Worker
+// in the person's prefs. Null until loaded or when nothing is chosen; the
+// Worker only reports it while it still names a writable calendar.
+const defaultCalendarId = ref(null)
+// Bumped by every accepted save so a list load that began before it cannot
+// put the older choice back when its response lands later.
+let defaultRevision = 0
 
 // Module-level like `calendars` above: CalendarView and DocumentCalendarSidebar
 // both call loadCalendars() on mount (often within moments of each other, e.g.
@@ -85,6 +92,7 @@ export function useCalendars(authHeaders, notify) {
 
   async function fetchCalendars() {
     const session = generation
+    const revision = defaultRevision
     try {
       const headers = await authHeaders()
       if (session !== generation) return false
@@ -94,6 +102,9 @@ export function useCalendars(authHeaders, notify) {
       if (session !== generation) return false
       if (!Array.isArray(body.calendars)) throw new Error('Invalid calendars response')
       calendars.value = body.calendars ?? []
+      if (revision === defaultRevision) {
+        defaultCalendarId.value = body.defaultCalendarId ? String(body.defaultCalendarId) : null
+      }
       loaded = true
       return true
     } catch (error) {
@@ -130,13 +141,35 @@ export function useCalendars(authHeaders, notify) {
     return { ok: response.ok, errorMessage }
   }
 
+  // Saves (or, with null, clears) the calendar new events go to. Resolves to
+  // whether the Worker accepted it; the shared ref only changes on success.
+  async function setDefaultCalendar(id) {
+    const session = generation
+    const headers = await authHeaders({ 'Content-Type': 'application/json' })
+    if (session !== generation) return false
+    const response = await fetch(CALENDARS_ENDPOINT, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ defaultCalendarId: id ?? null }),
+    })
+    if (session !== generation) return false
+    if (!response.ok) return false
+    const body = await response.json().catch(() => ({}))
+    if (session !== generation) return false
+    defaultRevision += 1
+    defaultCalendarId.value = body.defaultCalendarId ? String(body.defaultCalendarId) : null
+    return true
+  }
+
   return {
     calendars,
+    defaultCalendarId,
     localCalendars,
     writableCalendars,
     subscribedCalendars,
     googleCalendars,
     loadCalendars,
+    setDefaultCalendar,
     syncCalendar,
   }
 }
@@ -144,6 +177,8 @@ export function useCalendars(authHeaders, notify) {
 function resetCalendarsState() {
   generation += 1
   calendars.value = []
+  defaultCalendarId.value = null
+  defaultRevision += 1
   loaded = false
   calendarLoads.reset(LOADS)
 }

@@ -22,6 +22,7 @@ const store = useInboxStore()
 const router = useRouter()
 const {
   calendars,
+  defaultCalendarId: preferredCalendarId,
   localCalendars,
   writableCalendars,
   subscribedCalendars,
@@ -144,7 +145,12 @@ async function loadVisibleCalendars() {
   ])
 }
 
+// The calendar a new event starts in: the one chosen in Settings when it is
+// still somewhere an event can be filed, else Personal, else the first
+// writable calendar.
 function defaultCalendarId() {
+  const chosen = preferredCalendarId.value
+  if (chosen && writableCalendars.value.some((calendar) => calendar.id === chosen)) return chosen
   return (
     writableCalendars.value.find((calendar) => calendar.name === 'Personal')?.id ??
     writableCalendars.value[0]?.id
@@ -777,10 +783,18 @@ async function createEventFromText() {
       throw error
     }
     const { draft } = await interpretResponse.json()
+    // Same rules as saveEvent: a Google-bound event takes no repeat rule from
+    // here, and the zone tells Google what wall-clock time the draft means.
+    const fields = { ...draft, calendar, tone: 'accepted', timeZone }
+    if (isGoogleCalendarId(calendar)) {
+      fields.repeat = 'none'
+      fields.repeatUntil = null
+      fields.repeatDays = null
+    }
     const createResponse = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ...draft, calendar, tone: 'accepted' }),
+      body: JSON.stringify(fields),
     })
     if (!createResponse.ok) {
       throw new Error(`POST /calendar-events responded ${createResponse.status}`)

@@ -37,11 +37,12 @@ const GOOGLE_CALENDARS = [
 
 // `google` shapes GET /google-calendar: `false` for an unconfigured deployment,
 // otherwise the connection state the fixture starts in.
-function mockCalendarApi({ google = { connected: false } } = {}) {
+function mockCalendarApi({ google = { connected: false }, defaultCalendarId = null } = {}) {
   let calendars = [
     { id: 'work', name: 'Work', color: '#4f7c6b' },
     { id: 'birthdays', name: 'Birthdays', color: '#d8953b' },
   ]
+  let defaultCalendar = defaultCalendarId
   let nextId = 1
   const connection = google
     ? { connected: false, email: null, needsReauth: false, selected: [], ...google }
@@ -91,7 +92,20 @@ function mockCalendarApi({ google = { connected: false } } = {}) {
       }
       if (url !== ENDPOINT) throw new Error(`Unexpected fetch: ${method} ${url}`)
 
-      if (method === 'GET') return { ok: true, json: async () => clone({ calendars }) }
+      if (method === 'GET') {
+        return {
+          ok: true,
+          json: async () => clone({ calendars, defaultCalendarId: defaultCalendar }),
+        }
+      }
+      if (method === 'PATCH' && 'defaultCalendarId' in body) {
+        const id = body.defaultCalendarId
+        if (id !== null && !calendars.some((calendar) => calendar.id === id)) {
+          return { ok: false, status: 404, json: async () => ({ error: 'not writable' }) }
+        }
+        defaultCalendar = id
+        return { ok: true, json: async () => ({ defaultCalendarId: id }) }
+      }
       if (method === 'POST' && body.action === 'sync') {
         const calendar = calendars.find((item) => item.id === body.id)
         calendar.subscriptionSyncedAt = '2026-08-13T11:00:00.000Z'
@@ -263,6 +277,53 @@ describe('CalendarSettings', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('has 2 events')
     expect(wrapper.find('input[aria-label="Rename Work"]').exists()).toBe(true)
     expect(store.notify).toHaveBeenCalledWith(expect.stringContaining('has 2 events'), 'error')
+  })
+})
+
+describe('CalendarSettings default calendar', () => {
+  it('offers the calendars that accept events and saves the choice', async () => {
+    mockCalendarApi({ defaultCalendarId: 'work' })
+    resetCalendarsStateForTests()
+    const wrapper = await mountManager()
+    const select = wrapper.get('select[aria-label="Default calendar"]')
+    expect(select.findAll('option').map((option) => option.text())).toEqual([
+      'Choose automatically',
+      'Work',
+      'Birthdays',
+    ])
+    expect(select.element.value).toBe('work')
+
+    await select.setValue('birthdays')
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledWith(
+      ENDPOINT,
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ defaultCalendarId: 'birthdays' }),
+      }),
+    )
+    expect(select.element.value).toBe('birthdays')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+
+    await select.setValue('')
+    await flushPromises()
+    expect(fetch).toHaveBeenLastCalledWith(
+      ENDPOINT,
+      expect.objectContaining({ body: JSON.stringify({ defaultCalendarId: null }) }),
+    )
+    wrapper.unmount()
+  })
+
+  it('reports a refused save and keeps the stored choice', async () => {
+    const wrapper = await mountManager()
+    const select = wrapper.get('select[aria-label="Default calendar"]')
+    // Deleting a calendar elsewhere races the choice here: the backend says no.
+    select.element.appendChild(Object.assign(document.createElement('option'), { value: 'gone' }))
+    await select.setValue('gone')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('The default calendar could not be saved.')
+    expect(select.element.value).toBe('')
+    wrapper.unmount()
   })
 })
 

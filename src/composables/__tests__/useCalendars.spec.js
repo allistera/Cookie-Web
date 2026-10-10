@@ -43,6 +43,84 @@ describe('useCalendars', () => {
     expect(subscribedCalendars.value.map((c) => c.id)).toEqual(['holidays'])
   })
 
+  it('loads the default calendar and saves a new choice through PATCH', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          calendars: [{ id: 'work', name: 'Work' }],
+          defaultCalendarId: 'work',
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ defaultCalendarId: null }) })
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ error: 'nope' }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { defaultCalendarId, loadCalendars, setDefaultCalendar } = useCalendars(
+      authHeaders,
+      notify,
+    )
+    await loadCalendars()
+    expect(defaultCalendarId.value).toBe('work')
+
+    await expect(setDefaultCalendar(null)).resolves.toBe(true)
+    expect(fetchMock).toHaveBeenLastCalledWith(CALENDARS_ENDPOINT, {
+      method: 'PATCH',
+      headers: {},
+      body: JSON.stringify({ defaultCalendarId: null }),
+    })
+    expect(defaultCalendarId.value).toBeNull()
+
+    // A refused save leaves the shared value on what is actually stored.
+    await expect(setDefaultCalendar('missing')).resolves.toBe(false)
+    expect(defaultCalendarId.value).toBeNull()
+  })
+
+  it('keeps a saved default when a list load that started earlier lands later', async () => {
+    let resolveLoad
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          calendars: [{ id: 'work', name: 'Work' }],
+          defaultCalendarId: 'work',
+        }),
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLoad = resolve
+          }),
+      )
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ defaultCalendarId: 'birthdays' }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { calendars, defaultCalendarId, loadCalendars, setDefaultCalendar } = useCalendars(
+      authHeaders,
+      notify,
+    )
+    await loadCalendars()
+    const reload = loadCalendars({ force: true })
+    await expect(setDefaultCalendar('birthdays')).resolves.toBe(true)
+    expect(defaultCalendarId.value).toBe('birthdays')
+
+    resolveLoad({
+      ok: true,
+      json: async () => ({
+        calendars: [
+          { id: 'work', name: 'Work' },
+          { id: 'birthdays', name: 'Birthdays' },
+        ],
+        defaultCalendarId: 'work',
+      }),
+    })
+    await reload
+    expect(calendars.value.map((c) => c.id)).toEqual(['work', 'birthdays'])
+    expect(defaultCalendarId.value).toBe('birthdays')
+  })
+
   it('clears calendars on account switch and ignores a previous account response', async () => {
     let resolveOld
     const fetchMock = vi
