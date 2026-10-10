@@ -20,7 +20,9 @@ test('Google Calendar connects from Settings, shows the chosen calendars in Cale
 
   // Back from "Google" with the outcome consumed off the URL.
   await expect(page).toHaveURL(/\/settings\/calendar$/)
-  await expect(page.getByText('person@example.com', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.calendar-settings-google-account').getByText('person@example.com'),
+  ).toBeVisible()
   const showPersonal = page.getByRole('checkbox', { name: 'Show person@example.com in Cookie' })
   const showTeam = page.getByRole('checkbox', { name: 'Show Team in Cookie' })
   await expect(showPersonal).not.toBeChecked()

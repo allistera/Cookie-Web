@@ -330,7 +330,7 @@ describe('CalendarSettings Google Calendar', () => {
     expect(wrapper.get('input[aria-label="Show Team in Cookie"]').element.checked).toBe(false)
   })
 
-  it('disconnects only after confirmation and offers to reconnect an expired grant', async () => {
+  it('offers to reconnect an expired grant and locks the selection meanwhile', async () => {
     mockCalendarApi({
       google: {
         connected: true,
@@ -349,11 +349,25 @@ describe('CalendarSettings Google Calendar', () => {
     await reconnect.trigger('click')
     await flushPromises()
     expect(navigateTo).toHaveBeenCalled()
+  })
+
+  it('disconnects only after confirmation', async () => {
+    mockCalendarApi({ google: { connected: true, email: 'me@example.com', selected: [] } })
+    const wrapper = await mountManager()
 
     const disconnect = wrapper.findAll('button').find((button) => button.text() === 'Disconnect')
     await disconnect.trigger('click')
     expect(googleCalls('DELETE')).toHaveLength(0)
-    expect(wrapper.findAll('button').some((button) => button.text() === 'Keep')).toBe(true)
+    const keep = wrapper.findAll('button').find((button) => button.text() === 'Keep')
+    await keep.trigger('click')
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Confirm disconnect')).toBe(
+      false,
+    )
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Disconnect')
+      .trigger('click')
     const confirm = wrapper
       .findAll('button')
       .find((button) => button.text() === 'Confirm disconnect')

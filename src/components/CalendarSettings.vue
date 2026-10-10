@@ -625,7 +625,7 @@ onMounted(() => {
         </p>
         <div v-else :key="googleListKey" class="calendar-settings-list">
           <div class="calendar-settings-row calendar-settings-google-account">
-            <span class="material-symbols-outlined" aria-hidden="true">account_circle</span>
+            <span class="material-symbols-outlined" aria-hidden="true">person</span>
             <div class="calendar-settings-copy">
               <strong>{{ google.email || 'Google account' }}</strong>
               <small>
