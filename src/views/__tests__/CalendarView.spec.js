@@ -1513,6 +1513,42 @@ describe('CalendarView with Google Calendar', () => {
     wrapper.unmount()
   })
 
+  it('refetches Google events when the tab comes back after a minute away', async () => {
+    const wrapper = await googleMount()
+    const eventGets = () =>
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(
+          ([url, o]) => String(url).startsWith(`${EVENTS_ENDPOINT}?`) && !o?.method,
+        ).length
+    const before = eventGets()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+
+    // Too soon: the window just loaded.
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(eventGets()).toBe(before)
+
+    vi.setSystemTime(new Date(2026, 6, 24, 10, 32))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(eventGets()).toBe(before + 1)
+
+    visibility.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('leaves a window of stored events alone when the tab comes back', async () => {
+    const wrapper = await mountCalendar()
+    const before = vi.mocked(fetch).mock.calls.length
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    vi.setSystemTime(new Date(2026, 6, 24, 10, 35))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(vi.mocked(fetch).mock.calls.length).toBe(before)
+    wrapper.unmount()
+  })
+
   it('mentions a Google loading problem once while the stored events still show', async () => {
     const store = useInboxStore()
     const wrapper = await googleMount({

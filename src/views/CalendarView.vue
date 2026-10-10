@@ -186,6 +186,7 @@ const EVENT_RANGE_VIEW_DAYS = 45
 const EVENT_RANGE_PAD_DAYS = 60
 const loadedEventRange = ref(null)
 let eventsRequestSeq = 0
+let eventsLoadedAt = 0
 
 // The visible grid needs at most ±45 days around selectedDate (a month grid
 // spans six weeks); the insights rail additionally always needs the conflict
@@ -225,6 +226,7 @@ async function loadEvents() {
         (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
     }))
     loadedEventRange.value = { from, to }
+    eventsLoadedAt = Date.now()
     reportGoogleError(googleError)
     // Navigation during the request may have moved past the window it asked
     // for (the watcher only compares against the previous window).
@@ -243,6 +245,17 @@ function reportGoogleError(message) {
   const next = message ? String(message) : null
   if (next && next !== lastGoogleError) store.notify(next, 'error')
   lastGoogleError = next
+}
+
+// Google events are read live and can change behind Cookie's back, so a
+// window that already covers the visible dates goes stale while the tab is
+// hidden. Returning to it refetches once the last load is old enough; stored
+// events have no such source of outside change, so this only runs when a
+// Google calendar is showing.
+const EVENTS_STALE_AFTER_MS = 60_000
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible' || !googleCalendars.value.length) return
+  if (Date.now() - eventsLoadedAt >= EVENTS_STALE_AFTER_MS) loadEvents()
 }
 
 // Nothing loaded yet (first load failed or is still in flight) always
@@ -1009,6 +1022,7 @@ function onKeydown(event) {
 let unmounted = false
 onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   nowTimer = setInterval(() => {
     now.value = new Date()
   }, 60_000)
@@ -1022,6 +1036,7 @@ onUnmounted(() => {
   unmounted = true
   clearInterval(nowTimer)
   document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
 })
