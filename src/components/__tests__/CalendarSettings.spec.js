@@ -207,7 +207,7 @@ describe('CalendarSettings', () => {
     const wrapper = await mountManager()
     const addSubscription = wrapper
       .findAll('button')
-      .find((button) => button.text() === 'Add subscription')
+      .find((button) => button.text().includes('Add subscription'))
     await addSubscription.trigger('click')
     await wrapper.get('input[aria-label="New calendar name"]').setValue('Fixtures')
     await wrapper
