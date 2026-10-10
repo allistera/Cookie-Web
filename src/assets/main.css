@@ -4670,6 +4670,47 @@ button.ni-attachment:hover {
   }
 }
 
+.calendar-settings-google-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.calendar-settings-disconnect-confirm {
+  border-color: color-mix(in srgb, var(--danger, #e5484d) 40%, transparent);
+  color: var(--danger, #e5484d);
+}
+
+.calendar-settings-google-account {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+.calendar-settings-google-account .material-symbols-outlined {
+  color: var(--text-secondary);
+  font-size: 24px;
+}
+
+.calendar-settings-google-account small {
+  white-space: normal;
+}
+
+.calendar-settings-google-row {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  cursor: pointer;
+}
+
+.calendar-settings-google-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0 7px;
+  accent-color: var(--accent, #2db985);
+  cursor: pointer;
+}
+
+.calendar-settings-google-row input[type='checkbox']:disabled {
+  cursor: default;
+}
+
 .settings-account-row {
   display: flex;
   align-items: center;

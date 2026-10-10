@@ -107,7 +107,59 @@ const SEED_CALENDARS = [
   { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
 ]
 import { CALENDAR_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import { browserTimeZone } from '../../composables/useCalendars'
 import { createMemoryHistory, createRouter } from 'vue-router'
+
+// A connected Google account's calendars and events, as the Worker lists them
+// (googleCalendar.js): `google:`-prefixed ids, a read-only shared calendar,
+// a repeating instance and a multi-day all-day event collapsed to one day.
+const GOOGLE_CALENDARS = [
+  {
+    id: 'google:me@example.com',
+    name: 'me@example.com',
+    color: '#9fe1e7',
+    source: 'google',
+    googleCalendarId: 'me@example.com',
+    readOnly: false,
+  },
+  {
+    id: 'google:team@group.calendar.google.com',
+    name: 'Team',
+    color: '#f6bf26',
+    source: 'google',
+    googleCalendarId: 'team@group.calendar.google.com',
+    readOnly: true,
+  },
+]
+const GOOGLE_EVENTS = [
+  {
+    id: 'google:me@example.com:dentist',
+    seriesId: 'google:me@example.com:dentist',
+    title: 'Dentist',
+    date: '2026-07-24',
+    start: '15:00',
+    duration: 60,
+    calendar: 'google:me@example.com',
+    source: 'google',
+    recurring: true,
+    readOnly: false,
+    htmlLink: 'https://calendar.google.com/calendar/event?eid=dentist',
+  },
+  {
+    id: 'google:team@group.calendar.google.com:offsite',
+    seriesId: 'google:team@group.calendar.google.com:offsite',
+    title: 'Team offsite',
+    date: '2026-07-24',
+    start: '00:00',
+    duration: 1440,
+    allDay: true,
+    calendar: 'google:team@group.calendar.google.com',
+    source: 'google',
+    recurring: false,
+    readOnly: true,
+    htmlLink: 'https://calendar.google.com/calendar/event?eid=offsite',
+  },
+]
 
 // Dated tasks appear on the calendar next to events. One all-day (no time)
 // and one timed, both on the reference date, one in a project and one in
@@ -143,9 +195,11 @@ const isEventsEndpoint = (url) => url === EVENTS_ENDPOINT || url.startsWith(`${E
 // Stands in for the calendar-events and calendar-management APIs with in-memory
 // lists, mirroring the local Vite fixture middleware's behavior closely
 // enough for these tests.
-function mockCalendarApi() {
-  let events = SEED_EVENTS.map((event) => ({ ...event }))
-  let calendars = SEED_CALENDARS.map((calendar) => ({ ...calendar }))
+function mockCalendarApi({ google = false, googleError = null } = {}) {
+  let events = [...SEED_EVENTS, ...(google ? GOOGLE_EVENTS : [])].map((event) => ({ ...event }))
+  let calendars = [...SEED_CALENDARS, ...(google ? GOOGLE_CALENDARS : [])].map((calendar) => ({
+    ...calendar,
+  }))
   let nextId = 1
   vi.stubGlobal(
     'fetch',
@@ -166,7 +220,9 @@ function mockCalendarApi() {
                   (event) => event.recurrenceRule || (event.date >= from && event.date <= to),
                 )
               : events
-          return { ok: true, json: async () => clone({ events: windowed }) }
+          const payload = { events: windowed }
+          if (googleError) payload.googleError = googleError
+          return { ok: true, json: async () => clone(payload) }
         }
         if (method === 'POST' && body.action === 'interpret') {
           return {
@@ -1301,5 +1357,182 @@ describe('CalendarView', () => {
     const wrapper = await mountCalendar()
 
     expect(wrapper.text()).not.toContain('Scheduling conflict')
+  })
+})
+
+describe('CalendarView with Google Calendar', () => {
+  const googleMount = async (options = {}) => {
+    mockCalendarApi({ google: true, ...options })
+    resetCalendarsStateForTests()
+    return mountCalendar({ attachTo: document.body })
+  }
+
+  it('lists the chosen Google calendars in their own section and shows their events', async () => {
+    const wrapper = await googleMount()
+
+    const sections = wrapper.findAll('.calendar-sidebar-section')
+    expect(sections.map((section) => section.get('.calendar-sidebar-label').text())).toEqual([
+      'Calendars',
+      'Google Calendar',
+      'Tasks',
+    ])
+    expect(sections[1].text()).toContain('me@example.com')
+    expect(sections[1].text()).toContain('Team')
+    expect(sections[0].text()).not.toContain('Team')
+
+    const titles = () => wrapper.findAll('.day-event strong').map((el) => el.text())
+    expect(titles()).toContain('Dentist')
+    expect(wrapper.text()).toContain('Team offsite')
+    const dentist = wrapper.findAll('.day-event').find((event) => event.text().includes('Dentist'))
+    expect(dentist.attributes('style')).toContain('#9fe1e7')
+
+    await sections[1].get('button').trigger('click')
+    expect(titles()).not.toContain('Dentist')
+    wrapper.unmount()
+  })
+
+  it('requests events in the browser time zone', async () => {
+    const wrapper = await googleMount()
+    const eventGet = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, options]) => String(url).startsWith(`${EVENTS_ENDPOINT}?`) && !options?.method,
+      )
+    expect(new URLSearchParams(String(eventGet[0]).split('?')[1]).get('timeZone')).toBe(
+      browserTimeZone(),
+    )
+    wrapper.unmount()
+  })
+
+  it('edits a Google event without repeat controls, within Google calendars, and reloads afterwards', async () => {
+    const wrapper = await googleMount()
+
+    const dentist = wrapper.findAll('.day-event').find((event) => event.text().includes('Dentist'))
+    await dentist.trigger('click')
+
+    expect(wrapper.text()).toContain('One occurrence of a repeating Google Calendar event.')
+    const link = wrapper.get('.new-event-google-note a')
+    expect(link.attributes('href')).toBe('https://calendar.google.com/calendar/event?eid=dentist')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(wrapper.find('select[aria-label="Event repeats"]').exists()).toBe(false)
+    const options = wrapper
+      .findAll('select[aria-label="Event calendar"] option')
+      .map((option) => option.attributes('value'))
+    expect(options).toEqual(['google:me@example.com'])
+    expect(wrapper.get('.new-event-delete').text()).toBe('Delete')
+
+    const getsBefore = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url, o]) => String(url).startsWith(`${EVENTS_ENDPOINT}?`) && !o?.method,
+      ).length
+    await wrapper.get('.new-event-title-input').setValue('Dentist check-up')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const patch = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, o]) => url === EVENTS_ENDPOINT && o?.method === 'PATCH')
+    const body = JSON.parse(patch[1].body)
+    expect(body).toMatchObject({
+      id: 'google:me@example.com:dentist',
+      title: 'Dentist check-up',
+      calendar: 'google:me@example.com',
+      repeat: 'none',
+      repeatUntil: null,
+      repeatDays: null,
+      timeZone: browserTimeZone(),
+    })
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(
+          ([url, o]) => String(url).startsWith(`${EVENTS_ENDPOINT}?`) && !o?.method,
+        ).length,
+    ).toBe(getsBefore + 1)
+    expect(wrapper.findAll('.day-event strong').map((el) => el.text())).toContain(
+      'Dentist check-up',
+    )
+    wrapper.unmount()
+  })
+
+  it('opens an event on a read-only Google calendar without Save or Delete', async () => {
+    const wrapper = await googleMount()
+
+    const offsite = wrapper
+      .findAll('.all-day-event')
+      .find((el) => el.text().includes('Team offsite'))
+    await offsite.trigger('click')
+
+    expect(wrapper.get('.new-event-title-input').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('This Google calendar is read-only in Cookie.')
+    expect(wrapper.text()).toContain('Google Calendar event.')
+    expect(wrapper.find('.new-event-delete').exists()).toBe(false)
+    expect(wrapper.find('.new-event-create').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('files a new event on a Google calendar without a repeat rule', async () => {
+    const wrapper = await googleMount()
+
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-advanced').trigger('click')
+    const select = wrapper.get('select[aria-label="Event calendar"]')
+    expect(select.findAll('option').map((option) => option.attributes('value'))).toEqual([
+      'work',
+      'personal',
+      'focus',
+      'birthdays',
+      'holidays',
+      'google:me@example.com',
+    ])
+    expect(wrapper.find('select[aria-label="Event repeats"]').exists()).toBe(true)
+    await wrapper.get('select[aria-label="Event repeats"]').setValue('weekly')
+    await select.setValue('google:me@example.com')
+    expect(wrapper.find('select[aria-label="Event repeats"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain(
+      'Repeats for Google Calendar events are set in Google Calendar.',
+    )
+
+    await wrapper.get('.new-event-title-input').setValue('Coffee')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, o]) => url === EVENTS_ENDPOINT && o?.method === 'POST')
+    expect(JSON.parse(post[1].body)).toMatchObject({
+      title: 'Coffee',
+      calendar: 'google:me@example.com',
+      repeat: 'none',
+      repeatDays: null,
+      timeZone: browserTimeZone(),
+    })
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('mentions a Google loading problem once while the stored events still show', async () => {
+    const store = useInboxStore()
+    const wrapper = await googleMount({
+      googleError: 'Google Calendar events could not be loaded.',
+    })
+
+    expect(wrapper.findAll('.day-event strong').map((el) => el.text())).toContain('Standup')
+    expect(store.notify).toHaveBeenCalledWith(
+      'Google Calendar events could not be loaded.',
+      'error',
+    )
+    const before = vi.mocked(store.notify).mock.calls.length
+
+    // Leaving the loaded window refetches; the same message is not repeated.
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    for (let i = 0; i < 6; i += 1) {
+      await wrapper.get('[aria-label="Next period"]').trigger('click')
+    }
+    await flushPromises()
+    expect(vi.mocked(store.notify).mock.calls.length).toBe(before)
+    wrapper.unmount()
   })
 })

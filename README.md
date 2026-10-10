@@ -51,6 +51,18 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   Calendar on that date with the event details showing. It is hidden when no
   upcoming timed event remains; all-day events are excluded. Events refresh
   every five minutes while visible and when returning to the tab.
+- Settings → Calendars → Google Calendar signs the account into Google and lists
+  the Google calendars it can see; tick the ones to show in Cookie. Their events
+  appear in the Calendar view (and the Mail next-event chip and daily-note
+  sidebar) in their own sidebar section, and can be opened, edited, moved
+  between the account's writable Google calendars, created and deleted from the
+  event dialog like Cookie's own. Google-side details Cookie does not model
+  (repeat rules, attendees) stay in Google Calendar; a repeating event is edited
+  one occurrence at a time, and each dialog links to the event in Google
+  Calendar. Calendars the account can only read open read-only. The
+  `cookie-web-calendar` Worker holds the tokens and talks to Google; the browser
+  never does. Apply `migrations/0091_google_calendar.sql` and set that Worker's
+  Google secrets (Cookie-Worker README, "Google Calendar") before deploying.
 - Auth0 authentication and per-user mailbox queries.
 - Press `?` (or pick Keyboard Shortcuts in the `/` command palette) for a list of
   every keyboard shortcut.

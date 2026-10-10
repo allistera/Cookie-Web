@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentCalendarSidebar from '../DocumentCalendarSidebar.vue'
-import { useCalendars } from '../../composables/useCalendars'
+import { calendarEventsUrl, useCalendars } from '../../composables/useCalendars'
 import { useInboxStore } from '../../stores/inbox'
 import { useDocumentsStore } from '../../stores/documents'
 
@@ -39,7 +39,7 @@ function mockApi() {
           json: async () => ({ calendars: [{ id: 'work', name: 'Work', color: '#4f7c6b' }] }),
         }
       }
-      if (url === `${CALENDAR_API_URL}/calendar-events?from=2026-08-13&to=2026-08-13`) {
+      if (url === calendarEventsUrl('2026-08-13', '2026-08-13')) {
         return { ok: true, json: async () => ({ events: EVENTS }) }
       }
       return { ok: true, json: async () => ({ events: [] }) }
@@ -60,12 +60,9 @@ describe('DocumentCalendarSidebar', () => {
     const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(
-      `${CALENDAR_API_URL}/calendar-events?from=2026-08-13&to=2026-08-13`,
-      {
-        headers: {},
-      },
-    )
+    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-08-13', '2026-08-13'), {
+      headers: {},
+    })
     expect(wrapper.get('.sidebar-all-day-chip').text()).toBe('Company Holiday')
     expect(wrapper.get('.sidebar-event').text()).toContain('Standup')
   })
@@ -105,12 +102,9 @@ describe('DocumentCalendarSidebar', () => {
     await wrapper.setProps({ date: new Date(2026, 7, 14) })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(
-      `${CALENDAR_API_URL}/calendar-events?from=2026-08-14&to=2026-08-14`,
-      {
-        headers: {},
-      },
-    )
+    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-08-14', '2026-08-14'), {
+      headers: {},
+    })
     expect(wrapper.get('.mini-month-day.selected').text()).toBe('14')
   })
 

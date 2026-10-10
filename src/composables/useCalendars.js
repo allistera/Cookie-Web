@@ -6,6 +6,23 @@ import { CALENDAR_API_URL } from '../lib/apiWorkers'
 import { createSharedLoad } from '../lib/sharedLoad'
 
 export const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
+export const CALENDAR_EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
+// Google Calendar connection management (Settings → Calendars); the Worker
+// lists the chosen Google calendars in /calendars and merges their events
+// into /calendar-events, so the rest of the app reads them like any other.
+export const GOOGLE_CALENDAR_ENDPOINT = `${CALENDAR_API_URL}/google-calendar`
+
+export const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+// The events window every consumer requests. The browser's zone goes along so
+// Google Calendar events arrive as wall-clock times in it, the way stored rows
+// (zone-less text) already read.
+export function calendarEventsUrl(from, to) {
+  return `${CALENDAR_EVENTS_ENDPOINT}?from=${from}&to=${to}&timeZone=${encodeURIComponent(browserTimeZone())}`
+}
+
+// Google calendars and their events carry `google:`-prefixed ids.
+export const isGoogleCalendarId = (id) => String(id ?? '').startsWith('google:')
 
 // Module-level (not created per useCalendars() call) so CalendarView and
 // CalendarSettings share one list: renaming or creating a calendar in
@@ -41,11 +58,21 @@ export function setCalendarsOwner(sub) {
 export const calendarSession = () => generation
 export const isCalendarSessionCurrent = (session) => session === generation
 
-const writableCalendars = computed(() =>
-  calendars.value.filter((calendar) => !calendar.subscriptionUrl),
+// Cookie's own calendars, which Settings creates, renames and deletes.
+const localCalendars = computed(() =>
+  calendars.value.filter((calendar) => !calendar.subscriptionUrl && calendar.source !== 'google'),
 )
 const subscribedCalendars = computed(() =>
   calendars.value.filter((calendar) => calendar.subscriptionUrl),
+)
+const googleCalendars = computed(() =>
+  calendars.value.filter((calendar) => calendar.source === 'google'),
+)
+// Where an event can be filed: Cookie's own calendars plus Google calendars
+// the account can write to. Subscriptions and read-only Google calendars
+// open their events read-only.
+const writableCalendars = computed(() =>
+  calendars.value.filter((calendar) => !calendar.subscriptionUrl && !calendar.readOnly),
 )
 
 // @param {(init?: HeadersInit) => Promise<HeadersInit>} authHeaders
@@ -103,7 +130,15 @@ export function useCalendars(authHeaders, notify) {
     return { ok: response.ok, errorMessage }
   }
 
-  return { calendars, writableCalendars, subscribedCalendars, loadCalendars, syncCalendar }
+  return {
+    calendars,
+    localCalendars,
+    writableCalendars,
+    subscribedCalendars,
+    googleCalendars,
+    loadCalendars,
+    syncCalendar,
+  }
 }
 
 function resetCalendarsState() {

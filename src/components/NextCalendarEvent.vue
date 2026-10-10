@@ -2,8 +2,11 @@
 import { RouterLink } from 'vue-router'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useInboxStore } from '../stores/inbox'
-import { calendarSession, isCalendarSessionCurrent } from '../composables/useCalendars'
-import { CALENDAR_API_URL } from '../lib/apiWorkers'
+import {
+  calendarEventsUrl,
+  calendarSession,
+  isCalendarSessionCurrent,
+} from '../composables/useCalendars'
 
 const store = useInboxStore()
 const now = ref(new Date())
@@ -50,9 +53,7 @@ async function refresh() {
   try {
     const headers = await store.authHeaders()
     if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return
-    const response = await fetch(`${CALENDAR_API_URL}/calendar-events?from=${today}&to=${today}`, {
-      headers,
-    })
+    const response = await fetch(calendarEventsUrl(today, today), { headers })
     if (!response.ok) throw new Error('Calendar unavailable')
     const body = await response.json()
     if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return

@@ -4,8 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import NextCalendarEvent from '../NextCalendarEvent.vue'
 import { useInboxStore } from '../../stores/inbox'
-import { setCalendarsOwner } from '../../composables/useCalendars'
-import { CALENDAR_API_URL } from '../../lib/apiWorkers'
+import { calendarEventsUrl, setCalendarsOwner } from '../../composables/useCalendars'
 
 const event = (title, start, extra = {}) => ({
   id: title,
@@ -71,10 +70,9 @@ describe('NextCalendarEvent', () => {
     expect(wrapper.text()).toContain('16:30')
     expect(wrapper.text()).toContain('Sprint planning')
     expect(wrapper.text()).toContain('in 28 min')
-    expect(fetch).toHaveBeenCalledWith(
-      `${CALENDAR_API_URL}/calendar-events?from=2026-10-09&to=2026-10-09`,
-      { headers: { Authorization: 'test' } },
-    )
+    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-10-09', '2026-10-09'), {
+      headers: { Authorization: 'test' },
+    })
   })
   it('updates the countdown and advances after the start time', async () => {
     respond([event('First', '16:03'), event('Second', '16:05')])
@@ -108,10 +106,9 @@ describe('NextCalendarEvent', () => {
     vi.setSystemTime(new Date(2026, 9, 9, 23, 59, 50))
     await render()
     await vi.advanceTimersByTimeAsync(15_000)
-    expect(fetch).toHaveBeenLastCalledWith(
-      `${CALENDAR_API_URL}/calendar-events?from=2026-10-10&to=2026-10-10`,
-      { headers: { Authorization: 'test' } },
-    )
+    expect(fetch).toHaveBeenLastCalledWith(calendarEventsUrl('2026-10-10', '2026-10-10'), {
+      headers: { Authorization: 'test' },
+    })
     wrapper.unmount()
     wrapper = null
     const calls = fetch.mock.calls.length

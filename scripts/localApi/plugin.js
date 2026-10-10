@@ -61,6 +61,7 @@ export function localApiPlugin(mode) {
         messageCategories: new Map(),
         calendarEvents: null,
         calendars: null,
+        googleCalendar: null,
         labels: null,
         categories: null,
         rules: [],
@@ -957,14 +958,31 @@ export function localApiPlugin(mode) {
     {
       const { expandEvents, buildRecurrenceRule } = await import('./recurrence.js')
       const state = await ensureCalendarEvents(fixtureMailboxState(req, res))
+      const google = await ensureGoogleCalendar(state)
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'GET') {
-        res.end(JSON.stringify({ events: expandEvents(state.calendarEvents) }))
+        // Like the Worker, the selected Google calendars' events ride along
+        // with the stored ones, windowed by from/to when given.
+        const params = new URL(req.url, 'http://localhost').searchParams
+        const from = params.get('from')
+        const to = params.get('to')
+        const googleRows = google.connected
+          ? google.events.filter(
+              (event) =>
+                google.selected.includes(event.googleCalendarId) &&
+                (!from || !to || (event.date >= from && event.date <= to)),
+            )
+          : []
+        res.end(JSON.stringify({ events: [...expandEvents(state.calendarEvents), ...googleRows] }))
         return
       }
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
+      if (String(body.calendar ?? body.id ?? '').startsWith('google:')) {
+        await handleGoogleEventWrite(req, res, google, body)
+        return
+      }
       if (req.method === 'POST' && body.action === 'interpret') {
         res.end(
           JSON.stringify({
@@ -1037,7 +1055,10 @@ export function localApiPlugin(mode) {
       }
       res.setHeader('Content-Type', 'application/json')
       if (req.method === 'GET') {
-        res.end(JSON.stringify({ calendars: state.calendars }))
+        const google = await ensureGoogleCalendar(state)
+        res.end(
+          JSON.stringify({ calendars: [...state.calendars, ...googleCalendarEntries(google)] }),
+        )
         return
       }
       let raw = ''
@@ -1121,12 +1142,179 @@ export function localApiPlugin(mode) {
       res.end(JSON.stringify({ error: 'Method not allowed' }))
     }
   }
+  // --- Google Calendar fixtures ---------------------------------------------
+  //
+  // Stands in for cookie-web-calendar's /google-calendar routes and its live
+  // Google reads. Google is never contacted: "Connect Google Calendar" is sent
+  // to this server's own callback, which marks the fixture account connected
+  // and bounces the browser back to Settings exactly as the Worker would.
+  const ensureGoogleCalendar = async (state) => {
+    if (!state.googleCalendar) {
+      const { FIXTURE_GOOGLE_EMAIL, fixtureGoogleCalendars, fixtureGoogleEvents } =
+        await import('./fixtures/googleCalendar.js')
+      state.googleCalendar = {
+        connected: false,
+        email: null,
+        fixtureEmail: FIXTURE_GOOGLE_EMAIL,
+        returnTo: null,
+        selected: [],
+        calendars: fixtureGoogleCalendars(),
+        events: fixtureGoogleEvents(),
+      }
+    }
+    return state.googleCalendar
+  }
+  const googleCalendarEntries = (google) =>
+    google.connected
+      ? google.calendars
+          .filter((calendar) => google.selected.includes(calendar.id))
+          .map((calendar) => ({
+            id: `google:${calendar.id}`,
+            name: calendar.name,
+            color: calendar.color,
+            source: 'google',
+            googleCalendarId: calendar.id,
+            readOnly: calendar.readOnly,
+          }))
+      : []
+  const googleStatus = (google) => ({
+    configured: true,
+    connected: google.connected,
+    email: google.email,
+    needsReauth: false,
+    calendars: google.calendars.map((calendar) => ({
+      ...calendar,
+      selected: google.selected.includes(calendar.id),
+    })),
+  })
+  const handleGoogleEventWrite = async (req, res, google, body) => {
+    const { googleEventRow } = await import('./fixtures/googleCalendar.js')
+    const writable = (calendarKey) => {
+      const calendar = google.calendars.find((item) => `google:${item.id}` === calendarKey)
+      if (!google.connected || !calendar || !google.selected.includes(calendar.id)) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Calendar not found' }))
+        return null
+      }
+      if (calendar.readOnly) {
+        res.statusCode = 403
+        res.end(JSON.stringify({ error: 'This Google calendar is read-only.' }))
+        return null
+      }
+      return calendar
+    }
+    const {
+      repeat,
+      repeatUntil: _repeatUntil,
+      repeatDays: _repeatDays,
+      timeZone: _timeZone,
+      tone: _tone,
+      ...fields
+    } = body
+    if (repeat && repeat !== 'none') {
+      res.statusCode = 400
+      res.end(
+        JSON.stringify({
+          error: 'Repeating Google Calendar events can only be created in Google Calendar.',
+        }),
+      )
+      return
+    }
+    if (req.method === 'POST') {
+      const calendar = writable(body.calendar)
+      if (!calendar) return
+      const event = googleEventRow(calendar.id, `stub-${randomUUID()}`, fields)
+      google.events.push(event)
+      res.statusCode = 201
+      res.end(JSON.stringify({ event }))
+      return
+    }
+    const index = google.events.findIndex((event) => event.id === body.id)
+    if (index === -1) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Google Calendar event not found' }))
+      return
+    }
+    if (!writable(google.events[index].calendar)) return
+    if (req.method === 'PATCH') {
+      const calendar = writable(body.calendar)
+      if (!calendar) return
+      google.events[index] = {
+        ...google.events[index],
+        ...fields,
+        googleCalendarId: calendar.id,
+      }
+      res.end(JSON.stringify({ event: google.events[index] }))
+      return
+    }
+    if (req.method === 'DELETE') {
+      google.events.splice(index, 1)
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
+  }
+  const handleGoogleCalendar = async (req, res) => {
+    const state = fixtureMailboxState(req, res)
+    const google = await ensureGoogleCalendar(state)
+    const url = new URL(req.url, 'http://localhost')
+    if (url.pathname === '/google-calendar/callback') {
+      google.connected = true
+      google.email = google.fixtureEmail
+      const back = new URL(google.returnTo || '/settings/calendar', `http://${req.headers.host}`)
+      back.searchParams.set('google', 'connected')
+      res.statusCode = 302
+      res.setHeader('Location', back.toString())
+      res.end()
+      return
+    }
+    res.setHeader('Content-Type', 'application/json')
+    if (req.method === 'GET') {
+      res.end(
+        JSON.stringify(
+          google.connected ? googleStatus(google) : { configured: true, connected: false },
+        ),
+      )
+      return
+    }
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}')
+    if (req.method === 'POST' && body.action === 'authorize') {
+      google.returnTo = body.returnTo
+      res.end(
+        JSON.stringify({
+          url: `http://${req.headers.host}/__e2e__/calendar-api/google-calendar/callback?state=fixture`,
+        }),
+      )
+      return
+    }
+    if (req.method === 'PATCH') {
+      const ids = Array.isArray(body.calendarIds) ? body.calendarIds : []
+      google.selected = google.calendars
+        .map((calendar) => calendar.id)
+        .filter((id) => ids.includes(id))
+      res.end(JSON.stringify({ calendars: googleStatus(google).calendars }))
+      return
+    }
+    if (req.method === 'DELETE') {
+      google.connected = false
+      google.email = null
+      google.selected = []
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
+  }
   // Worker-origin dispatcher for cookie-web-calendar (e2e/workerFixtures.js
   // routes calendar-api.infinitywave.online back here).
   const handleWorkerCalendarApi = (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     if (url.pathname === '/calendar-events') return handleCalendarEvents(req, res)
     if (url.pathname === '/calendars') return handleCalendars(req, res)
+    if (url.pathname.startsWith('/google-calendar')) return handleGoogleCalendar(req, res)
     res.statusCode = 404
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ error: 'Not Found' }))

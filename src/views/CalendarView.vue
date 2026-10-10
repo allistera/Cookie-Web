@@ -2,7 +2,12 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
-import { useCalendars } from '../composables/useCalendars'
+import {
+  browserTimeZone,
+  calendarEventsUrl,
+  isGoogleCalendarId,
+  useCalendars,
+} from '../composables/useCalendars'
 import SidebarResizer from '../components/SidebarResizer.vue'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import {
@@ -15,7 +20,14 @@ import {
 const store = useInboxStore()
 // Optional in standalone view tests; used for task navigation and event links.
 const router = useRouter()
-const { calendars, writableCalendars, subscribedCalendars, loadCalendars } = useCalendars(
+const {
+  calendars,
+  localCalendars,
+  writableCalendars,
+  subscribedCalendars,
+  googleCalendars,
+  loadCalendars,
+} = useCalendars(
   (init) => store.authHeaders(init),
   (message, kind) => store.notify(message, kind),
 )
@@ -51,6 +63,9 @@ const selectedDate = ref(linkedEventDate() ?? new Date(referenceDate.value))
 const showNewEvent = ref(false)
 const eventForm = ref(null)
 const editingEventId = ref(null)
+// The event the dialog was opened on, for what the form cannot carry: where
+// it comes from (Google or Cookie), its Google link, whether it repeats.
+const editingEvent = ref(null)
 const eventFormReadOnly = ref(false)
 const eventSaving = ref(false)
 const eventTitleInput = ref(null)
@@ -72,7 +87,7 @@ const TASKS_PSEUDO_CALENDAR = {
 }
 
 const calendarSections = computed(() => [
-  { id: 'calendars', label: 'Calendars', calendars: writableCalendars.value },
+  { id: 'calendars', label: 'Calendars', calendars: localCalendars.value },
   ...(subscribedCalendars.value.length
     ? [
         {
@@ -82,8 +97,26 @@ const calendarSections = computed(() => [
         },
       ]
     : []),
+  ...(googleCalendars.value.length
+    ? [{ id: 'google-calendars', label: 'Google Calendar', calendars: googleCalendars.value }]
+    : []),
   { id: 'tasks', label: 'Tasks', calendars: [TASKS_PSEUDO_CALENDAR] },
 ])
+
+const editingGoogleEvent = computed(() => editingEvent.value?.source === 'google')
+// A Google calendar as the destination: repeat rules are not sent to Google
+// from here (they are set in Google Calendar), so the form hides them.
+const googleTarget = computed(() => isGoogleCalendarId(eventForm.value?.calendar))
+// An event stays with its source: a Cookie event moves between Cookie
+// calendars, a Google event between the account's writable Google calendars.
+// A new event may go to either.
+const eventCalendarOptions = computed(() => {
+  if (eventFormReadOnly.value) return calendars.value
+  if (!editingEventId.value) return writableCalendars.value
+  return writableCalendars.value.filter(
+    (calendar) => (calendar.source === 'google') === editingGoogleEvent.value,
+  )
+})
 
 const calendarColorById = computed(
   () =>
@@ -175,11 +208,9 @@ async function loadEvents() {
   void loadCalendarTasks(from, to)
   try {
     const headers = await store.authHeaders()
-    const response = await fetch(`${CALENDAR_API_URL}/calendar-events?from=${from}&to=${to}`, {
-      headers,
-    })
+    const response = await fetch(calendarEventsUrl(from, to), { headers })
     if (!response.ok) throw new Error(`GET /calendar-events responded ${response.status}`)
-    const { events: rows } = await response.json()
+    const { events: rows, googleError } = await response.json()
     // A rapid navigation may have started a newer load for a different
     // window; dropping the stale response keeps events/loadedEventRange
     // describing the same fetch.
@@ -194,6 +225,7 @@ async function loadEvents() {
         (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
     }))
     loadedEventRange.value = { from, to }
+    reportGoogleError(googleError)
     // Navigation during the request may have moved past the window it asked
     // for (the watcher only compares against the previous window).
     ensureEventRange()
@@ -201,6 +233,16 @@ async function loadEvents() {
     console.error('Failed to load calendar events:', error)
     store.notify('Failed to load calendar events.', 'error')
   }
+}
+
+// Google's events failing to load leaves the stored ones intact, so the
+// response succeeds and carries the problem as `googleError`. Each distinct
+// message is shown once, not again on every refetch while it persists.
+let lastGoogleError = null
+function reportGoogleError(message) {
+  const next = message ? String(message) : null
+  if (next && next !== lastGoogleError) store.notify(next, 'error')
+  lastGoogleError = next
 }
 
 // Nothing loaded yet (first load failed or is still in flight) always
@@ -552,6 +594,7 @@ function parseRepeatDays(recurrenceRule) {
 function openNewEvent(prefill) {
   if (eventSaving.value) return
   editingEventId.value = null
+  editingEvent.value = null
   eventFormReadOnly.value = false
   eventCreationMode.value = prefill ? 'advanced' : 'ai'
   eventAiInput.value = ''
@@ -590,10 +633,12 @@ function editEvent(event) {
     return
   }
   editingEventId.value = event.seriesId ?? event.id
+  editingEvent.value = event
   eventCreationMode.value = 'advanced'
   eventAiInput.value = ''
   eventAiError.value = ''
-  // Subscribed-calendar events are entirely sync-managed — the dialog opens
+  // Subscribed-calendar events are entirely sync-managed, and a Google
+  // calendar the account can only read refuses writes — the dialog opens
   // read-only rather than letting the user hit a 403 on save/delete.
   eventFormReadOnly.value = !writableCalendars.value.some(
     (calendar) => calendar.id === event.calendar,
@@ -670,6 +715,7 @@ function closeNewEvent() {
   showNewEvent.value = false
   eventForm.value = null
   editingEventId.value = null
+  editingEvent.value = null
   eventAiInput.value = ''
   eventAiError.value = ''
 }
@@ -741,6 +787,10 @@ async function saveEvent() {
     return
   }
 
+  // A Google-bound event takes no repeat rule from here; the browser's zone
+  // tells Google what wall-clock time the date and start mean.
+  const toGoogle = isGoogleCalendarId(calendar)
+  const effectiveRepeat = toGoogle ? 'none' : repeat
   const fields = {
     title,
     date,
@@ -749,9 +799,10 @@ async function saveEvent() {
     location: trimmedLocation,
     description: trimmedDescription,
     calendar,
-    repeat,
-    repeatUntil: repeat === 'none' ? null : repeatUntil || null,
-    repeatDays: repeat === 'weekly' && repeatDays.length ? repeatDays : null,
+    repeat: effectiveRepeat,
+    repeatUntil: effectiveRepeat === 'none' ? null : repeatUntil || null,
+    repeatDays: effectiveRepeat === 'weekly' && repeatDays.length ? repeatDays : null,
+    timeZone: browserTimeZone(),
   }
 
   // Captured before the first await so the request always targets the event
@@ -770,8 +821,10 @@ async function saveEvent() {
       })
       if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
       // Non-recurring edits can be applied in place from the server's returned
-      // row, avoiding a full ±210-day reload. Recurring series need re-expansion.
-      if (repeat === 'none') {
+      // row, avoiding a full ±210-day reload. Recurring series need
+      // re-expansion, and so does a Google event: an all-day one spanning
+      // several days comes back as one row per day.
+      if (effectiveRepeat === 'none' && !toGoogle) {
         const { event: updated } = await response.json()
         events.value = events.value.map((event) =>
           (event.seriesId ?? event.id) === editingId ? { ...updated, seriesId: updated.id } : event,
@@ -1442,7 +1495,28 @@ onUnmounted(() => {
             </header>
 
             <p v-if="eventFormReadOnly" class="new-event-readonly-note">
-              Synced from an external calendar — read-only.
+              {{
+                editingGoogleEvent
+                  ? 'This Google calendar is read-only in Cookie.'
+                  : 'Synced from an external calendar — read-only.'
+              }}
+            </p>
+            <p v-if="editingGoogleEvent" class="new-event-readonly-note new-event-google-note">
+              <span>
+                {{
+                  editingEvent.recurring
+                    ? 'One occurrence of a repeating Google Calendar event.'
+                    : 'Google Calendar event.'
+                }}
+              </span>
+              <a
+                v-if="editingEvent.htmlLink"
+                :href="editingEvent.htmlLink"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in Google Calendar
+              </a>
             </p>
 
             <div class="new-event-datetime">
@@ -1478,7 +1552,7 @@ onUnmounted(() => {
                   :disabled="eventFormReadOnly"
                 >
                   <option
-                    v-for="calendar in eventFormReadOnly ? calendars : writableCalendars"
+                    v-for="calendar in eventCalendarOptions"
                     :key="calendar.id"
                     :value="calendar.id"
                   >
@@ -1488,7 +1562,14 @@ onUnmounted(() => {
               </label>
             </div>
 
-            <div v-if="!eventFormReadOnly" class="new-event-location-wrap">
+            <p
+              v-if="googleTarget && !eventFormReadOnly && !editingGoogleEvent"
+              class="new-event-readonly-note"
+            >
+              Repeats for Google Calendar events are set in Google Calendar.
+            </p>
+
+            <div v-if="!eventFormReadOnly && !googleTarget" class="new-event-location-wrap">
               <label class="new-event-field">
                 <span>Repeats</span>
                 <select v-model="eventForm.repeat" aria-label="Event repeats">
@@ -1511,7 +1592,7 @@ onUnmounted(() => {
             </div>
 
             <div
-              v-if="eventForm.repeat === 'weekly'"
+              v-if="eventForm.repeat === 'weekly' && !googleTarget"
               class="new-event-repeat-days"
               role="group"
               aria-label="Repeat on days"
@@ -2572,6 +2653,18 @@ onUnmounted(() => {
   margin: 16px 0 0;
   font-size: 13px;
   color: var(--calendar-muted);
+}
+
+.new-event-google-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.new-event-google-note a {
+  color: var(--calendar-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .new-event-datetime {
