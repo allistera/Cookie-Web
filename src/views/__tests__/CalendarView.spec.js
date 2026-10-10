@@ -1552,12 +1552,13 @@ describe('CalendarView with Google Calendar', () => {
           ).length
       const before = eventGets()
 
-      vi.setSystemTime(new Date(2026, 6, 24, 10, 34))
+      // Advancing the interval also advances the fake clock by the minute.
+      vi.setSystemTime(new Date(2026, 6, 24, 10, 33))
       vi.advanceTimersByTime(60_000)
       await flushPromises()
       expect(eventGets()).toBe(before)
 
-      vi.setSystemTime(new Date(2026, 6, 24, 10, 36))
+      vi.setSystemTime(new Date(2026, 6, 24, 10, 35))
       vi.advanceTimersByTime(60_000)
       await flushPromises()
       expect(eventGets()).toBe(before + 1)
@@ -1567,7 +1568,7 @@ describe('CalendarView with Google Calendar', () => {
         googleError: 'Google Calendar events could not be loaded.',
       })
       const failingBefore = eventGets()
-      vi.setSystemTime(new Date(2026, 6, 24, 10, 38))
+      vi.setSystemTime(new Date(2026, 6, 24, 10, 37))
       vi.advanceTimersByTime(60_000)
       await flushPromises()
       expect(eventGets()).toBe(failingBefore + 1)
