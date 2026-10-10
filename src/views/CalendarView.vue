@@ -253,7 +253,11 @@ function reportGoogleError(message) {
 // events have no such source of outside change, so this only runs when a
 // Google calendar is showing.
 const EVENTS_STALE_AFTER_MS = 60_000
+const calendarRoot = ref(null)
 function onVisibilityChange() {
+  // Only a view that is actually on the page refetches; a detached one (a
+  // test fixture left mounted, a view mid-teardown) has nothing to show.
+  if (!calendarRoot.value?.isConnected) return
   if (document.visibilityState !== 'visible' || !googleCalendars.value.length) return
   if (Date.now() - eventsLoadedAt >= EVENTS_STALE_AFTER_MS) loadEvents()
 }
@@ -1043,7 +1047,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="calendar-view" aria-label="Calendar">
+  <section ref="calendarRoot" class="calendar-view" aria-label="Calendar">
     <aside class="left-sidebar calendar-sidebar" aria-label="Calendar sidebar">
       <button type="button" class="compose-btn calendar-sidebar-create" @click="openNewEvent()">
         <span class="material-symbols-outlined" aria-hidden="true">add</span>

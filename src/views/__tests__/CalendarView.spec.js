@@ -1539,7 +1539,7 @@ describe('CalendarView with Google Calendar', () => {
   })
 
   it('leaves a window of stored events alone when the tab comes back', async () => {
-    const wrapper = await mountCalendar()
+    const wrapper = await mountCalendar({ attachTo: document.body })
     const before = vi.mocked(fetch).mock.calls.length
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     vi.setSystemTime(new Date(2026, 6, 24, 10, 35))

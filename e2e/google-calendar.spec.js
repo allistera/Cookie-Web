@@ -82,7 +82,7 @@ test('Google Calendar connects from Settings, shows the chosen calendars in Cale
   await page.getByRole('button', { name: 'New event' }).click()
   await page.getByRole('button', { name: 'Advanced' }).click()
   const create = page.getByRole('dialog', { name: 'New event' })
-  await create.getByLabel('Event title').fill('Coffee with Sam')
+  await create.getByLabel('Event title').fill('Tea with Dana')
   await create.getByLabel('Event calendar').selectOption({ label: 'person@example.com' })
   await expect(
     create.getByText('Repeats for Google Calendar events are set in Google Calendar.'),
@@ -96,7 +96,7 @@ test('Google Calendar connects from Settings, shows the chosen calendars in Cale
     create.getByRole('button', { name: 'Create Event' }).click(),
   ])
   await expect(create).toBeHidden()
-  await expect(page.locator('.day-event', { hasText: 'Coffee with Sam' })).toBeVisible()
+  await expect(page.locator('.day-event', { hasText: 'Tea with Dana' })).toBeVisible()
 
   // Disconnecting takes the calendars (and their events) out of Cookie.
   await page.goto('/settings/calendar')
