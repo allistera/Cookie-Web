@@ -306,6 +306,28 @@ describe('CalendarSettings Google Calendar', () => {
     })
   })
 
+  it('says so when the selection saved but the shared calendar list could not be refreshed', async () => {
+    mockCalendarApi({ google: { connected: true, email: 'me@example.com', selected: [] } })
+    const wrapper = await mountManager()
+    const original = globalThis.fetch
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, options = {}) =>
+        url === ENDPOINT && !options.method
+          ? { ok: false, status: 503, json: async () => ({ error: 'down' }) }
+          : original(url, options),
+      ),
+    )
+
+    await wrapper.get('input[aria-label="Show Team in Cookie"]').setValue(true)
+    await flushPromises()
+
+    expect(wrapper.get('input[aria-label="Show Team in Cookie"]').element.checked).toBe(true)
+    expect(wrapper.get('[role="alert"]').text()).toContain(
+      'Saved, but the calendar list could not be refreshed',
+    )
+  })
+
   it('reverts a tick the Worker refused and shows the problem', async () => {
     mockCalendarApi({ google: { connected: true, email: 'me@example.com', selected: [] } })
     const wrapper = await mountManager()

@@ -248,18 +248,27 @@ function reportGoogleError(message) {
 }
 
 // Google events are read live and can change behind Cookie's back, so a
-// window that already covers the visible dates goes stale while the tab is
-// hidden. Returning to it refetches once the last load is old enough; stored
-// events have no such source of outside change, so this only runs when a
-// Google calendar is showing.
+// window that already covers the visible dates goes stale on its own.
+// Stored events have no such source of outside change, so none of this runs
+// unless a Google calendar is showing. The minute tick refreshes a window
+// every few minutes (sooner while Google's part of it failed to load);
+// returning to a hidden tab refreshes after a minute away.
+const GOOGLE_REFRESH_MS = 5 * 60_000
 const EVENTS_STALE_AFTER_MS = 60_000
 const calendarRoot = ref(null)
-function onVisibilityChange() {
+function refreshStaleGoogleEvents(maxAgeMs) {
   // Only a view that is actually on the page refetches; a detached one (a
   // test fixture left mounted, a view mid-teardown) has nothing to show.
   if (!calendarRoot.value?.isConnected) return
   if (document.visibilityState !== 'visible' || !googleCalendars.value.length) return
-  if (Date.now() - eventsLoadedAt >= EVENTS_STALE_AFTER_MS) loadEvents()
+  if (Date.now() - eventsLoadedAt >= maxAgeMs) loadEvents()
+}
+function onVisibilityChange() {
+  refreshStaleGoogleEvents(EVENTS_STALE_AFTER_MS)
+}
+function onMinuteTick() {
+  now.value = new Date()
+  refreshStaleGoogleEvents(lastGoogleError ? EVENTS_STALE_AFTER_MS : GOOGLE_REFRESH_MS)
 }
 
 // Nothing loaded yet (first load failed or is still in flight) always
@@ -1027,9 +1036,7 @@ let unmounted = false
 onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
   document.addEventListener('visibilitychange', onVisibilityChange)
-  nowTimer = setInterval(() => {
-    now.value = new Date()
-  }, 60_000)
+  nowTimer = setInterval(onMinuteTick, 60_000)
   await Promise.all([loadVisibleCalendars(), loadEvents()])
   if (!unmounted) {
     calendarReady.value = true

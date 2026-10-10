@@ -1538,6 +1538,45 @@ describe('CalendarView with Google Calendar', () => {
     wrapper.unmount()
   })
 
+  it('refreshes Google events every few minutes while the tab is visible, sooner after a Google error', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date(2026, 6, 24, 10, 30))
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    try {
+      const wrapper = await googleMount()
+      const eventGets = () =>
+        vi
+          .mocked(fetch)
+          .mock.calls.filter(
+            ([url, o]) => String(url).startsWith(`${EVENTS_ENDPOINT}?`) && !o?.method,
+          ).length
+      const before = eventGets()
+
+      vi.setSystemTime(new Date(2026, 6, 24, 10, 34))
+      vi.advanceTimersByTime(60_000)
+      await flushPromises()
+      expect(eventGets()).toBe(before)
+
+      vi.setSystemTime(new Date(2026, 6, 24, 10, 36))
+      vi.advanceTimersByTime(60_000)
+      await flushPromises()
+      expect(eventGets()).toBe(before + 1)
+      wrapper.unmount()
+
+      const failing = await googleMount({
+        googleError: 'Google Calendar events could not be loaded.',
+      })
+      const failingBefore = eventGets()
+      vi.setSystemTime(new Date(2026, 6, 24, 10, 38))
+      vi.advanceTimersByTime(60_000)
+      await flushPromises()
+      expect(eventGets()).toBe(failingBefore + 1)
+      failing.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('leaves a window of stored events alone when the tab comes back', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
     const before = vi.mocked(fetch).mock.calls.length

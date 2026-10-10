@@ -337,7 +337,7 @@ async function toggleGoogleCalendar(calendar, selected) {
     const body = await response.json()
     google.value = { ...current, calendars: normalizeGoogle(body).calendars }
     // The sidebar's shared list now includes (or drops) the calendar.
-    await fetchCalendars({ force: true })
+    await refreshSharedCalendars()
   } catch (error) {
     console.error('Failed to save the Google calendar selection:', error)
     googleError.value = 'The calendar selection could not be saved.'
@@ -360,12 +360,23 @@ async function disconnectGoogle() {
     if (!response.ok) throw new Error(`DELETE google-calendar responded ${response.status}`)
     google.value = normalizeGoogle({ configured: true, connected: false })
     confirmingDisconnect.value = false
-    await fetchCalendars({ force: true })
+    await refreshSharedCalendars()
   } catch (error) {
     console.error('Failed to disconnect Google Calendar:', error)
     googleError.value = 'Google Calendar could not be disconnected.'
   } finally {
     googleBusy.value = false
+  }
+}
+
+// The selection is saved by now; what can still fail is the shared calendar
+// list the Calendar sidebar reads, which loadCalendars reports as false
+// (and its own toast) rather than throwing. Say so here, since the ticks
+// above look saved and the sidebar would not match until the next load.
+async function refreshSharedCalendars() {
+  if (!(await fetchCalendars({ force: true }))) {
+    googleError.value =
+      'Saved, but the calendar list could not be refreshed. Reload to see the change in Calendar.'
   }
 }
 
