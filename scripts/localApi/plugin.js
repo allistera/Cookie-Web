@@ -61,6 +61,7 @@ export function localApiPlugin(mode) {
         messageCategories: new Map(),
         calendarEvents: null,
         calendars: null,
+        defaultCalendarId: null,
         googleCalendar: null,
         labels: null,
         categories: null,
@@ -1054,16 +1055,46 @@ export function localApiPlugin(mode) {
         state.calendars = fixtureCalendars()
       }
       res.setHeader('Content-Type', 'application/json')
+      // Like the Worker, the saved default is only reported while it still
+      // names a calendar an event can be filed in.
+      const writableCalendarIds = async () => {
+        const google = await ensureGoogleCalendar(state)
+        return [...state.calendars, ...googleCalendarEntries(google)]
+          .filter((calendar) => !calendar.subscriptionUrl && !calendar.readOnly)
+          .map((calendar) => calendar.id)
+      }
       if (req.method === 'GET') {
         const google = await ensureGoogleCalendar(state)
+        const writable = await writableCalendarIds()
         res.end(
-          JSON.stringify({ calendars: [...state.calendars, ...googleCalendarEntries(google)] }),
+          JSON.stringify({
+            calendars: [...state.calendars, ...googleCalendarEntries(google)],
+            defaultCalendarId: writable.includes(state.defaultCalendarId)
+              ? state.defaultCalendarId
+              : null,
+          }),
         )
         return
       }
       let raw = ''
       for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw || '{}')
+      if (req.method === 'PATCH' && 'defaultCalendarId' in body) {
+        if (body.defaultCalendarId === null) {
+          state.defaultCalendarId = null
+          res.end(JSON.stringify({ defaultCalendarId: null }))
+          return
+        }
+        const id = String(body.defaultCalendarId ?? '')
+        if (!(await writableCalendarIds()).includes(id)) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Calendar not found or not writable' }))
+          return
+        }
+        state.defaultCalendarId = id
+        res.end(JSON.stringify({ defaultCalendarId: id }))
+        return
+      }
       if (req.method === 'POST' && body.action === 'sync') {
         const calendar = state.calendars.find((item) => item.id === body.id)
         if (!calendar?.subscriptionUrl) {

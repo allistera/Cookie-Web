@@ -22,6 +22,7 @@ const store = useInboxStore()
 const router = useRouter()
 const {
   calendars,
+  defaultCalendarId: preferredCalendarId,
   localCalendars,
   writableCalendars,
   subscribedCalendars,
@@ -144,7 +145,12 @@ async function loadVisibleCalendars() {
   ])
 }
 
+// The calendar a new event starts in: the one chosen in Settings when it is
+// still somewhere an event can be filed, else Personal, else the first
+// writable calendar.
 function defaultCalendarId() {
+  const chosen = preferredCalendarId.value
+  if (chosen && writableCalendars.value.some((calendar) => calendar.id === chosen)) return chosen
   return (
     writableCalendars.value.find((calendar) => calendar.name === 'Personal')?.id ??
     writableCalendars.value[0]?.id
