@@ -128,6 +128,12 @@ async function createCalendar() {
       operationError.value = 'A calendar with that name already exists.'
       return
     }
+    if (response.status === 400 && subscriptionUrl) {
+      // The Worker accepts HTTPS and webcal feeds from allowed providers.
+      operationError.value =
+        'That link was not accepted. Use a public https:// or webcal:// calendar feed from a supported provider.'
+      return
+    }
     if (!response.ok) throw new Error(`POST calendars responded ${response.status}`)
     const { calendar } = await response.json()
     if (!isCalendarSessionCurrent(session)) return

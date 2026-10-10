@@ -6,6 +6,7 @@ import CalendarSettings from '../CalendarSettings.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { resetCalendarsStateForTests } from '../../composables/useCalendars'
 import { NAVIGATE_TO } from '../../lib/externalNavigation'
+import { fixtureSubscriptionUrl } from '../../../scripts/localApi/fixtures/calendars.js'
 
 import { CALENDAR_API_URL } from '../../lib/apiWorkers'
 
@@ -108,8 +109,13 @@ function mockCalendarApi({ google = { connected: false } } = {}) {
         if (calendars.some((calendar) => calendar.name === body.name)) {
           return { ok: false, status: 409, json: async () => ({ error: 'duplicate' }) }
         }
+        const subscriptionUrl = fixtureSubscriptionUrl(body.subscriptionUrl)
+        if (body.subscriptionUrl && !subscriptionUrl) {
+          return { ok: false, status: 400, json: async () => ({ error: 'bad url' }) }
+        }
         const calendar = { id: `generated-${nextId++}`, ...body }
         if (calendar.subscriptionUrl) {
+          calendar.subscriptionUrl = subscriptionUrl
           calendar.subscriptionSyncedAt = '2026-08-13T10:00:00.000Z'
           calendar.subscriptionError = null
         }
@@ -198,6 +204,34 @@ describe('CalendarSettings', () => {
           ([, options]) => options?.method === 'POST' && JSON.parse(options.body).action === 'sync',
         ),
     ).toBe(true)
+  })
+
+  it('explains a subscription link the backend rejects and keeps the form open', async () => {
+    const wrapper = await mountManager()
+    const addSubscription = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Add subscription'))
+    await addSubscription.trigger('click')
+    await wrapper.get('input[aria-label="New calendar name"]').setValue('Fixtures')
+    await wrapper
+      .get('input[aria-label="Calendar subscription URL"]')
+      .setValue('http://p176-caldav.icloud.com/published/2/example')
+    await wrapper.get('form.calendar-settings-create').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('form.calendar-settings-create [role="alert"]').text()).toBe(
+      'That link was not accepted. Use a public https:// or webcal:// calendar feed from a supported provider.',
+    )
+    expect(wrapper.find('form.calendar-settings-create').exists()).toBe(true)
+
+    await wrapper
+      .get('input[aria-label="Calendar subscription URL"]')
+      .setValue('webcal://p176-caldav.icloud.com/published/2/example')
+    await wrapper.get('form.calendar-settings-create').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('form.calendar-settings-create').exists()).toBe(false)
+    expect(wrapper.text()).toContain('https://p176-caldav.icloud.com/published/2/example')
+    wrapper.unmount()
   })
 
   it('renames calendars and requires confirmation before deleting', async () => {

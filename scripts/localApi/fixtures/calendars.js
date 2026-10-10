@@ -13,3 +13,17 @@ const rows = [
 export function fixtureCalendars() {
   return rows.map((row) => ({ ...row }))
 }
+
+// Mirrors the Worker's basic URL validation and webcal normalization. Fixture
+// sync never fetches the network; DNS/egress checks remain Worker-only.
+export function fixtureSubscriptionUrl(value) {
+  const url = String(value ?? '')
+  if (!url || url.length > 2000) return null
+  try {
+    const parsed = new URL(url.replace(/^webcal:\/\//i, 'https://'))
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}

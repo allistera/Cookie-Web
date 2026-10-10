@@ -2,6 +2,7 @@ import process from 'node:process'
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { URL } from 'node:url'
+import { fixtureSubscriptionUrl } from './fixtures/calendars.js'
 
 import {
   outOfOfficeDefaults,
@@ -1082,6 +1083,16 @@ export function localApiPlugin(mode) {
         return
       }
       if (req.method === 'POST') {
+        const subscriptionUrl = body.subscriptionUrl
+          ? fixtureSubscriptionUrl(body.subscriptionUrl)
+          : null
+        if (body.subscriptionUrl && !subscriptionUrl) {
+          res.statusCode = 400
+          res.end(
+            JSON.stringify({ error: 'A valid https:// or webcal:// calendar URL is required' }),
+          )
+          return
+        }
         if (state.calendars.some((calendar) => calendar.name === body.name)) {
           res.statusCode = 409
           res.end(JSON.stringify({ error: 'A calendar with that name already exists' }))
@@ -1089,7 +1100,7 @@ export function localApiPlugin(mode) {
         }
         const calendar = { id: `stub-calendar-${randomUUID()}`, name: body.name, color: body.color }
         if (body.subscriptionUrl) {
-          calendar.subscriptionUrl = body.subscriptionUrl
+          calendar.subscriptionUrl = subscriptionUrl
           await stubSubscriptionSync(state, calendar)
         }
         state.calendars.push(calendar)
