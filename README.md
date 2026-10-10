@@ -52,8 +52,10 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   upcoming timed event remains; all-day events are excluded. Events refresh
   every five minutes while visible and when returning to the tab.
 - Settings → Calendars → Add subscription accepts public `https://` and
-  `webcal://` calendar feeds. Webcal links are fetched over HTTPS; subscribed
-  events are read-only and can be refreshed with Sync.
+  `webcal://` calendar feeds from supported providers, including Apple iCloud.
+  Enable Public Calendar sharing in iCloud and paste its link here. Webcal links
+  are fetched over HTTPS; subscribed events are read-only and can be refreshed
+  with Sync.
 - Settings → Calendars → Google Calendar signs the account into Google and lists
   the Google calendars it can see; tick the ones to show in Cookie. Their events
   appear in the Calendar view (and the Mail next-event chip and daily-note

@@ -129,11 +129,9 @@ async function createCalendar() {
       return
     }
     if (response.status === 400 && subscriptionUrl) {
-      // The Worker takes https:// and webcal:// links to any public host; a
-      // rejected one is malformed, carries credentials or points somewhere
-      // this deployment does not allow.
+      // The Worker accepts HTTPS and webcal feeds from allowed providers.
       operationError.value =
-        'That link was not accepted. Use a public https:// or webcal:// link to a calendar feed.'
+        'That link was not accepted. Use a public https:// or webcal:// calendar feed from a supported provider.'
       return
     }
     if (!response.ok) throw new Error(`POST calendars responded ${response.status}`)

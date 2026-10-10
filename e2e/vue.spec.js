@@ -198,13 +198,27 @@ test('Calendar settings manages subscriptions that appear in the Calendar view',
   await page.getByRole('textbox', { name: 'New calendar name' }).fill('Team Feed')
   await page
     .getByRole('textbox', { name: 'Calendar subscription URL' })
-    .fill('https://example.com/team.ics')
+    .fill('http://p176-caldav.icloud.com/published/2/example')
   await page
     .locator('.calendar-settings-create')
     .getByRole('button', { name: 'Add subscription' })
     .click()
 
-  await expect(page.locator('.calendar-settings-row', { hasText: 'Team Feed' })).toBeVisible()
+  await expect(page.locator('.calendar-settings-create [role="alert"]')).toContainText(
+    'That link was not accepted.',
+  )
+  await expect(page.locator('.calendar-settings-create')).toBeVisible()
+  await page
+    .getByRole('textbox', { name: 'Calendar subscription URL' })
+    .fill('webcal://p176-caldav.icloud.com/published/2/example')
+  await page
+    .locator('.calendar-settings-create')
+    .getByRole('button', { name: 'Add subscription' })
+    .click()
+
+  await expect(page.locator('.calendar-settings-row', { hasText: 'Team Feed' })).toContainText(
+    'https://p176-caldav.icloud.com/published/2/example',
+  )
   const syncNow = page.getByRole('button', { name: 'Sync Team Feed' })
   await Promise.all([
     page.waitForResponse(
