@@ -218,3 +218,60 @@ describe('useCalendars', () => {
     expect(calendars.value).toEqual([{ id: 'fresh' }])
   })
 })
+
+describe('useCalendars with Google calendars', () => {
+  let useCalendars
+  const authHeaders = vi.fn().mockResolvedValue({})
+  const notify = vi.fn()
+
+  beforeEach(async () => {
+    vi.resetModules()
+    ;({ useCalendars } = await import('../useCalendars'))
+  })
+
+  it('groups Google calendars apart and treats only writable ones as event targets', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          calendars: [
+            { id: 'work', name: 'Work' },
+            { id: 'holidays', name: 'Holidays', subscriptionUrl: 'https://example.com/cal.ics' },
+            { id: 'google:me@example.com', name: 'me@example.com', source: 'google' },
+            { id: 'google:team@group', name: 'Team', source: 'google', readOnly: true },
+          ],
+        }),
+      }),
+    )
+
+    const {
+      localCalendars,
+      writableCalendars,
+      subscribedCalendars,
+      googleCalendars,
+      loadCalendars,
+    } = useCalendars(authHeaders, notify)
+    await loadCalendars()
+
+    expect(localCalendars.value.map((c) => c.id)).toEqual(['work'])
+    expect(subscribedCalendars.value.map((c) => c.id)).toEqual(['holidays'])
+    expect(googleCalendars.value.map((c) => c.id)).toEqual([
+      'google:me@example.com',
+      'google:team@group',
+    ])
+    expect(writableCalendars.value.map((c) => c.id)).toEqual(['work', 'google:me@example.com'])
+  })
+
+  it('builds the events URL with the browser zone and recognises Google ids', async () => {
+    const { calendarEventsUrl, isGoogleCalendarId, browserTimeZone, CALENDAR_EVENTS_ENDPOINT } =
+      await import('../useCalendars')
+    expect(calendarEventsUrl('2026-10-01', '2026-10-31')).toBe(
+      `${CALENDAR_EVENTS_ENDPOINT}?from=2026-10-01&to=2026-10-31&timeZone=${encodeURIComponent(browserTimeZone())}`,
+    )
+    expect(browserTimeZone()).toBeTruthy()
+    expect(isGoogleCalendarId('google:me@example.com')).toBe(true)
+    expect(isGoogleCalendarId('work')).toBe(false)
+    expect(isGoogleCalendarId(null)).toBe(false)
+  })
+})

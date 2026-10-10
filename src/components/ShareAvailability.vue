@@ -13,9 +13,14 @@ import {
 
 const emit = defineEmits(['insert', 'previewState'])
 const store = useInboxStore()
-const { calendars, loadCalendars } = useCalendars(
+const { calendars: allCalendars, loadCalendars } = useCalendars(
   (init) => store.authHeaders(init),
   (message, kind) => store.notify(message, kind),
+)
+// Availability is computed from stored events only; Google calendars are
+// read live per window and have no server-side busy lookup.
+const calendars = computed(() =>
+  allCalendars.value.filter((calendar) => calendar.source !== 'google'),
 )
 const dialog = ref(null)
 const formId = useId()

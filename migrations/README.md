@@ -49,6 +49,21 @@ Apply `0010` before deploying Cookie-Worker code that creates pending enrichment
 
 AI failure state is recoverable and never changes the mail-forwarding outcome. Only spam scores of at least `0.98` are excluded from Inbox.
 
+## Google Calendar
+
+`0091_google_calendar.sql` adds `google_calendar_connections` (one row per
+user: the Google OAuth refresh and access tokens, AES-256-GCM encrypted under
+the `cookie-web-calendar` Worker's `GOOGLE_TOKEN_ENCRYPTION_KEY` secret, the
+account email, and a snapshot of the Google calendars chosen to show in
+Cookie) and `google_calendar_oauth_states` (the single-use state of a sign-in
+in progress, bound to the user who started it, since Google's redirect back
+to the Worker carries no bearer token). Nothing from Google is mirrored into
+`calendar_events`; events are read live per window and written straight back
+to Google. Both tables are server-only. Apply this migration before deploying
+`cookie-web-calendar` with its Google secrets, then deploy Cookie-Web for the
+Settings → Calendars → Google Calendar section; without the migration the
+Worker reads "not connected" and the rest of the Calendar app is unaffected.
+
 ## Browser notification events
 
 `0071_thread_muting.sql` adds persistent conversation muting on `threads.is_muted`.
