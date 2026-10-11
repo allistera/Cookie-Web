@@ -96,6 +96,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'sell',
   'send',
   'settings',
+  'smart_toy',
   'star',
   'star_border',
   'sync',
