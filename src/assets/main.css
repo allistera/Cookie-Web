@@ -17,6 +17,7 @@
   --accent-soft: rgba(94, 106, 210, 0.12);
   --text-blue: var(--accent);
   --text-blue-dark: #2e3358;
+  --text-green: #4cb782;
   --text-purple: #6e79d6;
   --gemini-purple: #6e79d6;
   --schedule-line: #b45309;
@@ -87,6 +88,7 @@
   --accent-soft: rgba(94, 106, 210, 0.24);
   --text-blue: #858df8;
   --text-blue-dark: #e3e6ff;
+  --text-green: #5ecb93;
   --schedule-line: #e0a458;
   --code-keyword: #c4b5fd;
   --code-string: #86efac;
@@ -2290,6 +2292,32 @@ body {
   filter: brightness(0.93);
   outline: 2px solid color-mix(in srgb, var(--text-blue) 28%, transparent);
   outline-offset: 2px;
+}
+
+/* Disabled only while the day's calendar check is in flight. */
+.ni-calendar-suggestion-action:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* The event is already on the calendar: the bar turns green and offers to
+   go to it instead of adding it again. */
+.ni-calendar-suggestion-added {
+  border-color: color-mix(in srgb, var(--text-green) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--text-green) 9%, var(--bg-card));
+}
+
+.ni-calendar-suggestion-added .ni-calendar-suggestion-icon,
+.ni-calendar-suggestion-added .ni-calendar-suggestion-copy strong {
+  color: var(--text-green);
+}
+
+.ni-calendar-suggestion-added .ni-calendar-suggestion-action {
+  background: var(--text-green);
+}
+
+.ni-calendar-suggestion-added .ni-calendar-suggestion-action:focus-visible {
+  outline-color: color-mix(in srgb, var(--text-green) 36%, transparent);
 }
 
 .ni-row-labels {

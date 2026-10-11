@@ -212,3 +212,22 @@ export function formatCalendarSuggestion(suggestion) {
     minute: '2-digit',
   })
 }
+
+// Whether the suggested event is already on the calendar. The Worker keeps no
+// link between an email and the event created from it, so this compares what
+// the Add-to-calendar dialog prefilled: the day, the start (stored rows may
+// carry seconds) and the title, ignoring case and surrounding whitespace.
+export function findCalendarSuggestionEvent(suggestion, events) {
+  if (!suggestion || !Array.isArray(events)) return null
+  const title = suggestion.title.trim().toLowerCase()
+  return (
+    events.find(
+      (event) =>
+        event?.date === suggestion.date &&
+        String(event.start ?? '').slice(0, 5) === suggestion.start &&
+        String(event.title ?? '')
+          .trim()
+          .toLowerCase() === title,
+    ) ?? null
+  )
+}
