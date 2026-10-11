@@ -2991,9 +2991,41 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(reader.find('[title="Forward"]').exists()).toBe(true)
 
     const pills = reader.findAll('.ni-reader-footer .ni-pill-btn')
-    expect(pills).toHaveLength(2)
+    expect(pills).toHaveLength(3)
     expect(pills[0].text()).toContain('Reply')
     expect(pills[1].text()).toContain('Forward')
+    expect(pills[2].text()).toContain('Ask ChatGPT')
+  })
+
+  it('Ask ChatGPT opens a new tab with the open email prefilled', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageBodies.set(email.id, {
+      html: '<p>Original <strong>message</strong></p>',
+      text: 'Original message',
+      attachments: [],
+    })
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader [title="Ask ChatGPT"]').exists()).toBe(true)
+    const ask = wrapper
+      .findAll('.ni-reader-footer .ni-pill-btn')
+      .find((button) => button.text().includes('Ask ChatGPT'))
+    await ask.trigger('click')
+
+    expect(open).toHaveBeenCalledTimes(1)
+    const [href, target, features] = open.mock.calls[0]
+    expect(target).toBe('_blank')
+    expect(features).toBe('noopener')
+    const url = new URL(href)
+    expect(url.origin).toBe('https://chatgpt.com')
+    const prompt = url.searchParams.get('prompt')
+    expect(prompt).toContain(`Subject: ${email.subject}`)
+    expect(prompt).toContain('Original message')
+    expect(prompt).not.toContain('<strong>')
+    expect(store.isComposerActive).toBe(false)
+    open.mockRestore()
   })
 
   it('opens a forward draft with a quoted body and downloadable attachments', async () => {

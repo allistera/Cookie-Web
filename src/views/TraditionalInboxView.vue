@@ -22,6 +22,7 @@ import ThreadMessage from '../components/ThreadMessage.vue'
 import { normalizeSender, useSendersStore } from '../stores/senders'
 import { useContactInsightsStore } from '../stores/contactInsights'
 import { attachmentIcon, formatFileSize } from '../lib/attachments'
+import { buildChatGptPrompt, chatGptUrl } from '../lib/askChatGpt'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml } from '../lib/composeHtml'
@@ -1297,6 +1298,20 @@ function composerHasDraft() {
   // Even a visually blank composer can have focus or an AI draft in flight.
   // Treat the open window itself as a draft rather than replacing its state.
   return store.isComposerActive
+}
+
+// Opens ChatGPT in a new tab with the open email prefilled. Built from the
+// body the reader already holds (no await) so the browser treats the new tab
+// as a direct result of the click and does not block it as a popup.
+function askChatGptAboutOpenEmail() {
+  const email = openEmail.value
+  if (!email) return
+  const prompt = buildChatGptPrompt({
+    ...email,
+    text: store.openEmailText,
+    html: openEmailHtml.value,
+  })
+  window.open(chatGptUrl(prompt), '_blank', 'noopener')
 }
 
 async function forwardOpenEmail() {
@@ -2620,6 +2635,14 @@ onUnmounted(() => {
                   >
                     <span class="material-symbols-outlined">forward</span>
                   </button>
+                  <button
+                    class="ni-reader-btn"
+                    title="Ask ChatGPT"
+                    aria-label="Ask ChatGPT"
+                    @click="askChatGptAboutOpenEmail"
+                  >
+                    <span class="material-symbols-outlined">smart_toy</span>
+                  </button>
                   <span class="ni-email-time">{{ openEmail.date }}</span>
                   <span
                     v-if="openEmail.isSent"
@@ -2837,6 +2860,10 @@ onUnmounted(() => {
           <button class="ni-pill-btn" @click="forwardOpenEmail">
             <span class="material-symbols-outlined">forward</span>
             <span>Forward</span>
+          </button>
+          <button class="ni-pill-btn" @click="askChatGptAboutOpenEmail">
+            <span class="material-symbols-outlined">smart_toy</span>
+            <span>Ask ChatGPT</span>
           </button>
         </div>
       </div>

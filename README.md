@@ -274,6 +274,16 @@ updated `cookie-web-tasks` Worker, then deploy the web client. The Worker uses
 the existing `OPENAI_API_KEY` and rate-limits interpretation to 10 requests per
 user per minute.
 
+### Ask ChatGPT
+
+The reader's **Ask ChatGPT** button, beside Reply and Forward, opens
+chatgpt.com in a new tab with the open email prefilled: sender, date,
+subject, recipients, and the plain-text body (or the text of the HTML body
+when there is no plain part). Nothing is submitted until you add your own
+question and send it. Very long bodies are cut off with an "[Email
+truncated]" marker so the link stays within what ChatGPT accepts, and
+attachments are not included. This sends the email's content to OpenAI.
+
 ### Automatic priority replies
 
 When Cookie classifies an incoming email as high priority, it prepares a reply
