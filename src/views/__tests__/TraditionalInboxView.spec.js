@@ -2997,6 +2997,33 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(pills[2].text()).toContain('Ask ChatGPT')
   })
 
+  it('keeps Ask ChatGPT disabled until the full body has loaded', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageBodies.delete(email.id)
+    vi.spyOn(store, 'fetchMessageBody').mockReturnValue(new Promise(() => {}))
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const header = wrapper.find('.ni-reader [aria-label="Ask ChatGPT"]')
+    const pill = wrapper
+      .findAll('.ni-reader-footer .ni-pill-btn')
+      .find((button) => button.text().includes('Ask ChatGPT'))
+    expect(header.attributes('disabled')).toBeDefined()
+    expect(pill.attributes('disabled')).toBeDefined()
+    expect(pill.attributes('title')).toContain('loading')
+    await pill.trigger('click')
+    expect(open).not.toHaveBeenCalled()
+
+    store.messageBodies.set(email.id, { html: null, text: 'Full body', attachments: [] })
+    await nextTick()
+    expect(pill.attributes('disabled')).toBeUndefined()
+    await pill.trigger('click')
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(new URL(open.mock.calls[0][0]).searchParams.get('prompt')).toContain('Full body')
+    open.mockRestore()
+  })
+
   it('Ask ChatGPT opens a new tab with the open email prefilled', async () => {
     const email = store.traditionalEmails[0]
     store.messageBodies.set(email.id, {

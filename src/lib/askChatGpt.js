@@ -1,5 +1,3 @@
-import { htmlToText } from './composeHtml'
-
 // ChatGPT prefills its composer from the `prompt` query parameter without
 // submitting, so the person can add their own question before sending. The
 // parameter is undocumented but stable; the server rejects very long URLs, so
@@ -29,8 +27,36 @@ function promptRecipients(list) {
     .join(', ')
 }
 
+// Block elements and <br> become line breaks so an HTML-only email keeps its
+// paragraphs; textContent alone would run "<p>Yes</p><p>No</p>" into "YesNo".
+// Other whitespace collapses the way a browser renders it, so pretty-printed
+// markup does not leak its indentation into the prompt.
+const BLOCK_SELECTOR =
+  'p, div, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre, table, ul, ol, hr, section, article, header, footer'
+
+export function htmlToPromptText(html) {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  for (const node of doc.body.querySelectorAll('script, style, template')) node.remove()
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.parentElement?.closest('pre')) node.data = node.data.replace(/\s+/g, ' ')
+  }
+  for (const br of doc.body.querySelectorAll('br')) br.replaceWith('\n')
+  for (const block of doc.body.querySelectorAll(BLOCK_SELECTOR)) {
+    block.prepend('\n')
+    block.append('\n')
+  }
+  return (doc.body.textContent || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function promptBody(text, html) {
-  const plain = String(text ?? '').trim() || htmlToText(html)
+  const plain = String(text ?? '').trim() || htmlToPromptText(html)
   const squeezed = plain.replace(/\n{3,}/g, '\n\n')
   if (squeezed.length <= MAX_PROMPT_BODY_CHARS) return squeezed
   return `${squeezed.slice(0, MAX_PROMPT_BODY_CHARS).trimEnd()}\n\n${TRUNCATED_NOTE}`

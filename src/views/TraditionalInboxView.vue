@@ -1302,10 +1302,16 @@ function composerHasDraft() {
 
 // Opens ChatGPT in a new tab with the open email prefilled. Built from the
 // body the reader already holds (no await) so the browser treats the new tab
-// as a direct result of the click and does not block it as a popup.
+// as a direct result of the click and does not block it as a popup. The
+// buttons stay disabled until that body has resolved, so the list preview is
+// never sent in place of the full message.
+const askChatGptTitle = computed(() =>
+  store.isOpenBodyResolved ? 'Ask ChatGPT' : 'Ask ChatGPT (loading the email)',
+)
+
 function askChatGptAboutOpenEmail() {
   const email = openEmail.value
-  if (!email) return
+  if (!email || !store.isOpenBodyResolved) return
   const prompt = buildChatGptPrompt({
     ...email,
     text: store.openEmailText,
@@ -2637,8 +2643,9 @@ onUnmounted(() => {
                   </button>
                   <button
                     class="ni-reader-btn"
-                    title="Ask ChatGPT"
+                    :title="askChatGptTitle"
                     aria-label="Ask ChatGPT"
+                    :disabled="!store.isOpenBodyResolved"
                     @click="askChatGptAboutOpenEmail"
                   >
                     <span class="material-symbols-outlined">smart_toy</span>
@@ -2861,7 +2868,12 @@ onUnmounted(() => {
             <span class="material-symbols-outlined">forward</span>
             <span>Forward</span>
           </button>
-          <button class="ni-pill-btn" @click="askChatGptAboutOpenEmail">
+          <button
+            class="ni-pill-btn"
+            :title="askChatGptTitle"
+            :disabled="!store.isOpenBodyResolved"
+            @click="askChatGptAboutOpenEmail"
+          >
             <span class="material-symbols-outlined">smart_toy</span>
             <span>Ask ChatGPT</span>
           </button>

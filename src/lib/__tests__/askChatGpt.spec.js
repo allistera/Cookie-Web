@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildChatGptPrompt, chatGptUrl, MAX_PROMPT_BODY_CHARS } from '../askChatGpt'
+import {
+  buildChatGptPrompt,
+  chatGptUrl,
+  htmlToPromptText,
+  MAX_PROMPT_BODY_CHARS,
+} from '../askChatGpt'
 
 const email = {
   sender: 'Ada Lovelace',
@@ -47,6 +52,24 @@ describe('buildChatGptPrompt', () => {
     const prompt = buildChatGptPrompt({ ...email, recipients: null, text: 'Body' })
     expect(prompt).not.toContain('To:')
     expect(prompt).not.toContain('Cc:')
+  })
+})
+
+describe('htmlToPromptText', () => {
+  it('keeps paragraphs and line breaks apart', () => {
+    expect(htmlToPromptText('<p>Yes</p><p>No</p>')).toBe('Yes\n\nNo')
+    expect(htmlToPromptText('<div>One<br>Two</div>')).toBe('One\nTwo')
+    expect(htmlToPromptText('<ul><li>a</li><li>b</li></ul>')).toBe('a\n\nb')
+  })
+
+  it('collapses source whitespace but not the breaks it adds', () => {
+    const html = '<div>\n  <p>\n    Hello\n    there\n  </p>\n  <p>Bye</p>\n</div>'
+    expect(htmlToPromptText(html)).toBe('Hello there\n\nBye')
+  })
+
+  it('drops scripts and styles and keeps preformatted text', () => {
+    const html = '<style>p{}</style><script>alert(1)</script><pre>a\n  b</pre>'
+    expect(htmlToPromptText(html)).toBe('a\nb')
   })
 })
 

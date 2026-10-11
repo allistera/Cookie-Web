@@ -282,7 +282,10 @@ subject, recipients, and the plain-text body (or the text of the HTML body
 when there is no plain part). Nothing is submitted until you add your own
 question and send it. Very long bodies are cut off with an "[Email
 truncated]" marker so the link stays within what ChatGPT accepts, and
-attachments are not included. This sends the email's content to OpenAI.
+attachments are not included. The button is disabled until the full body has
+loaded, so a list preview is never sent in place of the message. This sends
+the email's content to OpenAI, and because it travels in the link itself it
+also lands in your browser history.
 
 ### Automatic priority replies
 
