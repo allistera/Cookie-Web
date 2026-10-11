@@ -2991,9 +2991,68 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     expect(reader.find('[title="Forward"]').exists()).toBe(true)
 
     const pills = reader.findAll('.ni-reader-footer .ni-pill-btn')
-    expect(pills).toHaveLength(2)
+    expect(pills).toHaveLength(3)
     expect(pills[0].text()).toContain('Reply')
     expect(pills[1].text()).toContain('Forward')
+    expect(pills[2].text()).toContain('Ask ChatGPT')
+  })
+
+  it('keeps Ask ChatGPT disabled until the full body has loaded', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageBodies.delete(email.id)
+    vi.spyOn(store, 'fetchMessageBody').mockReturnValue(new Promise(() => {}))
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const header = wrapper.find('.ni-reader [aria-label="Ask ChatGPT"]')
+    const pill = wrapper
+      .findAll('.ni-reader-footer .ni-pill-btn')
+      .find((button) => button.text().includes('Ask ChatGPT'))
+    expect(header.attributes('disabled')).toBeDefined()
+    expect(pill.attributes('disabled')).toBeDefined()
+    expect(pill.attributes('title')).toContain('loading')
+    await pill.trigger('click')
+    expect(open).not.toHaveBeenCalled()
+
+    store.messageBodies.set(email.id, { html: null, text: 'Full body', attachments: [] })
+    await nextTick()
+    expect(pill.attributes('disabled')).toBeUndefined()
+    await pill.trigger('click')
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(new URL(open.mock.calls[0][0]).searchParams.get('prompt')).toContain('Full body')
+    open.mockRestore()
+  })
+
+  it('Ask ChatGPT opens a new tab with the open email prefilled', async () => {
+    const email = store.traditionalEmails[0]
+    store.messageBodies.set(email.id, {
+      html: '<p>Original <strong>message</strong></p>',
+      text: 'Original message',
+      attachments: [],
+    })
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    expect(wrapper.find('.ni-reader [title="Ask ChatGPT"]').exists()).toBe(true)
+    const ask = wrapper
+      .findAll('.ni-reader-footer .ni-pill-btn')
+      .find((button) => button.text().includes('Ask ChatGPT'))
+    await ask.trigger('click')
+
+    expect(open).toHaveBeenCalledTimes(1)
+    const [href, target, features] = open.mock.calls[0]
+    expect(target).toBe('_blank')
+    expect(features).toBe('noopener')
+    const url = new URL(href)
+    expect(url.origin).toBe('https://chatgpt.com')
+    const prompt = url.searchParams.get('prompt')
+    expect(prompt).toContain(`Subject: ${email.subject}`)
+    expect(prompt).toContain('Original message')
+    expect(prompt).not.toContain('<strong>')
+    expect(store.isComposerActive).toBe(false)
+    open.mockRestore()
   })
 
   it('opens a forward draft with a quoted body and downloadable attachments', async () => {

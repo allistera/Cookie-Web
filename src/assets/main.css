@@ -1037,8 +1037,13 @@ body {
   transition: background-color var(--transition-fast);
 }
 
-.ni-pill-btn:hover {
+.ni-pill-btn:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+
+.ni-pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .ni-red {
