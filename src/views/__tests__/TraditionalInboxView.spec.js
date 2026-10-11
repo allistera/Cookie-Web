@@ -11,6 +11,7 @@ import { useInboxStore } from '../../stores/inbox'
 import { useSendersStore } from '../../stores/senders'
 import { useContactInsightsStore } from '../../stores/contactInsights'
 import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
+import { calendarEventsUrl } from '../../composables/useCalendars'
 import { scheduleChoices } from '../../utils/schedule'
 import { setAuth0Client } from '../../auth0-client'
 
@@ -617,6 +618,84 @@ describe('TraditionalInboxView day accordion', () => {
       end: '11:00',
     })
     expect(routerPush).toHaveBeenCalledWith({ name: 'calendar' })
+  })
+
+  it('offers to go to the event once it is already on the calendar', async () => {
+    const eventEmail = makeEmail('event-added', Date.now() - HOUR)
+    eventEmail.sender = 'Campus Tours'
+    eventEmail.subject = 'Confirmation: 2099-08-12 guided tour at 10:00 AM'
+    eventEmail.snippet = 'Meet at the Visitor Center.'
+    store.traditionalEmails.unshift(eventEmail)
+    const dayUrl = calendarEventsUrl('2099-08-12', '2099-08-12')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url) => ({
+        ok: true,
+        json: async () =>
+          url === dayUrl
+            ? {
+                events: [
+                  {
+                    id: 'tour-1',
+                    calendar: 'personal',
+                    title: '2099-08-12 Guided Tour at 10:00 am',
+                    date: '2099-08-12',
+                    start: '10:00:00',
+                    duration: 60,
+                  },
+                ],
+              }
+            : {},
+      })),
+    )
+    const wrapper = mountView()
+
+    await wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('guided tour'))
+      .trigger('click')
+    await flushPromises()
+
+    const suggestion = wrapper.get('.ni-calendar-suggestion')
+    expect(suggestion.classes()).toContain('ni-calendar-suggestion-added')
+    expect(suggestion.text()).toContain('Already on your calendar')
+    expect(suggestion.text()).not.toContain('Add to calendar')
+    await suggestion.get('.ni-calendar-suggestion-action').trigger('click')
+
+    expect(store.calendarNewEventDraft).toBeNull()
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'calendar',
+      query: { date: '2099-08-12', event: 'tour-1' },
+    })
+  })
+
+  it('still offers to add the event when the calendar holds a different one at that time', async () => {
+    const eventEmail = makeEmail('event-clash', Date.now() - HOUR)
+    eventEmail.sender = 'Campus Tours'
+    eventEmail.subject = 'Confirmation: 2099-08-12 guided tour at 10:00 AM'
+    eventEmail.snippet = 'Meet at the Visitor Center.'
+    store.traditionalEmails.unshift(eventEmail)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          events: [{ id: 'dentist', title: 'Dentist', date: '2099-08-12', start: '10:00' }],
+        }),
+      }),
+    )
+    const wrapper = mountView()
+
+    await wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('guided tour'))
+      .trigger('click')
+    await flushPromises()
+
+    const suggestion = wrapper.get('.ni-calendar-suggestion')
+    expect(suggestion.classes()).not.toContain('ni-calendar-suggestion-added')
+    expect(suggestion.text()).toContain('Event detected')
+    expect(suggestion.text()).toContain('Add to calendar')
   })
 
   it('detects calendar details after the full message body loads on demand', async () => {

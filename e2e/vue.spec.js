@@ -957,6 +957,26 @@ test('Reader offers to add a detected email event to Calendar with details prefi
   await expect(dialog.getByRole('textbox', { name: 'Event description' })).toHaveValue(
     /Univ of State Tours/,
   )
+
+  // Once the event exists, reopening the email offers to go to it instead of
+  // adding it again, and the link opens that event's details on its day.
+  await dialog.getByRole('button', { name: 'Create Event' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  await page.goto('/inbox')
+  await page.locator('.ni-group-header', { hasText: 'Yesterday' }).click()
+  await page.locator('.ni-row', { hasText: `Confirmation: ${tourDateText} guided tour` }).click()
+  await expect(suggestion).toContainText('Already on your calendar')
+  await expect(suggestion).toHaveClass(/ni-calendar-suggestion-added/)
+  await expect(suggestion.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
+  await suggestion.getByRole('button', { name: 'Go to event' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/calendar\\?date=${tourDateValue}&event=`))
+  const editDialog = page.getByRole('dialog', { name: 'Edit event' })
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.getByRole('textbox', { name: 'Event title' })).toHaveValue(
+    `${tourDateText} guided tour`,
+  )
 })
 
 test("Pressing 'd' after opening an email link marks it Done", async ({ page }) => {

@@ -32,7 +32,16 @@ import {
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
-import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
+import {
+  detectCalendarSuggestion,
+  findCalendarSuggestionEvent,
+  formatCalendarSuggestion,
+} from '../utils/calendarSuggestion'
+import {
+  calendarEventsUrl,
+  calendarSession,
+  isCalendarSessionCurrent,
+} from '../composables/useCalendars'
 
 const store = useInboxStore()
 const contactInsights = useContactInsightsStore()
@@ -846,6 +855,36 @@ const openEmailCalendarSuggestion = computed(() =>
 const openEmailCalendarSuggestionLabel = computed(() =>
   formatCalendarSuggestion(openEmailCalendarSuggestion.value),
 )
+// The calendar's events on the suggested day, so the reader can tell an event
+// that was already added (offer to go to it) from one that was not (offer to
+// add it). Loaded per suggested day; a failed load leaves the add offer.
+const suggestionDayEvents = ref([])
+let suggestionDayRequest = 0
+async function loadSuggestionDayEvents(date) {
+  const seq = ++suggestionDayRequest
+  suggestionDayEvents.value = []
+  if (!date) return
+  const session = calendarSession()
+  try {
+    const headers = await store.authHeaders()
+    if (seq !== suggestionDayRequest || !isCalendarSessionCurrent(session)) return
+    const response = await fetch(calendarEventsUrl(date, date), { headers })
+    if (!response.ok) throw new Error('Calendar unavailable')
+    const body = await response.json()
+    if (seq !== suggestionDayRequest || !isCalendarSessionCurrent(session)) return
+    suggestionDayEvents.value = Array.isArray(body.events) ? body.events : []
+  } catch {
+    // Mail reading must not depend on the calendar being reachable.
+  }
+}
+watch(
+  () => openEmailCalendarSuggestion.value?.date ?? null,
+  (date) => void loadSuggestionDayEvents(date),
+  { immediate: true },
+)
+const openEmailCalendarEvent = computed(() =>
+  findCalendarSuggestionEvent(openEmailCalendarSuggestion.value, suggestionDayEvents.value),
+)
 // Sanitized-and-sandboxed HTML rendering is driven by the on-demand body
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
 // message has no HTML body (permanent text fallback).
@@ -1159,6 +1198,14 @@ function addOpenEmailToCalendar() {
   if (!openEmailCalendarSuggestion.value) return
   store.requestCalendarNewEvent(openEmailCalendarSuggestion.value)
   router.push({ name: 'calendar' })
+}
+
+// Same link shape as the next-event chip: CalendarView opens the event's
+// details on that day once its events have loaded.
+function goToOpenEmailCalendarEvent() {
+  const event = openEmailCalendarEvent.value
+  if (!event) return
+  router.push({ name: 'calendar', query: { date: event.date, event: event.id } })
 }
 
 function starOpenEmail() {
@@ -1830,6 +1877,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   replyGenerationSeq += 1
+  suggestionDayRequest += 1
   if (pendingReplyDraft.value) store.leaveReplyDraft(pendingReplyDraft.value)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('click', onDocumentClick)
@@ -2473,16 +2521,28 @@ onUnmounted(() => {
         <section
           v-if="openEmailCalendarSuggestion"
           class="ni-calendar-suggestion"
+          :class="{ 'ni-calendar-suggestion-added': openEmailCalendarEvent }"
           aria-label="Calendar suggestion"
         >
           <span class="material-symbols-outlined ni-calendar-suggestion-icon" aria-hidden="true">
             event_available
           </span>
           <div class="ni-calendar-suggestion-copy">
-            <strong>Event detected</strong>
+            <strong>{{
+              openEmailCalendarEvent ? 'Already on your calendar' : 'Event detected'
+            }}</strong>
             <span>{{ openEmailCalendarSuggestionLabel }}</span>
           </div>
           <button
+            v-if="openEmailCalendarEvent"
+            type="button"
+            class="ni-calendar-suggestion-action"
+            @click="goToOpenEmailCalendarEvent"
+          >
+            Go to event
+          </button>
+          <button
+            v-else
             type="button"
             class="ni-calendar-suggestion-action"
             @click="addOpenEmailToCalendar"

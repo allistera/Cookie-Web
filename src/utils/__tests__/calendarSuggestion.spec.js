@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { detectCalendarSuggestion, formatCalendarSuggestion } from '../calendarSuggestion'
+import {
+  detectCalendarSuggestion,
+  findCalendarSuggestionEvent,
+  formatCalendarSuggestion,
+} from '../calendarSuggestion'
 
 const NOW = new Date('2026-07-28T12:00:00')
 
@@ -177,5 +181,42 @@ describe('detectCalendarSuggestion', () => {
       end: '12:30',
     })
     expect(detectCalendarSuggestion(email('15:00'), NOW)).toMatchObject({ start: '15:00' })
+  })
+})
+
+describe('findCalendarSuggestionEvent', () => {
+  const suggestion = {
+    title: 'August 12th guided tour',
+    description: '',
+    location: '',
+    date: '2026-08-12',
+    start: '10:00',
+    end: '11:00',
+  }
+  const added = {
+    id: 'tour-1',
+    title: ' august 12th Guided Tour ',
+    date: '2026-08-12',
+    start: '10:00:00',
+    duration: 60,
+  }
+
+  it('matches the day, start and title regardless of case, whitespace and seconds', () => {
+    expect(findCalendarSuggestionEvent(suggestion, [added])).toBe(added)
+  })
+
+  it('does not match another event at the same time or the same title on another day', () => {
+    expect(
+      findCalendarSuggestionEvent(suggestion, [
+        { ...added, title: 'Dentist' },
+        { ...added, date: '2026-08-13' },
+        { ...added, start: '10:30' },
+      ]),
+    ).toBeNull()
+  })
+
+  it('is null without a suggestion or a loaded event list', () => {
+    expect(findCalendarSuggestionEvent(null, [added])).toBeNull()
+    expect(findCalendarSuggestionEvent(suggestion, undefined)).toBeNull()
   })
 })
