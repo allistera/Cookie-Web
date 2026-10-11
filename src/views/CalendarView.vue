@@ -10,6 +10,7 @@ import {
 } from '../composables/useCalendars'
 import SidebarResizer from '../components/SidebarResizer.vue'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
+import { relinkEmailCalendarEvent, rememberEmailCalendarEvent } from '../lib/emailCalendarEvents'
 import {
   TASKS_CALENDAR_COLOR,
   TASKS_CALENDAR_ID,
@@ -621,6 +622,10 @@ function parseRepeatDays(recurrenceRule) {
   return match ? match[1].split(',') : []
 }
 
+// The email a Mail "Add to calendar" draft came from, kept until its dialog
+// closes so the saved event can be linked back to it.
+let newEventSourceMessageId = null
+
 // Neither opener may replace the dialog while a save/delete is in flight: the
 // request closes the dialog when it finishes, which would discard the new one.
 function openNewEvent(prefill) {
@@ -628,6 +633,7 @@ function openNewEvent(prefill) {
   editingEventId.value = null
   editingEvent.value = null
   eventFormReadOnly.value = false
+  newEventSourceMessageId = prefill?.sourceMessageId ?? null
   eventCreationMode.value = prefill ? 'advanced' : 'ai'
   eventAiInput.value = ''
   eventAiError.value = ''
@@ -748,6 +754,7 @@ function closeNewEvent() {
   eventForm.value = null
   editingEventId.value = null
   editingEvent.value = null
+  newEventSourceMessageId = null
   eventAiInput.value = ''
   eventAiError.value = ''
 }
@@ -860,6 +867,8 @@ async function saveEvent() {
         body: JSON.stringify({ id: editingId, ...fields, tone: existing?.tone ?? null }),
       })
       if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
+      // An event made from an email stays that email's after it moves.
+      relinkEmailCalendarEvent(editingId, date)
       // Non-recurring edits can be applied in place from the server's returned
       // row, avoiding a full ±210-day reload. Recurring series need
       // re-expansion, and so does a Google event: an all-day one spanning
@@ -879,6 +888,17 @@ async function saveEvent() {
         body: JSON.stringify({ ...fields, tone: 'accepted' }),
       })
       if (!response.ok) throw new Error(`POST /calendar-events responded ${response.status}`)
+      // Link the new event to the email it was suggested from so the reader
+      // shows it as added instead of offering it again.
+      if (newEventSourceMessageId) {
+        const { event: created } = await response.json().catch(() => ({}))
+        if (created?.id) {
+          rememberEmailCalendarEvent(newEventSourceMessageId, {
+            id: created.id,
+            date: created.date ?? date,
+          })
+        }
+      }
     }
     // Recurring series are expanded into occurrences server-side, so a full
     // reload is the simplest way to keep every occurrence in sync.

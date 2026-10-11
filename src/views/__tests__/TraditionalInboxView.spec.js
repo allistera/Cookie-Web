@@ -12,6 +12,7 @@ import { useSendersStore } from '../../stores/senders'
 import { useContactInsightsStore } from '../../stores/contactInsights'
 import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
 import { calendarEventsUrl } from '../../composables/useCalendars'
+import { rememberEmailCalendarEvent } from '../../lib/emailCalendarEvents'
 import { scheduleChoices } from '../../utils/schedule'
 import { setAuth0Client } from '../../auth0-client'
 
@@ -65,6 +66,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  // Mail-to-Calendar links are remembered in localStorage.
+  localStorage.clear()
 })
 
 const HOUR = 60 * 60 * 1000
@@ -621,8 +624,57 @@ describe('TraditionalInboxView day accordion', () => {
       date: '2099-08-12',
       start: '10:00',
       end: '11:00',
+      sourceMessageId: 'event-offer',
     })
     expect(routerPush).toHaveBeenCalledWith({ name: 'calendar' })
+  })
+
+  it('recognises the event Calendar created from the email even after it was renamed and moved', async () => {
+    const eventEmail = makeEmail('event-linked', Date.now() - HOUR)
+    eventEmail.sender = 'Campus Tours'
+    eventEmail.subject = 'Confirmation: 2099-08-12 guided tour at 10:00 AM'
+    eventEmail.snippet = 'Meet at the Visitor Center.'
+    store.traditionalEmails.unshift(eventEmail)
+    rememberEmailCalendarEvent('event-linked', { id: 'tour-9', date: '2099-08-14' })
+    // The window widens from the suggested day to the day the event moved to.
+    const rangeUrl = calendarEventsUrl('2099-08-12', '2099-08-14')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url) => ({
+        ok: true,
+        json: async () =>
+          url === rangeUrl
+            ? {
+                events: [
+                  {
+                    id: 'tour-9',
+                    calendar: 'personal',
+                    title: 'Campus visit with Sam',
+                    date: '2099-08-14',
+                    start: '09:30',
+                    duration: 90,
+                  },
+                ],
+              }
+            : {},
+      })),
+    )
+    const wrapper = mountView()
+
+    await wrapper
+      .findAll('.ni-row')
+      .find((row) => row.text().includes('guided tour'))
+      .trigger('click')
+    await flushPromises()
+
+    expect(fetch.mock.calls.filter(([url]) => url === rangeUrl)).toHaveLength(1)
+    const suggestion = wrapper.get('.ni-calendar-suggestion')
+    expect(suggestion.text()).toContain('Already on your calendar')
+    await suggestion.get('.ni-calendar-suggestion-action').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'calendar',
+      query: { date: '2099-08-14', event: 'tour-9' },
+    })
   })
 
   it('offers to go to the event once it is already on the calendar', async () => {
