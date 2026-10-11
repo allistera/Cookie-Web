@@ -857,12 +857,17 @@ const openEmailCalendarSuggestionLabel = computed(() =>
 )
 // The calendar's events on the suggested day, so the reader can tell an event
 // that was already added (offer to go to it) from one that was not (offer to
-// add it). Loaded per suggested day; a failed load leaves the add offer.
+// add it). Fetched each time an email with a suggestion opens, since the
+// calendar can change elsewhere between reads. Adding waits for the check so
+// a quick click cannot duplicate an event the response is about to reveal; a
+// failed or Google-partial load ends the check and leaves the add offer.
 const suggestionDayEvents = ref([])
+const suggestionDayChecking = ref(false)
 let suggestionDayRequest = 0
 async function loadSuggestionDayEvents(date) {
   const seq = ++suggestionDayRequest
   suggestionDayEvents.value = []
+  suggestionDayChecking.value = Boolean(date)
   if (!date) return
   const session = calendarSession()
   try {
@@ -875,11 +880,13 @@ async function loadSuggestionDayEvents(date) {
     suggestionDayEvents.value = Array.isArray(body.events) ? body.events : []
   } catch {
     // Mail reading must not depend on the calendar being reachable.
+  } finally {
+    if (seq === suggestionDayRequest) suggestionDayChecking.value = false
   }
 }
 watch(
-  () => openEmailCalendarSuggestion.value?.date ?? null,
-  (date) => void loadSuggestionDayEvents(date),
+  () => [openEmail.value?.id ?? null, openEmailCalendarSuggestion.value?.date ?? null],
+  ([, date]) => void loadSuggestionDayEvents(date),
   { immediate: true },
 )
 const openEmailCalendarEvent = computed(() =>
@@ -2545,6 +2552,7 @@ onUnmounted(() => {
             v-else
             type="button"
             class="ni-calendar-suggestion-action"
+            :disabled="suggestionDayChecking"
             @click="addOpenEmailToCalendar"
           >
             Add to calendar

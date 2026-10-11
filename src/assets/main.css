@@ -2294,6 +2294,12 @@ body {
   outline-offset: 2px;
 }
 
+/* Disabled only while the day's calendar check is in flight. */
+.ni-calendar-suggestion-action:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
 /* The event is already on the calendar: the bar turns green and offers to
    go to it instead of adding it again. */
 .ni-calendar-suggestion-added {

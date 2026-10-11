@@ -609,6 +609,11 @@ describe('TraditionalInboxView day accordion', () => {
 
     expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
     expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Add to calendar')
+    // Adding waits for the day's calendar check so a quick click cannot
+    // duplicate an event the response is about to reveal.
+    expect(wrapper.get('.ni-calendar-suggestion-action').element.disabled).toBe(true)
+    await flushPromises()
+    expect(wrapper.get('.ni-calendar-suggestion-action').element.disabled).toBe(false)
     await wrapper.get('.ni-calendar-suggestion-action').trigger('click')
 
     expect(store.calendarNewEventDraft).toMatchObject({
@@ -667,6 +672,49 @@ describe('TraditionalInboxView day accordion', () => {
       name: 'calendar',
       query: { date: '2099-08-12', event: 'tour-1' },
     })
+  })
+
+  it('re-checks the calendar each time an email for that day opens', async () => {
+    // The calendar can change in another tab between reads, so a reopened
+    // email must not reuse the day's events from the previous open.
+    const eventEmail = makeEmail('event-reopen', Date.now() - HOUR)
+    eventEmail.subject = 'Confirmation: 2099-08-12 guided tour at 10:00 AM'
+    store.traditionalEmails.unshift(eventEmail)
+    const dayUrl = calendarEventsUrl('2099-08-12', '2099-08-12')
+    const wrapper = mountView()
+    const openRow = () =>
+      wrapper
+        .findAll('.ni-row')
+        .find((row) => row.text().includes('guided tour'))
+        .trigger('click')
+
+    await openRow()
+    await flushPromises()
+    expect(fetch.mock.calls.filter(([url]) => url === dayUrl)).toHaveLength(1)
+    expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Add to calendar')
+
+    store.closeReader()
+    await flushPromises()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          events: [
+            {
+              id: 'tour-1',
+              title: '2099-08-12 guided tour at 10:00 AM',
+              date: '2099-08-12',
+              start: '10:00',
+            },
+          ],
+        }),
+      }),
+    )
+    await openRow()
+    await flushPromises()
+    expect(fetch.mock.calls.filter(([url]) => url === dayUrl)).toHaveLength(1)
+    expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Already on your calendar')
   })
 
   it('still offers to add the event when the calendar holds a different one at that time', async () => {
@@ -770,6 +818,7 @@ describe('TraditionalInboxView day accordion', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
+    await flushPromises()
     await wrapper.get('.ni-calendar-suggestion-action').trigger('click')
     expect(store.calendarNewEventDraft).toMatchObject({
       title: 'Whitburn Recycling Centre',
