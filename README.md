@@ -51,6 +51,14 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   Calendar on that date with the event details showing. It is hidden when no
   upcoming timed event remains; all-day events are excluded. Events refresh
   every five minutes while visible and when returning to the tab.
+- When an open email describes an event (or carries a calendar invite), the
+  reader offers to add it to Calendar with the details prefilled. Once that
+  entry exists, the reader shows "Already on your calendar" with a "Go to
+  event" button that opens it in Calendar instead of offering it again. An
+  entry counts when Calendar created it from that email (remembered in this
+  browser, so it still matches after being renamed or moved) or when an event
+  on the same day has the same start time and title, such as an invite Google
+  Calendar added by itself.
 - Settings → Calendars → Add subscription accepts public `https://` and
   `webcal://` calendar feeds from supported providers, including Apple iCloud.
   Enable Public Calendar sharing in iCloud and paste its link here. Webcal links

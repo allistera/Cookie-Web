@@ -33,16 +33,17 @@ import {
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
-import {
-  detectCalendarSuggestion,
-  findCalendarSuggestionEvent,
-  formatCalendarSuggestion,
-} from '../utils/calendarSuggestion'
+import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 import {
   calendarEventsUrl,
   calendarSession,
   isCalendarSessionCurrent,
 } from '../composables/useCalendars'
+import {
+  emailCalendarEventRange,
+  findEmailCalendarEvent,
+  rememberedEmailCalendarEvent,
+} from '../lib/emailCalendarEvents'
 
 const store = useInboxStore()
 const contactInsights = useContactInsightsStore()
@@ -862,23 +863,31 @@ const openEmailCalendarSuggestionLabel = computed(() =>
 // calendar can change elsewhere between reads. Adding waits for the check so
 // a quick click cannot duplicate an event the response is about to reveal; a
 // failed or Google-partial load ends the check and leaves the add offer.
+// When Calendar remembers which event it made from this email
+// (lib/emailCalendarEvents.js), the window widens to that event's day so a
+// moved or renamed entry still counts.
 const suggestionDayEvents = ref([])
+const suggestionRemembered = ref(null)
 const suggestionDayChecking = ref(false)
 let suggestionDayRequest = 0
-async function loadSuggestionDayEvents(date) {
+async function loadSuggestionDayEvents(messageId, date) {
   const seq = ++suggestionDayRequest
   suggestionDayEvents.value = []
+  suggestionRemembered.value = null
   suggestionDayChecking.value = Boolean(date)
   if (!date) return
+  const remembered = rememberedEmailCalendarEvent(messageId)
+  const range = emailCalendarEventRange({ date }, remembered)
   const session = calendarSession()
   try {
     const headers = await store.authHeaders()
     if (seq !== suggestionDayRequest || !isCalendarSessionCurrent(session)) return
-    const response = await fetch(calendarEventsUrl(date, date), { headers })
+    const response = await fetch(calendarEventsUrl(range.from, range.to), { headers })
     if (!response.ok) throw new Error('Calendar unavailable')
     const body = await response.json()
     if (seq !== suggestionDayRequest || !isCalendarSessionCurrent(session)) return
     suggestionDayEvents.value = Array.isArray(body.events) ? body.events : []
+    suggestionRemembered.value = remembered
   } catch {
     // Mail reading must not depend on the calendar being reachable.
   } finally {
@@ -887,11 +896,14 @@ async function loadSuggestionDayEvents(date) {
 }
 watch(
   () => [openEmail.value?.id ?? null, openEmailCalendarSuggestion.value?.date ?? null],
-  ([, date]) => void loadSuggestionDayEvents(date),
+  ([id, date]) => void loadSuggestionDayEvents(id, date),
   { immediate: true },
 )
 const openEmailCalendarEvent = computed(() =>
-  findCalendarSuggestionEvent(openEmailCalendarSuggestion.value, suggestionDayEvents.value),
+  findEmailCalendarEvent(suggestionDayEvents.value, {
+    suggestion: openEmailCalendarSuggestion.value,
+    remembered: suggestionRemembered.value,
+  }),
 )
 // Sanitized-and-sandboxed HTML rendering is driven by the on-demand body
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
@@ -1204,7 +1216,12 @@ function setContentUnsubscribe(target) {
 
 function addOpenEmailToCalendar() {
   if (!openEmailCalendarSuggestion.value) return
-  store.requestCalendarNewEvent(openEmailCalendarSuggestion.value)
+  // The message id rides along so Calendar can remember which email the
+  // saved event came from (lib/emailCalendarEvents.js).
+  store.requestCalendarNewEvent({
+    ...openEmailCalendarSuggestion.value,
+    sourceMessageId: openEmail.value.id,
+  })
   router.push({ name: 'calendar' })
 }
 

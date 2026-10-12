@@ -977,6 +977,18 @@ test('Reader offers to add a detected email event to Calendar with details prefi
   await expect(editDialog.getByRole('textbox', { name: 'Event title' })).toHaveValue(
     `${tourDateText} guided tour`,
   )
+
+  // Calendar remembered which email the event came from, so renaming it does
+  // not make the reader offer to add it again.
+  await editDialog.getByRole('textbox', { name: 'Event title' }).fill('Campus visit')
+  await editDialog.getByRole('button', { name: 'Save Event' }).click()
+  await expect(editDialog).toHaveCount(0)
+
+  await page.goto('/inbox')
+  await page.locator('.ni-group-header', { hasText: 'Yesterday' }).click()
+  await page.locator('.ni-row', { hasText: `Confirmation: ${tourDateText} guided tour` }).click()
+  await expect(suggestion).toContainText('Already on your calendar')
+  await expect(suggestion.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
 })
 
 test("Pressing 'd' after opening an email link marks it Done", async ({ page }) => {

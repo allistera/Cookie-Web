@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarView from '../CalendarView.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { resetCalendarsStateForTests } from '../../composables/useCalendars'
+import {
+  rememberEmailCalendarEvent,
+  rememberedEmailCalendarEvent,
+} from '../../lib/emailCalendarEvents'
 
 const SEED_EVENTS = [
   {
@@ -394,6 +398,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  // Mail-to-Calendar links are remembered in localStorage.
+  localStorage.clear()
 })
 
 describe('CalendarView', () => {
@@ -1053,6 +1059,68 @@ describe('CalendarView', () => {
     expect(wrapper.find('.new-event-dialog').exists()).toBe(true)
     expect(wrapper.find('.new-event-ai-input').exists()).toBe(true)
     expect(wrapper.find('.new-event-delete').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('remembers which email a saved Mail suggestion came from', async () => {
+    const store = useInboxStore()
+    store.requestCalendarNewEvent({
+      title: 'Guided tour',
+      description: 'From Campus Tours: Meet at the Visitor Center.',
+      location: '',
+      date: '2026-07-28',
+      start: '10:00',
+      end: '11:00',
+      sourceMessageId: 'msg-tour',
+    })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    expect(wrapper.get('.new-event-title-input').element.value).toBe('Guided tour')
+    // Edits in the dialog do not break the link: it is keyed by the saved id.
+    await wrapper.get('.new-event-title-input').setValue('Campus visit')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'POST')
+    expect(JSON.parse(post[1].body)).not.toHaveProperty('sourceMessageId')
+    expect(rememberedEmailCalendarEvent('msg-tour')).toEqual({
+      id: 'generated-1',
+      date: '2026-07-28',
+    })
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+
+    // A plain New event afterwards is not attributed to that email.
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-advanced').trigger('click')
+    await wrapper.get('.new-event-title-input').setValue('Unrelated')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+    expect(rememberedEmailCalendarEvent('msg-tour')).toEqual({
+      id: 'generated-1',
+      date: '2026-07-28',
+    })
+    wrapper.unmount()
+  })
+
+  it('moves an email link along with the event it points at', async () => {
+    rememberEmailCalendarEvent('msg-standup', { id: 'standup', date: '2026-07-24' })
+    rememberEmailCalendarEvent('msg-design', { id: 'design', date: '2026-07-25' })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+
+    const standup = wrapper.findAll('.day-event').find((event) => event.text().includes('Standup'))
+    await standup.trigger('click')
+    await wrapper.get('input[type="date"]').setValue('2026-07-27')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    expect(rememberedEmailCalendarEvent('msg-standup')).toEqual({
+      id: 'standup',
+      date: '2026-07-27',
+    })
+    expect(rememberedEmailCalendarEvent('msg-design')).toEqual({ id: 'design', date: '2026-07-25' })
     wrapper.unmount()
   })
 
