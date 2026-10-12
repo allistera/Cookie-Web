@@ -3269,10 +3269,11 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // Completes one digest item by marking its referenced email Done. The
-    // persisted archive flag is what makes the Worker omit the item when the
-    // stored digest is composed again after a reload. Apply local state only
-    // after the PATCH succeeds so the view can restore its optimistic row on
-    // failure without also repairing cached email state.
+    // persisted archive flag (and its timestamp) is what makes the Worker
+    // return the item as done for the next 24 hours when the stored digest is
+    // composed again after a reload, so the item is flagged done here too.
+    // Apply local state only after the PATCH succeeds so the view can untick
+    // its optimistic row on failure without also repairing cached email state.
     async completeTopicItem(item) {
       const email = this.emailById(item.message_id)
       const positions = email
@@ -3299,6 +3300,7 @@ export const useInboxStore = defineStore('inbox', {
       trackInboxRemoval(item.message_id, persistence)
       await persistence
       item.unread = false
+      item.done = true
       if (email) {
         removeFromCapturedLists(email, positions)
         email.unread = false

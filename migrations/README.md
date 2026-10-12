@@ -49,6 +49,19 @@ Apply `0010` before deploying Cookie-Worker code that creates pending enrichment
 
 AI failure state is recoverable and never changes the mail-forwarding outcome. Only spam scores of at least `0.98` are excluded from Inbox.
 
+## Done timestamp for email triage
+
+`0092_message_archived_at.sql` adds `messages.archived_at`, stamped by a
+`BEFORE INSERT OR UPDATE OF is_archived` trigger when a message is marked
+done and cleared when it returns to the inbox, plus a partial index on
+`(user_id, archived_at DESC)`. Cookie-Worker's `data-enricher` uses it to
+include mail marked done within the last 24 hours in AI Today's email triage,
+and `cookie-web-tasks` keeps those rows (shown as done) instead of dropping
+them. Mail done before the migration has no stamp and stays out of that
+window. Apply this migration before deploying `data-enricher` and
+`cookie-web-tasks`; the Cookie-Web view only reads the `done` flag they
+return.
+
 ## Google Calendar
 
 `0091_google_calendar.sql` adds `google_calendar_connections` (one row per

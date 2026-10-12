@@ -90,8 +90,9 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Mailbox Q&A with retrieved email sources.
 - AI Today: gathered to-dos (built-in Tasks due today or overdue plus action items
   extracted from important mail), Reply Needed/Review/Noise triage over the last 24 hours
-  of Inbox mail, and a personalised news round-up. Reply Needed and Review are
-  visible priority groups; Noise is summarized by category without archiving or
+  of Inbox mail plus mail marked done in that time, and a personalised news round-up.
+  Reply Needed and Review are visible priority groups, with recently done mail shown
+  ticked rather than hidden; Noise is summarized by category without archiving or
   deleting anything. The `data-enricher` Worker produces these records and
   Cookie-Web's browser SPA reads them directly from the `cookie-web-tasks`
   Cloudflare Worker (Cookie-Worker repo), not this app's own API.

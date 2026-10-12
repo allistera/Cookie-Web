@@ -11,22 +11,28 @@ const { user } = useAuth()
 // "AI Today" shows what the data-enricher Worker gathered overnight: tasks
 // (built-in Tasks-app items due today or overdue plus action items extracted
 // from important mail) and a three-tier triage of the last 24 hours of inbox
-// mail. Reply Needed and Review are shown as priority groups; Noise is
-// summarized rather than listed.
+// mail, plus mail marked done in that time. Reply Needed and Review are shown
+// as priority groups; Noise is summarized rather than listed.
 // Completing a task hides it immediately, then persists via the store (which
 // completes it in the Tasks app); a failure rolls the row back.
-// Dismissing a priority item's done checkbox hides it immediately (mirroring
-// completeTask below), so groups are re-derived to drop dismissed items and
-// any group left with none.
+// Ticking a priority item's done checkbox shows it ticked immediately, then
+// persists via the store; the row stays, the way the Worker returns recently
+// done mail after a reload, and a failure unticks it. Rescheduling hides the
+// row immediately, so groups are re-derived to drop hidden items and any
+// group left with none.
 const completingItemIds = ref(new Set())
+const hiddenItemIds = ref(new Set())
 const priorityGroups = computed(() =>
   (store.digest?.topics ?? [])
     .map((topic) => ({
       ...topic,
-      items: topic.items.filter((item) => !completingItemIds.value.has(item.message_id)),
+      items: topic.items.filter((item) => !hiddenItemIds.value.has(item.message_id)),
     }))
     .filter((topic) => topic.items.length > 0),
 )
+function isDone(item) {
+  return Boolean(item.done) || completingItemIds.value.has(item.message_id)
+}
 const priorityGroupCount = computed(() => priorityGroups.value.length)
 const priorityGroupLabel = computed(() =>
   priorityGroupCount.value === 1 ? 'priority group' : 'priority groups',
@@ -163,6 +169,7 @@ async function markTopicRead(topic) {
 }
 
 async function completeTopicItem(item) {
+  if (isDone(item)) return
   completingItemIds.value = new Set(completingItemIds.value).add(item.message_id)
   try {
     await store.completeTopicItem(item)
@@ -176,17 +183,17 @@ async function completeTopicItem(item) {
 }
 
 // Reschedules a triage item's message to reappear in a later digest, hiding
-// it from view immediately the same way completeTopicItem does.
+// it from view immediately.
 async function rescheduleDigestItem(item, choice) {
   reschedulingItemId.value = null
-  completingItemIds.value = new Set(completingItemIds.value).add(item.message_id)
+  hiddenItemIds.value = new Set(hiddenItemIds.value).add(item.message_id)
   try {
     await store.rescheduleDigestItem(item, choice.date.toISOString())
     store.notify(`Moved "${item.headline}" to ${choice.label.toLowerCase()}.`)
   } catch {
-    const next = new Set(completingItemIds.value)
+    const next = new Set(hiddenItemIds.value)
     next.delete(item.message_id)
-    completingItemIds.value = next
+    hiddenItemIds.value = next
     store.notify('Failed to reschedule email.', 'error')
   }
 }
@@ -356,9 +363,20 @@ onUnmounted(() => {
                 v-for="item in topic.items"
                 :key="item.message_id"
                 class="topic-email-row topic-catchup-row"
+                :class="{ 'topic-done-row': isDone(item) }"
               >
                 <div class="todo-checkbox-container">
                   <button
+                    v-if="isDone(item)"
+                    class="todo-check-btn todo-check-btn-done"
+                    title="Done"
+                    :aria-label="`Done: ${item.headline}`"
+                    disabled
+                  >
+                    <span class="material-symbols-outlined">task_alt</span>
+                  </button>
+                  <button
+                    v-else
                     class="todo-check-btn"
                     title="Mark done"
                     :aria-label="`Mark done: ${item.headline}`"
@@ -377,7 +395,7 @@ onUnmounted(() => {
                   >
                   <span v-if="item.unread" class="unread-dot"></span>
                 </p>
-                <div class="ni-schedule-wrap">
+                <div v-if="!isDone(item)" class="ni-schedule-wrap">
                   <button
                     class="todo-check-btn"
                     title="Reschedule"
@@ -554,6 +572,19 @@ onUnmounted(() => {
   padding: 14px 16px 0;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+/* Mail marked done in the last 24 hours stays listed, ticked and quieter. */
+.topic-done-row p,
+.topic-done-row strong {
+  color: var(--text-secondary);
+}
+
+.todo-check-btn-done,
+.todo-check-btn-done:hover {
+  color: var(--text-blue);
+  cursor: default;
+  transform: none;
 }
 
 .triage-noise {
