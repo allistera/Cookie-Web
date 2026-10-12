@@ -5476,6 +5476,7 @@ describe('Inbox Store', () => {
         is_unread: false,
       })
       expect(item.unread).toBe(false)
+      expect(item.done).toBe(true)
       expect(store.traditionalEmails).toEqual([])
       expect(store.doneEmails).toHaveLength(1)
       expect(store.doneEmails[0]).toMatchObject({ id: 'msg-1', unread: false, isArchived: true })
@@ -5520,6 +5521,7 @@ describe('Inbox Store', () => {
       await expect(store.completeTopicItem(item)).rejects.toThrow('boom')
 
       expect(item.unread).toBe(true)
+      expect(item.done).toBeUndefined()
       expect(store.traditionalEmails[0]).toMatchObject({ unread: true, isArchived: false })
       expect(store.unreadInboxCount).toBe(5)
     })

@@ -377,7 +377,33 @@ describe('AIInboxView (AI Today)', () => {
     expect(notify).toHaveBeenCalledWith('Some emails could not be marked read.', 'error')
   })
 
-  it('marks a topic item done, persists it, and hides just that row', async () => {
+  it('lists mail marked done in the last day as ticked rows with no actions', () => {
+    const digest = DIGEST()
+    digest.topics[1].items[0].done = true
+    store.digest = digest
+    const wrapper = mountView()
+
+    const review = wrapper.findAll('.topic-section')[1]
+    const row = review.get('.topic-catchup-row')
+    expect(row.classes()).toContain('topic-done-row')
+    expect(row.text()).toContain('Practice moved – West Side Park.')
+    const tick = row.get('.todo-check-btn')
+    expect(tick.attributes('aria-label')).toBe('Done: Practice moved')
+    expect(tick.attributes('disabled')).toBeDefined()
+    expect(tick.get('.material-symbols-outlined').text()).toBe('task_alt')
+    expect(row.find('[title="Reschedule"]').exists()).toBe(false)
+    // It still counts as a source and still links to its email.
+    expect(review.get('.topic-meta').text()).toContain('1 source')
+    expect(row.get('a.email-link').attributes('href')).toBe('/inbox?open=msg-3')
+    // Rows that are not done keep their actions.
+    const open = wrapper.findAll('.topic-section')[0].findAll('.topic-catchup-row')[0]
+    expect(open.get('.todo-check-btn').attributes('aria-label')).toBe(
+      'Mark done: Contractor needs the floor-plan choice',
+    )
+    expect(open.find('[title="Reschedule"]').exists()).toBe(true)
+  })
+
+  it('marks a topic item done, persists it, and keeps the row ticked', async () => {
     store.digest = DIGEST()
     store.traditionalEmails = [{ id: 'msg-1', unread: true, isArchived: false }]
     const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
@@ -396,13 +422,24 @@ describe('AIInboxView (AI Today)', () => {
     })
     expect(store.traditionalEmails).toEqual([])
     expect(notify).toHaveBeenCalledWith('Marked "Contractor needs the floor-plan choice" done.')
-    // The topic still has one item left, so it stays on screen.
+    // The row stays, ticked and without its dot, the way the Worker returns
+    // recently done mail after a reload.
     const kitchenAfter = wrapper.findAll('.topic-section')[0]
-    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(1)
+    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(2)
+    const row = kitchenAfter.findAll('.topic-catchup-row')[0]
+    expect(row.classes()).toContain('topic-done-row')
+    expect(row.get('.todo-check-btn').attributes('aria-label')).toBe(
+      'Done: Contractor needs the floor-plan choice',
+    )
+    expect(row.find('.unread-dot').exists()).toBe(false)
     expect(wrapper.get('.ai-greeting').text()).toContain('2 priority groups')
+    // A ticked row does not persist again.
+    await row.get('.todo-check-btn').trigger('click')
+    await flushPromises()
+    expect(updateMessage).toHaveBeenCalledTimes(1)
   })
 
-  it('drops a topic entirely once its last item is marked done', async () => {
+  it('keeps a topic whose only item is marked done', async () => {
     store.digest = DIGEST()
     vi.spyOn(store, 'completeTopicItem').mockResolvedValue(undefined)
 
@@ -412,11 +449,17 @@ describe('AIInboxView (AI Today)', () => {
     await review.get('.todo-check-btn').trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['↩️ Reply Needed'])
-    expect(wrapper.get('.ai-greeting').text()).toContain('1 priority group')
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual([
+      '↩️ Reply Needed',
+      '👀 Review',
+    ])
+    expect(wrapper.get('.ai-greeting').text()).toContain('2 priority groups')
+    expect(wrapper.findAll('.topic-section')[1].get('.topic-catchup-row').classes()).toContain(
+      'topic-done-row',
+    )
   })
 
-  it('rolls a topic item back into view when marking it done fails', async () => {
+  it('unticks a topic item when marking it done fails', async () => {
     store.digest = DIGEST()
     vi.spyOn(store, 'completeTopicItem').mockRejectedValue(new Error('boom'))
     const notify = vi.spyOn(store, 'notify')
@@ -429,6 +472,11 @@ describe('AIInboxView (AI Today)', () => {
     expect(notify).toHaveBeenCalledWith('Failed to mark email done.', 'error')
     const kitchenAfter = wrapper.findAll('.topic-section')[0]
     expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(2)
+    const row = kitchenAfter.findAll('.topic-catchup-row')[0]
+    expect(row.classes()).not.toContain('topic-done-row')
+    expect(row.get('.todo-check-btn').attributes('aria-label')).toBe(
+      'Mark done: Contractor needs the floor-plan choice',
+    )
   })
 
   it('reschedules a triage item to another day, hiding it and notifying', async () => {
