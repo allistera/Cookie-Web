@@ -6,6 +6,7 @@ import { useSearchStore } from './stores/search'
 import { useSavedViewsStore } from './stores/savedViews'
 import { useOutOfOfficeStore } from './stores/outOfOffice'
 import { useSendersStore } from './stores/senders'
+import { useBucketsStore } from './stores/buckets'
 import OfflineBanner from './components/OfflineBanner.vue'
 import OutOfOfficeBanner from './components/OutOfOfficeBanner.vue'
 import SidebarResizer from './components/SidebarResizer.vue'
@@ -18,6 +19,7 @@ import { loadMaterialSymbols } from './lib/iconFont'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
 import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
+import { useBucketPin } from './composables/useBucketCandidate'
 import { setCalendarsOwner } from './composables/useCalendars'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
@@ -37,6 +39,7 @@ const DocumentsSidebar = lazyComponent(() => import('./components/DocumentsSideb
 const TasksSidebar = lazyComponent(() => import('./components/TasksSidebar.vue'))
 const SavedViewsSidebar = lazyComponent(() => import('./components/SavedViewsSidebar.vue'))
 const SavedViewEditor = lazyComponent(() => import('./components/SavedViewEditor.vue'))
+const BucketPanel = lazyComponent(() => import('./components/BucketPanel.vue'))
 
 const store = useInboxStore()
 const searchStore = useSearchStore()
@@ -44,6 +47,7 @@ const savedViewsStore = useSavedViewsStore()
 const outOfOfficeStore = useOutOfOfficeStore()
 const sendersStore = useSendersStore()
 const contactInsightsStore = useContactInsightsStore()
+const bucketsStore = useBucketsStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -149,6 +153,7 @@ function onUndoKeydown(event) {
 
 const chatDrawerLoaded = ref(store.isChatDrawerActive)
 const contactInsightsLoaded = ref(contactInsightsStore.isOpen)
+const bucketPanelLoaded = ref(bucketsStore.isOpen)
 const commandPaletteLoaded = ref(store.isCommandPaletteOpen)
 const shortcutsHelpLoaded = ref(store.isShortcutsHelpOpen)
 const composerLoaded = ref(store.isComposerActive)
@@ -166,6 +171,12 @@ watch(
   () => contactInsightsStore.isOpen,
   (active) => {
     if (active) contactInsightsLoaded.value = true
+  },
+)
+watch(
+  () => bucketsStore.isOpen,
+  (open) => {
+    if (open) bucketPanelLoaded.value = true
   },
 )
 watch(activeApp, (app) => {
@@ -231,6 +242,45 @@ watch(
   },
 )
 
+// 'b' pins whatever is open (an email, document, task or event; the view
+// showing it registers it, see composables/useBucketCandidate.js) to the
+// bucket, or unpins it when it is already there. The first pin makes the
+// bucket and its header button. Plain key only, never while typing.
+const pinToBucket = useBucketPin()
+function onBucketKeydown(event) {
+  const target = event.target instanceof Element ? event.target : null
+  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
+  if (
+    event.key !== 'b' ||
+    event.repeat ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    isTyping ||
+    store.isCommandPaletteOpen ||
+    store.isShortcutsHelpOpen ||
+    !bucketsStore.candidate
+  ) {
+    return
+  }
+  event.preventDefault()
+  pinToBucket()
+}
+
+// The bucket clears itself after its time (three days unless changed).
+const expireBucket = () => bucketsStore.expireIfDue()
+let bucketExpiryPoll
+
+// The bucket's icon is stored like a document's (lib/documentIcons.js): an
+// emoji, or `ms:<name>` for a Material Symbols glyph. Read here by hand so
+// the header does not pull that module's whole catalogue into the entry.
+const bucketIcon = computed(() => {
+  const icon = String(bucketsStore.bucket?.icon ?? '')
+  const symbol = icon.startsWith('ms:') ? icon.slice('ms:'.length) : ''
+  if (/^[a-z0-9_]{1,64}$/.test(symbol)) return { symbol }
+  return icon && !symbol ? { emoji: icon } : { symbol: 'work' }
+})
+
 function openSettings() {
   showLogoutMenu.value = false
   router.push({ name: 'settings', params: { section: 'account' } })
@@ -241,6 +291,7 @@ async function handleLogout() {
   store.setComposeOwner(null)
   savedViewsStore.setOwner(null)
   sendersStore.setOwner(null)
+  bucketsStore.setOwner(null)
   searchStore.clear()
   clearCachedMail()
   // Mail, tasks and documents cached for offline use belong to the account
@@ -361,6 +412,7 @@ watch(
     savedViewsStore.setOwner(sub)
     outOfOfficeStore.setOwner(sub)
     sendersStore.setOwner(sub)
+    bucketsStore.setOwner(sub)
     if (sub) store.loadComposePreferences()
     if (sub) savedViewsStore.load()
     if (sub) outOfOfficeStore.load()
@@ -379,11 +431,15 @@ const pollOutOfOffice = () => {
 }
 onMounted(() => {
   outOfOfficePoll = setInterval(pollOutOfOffice, 60_000)
+  bucketExpiryPoll = setInterval(expireBucket, 60_000)
   window.addEventListener('focus', refreshOutOfOffice)
+  window.addEventListener('focus', expireBucket)
 })
 onUnmounted(() => {
   clearInterval(outOfOfficePoll)
+  clearInterval(bucketExpiryPoll)
   window.removeEventListener('focus', refreshOutOfOffice)
+  window.removeEventListener('focus', expireBucket)
 })
 
 watch(
@@ -481,6 +537,7 @@ onMounted(() => {
   document.addEventListener('keydown', onUndoKeydown)
   document.addEventListener('keydown', onCommandPaletteKeydown)
   document.addEventListener('keydown', onShortcutsHelpKeydown)
+  document.addEventListener('keydown', onBucketKeydown)
   document.addEventListener('click', onDocumentClick)
 })
 
@@ -490,6 +547,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onUndoKeydown)
   document.removeEventListener('keydown', onCommandPaletteKeydown)
   document.removeEventListener('keydown', onShortcutsHelpKeydown)
+  document.removeEventListener('keydown', onBucketKeydown)
   document.removeEventListener('click', onDocumentClick)
 })
 </script>
@@ -597,6 +655,24 @@ onUnmounted(() => {
         </div>
 
         <div class="header-right">
+          <!-- The bucket's button exists only while there is a bucket: the
+               first 'b' press makes both. -->
+          <button
+            v-if="bucketsStore.hasBucket"
+            type="button"
+            class="bucket-trigger"
+            :class="{ active: bucketsStore.isOpen }"
+            :title="bucketsStore.bucket.title || 'Bucket'"
+            :aria-label="`Open bucket${bucketsStore.bucket.title ? `: ${bucketsStore.bucket.title}` : ''}`"
+            aria-haspopup="dialog"
+            :aria-expanded="bucketsStore.isOpen"
+            @click="bucketsStore.toggleOpen()"
+          >
+            <span v-if="bucketIcon.symbol" class="material-symbols-outlined" aria-hidden="true">{{
+              bucketIcon.symbol
+            }}</span>
+            <span v-else aria-hidden="true">{{ bucketIcon.emoji }}</span>
+          </button>
           <div class="profile-container" :title="user?.name || 'Account'">
             <button
               type="button"
@@ -810,6 +886,7 @@ onUnmounted(() => {
       <CommandPalette v-if="commandPaletteLoaded" />
       <KeyboardShortcutsDialog v-if="shortcutsHelpLoaded" />
       <SavedViewEditor v-if="savedViewsStore.editor" />
+      <BucketPanel v-if="bucketPanelLoaded && bucketsStore.isOpen" />
     </div>
 
     <!-- Toast notifications -->
@@ -878,5 +955,40 @@ onUnmounted(() => {
   height: 100%;
   border-radius: 50%;
   cursor: pointer;
+}
+
+/* The bucket's header button: a round tile showing its icon, filled while
+   its panel is open. */
+.bucket-trigger {
+  width: 36px;
+  height: 36px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.bucket-trigger:hover,
+.bucket-trigger:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.bucket-trigger.active {
+  background: var(--text-primary);
+  color: var(--bg-card);
+}
+
+.bucket-trigger .material-symbols-outlined {
+  font-size: 20px;
 }
 </style>

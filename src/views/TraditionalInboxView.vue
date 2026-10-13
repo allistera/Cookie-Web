@@ -33,6 +33,8 @@ import {
   unresolvedSnippetWarning,
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
+import { emailBucketItem } from '../lib/bucketItems'
+import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
 import {
@@ -807,6 +809,8 @@ async function scheduleSelected(choice) {
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
+// The open email is what 'b' pins to the bucket.
+useBucketCandidate(() => emailBucketItem(openEmail.value))
 
 // The reader no longer renders sender controls, but still needs the sender
 // decision so accepted mail can reveal remote images.

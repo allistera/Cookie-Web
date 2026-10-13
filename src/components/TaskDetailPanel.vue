@@ -4,7 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
+import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
+import { taskBucketItem } from '../lib/bucketItems'
 import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
@@ -50,6 +52,9 @@ const projectName = computed(() => {
   if (!item.value?.projectId) return 'Inbox'
   return projects.projects.find((row) => row.id === item.value.projectId)?.name ?? 'Inbox'
 })
+
+// The open task is what 'b' pins to the bucket.
+useBucketCandidate(() => taskBucketItem(item.value, projectName.value))
 
 // Every project, in the sidebar's order and depth, so the picker reads the
 // same way the tree does. Expanding every id keeps the whole forest visible —

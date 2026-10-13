@@ -16,6 +16,8 @@ import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
 import DocumentIcon from '../components/DocumentIcon.vue'
 import DocumentsBrowser from '../components/DocumentsBrowser.vue'
 import FilePreview from '../components/FilePreview.vue'
+import { useBucketCandidate } from '../composables/useBucketCandidate'
+import { documentBucketItem } from '../lib/bucketItems'
 import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
 import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
 
@@ -236,6 +238,13 @@ watch(
     store.openDocument(id || null)
   },
   { immediate: true },
+)
+
+// The open document is what 'b' pins to the bucket, once it has loaded.
+useBucketCandidate(() =>
+  route.name === 'documents' && route.params.id && store.openDoc?.id === route.params.id
+    ? documentBucketItem(store.openDoc)
+    : null,
 )
 
 // Leaving the app entirely must not drop an edit still on the debounce timer.
