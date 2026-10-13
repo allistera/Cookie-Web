@@ -28,13 +28,17 @@ test('pressing B on an open email makes the bucket, which keeps the email across
   await panel.getByRole('button', { name: 'Done' }).click()
   await expect(panel).toBeHidden()
 
+  // A reload keeps the bucket but closes the reader; the bucket's row opens
+  // the email again.
   await page.reload()
   await expect(page.getByRole('button', { name: 'Open bucket: Floor plan review' })).toBeVisible()
   await page.getByRole('button', { name: 'Open bucket: Floor plan review' }).click()
-  await expect(panel.getByRole('link', { name: /Revised Floor Plan/ })).toBeVisible()
+  await panel.getByRole('link', { name: /Revised Floor Plan/ }).click()
+  await expect(panel).toBeHidden()
+  await expect(page).toHaveURL(/\/inbox\?open=/)
+  await expect(page.locator('.ni-reader-topbar')).toBeVisible()
 
   // The same key on the same email takes it out again.
-  await panel.getByRole('button', { name: 'Done' }).click()
   await page.keyboard.press('b')
   await expect(page.getByText('Removed from the bucket.')).toBeVisible()
   await page.getByRole('button', { name: 'Open bucket: Floor plan review' }).click()

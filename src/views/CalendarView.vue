@@ -762,7 +762,17 @@ watch(
 // save/delete is in flight, as AddTaskDialog does: those requests resolve
 // against the dialog's state and close it themselves when they finish.
 function dismissEventDialog() {
-  if (!eventSaving.value) closeNewEvent()
+  if (eventSaving.value) return
+  closeNewEvent()
+  // Closing an event opened from a link takes `event` out of the URL, so
+  // the same link (a bucket row, the Mail next-event chip) opens it again
+  // rather than being a navigation to where the page already is.
+  const query = router?.currentRoute.value.query
+  if (query?.event) {
+    const rest = { ...query }
+    delete rest.event
+    router.replace({ query: rest })
+  }
 }
 
 function closeNewEvent() {
