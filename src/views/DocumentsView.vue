@@ -309,6 +309,7 @@ const folderTitles = computed(() => {
 const saveStatusText = computed(() => {
   if (store.saveState === 'saving') return 'Saving…'
   if (store.saveState === 'saved') return 'All changes saved'
+  if (store.saveState === 'offline') return 'Saved on this device — syncs when back online'
   if (store.saveConflict) return 'Changed elsewhere — save your edits as a copy'
   if (store.saveState === 'error') return 'Save failed — your edits are still open'
   return ''

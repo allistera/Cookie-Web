@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useInboxStore } from '../stores/inbox'
+import { isOnline } from '../lib/connectivity'
 import { filterContacts } from '../lib/contactSuggest'
 import { convertEmojiToEmoticons } from '../lib/emoticons'
 import {
@@ -44,9 +45,12 @@ const unresolvedFields = computed(() =>
   unresolvedSnippetFields(store.composerHtml, store.composerTextArea),
 )
 // An upload still in flight has no attachment id yet, so sending now would
-// quietly drop the file the user is watching upload.
+// quietly drop the file the user is watching upload. Offline, sending is
+// not queued: mail going out later without anyone watching needs its own
+// design, so the button waits for the connection instead.
 const isSendDisabled = computed(
   () =>
+    !isOnline.value ||
     store.isSendingEmail ||
     store.composerSnippetPreviewOpen ||
     store.composerAvailabilityPreviewOpen ||

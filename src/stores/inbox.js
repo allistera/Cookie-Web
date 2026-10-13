@@ -7,6 +7,9 @@ import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enric
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
+import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from '../lib/connectivity'
+import { readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import {
   AI_API_URL,
   DRAFTS_API_URL,
@@ -37,6 +40,33 @@ import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { parseComposePreferences } from '../lib/composePreferences'
 import { sanitizeStoredSnippets } from '../lib/snippets'
 import { unresolvedSnippetFields, unresolvedSnippetWarning } from '../lib/snippetVariables'
+
+// Outbox kind for message flag changes (star, read, done, snooze) made while
+// the messages Worker was unreachable. The payload is the PATCH body itself:
+// { id, ...changes }, so later changes to the same message coalesce over
+// earlier ones.
+export const MESSAGE_PATCH = 'message-patch'
+
+// Lays queued message changes over the raw rows of a cached list page, so a
+// star or Done made offline survives a reload that hydrates from the cache.
+// Rows archived by a queued change leave an inbox page (dropArchived) but
+// stay in the folders that list Done mail too.
+export function applyQueuedMessageChanges(rows, entries, { dropArchived = false } = {}) {
+  if (!entries.length) return rows
+  const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))
+  const FIELDS = ['is_starred', 'is_unread', 'is_archived', 'scheduled_for']
+  return rows
+    .map((row) => {
+      const change = changes.get(row.id)
+      if (!change) return row
+      const next = { ...row }
+      for (const field of FIELDS) if (change[field] !== undefined) next[field] = change[field]
+      return next
+    })
+    .filter((row) => !dropArchived || !row.is_archived)
+}
+
+const folderCacheKey = (folder, label) => `folder:${folder}:${folder === 'label' ? label : ''}`
 
 // Undo-send: the message waits this many (cancellable) seconds before it is
 // actually sent. sendCountdownTimer is the interval driving that countdown; it
@@ -1052,6 +1082,7 @@ export const useInboxStore = defineStore('inbox', {
       params.set('limit', limit)
       if (before) params.set('before', before)
       const response = await fetch(`${EMAILS_API_URL}/emails?${params}`, { headers })
+      noteNetworkSuccess()
       if (!response.ok) {
         throw new Error(`GET /emails responded ${response.status}`)
       }
@@ -1083,15 +1114,53 @@ export const useInboxStore = defineStore('inbox', {
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
         const state = await response.json()
-        const { unreadCount, userId } = state
-        this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0
-        this.applyFolderCounts(state)
-        if (userId) this.userId = userId
-        this.isInboxStateLoaded = true
+        noteNetworkSuccess()
+        this.applyInboxState(state)
+        writeOfflineCache('inbox:state', state)
       } catch (error) {
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          const cached = await readOfflineCache('inbox:state')
+          if (cached) {
+            this.applyInboxState(cached.value)
+            return
+          }
+        }
         console.error('Failed to load inbox state:', error)
         this.notify('Failed to load inbox state.', 'error')
       }
+    },
+
+    applyInboxState(state) {
+      const { unreadCount, userId } = state
+      this.unreadInboxCount = Number.isFinite(unreadCount) ? unreadCount : 0
+      this.applyFolderCounts(state)
+      if (userId) this.userId = userId
+      this.isInboxStateLoaded = true
+    },
+
+    // The cached first inbox page, with any changes queued offline laid over
+    // it, in place of a page the emails Worker could not serve. Resolves true
+    // when the list was filled (or the load was superseded meanwhile), false
+    // when there is nothing cached and the caller should report the failure.
+    async applyCachedInboxPage(seq, fetchSeq) {
+      const cached = await readOfflineCache('inbox:page')
+      if (seq !== this.listSeq) return true
+      if (!cached) return false
+      const queued = await pendingOutboxEntries(MESSAGE_PATCH)
+      if (seq !== this.listSeq) return true
+      const page = cached.value
+      const rows = applyQueuedMessageChanges(page.emails, queued, { dropArchived: true })
+      this.traditionalEmails = dropPendingRemovals(rows.map(mapEmailRow), fetchSeq)
+      // One page is all there is offline.
+      this.emailsCursor = null
+      this.hasMoreEmails = false
+      this.unreadInboxCount = this.traditionalEmails.filter((e) => e.unread).length
+      this.applyFolderCounts(page)
+      if (page.userId) this.userId = page.userId
+      this.isInboxStateLoaded = true
+      this.isInboxLoaded = true
+      return true
     },
 
     // listSeq-guarded: a search started (and resolved) while this fetch was
@@ -1115,8 +1184,13 @@ export const useInboxStore = defineStore('inbox', {
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
         this.isInboxLoaded = true
+        writeOfflineCache('inbox:page', page)
       } catch (error) {
         if (seq !== this.listSeq) return
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          if (await this.applyCachedInboxPage(seq, fetchSeq)) return
+        }
         console.error('Failed to load inbox:', error)
         this.notify('Failed to load inbox.', 'error')
       } finally {
@@ -1193,8 +1267,15 @@ export const useInboxStore = defineStore('inbox', {
         this.applyFolderCounts(page)
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
+        writeOfflineCache('inbox:page', page)
       } catch (error) {
         if (this.activeSearchQuery || seq !== this.listSeq) return
+        // A refresh runs on every focus and Realtime ping; offline, the list
+        // on screen stays and the banner says why.
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          return
+        }
         console.error('Failed to refresh inbox:', error)
         this.notify('Failed to load inbox.', 'error')
       }
@@ -1220,6 +1301,7 @@ export const useInboxStore = defineStore('inbox', {
         if (seq !== folderLoadSeq[folder]) return
         if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
           return
+        writeOfflineCache(folderCacheKey(folder, extra.label), { emails })
         this[keys.list] = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(this[keys.list])
@@ -1240,6 +1322,11 @@ export const useInboxStore = defineStore('inbox', {
         if (seq !== folderLoadSeq[folder]) return
         if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
           return
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          if (await this.applyCachedFolder(folder, extra.label, seq)) return
+          if (seq !== folderLoadSeq[folder]) return
+        }
         console.error(`Failed to load ${keys.label}:`, error)
         this.notify(`Failed to load ${keys.label}.`, 'error')
       } finally {
@@ -1250,6 +1337,22 @@ export const useInboxStore = defineStore('inbox', {
         )
           this[keys.refreshing] = false
       }
+    },
+
+    // The folder's cached first page in place of one the Worker could not
+    // serve; see applyCachedInboxPage.
+    async applyCachedFolder(folder, label, seq) {
+      const keys = FOLDER_STATE[folder]
+      const cached = await readOfflineCache(folderCacheKey(folder, label))
+      if (seq !== folderLoadSeq[folder]) return true
+      if (!cached) return false
+      const queued = await pendingOutboxEntries(MESSAGE_PATCH)
+      if (seq !== folderLoadSeq[folder]) return true
+      this[keys.list] = applyQueuedMessageChanges(cached.value.emails, queued).map(mapEmailRow)
+      this[keys.cursor] = null
+      this[keys.hasMore] = false
+      if (keys.loaded) this[keys.loaded] = true
+      return true
     },
 
     // Appends the folder's next keyset page. No-op while a load is already
@@ -1443,9 +1546,20 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /api/labels responded ${response.status}`)
         }
         const { labels } = await response.json()
+        noteNetworkSuccess()
         this.labels = labels
         this.isLabelsLoaded = true
+        writeOfflineCache('labels', labels)
       } catch (error) {
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          const cached = await readOfflineCache('labels')
+          if (cached) {
+            this.labels = cached.value
+            this.isLabelsLoaded = true
+            return
+          }
+        }
         console.error('Failed to load labels:', error)
         this.notify('Failed to load labels.', 'error')
       }
@@ -1460,9 +1574,20 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /categories responded ${response.status}`)
         }
         const { categories } = await response.json()
+        noteNetworkSuccess()
         this.categories = categories
         this.isCategoriesLoaded = true
+        writeOfflineCache('categories', categories)
       } catch (error) {
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          const cached = await readOfflineCache('categories')
+          if (cached) {
+            this.categories = cached.value
+            this.isCategoriesLoaded = true
+            return
+          }
+        }
         console.error('Failed to load categories:', error)
         this.notify('Failed to load categories.', 'error')
       }
@@ -2019,17 +2144,40 @@ export const useInboxStore = defineStore('inbox', {
       if (hadActiveSearch) return this.loadEmails()
     },
 
+    // Persists a flag change. When the messages Worker cannot be reached the
+    // change is queued in the outbox instead and resolves { queued: true }:
+    // the optimistic state stays on screen and the PATCH goes out on
+    // reconnect (replayMessagePatch). HTTP failures still reject, so the
+    // callers' rollbacks run for a change the server actually refused.
     async updateMessage(id, changes) {
+      try {
+        return await this.sendMessagePatch(id, changes)
+      } catch (error) {
+        if (!isNetworkError(error)) throw error
+        noteNetworkFailure()
+        await enqueueOutbox({ kind: MESSAGE_PATCH, key: id, payload: { id, ...changes } })
+        return { queued: true }
+      }
+    },
+
+    async sendMessagePatch(id, changes) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch(`${MESSAGES_API_URL}/messages`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ id, ...changes }),
       })
+      noteNetworkSuccess()
       if (!response.ok) {
-        throw new Error(`PATCH /api/messages responded ${response.status}`)
+        const error = new Error(`PATCH /api/messages responded ${response.status}`)
+        error.status = response.status
+        throw error
       }
       return response.json()
+    },
+
+    replayMessagePatch({ id, ...changes }) {
+      return this.sendMessagePatch(id, changes)
     },
 
     async setThreadMuted(id, muted) {
@@ -4370,3 +4518,6 @@ export const useInboxStore = defineStore('inbox', {
     },
   },
 })
+
+// Replays flag changes queued while offline; see updateMessage.
+registerOutboxHandler(MESSAGE_PATCH, (payload) => useInboxStore().replayMessagePatch(payload))

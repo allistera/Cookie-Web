@@ -92,3 +92,18 @@ describe('installStaleChunkReload', () => {
     expect(reload).not.toHaveBeenCalled()
   })
 })
+
+describe('installStaleChunkReload while offline', () => {
+  it('leaves the error to surface rather than reloading away from the page', () => {
+    const reload = vi.fn()
+    const storage = makeStorage()
+    const target = new EventTarget()
+    installStaleChunkReload({ target, storage, reload, isOnline: () => false })
+    const event = preloadError()
+    target.dispatchEvent(event)
+
+    expect(reload).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
+    expect(storage.setItem).not.toHaveBeenCalled()
+  })
+})

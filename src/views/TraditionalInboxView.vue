@@ -9,6 +9,7 @@ import {
   OTHER_TAB,
 } from '../stores/inbox'
 import { useAuth } from '../composables/useAuth'
+import { isOnline } from '../lib/connectivity'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import ShareAvailability from '../components/ShareAvailability.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
@@ -2799,6 +2800,7 @@ onUnmounted(() => {
               <button
                 class="btn btn-primary"
                 :disabled="
+                  !isOnline ||
                   isSendingReply ||
                   isGeneratingReply ||
                   replySnippetPreviewOpen ||

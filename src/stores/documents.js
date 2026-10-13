@@ -11,7 +11,10 @@ import {
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { AI_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
+import { isNetworkError } from '../lib/connectivity'
 import { MAX_UPLOAD_BYTES, fileFolderKey } from '../lib/documentFiles'
+import { readOfflineCache, writeOfflineCache, writeRecentOfflineCache } from '../lib/offlineCache'
+import { pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import {
   formatDailyMonthFolder,
   formatDailyNoteTitle,
@@ -32,6 +35,21 @@ const metaRequests = new WeakMap()
 let metaSeq = 0
 export const documentPageKey = (scope = {}) =>
   JSON.stringify([scope.folder ?? null, Boolean(scope.starred), scope.tag || null])
+
+// Outbox kind for document edits made while the tasks Worker was
+// unreachable. The payload is the PATCH body ({ id, title?, blocks?, tags?,
+// emoji?, updatedAt }), so later edits to the same document coalesce.
+export const DOCUMENT_PATCH = 'document-patch'
+const RECENT_DOCUMENTS_INDEX = 'documents:recent'
+const MAX_CACHED_DOCUMENTS = 20
+const documentCacheKey = (id) => `document:${id}`
+
+// The workspace as last served, kept in memory so concurrent page loads
+// write one coherent snapshot rather than racing read-modify-writes.
+let offlineWorkspace = null
+function persistOfflineWorkspace() {
+  if (offlineWorkspace) writeOfflineCache('documents:workspace', offlineWorkspace)
+}
 
 // Whether a row's page membership and order (folder, star, tag, updated_at)
 // are unchanged, so a content-only edit need not touch the pages.
@@ -354,10 +372,13 @@ export const useDocumentsStore = defineStore('documents', {
           this.workspaceVersion = null
           this.pages = {}
           this.documents = metadata.documents
+          offlineWorkspace = { folders: metadata.folders, documents: metadata.documents }
+          persistOfflineWorkspace()
         } else {
           this.workspacePaged = true
           this.workspaceVersion = metadata.version
           this.workspaceTags = metadata.tags ?? []
+          offlineWorkspace = { folders: metadata.folders, tags: this.workspaceTags, pages: {} }
           // Whatever was on screen (or asked for before this load landed)
           // comes back alongside the defaults; a reset that reloaded only
           // the defaults left the open folder empty until the next visit.
@@ -379,12 +400,49 @@ export const useDocumentsStore = defineStore('documents', {
         this.isLoaded = true
         return true
       } catch (error) {
+        if (isNetworkError(error) && (await this.applyCachedWorkspace())) return true
         console.error('Failed to load documents:', error)
         this.notify('Failed to load documents.', 'error')
         return false
       } finally {
         this.isLoading = false
       }
+    },
+
+    // The workspace as last served, in place of one the tasks Worker could
+    // not serve. The version is left unset so the next load that reaches the
+    // Worker is a full one rather than an "unchanged" answer against a
+    // snapshot that may be days old.
+    async applyCachedWorkspace() {
+      const cached = await readOfflineCache('documents:workspace')
+      if (!cached) return false
+      const workspace = cached.value
+      this.folders = workspace.folders
+      this.workspaceVersion = null
+      if (Array.isArray(workspace.documents)) {
+        this.workspacePaged = false
+        this.pages = {}
+        this.documents = workspace.documents
+      } else {
+        this.workspacePaged = true
+        this.workspaceTags = workspace.tags ?? []
+        pageLoads.delete(toRaw(this))
+        const byId = new Map()
+        const pages = {}
+        for (const [key, page] of Object.entries(workspace.pages)) {
+          for (const doc of page.documents) byId.set(doc.id, doc)
+          pages[key] = {
+            ids: page.documents.map((doc) => doc.id),
+            nextCursor: null,
+            loaded: true,
+            loading: false,
+          }
+        }
+        this.documents = [...byId.values()]
+        this.pages = pages
+      }
+      this.isLoaded = true
+      return true
     },
 
     pageFor(scope = {}) {
@@ -443,6 +501,10 @@ export const useDocumentsStore = defineStore('documents', {
           page.ids = [...new Set([...(more ? page.ids : []), ...documents.map((doc) => doc.id)])]
           page.nextCursor = nextCursor ?? null
           page.loaded = true
+          if (!more && offlineWorkspace?.pages) {
+            offlineWorkspace.pages[key] = { documents }
+            persistOfflineWorkspace()
+          }
           return true
         } catch (error) {
           this.notify(error.userMessage || 'Failed to load documents.', 'error')
@@ -528,12 +590,70 @@ export const useDocumentsStore = defineStore('documents', {
         const { document } = await this.request('GET', { params: `?id=${encodeURIComponent(id)}` })
         // Ignore a fetch that resolves after the user has moved on.
         if (this.openDocId === id) this.openDoc = document
+        writeRecentOfflineCache(
+          RECENT_DOCUMENTS_INDEX,
+          documentCacheKey(id),
+          document,
+          MAX_CACHED_DOCUMENTS,
+        )
       } catch (error) {
+        if (isNetworkError(error) && (await this.applyCachedDocument(id))) return
         console.error('Failed to load document:', error)
         this.notify('Failed to load the document.', 'error')
         if (this.openDocId === id) this.openDocId = null
       } finally {
         if (this.openDocId === id || this.openDocId === null) this.isOpenDocLoading = false
+      }
+    },
+
+    // The document as last opened, with edits queued offline laid over it,
+    // in place of one the tasks Worker could not serve.
+    async applyCachedDocument(id) {
+      const cached = await readOfflineCache(documentCacheKey(id))
+      if (!cached) return false
+      const queued = await pendingOutboxEntries(DOCUMENT_PATCH)
+      if (this.openDocId !== id) return true
+      const payload = queued.find((entry) => entry.key === id)?.payload ?? {}
+      const edits = Object.fromEntries(
+        ['title', 'blocks', 'tags', 'emoji']
+          .filter((field) => payload[field] !== undefined)
+          .map((field) => [field, payload[field]]),
+      )
+      this.openDoc = { ...cached.value, ...edits }
+      return true
+    },
+
+    // Replays an edit queued while offline (lib/documentSaves.js). A
+    // document changed elsewhere in the meantime refuses the PATCH with 409;
+    // the offline edits are then saved as a copy beside it rather than
+    // dropped or written over the newer version.
+    async replayDocumentPatch(payload) {
+      const { id, updatedAt, ...content } = payload
+      try {
+        const { document } = await this.request('PATCH', { body: { id, ...content, updatedAt } })
+        const row = this.documents.find((doc) => doc.id === id)
+        if (row) {
+          const previous = { ...row }
+          Object.assign(row, document)
+          this.syncDocumentPages(row, previous)
+        }
+        if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
+      } catch (error) {
+        if (error?.status !== 409) throw error
+        const row = this.documents.find((doc) => doc.id === id)
+        const title = content.title ?? row?.title ?? 'Untitled'
+        const copy = await this.createDocument({
+          folderId: row?.folder_id ?? null,
+          title: `${title} (offline copy)`,
+        })
+        if (!copy) throw new Error('Failed to save offline edits as a copy', { cause: error })
+        const { document } = await this.request('PATCH', {
+          body: { id: copy.id, ...content, title: copy.title },
+        })
+        Object.assign(copy, document)
+        this.notify(
+          `"${title}" changed elsewhere while you were offline; your edits were saved as a copy.`,
+        )
       }
     },
 
@@ -1038,3 +1158,5 @@ export const useDocumentsStore = defineStore('documents', {
     },
   },
 })
+
+registerOutboxHandler(DOCUMENT_PATCH, (payload) => useDocumentsStore().replayDocumentPatch(payload))

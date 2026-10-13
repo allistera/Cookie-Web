@@ -3,7 +3,10 @@ import { jsonRequest } from '../lib/jsonRequest'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
+import { isNetworkError } from '../lib/connectivity'
 import { localToday } from '../lib/localDate'
+import { readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
 import { useTaskLabelsStore } from './taskLabels'
@@ -14,6 +17,29 @@ import { useTaskLabelsStore } from './taskLabels'
 let reorderQueue = Promise.resolve()
 let reorderSeq = 0
 const itemMutations = new WeakMap()
+
+// Outbox kind for task edits made while the tasks Worker was unreachable.
+// The payload is the PATCH body itself ({ id, ...fields }), so later edits
+// to the same task coalesce over earlier ones.
+export const TASK_PATCH = 'task-patch'
+
+// Lays queued task edits over a cached list page, so an edit or completion
+// made offline survives a reload that hydrates from the cache. A task
+// completed offline leaves the list the way a confirmed completion would.
+export function applyQueuedTaskChanges(items, entries) {
+  if (!entries.length) return items
+  const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))
+  return items
+    .map((item) => {
+      const { id, completed, ...fields } = changes.get(item.id) ?? {}
+      if (!id) return item
+      const next = { ...item }
+      for (const [key, value] of Object.entries(fields)) if (key in item) next[key] = value
+      if (completed !== undefined) next.completedAt = completed ? new Date().toISOString() : null
+      return next
+    })
+    .filter((item) => item.parentId || !item.completedAt)
+}
 
 // Cookie-owned tasks for the Tasks app. Shaped after stores/projects.js: the
 // same auth headers, the same request helper that surfaces the server's own
@@ -114,13 +140,34 @@ export const useTaskItemsStore = defineStore('taskItems', {
         this.nextCursor = nextCursor ?? null
         this.loadedProject = project
         this.loadedDate = today
+        writeOfflineCache(`tasks:${project}`, { items, date: today })
       } catch (error) {
         if (seq !== this.loadSeq) return
+        if (isNetworkError(error)) {
+          if (await this.applyCachedItems(project, today, seq)) return
+        }
         console.error('Failed to load tasks:', error)
         this.notify(error.userMessage || 'Failed to load tasks.', 'error')
       } finally {
         if (seq === this.loadSeq) this.isLoading = false
       }
+    },
+
+    // The project's cached first page, with edits queued offline laid over
+    // it, in place of one the tasks Worker could not serve. Today's list is
+    // only reused for the day it was fetched. Resolves true when the list
+    // was filled (or the load superseded), false when nothing applies.
+    async applyCachedItems(project, today, seq) {
+      const cached = await readOfflineCache(`tasks:${project}`)
+      if (seq !== this.loadSeq) return true
+      if (!cached || cached.value.date !== today) return false
+      const queued = await pendingOutboxEntries(TASK_PATCH)
+      if (seq !== this.loadSeq) return true
+      this.items = applyQueuedTaskChanges(cached.value.items, queued)
+      this.nextCursor = null
+      this.loadedProject = project
+      this.loadedDate = today
+      return true
     },
 
     async loadMoreItems() {
@@ -309,6 +356,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const payload = { ...body }
       // Serialize edits to the same row; a later edit snapshots the last
       // confirmed state, so an earlier response or rollback cannot undo it.
+      // A row that no longer belongs on screen (completed, or moved out of
+      // the loaded list) leaves it.
+      const settleInList = (row) => {
+        if (!this.items.includes(row)) return
+        const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(row)
+        if (!row.parentId && (row.completedAt || outsideList)) {
+          this.items = this.items.filter((candidate) => candidate.id !== id)
+        }
+      }
       const perform = async () => {
         item = this.items.find((row) => row.id === id) ?? item
         const previous = { ...item }
@@ -318,17 +374,21 @@ export const useTaskItemsStore = defineStore('taskItems', {
           const { item: updated } = await this.request('PATCH', { body: { id, ...payload } })
           item = this.items.find((row) => row.id === id) ?? item
           Object.assign(item, updated)
-          if (this.items.includes(item)) {
-            const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(item)
-            if (!item.parentId && (item.completedAt || outsideList)) {
-              this.items = this.items.filter((row) => row.id !== id)
-            }
-            if (Object.hasOwn(payload, 'projectId') && this.loadedProject) {
-              await this.loadItems(this.loadedProject, { force: true })
-            }
+          const onScreen = this.items.includes(item)
+          settleInList(item)
+          if (onScreen && Object.hasOwn(payload, 'projectId') && this.loadedProject) {
+            await this.loadItems(this.loadedProject, { force: true })
           }
           return item
         } catch (error) {
+          // Tasks Worker unreachable: keep the edit on screen and send it on
+          // reconnect (replayTaskPatch). The server's own refusals still roll
+          // back below.
+          if (isNetworkError(error)) {
+            await enqueueOutbox({ kind: TASK_PATCH, key: id, payload: { id, ...payload } })
+            settleInList(item)
+            return item
+          }
           console.error('Failed to update task:', error)
           for (const key of Object.keys(patch)) {
             if (Object.hasOwn(previous, key)) item[key] = previous[key]
@@ -467,6 +527,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
     },
 
+    // Replays an edit queued while offline; see patchItem.
+    async replayTaskPatch(payload) {
+      const { item: updated } = await this.request('PATCH', { body: payload })
+      const item = this.items.find((row) => row.id === payload.id)
+      if (item) Object.assign(item, updated)
+    },
+
     async setCompleted(id, completed) {
       if (this.completingIds.includes(id)) return null
       const item = this.itemById(id)
@@ -513,3 +580,5 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
   },
 })
+
+registerOutboxHandler(TASK_PATCH, (payload) => useTaskItemsStore().replayTaskPatch(payload))

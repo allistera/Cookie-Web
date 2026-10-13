@@ -6,10 +6,13 @@ import { useSearchStore } from './stores/search'
 import { useSavedViewsStore } from './stores/savedViews'
 import { useOutOfOfficeStore } from './stores/outOfOffice'
 import { useSendersStore } from './stores/senders'
+import OfflineBanner from './components/OfflineBanner.vue'
 import OutOfOfficeBanner from './components/OutOfOfficeBanner.vue'
 import SidebarResizer from './components/SidebarResizer.vue'
 import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useContactInsightsStore } from './stores/contactInsights'
+import { clearOfflineData, setOfflineOwner } from './lib/offlineCache'
+import { installOutboxSync, syncOutbox } from './lib/outbox'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
@@ -233,13 +236,17 @@ function openSettings() {
   router.push({ name: 'settings', params: { section: 'account' } })
 }
 
-function handleLogout() {
+async function handleLogout() {
   setCalendarsOwner(null)
   store.setComposeOwner(null)
   savedViewsStore.setOwner(null)
   sendersStore.setOwner(null)
   searchStore.clear()
   clearCachedMail()
+  // Mail, tasks and documents cached for offline use belong to the account
+  // signing out; the logout redirect waits for the delete to land.
+  await clearOfflineData()
+  setOfflineOwner(null)
   logout({ logoutParams: { returnTo: window.location.origin } })
 }
 
@@ -344,6 +351,10 @@ function landsOnInboxList() {
 watch(
   () => (isAuthenticated.value ? user.value?.sub : null),
   (sub) => {
+    // Offline cache and outbox entries are keyed by account; set before the
+    // loads below so their first responses are cached under the right one.
+    setOfflineOwner(sub)
+    if (sub) syncOutbox({ prepare: loadOfflineStores })
     setCalendarsOwner(sub)
     store.setComposeOwner(sub)
     if (savedViewsStore.ownerSub !== (sub || null)) searchStore.clear()
@@ -431,7 +442,42 @@ function onDocumentClick(e) {
   }
 }
 
+// Changes made offline go out again on reconnect and when the tab comes
+// back; the lists they touched (and any list hydrated from the offline
+// cache meanwhile) are then refetched. The tasks, projects and documents
+// stores register the outbox handlers for their own changes, and live in
+// the lazy view chunks, so they are imported here on demand rather than
+// pulled into the entry bundle.
+let stopOutboxSync = () => {}
+async function loadOfflineStores() {
+  const [{ useTaskItemsStore }, { useDocumentsStore }, { useProjectsStore }] = await Promise.all([
+    import('./stores/taskItems'),
+    import('./stores/documents'),
+    import('./stores/projects'),
+  ])
+  return {
+    taskItemsStore: useTaskItemsStore(),
+    documentsStore: useDocumentsStore(),
+    projectsStore: useProjectsStore(),
+  }
+}
+async function refreshAfterReconnect() {
+  const { taskItemsStore, documentsStore, projectsStore } = await loadOfflineStores()
+  await Promise.all([
+    store.refreshInbox(),
+    taskItemsStore.loadedProject
+      ? taskItemsStore.loadItems(taskItemsStore.loadedProject, { force: true })
+      : Promise.resolve(),
+    projectsStore.isLoaded ? projectsStore.loadProjects({ force: true }) : Promise.resolve(),
+    documentsStore.isLoaded ? documentsStore.loadWorkspace({ force: true }) : Promise.resolve(),
+  ])
+}
+
 onMounted(() => {
+  stopOutboxSync = installOutboxSync({
+    prepare: loadOfflineStores,
+    onSynced: refreshAfterReconnect,
+  })
   document.addEventListener('keydown', onUndoKeydown)
   document.addEventListener('keydown', onCommandPaletteKeydown)
   document.addEventListener('keydown', onShortcutsHelpKeydown)
@@ -439,6 +485,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stopOutboxSync()
   cancelScheduledSearch()
   document.removeEventListener('keydown', onUndoKeydown)
   document.removeEventListener('keydown', onCommandPaletteKeydown)
@@ -585,6 +632,7 @@ onUnmounted(() => {
         </div>
       </header>
 
+      <OfflineBanner />
       <OutOfOfficeBanner />
 
       <div class="app-body" :style="sidebarWidthStyle">

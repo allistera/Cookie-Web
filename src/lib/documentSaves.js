@@ -1,6 +1,14 @@
 import { toRaw } from 'vue'
+
+import { isNetworkError } from './connectivity'
+import { readOfflineCache, writeOfflineCache } from './offlineCache'
+import { enqueueOutbox } from './outbox'
 // One queue per store/session. Failed payloads remain owned by this queue until
 // acknowledged or explicitly saved as a copy; navigation cannot discard them.
+// A save the tasks Worker cannot be reached for moves to the persistent
+// outbox instead (saveState 'offline'): it survives a reload and goes out on
+// reconnect through the store's replayDocumentPatch.
+const DOCUMENT_PATCH = 'document-patch'
 const queues = new WeakMap()
 const CONTENT_FIELDS = ['title', 'blocks', 'tags', 'emoji']
 function queueFor(store) {
@@ -36,6 +44,7 @@ export async function flushPendingSave() {
   clearTimeout(queue.timer)
   if (queue.inFlight) return queue.inFlight
   const operation = (async () => {
+    let queuedOffline = false
     while (queue.pending.size) {
       const [id, content] = queue.pending.entries().next().value
       queue.pending.delete(id)
@@ -60,13 +69,18 @@ export async function flushPendingSave() {
         // A PATCH that was in flight when its document was deleted: the edit
         // has nowhere to go, and re-queuing it would fail every later flush.
         if (queue.deleted.has(id)) continue
+        if (isNetworkError(error)) {
+          await queueOfflineSave(id, content, updatedAt)
+          queuedOffline = true
+          continue
+        }
         queue.pending.set(id, { ...content, ...queue.pending.get(id) })
         this.saveState = 'error'
         this.saveConflict = error?.status === 409
         return false
       }
     }
-    this.saveState = 'saved'
+    this.saveState = queuedOffline ? 'offline' : 'saved'
     return true
   })()
   queue.inFlight = operation
@@ -105,4 +119,15 @@ export function forgetDeletedDocument(id) {
   const queue = queueFor(this)
   queue.deleted.add(id)
   queue.pending.delete(id)
+}
+
+// Hands an edit to the outbox and lays it over the document's offline copy,
+// so reopening the document offline shows the edit rather than the version
+// last fetched.
+async function queueOfflineSave(id, content, updatedAt) {
+  const payload = { id, ...content }
+  if (updatedAt) payload.updatedAt = updatedAt
+  await enqueueOutbox({ kind: DOCUMENT_PATCH, key: id, payload })
+  const cached = await readOfflineCache(`document:${id}`)
+  if (cached) await writeOfflineCache(`document:${id}`, { ...cached.value, ...content })
 }
