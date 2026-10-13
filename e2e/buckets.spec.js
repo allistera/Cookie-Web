@@ -44,7 +44,7 @@ test('pressing B on an open email makes the bucket, which keeps the email across
   await page.getByRole('button', { name: 'Open bucket: Floor plan review' }).click()
   await expect(panel).toContainText('0 items')
 
-  await panel.getByRole('button', { name: 'Clear' }).click()
+  await panel.getByRole('button', { name: 'Clear', exact: true }).click()
   await expect(panel).toBeHidden()
   await expect(bucketButton).toBeHidden()
 })

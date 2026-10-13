@@ -3452,6 +3452,27 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     expect(store.openEmailId).toBe(null)
   })
 
+  it('keeps the reader open for clicks on the bucket and its header button', () => {
+    // A bucket row opens an email by the time this listener sees the same
+    // click, and a glance at the bucket should not close what is being read.
+    const panel = document.createElement('section')
+    panel.className = 'bucket-panel'
+    const row = document.createElement('a')
+    panel.append(row)
+    const trigger = document.createElement('button')
+    trigger.className = 'bucket-trigger'
+    document.body.append(panel, trigger)
+
+    row.click()
+    trigger.click()
+    expect(store.openEmailId).toBe('today-1')
+
+    document.body.click()
+    expect(store.openEmailId).toBe(null)
+    panel.remove()
+    trigger.remove()
+  })
+
   it("keeps 'd' working when a message is opened while a text field was focused", async () => {
     // Reproduces opening a search result: focus is in the search input, and the
     // clicked row is a non-focusable div, so focus would otherwise stay there

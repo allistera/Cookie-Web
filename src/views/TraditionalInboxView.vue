@@ -1905,8 +1905,17 @@ function onDocumentClick(e) {
   }
   // Clicks inside the command palette must not close the reader — its
   // email commands read the open email as they run. Nor must closing the
-  // keyboard shortcuts help, whose close button and backdrop sit over the page.
-  if (!openEmail.value || store.isCommandPaletteOpen || within('ks-overlay')) return
+  // keyboard shortcuts help, whose close button and backdrop sit over the
+  // page, nor the bucket and its header button: a bucket row that opens an
+  // email has done so by the time this listener runs on the same click.
+  if (
+    !openEmail.value ||
+    store.isCommandPaletteOpen ||
+    within('ks-overlay') ||
+    within('bucket-panel') ||
+    within('bucket-trigger')
+  )
+    return
   // Clicks inside the panel keep it open; clicks on rows are handled by
   // openReader; the bulk bar acts on the list without dismissing the reader.
   if (
