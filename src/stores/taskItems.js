@@ -5,7 +5,7 @@ import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { isNetworkError } from '../lib/connectivity'
 import { localToday } from '../lib/localDate'
-import { readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
@@ -18,27 +18,65 @@ let reorderQueue = Promise.resolve()
 let reorderSeq = 0
 const itemMutations = new WeakMap()
 
+// Resolves false when the outbox could not keep the edit.
+async function queueTaskPatch(id, payload) {
+  try {
+    await enqueueOutbox({ kind: TASK_PATCH, key: id, payload: { id, ...payload } })
+    return true
+  } catch (error) {
+    console.error('Failed to queue the task edit for later:', error)
+    return false
+  }
+}
+
 // Outbox kind for task edits made while the tasks Worker was unreachable.
 // The payload is the PATCH body itself ({ id, ...fields }), so later edits
 // to the same task coalesce over earlier ones.
 export const TASK_PATCH = 'task-patch'
 
+// Whether a task belongs on the list for `project` ('today', 'inbox', a
+// 'label:<name>' list or a project id). Shared by the live list (which
+// drops rows that no longer belong after an edit) and the offline overlay.
+export function belongsToList(item, project, items, today = localToday()) {
+  if (project === null) return false
+  if (item.parentId) return items.some((row) => row.id === item.parentId)
+  // Today carries overdue tasks forward, so it is "due on or before".
+  if (project === 'today') return Boolean(item.dueDate) && item.dueDate <= today
+  // A label list spans every project: membership is the label itself.
+  if (project.startsWith('label:')) {
+    return Boolean(item.labels?.includes(project.slice('label:'.length)))
+  }
+  if (project === 'inbox') return item.projectId === null
+  return item.projectId === project
+}
+
 // Lays queued task edits over a cached list page, so an edit or completion
 // made offline survives a reload that hydrates from the cache. A task
-// completed offline leaves the list the way a confirmed completion would.
-export function applyQueuedTaskChanges(items, entries) {
+// completed or moved offline leaves the list the way the confirmed change
+// would. A recurring task's completion (its payload carries the recurrence
+// fields) is left to the server, which advances the due date; the row stays
+// as the live list keeps it.
+export function applyQueuedTaskChanges(items, entries, project = null) {
   if (!entries.length) return items
   const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))
-  return items
-    .map((item) => {
-      const { id, completed, ...fields } = changes.get(item.id) ?? {}
-      if (!id) return item
-      const next = { ...item }
-      for (const [key, value] of Object.entries(fields)) if (key in item) next[key] = value
-      if (completed !== undefined) next.completedAt = completed ? new Date().toISOString() : null
-      return next
-    })
-    .filter((item) => item.parentId || !item.completedAt)
+  const changed = []
+  const next = items.map((item) => {
+    const { id, completed, today, expectedDueDate, ...fields } = changes.get(item.id) ?? {}
+    if (!id) return item
+    const row = { ...item }
+    for (const [key, value] of Object.entries(fields)) if (key in item) row[key] = value
+    const recurring = today !== undefined || expectedDueDate !== undefined
+    if (completed !== undefined && !recurring) {
+      row.completedAt = completed ? new Date().toISOString() : null
+    }
+    changed.push(row)
+    return row
+  })
+  return next.filter((item) => {
+    if (!changed.includes(item)) return true
+    if (!item.parentId && item.completedAt) return false
+    return project === null || belongsToList(item, project, next)
+  })
 }
 
 // Cookie-owned tasks for the Tasks app. Shaped after stores/projects.js: the
@@ -119,6 +157,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // success, so a failed load also leaves the store retryable rather
       // than stuck believing it already "loaded" nothing.
       const seq = ++this.loadSeq
+      const owner = offlineOwner()
       this.items = []
       this.selectedIds = []
       this.nextCursor = null
@@ -140,7 +179,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         this.nextCursor = nextCursor ?? null
         this.loadedProject = project
         this.loadedDate = today
-        writeOfflineCache(`tasks:${project}`, { items, date: today })
+        writeOfflineCache(`tasks:${project}`, { items, date: today }, owner)
       } catch (error) {
         if (seq !== this.loadSeq) return
         if (isNetworkError(error)) {
@@ -163,7 +202,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       if (!cached || cached.value.date !== today) return false
       const queued = await pendingOutboxEntries(TASK_PATCH)
       if (seq !== this.loadSeq) return true
-      this.items = applyQueuedTaskChanges(cached.value.items, queued)
+      this.items = applyQueuedTaskChanges(cached.value.items, queued, project)
       this.nextCursor = null
       this.loadedProject = project
       this.loadedDate = today
@@ -251,16 +290,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // belongs wherever the parent is already listed, which also covers Today,
     // where a fresh sub-task has no due date of its own to qualify on.
     belongsToLoadedList(item) {
-      if (this.loadedProject === null) return false
-      if (item.parentId) return this.items.some((row) => row.id === item.parentId)
-      // Today carries overdue tasks forward, so it is "due on or before".
-      if (this.loadedProject === 'today')
-        return Boolean(item.dueDate) && item.dueDate <= localToday()
-      // A label list spans every project: membership is the label itself.
-      if (this.loadedProject.startsWith('label:'))
-        return Boolean(item.labels?.includes(this.loadedProject.slice('label:'.length)))
-      if (this.loadedProject === 'inbox') return item.projectId === null
-      return item.projectId === this.loadedProject
+      return belongsToList(item, this.loadedProject, this.items)
     },
 
     // A sub-task sends only its parent — the server derives the project from
@@ -382,10 +412,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
           return item
         } catch (error) {
           // Tasks Worker unreachable: keep the edit on screen and send it on
-          // reconnect (replayTaskPatch). The server's own refusals still roll
-          // back below.
-          if (isNetworkError(error)) {
-            await enqueueOutbox({ kind: TASK_PATCH, key: id, payload: { id, ...payload } })
+          // reconnect (replayTaskPatch). The server's own refusals, and a
+          // queue that cannot be written, roll back below.
+          if (isNetworkError(error) && (await queueTaskPatch(id, payload))) {
             settleInList(item)
             return item
           }

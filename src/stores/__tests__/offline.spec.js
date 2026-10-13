@@ -190,6 +190,47 @@ describe('inbox store offline', () => {
     expect(store.traditionalEmails.map((row) => [row.id, row.starred])).toEqual([['a', true]])
   })
 
+  it('rolls a star back and says so when the queue cannot be written', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(INBOX_PAGE)),
+    )
+    const store = prepare(useInboxStore())
+    await store.loadEmails()
+    const email = store.traditionalEmails.find((row) => row.id === 'a')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    setOfflineDb(createOfflineDb({ indexedDB: null }))
+
+    vi.stubGlobal('fetch', vi.fn(offline))
+    store.toggleStar(email)
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith('Failed to update starred state.', 'error'),
+    )
+
+    expect(email.starred).toBe(false)
+  })
+
+  it('shows the cached first Done page when the Worker cannot be reached', async () => {
+    const DONE_PAGE = { emails: [{ ...EMAIL_ROWS[0], id: 'done-1', is_archived: true }] }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(DONE_PAGE)),
+    )
+    await prepare(useInboxStore()).loadDonePage(0)
+    await vi.waitFor(async () => expect(await db.getAll('cache')).toHaveLength(1))
+
+    freshPinia()
+    vi.stubGlobal('fetch', vi.fn(offline))
+    const store = prepare(useInboxStore())
+    await store.loadDonePage(0)
+
+    expect(store.doneEmails.map((email) => email.id)).toEqual(['done-1'])
+    expect(store.isDoneLoaded).toBe(true)
+    expect(store.doneHasNext).toBe(false)
+    expect(store.isDoneRefreshing).toBe(false)
+    expect(notify).not.toHaveBeenCalled()
+  })
+
   it('falls back to cached labels and inbox state', async () => {
     vi.stubGlobal(
       'fetch',
@@ -228,11 +269,24 @@ describe('applyQueuedMessageChanges', () => {
       { payload: { id: 'b', is_archived: true, is_unread: false } },
     ]
 
-    expect(applyQueuedMessageChanges(rows, entries, { dropArchived: true })).toEqual([
+    expect(applyQueuedMessageChanges(rows, entries, { inboxPage: true })).toEqual([
       { id: 'a', is_starred: true, is_unread: true },
     ])
     expect(applyQueuedMessageChanges(rows, entries).map((row) => row.id)).toEqual(['a', 'b'])
     expect(applyQueuedMessageChanges(rows, [])).toBe(rows)
+  })
+
+  it('drops mail snoozed into the future from an inbox page, but not due mail', () => {
+    const now = Date.parse('2026-10-13T12:00:00Z')
+    const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c', scheduled_for: '2026-10-20T09:00:00Z' }]
+    const entries = [
+      { payload: { id: 'a', scheduled_for: '2026-10-14T09:00:00Z' } },
+      { payload: { id: 'b', scheduled_for: '2026-10-13T09:00:00Z' } },
+    ]
+
+    expect(
+      applyQueuedMessageChanges(rows, entries, { inboxPage: true, now }).map((row) => row.id),
+    ).toEqual(['b', 'c'])
   })
 })
 
@@ -276,6 +330,23 @@ describe('task items store offline', () => {
     ])
   })
 
+  it('rolls an edit back and says so when the queue cannot be written', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ items: [{ ...TASK, content: 'Draft it' }] })),
+    )
+    const store = prepare(useTaskItemsStore())
+    await store.loadItems('p1')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    setOfflineDb(createOfflineDb({ indexedDB: null }))
+
+    vi.stubGlobal('fetch', vi.fn(offline))
+    expect(await store.renameItem('t1', 'Nope')).toBeNull()
+
+    expect(store.items[0].content).toBe('Draft it')
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Failed to'), 'error')
+  })
+
   it("does not reuse yesterday's Today list", async () => {
     vi.stubGlobal(
       'fetch',
@@ -300,6 +371,32 @@ describe('task items store offline', () => {
 })
 
 describe('applyQueuedTaskChanges', () => {
+  it('keeps a recurring task whose completion the server will answer by advancing it', () => {
+    const recurring = { ...TASK, recurrence: 'every day', dueDate: '2026-10-13' }
+    const entries = [
+      {
+        payload: { id: 't1', completed: true, today: '2026-10-13', expectedDueDate: '2026-10-13' },
+      },
+    ]
+
+    const [row] = applyQueuedTaskChanges([recurring], entries, 'today')
+    expect(row.id).toBe('t1')
+    expect(row.completedAt).toBeNull()
+  })
+
+  it('drops a task moved out of the list being shown', () => {
+    const entries = [{ payload: { id: 't1', projectId: 'p2' } }]
+
+    expect(applyQueuedTaskChanges([TASK, TASK_2], entries, 'p1').map((item) => item.id)).toEqual([
+      't2',
+    ])
+    expect(applyQueuedTaskChanges([TASK, TASK_2], entries, 'inbox').map((item) => item.id)).toEqual(
+      ['t2'],
+    )
+    // Without a list to judge membership against, the edit is just applied.
+    expect(applyQueuedTaskChanges([TASK], entries)[0].projectId).toBe('p2')
+  })
+
   it('overlays known fields and removes tasks completed offline', () => {
     const items = [TASK, TASK_2, { ...TASK, id: 't3', parentId: 't1' }]
     const entries = [
@@ -433,8 +530,18 @@ describe('documents store offline', () => {
     expect(await store.flushPendingSave()).toBe(true)
     expect(await refreshOutboxPending()).toBe(1)
 
-    const copy = { ...DOC, id: 'd-copy', title: 'Plan v2 (offline copy)', updated_at: 't2' }
+    // What the other browser left on the server meanwhile: a new body and
+    // tags, and the document moved to another folder.
+    const current = {
+      ...DOC,
+      folder_id: 'f-2',
+      tags: ['moved'],
+      updated_at: 't1',
+      blocks: [{ type: 'paragraph', data: { text: 'edited elsewhere' } }],
+    }
+    const copy = { ...current, id: 'd-copy', title: 'Plan v2 (offline copy)', updated_at: 't2' }
     const fetchMock = documentRoutes({
+      GET: () => ok({ document: current }),
       PATCH: (url, body) =>
         body.id === 'd-1'
           ? { ok: false, status: 409, json: async () => ({ error: 'Changed elsewhere' }) }
@@ -449,10 +556,43 @@ describe('documents store offline', () => {
       .map(([, options]) => JSON.parse(options.body))
     expect(bodies).toEqual([
       { id: 'd-1', title: 'Plan v2', updatedAt: 't0' },
-      { kind: 'document', folderId: 'f-1', templateId: null, title: 'Plan v2 (offline copy)' },
-      { id: 'd-copy', title: 'Plan v2 (offline copy)' },
+      { kind: 'document', folderId: 'f-2', templateId: null, title: 'Plan v2 (offline copy)' },
+      {
+        id: 'd-copy',
+        title: 'Plan v2 (offline copy)',
+        blocks: current.blocks,
+        tags: ['moved'],
+        emoji: DOC.emoji,
+      },
     ])
     expect(store.documents.map((doc) => doc.id)).toEqual(['d-copy', 'd-1'])
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('saved as a copy'), 'info')
+  })
+
+  it('keeps the edit pending with a save error when the queue cannot be written', async () => {
+    vi.stubGlobal('fetch', documentRoutes())
+    const store = prepare(useDocumentsStore())
+    await store.loadWorkspace()
+    await store.openDocument('d-1')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    setOfflineDb(createOfflineDb({ indexedDB: null }))
+
+    vi.stubGlobal('fetch', vi.fn(offline))
+    store.scheduleContentSave('d-1', { title: 'Plan v2' })
+    expect(await store.flushPendingSave()).toBe(false)
+
+    expect(store.saveState).toBe('error')
+    expect(store.saveConflict).toBe(false)
+    // Retry save still has the edit.
+    const fetchMock = documentRoutes({
+      PATCH: (url, body) => ok({ document: { ...DOC, ...body, updated_at: 't1' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await store.flushPendingSave()).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      id: 'd-1',
+      title: 'Plan v2',
+      updatedAt: 't0',
+    })
   })
 })

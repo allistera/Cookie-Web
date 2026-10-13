@@ -8,7 +8,7 @@ import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enric
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
 import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from '../lib/connectivity'
-import { readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import {
   AI_API_URL,
@@ -49,9 +49,14 @@ export const MESSAGE_PATCH = 'message-patch'
 
 // Lays queued message changes over the raw rows of a cached list page, so a
 // star or Done made offline survives a reload that hydrates from the cache.
-// Rows archived by a queued change leave an inbox page (dropArchived) but
-// stay in the folders that list Done mail too.
-export function applyQueuedMessageChanges(rows, entries, { dropArchived = false } = {}) {
+// On an inbox page (inboxPage), rows a queued change archived or snoozed
+// into the future leave the list the way the live inbox drops them; the
+// folders that list Done and Snoozed mail keep them.
+export function applyQueuedMessageChanges(
+  rows,
+  entries,
+  { inboxPage = false, now = Date.now() } = {},
+) {
   if (!entries.length) return rows
   const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))
   const FIELDS = ['is_starred', 'is_unread', 'is_archived', 'scheduled_for']
@@ -63,7 +68,11 @@ export function applyQueuedMessageChanges(rows, entries, { dropArchived = false 
       for (const field of FIELDS) if (change[field] !== undefined) next[field] = change[field]
       return next
     })
-    .filter((row) => !dropArchived || !row.is_archived)
+    .filter((row) => {
+      if (!inboxPage || !changes.has(row.id)) return true
+      if (row.is_archived) return false
+      return !row.scheduled_for || new Date(row.scheduled_for).getTime() <= now
+    })
 }
 
 const folderCacheKey = (folder, label) => `folder:${folder}:${folder === 'label' ? label : ''}`
@@ -1109,6 +1118,7 @@ export const useInboxStore = defineStore('inbox', {
 
     async loadInboxState({ force = false } = {}) {
       if (this.isInboxStateLoaded && !force) return
+      const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
@@ -1116,7 +1126,7 @@ export const useInboxStore = defineStore('inbox', {
         const state = await response.json()
         noteNetworkSuccess()
         this.applyInboxState(state)
-        writeOfflineCache('inbox:state', state)
+        writeOfflineCache('inbox:state', state, owner)
       } catch (error) {
         if (isNetworkError(error)) {
           noteNetworkFailure()
@@ -1150,7 +1160,7 @@ export const useInboxStore = defineStore('inbox', {
       const queued = await pendingOutboxEntries(MESSAGE_PATCH)
       if (seq !== this.listSeq) return true
       const page = cached.value
-      const rows = applyQueuedMessageChanges(page.emails, queued, { dropArchived: true })
+      const rows = applyQueuedMessageChanges(page.emails, queued, { inboxPage: true })
       this.traditionalEmails = dropPendingRemovals(rows.map(mapEmailRow), fetchSeq)
       // One page is all there is offline.
       this.emailsCursor = null
@@ -1169,6 +1179,7 @@ export const useInboxStore = defineStore('inbox', {
     async loadEmails() {
       const seq = ++this.listSeq
       const fetchSeq = inboxFetchSeq()
+      const owner = offlineOwner()
       this.isRefreshing = true
       try {
         const page = await this.fetchEmailPage()
@@ -1184,7 +1195,7 @@ export const useInboxStore = defineStore('inbox', {
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
         this.isInboxLoaded = true
-        writeOfflineCache('inbox:page', page)
+        writeOfflineCache('inbox:page', page, owner)
       } catch (error) {
         if (seq !== this.listSeq) return
         if (isNetworkError(error)) {
@@ -1241,6 +1252,7 @@ export const useInboxStore = defineStore('inbox', {
       if (this.activeSearchQuery) return
       const seq = this.listSeq
       const fetchSeq = inboxFetchSeq()
+      const owner = offlineOwner()
       try {
         const page = await this.fetchEmailPage()
         const { emails, nextCursor, unreadCount, userId } = page
@@ -1267,7 +1279,7 @@ export const useInboxStore = defineStore('inbox', {
         this.applyFolderCounts(page)
         if (userId) this.userId = userId
         this.isInboxStateLoaded = true
-        writeOfflineCache('inbox:page', page)
+        writeOfflineCache('inbox:page', page, owner)
       } catch (error) {
         if (this.activeSearchQuery || seq !== this.listSeq) return
         // A refresh runs on every focus and Realtime ping; offline, the list
@@ -1292,6 +1304,7 @@ export const useInboxStore = defineStore('inbox', {
       const generation = this.composeGeneration
       const queueGeneration = this.senderQueueGeneration
       const seq = (folderLoadSeq[folder] = (folderLoadSeq[folder] ?? 0) + 1)
+      const owner = offlineOwner()
       this[keys.refreshing] = true
       try {
         const { emails, nextCursor, readReceiptsAvailable } = await this.fetchEmailPage({
@@ -1301,7 +1314,7 @@ export const useInboxStore = defineStore('inbox', {
         if (seq !== folderLoadSeq[folder]) return
         if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
           return
-        writeOfflineCache(folderCacheKey(folder, extra.label), { emails })
+        writeOfflineCache(folderCacheKey(folder, extra.label), { emails }, owner)
         this[keys.list] = emails.map(mapEmailRow)
         if (folder === 'sent' && readReceiptsAvailable) {
           await this.loadReadReceipts(this[keys.list])
@@ -1498,6 +1511,7 @@ export const useInboxStore = defineStore('inbox', {
     // page is one oversized day, where the size cap wins over the invariant.
     async loadDonePage(pageIndex = 0) {
       const cursor = this.donePageCursors[pageIndex] ?? null
+      const owner = offlineOwner()
       this.isDoneRefreshing = true
       try {
         const { emails, nextCursor } = await this.fetchEmailPage({
@@ -1505,6 +1519,9 @@ export const useInboxStore = defineStore('inbox', {
           before: cursor ?? undefined,
           limit: DONE_PAGE_SIZE,
         })
+        // Done pages by day rather than by cursor like the other folders,
+        // but its first page is cached the same way.
+        if (pageIndex === 0) writeOfflineCache(folderCacheKey('done'), { emails }, owner)
         let page = emails.map(mapEmailRow)
         if (nextCursor && page.length > 0) {
           const lastDay = localDayKey(page[page.length - 1].sentAt)
@@ -1518,11 +1535,29 @@ export const useInboxStore = defineStore('inbox', {
         this.doneHasNext = Boolean(nextCursor && last)
         this.donePageCursors[pageIndex + 1] = this.doneHasNext ? `${last.sentAt}|${last.id}` : null
       } catch (error) {
+        if (isNetworkError(error)) {
+          noteNetworkFailure()
+          if (pageIndex === 0 && (await this.applyCachedDonePage())) return
+        }
         console.error('Failed to load done emails:', error)
         this.notify('Failed to load done emails.', 'error')
       } finally {
         this.isDoneRefreshing = false
       }
+    },
+
+    // Done's cached first page in place of one the Worker could not serve;
+    // one page is all there is offline, so there is no next page.
+    async applyCachedDonePage() {
+      const cached = await readOfflineCache(folderCacheKey('done'))
+      if (!cached) return false
+      const queued = await pendingOutboxEntries(MESSAGE_PATCH)
+      this.doneEmails = applyQueuedMessageChanges(cached.value.emails, queued).map(mapEmailRow)
+      this.donePageIndex = 0
+      this.isDoneLoaded = true
+      this.doneHasNext = false
+      this.donePageCursors = [null]
+      return true
     },
 
     nextDonePage() {
@@ -1539,6 +1574,7 @@ export const useInboxStore = defineStore('inbox', {
     // again on open and get the loaded copy unless they ask for a refetch.
     async loadLabels({ force = false } = {}) {
       if (this.isLabelsLoaded && !force) return
+      const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${LABELS_API_URL}/labels`, { headers })
@@ -1549,7 +1585,7 @@ export const useInboxStore = defineStore('inbox', {
         noteNetworkSuccess()
         this.labels = labels
         this.isLabelsLoaded = true
-        writeOfflineCache('labels', labels)
+        writeOfflineCache('labels', labels, owner)
       } catch (error) {
         if (isNetworkError(error)) {
           noteNetworkFailure()
@@ -1567,6 +1603,7 @@ export const useInboxStore = defineStore('inbox', {
 
     async loadCategories({ force = false } = {}) {
       if (this.isCategoriesLoaded && !force) return
+      const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
         const response = await fetch(`${LABELS_API_URL}/categories`, { headers })
@@ -1577,7 +1614,7 @@ export const useInboxStore = defineStore('inbox', {
         noteNetworkSuccess()
         this.categories = categories
         this.isCategoriesLoaded = true
-        writeOfflineCache('categories', categories)
+        writeOfflineCache('categories', categories, owner)
       } catch (error) {
         if (isNetworkError(error)) {
           noteNetworkFailure()
@@ -2155,6 +2192,9 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         if (!isNetworkError(error)) throw error
         noteNetworkFailure()
+        // A queue that cannot be written rejects here, so the caller rolls
+        // the change back and says it failed rather than keeping a change
+        // nothing will ever send.
         await enqueueOutbox({ kind: MESSAGE_PATCH, key: id, payload: { id, ...changes } })
         return { queued: true }
       }

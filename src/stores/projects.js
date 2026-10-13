@@ -5,7 +5,7 @@ import { jsonRequest } from '../lib/jsonRequest'
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { isNetworkError } from '../lib/connectivity'
-import { readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { createSharedLoad } from '../lib/sharedLoad'
 import { useInboxStore } from './inbox'
 
@@ -84,12 +84,13 @@ export const useProjectsStore = defineStore('projects', {
       return projectLoads(
         toRaw(this),
         async () => {
+          const owner = offlineOwner()
           this.isLoading = true
           try {
             const { projects } = await this.request('GET')
             this.projects = projects
             this.isLoaded = true
-            writeOfflineCache('projects', projects)
+            writeOfflineCache('projects', projects, owner)
             return true
           } catch (error) {
             if (isNetworkError(error)) {

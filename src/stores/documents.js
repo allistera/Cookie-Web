@@ -13,7 +13,12 @@ import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { AI_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import { isNetworkError } from '../lib/connectivity'
 import { MAX_UPLOAD_BYTES, fileFolderKey } from '../lib/documentFiles'
-import { readOfflineCache, writeOfflineCache, writeRecentOfflineCache } from '../lib/offlineCache'
+import {
+  offlineOwner,
+  readOfflineCache,
+  writeOfflineCache,
+  writeRecentOfflineCache,
+} from '../lib/offlineCache'
 import { pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import {
   formatDailyMonthFolder,
@@ -45,10 +50,15 @@ const MAX_CACHED_DOCUMENTS = 20
 const documentCacheKey = (id) => `document:${id}`
 
 // The workspace as last served, kept in memory so concurrent page loads
-// write one coherent snapshot rather than racing read-modify-writes.
+// write one coherent snapshot rather than racing read-modify-writes. It
+// remembers the account it was fetched for, so a page landing after an
+// account change is filed under the right one.
 let offlineWorkspace = null
+let offlineWorkspaceOwner = null
 function persistOfflineWorkspace() {
-  if (offlineWorkspace) writeOfflineCache('documents:workspace', offlineWorkspace)
+  if (offlineWorkspace) {
+    writeOfflineCache('documents:workspace', offlineWorkspace, offlineWorkspaceOwner)
+  }
 }
 
 // Whether a row's page membership and order (folder, star, tag, updated_at)
@@ -348,6 +358,7 @@ export const useDocumentsStore = defineStore('documents', {
     },
 
     async fetchWorkspace() {
+      const owner = offlineOwner()
       this.isLoading = true
       try {
         const version = this.workspaceVersion
@@ -373,12 +384,14 @@ export const useDocumentsStore = defineStore('documents', {
           this.pages = {}
           this.documents = metadata.documents
           offlineWorkspace = { folders: metadata.folders, documents: metadata.documents }
+          offlineWorkspaceOwner = owner
           persistOfflineWorkspace()
         } else {
           this.workspacePaged = true
           this.workspaceVersion = metadata.version
           this.workspaceTags = metadata.tags ?? []
           offlineWorkspace = { folders: metadata.folders, tags: this.workspaceTags, pages: {} }
+          offlineWorkspaceOwner = owner
           // Whatever was on screen (or asked for before this load landed)
           // comes back alongside the defaults; a reset that reloaded only
           // the defaults left the open folder empty until the next visit.
@@ -585,6 +598,7 @@ export const useDocumentsStore = defineStore('documents', {
       this.openDoc = null
       this.saveState = null
       if (!id) return
+      const owner = offlineOwner()
       this.isOpenDocLoading = true
       try {
         const { document } = await this.request('GET', { params: `?id=${encodeURIComponent(id)}` })
@@ -595,6 +609,7 @@ export const useDocumentsStore = defineStore('documents', {
           documentCacheKey(id),
           document,
           MAX_CACHED_DOCUMENTS,
+          owner,
         )
       } catch (error) {
         if (isNetworkError(error) && (await this.applyCachedDocument(id))) return
@@ -640,21 +655,44 @@ export const useDocumentsStore = defineStore('documents', {
         if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
       } catch (error) {
         if (error?.status !== 409) throw error
-        const row = this.documents.find((doc) => doc.id === id)
-        const title = content.title ?? row?.title ?? 'Untitled'
-        const copy = await this.createDocument({
-          folderId: row?.folder_id ?? null,
-          title: `${title} (offline copy)`,
-        })
-        if (!copy) throw new Error('Failed to save offline edits as a copy', { cause: error })
-        const { document } = await this.request('PATCH', {
-          body: { id: copy.id, ...content, title: copy.title },
-        })
-        Object.assign(copy, document)
-        this.notify(
-          `"${title}" changed elsewhere while you were offline; your edits were saved as a copy.`,
-        )
+        await this.saveOfflineEditsAsCopy(id, content, error)
       }
+    },
+
+    // The queued edit holds only the fields that changed, and at boot the
+    // workspace may not be loaded, so the copy starts from the document as
+    // the server has it now (replay only runs online) and takes the offline
+    // edits on top: a renamed document keeps its body, folder and tags. A
+    // document deleted elsewhere falls back to its offline copy.
+    async saveOfflineEditsAsCopy(id, content, conflict) {
+      let base
+      try {
+        ;({ document: base } = await this.request('GET', {
+          params: `?id=${encodeURIComponent(id)}`,
+        }))
+      } catch (error) {
+        if (isNetworkError(error)) throw error
+        base = (await readOfflineCache(documentCacheKey(id)))?.value ?? {}
+      }
+      const title = content.title ?? base.title ?? 'Untitled'
+      const copy = await this.createDocument({
+        folderId: base.folder_id ?? null,
+        title: `${title} (offline copy)`,
+      })
+      if (!copy) throw new Error('Failed to save offline edits as a copy', { cause: conflict })
+      const { document } = await this.request('PATCH', {
+        body: {
+          id: copy.id,
+          title: copy.title,
+          blocks: content.blocks ?? base.blocks ?? [],
+          tags: content.tags ?? base.tags ?? [],
+          emoji: content.emoji ?? base.emoji ?? null,
+        },
+      })
+      Object.assign(copy, document)
+      this.notify(
+        `"${title}" changed elsewhere while you were offline; your edits were saved as a copy.`,
+      )
     },
 
     async createDocument({ folderId = null, title, templateId = null } = {}) {

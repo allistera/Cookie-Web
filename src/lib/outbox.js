@@ -15,7 +15,8 @@ import { OUTBOX_STORE, getOfflineDb } from './offlineDb'
 // coalesce: the later payload is merged over the earlier one, so two star
 // toggles become one request and a title edit and a body edit of the same
 // document travel together. Payloads are therefore flat objects of the
-// request's own fields.
+// request's own fields. Each merge bumps the entry's revision, which is how
+// replay tells that an entry changed while its request was in flight.
 const handlers = new Map()
 const pending = ref(0)
 let flushing = null
@@ -36,19 +37,29 @@ export async function refreshOutboxPending() {
   return pending.value
 }
 
+// Rejects when the change could not be stored (IndexedDB missing, blocked
+// or out of space): the caller must then treat the change as failed rather
+// than as saved on this device, since nothing would ever send it.
 export async function enqueueOutbox({ kind, key, payload }) {
   const db = getOfflineDb()
   const existing = (await ownEntries()).find((entry) => entry.kind === kind && entry.key === key)
-  if (existing) {
-    await db.put(OUTBOX_STORE, {
-      ...existing,
-      payload: { ...existing.payload, ...payload },
-      updatedAt: Date.now(),
-    })
-  } else {
-    await db.put(OUTBOX_STORE, { kind, key, owner: offlineOwner(), payload, createdAt: Date.now() })
-  }
+  const stored = existing
+    ? await db.put(OUTBOX_STORE, {
+        ...existing,
+        payload: { ...existing.payload, ...payload },
+        revision: (existing.revision ?? 1) + 1,
+        updatedAt: Date.now(),
+      })
+    : await db.put(OUTBOX_STORE, {
+        kind,
+        key,
+        owner: offlineOwner(),
+        payload,
+        revision: 1,
+        createdAt: Date.now(),
+      })
   await refreshOutboxPending()
+  if (stored === null) throw new Error('Offline storage is unavailable; the change was not kept')
 }
 
 // Queued changes of one kind, oldest first, so a store hydrating from its
@@ -63,7 +74,8 @@ export async function pendingOutboxEntries(kind) {
 // fail the same way and block everything behind it. Handlers tell the
 // person about such a drop themselves where it matters. An entry whose
 // handler is not registered yet (its store module has not loaded) is kept
-// and skipped; see syncOutbox.
+// and skipped; see syncOutbox. An entry edited while its request was in
+// flight (its revision moved on) is kept too, and sent in a further pass.
 export function flushOutbox() {
   flushing ??= replay().finally(() => {
     flushing = null
@@ -71,10 +83,25 @@ export function flushOutbox() {
   return flushing
 }
 
+// Bounds the passes a stream of edits during replay can cause; whatever is
+// still queued after that goes out on the next sync.
+const MAX_REPLAY_PASSES = 5
+
 async function replay() {
-  const db = getOfflineDb()
   const result = { replayed: 0, dropped: 0, remaining: 0 }
+  for (let pass = 0; pass < MAX_REPLAY_PASSES; pass++) {
+    const { stopped, revised } = await replayPass(result)
+    if (stopped || !revised) break
+  }
+  await refreshOutboxPending()
+  return result
+}
+
+async function replayPass(result) {
+  const db = getOfflineDb()
   const entries = await ownEntries()
+  result.remaining = 0
+  let revised = 0
   for (const [index, entry] of entries.entries()) {
     const handler = handlers.get(entry.kind)
     if (!handler) {
@@ -89,15 +116,22 @@ async function replay() {
       if (isNetworkError(error)) {
         noteNetworkFailure()
         result.remaining += entries.length - index
-        break
+        return { stopped: true, revised }
       }
       console.error('Dropped an offline change the server refused:', error)
       result.dropped++
     }
+    // Only the revision that was sent is settled: a change merged in while
+    // the request ran stays queued and goes in the next pass.
+    const current = await db.get(OUTBOX_STORE, entry.seq)
+    if (current && (current.revision ?? 1) !== (entry.revision ?? 1)) {
+      revised++
+      continue
+    }
     await db.delete(OUTBOX_STORE, entry.seq)
   }
-  await refreshOutboxPending()
-  return result
+  result.remaining += revised
+  return { stopped: false, revised }
 }
 
 // Replays whatever is queued, after `prepare` has had the chance to load

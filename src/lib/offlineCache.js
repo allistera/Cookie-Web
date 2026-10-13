@@ -15,14 +15,14 @@ export function offlineOwner() {
   return owner ?? 'local'
 }
 
-function cacheKey(name) {
-  return `${offlineOwner()}:${name}`
+function cacheKey(name, owner) {
+  return `${owner}:${name}`
 }
 
 // Resolves { value, savedAt } or null when nothing is cached (or storage is
 // unavailable).
-export async function readOfflineCache(name) {
-  const entry = await getOfflineDb().get(CACHE_STORE, cacheKey(name))
+export async function readOfflineCache(name, owner = offlineOwner()) {
+  const entry = await getOfflineDb().get(CACHE_STORE, cacheKey(name, owner))
   return entry?.value === undefined ? null : entry
 }
 
@@ -30,29 +30,40 @@ export async function readOfflineCache(name) {
 // own response objects, but anything reactive or carrying functions would
 // fail IndexedDB's structured clone, and a cache write must never fail a
 // load that has already succeeded.
-export async function writeOfflineCache(name, value) {
+//
+// `owner` is the account the response belongs to. Loaders capture it before
+// their request goes out (offlineOwner() at that moment), so a response that
+// lands after the account changed is still filed under the account that
+// asked for it, never under the one now signed in.
+export async function writeOfflineCache(name, value, owner = offlineOwner()) {
   try {
     const plain = JSON.parse(JSON.stringify(value))
-    await getOfflineDb().put(CACHE_STORE, { value: plain, savedAt: Date.now() }, cacheKey(name))
+    await getOfflineDb().put(
+      CACHE_STORE,
+      { value: plain, savedAt: Date.now() },
+      cacheKey(name, owner),
+    )
   } catch (error) {
     console.error('Failed to cache for offline use:', error)
   }
 }
 
-export function removeOfflineCache(name) {
-  return getOfflineDb().delete(CACHE_STORE, cacheKey(name))
+export function removeOfflineCache(name, owner = offlineOwner()) {
+  return getOfflineDb().delete(CACHE_STORE, cacheKey(name, owner))
 }
 
 // Caches `value` under `name` and records it in the `indexName` list, which
 // keeps at most `max` names: the oldest beyond that are deleted. Used for
 // per-item caches (opened documents) that would otherwise grow without bound.
-export async function writeRecentOfflineCache(indexName, name, value, max) {
-  await writeOfflineCache(name, value)
-  const recent = ((await readOfflineCache(indexName))?.value ?? []).filter((item) => item !== name)
+export async function writeRecentOfflineCache(indexName, name, value, max, owner = offlineOwner()) {
+  await writeOfflineCache(name, value, owner)
+  const recent = ((await readOfflineCache(indexName, owner))?.value ?? []).filter(
+    (item) => item !== name,
+  )
   recent.push(name)
   const evicted = recent.splice(0, Math.max(0, recent.length - max))
-  await Promise.all(evicted.map((item) => removeOfflineCache(item)))
-  await writeOfflineCache(indexName, recent)
+  await Promise.all(evicted.map((item) => removeOfflineCache(item, owner)))
+  await writeOfflineCache(indexName, recent, owner)
 }
 
 export async function clearOfflineData() {

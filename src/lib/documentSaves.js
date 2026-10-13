@@ -69,11 +69,12 @@ export async function flushPendingSave() {
         // A PATCH that was in flight when its document was deleted: the edit
         // has nowhere to go, and re-queuing it would fail every later flush.
         if (queue.deleted.has(id)) continue
-        if (isNetworkError(error)) {
-          await queueOfflineSave(id, content, updatedAt)
+        if (isNetworkError(error) && (await queueOfflineSave(id, content, updatedAt))) {
           queuedOffline = true
           continue
         }
+        // Refused by the server, or offline with a queue that cannot be
+        // written: the edit stays here, with Retry save and Save a copy.
         queue.pending.set(id, { ...content, ...queue.pending.get(id) })
         this.saveState = 'error'
         this.saveConflict = error?.status === 409
@@ -123,11 +124,17 @@ export function forgetDeletedDocument(id) {
 
 // Hands an edit to the outbox and lays it over the document's offline copy,
 // so reopening the document offline shows the edit rather than the version
-// last fetched.
+// last fetched. Resolves false when the outbox could not keep the edit.
 async function queueOfflineSave(id, content, updatedAt) {
   const payload = { id, ...content }
   if (updatedAt) payload.updatedAt = updatedAt
-  await enqueueOutbox({ kind: DOCUMENT_PATCH, key: id, payload })
+  try {
+    await enqueueOutbox({ kind: DOCUMENT_PATCH, key: id, payload })
+  } catch (error) {
+    console.error('Failed to queue the document edit for later:', error)
+    return false
+  }
   const cached = await readOfflineCache(`document:${id}`)
   if (cached) await writeOfflineCache(`document:${id}`, { ...cached.value, ...content })
+  return true
 }

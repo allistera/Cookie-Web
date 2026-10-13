@@ -164,6 +164,39 @@ describe('flushOutbox', () => {
   })
 })
 
+describe('flushOutbox with edits during replay', () => {
+  it('keeps a change merged in while its request was in flight and sends it next', async () => {
+    const sent = []
+    let releaseFirst
+    const handler = vi.fn(async (payload) => {
+      sent.push({ ...payload })
+      if (sent.length === 1) await new Promise((resolve) => (releaseFirst = resolve))
+    })
+    registerOutboxHandler('task-patch', handler)
+    await enqueueOutbox({ kind: 'task-patch', key: 't1', payload: { id: 't1', content: 'A' } })
+
+    const flush = flushOutbox()
+    await vi.waitFor(() => expect(releaseFirst).toBeDefined())
+    // Edited while "A" is on its way to the server.
+    await enqueueOutbox({ kind: 'task-patch', key: 't1', payload: { id: 't1', content: 'B' } })
+    releaseFirst()
+
+    expect(await flush).toEqual({ replayed: 2, dropped: 0, remaining: 0 })
+    expect(sent.map((payload) => payload.content)).toEqual(['A', 'B'])
+    expect(await db.getAll(OUTBOX_STORE)).toEqual([])
+  })
+
+  it('rejects an enqueue the storage could not keep', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    setOfflineDb(createOfflineDb({ indexedDB: null }))
+
+    await expect(
+      enqueueOutbox({ kind: 'message-patch', key: 'm1', payload: { id: 'm1' } }),
+    ).rejects.toThrow(/Offline storage is unavailable/)
+    expect(outboxPending.value).toBe(0)
+  })
+})
+
 describe('syncOutbox and installOutboxSync', () => {
   it('loads handlers only when something is queued', async () => {
     const prepare = vi.fn(async () => registerOutboxHandler('message-patch', vi.fn()))

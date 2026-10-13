@@ -44,6 +44,16 @@ describe('offline cache', () => {
     expect((await db.getAll(CACHE_STORE)).map((entry) => entry.value)).toEqual([['alice'], ['bob']])
   })
 
+  it('files a response under the account that asked for it, not the one now signed in', async () => {
+    const owner = 'auth0|alice'
+    setOfflineOwner('auth0|bob')
+
+    await writeOfflineCache('inbox:page', { emails: ['alice mail'] }, owner)
+
+    expect(await readOfflineCache('inbox:page')).toBeNull()
+    expect((await readOfflineCache('inbox:page', owner)).value).toEqual({ emails: ['alice mail'] })
+  })
+
   it('stores a plain copy, so reactive input and later mutation do not leak in', async () => {
     const value = { rows: [{ id: 1 }] }
     await writeOfflineCache('page', value)
