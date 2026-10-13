@@ -766,9 +766,10 @@ function dismissEventDialog() {
   closeNewEvent()
   // Closing an event opened from a link takes `event` out of the URL, so
   // the same link (a bucket row, the Mail next-event chip) opens it again
-  // rather than being a navigation to where the page already is.
+  // rather than being a navigation to where the page already is. A newer
+  // link held back by a failed save keeps its URL: this close opens it.
   const query = router?.currentRoute.value.query
-  if (query?.event) {
+  if (query?.event && openedEventLink === `${query.date}/${query.event}`) {
     const rest = { ...query }
     delete rest.event
     router.replace({ query: rest })
