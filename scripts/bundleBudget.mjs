@@ -24,8 +24,11 @@ export function bundleBudgetPlugin() {
       for (const chunk of Object.values(bundle)) {
         if (chunk.type !== 'chunk') continue
         const id = (chunk.facadeModuleId ?? '').split('?')[0]
+        // The entry carries the inbox store and, with it, the offline cache,
+        // outbox and connectivity modules (about 8 KB) added in October 2026
+        // when main sat 2 KB under the previous 500 KB.
         const budget = chunk.isEntry
-          ? 500_000
+          ? 520_000
           : id.endsWith('/views/TraditionalInboxView.vue')
             ? 650_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'

@@ -7,7 +7,9 @@
 // not visited yet fails to import. Vite raises `vite:preloadError` for this
 // case; index.html is served with max-age=0, so one reload picks up the
 // current bundle. A short cooldown in sessionStorage stops a reload loop if
-// the chunk is missing for some other reason.
+// the chunk is missing for some other reason. Offline, the chunk is missing
+// because it was never cached, and a reload would only lose the page the
+// person is on: the error is left to surface instead.
 
 export const RELOAD_KEY = 'cookie-chunk-reload'
 const RELOAD_COOLDOWN_MS = 30_000
@@ -32,10 +34,12 @@ export function installStaleChunkReload({
   target = globalThis.window,
   storage = globalThis.sessionStorage,
   reload = () => globalThis.location.reload(),
+  isOnline = () => globalThis.navigator?.onLine ?? true,
 } = {}) {
   if (!target?.addEventListener) return () => {}
 
   const onPreloadError = (event) => {
+    if (!isOnline()) return
     const now = Date.now()
     if (now - readLastReload(storage) < RELOAD_COOLDOWN_MS) return
     writeLastReload(storage, now)

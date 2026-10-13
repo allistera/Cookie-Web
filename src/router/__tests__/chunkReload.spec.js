@@ -141,3 +141,16 @@ describe('lazyComponent', () => {
     expect(errorHandler).toHaveBeenCalled()
   })
 })
+
+describe('reloadForStaleChunk while offline', () => {
+  it('does not navigate away: the chunk is missing because it was never cached', () => {
+    const storage = { getItem: vi.fn(() => null), setItem: vi.fn() }
+    const navigate = vi.fn()
+
+    expect(
+      reloadForStaleChunk('/tasks', { storage, navigate, now: 1_000_000, isOnline: () => false }),
+    ).toBe(false)
+    expect(navigate).not.toHaveBeenCalled()
+    expect(storage.setItem).not.toHaveBeenCalled()
+  })
+})

@@ -61,6 +61,7 @@
     "eslint-plugin-oxlint": "^1.85.0",
     "eslint-plugin-playwright": "^2.12.0",
     "eslint-plugin-vue": "^10.11.1",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^17.12.0",
     "jsdom": "^30.1.1",
     "npm-run-all2": "^9.0.3",

@@ -6,6 +6,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { getAuth0 } from './auth0-client'
+import { installConnectivityListeners } from './lib/connectivity'
 import { registerServiceWorker } from './lib/serviceWorker'
 import { installStaleChunkReload } from './lib/staleChunkReload'
 import { initTheme } from './lib/theme'
@@ -17,6 +18,9 @@ initTheme()
 // A tab left open across a deploy references chunks that no longer exist;
 // reload once so it picks up the current bundle instead of erroring.
 installStaleChunkReload()
+
+// Online/offline events feed the offline banner and the outbox replay.
+installConnectivityListeners()
 
 const app = createApp(App)
 

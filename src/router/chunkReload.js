@@ -30,8 +30,12 @@ export function reloadForStaleChunk(
     storage = globalThis.sessionStorage,
     navigate = (url) => globalThis.location.assign(url),
     now = Date.now(),
+    isOnline = () => globalThis.navigator?.onLine ?? true,
   } = {},
 ) {
+  // Offline the chunk is missing because it was never cached; reloading
+  // would only lose the page the person is on.
+  if (!isOnline()) return false
   try {
     if (now - (Number(storage.getItem(RELOAD_KEY)) || 0) < RELOAD_COOLDOWN_MS) return false
     storage.setItem(RELOAD_KEY, String(now))

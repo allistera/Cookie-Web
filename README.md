@@ -135,6 +135,33 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 
 See [AI capabilities: decision and implementation](docs/AI-CAPABILITIES-REPORT.md) for the detailed AI design and [Cookie Documentation](https://allistera.github.io/Cookie-Docs/) for the deployed system guide.
 
+## Offline use
+
+Cookie keeps working, read-mostly, without a connection. The service worker
+(`public/sw.js`) serves the app shell, its fonts and icons, and the last
+twenty opened message bodies. On top of that the stores keep the last
+response the Workers served for the inbox and each folder's first page,
+labels and categories, the task list per project, the project list, the
+documents workspace and the last twenty opened documents, all in an
+IndexedDB database keyed by the signed-in account (`src/lib/offlineCache.js`).
+A load that fails at the network layer shows that saved copy and a banner
+saying so; HTTP errors still report as before.
+
+Changes that cannot be sent wait in a persistent outbox
+(`src/lib/outbox.js`): message flags (star, read, done, snooze), task edits
+and completions, and document edits (shown as "Saved on this device" in the
+editor). They stay on screen, survive a reload, and go out in order when the
+browser reports being online again, when the tab becomes visible, and at the
+next start. Later changes to the same item merge into the earlier queued one.
+A change the server refuses is dropped rather than retried forever; a
+document that changed elsewhere while you were offline has your edits saved
+beside it as "<title> (offline copy)". Sending mail, search and AI features
+need a connection and the Send buttons wait for one.
+
+Signing out deletes the offline cache and outbox. Chromium and Firefox run
+`e2e/offline.spec.js`, which cuts the Workers off and checks the cached
+inbox, a queued star and its replay.
+
 ## Technology
 
 | Area            | Technology                                        |

@@ -1,5 +1,8 @@
+import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from './connectivity'
 import { startTiming } from './performance'
 // HTTP mechanics shared by stores; domain state and rollback stay with callers.
+// A failure at the network layer (as opposed to an HTTP error) marks the app
+// offline for the banner and the outbox; any response marks it back online.
 export async function jsonRequest(url, { method = 'GET', body, headers = {}, signal } = {}) {
   const resource = new URL(url, 'http://localhost').pathname.split('/')[1]
   const completeTiming = startTiming(
@@ -9,7 +12,14 @@ export async function jsonRequest(url, { method = 'GET', body, headers = {}, sig
     const options = { method, headers }
     if (signal) options.signal = signal
     if (body !== undefined) options.body = JSON.stringify(body)
-    const response = await fetch(url, options)
+    let response
+    try {
+      response = await fetch(url, options)
+    } catch (error) {
+      if (isNetworkError(error)) noteNetworkFailure()
+      throw error
+    }
+    noteNetworkSuccess()
     if (!response.ok) {
       const error = new Error(
         `${method} ${new URL(url, 'http://localhost').pathname} responded ${response.status}`,
