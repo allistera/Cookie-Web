@@ -36,7 +36,7 @@ function rowsOf(wrapper) {
   return wrapper.get('[data-testid="task-rows"]').findAll('.todo-row')
 }
 
-// A fresh copy per test: marking a priority group read mutates its items in place.
+// A fresh copy per test: completing a priority group mutates its items.
 const DIGEST = () => ({
   overview: 'One reply needs you and one message is worth reviewing.',
   created_at: '2026-08-03T05:00:00.000Z',
@@ -196,10 +196,10 @@ describe('AIInboxView (AI Today)', () => {
     // Only the still-unread message keeps a dot.
     expect(replyNeeded.findAll('.unread-dot')).toHaveLength(1)
 
-    // A topic with nothing left unread offers no "mark all read".
+    // Already-read mail can still be marked Done.
     const review = wrapper.findAll('.topic-section')[1]
     expect(review.get('.topic-meta').text()).toContain('1 source')
-    expect(review.find('.topic-action-btn').exists()).toBe(false)
+    expect(review.get('.topic-action-btn').text()).toBe('Mark all emails as Done')
   })
 
   it('explains the triage and summarizes Noise without listing those messages', () => {
@@ -346,117 +346,84 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.get('[data-testid="news-empty"]').text()).toContain('Settings → Personalisation')
   })
 
-  it('marks a topic read, clearing its dots and confirming with a toast', async () => {
+  it('marks a group done, including read mail, and hides it', async () => {
     store.digest = DIGEST()
-    const markTopicRead = vi.spyOn(store, 'markTopicRead').mockImplementation(async (topic) => {
-      topic.items.forEach((item) => {
-        item.unread = false
-      })
-      return 1
-    })
-    const notify = vi.spyOn(store, 'notify')
-
-    const wrapper = mountView()
-    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
-    await flushPromises()
-
-    expect(markTopicRead).toHaveBeenCalledWith(store.digest.topics[0])
-    expect(notify).toHaveBeenCalledWith('Marked 1 email read.')
-    expect(wrapper.findAll('.topic-section')[0].findAll('.unread-dot')).toHaveLength(0)
-  })
-
-  it('reports when some of a topic could not be marked read', async () => {
-    store.digest = DIGEST()
-    vi.spyOn(store, 'markTopicRead').mockResolvedValue(0)
-    const notify = vi.spyOn(store, 'notify')
-
-    const wrapper = mountView()
-    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
-    await flushPromises()
-
-    expect(notify).toHaveBeenCalledWith('Some emails could not be marked read.', 'error')
-  })
-
-  it('lists mail marked done in the last day as ticked rows with no actions', () => {
-    const digest = DIGEST()
-    digest.topics[1].items[0].done = true
-    store.digest = digest
-    const wrapper = mountView()
-
-    const review = wrapper.findAll('.topic-section')[1]
-    const row = review.get('.topic-catchup-row')
-    expect(row.classes()).toContain('topic-done-row')
-    expect(row.text()).toContain('Practice moved – West Side Park.')
-    const tick = row.get('.todo-check-btn')
-    expect(tick.attributes('aria-label')).toBe('Done: Practice moved')
-    expect(tick.attributes('disabled')).toBeDefined()
-    expect(tick.get('.material-symbols-outlined').text()).toBe('task_alt')
-    expect(row.find('[title="Reschedule"]').exists()).toBe(false)
-    // It still counts as a source and still links to its email.
-    expect(review.get('.topic-meta').text()).toContain('1 source')
-    expect(row.get('a.email-link').attributes('href')).toBe('/inbox?open=msg-3')
-    // Rows that are not done keep their actions.
-    const open = wrapper.findAll('.topic-section')[0].findAll('.topic-catchup-row')[0]
-    expect(open.get('.todo-check-btn').attributes('aria-label')).toBe(
-      'Mark done: Contractor needs the floor-plan choice',
-    )
-    expect(open.find('[title="Reschedule"]').exists()).toBe(true)
-  })
-
-  it('marks a topic item done, persists it, and keeps the row ticked', async () => {
-    store.digest = DIGEST()
-    store.traditionalEmails = [{ id: 'msg-1', unread: true, isArchived: false }]
     const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
     const notify = vi.spyOn(store, 'notify')
-
     const wrapper = mountView()
-    const kitchen = wrapper.findAll('.topic-section')[0]
-    expect(kitchen.findAll('.topic-catchup-row')).toHaveLength(2)
-
-    await kitchen.findAll('.topic-catchup-row')[0].get('.todo-check-btn').trigger('click')
+    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
     await flushPromises()
-
-    expect(updateMessage).toHaveBeenCalledWith('msg-1', {
-      is_archived: true,
-      is_unread: false,
-    })
-    expect(store.traditionalEmails).toEqual([])
-    expect(notify).toHaveBeenCalledWith('Marked "Contractor needs the floor-plan choice" done.')
-    // The row stays, ticked and without its dot, the way the Worker returns
-    // recently done mail after a reload.
-    const kitchenAfter = wrapper.findAll('.topic-section')[0]
-    expect(kitchenAfter.findAll('.topic-catchup-row')).toHaveLength(2)
-    const row = kitchenAfter.findAll('.topic-catchup-row')[0]
-    expect(row.classes()).toContain('topic-done-row')
-    expect(row.get('.todo-check-btn').attributes('aria-label')).toBe(
-      'Done: Contractor needs the floor-plan choice',
-    )
-    expect(row.find('.unread-dot').exists()).toBe(false)
-    expect(wrapper.get('.ai-greeting').text()).toContain('2 priority groups')
-    // A ticked row does not persist again.
-    await row.get('.todo-check-btn').trigger('click')
-    await flushPromises()
-    expect(updateMessage).toHaveBeenCalledTimes(1)
+    expect(updateMessage).toHaveBeenCalledTimes(2)
+    expect(updateMessage).toHaveBeenCalledWith('msg-2', { is_archived: true, is_unread: false })
+    expect(notify).toHaveBeenCalledWith('Marked 2 emails done.')
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['👀 Review'])
   })
 
-  it('keeps a topic whose only item is marked done', async () => {
+  it('hides pending group actions and restores failed rows for retry', async () => {
+    store.digest = DIGEST()
+    let rejectUpdate
+    const pending = new Promise((_, reject) => {
+      rejectUpdate = reject
+    })
+    const updateMessage = vi.spyOn(store, 'updateMessage').mockReturnValue(pending)
+    const wrapper = mountView()
+    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
+    expect(
+      wrapper.find('[aria-label="Mark done: Contractor needs the floor-plan choice"]').exists(),
+    ).toBe(false)
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['👀 Review'])
+    expect(updateMessage).toHaveBeenCalledTimes(2)
+    rejectUpdate(new Error('offline'))
+    await flushPromises()
+    expect(wrapper.findAll('.topic-section')[0].findAll('.topic-catchup-row')).toHaveLength(2)
+    expect(
+      wrapper.find('[aria-label="Mark done: Contractor needs the floor-plan choice"]').exists(),
+    ).toBe(true)
+  })
+
+  it('keeps failed emails visible when completing a group partially succeeds', async () => {
+    store.digest = DIGEST()
+    vi.spyOn(store, 'updateMessage').mockImplementation(async (id) => {
+      if (id === 'msg-2') throw new Error('boom')
+      return { ok: true }
+    })
+    const notify = vi.spyOn(store, 'notify')
+    const wrapper = mountView()
+    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
+    await flushPromises()
+    expect(notify).toHaveBeenCalledWith('Some emails could not be marked done.', 'error')
+    const rows = wrapper.findAll('.topic-section')[0].findAll('.topic-catchup-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].get('a.email-link').attributes('href')).toBe('/inbox?open=msg-2')
+  })
+
+  it('excludes already-Done emails returned by an older server', () => {
+    store.digest = DIGEST()
+    store.digest.topics[1].items[0].done = true
+    const wrapper = mountView()
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['↩️ Reply Needed'])
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 priority group')
+  })
+
+  it('marks an individual email done and hides its row', async () => {
+    store.digest = DIGEST()
+    const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
+    const wrapper = mountView()
+    await wrapper.findAll('.topic-catchup-row')[0].get('.todo-check-btn').trigger('click')
+    await flushPromises()
+    expect(updateMessage).toHaveBeenCalledWith('msg-1', { is_archived: true, is_unread: false })
+    expect(wrapper.find('a.email-link[href="/inbox?open=msg-1"]').exists()).toBe(false)
+    expect(wrapper.findAll('.topic-section')[0].findAll('.topic-catchup-row')).toHaveLength(1)
+  })
+
+  it('drops a group when its last email is completed', async () => {
     store.digest = DIGEST()
     vi.spyOn(store, 'completeTopicItem').mockResolvedValue(undefined)
-
     const wrapper = mountView()
-    // Review is the second group and has a single, already-read item.
-    const review = wrapper.findAll('.topic-section')[1]
-    await review.get('.todo-check-btn').trigger('click')
+    await wrapper.findAll('.topic-section')[1].get('.todo-check-btn').trigger('click')
     await flushPromises()
-
-    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual([
-      '↩️ Reply Needed',
-      '👀 Review',
-    ])
-    expect(wrapper.get('.ai-greeting').text()).toContain('2 priority groups')
-    expect(wrapper.findAll('.topic-section')[1].get('.topic-catchup-row').classes()).toContain(
-      'topic-done-row',
-    )
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['↩️ Reply Needed'])
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 priority group')
   })
 
   it('unticks a topic item when marking it done fails', async () => {

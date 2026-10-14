@@ -3456,12 +3456,8 @@ export const useInboxStore = defineStore('inbox', {
       this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
     },
 
-    // Completes one digest item by marking its referenced email Done. The
-    // persisted archive flag (and its timestamp) is what makes the Worker
-    // return the item as done for the next 24 hours when the stored digest is
-    // composed again after a reload, so the item is flagged done here too.
-    // Apply local state only after the PATCH succeeds so the view can untick
-    // its optimistic row on failure without also repairing cached email state.
+    // Mark the referenced email Done. Apply local state after persistence so
+    // failed updates can restore the view without repairing cached mail.
     async completeTopicItem(item) {
       const email = this.emailById(item.message_id)
       const positions = email
@@ -3498,13 +3494,10 @@ export const useInboxStore = defineStore('inbox', {
       if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
     },
 
-    // Marks every still-unread message in one digest topic as read, clearing
-    // its dots in place. Settled per message, so one failure does not abandon
-    // the rest.
-    async markTopicRead(topic) {
-      const unread = (topic?.items || []).filter((item) => item.unread)
-      if (unread.length === 0) return 0
-      const results = await Promise.allSettled(unread.map((item) => this.markTopicItemRead(item)))
+    // Complete read and unread emails independently so failures remain actionable.
+    async markTopicDone(topic) {
+      const items = (topic?.items || []).filter((item) => !item.done)
+      const results = await Promise.allSettled(items.map((item) => this.completeTopicItem(item)))
       return results.filter((result) => result.status === 'fulfilled').length
     },
 
