@@ -398,15 +398,11 @@ test('The root path shows AI Today to-dos, email triage, and news', async ({ pag
   )
   await expect(replyNeeded.locator('.topic-meta')).toContainText('2 sources')
   await expect(replyNeeded.locator('.unread-dot')).toHaveCount(2)
-  // Mail marked done in the last 24 hours stays listed, ticked, with no
-  // Mark done or Reschedule action.
+  // Done mail from an older stored triage is excluded from rows and counts.
   const review = triage.locator('.topic-section').nth(1)
-  await expect(review.locator('.topic-meta')).toContainText('2 sources')
-  const doneRow = review.locator('.topic-done-row')
-  await expect(doneRow).toHaveCount(1)
-  await expect(doneRow).toContainText('Parcel delivered')
-  await expect(doneRow.getByRole('button', { name: 'Done: Parcel delivered' })).toBeDisabled()
-  await expect(doneRow.getByRole('button', { name: /Reschedule/ })).toHaveCount(0)
+  await expect(review.locator('.topic-meta')).toContainText('1 source')
+  await expect(review.locator('.topic-done-row')).toHaveCount(0)
+  await expect(review).not.toContainText('Parcel delivered')
   const noise = page.getByTestId('triage-noise')
   await expect(noise).toContainText('4 emails classified as Noise')
   await expect(noise).toContainText('3 marketing · 1 automated')
