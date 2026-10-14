@@ -106,7 +106,7 @@ describe('BucketPanel', () => {
     expect(store.bucket.icon).toBe('😀')
   })
 
-  it('removes one item, and clears the bucket with an undo', async () => {
+  it('removes one item, and Done removes the bucket with an undo', async () => {
     const inbox = useInboxStore()
     await render()
     await wrapper
@@ -115,8 +115,10 @@ describe('BucketPanel', () => {
     expect(store.items).toEqual([email])
     expect(wrapper.text()).toContain('1 item')
 
-    await wrapper.get('button.bucket-clear').trigger('click')
+    await wrapper.get('button.bucket-done').trigger('click')
     expect(store.hasBucket).toBe(false)
+    expect(store.isOpen).toBe(false)
+    expect(localStorage.getItem(bucketStorageKey('auth0|me'))).toBeNull()
     expect(inbox.toasts.at(-1)).toMatchObject({ message: 'Bucket cleared.' })
     await inbox.runToastAction(inbox.toasts.at(-1).id)
     expect(store.items).toEqual([email])
@@ -131,10 +133,11 @@ describe('BucketPanel', () => {
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
   })
 
-  it('closes on Done, Escape and a click outside, but not on the header button', async () => {
+  it('closes on its close button, Escape and a click outside, but not on the header button', async () => {
     await render()
-    await wrapper.get('button.bucket-done').trigger('click')
+    await wrapper.get('button[aria-label="Close bucket"]').trigger('click')
     expect(store.isOpen).toBe(false)
+    expect(store.hasBucket).toBe(true)
 
     store.open()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
