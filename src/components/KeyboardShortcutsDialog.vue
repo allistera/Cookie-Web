@@ -6,7 +6,7 @@ import { useInboxStore } from '../stores/inbox'
 const store = useInboxStore()
 
 // Every single-key shortcut the app binds, grouped by where it works. Keep in
-// step with the handlers: App.vue ('/', '?', 'u') and TraditionalInboxView's
+// step with the handlers: App.vue ('/', '?', 'u', 'b') and TraditionalInboxView's
 // onKeydown (the email list, a multi-selection and the open email).
 const SECTIONS = [
   {
@@ -15,6 +15,7 @@ const SECTIONS = [
       { keys: ['/'], label: 'Open the command palette' },
       { keys: ['?'], label: 'Show keyboard shortcuts' },
       { keys: ['U'], label: 'Undo the last action' },
+      { keys: ['B'], label: 'Pin the open email, document, task or event to the bucket' },
     ],
   },
   {

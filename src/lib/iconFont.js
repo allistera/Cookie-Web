@@ -85,6 +85,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'palette',
   'person',
   'picture_as_pdf',
+  'push_pin',
   'refresh',
   'reply',
   'reply_all',
@@ -114,6 +115,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'view_list',
   'visibility_off',
   'warning_amber',
+  'work',
 ]
 
 // Written by scripts/fetch-icon-font.mjs; served same-origin and precached by

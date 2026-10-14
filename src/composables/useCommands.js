@@ -14,6 +14,8 @@ import {
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useDocumentsStore } from '../stores/documents'
 import { useSavedViewsStore } from '../stores/savedViews'
+import { useBucketsStore } from '../stores/buckets'
+import { useBucketPin } from './useBucketCandidate'
 import { savedViewDraftFromQuery, savedViewRoute } from '../lib/savedViews'
 import { scheduleChoices } from '../utils/schedule'
 
@@ -30,6 +32,8 @@ export function useCommands() {
   const tasks = useTaskItemsStore()
   const documents = useDocumentsStore()
   const savedViews = useSavedViewsStore()
+  const buckets = useBucketsStore()
+  const pinToBucket = useBucketPin()
   const router = useRouter()
   const route = useRoute()
   const { subscribedCalendars, loadCalendars, syncCalendar } = useCalendars(
@@ -179,6 +183,21 @@ export function useCommands() {
         title: 'Compose',
         icon: 'edit_square',
         run: () => store.openComposer(),
+      },
+      {
+        id: 'bucket-pin',
+        title: buckets.isCandidatePinned ? 'Unpin from Bucket' : 'Pin to Bucket',
+        icon: 'push_pin',
+        keyHint: 'B',
+        visible: !!buckets.candidate,
+        run: () => pinToBucket(),
+      },
+      {
+        id: 'bucket-open',
+        title: 'Open Bucket',
+        icon: 'work',
+        visible: buckets.hasBucket,
+        run: () => buckets.open(),
       },
       {
         id: 'calendar-create-event',

@@ -8,6 +8,7 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { useBucketsStore } from '../../stores/buckets'
 import { useSendersStore } from '../../stores/senders'
 import { useContactInsightsStore } from '../../stores/contactInsights'
 import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
@@ -1658,6 +1659,13 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.find('.ni-reader-subject').text()).toBe('Subject done-1')
     expect(wrapper.find('.ni-reader [title="Done"]').exists()).toBe(false)
     expect(wrapper.find('.ni-reader [title="Reschedule"]').exists()).toBe(false)
+    // Pinning it to the bucket records the folder, so the bucket's row can
+    // bring the Done list back before looking for the email.
+    expect(useBucketsStore().candidate).toMatchObject({
+      kind: 'email',
+      id: 'done-1',
+      meta: { folder: 'done', label: '' },
+    })
   })
 
   it('shows opened status in sent rows and the reader', async () => {
@@ -3450,6 +3458,27 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
 
     document.body.click()
     expect(store.openEmailId).toBe(null)
+  })
+
+  it('keeps the reader open for clicks on the bucket and its header button', () => {
+    // A bucket row opens an email by the time this listener sees the same
+    // click, and a glance at the bucket should not close what is being read.
+    const panel = document.createElement('section')
+    panel.className = 'bucket-panel'
+    const row = document.createElement('a')
+    panel.append(row)
+    const trigger = document.createElement('button')
+    trigger.className = 'bucket-trigger'
+    document.body.append(panel, trigger)
+
+    row.click()
+    trigger.click()
+    expect(store.openEmailId).toBe('today-1')
+
+    document.body.click()
+    expect(store.openEmailId).toBe(null)
+    panel.remove()
+    trigger.remove()
   })
 
   it("keeps 'd' working when a message is opened while a text field was focused", async () => {

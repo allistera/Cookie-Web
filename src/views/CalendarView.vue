@@ -9,6 +9,9 @@ import {
   useCalendars,
 } from '../composables/useCalendars'
 import SidebarResizer from '../components/SidebarResizer.vue'
+import { useBucketCandidate, useBucketPin } from '../composables/useBucketCandidate'
+import { eventBucketItem } from '../lib/bucketItems'
+import { useBucketsStore } from '../stores/buckets'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import { relinkEmailCalendarEvent, rememberEmailCalendarEvent } from '../lib/emailCalendarEvents'
 import {
@@ -19,6 +22,7 @@ import {
 } from '../lib/taskCalendarItems'
 
 const store = useInboxStore()
+const buckets = useBucketsStore()
 // Optional in standalone view tests; used for task navigation and event links.
 const router = useRouter()
 const {
@@ -79,6 +83,18 @@ const dragDraft = ref(null)
 const conflictVisible = ref(true)
 
 const visibleCalendars = ref(new Set())
+
+// An existing event open in the dialog is what 'b' pins to the bucket. The
+// dialog keeps focus in its fields, where a plain 'b' types, so its header
+// also carries a pin button.
+const openEventItem = computed(() =>
+  showNewEvent.value && editingEventId.value ? eventBucketItem(editingEvent.value) : null,
+)
+useBucketCandidate(openEventItem)
+const pinToBucket = useBucketPin()
+function pinOpenEvent() {
+  if (openEventItem.value) pinToBucket(openEventItem.value)
+}
 
 // Tasks with a due date show on the calendar through a pseudo-calendar of
 // their own, so they toggle like any other calendar in the sidebar.
@@ -746,7 +762,18 @@ watch(
 // save/delete is in flight, as AddTaskDialog does: those requests resolve
 // against the dialog's state and close it themselves when they finish.
 function dismissEventDialog() {
-  if (!eventSaving.value) closeNewEvent()
+  if (eventSaving.value) return
+  closeNewEvent()
+  // Closing an event opened from a link takes `event` out of the URL, so
+  // the same link (a bucket row, the Mail next-event chip) opens it again
+  // rather than being a navigation to where the page already is. A newer
+  // link held back by a failed save keeps its URL: this close opens it.
+  const query = router?.currentRoute.value.query
+  if (query?.event && openedEventLink === `${query.date}/${query.event}`) {
+    const rest = { ...query }
+    delete rest.event
+    router.replace({ query: rest })
+  }
 }
 
 function closeNewEvent() {
@@ -1542,6 +1569,18 @@ onUnmounted(() => {
                   :disabled="eventFormReadOnly"
                 />
               </div>
+              <button
+                v-if="editingEventId"
+                type="button"
+                class="new-event-close new-event-pin"
+                :class="{ pinned: buckets.isCandidatePinned }"
+                :aria-pressed="buckets.isCandidatePinned"
+                :aria-label="buckets.isCandidatePinned ? 'Unpin from bucket' : 'Pin to bucket'"
+                :title="buckets.isCandidatePinned ? 'Unpin from bucket' : 'Pin to bucket'"
+                @click="pinOpenEvent"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">push_pin</span>
+              </button>
               <button
                 type="button"
                 class="new-event-close"
@@ -2707,6 +2746,19 @@ onUnmounted(() => {
   background: var(--calendar-soft);
   color: var(--calendar-ink);
   outline: none;
+}
+
+/* The pin sits beside the close button, which keeps the right edge. */
+.new-event-pin + .new-event-close {
+  margin-left: 4px;
+}
+
+.new-event-pin .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.new-event-pin.pinned {
+  color: var(--accent);
 }
 
 .new-event-readonly-note {
