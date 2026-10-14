@@ -143,6 +143,8 @@ async function markTopicDone(topic) {
   if (markingTopic.value) return
   markingTopic.value = topic.title
   const wanted = topic.items.length
+  const ids = topic.items.map((item) => item.message_id)
+  completingItemIds.value = new Set([...completingItemIds.value, ...ids])
   try {
     const marked = await store.markTopicDone(topic)
     if (marked < wanted) {
@@ -151,6 +153,9 @@ async function markTopicDone(topic) {
       store.notify(`Marked ${marked} ${marked === 1 ? 'email' : 'emails'} done.`)
     }
   } finally {
+    const next = new Set(completingItemIds.value)
+    ids.forEach((id) => next.delete(id))
+    completingItemIds.value = next
     markingTopic.value = null
   }
 }

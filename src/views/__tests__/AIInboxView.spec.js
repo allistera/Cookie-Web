@@ -359,6 +359,28 @@ describe('AIInboxView (AI Today)', () => {
     expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['👀 Review'])
   })
 
+  it('hides pending group actions and restores failed rows for retry', async () => {
+    store.digest = DIGEST()
+    let rejectUpdate
+    const pending = new Promise((_, reject) => {
+      rejectUpdate = reject
+    })
+    const updateMessage = vi.spyOn(store, 'updateMessage').mockReturnValue(pending)
+    const wrapper = mountView()
+    await wrapper.findAll('.topic-section')[0].get('.topic-action-btn').trigger('click')
+    expect(
+      wrapper.find('[aria-label="Mark done: Contractor needs the floor-plan choice"]').exists(),
+    ).toBe(false)
+    expect(wrapper.findAll('.topic-title').map((t) => t.text())).toEqual(['👀 Review'])
+    expect(updateMessage).toHaveBeenCalledTimes(2)
+    rejectUpdate(new Error('offline'))
+    await flushPromises()
+    expect(wrapper.findAll('.topic-section')[0].findAll('.topic-catchup-row')).toHaveLength(2)
+    expect(
+      wrapper.find('[aria-label="Mark done: Contractor needs the floor-plan choice"]').exists(),
+    ).toBe(true)
+  })
+
   it('keeps failed emails visible when completing a group partially succeeds', async () => {
     store.digest = DIGEST()
     vi.spyOn(store, 'updateMessage').mockImplementation(async (id) => {
