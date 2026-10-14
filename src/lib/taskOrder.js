@@ -36,7 +36,8 @@ export function orderAfterDrop(ids, draggedId, targetId, place) {
 // Today's order: due date, then the day's own arrangement (rows never
 // arranged there come after those that were), then position.
 export function compareByDueThenPosition(a, b) {
-  const byDue = String(a.dueDate ?? '9999-12-31').localeCompare(String(b.dueDate ?? '9999-12-31'))
+  if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1
+  const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
   if (byDue) return byDue
   const aToday = a.todayPosition ?? Number.POSITIVE_INFINITY
   const bToday = b.todayPosition ?? Number.POSITIVE_INFINITY
