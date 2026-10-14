@@ -656,23 +656,25 @@ onUnmounted(() => {
 
         <div class="header-right">
           <!-- The bucket's button exists only while there is a bucket: the
-               first 'b' press makes both. -->
-          <button
-            v-if="bucketsStore.hasBucket"
-            type="button"
-            class="bucket-trigger"
-            :class="{ active: bucketsStore.isOpen }"
-            :title="bucketsStore.bucket.title || 'Bucket'"
-            :aria-label="`Open bucket${bucketsStore.bucket.title ? `: ${bucketsStore.bucket.title}` : ''}`"
-            aria-haspopup="dialog"
-            :aria-expanded="bucketsStore.isOpen"
-            @click="bucketsStore.toggleOpen()"
-          >
-            <span v-if="bucketIcon.symbol" class="material-symbols-outlined" aria-hidden="true">{{
-              bucketIcon.symbol
-            }}</span>
-            <span v-else aria-hidden="true">{{ bucketIcon.emoji }}</span>
-          </button>
+               first 'b' press makes both. It sits in a raised pill (the dock)
+               beside the avatar. -->
+          <div v-if="bucketsStore.hasBucket" class="bucket-dock">
+            <button
+              type="button"
+              class="bucket-trigger"
+              :class="{ active: bucketsStore.isOpen }"
+              :title="bucketsStore.bucket.title || 'Bucket'"
+              :aria-label="`Open bucket${bucketsStore.bucket.title ? `: ${bucketsStore.bucket.title}` : ''}`"
+              aria-haspopup="dialog"
+              :aria-expanded="bucketsStore.isOpen"
+              @click="bucketsStore.toggleOpen()"
+            >
+              <span v-if="bucketIcon.symbol" class="material-symbols-outlined" aria-hidden="true">{{
+                bucketIcon.symbol
+              }}</span>
+              <span v-else aria-hidden="true">{{ bucketIcon.emoji }}</span>
+            </button>
+          </div>
           <div class="profile-container" :title="user?.name || 'Account'">
             <button
               type="button"
@@ -957,15 +959,25 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-/* The bucket's header button: a round tile showing its icon, filled while
-   its panel is open. */
+/* The bucket dock: a raised white pill in the header holding the bucket's
+   round button, which shows the bucket's icon and fills while its panel is
+   open. */
+.bucket-dock {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
 .bucket-trigger {
-  width: 36px;
-  height: 36px;
-  margin-right: 4px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 50%;
-  background: var(--bg-input);
+  background: transparent;
   color: var(--text-primary);
   font-size: 18px;
   line-height: 1;
