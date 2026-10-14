@@ -7,8 +7,10 @@ import { isNetworkError } from '../lib/connectivity'
 import { localToday } from '../lib/localDate'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
+import { filterIdOf, isFilterProject, taskMatchesFilter } from '../lib/taskFilters'
 import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
+import { useTaskFiltersStore } from './taskFilters'
 import { useTaskLabelsStore } from './taskLabels'
 
 // Re-arranging sends the whole order, so the requests must reach the server
@@ -35,11 +37,15 @@ async function queueTaskPatch(id, payload) {
 export const TASK_PATCH = 'task-patch'
 
 // Whether a task belongs on the list for `project` ('today', 'inbox', a
-// 'label:<name>' list or a project id). Shared by the live list (which
-// drops rows that no longer belong after an edit) and the offline overlay.
+// 'label:<name>' list, a 'filter:<id>' list or a project id). Shared by the
+// live list (which drops rows that no longer belong after an edit) and the
+// offline overlay. A saved filter's rules live in the filters store, so
+// here a filter list keeps every row; belongsToLoadedList, which can reach
+// the store, is the one that applies them.
 export function belongsToList(item, project, items, today = localToday()) {
   if (project === null) return false
   if (item.parentId) return items.some((row) => row.id === item.parentId)
+  if (isFilterProject(project)) return true
   // Today carries overdue tasks forward, so it is "due on or before".
   if (project === 'today') return Boolean(item.dueDate) && item.dueDate <= today
   // A label list spans every project: membership is the label itself.
@@ -148,7 +154,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     async loadItems(project, { force = false } = {}) {
-      const today = project === 'today' ? localToday() : null
+      // Today and a saved filter (whose date rules are relative) are fetched
+      // for the caller's own date, and refetched once it moves on.
+      const today = project === 'today' || isFilterProject(project) ? localToday() : null
       if (this.loadedProject === project && this.loadedDate === today && !force) return
       // Clear the previous project's tasks and disown loadedProject before
       // the request goes out, so a switch never leaves the last project's
@@ -168,8 +176,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
       this.loadedProject = null
       this.isLoading = true
       try {
-        // Today spans every project and needs the caller's own date; the
-        // Worker refuses the request without one.
+        // Today and a filter span every project and need the caller's own
+        // date; the Worker refuses the request without one.
         const date = today ? `&date=${today}` : ''
         const { items, nextCursor } = await this.request('GET', {
           params: `?project=${encodeURIComponent(project)}${date}&view=page`,
@@ -217,7 +225,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       try {
         const params = new URLSearchParams({ project, view: 'page', after: this.nextCursor })
         // Later pages continue the list the first page started.
-        if (project === 'today') params.set('date', this.loadedDate)
+        if (this.loadedDate) params.set('date', this.loadedDate)
         const { items, nextCursor } = await this.request('GET', { params: `?${params}` })
         if (seq !== this.loadSeq) return
         const seen = new Set(this.items.map((item) => item.id))
@@ -289,8 +297,16 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // heading happens to be open. A sub-task travels with its parent: it
     // belongs wherever the parent is already listed, which also covers Today,
     // where a fresh sub-task has no due date of its own to qualify on.
+    // A saved filter's list is judged by its rules, read from the filters
+    // store; a filter that store no longer knows keeps the row rather than
+    // guessing it away.
     belongsToLoadedList(item) {
-      return belongsToList(item, this.loadedProject, this.items)
+      const project = this.loadedProject
+      if (isFilterProject(project) && !item.parentId) {
+        const filter = useTaskFiltersStore().byId(filterIdOf(project))
+        return filter ? taskMatchesFilter(item, filter, localToday()) : true
+      }
+      return belongsToList(item, project, this.items)
     },
 
     // A sub-task sends only its parent — the server derives the project from

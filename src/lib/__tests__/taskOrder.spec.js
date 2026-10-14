@@ -1,12 +1,29 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  compareByDueDateThenPosition,
   compareByPosition,
   dealPositions,
   orderAfterDrop,
   sortByPosition,
   sortForList,
 } from '../taskOrder'
+
+describe('a saved filter list', () => {
+  // The server lists a filter by due date, undated rows last, then by each
+  // row's position in its own project; Today's arrangement plays no part.
+  it('sorts by due date, undated last, then position, ignoring todayPosition', () => {
+    const rows = [
+      { id: 'late', dueDate: null, position: 1, todayPosition: 1 },
+      { id: 'b', dueDate: '2026-10-15', position: 2, todayPosition: 1 },
+      { id: 'a', dueDate: '2026-10-15', position: 1, todayPosition: 9 },
+      { id: 'soon', dueDate: '2026-10-14', position: 5, todayPosition: null },
+    ]
+    expect(sortForList(rows, 'filter:f1').map((row) => row.id)).toEqual(['soon', 'a', 'b', 'late'])
+    expect([...rows].sort(compareByDueDateThenPosition)[3].id).toBe('late')
+    expect(sortForList(rows, 'today').map((row) => row.id)).toEqual(['soon', 'b', 'a', 'late'])
+  })
+})
 
 describe('sortByPosition', () => {
   it('orders by position, then creation time, then id, without mutating', () => {

@@ -5,11 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import TaskDisplay from '../components/TaskDisplay.vue'
 import { localToday } from '../lib/localDate'
+import { describeRule, filterIdOf, isFilterProject } from '../lib/taskFilters'
 import { orderAfterDrop } from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { labelChipStyle } from '../lib/taskLabels'
 import { useProjectsStore } from '../stores/projects'
+import { useTaskFiltersStore } from '../stores/taskFilters'
 import { useTaskLabelsStore } from '../stores/taskLabels'
 import { useTaskItemsStore } from '../stores/taskItems'
 
@@ -46,7 +48,22 @@ const isLabel = computed(() => project.value.startsWith('label:'))
 const labelName = computed(() => (isLabel.value ? project.value.slice('label:'.length) : ''))
 const labels = useTaskLabelsStore()
 const labelStyle = computed(() => labelChipStyle(labels.byName.get(labelName.value)?.color))
-const isRule = computed(() => isInbox.value || isToday.value || isLabel.value)
+// A saved filter is the broadest rule: whatever its rules gather, from
+// every project. Its name and rules come from the filters store; the rows
+// come back by due date, so there is nothing to re-arrange and nowhere for
+// a divider or a new task to go.
+const isFilter = computed(() => isFilterProject(project.value))
+const filters = useTaskFiltersStore()
+const currentFilter = computed(() =>
+  isFilter.value ? filters.byId(filterIdOf(project.value)) : undefined,
+)
+const filterRules = computed(() =>
+  (currentFilter.value?.rules ?? []).map((rule) =>
+    describeRule(rule, { projects: projects.projects }),
+  ),
+)
+const filterMissing = computed(() => isFilter.value && filters.isLoaded && !currentFilter.value)
+const isRule = computed(() => isInbox.value || isToday.value || isLabel.value || isFilter.value)
 const current = computed(() =>
   isRule.value ? null : projects.projects.find((row) => row.id === project.value),
 )
@@ -56,8 +73,16 @@ const ancestors = computed(() =>
 const title = computed(() => {
   if (isToday.value) return 'Today'
   if (isLabel.value) return `@${labelName.value}`
+  if (isFilter.value) return currentFilter.value?.name ?? 'Filter'
   return isInbox.value ? 'Inbox' : (current.value?.name ?? '')
 })
+const crumb = computed(() => {
+  if (isLabel.value) return 'Labels'
+  return isFilter.value ? 'Filters' : 'My Projects'
+})
+// Today has no compose row (a new task needs a home), and neither does a
+// filter: its rows are whatever the rules gather, not a list to add to.
+const canCompose = computed(() => !isToday.value && !isFilter.value)
 
 // Today's rows come from across the tree, so each says where it lives.
 function homeOf(item) {
@@ -114,7 +139,7 @@ async function submitDividerEdit(item) {
 }
 
 const canAddDividers = computed(
-  () => taskLayout.value === 'list' && !isToday.value && !isLabel.value,
+  () => taskLayout.value === 'list' && !isToday.value && !isLabel.value && !isFilter.value,
 )
 // One at a time: a second click while the first is still on its way would
 // put two rules side by side.
@@ -201,10 +226,12 @@ function formatDueLine(item) {
 onMounted(() => {
   projects.loadProjects()
   items.loadItems(project.value)
+  if (isFilter.value) filters.loadFilters()
 })
 
 watch(project, (next) => {
   items.loadItems(next)
+  if (isFilterProject(next)) filters.loadFilters()
 })
 
 const titleEdit = useInlineEdit({
@@ -299,7 +326,7 @@ const draggedItem = computed(() =>
 )
 
 function canDropOn(item) {
-  if (taskLayout.value === 'board' || draggingMany.value) return false
+  if (taskLayout.value === 'board' || draggingMany.value || isFilter.value) return false
   if (!draggedItem.value || draggedItem.value.id === item.id) return false
   return !isToday.value || draggedItem.value.dueDate === item.dueDate
 }
@@ -396,6 +423,7 @@ function onTaskDrop(item) {
 // one place within the rows a drag could re-arrange, under the same rules,
 // then keeps focus on the grip so the move can be repeated.
 async function onGripKeydown(item, step) {
+  if (isFilter.value) return
   const group = isToday.value
     ? visibleItems.value.filter((row) => row.dueDate === item.dueDate)
     : visibleItems.value
@@ -442,7 +470,7 @@ watch(
     if (action !== 'new-task' && action !== 'add-divider') return
     items.viewActionRequest = null
     if (action === 'new-task') {
-      if (!isToday.value) startCompose()
+      if (canCompose.value) startCompose()
       return
     }
     // A divider goes under the last row; two in a row would say nothing.
@@ -470,7 +498,7 @@ async function submitDraft() {
   <div class="view-panel active tasks-view" :class="{ 'tasks-board-view': taskLayout === 'board' }">
     <div class="tasks-header">
       <nav class="tasks-breadcrumb" aria-label="Breadcrumb">
-        <span>{{ isLabel ? 'Labels' : 'My Projects' }}</span>
+        <span>{{ crumb }}</span>
         <template v-for="ancestor in ancestors" :key="ancestor.id">
           <span aria-hidden="true">/</span>
           <router-link :to="{ path: '/tasks', query: { project: ancestor.id } }">
@@ -532,6 +560,36 @@ async function submitDraft() {
       {{ current?.description || 'Add a description' }}
     </p>
 
+    <!-- A filter's rules in words, so the heading says what the rows have
+       in common, and the way to change them. -->
+    <div v-if="isFilter" class="tasks-filter-summary">
+      <template v-if="currentFilter">
+        <span class="tasks-filter-match">
+          {{ currentFilter.match === 'any' ? 'Any of' : 'All of' }}
+        </span>
+        <span
+          v-for="(rule, index) in filterRules"
+          :key="index"
+          class="tasks-filter-chip"
+          :class="{ 'tasks-filter-chip-not': rule.negate }"
+        >
+          <span class="tasks-filter-chip-field"
+            >{{ rule.field }} {{ rule.negate ? 'is not' : 'is' }}</span
+          >
+          {{ rule.value }}
+        </span>
+        <button
+          type="button"
+          class="tasks-filter-edit"
+          @click="filters.openEditor({ filter: currentFilter })"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+          Edit filter
+        </button>
+      </template>
+      <p v-else-if="filterMissing" class="tasks-filter-missing">This filter no longer exists.</p>
+    </div>
+
     <!-- The store clears items.items before a switch goes out, so this only
        ever shows while genuinely waiting on the newly-selected project —
        never the previous project's rows. -->
@@ -544,6 +602,9 @@ async function submitDraft() {
     </div>
 
     <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
+    <p v-else-if="isFilter && taskLayout === 'list' && !topLevelItems.length" class="tasks-empty">
+      No tasks match this filter.
+    </p>
     <div v-else :class="{ 'task-board': taskLayout === 'board' }">
       <section
         v-for="group in taskGroups"
@@ -684,7 +745,7 @@ async function submitDraft() {
                   >
                     ↻ {{ item.recurrence }}
                   </span>
-                  <span v-if="isToday" class="task-home">{{ homeOf(item) }}</span>
+                  <span v-if="isToday || isFilter" class="task-home">{{ homeOf(item) }}</span>
                 </button>
                 <button
                   class="task-delete"
@@ -717,7 +778,7 @@ async function submitDraft() {
       </section>
     </div>
 
-    <form v-if="composing && !isToday" class="add-task-row" @submit.prevent="submitDraft">
+    <form v-if="composing && canCompose" class="add-task-row" @submit.prevent="submitDraft">
       <input
         ref="draftInput"
         v-model="draft"
@@ -728,7 +789,7 @@ async function submitDraft() {
         @blur="submitDraft"
       />
     </form>
-    <button v-else-if="!isToday" class="add-task-btn" type="button" @click="startCompose">
+    <button v-else-if="canCompose" class="add-task-btn" type="button" @click="startCompose">
       <span aria-hidden="true">+</span>
       <span>Add task</span>
     </button>
@@ -846,6 +907,68 @@ async function submitDraft() {
   font-size: 14px;
   cursor: text;
   white-space: pre-wrap;
+}
+
+/* The filter's rules as chips under its title, each reading as a sentence
+   ("Due is Today"); an excluding rule gets a dashed border so the "not" is
+   seen before it is read. */
+.tasks-filter-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 24px;
+  font-size: 13px;
+}
+
+.tasks-filter-match,
+.tasks-filter-missing {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.tasks-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.tasks-filter-chip-field {
+  color: var(--text-secondary);
+}
+
+.tasks-filter-chip-not {
+  border-style: dashed;
+}
+
+.tasks-filter-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding: 3px 8px 3px 5px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks-filter-edit:hover,
+.tasks-filter-edit:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tasks-filter-edit .material-symbols-outlined {
+  font-size: 16px;
 }
 
 /* The title's click-to-edit is a real button for keyboard reach, stripped

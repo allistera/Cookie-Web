@@ -375,6 +375,25 @@ new task. The centered prompt blurs the background, supports Escape to close,
 and keeps your text if generation fails. The Tasks Worker must provide
 `POST /task-items/generate`; it uses the existing server-side AI credentials.
 
+### Saved task filters
+
+The Tasks sidebar has a **Filters** section between Today and My Projects.
+Press its **+** to build a filter from rules on due date (overdue, today,
+tomorrow, the next 7 days, any date, no date), project (including Inbox),
+priority, and label. Each rule reads as a sentence (`Due is Today`,
+`Project is not Work`); a filter matches **all** or **any** of its rules, and
+holds up to ten. A saved filter lists the open tasks it fits from every
+project, by due date with undated tasks last, and each row names the project
+it lives in. Open one from the sidebar, double-click it to rename, hover for
+edit and delete (delete offers Undo), or change its rules with **Edit filter**
+under the title. A filter view has no compose row, dividers or re-arranging:
+drag a row onto the sidebar to move it.
+
+Filters are saved per account as one revisioned document in `users.prefs`
+through the `cookie-web-tasks` Worker (`GET/PUT /task-filters`); the list is
+served by `GET /task-items?view=page&project=filter:<id>&date=YYYY-MM-DD`.
+No migration is needed; deploy the Worker before the web client.
+
 GitHub news shows all repositories returned by the daily top-repository feed by default. Enable **Settings → Personalisation → Personalise GitHub repositories** to rank and select repositories against your interests on the next AI Today refresh; Product Hunt continues to use your interests independently.
 
 ### Files and the folder browser

@@ -9,6 +9,7 @@ import {
   outOfOfficeError,
   outOfOfficeStatus,
 } from '../../src/lib/outOfOffice.js'
+import { taskMatchesFilter } from '../../src/lib/taskFilters.js'
 
 // Mirrors the validation in cookie-web-tasks/src/taskItems.js so the /task-items
 // fixture rejects what the real Worker handler rejects. See cleanText/isUuid there.
@@ -73,6 +74,7 @@ export function localApiPlugin(mode) {
         projects: [],
         taskItems: [],
         taskLabels: [],
+        taskFilters: { revision: 0, filters: [] },
         drafts: [],
         composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
         savedViews: { revision: 0, views: [] },
@@ -1849,6 +1851,44 @@ export function localApiPlugin(mode) {
       }
       return json(res, { error: 'Method not allowed' }, 405)
     }
+    // Saved task filters: one revisioned document, replaced whole, as
+    // cookie-web-tasks/src/taskFilters.js keeps it in users.prefs.
+    if (segments[0] === 'task-filters') {
+      if (segments.length > 1) return json(res, { error: 'Not Found' }, 404)
+      if (req.method === 'GET') return json(res, state.taskFilters)
+      if (req.method !== 'PUT') return json(res, { error: 'Method not allowed' }, 405)
+      const body = await readBody(req)
+      if (!Array.isArray(body.filters)) {
+        return json(res, { error: 'Invalid saved-filter document.' }, 400)
+      }
+      const filters = []
+      for (const filter of body.filters) {
+        const name = String(filter?.name ?? '').trim()
+        if (!name) return json(res, { error: 'Filter names must be 1–60 characters.' }, 400)
+        if (!Array.isArray(filter.rules) || !filter.rules.length) {
+          return json(res, { error: 'A filter needs 1–10 rules.' }, 400)
+        }
+        filters.push({
+          id: filter.id,
+          name,
+          match: filter.match === 'any' ? 'any' : 'all',
+          rules: filter.rules.map(({ field, value, negate }) => ({
+            field,
+            value,
+            negate: negate === true,
+          })),
+        })
+      }
+      if (body.revision !== state.taskFilters.revision) {
+        return json(
+          res,
+          { error: 'Saved filters changed in another session', current: state.taskFilters },
+          409,
+        )
+      }
+      state.taskFilters = { revision: state.taskFilters.revision + 1, filters }
+      return json(res, state.taskFilters)
+    }
     if (segments[0] === 'projects') {
       if (req.method === 'GET') {
         return json(res, {
@@ -1929,6 +1969,30 @@ export function localApiPlugin(mode) {
             timeZone,
             priority,
           }))
+        return json(res, { items })
+      }
+      if (req.method === 'GET' && (url.searchParams.get('project') ?? '').startsWith('filter:')) {
+        // Mirrors getTaskPage with a saved filter: the open tasks its rules
+        // fit, across every project, by due date with undated rows last,
+        // judged on the caller's own date. Sub-tasks ride along with a
+        // listed parent, as Today's do.
+        const date = url.searchParams.get('date')
+        if (!isTaskCalendarDate(date)) return json(res, { error: 'Invalid date' }, 400)
+        const id = url.searchParams.get('project').slice('filter:'.length)
+        const filter = state.taskFilters.filters.find((row) => row.id === id)
+        if (!filter) return json(res, { error: 'Filter not found' }, 404)
+        const fits = (item) => item.completedAt === null && taskMatchesFilter(item, filter, date)
+        const items = state.taskItems
+          .filter((item) => {
+            if (item.parentId === null) return fits(item)
+            const parent = state.taskItems.find((row) => row.id === item.parentId)
+            return Boolean(parent) && fits(parent)
+          })
+          .sort(
+            (a, b) =>
+              String(a.dueDate ?? '9999-12-31').localeCompare(String(b.dueDate ?? '9999-12-31')) ||
+              (a.position ?? 0) - (b.position ?? 0),
+          )
         return json(res, { items })
       }
       if (req.method === 'GET') {
