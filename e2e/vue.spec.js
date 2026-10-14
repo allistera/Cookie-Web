@@ -526,7 +526,7 @@ test('AI Inbox: a triage row links through to its own email', async ({ page }) =
   )
 })
 
-test('Marking a triage group read clears its unread dots', async ({ page }) => {
+test('Marking a triage group Done archives its emails and removes the group', async ({ page }) => {
   const reads = []
   await page.route(`${MESSAGES_API_URL}/messages`, async (route) => {
     if (route.request().method() === 'PATCH') {
@@ -541,16 +541,14 @@ test('Marking a triage group read clears its unread dots', async ({ page }) => {
   const replyNeeded = page.getByTestId('topic-sections').locator('.topic-section').first()
   await expect(replyNeeded.locator('.unread-dot')).toHaveCount(2)
 
-  await replyNeeded.locator('.topic-action-btn', { hasText: 'Mark all emails as read' }).click()
+  await replyNeeded.locator('.topic-action-btn', { hasText: 'Mark all emails as Done' }).click()
 
-  await expect(replyNeeded.locator('.unread-dot')).toHaveCount(0)
-  await expect(page.locator('.toast', { hasText: 'Marked 2 emails read.' })).toBeVisible()
+  await expect(page.locator('.topic-title', { hasText: 'Reply Needed' })).toHaveCount(0)
+  await expect(page.locator('.toast', { hasText: 'Marked 2 emails done.' })).toBeVisible()
   expect(reads).toEqual([
-    { id: 'fixture-1', is_unread: false },
-    { id: 'fixture-3', is_unread: false },
+    { id: 'fixture-1', is_archived: true, is_unread: false },
+    { id: 'fixture-3', is_archived: true, is_unread: false },
   ])
-  // With nothing left unread the action retires itself.
-  await expect(replyNeeded.locator('.topic-action-btn')).toHaveCount(0)
 })
 
 test('Marking a built-in task done removes it from AI Today and confirms with a toast', async ({

@@ -5372,7 +5372,7 @@ describe('Inbox Store', () => {
     })
   })
 
-  describe('markTopicRead', () => {
+  describe('markTopicDone', () => {
     const topic = () => ({
       title: 'Kitchen',
       items: [
@@ -5382,20 +5382,21 @@ describe('Inbox Store', () => {
       ],
     })
 
-    it('marks only the unread messages, clearing dots, rows and the badge', async () => {
+    it('completes read and unread messages, removing rows and updating the badge', async () => {
       const store = useInboxStore()
       store.traditionalEmails = [{ id: 'msg-1', unread: true }]
       store.unreadInboxCount = 5
       const updateMessage = vi.spyOn(store, 'updateMessage').mockResolvedValue({ ok: true })
 
       const subject = topic()
-      await expect(store.markTopicRead(subject)).resolves.toBe(2)
+      await expect(store.markTopicDone(subject)).resolves.toBe(3)
 
-      // The already-read message is left alone.
-      expect(updateMessage.mock.calls.map(([id]) => id)).toEqual(['msg-1', 'msg-3'])
-      expect(updateMessage).toHaveBeenCalledWith('msg-1', { is_unread: false })
+      // Read emails also need to be completed.
+      expect(updateMessage.mock.calls.map(([id]) => id)).toEqual(['msg-1', 'msg-2', 'msg-3'])
+      expect(updateMessage).toHaveBeenCalledWith('msg-1', { is_archived: true, is_unread: false })
       expect(subject.items.map((i) => i.unread)).toEqual([false, false, false])
-      expect(store.traditionalEmails[0].unread).toBe(false)
+      expect(store.traditionalEmails).toEqual([])
+      expect(subject.items.every((item) => item.done)).toBe(true)
       expect(store.unreadInboxCount).toBe(3)
     })
 
@@ -5408,17 +5409,17 @@ describe('Inbox Store', () => {
       })
 
       const subject = topic()
-      await expect(store.markTopicRead(subject)).resolves.toBe(1)
+      await expect(store.markTopicDone(subject)).resolves.toBe(2)
 
       expect(subject.items.map((i) => i.unread)).toEqual([false, false, true])
       expect(store.unreadInboxCount).toBe(4)
     })
 
-    it('does nothing when the topic has nothing unread', async () => {
+    it('does nothing when the topic has nothing unfinished', async () => {
       const store = useInboxStore()
       const updateMessage = vi.spyOn(store, 'updateMessage')
       await expect(
-        store.markTopicRead({ items: [{ message_id: 'msg-1', unread: false }] }),
+        store.markTopicDone({ items: [{ message_id: 'msg-1', unread: false, done: true }] }),
       ).resolves.toBe(0)
       expect(updateMessage).not.toHaveBeenCalled()
     })

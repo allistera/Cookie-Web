@@ -8,25 +8,17 @@ import { scheduleChoices } from '../utils/schedule'
 const store = useInboxStore()
 const { user } = useAuth()
 
-// "AI Today" shows what the data-enricher Worker gathered overnight: tasks
-// (built-in Tasks-app items due today or overdue plus action items extracted
-// from important mail) and a three-tier triage of the last 24 hours of inbox
-// mail, plus mail marked done in that time. Reply Needed and Review are shown
-// as priority groups; Noise is summarized rather than listed.
-// Completing a task hides it immediately, then persists via the store (which
-// completes it in the Tasks app); a failure rolls the row back.
-// Ticking a priority item's done checkbox shows it ticked immediately, then
-// persists via the store; the row stays, the way the Worker returns recently
-// done mail after a reload, and a failure unticks it. Rescheduling hides the
-// row immediately, so groups are re-derived to drop hidden items and any
-// group left with none.
+// Triage includes unfinished inbox mail. Completing or rescheduling an item
+// hides it immediately; failed updates restore the row.
 const completingItemIds = ref(new Set())
 const hiddenItemIds = ref(new Set())
 const priorityGroups = computed(() =>
   (store.digest?.topics ?? [])
     .map((topic) => ({
       ...topic,
-      items: topic.items.filter((item) => !hiddenItemIds.value.has(item.message_id)),
+      items: topic.items.filter(
+        (item) => !isDone(item) && !hiddenItemIds.value.has(item.message_id),
+      ),
     }))
     .filter((topic) => topic.items.length > 0),
 )
@@ -147,21 +139,16 @@ async function rescheduleTask(task, choice) {
 
 const markingTopic = ref(null)
 
-function unreadCount(topic) {
-  return topic.items.filter((item) => item.unread).length
-}
-
-async function markTopicRead(topic) {
+async function markTopicDone(topic) {
   if (markingTopic.value) return
   markingTopic.value = topic.title
-  const wanted = unreadCount(topic)
+  const wanted = topic.items.length
   try {
-    const marked = await store.markTopicRead(topic)
+    const marked = await store.markTopicDone(topic)
     if (marked < wanted) {
-      // The dots still showing are the ones that failed.
-      store.notify('Some emails could not be marked read.', 'error')
+      store.notify('Some emails could not be marked done.', 'error')
     } else {
-      store.notify(`Marked ${marked} ${marked === 1 ? 'email' : 'emails'} read.`)
+      store.notify(`Marked ${marked} ${marked === 1 ? 'email' : 'emails'} done.`)
     }
   } finally {
     markingTopic.value = null
@@ -427,12 +414,11 @@ onUnmounted(() => {
                 >
               </div>
               <button
-                v-if="unreadCount(topic)"
                 class="topic-action-btn"
                 :disabled="markingTopic === topic.title"
-                @click="markTopicRead(topic)"
+                @click="markTopicDone(topic)"
               >
-                Mark all emails as read
+                Mark all emails as Done
               </button>
             </div>
           </div>
