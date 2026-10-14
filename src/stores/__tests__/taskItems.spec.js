@@ -725,6 +725,25 @@ describe('a saved filter list', () => {
     expect(store.belongsToLoadedList({ ...ITEM, priority: 4 })).toBe(true)
   })
 
+  it('re-sorts the list when a due date edit moves a task that still matches', async () => {
+    const filters = useTaskFiltersStore()
+    filters.filters = [FILTER]
+    filters.isLoaded = true
+    store.loadedProject = 'filter:f1'
+    store.items = [
+      { ...ITEM, id: 'a', priority: 1, dueDate: '2026-10-14', position: 1 },
+      { ...ITEM, id: 'b', priority: 1, dueDate: '2026-10-15', position: 2 },
+    ]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...store.items[0], dueDate: '2026-10-20' } }),
+    }))
+
+    await store.setDueDate('a', '2026-10-20')
+
+    expect(store.items.map((row) => row.id)).toEqual(['b', 'a'])
+  })
+
   it('drops a task from the list once an edit takes it out of the filter', async () => {
     const filters = useTaskFiltersStore()
     filters.filters = [FILTER]

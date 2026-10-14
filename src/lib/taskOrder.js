@@ -49,7 +49,9 @@ export function compareByDueThenPosition(a, b) {
 // plays no part, so a day re-arranged in Today reads the same here as in
 // the projects the rows live in.
 export function compareByDueDateThenPosition(a, b) {
-  const byDue = String(a.dueDate ?? '9999-12-31').localeCompare(String(b.dueDate ?? '9999-12-31'))
+  // Undated after every date, however far off that date is.
+  if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1
+  const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
   return byDue || compareByPosition(a, b)
 }
 

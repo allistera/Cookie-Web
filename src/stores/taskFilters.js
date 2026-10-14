@@ -23,6 +23,10 @@ function pickFields(filter) {
   }
 }
 
+function sameFields(a, b) {
+  return JSON.stringify(pickFields(a)) === JSON.stringify(pickFields(b))
+}
+
 // Saved task filters for the Tasks sidebar. The Worker keeps them as one
 // document per person with a revision, replaced whole on every save (the
 // way saved mail views are kept), so every write here edits the latest list
@@ -139,12 +143,22 @@ export const useTaskFiltersStore = defineStore('taskFilters', {
       return saved ? filter : null
     },
 
-    async updateFilter(id, fields) {
+    // `base` is the filter as it was when editing started: if another
+    // session has changed it since, the edit stops rather than writing the
+    // older draft over it, and the editor's baseline moves to the latest
+    // version so a second Save, after review, goes through.
+    async updateFilter(id, fields, base = null) {
       let updated = null
       const saved = await this.applyChange((filters) => {
         const current = filters.find((filter) => filter.id === id)
         if (!current) {
           this.error = 'This filter was deleted in another session.'
+          return null
+        }
+        if (base && !sameFields(current, base)) {
+          this.error =
+            'This filter was changed in another session. Your edits are still here; review the latest version before saving again.'
+          if (this.editor?.id === id) this.editor.base = pickFields(current)
           return null
         }
         updated = { ...current, ...pickFields({ ...current, ...fields }) }
@@ -181,10 +195,11 @@ export const useTaskFiltersStore = defineStore('taskFilters', {
 
     // Opens the create form (optionally prefilled) or the edit form for an
     // existing filter. The draft is a copy: the list is only touched on save.
+    // `base` remembers the filter as it was, to spot edits made elsewhere.
     openEditor({ filter = null, draft = {} } = {}) {
       this.error = ''
       this.editor = filter
-        ? { mode: 'edit', id: filter.id, ...pickFields(filter) }
+        ? { mode: 'edit', id: filter.id, base: pickFields(filter), ...pickFields(filter) }
         : {
             mode: 'create',
             id: null,

@@ -18,10 +18,23 @@ describe('a saved filter list', () => {
       { id: 'b', dueDate: '2026-10-15', position: 2, todayPosition: 1 },
       { id: 'a', dueDate: '2026-10-15', position: 1, todayPosition: 9 },
       { id: 'soon', dueDate: '2026-10-14', position: 5, todayPosition: null },
+      { id: 'far', dueDate: '9999-12-31', position: 0 },
     ]
-    expect(sortForList(rows, 'filter:f1').map((row) => row.id)).toEqual(['soon', 'a', 'b', 'late'])
-    expect([...rows].sort(compareByDueDateThenPosition)[3].id).toBe('late')
-    expect(sortForList(rows, 'today').map((row) => row.id)).toEqual(['soon', 'b', 'a', 'late'])
+    expect(sortForList(rows, 'filter:f1').map((row) => row.id)).toEqual([
+      'soon',
+      'a',
+      'b',
+      'far',
+      'late',
+    ])
+    expect([...rows].sort(compareByDueDateThenPosition).at(-1).id).toBe('late')
+    expect(sortForList(rows, 'today').map((row) => row.id)).toEqual([
+      'soon',
+      'b',
+      'a',
+      'far',
+      'late',
+    ])
   })
 })
 

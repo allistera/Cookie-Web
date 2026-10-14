@@ -404,11 +404,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // confirmed state, so an earlier response or rollback cannot undo it.
       // A row that no longer belongs on screen (completed, or moved out of
       // the loaded list) leaves it.
+      // Today and a filter list are ordered by due date, so a row that
+      // stays after a date edit may still have moved.
       const settleInList = (row) => {
         if (!this.items.includes(row)) return
         const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(row)
         if (!row.parentId && (row.completedAt || outsideList)) {
           this.items = this.items.filter((candidate) => candidate.id !== id)
+        } else if (this.loadedProject === 'today' || isFilterProject(this.loadedProject)) {
+          this.items = sortForList(this.items, this.loadedProject)
         }
       }
       const perform = async () => {

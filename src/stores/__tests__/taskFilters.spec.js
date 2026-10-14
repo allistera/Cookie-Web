@@ -109,6 +109,25 @@ describe('task filters store', () => {
     expect(store.filters[0].name).toBe('Fires')
   })
 
+  it('stops an edit when the filter changed elsewhere, then lets a reviewed save through', async () => {
+    const elsewhere = { ...FILTER, rules: [{ field: 'priority', value: 2, negate: false }] }
+    let revision = 1
+    stubFetch(async (_url, options = {}) =>
+      options.method === 'PUT'
+        ? ok({ revision: ++revision, filters: JSON.parse(options.body).filters })
+        : ok({ revision: 1, filters: [elsewhere] }),
+    )
+    store.openEditor({ filter: FILTER })
+
+    expect(await store.updateFilter(FILTER.id, { name: 'Fires' }, store.editor.base)).toBeNull()
+    expect(store.error).toContain('changed in another session')
+    expect(store.editor.base).toEqual({ name: 'Urgent', match: 'all', rules: elsewhere.rules })
+    expect(puts()).toEqual([])
+
+    const saved = await store.updateFilter(FILTER.id, { name: 'Fires' }, store.editor.base)
+    expect(saved).toEqual({ ...elsewhere, name: 'Fires' })
+  })
+
   it('refuses to update a filter that is gone', async () => {
     stubFetch(async () => ok({ revision: 1, filters: [] }))
     expect(await store.updateFilter(FILTER.id, { name: 'Fires' })).toBeNull()
@@ -182,7 +201,8 @@ describe('task filters store', () => {
     })
 
     store.openEditor({ filter: FILTER })
-    expect(store.editor).toEqual({ mode: 'edit', id: FILTER.id, ...FILTER })
+    const { id, ...fields } = FILTER
+    expect(store.editor).toEqual({ mode: 'edit', id, base: fields, ...fields })
     store.editor.rules[0].value = 2
     expect(FILTER.rules[0].value).toBe(1)
 

@@ -96,6 +96,25 @@ describe('TaskFilterEditor', () => {
     expect(wrapper.findAll('.task-filter-rule')).toHaveLength(1)
   })
 
+  it('fills a label rule chosen before the labels arrived', async () => {
+    const labels = useTaskLabelsStore()
+    labels.labels = []
+    store.openEditor()
+    const wrapper = mountEditor()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Filter name"]').setValue('Home')
+    await wrapper.get('[aria-label="Rule 1 field"]').setValue('label')
+    expect(store.editor.rules[0].value).toBe('')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+
+    labels.labels = [{ id: 'l1', name: 'home', color: '#1a73e8' }]
+    await flushPromises()
+
+    expect(store.editor.rules[0].value).toBe('home')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+  })
+
   it('saves a new filter and opens it', async () => {
     store.openEditor()
     const create = vi.spyOn(store, 'createFilter').mockResolvedValue(FILTER)
@@ -133,7 +152,11 @@ describe('TaskFilterEditor', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(update).toHaveBeenCalledWith('f1', expect.objectContaining({ match: 'any' }))
+    expect(update).toHaveBeenCalledWith('f1', expect.objectContaining({ match: 'any' }), {
+      name: 'Urgent',
+      match: 'all',
+      rules: FILTER.rules,
+    })
     expect(load).toHaveBeenCalledWith('filter:f1', { force: true })
     expect(store.editor).toBeNull()
   })

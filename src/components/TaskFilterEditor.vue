@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -59,6 +59,19 @@ function setField(rule, field) {
   rule.value = defaultRuleValue(field, { labels: labels.labels })
 }
 
+// A label rule chosen before the labels arrived has no value yet; the first
+// label fills it in once they do, as it would have had they been loaded.
+watch(
+  () => labels.labels,
+  (loaded) => {
+    const first = loaded[0]?.name
+    if (!first || !editor.value) return
+    for (const rule of editor.value.rules) {
+      if (rule.field === 'label' && !rule.value) rule.value = first
+    }
+  },
+)
+
 function addRule() {
   if (editor.value.rules.length >= MAX_FILTER_RULES) return
   editor.value.rules.push(newFilterRule('due'))
@@ -74,7 +87,7 @@ async function save() {
   // Read before the editor closes and takes the mode with it.
   const editing = isEdit.value
   const filter = editing
-    ? await store.updateFilter(fields.id, fields)
+    ? await store.updateFilter(fields.id, fields, fields.base)
     : await store.createFilter(fields)
   if (!filter) return
   store.closeEditor()
