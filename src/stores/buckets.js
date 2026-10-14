@@ -5,6 +5,7 @@ import {
   BUCKET_DEFAULT_TTL_MS,
   bucketItemKey,
   readBucket,
+  removeBucket,
   writeBucket,
 } from '../lib/bucketItems'
 
@@ -61,7 +62,7 @@ export const useBucketsStore = defineStore('buckets', {
       if (!this.bucket || this.bucket.expiresAt > now) return false
       this.bucket = null
       this.isOpen = false
-      writeBucket(null)
+      removeBucket(this.ownerSub)
       return true
     },
 
@@ -134,13 +135,17 @@ export const useBucketsStore = defineStore('buckets', {
       const previous = this.bucket
       this.bucket = null
       this.isOpen = false
-      writeBucket(null)
+      removeBucket(this.ownerSub)
       return previous
     },
 
+    // Puts a cleared bucket back. Anything pinned since the clear (which
+    // made a fresh bucket) is kept, after the restored items.
     restore(bucket) {
       if (!bucket || bucket.owner !== this.ownerSub) return
-      this.bucket = bucket
+      const keys = new Set(bucket.items.map(bucketItemKey))
+      const since = (this.bucket?.items ?? []).filter((item) => !keys.has(bucketItemKey(item)))
+      this.bucket = { ...bucket, items: [...bucket.items, ...since] }
       this.persist()
     },
 

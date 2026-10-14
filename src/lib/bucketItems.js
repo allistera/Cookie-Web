@@ -3,11 +3,15 @@
 //
 // Each item records only what the panel needs to show it and open it again
 // (a kind, the id and a few display fields), never the content itself. One
-// bucket per account, under one localStorage key; it clears itself three
-// days after it was made unless the panel's "Clears in" control says
-// otherwise.
+// bucket per account, each under its own localStorage key so accounts sharing
+// a browser keep their own; it clears itself three days after it was made
+// unless the panel's "Clears in" control says otherwise.
 
-const STORAGE_KEY = 'cookie.bucket'
+const STORAGE_PREFIX = 'cookie.bucket.'
+
+export function bucketStorageKey(owner) {
+  return `${STORAGE_PREFIX}${owner}`
+}
 
 export const BUCKET_KINDS = ['email', 'document', 'task', 'event']
 
@@ -46,8 +50,12 @@ export function bucketItemIcon(kind) {
 
 // --- Items from what each app has open ---
 
-export function emailBucketItem(email) {
+// `folder` is the inbox's ?filter= the email was open in (sent, done, a
+// label...), blank for the inbox itself. The reader can only open an email
+// its lists hold, so the item routes back to that folder to load it.
+export function emailBucketItem(email, { folder = '', label = '' } = {}) {
   if (!email?.id) return null
+  const inFolder = String(folder ?? '')
   return {
     kind: 'email',
     id: String(email.id),
@@ -55,6 +63,8 @@ export function emailBucketItem(email) {
     meta: {
       sender: String(email.sender ?? ''),
       sentAt: String(email.sentAt ?? ''),
+      folder: inFolder,
+      label: inFolder === 'label' ? String(label ?? '') : '',
     },
   }
 }
@@ -102,8 +112,13 @@ export function eventBucketItem(event) {
 
 export function bucketItemRoute(item) {
   switch (item.kind) {
-    case 'email':
-      return { path: '/inbox', query: { open: item.id } }
+    case 'email': {
+      const query = {}
+      if (item.meta?.folder) query.filter = item.meta.folder
+      if (item.meta?.folder === 'label' && item.meta.label) query.label = item.meta.label
+      query.open = item.id
+      return { path: '/inbox', query }
+    }
     case 'document':
       return { path: `/documents/${encodeURIComponent(item.id)}` }
     case 'task':
@@ -242,8 +257,9 @@ export function parseBucket(raw, owner) {
 }
 
 export function readBucket(owner) {
+  if (!owner) return null
   try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY)
+    const raw = globalThis.localStorage?.getItem(bucketStorageKey(owner))
     return raw ? parseBucket(JSON.parse(raw), owner) : null
   } catch {
     return null
@@ -251,10 +267,19 @@ export function readBucket(owner) {
 }
 
 export function writeBucket(bucket) {
+  if (!bucket?.owner) return
   try {
-    if (bucket) globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(bucket))
-    else globalThis.localStorage?.removeItem(STORAGE_KEY)
+    globalThis.localStorage?.setItem(bucketStorageKey(bucket.owner), JSON.stringify(bucket))
   } catch {
     // Private mode or a full quota: the bucket still works for this session.
+  }
+}
+
+export function removeBucket(owner) {
+  if (!owner) return
+  try {
+    globalThis.localStorage?.removeItem(bucketStorageKey(owner))
+  } catch {
+    // As above.
   }
 }

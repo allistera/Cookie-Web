@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 import BucketPanel from '../BucketPanel.vue'
+import { bucketStorageKey } from '../../lib/bucketItems'
 import { useBucketsStore } from '../../stores/buckets'
 import { useInboxStore } from '../../stores/inbox'
 
@@ -91,7 +92,9 @@ describe('BucketPanel', () => {
     expect(document.activeElement).toBe(title.element)
     await title.setValue('Acme contract review')
     expect(store.bucket.title).toBe('Acme contract review')
-    expect(JSON.parse(localStorage.getItem('cookie.bucket')).title).toBe('Acme contract review')
+    expect(JSON.parse(localStorage.getItem(bucketStorageKey('auth0|me'))).title).toBe(
+      'Acme contract review',
+    )
   })
 
   it('changes the icon from the picker', async () => {
@@ -146,6 +149,33 @@ describe('BucketPanel', () => {
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(store.isOpen).toBe(false)
     trigger.remove()
+  })
+
+  it('leaves Escape to whatever is open above it', async () => {
+    const inbox = useInboxStore()
+    await render()
+    const escape = () =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    inbox.isCommandPaletteOpen = true
+    escape()
+    expect(store.isOpen).toBe(true)
+    inbox.isCommandPaletteOpen = false
+
+    inbox.isShortcutsHelpOpen = true
+    escape()
+    expect(store.isOpen).toBe(true)
+    inbox.isShortcutsHelpOpen = false
+
+    // The icon picker's popover closes on its own Escape; the panel stays.
+    await wrapper.get('button[aria-label="Change bucket icon"]').trigger('click')
+    expect(wrapper.find('.composer-emoji-popover').exists()).toBe(true)
+    await wrapper.get('.composer-emoji-popover input').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('.composer-emoji-popover').exists()).toBe(false)
+    expect(store.isOpen).toBe(true)
+
+    escape()
+    expect(store.isOpen).toBe(false)
   })
 
   it('shows an empty bucket how to fill it', async () => {

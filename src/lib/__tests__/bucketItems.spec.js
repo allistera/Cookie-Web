@@ -6,11 +6,13 @@ import {
   bucketItemKey,
   bucketItemRoute,
   bucketItemSubtitle,
+  bucketStorageKey,
   documentBucketItem,
   emailBucketItem,
   eventBucketItem,
   parseBucket,
   readBucket,
+  removeBucket,
   taskBucketItem,
   writeBucket,
 } from '../bucketItems'
@@ -45,10 +47,22 @@ describe('items from what each app has open', () => {
       kind: 'email',
       id: 'msg-1',
       title: 'Re: Acme MSA',
-      meta: { sender: 'Jamie Reid', sentAt: '2026-10-13T08:42:00.000Z' },
+      meta: { sender: 'Jamie Reid', sentAt: '2026-10-13T08:42:00.000Z', folder: '', label: '' },
     })
     expect(emailBucketItem({ id: 'msg-2', subject: '' }).title).toBe('(no subject)')
     expect(emailBucketItem(null)).toBeNull()
+  })
+
+  it('remembers the folder an email was open in', () => {
+    expect(emailBucketItem({ id: 'msg-1' }, { folder: 'done' }).meta).toMatchObject({
+      folder: 'done',
+      label: '',
+    })
+    expect(
+      emailBucketItem({ id: 'msg-1' }, { folder: 'label', label: 'Legal' }).meta,
+    ).toMatchObject({ folder: 'label', label: 'Legal' })
+    // A label name only means something in the label folder.
+    expect(emailBucketItem({ id: 'msg-1' }, { folder: 'sent', label: 'Legal' }).meta.label).toBe('')
   })
 
   it('takes a document’s title and last edit', () => {
@@ -109,6 +123,15 @@ describe('opening an item again', () => {
       path: '/inbox',
       query: { open: 'msg-1' },
     })
+    // Mail outside the inbox routes to its folder, which the inbox loads
+    // before the reader looks for the email.
+    expect(bucketItemRoute({ kind: 'email', id: 'msg-2', meta: { folder: 'done' } })).toEqual({
+      path: '/inbox',
+      query: { filter: 'done', open: 'msg-2' },
+    })
+    expect(
+      bucketItemRoute({ kind: 'email', id: 'msg-3', meta: { folder: 'label', label: 'Legal' } }),
+    ).toEqual({ path: '/inbox', query: { filter: 'label', label: 'Legal', open: 'msg-3' } })
     expect(bucketItemRoute({ kind: 'document', id: 'doc 1' })).toEqual({
       path: '/documents/doc%201',
     })
@@ -212,12 +235,26 @@ describe('storage', () => {
     items: [{ kind: 'email', id: 'msg-1', title: 'Re: Acme', meta: { sender: 'Jamie' } }],
   }
 
-  it('round-trips a bucket for its owner only', () => {
+  it('keeps each account’s bucket under its own key', () => {
     writeBucket(stored)
+    expect(localStorage.getItem(bucketStorageKey('auth0|me'))).toBe(JSON.stringify(stored))
     expect(readBucket('auth0|me')).toEqual(stored)
     expect(readBucket('auth0|someone-else')).toBeNull()
-    writeBucket(null)
+    expect(readBucket('')).toBeNull()
+
+    const other = { ...stored, owner: 'auth0|someone-else', title: 'Theirs' }
+    writeBucket(other)
+    expect(readBucket('auth0|me')).toEqual(stored)
+    expect(readBucket('auth0|someone-else')).toEqual(other)
+
+    removeBucket('auth0|me')
     expect(readBucket('auth0|me')).toBeNull()
+    expect(readBucket('auth0|someone-else')).toEqual(other)
+  })
+
+  it('does not write a record without an owner', () => {
+    writeBucket({ ...stored, owner: '' })
+    expect(localStorage.length).toBe(0)
   })
 
   it('drops items that do not read as one, and duplicates', () => {
@@ -243,7 +280,7 @@ describe('storage', () => {
   it('ignores a record without times, and junk in storage', () => {
     expect(parseBucket({ ...stored, expiresAt: 'never' }, 'auth0|me')).toBeNull()
     expect(parseBucket([], 'auth0|me')).toBeNull()
-    localStorage.setItem('cookie.bucket', '{not json')
+    localStorage.setItem(bucketStorageKey('auth0|me'), '{not json')
     expect(readBucket('auth0|me')).toBeNull()
   })
 })

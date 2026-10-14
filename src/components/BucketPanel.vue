@@ -71,9 +71,19 @@ function onDocumentClick(event) {
 }
 
 // Escape closes the expiry menu first, then the panel, and is kept from the
-// page behind (the inbox's Escape would also close its reader).
+// page behind (the inbox's Escape would also close its reader). Whatever
+// sits above the panel keeps its own Escape: the command palette, the
+// shortcuts help, a modal dialog, or the icon picker's popover.
 function onKeydown(event) {
   if (event.key !== 'Escape') return
+  if (
+    inbox.isCommandPaletteOpen ||
+    inbox.isShortcutsHelpOpen ||
+    document.querySelector('dialog[open], [aria-modal="true"]') ||
+    panelRef.value?.querySelector('.composer-emoji-popover')
+  ) {
+    return
+  }
   event.stopPropagation()
   event.preventDefault()
   if (expiryOpen.value) expiryOpen.value = false

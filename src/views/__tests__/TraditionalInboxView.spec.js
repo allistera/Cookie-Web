@@ -8,6 +8,7 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import TraditionalInboxView from '../TraditionalInboxView.vue'
 import EmailBody from '../../components/EmailBody.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { useBucketsStore } from '../../stores/buckets'
 import { useSendersStore } from '../../stores/senders'
 import { useContactInsightsStore } from '../../stores/contactInsights'
 import { AI_API_URL, MESSAGES_API_URL } from '../../lib/apiWorkers'
@@ -1658,6 +1659,13 @@ describe('TraditionalInboxView filtered views', () => {
     expect(wrapper.find('.ni-reader-subject').text()).toBe('Subject done-1')
     expect(wrapper.find('.ni-reader [title="Done"]').exists()).toBe(false)
     expect(wrapper.find('.ni-reader [title="Reschedule"]').exists()).toBe(false)
+    // Pinning it to the bucket records the folder, so the bucket's row can
+    // bring the Done list back before looking for the email.
+    expect(useBucketsStore().candidate).toMatchObject({
+      kind: 'email',
+      id: 'done-1',
+      meta: { folder: 'done', label: '' },
+    })
   })
 
   it('shows opened status in sent rows and the reader', async () => {

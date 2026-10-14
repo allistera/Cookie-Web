@@ -809,8 +809,14 @@ async function scheduleSelected(choice) {
 // --- Reading panel (open-email state lives in the store so the command
 // palette can act on it globally) ---
 const openEmail = computed(() => store.openEmail)
-// The open email is what 'b' pins to the bucket.
-useBucketCandidate(() => emailBucketItem(openEmail.value))
+// The open email is what 'b' pins to the bucket, with the folder it is open
+// in so the bucket's row can load that folder and find it again.
+useBucketCandidate(() =>
+  emailBucketItem(openEmail.value, {
+    folder: activeFilter.value ?? '',
+    label: activeFilter.value === 'label' ? String(route.query.label ?? '') : '',
+  }),
+)
 
 // The reader no longer renders sender controls, but still needs the sender
 // decision so accepted mail can reveal remote images.

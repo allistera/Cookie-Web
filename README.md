@@ -83,14 +83,15 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   of work in hand. Press `b` on an open email, document, task or event (or pick
   Pin to Bucket in the `/` palette) to pin it; the first pin makes the bucket and
   its button at the top right of the header. The button opens a panel listing
-  the pinned items, each of which opens where it lives; typing on the panel's
-  title names the bucket and clicking its icon changes it. Pressing `b` on an
+  the pinned items, each of which opens where it lives (an email goes back to
+  the folder it was pinned from, so it must still be listed there); typing on
+  the panel's title names the bucket and clicking its icon changes it. Pressing `b` on an
   item already in the bucket takes it out again, as does the item's remove
   button. The bucket is temporary: it clears itself three days after it is
   made, which the panel's "Clears in" control restarts at one day, three days
-  or a week; Clear removes it at once (with Undo). There is one bucket per
-  account, kept in this browser's localStorage, so it does not follow the
-  account to other devices. The event dialog also has a pin button, since a
+  or a week; Clear removes it at once (with Undo, which keeps anything pinned
+  in the meantime). There is one bucket per account, kept in this browser's
+  localStorage, so it does not follow the account to other devices. The event dialog also has a pin button, since a
   plain `b` there types into the title.
 - Manage sender acceptance and blocking in Settings → Senders. In New senders,
   select one held email and choose **Restore this message only** to release it

@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { BUCKET_DEFAULT_ICON, BUCKET_DEFAULT_TTL_MS } from '../../lib/bucketItems'
+import { BUCKET_DEFAULT_ICON, BUCKET_DEFAULT_TTL_MS, bucketStorageKey } from '../../lib/bucketItems'
 import { useBucketsStore } from '../buckets'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -9,8 +9,8 @@ const DAY = 24 * 60 * 60 * 1000
 const email = { kind: 'email', id: 'msg-1', title: 'Re: Acme MSA', meta: { sender: 'Jamie' } }
 const task = { kind: 'task', id: 't1', title: 'Send signed MSA', meta: { projectName: 'Work' } }
 
-function stored() {
-  return JSON.parse(localStorage.getItem('cookie.bucket'))
+function stored(owner = 'auth0|me') {
+  return JSON.parse(localStorage.getItem(bucketStorageKey(owner)))
 }
 
 let store
@@ -104,10 +104,21 @@ describe('editing', () => {
     const previous = store.clear()
     expect(store.hasBucket).toBe(false)
     expect(store.isOpen).toBe(false)
-    expect(localStorage.getItem('cookie.bucket')).toBeNull()
+    expect(stored()).toBeNull()
     store.restore(previous)
     expect(store.items).toEqual([email])
     expect(stored().items).toEqual([email])
+  })
+
+  it('keeps what was pinned after a clear when the clear is undone', () => {
+    store.rename('Acme')
+    const previous = store.clear()
+    store.togglePin(task)
+    store.togglePin(email)
+    store.restore(previous)
+    expect(store.bucket.title).toBe('Acme')
+    expect(store.items).toEqual([email, task])
+    expect(stored().items).toEqual([email, task])
   })
 
   it('refuses to restore another account’s bucket', () => {
@@ -125,7 +136,7 @@ describe('clearing itself', () => {
     expect(store.hasBucket).toBe(true)
     expect(store.expireIfDue(expiresAt)).toBe(true)
     expect(store.hasBucket).toBe(false)
-    expect(localStorage.getItem('cookie.bucket')).toBeNull()
+    expect(stored()).toBeNull()
   })
 
   it('does not open a bucket that is past its time', () => {
@@ -154,10 +165,15 @@ describe('accounts', () => {
     expect(stored().title).toBe('Acme')
   })
 
-  it('shows another account nothing of this one’s bucket', () => {
+  it('keeps each account’s bucket through a switch to another', () => {
     store.togglePin(email)
     store.setOwner('auth0|other')
     expect(store.hasBucket).toBe(false)
+    store.togglePin(task)
+    store.clear()
+    expect(stored('auth0|other')).toBeNull()
+    store.setOwner('auth0|me')
+    expect(store.items).toEqual([email])
   })
 
   it('toggles its panel', () => {
