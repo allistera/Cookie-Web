@@ -25,7 +25,7 @@ test('pressing B on an open email makes the bucket, which keeps the email across
   // The title is already focused: typing names the bucket.
   await page.keyboard.type('Floor plan review')
   await expect(panel.getByRole('textbox', { name: 'Bucket name' })).toHaveValue('Floor plan review')
-  await panel.getByRole('button', { name: 'Done' }).click()
+  await panel.getByRole('button', { name: 'Close bucket' }).click()
   await expect(panel).toBeHidden()
 
   // A reload keeps the bucket but closes the reader; the bucket's row opens
@@ -44,8 +44,13 @@ test('pressing B on an open email makes the bucket, which keeps the email across
   await page.getByRole('button', { name: 'Open bucket: Floor plan review' }).click()
   await expect(panel).toContainText('0 items')
 
-  await panel.getByRole('button', { name: 'Clear', exact: true }).click()
+  // Done finishes with the bucket: it and its button go, and a reload does
+  // not bring them back.
+  await panel.getByRole('button', { name: 'Done' }).click()
   await expect(panel).toBeHidden()
+  await expect(bucketButton).toBeHidden()
+  await expect(page.getByText('Bucket cleared.')).toBeVisible()
+  await page.reload()
   await expect(bucketButton).toBeHidden()
 })
 

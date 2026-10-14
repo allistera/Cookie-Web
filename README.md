@@ -89,9 +89,11 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   item already in the bucket takes it out again, as does the item's remove
   button. The bucket is temporary: it clears itself three days after it is
   made, which the panel's "Clears in" control restarts at one day, three days
-  or a week; Clear removes it at once (with Undo, which keeps anything pinned
-  in the meantime). There is one bucket per account, kept in this browser's
-  localStorage, so it does not follow the account to other devices. The event dialog also has a pin button, since a
+  or a week; Done removes it and everything in it at once (with Undo, which
+  keeps anything pinned in the meantime). The panel's close button, Escape or
+  a click outside close it with the bucket kept. There is one bucket per
+  account, kept in this browser's localStorage, so it does not follow the
+  account to other devices. The event dialog also has a pin button, since a
   plain `b` there types into the title.
 - Manage sender acceptance and blocking in Settings → Senders. In New senders,
   select one held email and choose **Restore this message only** to release it

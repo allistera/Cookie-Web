@@ -14,7 +14,8 @@ import { useInboxStore } from '../stores/inbox'
 
 // The bucket's popover, under its header button (App.vue mounts it while
 // store.isOpen). The title edits by typing straight into it and the icon by
-// clicking it; each row opens its item; "Clears in" restarts the clock.
+// clicking it; each row opens its item; "Clears in" restarts the clock;
+// Done finishes with the bucket, removing it and everything in it.
 const store = useBucketsStore()
 const inbox = useInboxStore()
 
@@ -53,9 +54,10 @@ function setExpiry(choice) {
   expiryOpen.value = false
 }
 
-// Clearing removes the whole bucket, header button included; the toast's
-// Undo (and the 'u' shortcut) put it back.
-function clear() {
+// Done removes the whole bucket, items and header button included; the
+// toast's Undo (and the 'u' shortcut) put it back. Closing without finishing
+// is the header's close button, Escape or a click outside.
+function done() {
   const previous = store.clear()
   if (!previous) return
   inbox.notify('Bucket cleared.', 'info', { label: 'Undo', run: () => store.restore(previous) })
@@ -208,13 +210,10 @@ onBeforeUnmount(() => {
 
     <footer class="bucket-footer">
       <span class="bucket-hint">Press <kbd>B</kbd> on any item to pin it</span>
-      <div class="bucket-footer-actions">
-        <button type="button" class="bucket-clear" @click="clear">Clear</button>
-        <button type="button" class="bucket-done" @click="store.close()">
-          <span class="material-symbols-outlined" aria-hidden="true">check</span>
-          <span>Done</span>
-        </button>
-      </div>
+      <button type="button" class="bucket-done" @click="done">
+        <span class="material-symbols-outlined" aria-hidden="true">check</span>
+        <span>Done</span>
+      </button>
     </footer>
   </section>
 </template>
@@ -533,41 +532,20 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.bucket-footer-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.bucket-clear,
 .bucket-done {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 38px;
   padding: 0 18px;
+  border: 0;
   border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-}
-
-.bucket-clear {
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-primary);
-}
-
-.bucket-clear:hover,
-.bucket-clear:focus-visible {
-  background: var(--bg-hover);
-  outline: none;
-}
-
-.bucket-done {
-  border: 0;
-  background: var(--accent);
-  color: #fff;
 }
 
 .bucket-done:hover,
@@ -593,8 +571,8 @@ onBeforeUnmount(() => {
     align-items: stretch;
   }
 
-  .bucket-footer-actions {
-    justify-content: flex-end;
+  .bucket-done {
+    justify-content: center;
   }
 }
 </style>

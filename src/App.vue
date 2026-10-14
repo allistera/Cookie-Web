@@ -656,7 +656,11 @@ onUnmounted(() => {
 
         <div class="header-right">
           <!-- The bucket's button exists only while there is a bucket: the
-               first 'b' press makes both. -->
+               first 'b' press makes both. The button is the whole raised pill
+               beside the avatar (so a click on its rim toggles the panel like
+               one on the icon, and the outside-click checks in the inbox and
+               the panel see it); the tile inside fills while the panel is
+               open. -->
           <button
             v-if="bucketsStore.hasBucket"
             type="button"
@@ -668,10 +672,12 @@ onUnmounted(() => {
             :aria-expanded="bucketsStore.isOpen"
             @click="bucketsStore.toggleOpen()"
           >
-            <span v-if="bucketIcon.symbol" class="material-symbols-outlined" aria-hidden="true">{{
-              bucketIcon.symbol
-            }}</span>
-            <span v-else aria-hidden="true">{{ bucketIcon.emoji }}</span>
+            <span class="bucket-trigger-tile" aria-hidden="true">
+              <span v-if="bucketIcon.symbol" class="material-symbols-outlined">{{
+                bucketIcon.symbol
+              }}</span>
+              <span v-else>{{ bucketIcon.emoji }}</span>
+            </span>
           </button>
           <div class="profile-container" :title="user?.name || 'Account'">
             <button
@@ -957,33 +963,44 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-/* The bucket's header button: a round tile showing its icon, filled while
-   its panel is open. */
+/* The bucket's header button: a raised white pill holding a round tile
+   that shows the bucket's icon and fills while its panel is open. */
 .bucket-trigger {
-  width: 36px;
-  height: 36px;
-  margin-right: 4px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--bg-input);
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.bucket-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.bucket-trigger-tile {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   font-size: 18px;
   line-height: 1;
   display: grid;
   place-items: center;
-  cursor: pointer;
   transition:
     background-color var(--transition-fast),
     color var(--transition-fast);
 }
 
-.bucket-trigger:hover,
-.bucket-trigger:focus-visible {
+.bucket-trigger:hover .bucket-trigger-tile,
+.bucket-trigger:focus-visible .bucket-trigger-tile {
   background: var(--bg-hover);
-  outline: none;
 }
 
-.bucket-trigger.active {
+.bucket-trigger.active .bucket-trigger-tile {
   background: var(--text-primary);
   color: var(--bg-card);
 }
