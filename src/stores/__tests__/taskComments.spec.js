@@ -63,6 +63,53 @@ describe('task comments store', () => {
     expect(store.thread(TASK).nextCursor).toBeNull()
   })
 
+  it('keeps an entry added while the first page was in flight', async () => {
+    let settle
+    stubFetch(async (url, options) =>
+      options?.method === 'POST'
+        ? ok({ comment: { ...COMMENT, id: 'new', createdAt: '2026-10-15T09:30:00Z' } }, 201)
+        : new Promise((resolve) => {
+            settle = () => resolve(ok({ comments: [COMMENT], nextCursor: null }))
+          }),
+    )
+
+    const load = store.loadThread(TASK)
+    await store.addComment(TASK, { body: 'Quick' })
+    settle()
+    await load
+
+    expect(store.thread(TASK).comments.map((row) => row.id)).toEqual(['c1', 'new'])
+  })
+
+  it('keeps later pages in time order around an entry added meanwhile', async () => {
+    const older = { ...COMMENT, id: 'c2', createdAt: '2026-10-15T09:10:00Z' }
+    stubFetch(async (url, options) => {
+      if (options?.method === 'POST') {
+        return ok({ comment: { ...COMMENT, id: 'new', createdAt: '2026-10-15T09:30:00Z' } }, 201)
+      }
+      return String(url).includes('after=')
+        ? ok({ comments: [older], nextCursor: null })
+        : ok({ comments: [COMMENT], nextCursor: 'cur' })
+    })
+
+    await store.loadThread(TASK)
+    await store.addComment(TASK, { body: 'Quick' })
+    await store.loadThread(TASK, { more: true })
+
+    expect(store.thread(TASK).comments.map((row) => row.id)).toEqual(['c1', 'c2', 'new'])
+  })
+
+  it('refreshes a loaded thread when forced, dropping entries gone elsewhere', async () => {
+    stubFetch(async () => ok({ comments: [COMMENT, { ...COMMENT, id: 'c2' }], nextCursor: null }))
+    await store.loadThread(TASK)
+    stubFetch(async () => ok({ comments: [COMMENT], nextCursor: null }))
+
+    await store.loadThread(TASK, { force: true })
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(store.thread(TASK).comments.map((row) => row.id)).toEqual(['c1'])
+  })
+
   it('keeps the server error on the thread and leaves it retryable', async () => {
     stubFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: 'Down' }) }))
 

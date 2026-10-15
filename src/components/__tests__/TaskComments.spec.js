@@ -47,11 +47,11 @@ function mountThread() {
 }
 
 describe('TaskComments', () => {
-  it('loads the thread for its task on mount', async () => {
+  it('refreshes the thread for its task on mount', async () => {
     const load = vi.spyOn(store, 'loadThread').mockResolvedValue()
     mountThread()
     await flushPromises()
-    expect(load).toHaveBeenCalledWith(TASK)
+    expect(load).toHaveBeenCalledWith(TASK, { force: true })
   })
 
   it('lists entries oldest first with author, time, text and attachment chip', async () => {
@@ -172,6 +172,33 @@ describe('TaskComments', () => {
     expect(wrapper.find('textarea[aria-label="Edit comment"]').exists()).toBe(false)
   })
 
+  it('leaves a newer edit open when an earlier save settles late', async () => {
+    vi.spyOn(store, 'loadThread').mockResolvedValue()
+    seed()
+    let settle
+    vi.spyOn(store, 'editComment').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () => resolve({ ...COMMENT, body: 'Second' })
+        }),
+    )
+    const wrapper = mountThread()
+    await flushPromises()
+
+    const [first, second] = wrapper.findAll('button[title="Edit comment"]')
+    await first.trigger('click')
+    await wrapper.get('textarea[aria-label="Edit comment"]').setValue('Second')
+    await wrapper.get('form.task-comment-edit').trigger('submit')
+    // While the save is in flight, the other entry's edit is opened.
+    await second.trigger('click')
+    expect(wrapper.get('textarea[aria-label="Edit comment"]').element.value).toBe('See attached')
+    settle()
+    await flushPromises()
+
+    expect(wrapper.find('textarea[aria-label="Edit comment"]').exists()).toBe(true)
+    expect(wrapper.get('textarea[aria-label="Edit comment"]').element.value).toBe('See attached')
+  })
+
   it('cancels an edit on Escape without touching the store', async () => {
     vi.spyOn(store, 'loadThread').mockResolvedValue()
     seed()
@@ -241,6 +268,38 @@ describe('TaskComments', () => {
     expect(wrapper.get('.task-comment-author').text()).toBe('Collaborator')
     expect(wrapper.find('button[title="Edit comment"]').exists()).toBe(false)
     expect(wrapper.find('button[title="Delete comment"]').exists()).toBe(false)
+  })
+
+  it('opens a preview in a tab claimed before the bytes arrive', async () => {
+    vi.spyOn(store, 'loadThread').mockResolvedValue()
+    seed([WITH_FILE])
+    let settle
+    vi.spyOn(store, 'fetchAttachmentBlob').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () => resolve(new Blob(['%PDF']))
+        }),
+    )
+    const tab = { opener: {}, closed: false, location: { href: '' }, close: vi.fn() }
+    const open = vi.fn(() => tab)
+    vi.stubGlobal('open', open)
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:pdf'),
+      revokeObjectURL: vi.fn(),
+    })
+    const wrapper = mountThread()
+    await flushPromises()
+
+    await wrapper.get('.task-comment-file').trigger('click')
+    expect(open).toHaveBeenCalledWith('about:blank', '_blank')
+    expect(tab.opener).toBeNull()
+    expect(tab.location.href).toBe('')
+    settle()
+    await flushPromises()
+
+    expect(tab.location.href).toBe('blob:pdf')
+    vi.unstubAllGlobals()
   })
 
   it('downloads an attachment through an object URL', async () => {

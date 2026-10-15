@@ -20,9 +20,11 @@ const props = defineProps({ taskId: { type: String, required: true } })
 const store = useTaskCommentsStore()
 const thread = computed(() => store.thread(props.taskId))
 
+// A thread already loaded stays on screen while the first page is read
+// again, so an entry added or removed elsewhere since shows up.
 watch(
   () => props.taskId,
-  (taskId) => void store.loadThread(taskId),
+  (taskId) => void store.loadThread(taskId, { force: true }),
   { immediate: true },
 )
 
@@ -119,7 +121,9 @@ async function saveEdit(comment) {
   // it, and Delete is the way to take the entry away.
   if (!body && !comment.attachment) return
   const saved = await store.editComment(props.taskId, comment.id, body)
-  if (saved) editingId.value = null
+  // Only this edit closes; one cancelled and replaced by another entry's
+  // edit while the save was in flight leaves that newer draft alone.
+  if (saved && editingId.value === comment.id) editingId.value = null
 }
 
 function onEditKeydown(event, comment) {
@@ -169,11 +173,18 @@ const openingIds = ref([])
 async function openAttachment(comment) {
   if (openingIds.value.includes(comment.id)) return
   openingIds.value = [...openingIds.value, comment.id]
+  // A preview's tab is opened while the click is still the active gesture;
+  // opened after the fetch it would be a pop-up and blocked. The bytes are
+  // pointed at it once they arrive. A blocked tab (null) falls back to a
+  // download, which needs no gesture.
+  const preview = isPreviewable(comment.attachment?.mimeType)
+  const tab = preview ? window.open('about:blank', '_blank') : null
+  if (tab) tab.opener = null
   try {
     const blob = await store.fetchAttachmentBlob(comment.id)
     const url = URL.createObjectURL(blob)
-    if (isPreviewable(comment.attachment?.mimeType)) {
-      window.open(url, '_blank', 'noopener')
+    if (tab && !tab.closed) {
+      tab.location.href = url
       releaseLater(url, 60_000)
     } else {
       const anchor = document.createElement('a')
@@ -183,6 +194,7 @@ async function openAttachment(comment) {
       releaseLater(url, 1000)
     }
   } catch (error) {
+    tab?.close()
     store.notify(error.message || 'Download failed.', 'error')
   } finally {
     openingIds.value = openingIds.value.filter((id) => id !== comment.id)

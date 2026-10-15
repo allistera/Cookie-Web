@@ -25,6 +25,17 @@ function newThread() {
   return { comments: [], nextCursor: null, loaded: false, loading: false, error: null }
 }
 
+// The thread's order is the server's: by time, then id. Every merge sorts,
+// so an entry added while a page was in flight, or ahead of a later page,
+// sits where its stamp puts it rather than where it happened to arrive.
+export function sortComments(comments) {
+  return [...comments].sort(
+    (a, b) =>
+      String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')) ||
+      String(a.id).localeCompare(String(b.id)),
+  )
+}
+
 export const useTaskCommentsStore = defineStore('taskComments', {
   state: () => ({
     // taskId → thread
@@ -60,7 +71,9 @@ export const useTaskCommentsStore = defineStore('taskComments', {
     },
 
     // Oldest first, 100 at a time; `more` continues past the last page's
-    // cursor. A loaded thread is reused unless forced.
+    // cursor. A loaded thread is reused unless forced; the panel forces a
+    // refresh each time it opens, keeping the loaded entries on screen
+    // meanwhile, so a change made in another tab is picked up.
     async loadThread(taskId, { more = false, force = false } = {}) {
       const thread = this.ensureThread(taskId)
       if (thread.loading) return
@@ -75,9 +88,18 @@ export const useTaskCommentsStore = defineStore('taskComments', {
         // The thread may have been dropped (task deleted) while the page
         // was in flight; a reply for a thread no longer kept is discarded.
         if (this.threads[taskId] !== thread) return
-        const seen = new Set(more ? thread.comments.map((row) => row.id) : [])
-        const incoming = comments.filter((row) => !seen.has(row.id))
-        thread.comments = more ? [...thread.comments, ...incoming] : incoming
+        const incomingIds = new Set(comments.map((row) => row.id))
+        // A later page joins what is shown. A first page (or a refresh)
+        // replaces it, except for entries newer than the page's last row:
+        // those were added here while the page was in flight, or belong
+        // to a page not yet loaded, and the server has them either way.
+        const lastStamp = String(comments.at(-1)?.createdAt ?? '')
+        const kept = thread.comments.filter(
+          (row) =>
+            !incomingIds.has(row.id) &&
+            (more || (nextCursor === null && String(row.createdAt ?? '') > lastStamp)),
+        )
+        thread.comments = sortComments([...kept, ...comments])
         thread.nextCursor = nextCursor
         thread.loaded = true
       } catch (error) {
@@ -113,7 +135,9 @@ export const useTaskCommentsStore = defineStore('taskComments', {
           throw error
         }
         const { comment } = await response.json()
-        if (!thread.comments.some((row) => row.id === comment.id)) thread.comments.push(comment)
+        if (!thread.comments.some((row) => row.id === comment.id)) {
+          thread.comments = sortComments([...thread.comments, comment])
+        }
         return comment
       } catch (error) {
         console.error('Failed to add comment:', error)
