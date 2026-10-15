@@ -4,8 +4,9 @@ import { computed, onMounted, ref } from 'vue'
 import { useTodoistStore } from '../stores/todoist'
 
 // Settings > Tasks > Todoist. One connection: paste the personal API token,
-// choose whether the hourly sync runs, sync on demand, or disconnect. The
-// token itself never comes back from the Worker; only its last characters do.
+// choose whether the hourly sync runs and what it mirrors (projects, tasks,
+// or both), sync on demand, or disconnect. The token itself never comes back
+// from the Worker; only its last characters do.
 const store = useTodoistStore()
 
 const tokenDraft = ref('')
@@ -82,6 +83,12 @@ async function toggleEnabled(event) {
   if (!saved) event.target.checked = settings.value.enabled
 }
 
+async function toggleSyncOption(option, event) {
+  const value = Boolean(event.target.checked)
+  const saved = await store.setSyncOption(option, value)
+  if (!saved) event.target.checked = settings.value[option]
+}
+
 async function syncNow() {
   if (busy.value) return
   await store.syncNow()
@@ -105,7 +112,8 @@ onMounted(load)
     <p class="settings-section-hint">
       Mirror your Todoist projects, their sections and open tasks into Tasks. Todoist stays the
       source of truth: changes made there arrive every hour between 07:00 and 20:00 in your Todoist
-      time zone, or whenever you sync now. Tasks you add in Cookie are left alone.
+      time zone, or whenever you sync now. Tasks you add in Cookie are left alone. Choose below
+      whether projects, tasks or both are mirrored.
     </p>
 
     <p v-if="store.isLoading && !store.isLoaded" class="todoist-muted">Checking Todoist…</p>
@@ -218,6 +226,39 @@ onMounted(load)
             :checked="settings.enabled"
             :disabled="busy"
             @change="toggleEnabled"
+          />
+        </label>
+
+        <label class="todoist-enabled">
+          <span>
+            <strong>Sync projects</strong>
+            <small>
+              Mirror your Todoist projects. When off, projects already here stay as they are and
+              tasks are filed into them, or into the Inbox when their project is not here.
+            </small>
+          </span>
+          <input
+            type="checkbox"
+            aria-label="Sync projects"
+            :checked="settings.syncProjects"
+            :disabled="busy"
+            @change="toggleSyncOption('syncProjects', $event)"
+          />
+        </label>
+
+        <label class="todoist-enabled">
+          <span>
+            <strong>Sync tasks</strong>
+            <small>
+              Mirror your open tasks and sections. When off, tasks already here are left alone.
+            </small>
+          </span>
+          <input
+            type="checkbox"
+            aria-label="Sync tasks"
+            :checked="settings.syncTasks"
+            :disabled="busy"
+            @change="toggleSyncOption('syncTasks', $event)"
           />
         </label>
 

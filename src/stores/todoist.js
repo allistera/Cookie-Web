@@ -14,6 +14,8 @@ export const emptyTodoistSettings = () => ({
   configured: false,
   connected: false,
   enabled: false,
+  syncProjects: true,
+  syncTasks: true,
   email: null,
   tokenHint: '',
   timeZone: null,
@@ -98,6 +100,15 @@ export const useTodoistStore = defineStore('todoist', {
       return this.save(
         { enabled },
         enabled ? 'Hourly Todoist sync switched on.' : 'Hourly Todoist sync switched off.',
+      )
+    },
+
+    // What a run mirrors: `syncProjects` or `syncTasks`.
+    async setSyncOption(option, value) {
+      const what = option === 'syncProjects' ? 'projects' : 'tasks'
+      return this.save(
+        { [option]: value },
+        value ? `Todoist ${what} will be synced.` : `Todoist ${what} will no longer be synced.`,
       )
     },
 
