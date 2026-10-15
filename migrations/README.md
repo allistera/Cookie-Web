@@ -213,8 +213,13 @@ column on every task read.
 Settings > Tasks > Todoist that choose whether a run mirrors the account's
 projects, its tasks, or both. Every existing connection keeps doing both.
 
-Apply `0094` before deploying the `cookie-web-tasks` Worker that reads the
-columns on every connection read.
+`0095_todoist_tasks_synced_at.sql` adds `tasks_synced_at`, the completion
+cursor (the last run that read tasks), backfilled from `last_synced_at`,
+which stays the last successful run of any kind. A projects-only run leaves
+the cursor where it was.
+
+Apply `0094` and `0095` before deploying the `cookie-web-tasks` Worker that
+reads the columns on every connection read.
 
 ## Forwarded attachments
 
