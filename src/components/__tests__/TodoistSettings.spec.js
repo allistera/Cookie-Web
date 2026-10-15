@@ -179,6 +179,29 @@ describe('TodoistSettings', () => {
     expect(wrapper.get('.todoist-status').text()).toContain('Last synced')
   })
 
+  it('does not let a slow initial read overwrite a save that landed first', async () => {
+    let releaseLoad
+    const calls = stubFetch({
+      'GET /tasks/todoist': () =>
+        new Promise((resolve) => {
+          releaseLoad = () => resolve(jsonResponse({ todoist: { ...synced, enabled: true } }))
+        }),
+      'PUT /tasks/todoist': ({ body }) => jsonResponse({ todoist: { ...synced, ...body } }),
+    })
+    const store = useTodoistStore()
+    const loading = store.loadSettings()
+    await flushPromises()
+    expect(calls).toHaveLength(1)
+
+    await store.setEnabled(false)
+    expect(store.settings.enabled).toBe(false)
+
+    releaseLoad()
+    await loading
+    await flushPromises()
+    expect(store.settings.enabled).toBe(false)
+  })
+
   it('shows the last failure and disconnects after a confirmation', async () => {
     const calls = stubFetch({
       'GET /tasks/todoist': () =>

@@ -35,9 +35,19 @@ export const useTodoistStore = defineStore('todoist', {
     isLoading: false,
     isSaving: false,
     isSyncing: false,
+    // Bumped by every write that lands (save, sync, disconnect). A read that
+    // started before such a write must not overwrite its result when it
+    // finally resolves.
+    writeSeq: 0,
   }),
 
   actions: {
+    applySettings(todoist) {
+      this.settings = { ...emptyTodoistSettings(), ...todoist }
+      this.isLoaded = true
+      this.writeSeq += 1
+    },
+
     authHeaders(extra = {}) {
       return buildAuthHeaders(extra)
     },
@@ -60,10 +70,14 @@ export const useTodoistStore = defineStore('todoist', {
     async loadSettings({ force = true } = {}) {
       if (this.isLoaded && !force) return true
       this.isLoading = true
+      const seq = this.writeSeq
       try {
         const { todoist } = await this.request('GET')
-        this.settings = { ...emptyTodoistSettings(), ...todoist }
-        this.isLoaded = true
+        // A save or sync that landed meanwhile already holds newer state.
+        if (seq === this.writeSeq) {
+          this.settings = { ...emptyTodoistSettings(), ...todoist }
+          this.isLoaded = true
+        }
         return true
       } catch (error) {
         console.error('Failed to load Todoist settings:', error)
@@ -91,8 +105,7 @@ export const useTodoistStore = defineStore('todoist', {
       this.isSaving = true
       try {
         const { todoist } = await this.request('PUT', body)
-        this.settings = { ...emptyTodoistSettings(), ...todoist }
-        this.isLoaded = true
+        this.applySettings(todoist)
         if (successMessage) this.notify(successMessage)
         return this.settings
       } catch (error) {
@@ -109,7 +122,7 @@ export const useTodoistStore = defineStore('todoist', {
       this.isSaving = true
       try {
         await this.request('DELETE')
-        this.settings = { ...emptyTodoistSettings(), configured: this.settings.configured }
+        this.applySettings({ configured: this.settings.configured })
         this.notify('Todoist disconnected.')
         return true
       } catch (error) {
@@ -128,8 +141,7 @@ export const useTodoistStore = defineStore('todoist', {
       this.isSyncing = true
       try {
         const { todoist } = await this.request('POST', undefined, '/sync')
-        this.settings = { ...emptyTodoistSettings(), ...todoist }
-        this.isLoaded = true
+        this.applySettings(todoist)
         this.notify('Todoist synced.')
         await this.refreshTaskStores()
         return this.settings
