@@ -31,7 +31,10 @@ export const settingsSectionGroups = [
   },
   {
     label: 'Tasks',
-    sections: [{ id: 'task-labels', label: 'Task Labels', icon: 'label' }],
+    sections: [
+      { id: 'task-labels', label: 'Task Labels', icon: 'label' },
+      { id: 'todoist', label: 'Todoist', icon: 'sync' },
+    ],
   },
   {
     label: 'Documents',
