@@ -206,6 +206,16 @@ Apply `0058` before deploying Cookie-Worker code that reads or writes
 `task_items.priority`; the `cookie-web-tasks` Worker selects and returns the
 column on every task read.
 
+## Todoist sync switches
+
+`0094_todoist_sync_options.sql` adds `todoist_connections.sync_projects` and
+`sync_tasks` (both `boolean NOT NULL DEFAULT true`), the two checkboxes under
+Settings > Tasks > Todoist that choose whether a run mirrors the account's
+projects, its tasks, or both. Every existing connection keeps doing both.
+
+Apply `0094` before deploying the `cookie-web-tasks` Worker that reads the
+columns on every connection read.
+
 ## Forwarded attachments
 
 `0059_scheduled_send_attachments.sql` stores ownership-checked attachment

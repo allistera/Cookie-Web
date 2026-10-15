@@ -13,6 +13,8 @@ const disconnected = {
   configured: true,
   connected: false,
   enabled: false,
+  syncProjects: true,
+  syncTasks: true,
   email: null,
   tokenHint: '',
   timeZone: null,
@@ -168,15 +170,37 @@ describe('TodoistSettings', () => {
     expect(calls[1]).toMatchObject({ method: 'PUT', body: { enabled: false } })
     expect(useTodoistStore().settings.enabled).toBe(false)
 
+    // Each mirror switch is its own one-field write.
+    await wrapper.get('[aria-label="Sync projects"]').setValue(false)
+    await flushPromises()
+    expect(calls[2]).toMatchObject({ method: 'PUT', body: { syncProjects: false } })
+    expect(useTodoistStore().settings.syncProjects).toBe(false)
+    expect(wrapper.get('[aria-label="Sync tasks"]').element.checked).toBe(true)
+
     await wrapper.get('[data-testid="todoist-sync-now"]').trigger('click')
     await flushPromises()
-    expect(calls.map(({ method, path }) => `${method} ${path}`).slice(2)).toEqual([
+    expect(calls.map(({ method, path }) => `${method} ${path}`).slice(3)).toEqual([
       'POST /tasks/todoist/sync',
       'GET /projects',
       'GET /task-labels',
       'GET /task-items',
     ])
     expect(wrapper.get('.todoist-status').text()).toContain('Last synced')
+  })
+
+  it('puts a refused mirror switch back to what is stored', async () => {
+    stubFetch({
+      'GET /tasks/todoist': () => jsonResponse({ todoist: synced }),
+      'PUT /tasks/todoist': () => jsonResponse({ error: 'down' }, 500),
+    })
+    const wrapper = mount(TodoistSettings)
+    await flushPromises()
+
+    const box = wrapper.get('[aria-label="Sync tasks"]')
+    await box.setValue(false)
+    await flushPromises()
+    expect(useTodoistStore().settings.syncTasks).toBe(true)
+    expect(box.element.checked).toBe(true)
   })
 
   it('does not let a slow initial read overwrite a save that landed first', async () => {
