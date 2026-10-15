@@ -27,6 +27,7 @@ import SpamRetentionSettings from '../components/SpamRetentionSettings.vue'
 import AiTodaySettings from '../components/AiTodaySettings.vue'
 import CategorySettings from '../components/CategorySettings.vue'
 import TaskLabelSettings from '../components/TaskLabelSettings.vue'
+import TodoistSettings from '../components/TodoistSettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -1323,6 +1324,7 @@ function toggleRuleEnabled(rule) {
 
           <!-- Tasks -->
           <TaskLabelSettings v-if="activeSection === 'task-labels'" />
+          <TodoistSettings v-if="activeSection === 'todoist'" />
 
           <!-- Calendar -->
           <section v-if="activeSection === 'calendar'" class="settings-section">

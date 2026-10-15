@@ -380,7 +380,7 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(18)
+    expect(navItems).toHaveLength(19)
     for (const [i, name] of [
       'Account',
       'Appearance',
@@ -398,6 +398,7 @@ describe('SettingsView', () => {
       'Spam',
       'Calendars',
       'Task Labels',
+      'Todoist',
       'Templates',
       'Time Management',
     ].entries()) {

@@ -75,6 +75,7 @@ export function localApiPlugin(mode) {
         taskItems: [],
         taskLabels: [],
         taskFilters: { revision: 0, filters: [] },
+        todoist: null,
         drafts: [],
         composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
         savedViews: { revision: 0, views: [] },
@@ -2262,6 +2263,154 @@ export function localApiPlugin(mode) {
     }
     if (segments[0] !== 'tasks') return json(res, { error: 'Not Found' }, 404)
     const sub = segments[1]
+    if (sub === 'todoist') {
+      // Todoist sync (cookie-web-tasks/src/todoistSettings.js + todoistSync.js)
+      // with the fixture standing in for Todoist: any token but "bad-token"
+      // connects a fixture account, and each sync mirrors the same small
+      // workspace — one project with a section, two tasks under it and one
+      // Inbox task — upserting by todoistId the way the Worker does.
+      const emptyTodoist = () => ({
+        configured: true,
+        connected: false,
+        enabled: false,
+        email: null,
+        tokenHint: '',
+        timeZone: null,
+        lastSyncedAt: null,
+        lastSyncStatus: null,
+        lastSyncError: null,
+        lastSyncSummary: null,
+      })
+      const connected = state.todoist?.connected ? state.todoist : null
+      if (segments.length === 3 && segments[2] === 'sync') {
+        if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+        if (!connected) return json(res, { error: 'Connect Todoist first' }, 404)
+        const upsertProject = (todoistId, name) => {
+          let project = state.projects.find((row) => row.todoistId === todoistId)
+          if (!project) {
+            project = {
+              id: randomUUID(),
+              parentId: null,
+              name,
+              description: null,
+              createdAt: new Date().toISOString(),
+              todoistId,
+            }
+            state.projects.push(project)
+          }
+          project.name = name
+          return project
+        }
+        const upsertItem = (todoistId, fields) => {
+          let item = state.taskItems.find((row) => row.todoistId === todoistId)
+          if (!item) {
+            item = {
+              id: randomUUID(),
+              kind: 'task',
+              parentId: null,
+              description: null,
+              dueDate: null,
+              dueTime: null,
+              timeZone: null,
+              labels: [],
+              priority: 4,
+              recurrence: null,
+              todayPosition: null,
+              completedAt: null,
+              createdAt: new Date().toISOString(),
+              todoistId,
+            }
+            state.taskItems.push(item)
+          }
+          Object.assign(item, fields, { completedAt: null })
+          return item
+        }
+        const work = upsertProject('td-project-1', 'Todoist Work')
+        upsertItem('td-task-1', {
+          projectId: work.id,
+          content: 'Write the quarterly report',
+          priority: 1,
+          labels: ['reports'],
+          position: 1,
+        })
+        upsertItem('section:td-section-1', {
+          kind: 'divider',
+          projectId: work.id,
+          content: 'Next up',
+          position: 2,
+        })
+        upsertItem('td-task-2', {
+          projectId: work.id,
+          content: 'Book the team lunch',
+          position: 3,
+        })
+        upsertItem('td-task-3', {
+          projectId: null,
+          content: 'Reply to the landlord',
+          dueDate: new Date().toISOString().slice(0, 10),
+          position: 1,
+        })
+        if (!state.taskLabels.some((row) => row.name === 'reports')) {
+          state.taskLabels.push({
+            id: randomUUID(),
+            name: 'reports',
+            color: '#64748b',
+            createdAt: new Date().toISOString(),
+          })
+        }
+        state.todoist = {
+          ...connected,
+          lastSyncedAt: new Date().toISOString(),
+          lastSyncStatus: 'ok',
+          lastSyncError: null,
+          lastSyncSummary: {
+            projects: 1,
+            sections: 1,
+            tasks: 3,
+            completed: 0,
+            removed: 0,
+            skipped: 0,
+          },
+        }
+        return json(res, { todoist: state.todoist })
+      }
+      if (segments.length !== 2) return json(res, { error: 'Not Found' }, 404)
+      if (req.method === 'GET') return json(res, { todoist: connected ?? emptyTodoist() })
+      if (req.method === 'DELETE') {
+        if (!connected) return json(res, { error: 'Todoist is not connected' }, 404)
+        state.todoist = null
+        return json(res, { ok: true })
+      }
+      if (req.method !== 'PUT') return json(res, { error: 'Method not allowed' }, 405)
+      const body = await readBody(req)
+      const hasToken = Object.hasOwn(body, 'token')
+      const hasEnabled = Object.hasOwn(body, 'enabled')
+      if (!hasToken && !hasEnabled) {
+        return json(res, { error: 'A token or an enabled flag is required' }, 400)
+      }
+      if (hasToken) {
+        const token = String(body.token ?? '').trim()
+        if (!token || /\s/.test(token)) {
+          return json(res, { error: 'That does not look like a Todoist API token' }, 400)
+        }
+        if (token === 'bad-token') return json(res, { error: 'Todoist rejected that token' }, 400)
+        state.todoist = {
+          ...emptyTodoist(),
+          ...connected,
+          connected: true,
+          enabled: hasEnabled ? Boolean(body.enabled) : (connected?.enabled ?? true),
+          email: 'person@example.com',
+          tokenHint: token.slice(-4),
+          timeZone: 'Europe/London',
+          lastSyncStatus: null,
+          lastSyncError: null,
+        }
+        return json(res, { todoist: state.todoist })
+      }
+      if (!connected) return json(res, { error: 'Connect Todoist first' }, 404)
+      state.todoist = { ...connected, enabled: Boolean(body.enabled) }
+      return json(res, { todoist: state.todoist })
+    }
     if (sub === 'refresh') {
       // No enricher Worker locally: pretend the digest rebuild succeeded so
       // the refresh control still exercises its real path.

@@ -1,0 +1,178 @@
+import { defineStore } from 'pinia'
+import { jsonRequest } from '../lib/jsonRequest'
+
+import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
+import { TASKS_API_URL } from '../lib/apiWorkers'
+import { useInboxStore } from './inbox'
+import { useProjectsStore } from './projects'
+import { useTaskItemsStore } from './taskItems'
+import { useTaskLabelsStore } from './taskLabels'
+
+const ENDPOINT = `${TASKS_API_URL}/tasks/todoist`
+
+export const emptyTodoistSettings = () => ({
+  configured: false,
+  connected: false,
+  enabled: false,
+  email: null,
+  tokenHint: '',
+  timeZone: null,
+  lastSyncedAt: null,
+  lastSyncStatus: null,
+  lastSyncError: null,
+  lastSyncSummary: null,
+})
+
+// The Todoist connection behind Settings > Tasks > Todoist, served by
+// cookie-web-tasks's /tasks/todoist routes. Shaped after stores/projects.js:
+// the same auth headers and request helper. A sync changes projects, tasks
+// and labels server-side, so a successful run reloads the three stores that
+// hold them; the Tasks view then shows what Todoist has.
+export const useTodoistStore = defineStore('todoist', {
+  state: () => ({
+    settings: emptyTodoistSettings(),
+    isLoaded: false,
+    isLoading: false,
+    isSaving: false,
+    isSyncing: false,
+    // Bumped by every write that lands (save, sync, disconnect). A read that
+    // started before such a write must not overwrite its result when it
+    // finally resolves.
+    writeSeq: 0,
+  }),
+
+  actions: {
+    applySettings(todoist) {
+      this.settings = { ...emptyTodoistSettings(), ...todoist }
+      this.isLoaded = true
+      this.writeSeq += 1
+    },
+
+    authHeaders(extra = {}) {
+      return buildAuthHeaders(extra)
+    },
+
+    notify(message, kind = 'info') {
+      useInboxStore().notify(message, kind)
+    },
+
+    async request(method, body, path = '') {
+      const headers = await this.authHeaders(
+        body !== undefined ? { 'Content-Type': 'application/json' } : {},
+      )
+      return jsonRequest(`${ENDPOINT}${path}`, { method, headers, body })
+    },
+
+    // Resolves true once the settings are loaded, false when the load failed.
+    // Re-read on every call unless told otherwise: the hourly sync and other
+    // sessions change the status behind this store's back, and the document
+    // is small.
+    async loadSettings({ force = true } = {}) {
+      if (this.isLoaded && !force) return true
+      this.isLoading = true
+      const seq = this.writeSeq
+      try {
+        const { todoist } = await this.request('GET')
+        // A save or sync that landed meanwhile already holds newer state.
+        if (seq === this.writeSeq) {
+          this.settings = { ...emptyTodoistSettings(), ...todoist }
+          this.isLoaded = true
+        }
+        return true
+      } catch (error) {
+        console.error('Failed to load Todoist settings:', error)
+        return false
+      } finally {
+        this.isLoading = false
+      }
+    },
+
+    // Saves a new token (checked against Todoist by the Worker) and, when
+    // given, the schedule flag. Resolves the settings, or null with the
+    // reason notified.
+    async connect(token, { enabled } = {}) {
+      return this.save(enabled === undefined ? { token } : { token, enabled }, 'Todoist connected.')
+    },
+
+    async setEnabled(enabled) {
+      return this.save(
+        { enabled },
+        enabled ? 'Hourly Todoist sync switched on.' : 'Hourly Todoist sync switched off.',
+      )
+    },
+
+    async save(body, successMessage) {
+      this.isSaving = true
+      try {
+        const { todoist } = await this.request('PUT', body)
+        this.applySettings(todoist)
+        if (successMessage) this.notify(successMessage)
+        return this.settings
+      } catch (error) {
+        console.error('Failed to save Todoist settings:', error)
+        this.notify(error.userMessage || 'Failed to save Todoist settings.', 'error')
+        return null
+      } finally {
+        this.isSaving = false
+      }
+    },
+
+    // Forgets the token. Mirrored projects and tasks stay in Cookie.
+    async disconnect() {
+      this.isSaving = true
+      try {
+        await this.request('DELETE')
+        this.applySettings({ configured: this.settings.configured })
+        this.notify('Todoist disconnected.')
+        return true
+      } catch (error) {
+        console.error('Failed to disconnect Todoist:', error)
+        this.notify(error.userMessage || 'Failed to disconnect Todoist.', 'error')
+        return false
+      } finally {
+        this.isSaving = false
+      }
+    },
+
+    // Runs a sync now. Resolves the settings (whose summary describes the
+    // run), or null with the reason notified. The Worker records a failed
+    // run on the connection too, so the settings are re-read either way.
+    async syncNow() {
+      this.isSyncing = true
+      try {
+        const { todoist } = await this.request('POST', undefined, '/sync')
+        this.applySettings(todoist)
+        this.notify('Todoist synced.')
+        await this.refreshTaskStores()
+        return this.settings
+      } catch (error) {
+        console.error('Todoist sync failed:', error)
+        this.notify(error.userMessage || 'Todoist sync failed.', 'error')
+        await this.loadSettings({ force: true })
+        return null
+      } finally {
+        this.isSyncing = false
+      }
+    },
+
+    // Everything a sync may have changed, re-read so an open Tasks view (or
+    // the next visit to it) shows the mirrors. A reload that fails leaves its
+    // store marked unloaded, so the next Tasks visit fetches again rather
+    // than reusing what was there before the sync.
+    async refreshTaskStores() {
+      const projects = useProjectsStore()
+      const labels = useTaskLabelsStore()
+      const items = useTaskItemsStore()
+      const reloads = [
+        projects.loadProjects({ force: true }).then((ok) => {
+          if (!ok) projects.isLoaded = false
+        }),
+        labels.loadLabels({ force: true }).then((ok) => {
+          if (!ok) labels.isLoaded = false
+        }),
+      ]
+      if (items.loadedProject) reloads.push(items.loadItems(items.loadedProject, { force: true }))
+      await Promise.all(reloads)
+    },
+  },
+})
