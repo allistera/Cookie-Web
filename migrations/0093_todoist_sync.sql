@@ -23,6 +23,9 @@ CREATE TABLE public.todoist_connections (
   -- The token's last few characters, so Settings can show which token is
   -- saved without ever decrypting it for the browser.
   token_hint          text NOT NULL DEFAULT '' CHECK (length(token_hint) <= 8),
+  -- Which Todoist account the token belongs to, so saving a token for a
+  -- different account can unlink the previous account's mirrors first.
+  todoist_user_id     text CHECK (todoist_user_id IS NULL OR length(todoist_user_id) <= 64),
   todoist_email       text CHECK (todoist_email IS NULL OR length(todoist_email) <= 320),
   time_zone           text CHECK (time_zone IS NULL OR length(time_zone) BETWEEN 1 AND 100),
   enabled             boolean NOT NULL DEFAULT true,

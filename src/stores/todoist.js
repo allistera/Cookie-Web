@@ -54,7 +54,10 @@ export const useTodoistStore = defineStore('todoist', {
     },
 
     // Resolves true once the settings are loaded, false when the load failed.
-    async loadSettings({ force = false } = {}) {
+    // Re-read on every call unless told otherwise: the hourly sync and other
+    // sessions change the status behind this store's back, and the document
+    // is small.
+    async loadSettings({ force = true } = {}) {
       if (this.isLoaded && !force) return true
       this.isLoading = true
       try {
@@ -141,12 +144,21 @@ export const useTodoistStore = defineStore('todoist', {
     },
 
     // Everything a sync may have changed, re-read so an open Tasks view (or
-    // the next visit to it) shows the mirrors.
+    // the next visit to it) shows the mirrors. A reload that fails leaves its
+    // store marked unloaded, so the next Tasks visit fetches again rather
+    // than reusing what was there before the sync.
     async refreshTaskStores() {
       const projects = useProjectsStore()
       const labels = useTaskLabelsStore()
       const items = useTaskItemsStore()
-      const reloads = [projects.loadProjects({ force: true }), labels.loadLabels({ force: true })]
+      const reloads = [
+        projects.loadProjects({ force: true }).then((ok) => {
+          if (!ok) projects.isLoaded = false
+        }),
+        labels.loadLabels({ force: true }).then((ok) => {
+          if (!ok) labels.isLoaded = false
+        }),
+      ]
       if (items.loadedProject) reloads.push(items.loadItems(items.loadedProject, { force: true }))
       await Promise.all(reloads)
     },

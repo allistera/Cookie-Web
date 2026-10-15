@@ -9,7 +9,7 @@ test('Todoist connects from Settings, syncs on demand and shows the mirrored wor
 }) => {
   await page.goto('/settings/todoist')
 
-  await expect(page.getByRole('heading', { name: 'Todoist' })).toBeVisible()
+  await expect(page.getByTestId('todoist-settings-section')).toBeVisible()
   await page.getByLabel('Todoist API token').fill('bad-token')
   await page.getByRole('button', { name: 'Connect Todoist' }).click()
   await expect(page.getByText('Todoist rejected that token')).toBeVisible()

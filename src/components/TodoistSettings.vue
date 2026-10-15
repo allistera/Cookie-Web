@@ -51,7 +51,7 @@ const summaryText = computed(() => {
 })
 
 async function load() {
-  loadFailed.value = !(await store.loadSettings({ force: loadFailed.value }))
+  loadFailed.value = !(await store.loadSettings())
 }
 
 async function submitToken() {
