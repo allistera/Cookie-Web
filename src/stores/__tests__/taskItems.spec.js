@@ -1,8 +1,10 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { localToday } from '../../lib/localDate'
 import { useTaskItemsStore } from '../taskItems'
 import { useInboxStore } from '../inbox'
+import { useTaskFiltersStore } from '../taskFilters'
 import { useTaskLabelsStore } from '../taskLabels'
 
 const ITEM = { id: 't1', projectId: 'p1', parentId: null, content: 'Ship it', completedAt: null }
@@ -682,6 +684,77 @@ describe('the Today list', () => {
     await store.loadItems('p1')
 
     expect(fetch.mock.calls[0][0]).not.toContain('date=')
+  })
+})
+
+describe('a saved filter list', () => {
+  const FILTER = {
+    id: 'f1',
+    name: 'Urgent',
+    match: 'all',
+    rules: [{ field: 'priority', value: 1, negate: false }],
+  }
+
+  it("sends the browser's local date, on the first page and the next", async () => {
+    stubFetch(async () => ({ ok: true, json: async () => ({ items: [], nextCursor: 'c1' }) }))
+
+    await store.loadItems('filter:f1')
+    expect(fetch.mock.calls[0][0]).toContain('project=filter%3Af1')
+    expect(fetch.mock.calls[0][0]).toContain(`date=${localToday()}`)
+
+    await store.loadMoreItems()
+    expect(fetch.mock.calls[1][0]).toContain('after=c1')
+    expect(fetch.mock.calls[1][0]).toContain(`date=${localToday()}`)
+  })
+
+  it('judges whether an edited task still belongs by the filter rules', () => {
+    const filters = useTaskFiltersStore()
+    filters.filters = [FILTER]
+    filters.isLoaded = true
+    store.loadedProject = 'filter:f1'
+
+    expect(store.belongsToLoadedList({ ...ITEM, priority: 1 })).toBe(true)
+    expect(store.belongsToLoadedList({ ...ITEM, priority: 4 })).toBe(false)
+    // A sub-task rides with its listed parent, whatever its own priority.
+    store.items = [{ ...ITEM, priority: 1 }]
+    expect(store.belongsToLoadedList({ id: 'sub', parentId: 't1', priority: 4 })).toBe(true)
+  })
+
+  it('keeps a row when the filter is not known locally', () => {
+    store.loadedProject = 'filter:unknown'
+    expect(store.belongsToLoadedList({ ...ITEM, priority: 4 })).toBe(true)
+  })
+
+  it('re-sorts the list when a due date edit moves a task that still matches', async () => {
+    const filters = useTaskFiltersStore()
+    filters.filters = [FILTER]
+    filters.isLoaded = true
+    store.loadedProject = 'filter:f1'
+    store.items = [
+      { ...ITEM, id: 'a', priority: 1, dueDate: '2026-10-14', position: 1 },
+      { ...ITEM, id: 'b', priority: 1, dueDate: '2026-10-15', position: 2 },
+    ]
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({ item: { ...store.items[0], dueDate: '2026-10-20' } }),
+    }))
+
+    await store.setDueDate('a', '2026-10-20')
+
+    expect(store.items.map((row) => row.id)).toEqual(['b', 'a'])
+  })
+
+  it('drops a task from the list once an edit takes it out of the filter', async () => {
+    const filters = useTaskFiltersStore()
+    filters.filters = [FILTER]
+    filters.isLoaded = true
+    store.loadedProject = 'filter:f1'
+    store.items = [{ ...ITEM, priority: 1 }]
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: { ...ITEM, priority: 3 } }) }))
+
+    await store.setPriority('t1', 3)
+
+    expect(store.items).toEqual([])
   })
 })
 

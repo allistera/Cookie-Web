@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import TasksSidebar from '../TasksSidebar.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { localToday } from '../../lib/localDate'
+import { useTaskFiltersStore } from '../../stores/taskFilters'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
 
@@ -38,7 +39,8 @@ describe('TasksSidebar', () => {
     const inbox = wrapper.get('.tasks-views-nav .nav-item')
     expect(inbox.text()).toContain('Inbox')
     expect(inbox.attributes('href')).toBe('/tasks?project=inbox')
-    expect(wrapper.get('.sb-section-label > span').text()).toBe('My Projects')
+    const sections = wrapper.findAll('.sb-section-label > span').map((label) => label.text())
+    expect(sections).toContain('My Projects')
   })
 
   // Inbox is the no-project bucket, so it must never appear as a project row
@@ -816,5 +818,124 @@ describe('dropping several selected tasks', () => {
       ['t3', ['calls', 'home']],
     ])
     expect(items.selectedIds).toEqual([])
+  })
+})
+
+describe('the Filters section', () => {
+  const FILTER = {
+    id: 'f1',
+    name: 'Urgent',
+    match: 'all',
+    rules: [{ field: 'priority', value: 1, negate: false }],
+  }
+
+  function seedFilters(filters) {
+    const store = useTaskFiltersStore()
+    store.filters = filters
+    store.isLoaded = true
+    return store
+  }
+
+  it('lists saved filters between Today and My Projects, linking to the filter view', async () => {
+    seedFilters([FILTER, { ...FILTER, id: 'f2', name: 'Someday' }])
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    const sections = wrapper.findAll('.sb-section-label > span').map((label) => label.text())
+    expect(sections).toEqual(['Filters', 'My Projects', 'Labels'])
+    const rows = wrapper.findAll('.tasks-filters-nav .filter-item')
+    expect(rows.map((row) => row.get('.nav-text').text())).toEqual(['Urgent', 'Someday'])
+    expect(rows[0].attributes('href')).toBe('/tasks?project=filter:f1')
+    expect(wrapper.find('.tasks-filters-empty').exists()).toBe(false)
+  })
+
+  it('shows the empty hint and asks the store for the filters', async () => {
+    const store = useTaskFiltersStore()
+    const load = vi.spyOn(store, 'loadFilters').mockResolvedValue(true)
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    expect(load).toHaveBeenCalled()
+    expect(wrapper.get('.tasks-filters-empty').text()).toBe('No filters yet')
+  })
+
+  it('marks the viewed filter active', async () => {
+    seedFilters([FILTER])
+    await router.push('/tasks?project=filter:f1')
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    expect(wrapper.get('.filter-item').classes()).toContain('active')
+    expect(wrapper.get('.tasks-views-nav .nav-item').classes()).not.toContain('active')
+  })
+
+  it('opens the editor from the plus and from a row, and mounts it while open', async () => {
+    const store = seedFilters([FILTER])
+    const wrapper = mountSidebar()
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'TaskFilterEditor' }).exists()).toBe(false)
+
+    await wrapper.get('[aria-label="New filter"]').trigger('click')
+    expect(store.editor).toMatchObject({ mode: 'create', id: null })
+    expect(wrapper.findComponent({ name: 'TaskFilterEditor' }).exists()).toBe(true)
+
+    store.closeEditor()
+    await wrapper.get('[aria-label="Edit filter Urgent"]').trigger('click')
+    expect(store.editor).toMatchObject({ mode: 'edit', id: 'f1', name: 'Urgent' })
+  })
+
+  it('renames on double-click, once when Enter is followed by blur', async () => {
+    const store = seedFilters([FILTER])
+    const rename = vi.spyOn(store, 'renameFilter').mockResolvedValue({ ...FILTER, name: 'Fires' })
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('.filter-item').trigger('dblclick')
+    const input = wrapper.get('[aria-label="Rename Urgent"]')
+    await input.setValue('Fires')
+    await input.trigger('keydown', { key: 'Enter' })
+    await input.trigger('blur')
+
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(rename).toHaveBeenCalledWith('f1', 'Fires')
+  })
+
+  it('deletes at once with an Undo, leaving the filter view if it was open', async () => {
+    const store = seedFilters([FILTER])
+    const remove = vi.spyOn(store, 'deleteFilter').mockResolvedValue({ filter: FILTER, index: 0 })
+    const restore = vi.spyOn(store, 'restoreFilter').mockResolvedValue(true)
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => 1)
+    await router.push('/tasks?project=filter:f1')
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Delete filter Urgent"]').trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith('f1')
+    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox')
+    expect(notify).toHaveBeenCalledWith(
+      'Deleted filter "Urgent".',
+      'info',
+      expect.objectContaining({ label: 'Undo' }),
+    )
+    await notify.mock.calls[0][2].run()
+    expect(restore).toHaveBeenCalledWith(FILTER, 0)
+  })
+
+  it('reports a delete the server refused', async () => {
+    const store = seedFilters([FILTER])
+    vi.spyOn(store, 'deleteFilter').mockImplementation(async () => {
+      store.error = 'Saved filters are not loaded. Please try again.'
+      return null
+    })
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => 1)
+    const wrapper = mountSidebar()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Delete filter Urgent"]').trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith('Saved filters are not loaded. Please try again.', 'error')
   })
 })

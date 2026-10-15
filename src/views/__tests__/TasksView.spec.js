@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import TasksView from '../TasksView.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { localToday } from '../../lib/localDate'
+import { useTaskFiltersStore } from '../../stores/taskFilters'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
 
@@ -1184,5 +1185,101 @@ describe('selecting several tasks', () => {
       'application/x-cookie-tasks',
       expect.anything(),
     )
+  })
+})
+
+describe('a saved filter view', () => {
+  const FILTER = {
+    id: 'f1',
+    name: 'Urgent',
+    match: 'any',
+    rules: [
+      { field: 'priority', value: 1, negate: false },
+      { field: 'project', value: 'p2', negate: true },
+    ],
+  }
+
+  function seedFilters(filters) {
+    const store = useTaskFiltersStore()
+    store.filters = filters
+    store.isLoaded = true
+    return store
+  }
+
+  it('loads the filter list and titles the view with the filter, its rules in words', async () => {
+    seedFilters([FILTER])
+    const items = useTaskItemsStore()
+    const load = vi.spyOn(items, 'loadItems').mockResolvedValue()
+    await router.push('/tasks?project=filter:f1')
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(load).toHaveBeenCalledWith('filter:f1')
+    expect(wrapper.get('.tasks-title').text()).toBe('Urgent')
+    expect(wrapper.get('.tasks-breadcrumb').text()).toContain('Filters')
+    expect(wrapper.find('.tasks-description').exists()).toBe(false)
+    expect(wrapper.get('.tasks-filter-match').text()).toBe('Any of')
+    const chips = wrapper.findAll('.tasks-filter-chip')
+    expect(chips.map((chip) => chip.text().replace(/\s+/g, ' '))).toEqual([
+      'Priority is P1',
+      'Project is not Githup',
+    ])
+    expect(chips[1].classes()).toContain('tasks-filter-chip-not')
+  })
+
+  it('opens the editor on the filter from Edit filter', async () => {
+    const filters = seedFilters([FILTER])
+    await router.push('/tasks?project=filter:f1')
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('.tasks-filter-edit').trigger('click')
+
+    expect(filters.editor).toMatchObject({ mode: 'edit', id: 'f1', name: 'Urgent' })
+  })
+
+  it('names each row home, offers no compose row or divider plus, and says when nothing matches', async () => {
+    seedFilters([FILTER])
+    await router.push('/tasks?project=filter:f1')
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('.tasks-empty').text()).toBe('No tasks match this filter.')
+    expect(wrapper.find('.add-task-btn').exists()).toBe(false)
+
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'One', projectId: 'p2', priority: 1, dueDate: '2026-01-01' },
+      { id: 'b', content: 'Two', projectId: null, priority: 1 },
+    ]
+    await flushPromises()
+
+    expect(wrapper.findAll('.task-home').map((home) => home.text())).toEqual(['Githup', 'Inbox'])
+    expect(wrapper.find('.task-insert').exists()).toBe(false)
+    expect(wrapper.find('.tasks-empty').exists()).toBe(false)
+    expect(wrapper.get('.task-due').text()).toBe('1 Jan')
+  })
+
+  it('says so when the filter no longer exists', async () => {
+    seedFilters([])
+    await router.push('/tasks?project=filter:gone')
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.tasks-title').text()).toBe('Filter')
+    expect(wrapper.get('.tasks-filter-missing').text()).toBe('This filter no longer exists.')
+  })
+
+  it('asks the filters store to load when a filter is opened', async () => {
+    const filters = useTaskFiltersStore()
+    const load = vi.spyOn(filters, 'loadFilters').mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    expect(load).not.toHaveBeenCalled()
+
+    await router.push('/tasks?project=filter:f1')
+    await flushPromises()
+
+    expect(load).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
   })
 })

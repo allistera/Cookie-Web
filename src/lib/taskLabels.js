@@ -1,4 +1,4 @@
-import { DEFAULT_LABEL_COLOR } from './labelPalette'
+import { DEFAULT_LABEL_COLOR } from './labelPalette.js'
 
 // Mirrors the Worker's normalizeTaskLabels (taskMetadata.js): lowercase,
 // trimmed, leading @ dropped, 1–40 characters, no whitespace, @ or #.

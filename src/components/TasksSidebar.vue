@@ -4,12 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddTaskDialog from './AddTaskDialog.vue'
 import AiTaskDialog from './AiTaskDialog.vue'
+import TaskFilterEditor from './TaskFilterEditor.vue'
 import { getStoredExpandedIds, saveExpandedIds } from '../lib/documentsSidebarFolders'
 import { localToday } from '../lib/localDate'
 import { LABEL_PALETTE } from '../lib/labelPalette'
+import { filterRoute } from '../lib/taskFilters'
 import { normalizeLabelName } from '../lib/taskLabels'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
+import { useTaskFiltersStore } from '../stores/taskFilters'
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useTaskLabelsStore } from '../stores/taskLabels'
 
@@ -30,6 +33,7 @@ const router = useRouter()
 const store = useProjectsStore()
 const taskItems = useTaskItemsStore()
 const labelsStore = useTaskLabelsStore()
+const filtersStore = useTaskFiltersStore()
 
 // Which projects are open, persisted so a reload restores the same tree.
 const expandedIds = ref(new Set(getStoredExpandedIds(EXPANDED_KEY)))
@@ -44,6 +48,7 @@ const selectedProject = computed(() => String(route.query.project ?? 'today'))
 onMounted(() => {
   store.loadProjects()
   labelsStore.loadLabels()
+  filtersStore.loadFilters()
 })
 
 function toggle(id) {
@@ -253,6 +258,54 @@ async function removeProject(project) {
   if (deleted && viewingDoomed) router.push('/tasks?project=inbox')
 }
 
+// --- Filters ---
+// Saved filters are rules, like Inbox and Today: each lists the tasks it
+// fits across every project. The "+" and a row's edit button open the
+// editor dialog (TaskFilterEditor); double-click renames in place, as a
+// project does.
+const renamingFilterId = ref(null)
+const renameFilterName = ref('')
+const renameFilterInput = ref(null)
+
+async function startRenameFilter(filter) {
+  renamingFilterId.value = filter.id
+  renameFilterName.value = filter.name
+  await nextTick()
+  renameFilterInput.value?.[0]?.focus?.()
+  renameFilterInput.value?.[0]?.select?.()
+}
+
+async function submitRenameFilter(filter) {
+  // Same Enter-then-blur double fire as submitRename.
+  if (renamingFilterId.value !== filter.id) return
+  const name = renameFilterName.value.trim()
+  renamingFilterId.value = null
+  if (!name || name === filter.name) return
+  const renamed = await filtersStore.renameFilter(filter.id, name)
+  if (!renamed) filtersStore.notify(filtersStore.error || 'Failed to rename the filter.', 'error')
+}
+
+// Deleting removes only the definition, never a task, so it happens at
+// once with an Undo that puts the filter back where it was.
+async function removeFilter(filter) {
+  const viewing = selectedProject.value === `filter:${filter.id}`
+  const removed = await filtersStore.deleteFilter(filter.id)
+  if (!removed) {
+    filtersStore.notify(filtersStore.error || 'Failed to delete the filter.', 'error')
+    return
+  }
+  if (viewing) router.push('/tasks?project=inbox')
+  filtersStore.notify(`Deleted filter "${filter.name}".`, 'info', {
+    label: 'Undo',
+    run: async () => {
+      const restored = await filtersStore.restoreFilter(removed.filter, removed.index)
+      if (!restored) {
+        filtersStore.notify(filtersStore.error || 'Failed to restore the filter.', 'error')
+      }
+    },
+  })
+}
+
 // --- Labels ---
 // Same shape as the projects section: an inline create row, double-click
 // to rename, hover to delete. Names are normalised here so the server is
@@ -391,6 +444,68 @@ function onLabelDrop(label, event) {
         <span class="nav-text">Today</span>
       </router-link>
     </nav>
+
+    <!-- Saved filters sit with Inbox and Today: like them, each is a rule
+       that gathers tasks from across the projects below. -->
+    <div class="sb-section-label tasks-projects-label">
+      <span>Filters</span>
+      <button
+        class="new-filter-btn"
+        type="button"
+        title="New filter"
+        aria-label="New filter"
+        @click.stop="filtersStore.openEditor()"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+      </button>
+    </div>
+    <nav class="sidebar-nav tasks-filters-nav" aria-label="Filters">
+      <router-link
+        v-for="filter in filtersStore.filters"
+        :key="filter.id"
+        :to="filterRoute(filter)"
+        class="nav-item project-item filter-item"
+        :class="{ active: selectedProject === `filter:${filter.id}` }"
+        @dblclick.prevent="startRenameFilter(filter)"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">filter_alt</span>
+        <input
+          v-if="renamingFilterId === filter.id"
+          ref="renameFilterInput"
+          v-model="renameFilterName"
+          class="project-rename-input"
+          :aria-label="`Rename ${filter.name}`"
+          maxlength="60"
+          @click.prevent.stop
+          @keydown.enter.prevent="submitRenameFilter(filter)"
+          @keydown.escape="renamingFilterId = null"
+          @blur="submitRenameFilter(filter)"
+        />
+        <span v-else class="nav-text">{{ filter.name }}</span>
+        <span class="row-actions" @click.prevent.stop>
+          <button
+            class="row-action-btn"
+            data-action="edit"
+            :title="`Edit ${filter.name}`"
+            :aria-label="`Edit filter ${filter.name}`"
+            @click="filtersStore.openEditor({ filter })"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+          </button>
+          <button
+            class="row-action-btn"
+            data-action="delete"
+            :title="`Delete ${filter.name}`"
+            :aria-label="`Delete filter ${filter.name}`"
+            @click="removeFilter(filter)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+          </button>
+        </span>
+      </router-link>
+      <p v-if="!filtersStore.filters.length" class="tasks-filters-empty">No filters yet</p>
+    </nav>
+    <TaskFilterEditor v-if="filtersStore.editor" />
 
     <div
       class="sb-section-label tasks-projects-label"
@@ -612,6 +727,12 @@ function onLabelDrop(label, event) {
   white-space: nowrap;
 }
 
+/* A filter row's icon lines up with the # of the project rows below it. */
+.filter-item .material-symbols-outlined {
+  font-size: 16px;
+  margin-left: 1px;
+}
+
 /* A text marker rather than an icon: projects carry no colour or emoji, the
    same idea the documents sidebar uses for its tag rows. Here it is rendered
    as generated content rather than a text node, so a row's rendered text
@@ -649,6 +770,7 @@ function onLabelDrop(label, event) {
 }
 
 .tasks-projects-empty,
+.tasks-filters-empty,
 .tasks-labels-empty {
   margin: 0;
   padding: 2px 8px;
@@ -663,6 +785,7 @@ function onLabelDrop(label, event) {
 }
 
 .new-project-btn,
+.new-filter-btn,
 .new-label-btn {
   display: inline-flex;
   align-items: center;
@@ -680,6 +803,8 @@ function onLabelDrop(label, event) {
 
 .new-project-btn:hover,
 .new-project-btn:focus-visible,
+.new-filter-btn:hover,
+.new-filter-btn:focus-visible,
 .new-label-btn:hover,
 .new-label-btn:focus-visible {
   background-color: var(--bg-hover);

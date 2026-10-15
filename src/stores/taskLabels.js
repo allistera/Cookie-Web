@@ -6,6 +6,7 @@ import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { createSharedLoad } from '../lib/sharedLoad'
 import { useInboxStore } from './inbox'
+import { useTaskFiltersStore } from './taskFilters'
 import { useTaskItemsStore } from './taskItems'
 
 const labelLoads = createSharedLoad()
@@ -120,6 +121,11 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
             rewriteLoadedTasks((labels) =>
               labels.map((name) => (name === previousName ? updated.name : name)),
             )
+            // The server carried the rename into saved filters too, at a
+            // new revision; the loaded copy must follow or its next save
+            // would meet a conflict.
+            const filters = useTaskFiltersStore()
+            if (filters.isLoaded) filters.loadFilters({ force: true })
           }
           return current
         } catch (error) {

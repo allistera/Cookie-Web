@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useTaskLabelsStore } from '../taskLabels'
+import { useTaskFiltersStore } from '../taskFilters'
 import { useTaskItemsStore } from '../taskItems'
 import { useInboxStore } from '../inbox'
 
@@ -57,12 +58,19 @@ describe('task labels store', () => {
       json: async () => ({ label: { ...LABEL, name: 'house' } }),
     }))
 
+    const filters = useTaskFiltersStore()
+    filters.isLoaded = true
+    const reload = vi.spyOn(filters, 'loadFilters').mockResolvedValue(true)
+
     await store.renameLabel('l1', 'house')
 
     expect(store.labels[0].name).toBe('house')
     expect(store.labels[0].taskCount).toBe(2)
     expect(items.items[0].labels).toEqual(['house', 'calls'])
     expect(items.items[1].labels).toEqual(['work'])
+    // The server renamed the label inside saved filters too; the loaded
+    // copy follows.
+    expect(reload).toHaveBeenCalledWith({ force: true })
   })
 
   it('rolls a failed rename back and notifies', async () => {

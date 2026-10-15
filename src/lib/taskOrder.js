@@ -36,7 +36,8 @@ export function orderAfterDrop(ids, draggedId, targetId, place) {
 // Today's order: due date, then the day's own arrangement (rows never
 // arranged there come after those that were), then position.
 export function compareByDueThenPosition(a, b) {
-  const byDue = String(a.dueDate ?? '9999-12-31').localeCompare(String(b.dueDate ?? '9999-12-31'))
+  if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1
+  const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
   if (byDue) return byDue
   const aToday = a.todayPosition ?? Number.POSITIVE_INFINITY
   const bToday = b.todayPosition ?? Number.POSITIVE_INFINITY
@@ -44,8 +45,23 @@ export function compareByDueThenPosition(a, b) {
   return compareByPosition(a, b)
 }
 
+// A saved filter's order: due date, undated rows last, then position — the
+// server's order for a filter list. Today's own arrangement (todayPosition)
+// plays no part, so a day re-arranged in Today reads the same here as in
+// the projects the rows live in.
+export function compareByDueDateThenPosition(a, b) {
+  // Undated after every date, however far off that date is.
+  if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1
+  const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
+  return byDue || compareByPosition(a, b)
+}
+
 export function sortForList(items, loadedProject) {
-  return [...items].sort(loadedProject === 'today' ? compareByDueThenPosition : compareByPosition)
+  if (loadedProject === 'today') return [...items].sort(compareByDueThenPosition)
+  if (String(loadedProject ?? '').startsWith('filter:')) {
+    return [...items].sort(compareByDueDateThenPosition)
+  }
+  return [...items].sort(compareByPosition)
 }
 
 // How far apart two rows that shared a position are pushed; the same step
