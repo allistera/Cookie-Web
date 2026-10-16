@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import TaskActivity from '../components/TaskActivity.vue'
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import TaskDisplay from '../components/TaskDisplay.vue'
 import { localToday } from '../lib/localDate'
@@ -15,6 +16,7 @@ import { useTaskFiltersStore } from '../stores/taskFilters'
 import { useTaskLabelsStore } from '../stores/taskLabels'
 import { useTaskItemsStore } from '../stores/taskItems'
 
+const historyOpen = ref(false)
 const route = useRoute()
 const router = useRouter()
 const projects = useProjectsStore()
@@ -507,6 +509,15 @@ async function submitDraft() {
         </template>
         <span aria-hidden="true">/</span>
       </nav>
+      <button
+        type="button"
+        class="tasks-history-button"
+        :aria-expanded="historyOpen"
+        aria-controls="task-history"
+        @click="historyOpen = !historyOpen"
+      >
+        History
+      </button>
       <TaskDisplay
         :layout="taskLayout"
         :grouping="grouping"
@@ -515,6 +526,8 @@ async function submitDraft() {
         @reset="resetDisplay"
       />
     </div>
+
+    <div v-if="historyOpen" id="task-history"><TaskActivity /></div>
 
     <input
       v-if="titleEdit.editing.value"
@@ -812,6 +825,22 @@ async function submitDraft() {
 </template>
 
 <style scoped>
+.tasks-history-button {
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+#task-history {
+  margin-bottom: 24px;
+}
+#task-history :deep(.task-activity) {
+  margin-left: 0;
+}
+
 /* The panel is a flex item in .main-content's column flex container, so the
    cross axis is horizontal: an auto side margin there beats align-items:
    stretch and sizes the box to its content. Without an explicit width that

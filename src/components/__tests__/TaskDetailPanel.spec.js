@@ -408,6 +408,22 @@ describe('TaskDetailPanel', () => {
 
   // Completing removes the task from the visible list, so leaving the panel
   // open would point it at something no longer there.
+  it('reopens a completed task opened from history', async () => {
+    seed([
+      { id: 'b', content: 'Finished task', projectId: null, completedAt: '2026-10-16T09:00:00Z' },
+    ])
+    const reopen = vi.spyOn(items, 'setCompleted').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+    const check = wrapper.get('button[aria-label="Reopen Finished task"]')
+    expect(check.attributes('aria-pressed')).toBe('true')
+    await check.trigger('click')
+    await flushPromises()
+    expect(reopen).toHaveBeenCalledWith('b', false)
+    expect(router.currentRoute.value.query.task).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('completes the task and closes', async () => {
     seed()
     const complete = vi.spyOn(items, 'setCompleted').mockResolvedValue({})

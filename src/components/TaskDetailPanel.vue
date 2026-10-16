@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import TaskActivity from './TaskActivity.vue'
 import TaskComments from './TaskComments.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
@@ -230,7 +231,7 @@ const completing = ref(false)
 async function complete() {
   if (completing.value) return
   completing.value = true
-  const updated = await items.setCompleted(props.taskId, true)
+  const updated = await items.setCompleted(props.taskId, !item.value?.completedAt)
   if (updated) closeIfStillOpen()
   else completing.value = false
 }
@@ -392,9 +393,14 @@ onBeforeUnmount(() => {
               class="task-panel-check"
               type="button"
               :disabled="items.completingIds.includes(taskId)"
-              :aria-label="`Complete ${item?.content ?? 'task'}`"
+              :aria-label="`${item?.completedAt ? 'Reopen' : 'Complete'} ${item?.content ?? 'task'}`"
+              :aria-pressed="Boolean(item?.completedAt)"
               @click="complete()"
-            ></button>
+            >
+              <span v-if="item.completedAt" class="material-symbols-outlined" aria-hidden="true"
+                >check</span
+              >
+            </button>
             <input
               v-if="titleEdit.editing.value"
               :ref="(el) => (titleEdit.inputRef.value = el)"
@@ -513,6 +519,7 @@ onBeforeUnmount(() => {
           </section>
 
           <TaskComments :task-id="taskId" />
+          <TaskActivity :task-id="taskId" />
         </div>
         <aside class="task-panel-rail">
           <div class="task-panel-field">
@@ -761,6 +768,16 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: none;
   cursor: pointer;
+}
+
+.task-panel-check[aria-pressed='true'] {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+.task-panel-check .material-symbols-outlined {
+  font-size: 16px;
+  display: block;
 }
 
 .task-panel-check:hover {
