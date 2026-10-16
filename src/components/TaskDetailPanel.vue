@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import TaskComments from './TaskComments.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
@@ -10,6 +11,7 @@ import { taskBucketItem } from '../lib/bucketItems'
 import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
+import { useTaskCommentsStore } from '../stores/taskComments'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const props = defineProps({ taskId: { type: String, required: true } })
@@ -18,6 +20,7 @@ const route = useRoute()
 const router = useRouter()
 const items = useTaskItemsStore()
 const projects = useProjectsStore()
+const comments = useTaskCommentsStore()
 
 const item = computed(() => items.itemById(props.taskId))
 watch(
@@ -239,8 +242,11 @@ async function remove() {
   if (!confirm(`Delete "${item.value.content}"?`)) return
   const deleted = await items.deleteItem(props.taskId)
   // A failed delete has already notified; stay put rather than close over a
-  // task that is still there.
-  if (deleted) closeIfStillOpen()
+  // task that is still there. The thread went with the task on the server.
+  if (deleted) {
+    comments.forgetThread(props.taskId)
+    closeIfStillOpen()
+  }
 }
 
 function close() {
@@ -505,6 +511,8 @@ onBeforeUnmount(() => {
               </button>
             </template>
           </section>
+
+          <TaskComments :task-id="taskId" />
         </div>
         <aside class="task-panel-rail">
           <div class="task-panel-field">

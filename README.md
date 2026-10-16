@@ -396,6 +396,26 @@ No migration is needed; deploy the Worker before the web client.
 
 GitHub news shows all repositories returned by the daily top-repository feed by default. Enable **Settings → Personalisation → Personalise GitHub repositories** to rank and select repositories against your interests on the next AI Today refresh; Product Hunt continues to use your interests independently.
 
+### Task comments and attachments
+
+Every task has a discussion thread, shown as **Comments** under the sub-tasks
+in the task panel. Entries read oldest first and hold text, one attached
+file, or both. Write in the composer at the foot (Enter sends, Shift+Enter
+makes a newline), choose a file with **Attach file** (any type up to 25 MB;
+the chosen file shows as a chip you can remove before sending) and press
+**Comment**. Each entry names its author and time and is marked "(edited)"
+once changed. Hover your own entries for **Edit** (in place; Enter saves,
+Escape cancels) and **Delete** (asks first). An entry that keeps its text can
+have its attachment removed from the chip's close button; an entry that is
+only its attachment is deleted whole. Clicking an attachment opens images and
+PDFs in a new tab and downloads anything else.
+
+Threads are served by the `cookie-web-tasks` Worker under `/task-comments`
+(`GET ?task=`, multipart `POST`, `PATCH`/`DELETE /:id`,
+`GET /:id/attachment`); attachment bytes live in the same private R2 bucket
+as uploaded files. Apply migration `0096_task_comments.sql` and deploy the
+Worker before the web client. A deleted task takes its thread with it.
+
 ### Files and the folder browser
 
 The Documents dashboard shows one folder at a time: subfolders first, then documents and uploaded files by name, as cards or rows (toggle in the toolbar; the choice is remembered in this browser). Click a folder in the sidebar or double-click its card to open it; the breadcrumb goes back up. The sidebar tree follows along, opening the current folder (or the folder holding the open document) and its parents. **Upload** or drop files onto the pane to add any file type up to 25 MB to the current folder. Image files show a thumbnail in place of the icon, loaded as they scroll into view. Images and PDFs open in an inline preview; other types download. Each item's menu offers open, rename, move, star (documents), download (files), and delete. Files live in a private R2 bucket behind the `cookie-web-tasks` Worker and are not searched, tagged, or read by Document AI. The Starred, tag, and search views keep the flat table.

@@ -73,6 +73,7 @@ export function localApiPlugin(mode) {
         contactInsights: new Map(),
         projects: [],
         taskItems: [],
+        taskComments: [],
         taskLabels: [],
         taskFilters: { revision: 0, filters: [] },
         todoist: null,
@@ -1831,6 +1832,112 @@ export function localApiPlugin(mode) {
       }
       return json(res, { error: 'Method not allowed' }, 405)
     }
+    if (segments[0] === 'task-comments') {
+      // A task's discussion thread, mirroring cookie-web-tasks/src/
+      // taskComments.js: rows plus in-memory bytes for attachments, oldest
+      // first, 100 per page.
+      const publicRow = ({ bytes: _bytes, ...row }) => row
+      if (segments.length === 1 && req.method === 'GET') {
+        const taskId = url.searchParams.get('task')
+        if (!isTaskUuid(taskId)) return json(res, { error: 'Invalid task id' }, 400)
+        const owned = state.taskItems.some((item) => item.id === taskId)
+        const all = owned ? state.taskComments.filter((row) => row.taskId === taskId) : []
+        const after = url.searchParams.get('after')
+        const start = after ? all.findIndex((row) => row.id === after) + 1 : 0
+        const page = all.slice(start, start + 100)
+        const last = page.at(-1)
+        return json(res, {
+          comments: page.map(publicRow),
+          nextCursor: last && start + 100 < all.length ? last.id : null,
+        })
+      }
+      if (segments.length === 1 && req.method === 'POST') {
+        const { Readable } = await import('node:stream')
+        const upload = new Request('http://localhost/task-comments', {
+          method: 'POST',
+          headers: { 'content-type': req.headers['content-type'] || '' },
+          body: Readable.toWeb(req),
+          duplex: 'half',
+        })
+        let form
+        try {
+          form = await upload.formData()
+        } catch {
+          return json(res, { error: 'Content-Type must be multipart/form-data' }, 400)
+        }
+        const taskId = String(form.get('task') ?? '')
+        if (!isTaskUuid(taskId)) return json(res, { error: 'A valid task id is required' }, 400)
+        const text = String(form.get('body') ?? '').trim()
+        const file = form.get('file')
+        if (!text && !(file instanceof File)) {
+          return json(res, { error: 'A comment needs text or an attachment' }, 400)
+        }
+        if (file instanceof File && file.size > 25 * 1024 * 1024) {
+          return json(res, { error: 'File is larger than 25 MB' }, 413)
+        }
+        if (!state.taskItems.some((item) => item.id === taskId)) {
+          return json(res, { error: 'Task not found' }, 404)
+        }
+        const now = new Date().toISOString()
+        const row = {
+          id: randomUUID(),
+          taskId,
+          body: text,
+          attachment:
+            file instanceof File
+              ? {
+                  name: file.name,
+                  mimeType: file.type || 'application/octet-stream',
+                  sizeBytes: file.size,
+                }
+              : null,
+          mine: true,
+          editedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          bytes: file instanceof File ? Buffer.from(await file.arrayBuffer()) : null,
+        }
+        state.taskComments.push(row)
+        return json(res, { comment: publicRow(row) }, 201)
+      }
+      if (segments.length === 1) return json(res, { error: 'Method not allowed' }, 405)
+      const row = state.taskComments.find((candidate) => candidate.id === segments[1])
+      if (segments[2] === 'attachment') {
+        if (!row?.attachment) return json(res, { error: 'Attachment not found' }, 404)
+        res.statusCode = 200
+        res.setHeader('Content-Type', row.attachment.mimeType)
+        res.setHeader('Content-Length', String(row.bytes.length))
+        res.setHeader('Content-Disposition', `attachment; filename="${row.attachment.name}"`)
+        res.end(row.bytes)
+        return
+      }
+      if (!row) return json(res, { error: 'Comment not found' }, 404)
+      if (req.method === 'PATCH') {
+        const body = await readBody(req)
+        const hasBody = Object.hasOwn(body, 'body')
+        const dropsFile = Object.hasOwn(body, 'attachment') && body.attachment === null
+        if (!hasBody && !dropsFile) return json(res, { error: 'Nothing to update' }, 400)
+        const text = hasBody ? String(body.body ?? '').trim() : row.body
+        if (!text && (dropsFile || !row.attachment)) {
+          return json(res, { error: 'A comment needs text or an attachment' }, 400)
+        }
+        row.body = text
+        if (dropsFile) {
+          row.attachment = null
+          row.bytes = null
+        }
+        row.editedAt = new Date().toISOString()
+        row.updatedAt = row.editedAt
+        return json(res, { comment: publicRow(row) })
+      }
+      if (req.method === 'DELETE') {
+        state.taskComments = state.taskComments.filter((candidate) => candidate !== row)
+        res.statusCode = 204
+        res.end()
+        return
+      }
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
     if (segments[0] === 'task-labels') {
       if (req.method === 'GET') return json(res, { labels: state.taskLabels })
       const body = await readBody(req)
@@ -1932,7 +2039,12 @@ export function localApiPlugin(mode) {
         // Mirrors the schema's project_id ... ON DELETE CASCADE: every task
         // in the deleted project or any of its descendants goes with it,
         // not just the project rows.
+        const doomedTasks = new Set(
+          state.taskItems.filter((item) => doomed.has(item.projectId)).map((item) => item.id),
+        )
         state.taskItems = state.taskItems.filter((item) => !doomed.has(item.projectId))
+        // ...and their threads (task_comments.task_id ON DELETE CASCADE).
+        state.taskComments = state.taskComments.filter((row) => !doomedTasks.has(row.taskId))
         return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)
@@ -2253,10 +2365,15 @@ export function localApiPlugin(mode) {
       if (req.method === 'DELETE') {
         const item = state.taskItems.find((row) => row.id === body.id)
         if (!item) return json(res, { error: 'Task not found' }, 404)
-        // Mirrors parent_id ... ON DELETE CASCADE: sub-tasks go with it.
-        state.taskItems = state.taskItems.filter(
-          (row) => row.id !== body.id && row.parentId !== body.id,
+        // Mirrors parent_id ... ON DELETE CASCADE: sub-tasks go with it,
+        // and task_comments.task_id cascades too, so their threads follow.
+        const doomed = new Set(
+          state.taskItems
+            .filter((row) => row.id === body.id || row.parentId === body.id)
+            .map((row) => row.id),
         )
+        state.taskItems = state.taskItems.filter((row) => !doomed.has(row.id))
+        state.taskComments = state.taskComments.filter((row) => !doomed.has(row.taskId))
         return json(res, { ok: true })
       }
       return json(res, { error: 'Method not allowed' }, 405)
