@@ -6,7 +6,7 @@ import TaskComments from './TaskComments.vue'
 import TaskHistory from './TaskHistory.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskProjectPicker from './TaskProjectPicker.vue'
-import TaskRepeatInput from './TaskRepeatInput.vue'
+import TaskSchedulePicker from './TaskSchedulePicker.vue'
 import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
@@ -47,20 +47,12 @@ watch(
   },
   { immediate: true },
 )
-const recurrenceDraft = ref('')
 const savingRecurrence = ref(false)
-watch(
-  () => [props.taskId, item.value?.recurrence],
-  () => {
-    recurrenceDraft.value = item.value?.recurrence ?? ''
-  },
-  { immediate: true },
-)
-async function saveRecurrence() {
+async function saveRecurrence(draft) {
   if (savingRecurrence.value) return
   savingRecurrence.value = true
   try {
-    const updated = await items.setRecurrence(props.taskId, recurrenceDraft.value.trim() || null)
+    const updated = await items.setRecurrence(props.taskId, String(draft ?? '').trim() || null)
     if (updated && !item.value) closeIfStillOpen()
   } finally {
     savingRecurrence.value = false
@@ -311,17 +303,15 @@ const commentCount = computed(() => {
 
 // ---- schedule -----------------------------------------------------------------
 
-// An empty input means the date was cleared; null is what the server treats
-// as "no date", where '' would be refused as malformed.
-function onDateChange(event) {
-  const value = String(event.target.value ?? '')
-  items.setDueDate(props.taskId, value || null)
+// The picker hands back YYYY-MM-DD, or null for "no date", which is what
+// the server treats as cleared where '' would be refused as malformed.
+function onDateChange(dueDate) {
+  items.setDueDate(props.taskId, dueDate)
 }
 
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
-function onTimeChange(event) {
-  const value = String(event.target.value ?? '')
+function onTimeChange(value) {
   items.setDueTime(
     props.taskId,
     value || null,
@@ -933,66 +923,16 @@ onBeforeUnmount(() => {
           <p class="task-panel-priority-current">{{ priorityInfo(priority).label }}</p>
 
           <h3 class="task-panel-section">Schedule</h3>
-          <div class="task-panel-row">
-            <span class="task-panel-row-label">Date</span>
-            <div class="task-panel-row-value task-panel-date" :class="{ set: item?.dueDate }">
-              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
-                >calendar_month</span
-              >
-              <input
-                class="task-panel-date-input"
-                type="date"
-                aria-label="Due date"
-                :value="item?.dueDate ?? ''"
-                @change="onDateChange($event)"
-              />
-              <button
-                v-if="item?.dueDate"
-                class="task-panel-date-clear"
-                type="button"
-                title="Clear date"
-                aria-label="Clear due date"
-                @click="items.setDueDate(taskId, null)"
-              >
-                <span class="material-symbols-outlined" aria-hidden="true">close</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="task-panel-row">
-            <span class="task-panel-row-label">Time</span>
-            <div class="task-panel-row-value task-panel-time" :class="{ set: item?.dueTime }">
-              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
-                >schedule</span
-              >
-              <input
-                class="task-panel-time-input"
-                type="time"
-                aria-label="Due time"
-                :value="item?.dueTime ?? ''"
-                :disabled="!item?.dueDate"
-                @change="onTimeChange($event)"
-              />
-              <span v-if="item?.dueTime" class="task-panel-time-zone">
-                {{ item.timeZone || localTimeZone }}
-              </span>
-            </div>
-          </div>
-
-          <form class="task-panel-row task-panel-repeat" @submit.prevent="saveRecurrence">
-            <span class="task-panel-row-label" aria-hidden="true">Repeat</span>
-            <div class="task-panel-row-value">
-              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
-                >repeat</span
-              >
-              <div class="task-panel-repeat-field">
-                <TaskRepeatInput v-model="recurrenceDraft" :disabled="savingRecurrence" />
-                <button class="task-panel-repeat-save" type="submit" :disabled="savingRecurrence">
-                  Save repeat
-                </button>
-              </div>
-            </div>
-          </form>
+          <TaskSchedulePicker
+            :due-date="item?.dueDate ?? null"
+            :due-time="item?.dueTime ?? null"
+            :time-zone="item?.timeZone || localTimeZone"
+            :recurrence="item?.recurrence ?? null"
+            :saving-recurrence="savingRecurrence"
+            @update:due-date="onDateChange"
+            @update:due-time="onTimeChange"
+            @save-recurrence="saveRecurrence"
+          />
 
           <p v-if="addedStamp" class="task-panel-added">
             Added {{ addedStamp }}<template v-if="userName"> by {{ userName }}</template>
@@ -1820,89 +1760,6 @@ onBeforeUnmount(() => {
 .priority-flag.priority-3 {
   color: #246fe0;
 }
-
-.task-panel-date-input,
-.task-panel-time-input {
-  min-width: 0;
-  padding: 4px 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 15px;
-  color: var(--text-secondary);
-}
-
-.task-panel-date.set .task-panel-date-input,
-.task-panel-date.set .task-panel-row-icon,
-.task-panel-time.set .task-panel-time-input,
-.task-panel-time.set .task-panel-row-icon {
-  color: var(--text-green);
-}
-
-.task-panel-time-input:disabled {
-  opacity: 0.55;
-}
-
-.task-panel-time-zone {
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.task-panel-date-clear {
-  display: flex;
-  margin-left: auto;
-  padding: 2px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.task-panel-date-clear:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.task-panel-repeat {
-  margin-top: 4px;
-}
-
-.task-panel-repeat .task-panel-row-value {
-  align-items: flex-start;
-}
-
-.task-panel-repeat .task-panel-row-icon {
-  margin-top: 5px;
-}
-
-.task-panel-repeat-field {
-  flex: 1;
-  min-width: 0;
-}
-
-/* The repeat input carries its own label; the row already names it. */
-.task-panel-repeat-field :deep(.task-repeat label) {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-
-.task-panel-repeat-save {
-  margin-top: 8px;
-  padding: 4px 10px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-dialog);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
 .task-panel-added {
   margin: auto 0 0;
   padding-top: 20px;

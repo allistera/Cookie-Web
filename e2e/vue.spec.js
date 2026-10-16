@@ -2733,14 +2733,16 @@ test('Tasks: a task opens in the panel, takes a date, and the link survives a re
   await expect(page.locator('.task-panel')).toBeVisible()
   await expect(page.locator('.task-panel-title')).toHaveText('Ship the panel')
 
+  await page.locator('.task-panel-schedule').click()
   await page.locator('.task-panel-date-input').fill('2026-09-01')
+  await page.locator('.task-panel-date-input').press('Enter')
   await expect(page.locator('.task-due')).toHaveText('1 Sep')
 
   // URL-backed: the panel is a link, not view state that a reload forgets.
   await page.reload()
   await expect(page.locator('.task-panel')).toBeVisible()
   await expect(page.locator('.task-panel-title')).toHaveText('Ship the panel')
-  await expect(page.locator('.task-panel-date-input')).toHaveValue('2026-09-01')
+  await expect(page.locator('.task-panel-schedule')).toContainText('1 Sep')
 
   await page.keyboard.press('Escape')
   await expect(page.locator('.task-panel')).toHaveCount(0)
@@ -2808,7 +2810,9 @@ test('Tasks: Today lists what is due today from across the projects', async ({ p
   await expect(page.locator('.task-row')).toHaveCount(1)
 
   await page.locator('.task-open').click()
+  await page.locator('.task-panel-schedule').click()
   await page.locator('.task-panel-date-input').fill(today)
+  await page.locator('.task-panel-date-input').press('Enter')
   await page.keyboard.press('Escape')
 
   // A second task with no date, which Today must leave behind.
@@ -2915,7 +2919,9 @@ test('Tasks: an overdue task is carried into Today and can be deleted', async ({
 
   // A date well in the past: Today must still carry it.
   await page.locator('.task-open').click()
+  await page.locator('.task-panel-schedule').click()
   await page.locator('.task-panel-date-input').fill('2020-01-02')
+  await page.locator('.task-panel-date-input').press('Enter')
   await page.keyboard.press('Escape')
 
   await sidebar.locator('.nav-item', { hasText: 'Today' }).click()

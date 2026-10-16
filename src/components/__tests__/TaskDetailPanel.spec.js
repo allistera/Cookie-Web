@@ -956,58 +956,92 @@ describe('TaskDetailPanel', () => {
     wrapper.unmount()
   })
 
-  it('sets a due date', async () => {
+  const openSchedule = async (wrapper) => {
+    await wrapper.get('.task-panel-schedule').trigger('click')
+    await flushPromises()
+  }
+  const typeDate = async (wrapper, text) => {
+    await wrapper.get('.task-panel-date-input').setValue(text)
+    await wrapper.get('.task-panel-date-input').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+  }
+
+  it('sets a due date typed into the schedule picker', async () => {
     seed()
     const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
     const wrapper = await mountPanel()
     await flushPromises()
+    expect(wrapper.find('.task-schedule-menu').exists()).toBe(false)
 
-    await wrapper.get('.task-panel-date-input').setValue('2026-09-01')
-    await flushPromises()
+    await openSchedule(wrapper)
+    await typeDate(wrapper, '2026-09-01')
 
     expect(setDue).toHaveBeenCalledWith('b', '2026-09-01')
+    expect(wrapper.find('.task-schedule-menu').exists()).toBe(false)
   })
 
-  it('shows the date the task already has', async () => {
-    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
-    const wrapper = await mountPanel()
-    await flushPromises()
-
-    expect(wrapper.get('.task-panel-date-input').element.value).toBe('2026-09-01')
-  })
-
-  it('clears a due date', async () => {
-    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
-    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
-    const wrapper = await mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-date-clear').trigger('click')
-    await flushPromises()
-
-    expect(setDue).toHaveBeenCalledWith('b', null)
-  })
-
-  // An emptied date input means "no date", which is null on the wire — not
-  // an empty string, which the server would refuse.
-  it('sends null when the date input is emptied', async () => {
-    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
-    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
-    const wrapper = await mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-date-input').setValue('')
-    await flushPromises()
-
-    expect(setDue).toHaveBeenCalledWith('b', null)
-  })
-
-  it('offers no clear control when there is no date', async () => {
+  it('sets a due date from a calendar day', async () => {
     seed()
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+    await openSchedule(wrapper)
+
+    const day = wrapper.findAll('.task-schedule-day[data-date]').at(-1)
+    await day.trigger('click')
+    await flushPromises()
+
+    expect(setDue).toHaveBeenCalledWith('b', day.attributes('data-date'))
+  })
+
+  it('shows the date the task already has on the chip', async () => {
+    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
     const wrapper = await mountPanel()
     await flushPromises()
 
-    expect(wrapper.find('.task-panel-date-clear').exists()).toBe(false)
+    expect(wrapper.get('.task-panel-schedule').text()).toContain('1 Sep')
+    expect(wrapper.get('.task-panel-schedule').classes()).toContain('set')
+  })
+
+  it('clears a due date with No date', async () => {
+    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+    await openSchedule(wrapper)
+
+    await wrapper.get('.task-schedule-nodate').trigger('click')
+    await flushPromises()
+
+    expect(setDue).toHaveBeenCalledWith('b', null)
+  })
+
+  // An emptied date box means "no date", which is null on the wire — not
+  // an empty string, which the server would refuse.
+  it('sends null when the typed date is emptied', async () => {
+    seed([{ ...ITEMS[1], dueDate: '2026-09-01' }])
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+    await openSchedule(wrapper)
+
+    await typeDate(wrapper, '')
+
+    expect(setDue).toHaveBeenCalledWith('b', null)
+  })
+
+  it('keeps the picker open and explains a date it cannot read', async () => {
+    seed()
+    const setDue = vi.spyOn(items, 'setDueDate').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+    await openSchedule(wrapper)
+
+    await typeDate(wrapper, 'soon')
+
+    expect(setDue).not.toHaveBeenCalled()
+    expect(wrapper.get('.task-schedule-error').text()).toContain('Could not read that date')
+    expect(wrapper.find('.task-schedule-menu').exists()).toBe(true)
   })
 
   it('shows and updates the task due time in its stored time zone', async () => {
@@ -1022,7 +1056,12 @@ describe('TaskDetailPanel', () => {
     const setDueTime = vi.spyOn(items, 'setDueTime').mockResolvedValue({})
     const wrapper = await mountPanel()
     await flushPromises()
+    expect(wrapper.get('.task-panel-schedule').text()).toContain('15:00')
 
+    await openSchedule(wrapper)
+    expect(wrapper.get('.task-schedule-time-toggle').text()).toContain('15:00')
+    await wrapper.get('.task-schedule-time-toggle').trigger('click')
+    await flushPromises()
     expect(wrapper.get('.task-panel-time-input').element.value).toBe('15:00')
     expect(wrapper.text()).toContain('Europe/London')
     await wrapper.get('.task-panel-time-input').setValue('16:30')
@@ -1035,8 +1074,11 @@ describe('TaskDetailPanel', () => {
     seed()
     const wrapper = await mountPanel()
     await flushPromises()
+    await openSchedule(wrapper)
+    await wrapper.get('.task-schedule-time-toggle').trigger('click')
 
     expect(wrapper.get('.task-panel-time-input').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Choose a date first.')
   })
 
   it('clears a due time as null', async () => {
@@ -1051,11 +1093,34 @@ describe('TaskDetailPanel', () => {
     const setDueTime = vi.spyOn(items, 'setDueTime').mockResolvedValue({})
     const wrapper = await mountPanel()
     await flushPromises()
+    await openSchedule(wrapper)
+    await wrapper.get('.task-schedule-time-toggle').trigger('click')
 
     await wrapper.get('.task-panel-time-input').setValue('')
     await flushPromises()
 
     expect(setDueTime).toHaveBeenCalledWith('b', null, null)
+  })
+
+  // Escape with the picker open leaves the picker, not the panel.
+  it('closes the schedule picker on Escape and keeps the panel', async () => {
+    seed()
+    await router.replace({ path: '/tasks', query: { task: 'b' } })
+    const wrapper = mount(RouterView, {
+      global: { plugins: [router], provide: AUTH },
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await openSchedule(wrapper)
+    expect(document.activeElement).toBe(wrapper.get('.task-panel-date-input').element)
+
+    await wrapper.get('.task-panel-date-input').trigger('keydown', { key: 'Escape' })
+    await flushPromises()
+
+    expect(wrapper.find('.task-schedule-menu').exists()).toBe(false)
+    expect(router.currentRoute.value.query.task).toBe('b')
+    expect(document.activeElement).toBe(wrapper.get('.task-panel-schedule').element)
+    wrapper.unmount()
   })
 
   it('shows the labels as chips and saves a change at once', async () => {
@@ -1196,10 +1261,20 @@ describe('TaskDetailPanel', () => {
   })
 })
 
+// The repeat rule lives behind the schedule chip's Repeat button.
+async function openRepeat(wrapper) {
+  await flushPromises()
+  await wrapper.get('.task-panel-schedule').trigger('click')
+  await flushPromises()
+  await wrapper.get('.task-schedule-repeat-toggle').trigger('click')
+  await flushPromises()
+}
+
 it('edits and removes a repeat schedule', async () => {
   seed()
   const save = vi.spyOn(items, 'setRecurrence').mockResolvedValue({ id: 'b' })
   const wrapper = await mountPanel()
+  await openRepeat(wrapper)
   await wrapper.get('.task-repeat input').setValue('every 2nd Tuesday')
   await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
@@ -1215,6 +1290,7 @@ it('keeps a rejected repeat draft for correction', async () => {
   seed()
   vi.spyOn(items, 'setRecurrence').mockResolvedValue(null)
   const wrapper = await mountPanel()
+  await openRepeat(wrapper)
   await wrapper.get('.task-repeat input').setValue('every nonsense')
   await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
@@ -1238,6 +1314,7 @@ it('closes without a missing-task notification after rescheduling out of Today',
     item: { ...items.items[0], dueDate: '9999-01-01' },
   })
   const wrapper = await mountPanel()
+  await openRepeat(wrapper)
   await wrapper.get('.task-repeat input').setValue('every Monday')
   await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
