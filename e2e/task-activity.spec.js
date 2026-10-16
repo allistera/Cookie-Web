@@ -49,7 +49,7 @@ test('Activity is the panel’s second tab, filters completed history and saves 
   const activity = page.getByRole('region', { name: 'Activity and progress' })
   await expect(activity).toContainText('2 completed')
   await expect(activity).toContainText('Created')
-  await expect(panel.getByTestId('task-comments')).toHaveCount(0)
+  await expect(panel.getByTestId('task-comments')).toBeHidden()
   await activity.getByLabel('Activity history').selectOption('completed')
   await expect(activity).toContainText('Earlier task (deleted task)')
   await activity.getByRole('button', { name: 'Set completion goals' }).click()

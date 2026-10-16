@@ -257,19 +257,23 @@ watch(
     subtaskOffset.value = 0
   },
 )
-const shownSubtasks = computed(() =>
+// Pages are cut from the list in its own order, and only then sorted or
+// filtered: the server hands sub-tasks over a page at a time, so a sort over
+// the part already loaded would shuffle rows across the page boundary and
+// a later page would repeat some and skip others.
+const subtaskPage = computed(() =>
+  subtasks.value.slice(subtaskOffset.value, subtaskOffset.value + 100),
+)
+const visibleSubtasks = computed(() =>
   sortSubtasks(
-    hideCompleted.value ? subtasks.value.filter((row) => !row.completedAt) : subtasks.value,
+    hideCompleted.value ? subtaskPage.value.filter((row) => !row.completedAt) : subtaskPage.value,
     subtaskOrder.value,
   ),
 )
-const visibleSubtasks = computed(() =>
-  shownSubtasks.value.slice(subtaskOffset.value, subtaskOffset.value + 100),
-)
 async function nextSubtaskPage() {
-  if (subtaskOffset.value + 100 >= shownSubtasks.value.length)
+  if (subtaskOffset.value + 100 >= subtasks.value.length)
     await items.loadDetail(props.taskId, { more: true })
-  if (subtaskOffset.value + 100 < shownSubtasks.value.length) subtaskOffset.value += 100
+  if (subtaskOffset.value + 100 < subtasks.value.length) subtaskOffset.value += 100
 }
 const doneCount = computed(() => subtasks.value.filter((row) => row.completedAt).length)
 const donePercent = computed(() =>
@@ -298,10 +302,21 @@ async function submitSubtask() {
 
 // ---- comments and activity ---------------------------------------------------
 
+// The thread stays mounted behind the Activity tab so a half-written
+// comment survives a look at the history; activity mounts the first time
+// it is opened and stays too, so switching back does not refetch.
 const tab = ref('comments')
+const activityOpened = ref(false)
+watch(tab, (value) => {
+  if (value === 'activity') activityOpened.value = true
+})
+
+// The thread is read a page at a time, so until the last page is in the
+// badge is a lower bound and says so.
 const commentCount = computed(() => {
   const thread = comments.thread(props.taskId)
-  return thread.loaded ? thread.comments.length : null
+  if (!thread.loaded) return null
+  return thread.nextCursor ? `${thread.comments.length}+` : String(thread.comments.length)
 })
 
 // ---- schedule -----------------------------------------------------------------
@@ -828,14 +843,18 @@ onBeforeUnmount(() => {
               </li>
             </ul>
             <p v-else-if="subtasks.length" class="task-subtasks-empty">
-              All sub-tasks are completed.
+              {{
+                doneCount === subtasks.length
+                  ? 'All sub-tasks are completed.'
+                  : 'No open sub-tasks on this page.'
+              }}
             </p>
 
             <button v-if="subtaskOffset > 0" class="subtask-page-btn" @click="subtaskOffset -= 100">
               Previous sub-tasks
             </button>
             <button
-              v-if="items.detailCursors[taskId] || subtaskOffset + 100 < shownSubtasks.length"
+              v-if="items.detailCursors[taskId] || subtaskOffset + 100 < subtasks.length"
               class="subtask-page-btn"
               :disabled="items.detailLoading[taskId]"
               @click="nextSubtaskPage"
@@ -892,8 +911,8 @@ onBeforeUnmount(() => {
             role="tabpanel"
             :aria-labelledby="`task-panel-tab-${tab}`"
           >
-            <TaskComments v-if="tab === 'comments'" :task-id="taskId" :author-name="userName" />
-            <TaskActivity v-else :task-id="taskId" />
+            <TaskComments v-show="tab === 'comments'" :task-id="taskId" :author-name="userName" />
+            <TaskActivity v-if="activityOpened" v-show="tab === 'activity'" :task-id="taskId" />
           </div>
         </div>
 
@@ -1148,7 +1167,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 2;
+  z-index: 1;
   min-width: 240px;
   padding: 6px;
   background: var(--bg-dialog);

@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-rou
 
 import TaskDetailPanel from '../TaskDetailPanel.vue'
 import { useProjectsStore } from '../../stores/projects'
+import { useTaskCommentsStore } from '../../stores/taskComments'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
 
@@ -249,18 +250,95 @@ describe('TaskDetailPanel', () => {
     seed()
     const wrapper = await mountPanel()
     await flushPromises()
+    // v-show hides with an inline display: none; the elements stay mounted.
+    const hidden = (selector) => /display: none/.test(wrapper.get(selector).attributes('style'))
 
-    expect(wrapper.find('[data-testid="task-comments"]').exists()).toBe(true)
+    expect(hidden('[data-testid="task-comments"]')).toBe(false)
     expect(wrapper.find('.task-activity').exists()).toBe(false)
 
     await openMenu(wrapper)
     await wrapper.get('.task-panel-view-activity').trigger('click')
     await flushPromises()
-    expect(wrapper.find('.task-activity').exists()).toBe(true)
+    expect(hidden('.task-activity')).toBe(false)
+    expect(hidden('[data-testid="task-comments"]')).toBe(true)
     expect(wrapper.get('#task-panel-tab-activity').attributes('aria-selected')).toBe('true')
 
     await wrapper.get('#task-panel-tab-comments').trigger('click')
-    expect(wrapper.find('[data-testid="task-comments"]').exists()).toBe(true)
+    expect(hidden('[data-testid="task-comments"]')).toBe(false)
+    expect(hidden('.task-activity')).toBe(true)
+  })
+
+  // The thread stays mounted behind the Activity tab, so a half-written
+  // comment is still there on the way back.
+  it('keeps a comment draft while the Activity tab is shown', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('textarea[aria-label="Write a comment"]').setValue('Half written')
+    await wrapper.get('#task-panel-tab-activity').trigger('click')
+    await wrapper.get('#task-panel-tab-comments').trigger('click')
+
+    expect(wrapper.get('textarea[aria-label="Write a comment"]').element.value).toBe('Half written')
+  })
+
+  it('marks the comment count as a lower bound while more pages remain', async () => {
+    seed()
+    const comments = useTaskCommentsStore()
+    vi.spyOn(comments, 'loadThread').mockResolvedValue()
+    comments.threads.b = {
+      comments: [{ id: 'c1', body: 'x', mine: true, createdAt: '2026-10-16T09:00:00Z' }],
+      nextCursor: 'more',
+      loaded: true,
+      loading: false,
+      error: null,
+    }
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-comments-count').text()).toBe('1+')
+    comments.threads.b.nextCursor = null
+    await flushPromises()
+    expect(wrapper.get('.task-comments-count').text()).toBe('1')
+  })
+
+  // Pages are cut in the list's own order before a sort or filter applies,
+  // so a later page never repeats or skips rows.
+  it('sorts and filters within the page, not across pages', async () => {
+    const page = Array.from({ length: 100 }, (_, index) => ({
+      id: `z${index}`,
+      content: `Z${String(index).padStart(3, '0')}`,
+      parentId: 'b',
+      completedAt: index === 0 ? '2026-09-01' : null,
+      projectId: null,
+    }))
+    seed([...ITEMS, ...page, { id: 'a1', content: 'A001', parentId: 'b', projectId: null }])
+    const wrapper = await mountPanel()
+    await flushPromises()
+    const names = () => wrapper.findAll('.subtask-content').map((row) => row.text())
+
+    await wrapper.get('select[aria-label="Sort sub-tasks"]').setValue('name')
+    expect(names()[0]).toBe('Z000')
+    expect(names()).toHaveLength(100)
+    await wrapper.get('.subtask-page-btn').trigger('click')
+    await flushPromises()
+    expect(names()).toEqual(['A001'])
+
+    await wrapper.get('.task-subtasks-hide').trigger('click')
+    expect(names()).toEqual(['A001'])
+    expect(wrapper.find('.task-subtasks-empty').exists()).toBe(false)
+  })
+
+  it('tells a filtered page apart from an all-completed list', async () => {
+    seed([
+      ...ITEMS,
+      { id: 's1', content: 'Done', parentId: 'b', completedAt: '2026-09-01', projectId: null },
+    ])
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-subtasks-hide').trigger('click')
+    expect(wrapper.get('.task-subtasks-empty').text()).toBe('All sub-tasks are completed.')
   })
 
   it('shows when the task was added and by whom', async () => {
