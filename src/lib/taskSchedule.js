@@ -150,11 +150,12 @@ export function parseDateInput(text, today) {
     const iso = `${year}-${pad(month)}-${pad(day)}`
     return dateFromIso(iso) ? { iso } : null
   }
+  // Eight years covers a whole leap cycle, including a skipped century leap
+  // year, so 29 Feb finds its next real day.
   const thisYear = Number(String(today).slice(0, 4))
-  for (const candidate of [thisYear, thisYear + 1]) {
+  for (let candidate = thisYear; candidate <= thisYear + 8; candidate++) {
     const iso = `${candidate}-${pad(month)}-${pad(day)}`
     if (dateFromIso(iso) && iso >= today) return { iso }
   }
-  const iso = `${thisYear}-${pad(month)}-${pad(day)}`
-  return dateFromIso(iso) ? { iso } : null
+  return null
 }

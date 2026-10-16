@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import { userInitial } from '../lib/taskDetail'
 import { projectPickerRows } from '../lib/taskProjectsTree'
@@ -23,15 +23,22 @@ const root = ref(null)
 const button = ref(null)
 const input = ref(null)
 const list = ref(null)
+const menuStyle = ref({})
 
 const rows = computed(() => projectPickerRows(projects.projects, query.value))
 // Where the "My Projects" heading goes: above the first project row.
 const firstProjectIndex = computed(() => rows.value.findIndex((row) => !row.inbox))
-const currentName = computed(
-  () =>
-    (props.modelValue && projects.projects.find((row) => row.id === props.modelValue)?.name) ??
-    'Inbox',
+const currentProject = computed(() =>
+  props.modelValue ? projects.projects.find((row) => row.id === props.modelValue) : null,
 )
+// A task can arrive before the projects list does; until its project is
+// known the chip must not claim the Inbox, nor may Enter fall back to it.
+const unresolved = computed(() => Boolean(props.modelValue) && !currentProject.value)
+const currentName = computed(() => {
+  if (currentProject.value) return currentProject.value.name
+  if (props.modelValue) return projects.isLoaded ? 'Inbox' : 'Project'
+  return 'Inbox'
+})
 const initial = computed(() => (props.ownerName ? userInitial(props.ownerName) : ''))
 
 function optionId(row) {
@@ -52,19 +59,52 @@ watch(query, () => {
   active.value = 0
 })
 watch(rows, () => {
+  if (open.value && !query.value && active.value < 0) {
+    active.value = startIndex()
+    return
+  }
   if (active.value >= rows.value.length) active.value = Math.max(0, rows.value.length - 1)
 })
+
+// The task's own row, or none (-1) while its project has not loaded.
+function startIndex() {
+  const index = rows.value.findIndex((row) => row.id === props.modelValue)
+  if (index >= 0) return index
+  return unresolved.value ? -1 : 0
+}
+
+// The panel clips its overflow, so the list is placed against the viewport
+// from the chip's box, below it or, when there is more room, above it, and
+// never taller than the space it has.
+const GAP = 6
+const MARGIN = 8
+function place() {
+  const rect = button.value?.getBoundingClientRect()
+  if (!rect) return
+  const width = Math.min(300, window.innerWidth - MARGIN * 2)
+  const left = Math.max(MARGIN, Math.min(rect.left, window.innerWidth - width - MARGIN))
+  const below = window.innerHeight - rect.bottom - GAP - MARGIN
+  const above = rect.top - GAP - MARGIN
+  const style = { left: `${left}px`, width: `${width}px` }
+  if (below >= 240 || below >= above) {
+    style.top = `${rect.bottom + GAP}px`
+    style.maxHeight = `${Math.max(0, below)}px`
+  } else {
+    style.bottom = `${window.innerHeight - rect.top + GAP}px`
+    style.maxHeight = `${Math.max(0, above)}px`
+  }
+  menuStyle.value = style
+}
 
 async function openPicker() {
   if (open.value) return
   query.value = ''
   open.value = true
   await nextTick()
-  active.value = Math.max(
-    0,
-    rows.value.findIndex((row) => row.id === props.modelValue),
-  )
+  place()
+  active.value = startIndex()
   input.value?.focus()
+  window.addEventListener('resize', place)
   await nextTick()
   scrollActiveIntoView()
 }
@@ -72,8 +112,10 @@ async function openPicker() {
 function close({ refocus = true } = {}) {
   if (!open.value) return
   open.value = false
+  window.removeEventListener('resize', place)
   if (refocus) button.value?.focus()
 }
+onBeforeUnmount(() => window.removeEventListener('resize', place))
 
 function toggle() {
   if (open.value) close()
@@ -88,7 +130,8 @@ function choose(row) {
 function move(step) {
   const count = rows.value.length
   if (!count) return
-  active.value = (active.value + step + count) % count
+  if (active.value < 0) active.value = step > 0 ? 0 : count - 1
+  else active.value = (active.value + step + count) % count
   void nextTick(scrollActiveIntoView)
 }
 
@@ -134,14 +177,18 @@ defineExpose({ open: openPicker })
       :aria-expanded="open ? 'true' : 'false'"
       @click="toggle"
     >
-      <span v-if="modelValue" class="project-symbol" aria-hidden="true"></span>
+      <span
+        v-if="modelValue && !(projects.isLoaded && unresolved)"
+        class="project-symbol"
+        aria-hidden="true"
+      ></span>
       <span v-else class="material-symbols-outlined" aria-hidden="true">inbox</span>
       <span class="task-panel-project-name">{{ currentName }}</span>
       <span class="material-symbols-outlined task-panel-project-chevron" aria-hidden="true"
         >expand_more</span
       >
     </button>
-    <div v-if="open" class="task-project-menu">
+    <div v-if="open" class="task-project-menu" :style="menuStyle">
       <input
         ref="input"
         v-model="query"
@@ -259,15 +306,15 @@ defineExpose({ open: openPicker })
   content: '#';
 }
 
-/* The list drops out of the chip, over the body. The panel is the stacking
-   context, so z-index only has to clear the body's content. */
+/* The list is placed against the viewport (see place()), so it escapes the
+   panel's clipping. The panel is above the page, so z-index 1 clears it. */
 .task-project-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  position: fixed;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   width: 300px;
-  max-width: calc(100vw - 32px);
   padding: 10px 10px 4px;
   background: var(--bg-dialog);
   border: 1px solid var(--border-color);
@@ -276,6 +323,7 @@ defineExpose({ open: openPicker })
 }
 
 .task-project-search {
+  flex: 0 0 auto;
   width: 100%;
   box-sizing: border-box;
   padding: 10px 12px;
@@ -297,6 +345,8 @@ defineExpose({ open: openPicker })
 }
 
 .task-project-options {
+  flex: 0 1 auto;
+  min-height: 0;
   max-height: 320px;
   margin: 10px -10px 0;
   padding: 0 0 4px;

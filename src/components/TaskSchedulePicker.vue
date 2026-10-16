@@ -34,15 +34,25 @@ const menu = ref(null)
 const input = ref(null)
 const calendar = ref(null)
 const menuStyle = ref({})
+// The text the date box opened with; submitted unchanged it keeps the
+// task's own date rather than being read as the next such day.
+let prefilledText = ''
 
 const summary = computed(() => scheduleSummary(props, today.value))
 const shortcuts = computed(() => scheduleShortcuts(today.value))
 
 // The calendar starts at the earlier of this month and the due date's
-// month, so a date already in the past is on screen, and runs a year on.
+// month, so a date already in the past is on screen, and runs to a year past
+// this month or to the due date's month, whichever is later, so both today
+// and the due date are always reachable.
+function monthNumber(iso) {
+  return Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7)) - 1
+}
 const months = computed(() => {
-  const start = props.dueDate && props.dueDate < today.value ? props.dueDate : today.value
-  return monthsFrom(`${start.slice(0, 8)}01`, MONTHS_SHOWN)
+  const due = props.dueDate || today.value
+  const start = due < today.value ? due : today.value
+  const end = Math.max(monthNumber(today.value) + MONTHS_SHOWN - 1, monthNumber(due))
+  return monthsFrom(`${start.slice(0, 8)}01`, end - monthNumber(start) + 1)
 })
 const atFirstMonth = computed(() => monthIndex.value <= 0)
 const atLastMonth = computed(() => monthIndex.value >= months.value.length - 1)
@@ -86,11 +96,18 @@ function monthIndexOf(iso) {
   )
 }
 
+// A month's top within the calendar's own scrolled content; offsetTop is
+// measured from the menu, so it would count the header above the calendar.
+function offsetInCalendar(section) {
+  const box = calendar.value
+  return section.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop
+}
+
 function scrollToMonth(index) {
   const clamped = Math.max(0, Math.min(months.value.length - 1, index))
   monthIndex.value = clamped
   const section = calendar.value?.querySelectorAll('.task-schedule-month')[clamped]
-  if (section && calendar.value) calendar.value.scrollTop = section.offsetTop
+  if (section && calendar.value) calendar.value.scrollTop = offsetInCalendar(section)
 }
 
 // Which month heads the visible part of the calendar after a scroll, so
@@ -100,7 +117,7 @@ function onCalendarScroll() {
   const top = calendar.value.scrollTop + 8
   let index = 0
   sections.forEach((section, at) => {
-    if (section.offsetTop <= top) index = at
+    if (offsetInCalendar(section) <= top) index = at
   })
   monthIndex.value = index
 }
@@ -109,6 +126,7 @@ async function openPicker() {
   if (open.value) return
   today.value = localToday()
   dateText.value = props.dueDate ? formatInput(props.dueDate) : ''
+  prefilledText = dateText.value
   dateError.value = ''
   showTime.value = false
   showRepeat.value = false
@@ -155,6 +173,10 @@ function chooseDate(iso) {
 }
 
 function submitTyped() {
+  if (props.dueDate && dateText.value.trim() === prefilledText) {
+    chooseDate(props.dueDate)
+    return
+  }
   const parsed = parseDateInput(dateText.value, today.value)
   if (!parsed) {
     dateError.value = 'Could not read that date. Try "tomorrow", "24 Oct" or 2026-10-24.'

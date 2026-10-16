@@ -149,6 +149,51 @@ describe('TaskProjectPicker', () => {
     wrapper.unmount()
   })
 
+  it('keeps a task whose project has not loaded yet out of the Inbox', async () => {
+    const store = useProjectsStore()
+    store.projects = []
+    const wrapper = mountPicker({ modelValue: 'work' })
+    expect(wrapper.get('.task-panel-project').text()).not.toContain('Inbox')
+    expect(wrapper.find('.task-panel-project .project-symbol').exists()).toBe(true)
+
+    await open(wrapper)
+    const search = wrapper.get('.task-project-search')
+    expect(search.attributes('aria-activedescendant')).toBeUndefined()
+    await search.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.find('.task-project-menu').exists()).toBe(true)
+
+    // Once the projects arrive the task's own row is where the keyboard starts.
+    store.projects = PROJECTS.map((row) => ({ ...row }))
+    store.isLoaded = true
+    await flushPromises()
+    expect(wrapper.get('.task-panel-project').text()).toContain('Work')
+    expect(search.attributes('aria-activedescendant')).toBe('task-project-option-work')
+    await search.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('fits the list in the viewport, opening upward when there is more room above', async () => {
+    const height = window.innerHeight
+    window.innerHeight = 400
+    const wrapper = mountPicker({}, { attachTo: document.body })
+    const chip = wrapper.get('.task-panel-project').element
+    chip.getBoundingClientRect = () => ({ top: 60, bottom: 90, left: 20, right: 140 })
+    await open(wrapper)
+    let style = wrapper.get('.task-project-menu').attributes('style')
+    expect(style).toContain('top: 96px')
+    expect(style).toContain('max-height: 296px')
+
+    await wrapper.get('.task-project-search').trigger('keydown', { key: 'Escape' })
+    chip.getBoundingClientRect = () => ({ top: 300, bottom: 330, left: 20, right: 140 })
+    await open(wrapper)
+    style = wrapper.get('.task-project-menu').attributes('style')
+    expect(style).toContain('bottom: 106px')
+    expect(style).toContain('max-height: 286px')
+    wrapper.unmount()
+    window.innerHeight = height
+  })
+
   it('opens from the outside with the search focused', async () => {
     const wrapper = mountPicker({}, { attachTo: document.body })
     await wrapper.vm.open()

@@ -117,6 +117,70 @@ describe('TaskSchedulePicker', () => {
     expect(wrapper.find('.task-schedule-menu').exists()).toBe(false)
   })
 
+  it('keeps an overdue or later-year date when its box is submitted unchanged', async () => {
+    const overdue = mountPicker({ dueDate: '2026-08-01' })
+    await open(overdue)
+    expect(overdue.get('.task-panel-date-input').element.value).toBe('1 Aug')
+    await overdue.get('.task-panel-date-input').trigger('keydown', { key: 'Enter' })
+    expect(overdue.emitted('update:dueDate')).toBeUndefined()
+    expect(overdue.find('.task-schedule-menu').exists()).toBe(false)
+
+    const later = mountPicker({ dueDate: '2028-03-05' })
+    await open(later)
+    await later.get('.task-panel-date-input').trigger('keydown', { key: 'Enter' })
+    expect(later.emitted('update:dueDate')).toBeUndefined()
+
+    // An edit is still read as typed.
+    await open(overdue)
+    await overdue.get('.task-panel-date-input').setValue('2 Aug')
+    await overdue.get('.task-panel-date-input').trigger('keydown', { key: 'Enter' })
+    expect(overdue.emitted('update:dueDate')).toEqual([['2027-08-02']])
+  })
+
+  it('reaches both a long-overdue due month and this month on the calendar', async () => {
+    const wrapper = mountPicker({ dueDate: '2020-01-15' })
+    await open(wrapper)
+    const labels = wrapper
+      .findAll('.task-schedule-month')
+      .map((node) => node.attributes('aria-label'))
+    expect(labels[0]).toBe('Jan 2020')
+    expect(labels).toContain('Oct 2026')
+    expect(labels.at(-1)).toMatch(/^Sept? 2027$/)
+
+    const [, current] = wrapper.findAll('.task-schedule-nav button')
+    await current.trigger('click')
+    expect(wrapper.get('.task-schedule-calendar-head strong').text()).toBe('Oct 2026')
+
+    const future = mountPicker({ dueDate: '2028-06-01' })
+    await open(future)
+    const ahead = future
+      .findAll('.task-schedule-month')
+      .map((node) => node.attributes('aria-label'))
+    expect(ahead[0]).toBe('Oct 2026')
+    expect(ahead.at(-1)).toBe('Jun 2028')
+  })
+
+  it('scrolls to a month by its place in the calendar, not in the menu', async () => {
+    const wrapper = mountPicker({}, { attachTo: document.body })
+    await open(wrapper)
+    const calendar = wrapper.get('.task-schedule-calendar').element
+    const sections = wrapper.findAll('.task-schedule-month').map((node) => node.element)
+    // The calendar sits 300px down the menu; each month is 200px tall.
+    calendar.getBoundingClientRect = () => ({ top: 300 })
+    sections.forEach((section, index) => {
+      Object.defineProperty(section, 'offsetTop', { value: 300 + index * 200 })
+      section.getBoundingClientRect = () => ({ top: 300 + index * 200 - calendar.scrollTop })
+    })
+
+    const [, , next] = wrapper.findAll('.task-schedule-nav button')
+    await next.trigger('click')
+    expect(calendar.scrollTop).toBe(200)
+    calendar.scrollTop = 0
+    await wrapper.get('.task-schedule-calendar').trigger('scroll')
+    expect(wrapper.get('.task-schedule-calendar-head strong').text()).toBe('Oct 2026')
+    wrapper.unmount()
+  })
+
   it('steps months with the arrows and returns to this month', async () => {
     const wrapper = mountPicker()
     await open(wrapper)

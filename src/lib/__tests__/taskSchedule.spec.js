@@ -114,6 +114,9 @@ describe('parseDateInput', () => {
     expect(parseDateInput('16 Oct', TODAY)).toEqual({ iso: TODAY })
     expect(parseDateInput('1 Oct', TODAY)).toEqual({ iso: '2027-10-01' })
     expect(parseDateInput('29 Feb', '2027-01-01')).toEqual({ iso: '2028-02-29' })
+    expect(parseDateInput('29 Feb', '2028-03-01')).toEqual({ iso: '2032-02-29' })
+    expect(parseDateInput('29 feb', '2029-01-01')).toEqual({ iso: '2032-02-29' })
+    expect(parseDateInput('31 Feb', '2026-10-16')).toBeNull()
   })
 
   it('refuses what it cannot read', () => {

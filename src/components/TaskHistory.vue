@@ -64,10 +64,17 @@ const unsubscribe = items.$onAction(({ name, after }) => {
       if (!disposed) void load()
     })
 })
+// Another client's edit made while this tab was hidden reaches no local
+// action, so coming back to the tab reloads too.
+function onVisible() {
+  if (document.visibilityState === 'visible') void load()
+}
+document.addEventListener('visibilitychange', onVisible)
 onBeforeUnmount(() => {
   disposed = true
   ++sequence
   unsubscribe()
+  document.removeEventListener('visibilitychange', onVisible)
 })
 
 const entries = computed(() =>

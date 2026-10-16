@@ -160,4 +160,24 @@ describe('TaskHistory', () => {
     expect(wrapper.find('script').exists()).toBe(false)
     wrapper.unmount()
   })
+
+  it('reloads when the tab becomes visible again, and stops after unmount', async () => {
+    const wrapper = mountHistory()
+    await flushPromises()
+    expect(requestMock).toHaveBeenCalledTimes(1)
+
+    requestMock.mockResolvedValue({
+      activities: [{ ...edited, id: 'e3', occurredAt: '2026-10-16T10:00:00Z' }, edited, created],
+      nextCursor: null,
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(requestMock).toHaveBeenCalledTimes(2)
+    expect(bullets(wrapper)).toHaveLength(5)
+
+    wrapper.unmount()
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(requestMock).toHaveBeenCalledTimes(2)
+  })
 })
