@@ -51,3 +51,27 @@ export function flattenProjectTree(projects, expandedIds) {
   walk(null, 0)
   return rows
 }
+
+// The rows the task panel's project picker lists: the Inbox (id null) first,
+// then every project in the sidebar's order and depth, with the whole forest
+// expanded so nothing hides behind a collapsed parent. A query keeps the
+// rows whose name contains it, flattened to one level: an indented match
+// under a parent that is not listed would read as nested under the Inbox.
+export function projectPickerRows(projects, query = '') {
+  const needle = String(query ?? '')
+    .trim()
+    .toLowerCase()
+  const rows = [
+    { id: null, name: 'Inbox', depth: 0, inbox: true },
+    ...flattenProjectTree(projects, new Set(projects.map((project) => project.id))).map((row) => ({
+      id: row.item.id,
+      name: row.item.name,
+      depth: row.depth,
+      inbox: false,
+    })),
+  ]
+  if (!needle) return rows
+  return rows
+    .filter((row) => row.name.toLowerCase().includes(needle))
+    .map((row) => ({ ...row, depth: 0 }))
+}
