@@ -184,6 +184,7 @@ const SEED_TASKS = [
     projectId: null,
     parentId: null,
     content: 'Call the bank',
+    durationMinutes: 90,
     dueDate: '2026-07-24',
     dueTime: '15:00',
     timeZone: 'Europe/London',
@@ -477,6 +478,8 @@ describe('CalendarView', () => {
     const timedTask = wrapper.get('.day-event.task-event')
     expect(timedTask.text()).toContain('Call the bank')
     expect(timedTask.attributes('style')).toContain('top:')
+    // Ninety minutes at the day view's 96 pixels per hour.
+    expect(timedTask.element.style.height).toBe('144px')
 
     const tasksToggle = wrapper
       .findAll('.calendar-list-item')

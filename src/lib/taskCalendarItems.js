@@ -8,13 +8,12 @@ export const TASKS_CALENDAR_ID = 'tasks'
 export const TASKS_CALENDAR_NAME = 'Tasks'
 export const TASKS_CALENDAR_COLOR = '#5e6ad2'
 
-// A timed task takes a short slot so it reads as "at 14:30" rather than
-// blocking the afternoon.
+// Timed tasks use their estimate, or a thirty-minute slot when none is set.
 const TIMED_TASK_MINUTES = 30
 const WHOLE_DAY_MINUTES = 24 * 60
 
 /**
- * @param {{ id: string, projectId?: string | null, content: string, dueDate: string, dueTime?: string | null, priority?: number | null }} task
+ * @param {{ id: string, projectId?: string | null, content: string, dueDate: string, dueTime?: string | null, durationMinutes?: number | null, priority?: number | null }} task
  */
 export function taskToCalendarItem(task) {
   const timed = Boolean(task.dueTime)
@@ -27,7 +26,7 @@ export function taskToCalendarItem(task) {
     title: task.content,
     date: task.dueDate,
     start: timed ? task.dueTime : '00:00',
-    duration: timed ? TIMED_TASK_MINUTES : WHOLE_DAY_MINUTES,
+    duration: timed ? (task.durationMinutes ?? TIMED_TASK_MINUTES) : WHOLE_DAY_MINUTES,
     allDay: !timed,
     calendar: TASKS_CALENDAR_ID,
     priority: task.priority ?? null,

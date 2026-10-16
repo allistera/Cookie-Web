@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
+import TaskDurationInput from './TaskDurationInput.vue'
 import { useTaskItemsStore } from '../stores/taskItems'
 import { useProjectsStore } from '../stores/projects'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
@@ -23,6 +24,7 @@ const draft = ref({
   projectId: null,
   dueDate: '',
   dueTime: '',
+  durationMinutes: null,
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   priority: 4,
   recurrence: '',
@@ -87,6 +89,7 @@ async function submit() {
       task.timeZone =
         draft.value.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     }
+    if (draft.value.durationMinutes != null) task.durationMinutes = draft.value.durationMinutes
     if (draft.value.priority !== 4) task.priority = draft.value.priority
     if (draft.value.recurrence?.trim()) task.recurrence = draft.value.recurrence.trim()
     if (draft.value.labels?.length) task.labels = draft.value.labels
@@ -207,6 +210,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <div class="add-task-labels">
             <span class="add-task-labels-title">Labels</span>
             <TaskLabelPicker v-model="draft.labels" :disabled="isSaving" />
+          </div>
+          <div>
+            <span class="add-task-labels-title">Estimated duration</span>
+            <TaskDurationInput v-model="draft.durationMinutes" :disabled="isSaving" />
           </div>
           <TaskRepeatInput v-model="draft.recurrence" :disabled="isSaving" />
         </div>

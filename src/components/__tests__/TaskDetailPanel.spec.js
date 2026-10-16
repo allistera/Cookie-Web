@@ -178,11 +178,25 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBe('b')
   })
 
+  it('saves and clears an estimated duration without requiring a schedule', async () => {
+    seed()
+    const save = vi.spyOn(items, 'setDuration').mockImplementation(async (id, value) => {
+      items.itemById(id).durationMinutes = value
+    })
+    const wrapper = await mountPanel()
+    const input = wrapper.get('[aria-label="Estimated duration in minutes"]')
+    await input.setValue('75')
+    expect(save).toHaveBeenLastCalledWith('b', 75)
+    await input.setValue('')
+    expect(save).toHaveBeenLastCalledWith('b', null)
+  })
+
   it('duplicates the task with its fields beside it', async () => {
     seed([
       {
         ...ITEMS[1],
         description: 'Why',
+        durationMinutes: 75,
         dueDate: '2026-10-20',
         dueTime: '09:00',
         timeZone: 'Europe/London',
@@ -204,6 +218,7 @@ describe('TaskDetailPanel', () => {
       projectId: 'p1',
       parentId: null,
       description: 'Why',
+      durationMinutes: 75,
       dueDate: '2026-10-20',
       dueTime: '09:00',
       timeZone: 'Europe/London',

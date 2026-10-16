@@ -48,6 +48,11 @@ describe.skipIf(!databaseUrl)('0097 task activity on PostgreSQL', () => {
       'utf8',
     )
     await sql.begin((tx) => tx.unsafe(migration.replace(/^(BEGIN|COMMIT);[ \t]*$/gm, '')))
+    const durationMigration = await readFile(
+      new URL('../../migrations/0098_task_duration.sql', import.meta.url),
+      'utf8',
+    )
+    await sql.begin((tx) => tx.unsafe(durationMigration.replace(/^(BEGIN|COMMIT);[ \t]*$/gm, '')))
     backfill = await sql`SELECT action, occurred_at FROM task_activity ORDER BY occurred_at`
   })
   beforeEach(async () => {
@@ -66,6 +71,28 @@ describe.skipIf(!databaseUrl)('0097 task activity on PostgreSQL', () => {
   async function actions(id) {
     return sql`SELECT action, changes FROM task_activity WHERE task_id = ${id} ORDER BY occurred_at, id`
   }
+
+  it('stores estimates independently of dates and records changes and clearing', async () => {
+    const id = await task({ duration_minutes: 45 })
+    await sql`UPDATE task_items SET duration_minutes = 90 WHERE id = ${id}`
+    await sql`UPDATE task_items SET content = 'New title' WHERE id = ${id}`
+    const [row] = await sql`SELECT duration_minutes FROM task_items WHERE id = ${id}`
+    expect(row.duration_minutes).toBe(90)
+    await sql`UPDATE task_items SET duration_minutes = NULL WHERE id = ${id}`
+    const history = await actions(id)
+    expect(history[1].changes.duration_minutes).toEqual({ before: 45, after: 90 })
+    expect(history[3].changes.duration_minutes).toEqual({ before: 90, after: null })
+  })
+
+  it.each([0, -1, 1441])('rejects an out-of-range estimate %s', async (duration) => {
+    await expect(task({ duration_minutes: duration })).rejects.toThrow('violates check constraint')
+  })
+
+  it('rejects estimates on dividers', async () => {
+    await expect(task({ kind: 'divider', duration_minutes: 30 })).rejects.toThrow(
+      'violates check constraint',
+    )
+  })
 
   it('backfills only known creation and completion timestamps', () => {
     expect(backfill.map((row) => [row.action, row.occurred_at.toISOString()])).toEqual([

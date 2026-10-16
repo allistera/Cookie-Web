@@ -7,6 +7,7 @@ import TaskHistory from './TaskHistory.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskProjectPicker from './TaskProjectPicker.vue'
 import TaskSchedulePicker from './TaskSchedulePicker.vue'
+import TaskDurationInput from './TaskDurationInput.vue'
 import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
@@ -162,6 +163,7 @@ async function duplicate() {
     dueDate: row.dueDate ?? null,
     dueTime: row.dueTime ?? null,
     timeZone: row.timeZone ?? null,
+    durationMinutes: row.durationMinutes ?? null,
     priority: priorityOf(row),
     labels: row.labels ?? [],
     recurrence: row.recurrence ?? undefined,
@@ -932,6 +934,12 @@ onBeforeUnmount(() => {
             @update:due-date="onDateChange"
             @update:due-time="onTimeChange"
             @save-recurrence="saveRecurrence"
+          />
+
+          <h3 class="task-panel-section">Estimated duration</h3>
+          <TaskDurationInput
+            :model-value="item?.durationMinutes ?? null"
+            @update:model-value="items.setDuration(taskId, $event)"
           />
 
           <p v-if="addedStamp" class="task-panel-added">
