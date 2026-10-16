@@ -1071,7 +1071,50 @@ describe('selecting several tasks', () => {
     expect(store.selectedIds).toEqual([])
   })
 
+  it('adds every id Select all gives it, keeping those already picked', () => {
+    store.selectedIds = ['t2']
+    store.selectItems(['t1', 't2', 't3'])
+    expect(store.selectedIds).toEqual(['t2', 't1', 't3'])
+  })
+
+  it('drops a task from the selection when its row leaves the list', async () => {
+    store.loadedProject = 'p1'
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
+    store.selectedIds = ['t1', 't2']
+    stubFetch(async (_url, options) => ({
+      ok: true,
+      json: async () => ({ item: { ...JSON.parse(options.body), completedAt: 'now' } }),
+    }))
+
+    await store.setCompleted('t1', true)
+    expect(store.selectedIds).toEqual(['t2'])
+
+    stubFetch(async () => ({ ok: true, json: async () => ({}) }))
+    await store.deleteItem('t2')
+    expect(store.selectedIds).toEqual([])
+  })
+
+  it('puts a task the server would not delete back into the selection', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    store.loadedProject = 'p1'
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
+    store.selectedIds = ['t1', 't2']
+    stubFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: 'Nope' }) }))
+
+    await store.deleteItem('t1')
+
+    expect(store.items.map((row) => row.id)).toEqual(['t1', 't2'])
+    expect(store.selectedIds).toEqual(['t2', 't1'])
+  })
+
   it('moves every selected task, then reloads the list once', async () => {
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     store.loadedProject = 'p1'
     store.selectedIds = ['t1', 't2']
     stubFetch(async (_url, options) => ({
@@ -1088,6 +1131,7 @@ describe('selecting several tasks', () => {
     ])
     expect(fetch.mock.calls.filter(([, options]) => options.method !== 'PATCH')).toHaveLength(1)
     expect(store.selectedIds).toEqual([])
+    expect(notify).toHaveBeenCalledWith('Moved 2 tasks.')
   })
 
   it('keeps going past a refused task and says how many moved', async () => {
@@ -1103,5 +1147,165 @@ describe('selecting several tasks', () => {
 
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(notify).toHaveBeenCalledWith('Moved 1 of 2 tasks. Please try the rest again.', 'error')
+  })
+})
+
+describe('bulk edits from the selection bar', () => {
+  let notify
+
+  // Three open tasks on screen, the second already labelled 'home'.
+  beforeEach(() => {
+    notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    store.loadedProject = 'p1'
+    store.items = [
+      { ...ITEM, id: 't1', labels: [] },
+      { ...ITEM, id: 't2', labels: ['home'] },
+      { ...ITEM, id: 't3', labels: [] },
+      { ...ITEM, id: 't3a', parentId: 't3', labels: [] },
+    ]
+    store.selectedIds = ['t1', 't2']
+  })
+
+  function patchBodies() {
+    return fetch.mock.calls
+      .filter(([, options]) => options.method === 'PATCH')
+      .map(([, options]) => JSON.parse(options.body))
+  }
+
+  it('completes each selected task, takes it off the list and says how many', async () => {
+    stubFetch(async (_url, options) => ({
+      ok: true,
+      json: async () => ({ item: { ...JSON.parse(options.body), completedAt: 'now' } }),
+    }))
+
+    expect(await store.completeItems(['t1', 't2'])).toBe(2)
+
+    expect(patchBodies()).toEqual([
+      { id: 't1', completed: true },
+      { id: 't2', completed: true },
+    ])
+    expect(store.items.map((row) => row.id)).toEqual(['t3', 't3a'])
+    expect(store.selectedIds).toEqual([])
+    expect(notify).toHaveBeenCalledWith('Completed 2 tasks.')
+  })
+
+  it('reschedules and prioritises with one request per task', async () => {
+    stubFetch(async (_url, options) => ({
+      ok: true,
+      json: async () => ({ item: JSON.parse(options.body) }),
+    }))
+
+    await store.rescheduleItems(['t1', 't2'], '2026-10-17')
+    await store.prioritiseItems(['t1', 't2'], 1)
+
+    expect(patchBodies()).toEqual([
+      { id: 't1', dueDate: '2026-10-17' },
+      { id: 't2', dueDate: '2026-10-17' },
+      { id: 't1', priority: 1 },
+      { id: 't2', priority: 1 },
+    ])
+    expect(store.items[0]).toMatchObject({ dueDate: '2026-10-17', priority: 1 })
+    expect(notify).toHaveBeenCalledWith('Rescheduled 2 tasks.')
+    expect(notify).toHaveBeenCalledWith('Updated 2 tasks.')
+  })
+
+  it('adds a label without doubling it, then refreshes the counts once', async () => {
+    const loadLabels = vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue(true)
+    stubFetch(async (_url, options) => ({
+      ok: true,
+      json: async () => ({ item: JSON.parse(options.body) }),
+    }))
+
+    expect(await store.labelItems(['t1', 't2'], 'home')).toBe(2)
+
+    expect(patchBodies()).toEqual([
+      { id: 't1', labels: ['home'] },
+      { id: 't2', labels: ['home'] },
+    ])
+    expect(store.items[0].labels).toEqual(['home'])
+    expect(loadLabels).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith('Labelled 2 tasks.')
+  })
+
+  it('takes the label union after an edit already on its way has landed', async () => {
+    vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue(true)
+    let release
+    const first = new Promise((resolve) => (release = resolve))
+    stubFetch(async (_url, options) => {
+      const body = JSON.parse(options.body)
+      if (body.labels?.includes('work')) await first
+      return { ok: true, json: async () => ({ item: body }) }
+    })
+
+    const picker = store.setLabels('t1', ['work'])
+    const bulk = store.labelItems(['t1'], 'home')
+    await Promise.resolve()
+    expect(patchBodies()).toEqual([{ id: 't1', labels: ['work'] }])
+    release()
+    await picker
+    await bulk
+
+    expect(patchBodies()[1]).toEqual({ id: 't1', labels: ['work', 'home'] })
+    expect(store.items[0].labels).toEqual(['work', 'home'])
+  })
+
+  it('spends only the ids it was given, keeping tasks picked meanwhile', async () => {
+    let release
+    const gate = new Promise((resolve) => (release = resolve))
+    stubFetch(async (_url, options) => {
+      await gate
+      return { ok: true, json: async () => ({ item: JSON.parse(options.body) }) }
+    })
+
+    const pending = store.prioritiseItems(['t1', 't2'], 2)
+    store.toggleSelected('t3')
+    release()
+    await pending
+
+    expect(store.selectedIds).toEqual(['t3'])
+  })
+
+  it('reports a bulk edit the server partly refused', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    stubFetch(async (_url, options) =>
+      JSON.parse(options.body).id === 't1'
+        ? { ok: false, status: 500, json: async () => ({ error: 'Nope' }) }
+        : {
+            ok: true,
+            json: async () => ({ item: { ...JSON.parse(options.body), completedAt: 'now' } }),
+          },
+    )
+
+    expect(await store.completeItems(['t1', 't2'])).toBe(1)
+
+    expect(store.items.map((row) => row.id)).toEqual(['t1', 't3', 't3a'])
+    expect(store.items[0].completedAt).toBeNull()
+    expect(notify).toHaveBeenCalledWith(
+      'Completed 1 of 2 tasks. Please try the rest again.',
+      'error',
+    )
+  })
+
+  it('deletes each selected task with its sub-tasks, refreshing counts once', async () => {
+    const loadLabels = vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue(true)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    stubFetch(async (_url, options) =>
+      JSON.parse(options.body).id === 't1'
+        ? { ok: false, status: 404, json: async () => ({ error: 'Not found' }) }
+        : { ok: true, json: async () => ({}) },
+    )
+
+    expect(await store.deleteItems(['t1', 't3'])).toBe(1)
+
+    const deletes = fetch.mock.calls.filter(([, options]) => options.method === 'DELETE')
+    expect(deletes.map(([, options]) => JSON.parse(options.body))).toEqual([
+      { id: 't1' },
+      { id: 't3' },
+    ])
+    expect(store.items.map((row) => row.id)).toEqual(['t1', 't2'])
+    // t2 was selected but not part of this delete, so it stays selected.
+    expect(store.selectedIds).toEqual(['t2'])
+    expect(loadLabels).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith('Deleted 1 of 2 tasks. Please try the rest again.', 'error')
   })
 })

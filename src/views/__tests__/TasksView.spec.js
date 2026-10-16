@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import TasksView from '../TasksView.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { localToday } from '../../lib/localDate'
+import { addDays } from '../../lib/taskFilters'
 import { useTaskFiltersStore } from '../../stores/taskFilters'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
@@ -1105,7 +1106,7 @@ describe('selecting several tasks', () => {
     expect(rows[1].classes()).not.toContain('selected')
     expect(buttons[0].attributes('aria-pressed')).toBe('true')
     expect(buttons[1].attributes('aria-pressed')).toBe('false')
-    expect(wrapper.get('.task-selection-bar').text()).toContain('2 selected')
+    expect(wrapper.get('.ni-bulk-bar').text()).toContain('2 selected')
 
     await buttons[0].trigger('click')
     expect(items.selectedIds).toEqual(['t3'])
@@ -1132,10 +1133,10 @@ describe('selecting several tasks', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(items.selectedIds).toEqual([])
-    expect(wrapper.find('.task-selection-bar').exists()).toBe(false)
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
 
     await wrapper.findAll('.task-open')[1].trigger('click', { shiftKey: true })
-    await wrapper.get('.task-selection-bar button').trigger('click')
+    await wrapper.get('[aria-label="Clear selection"]').trigger('click')
     expect(items.selectedIds).toEqual([])
 
     await wrapper.findAll('.task-open')[1].trigger('click')
@@ -1167,6 +1168,136 @@ describe('selecting several tasks', () => {
 
     await rows[0].get('.task-grip').trigger('dragend')
     expect(rows[1].classes()).not.toContain('dragging')
+  })
+
+  it('selects every task but no divider from Select all, in the header or the bar', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    items.items.push({ id: 'd1', kind: 'divider', content: '', position: 4 })
+    await flushPromises()
+
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    await wrapper.get('.tasks-select-all').trigger('click')
+    await flushPromises()
+
+    expect(items.selectedIds).toEqual(['t1', 't2', 't3'])
+    const bar = wrapper.get('.ni-bulk-bar')
+    expect(bar.text()).toContain('3 selected')
+    expect(bar.text()).not.toContain('Select all')
+    expect(wrapper.find('.tasks-select-all').exists()).toBe(false)
+
+    await wrapper.findAll('.task-open')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.ni-bulk-bar').text()).toContain('2 selected')
+    const pills = wrapper.findAll('.ni-bulk-bar .ni-bulk-pill')
+    await pills.find((pill) => pill.text().endsWith('Select all')).trigger('click')
+    expect(items.selectedIds).toEqual(['t1', 't3', 't2'])
+  })
+
+  it('offers the bulk edits for the selection', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    const labels = useTaskLabelsStore()
+    labels.labels = [{ id: 'l1', name: 'home', color: '#1a73e8', taskCount: 0 }]
+    labels.isLoaded = true
+    const complete = vi.spyOn(items, 'completeItems').mockResolvedValue(2)
+    const move = vi.spyOn(items, 'moveItems').mockResolvedValue(2)
+    const reschedule = vi.spyOn(items, 'rescheduleItems').mockResolvedValue(2)
+    const prioritise = vi.spyOn(items, 'prioritiseItems').mockResolvedValue(2)
+    const label = vi.spyOn(items, 'labelItems').mockResolvedValue(2)
+    const buttons = wrapper.findAll('.task-open')
+    await buttons[0].trigger('click', { shiftKey: true })
+    await buttons[2].trigger('click', { shiftKey: true })
+    await flushPromises()
+    const bar = wrapper.get('.ni-bulk-bar')
+    const pill = (name) => bar.findAll('.ni-bulk-pill').find((node) => node.text().endsWith(name))
+    const menuItem = (name) =>
+      bar.findAll('[role="menuitem"]').find((node) => node.text().startsWith(name))
+
+    await pill('Done').trigger('click')
+    expect(complete).toHaveBeenCalledWith(['t1', 't3'])
+
+    // The list on screen (Githup) is not a place to move its own rows to.
+    await pill('Move').trigger('click')
+    expect(bar.findAll('[role="menuitem"]').map((node) => node.text())).toEqual([
+      'Inbox',
+      'Technical Projects',
+    ])
+    await menuItem('Inbox').trigger('click')
+    expect(move).toHaveBeenCalledWith(['t1', 't3'], null)
+    expect(bar.find('[role="menu"]').exists()).toBe(false)
+
+    await pill('Reschedule').trigger('click')
+    await menuItem('Tomorrow').trigger('click')
+    expect(reschedule).toHaveBeenCalledWith(['t1', 't3'], addDays(localToday(), 1))
+
+    await pill('Priority').trigger('click')
+    await menuItem('Priority 1').trigger('click')
+    expect(prioritise).toHaveBeenCalledWith(['t1', 't3'], 1)
+
+    await pill('Label').trigger('click')
+    await menuItem('@home').trigger('click')
+    expect(label).toHaveBeenCalledWith(['t1', 't3'], 'home')
+  })
+
+  it('closes an open menu on Escape before dropping the selection', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    await wrapper.findAll('.task-open')[0].trigger('click', { shiftKey: true })
+    await flushPromises()
+    const bar = wrapper.get('.ni-bulk-bar')
+    await bar
+      .findAll('.ni-bulk-pill')
+      .find((node) => node.text().endsWith('Move'))
+      .trigger('click')
+    expect(bar.find('[role="menu"]').exists()).toBe(true)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(bar.find('[role="menu"]').exists()).toBe(false)
+    expect(items.selectedIds).toEqual(['t1'])
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(items.selectedIds).toEqual([])
+  })
+
+  it('deletes the selection only after naming it in a confirmation', async () => {
+    const { items, wrapper } = await mountWithTasks()
+    const remove = vi.spyOn(items, 'deleteItems').mockResolvedValue(2)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const buttons = wrapper.findAll('.task-open')
+    await buttons[0].trigger('click', { shiftKey: true })
+    await flushPromises()
+
+    await wrapper.get('.ni-bulk-bar [title="Delete"]').trigger('click')
+    expect(confirm).toHaveBeenCalledWith('Delete "One"?')
+    expect(remove).not.toHaveBeenCalled()
+
+    await buttons[1].trigger('click', { shiftKey: true })
+    confirm.mockReturnValue(true)
+    await wrapper.get('.ni-bulk-bar [title="Delete"]').trigger('click')
+    expect(confirm).toHaveBeenLastCalledWith('Delete 2 tasks?')
+    expect(remove).toHaveBeenCalledWith(['t1', 't2'])
+  })
+
+  it('falls back to the last page with rows when a later page empties', async () => {
+    const items = useTaskItemsStore()
+    items.items = Array.from({ length: 101 }, (_, index) => ({
+      id: `t${index}`,
+      content: `Task ${index}`,
+      position: index + 1,
+      completedAt: null,
+    }))
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.task-pagination button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.task-row')).toHaveLength(1)
+
+    items.items = items.items.slice(0, 100)
+    await flushPromises()
+
+    expect(wrapper.findAll('.task-row')).toHaveLength(100)
+    expect(wrapper.find('.task-pagination button').exists()).toBe(false)
   })
 
   it('drags only the one task when it is not part of the selection', async () => {
