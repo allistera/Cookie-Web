@@ -72,7 +72,9 @@ BEGIN
            NEW.last_occurrence_completed_at IS DISTINCT FROM OLD.last_occurrence_completed_at) THEN
       INSERT INTO public.task_activity (user_id, task_id, task_title, action, occurred_at)
         VALUES (item.user_id, item.id, item.content, 'completed',
-          coalesce(NEW.completed_at, NEW.last_occurrence_completed_at));
+          CASE WHEN NEW.last_occurrence_completed_at IS NOT NULL AND
+            NEW.last_occurrence_completed_at IS DISTINCT FROM OLD.last_occurrence_completed_at
+          THEN NEW.last_occurrence_completed_at ELSE NEW.completed_at END);
     ELSIF OLD.completed_at IS NOT NULL AND NEW.completed_at IS NULL THEN
       INSERT INTO public.task_activity (user_id, task_id, task_title, action, occurred_at)
         VALUES (item.user_id, item.id, item.content, 'reopened', event_time);

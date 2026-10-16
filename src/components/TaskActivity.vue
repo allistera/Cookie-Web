@@ -120,14 +120,39 @@ watch(
   { immediate: true },
 )
 void loadProgress()
-// Refresh only after a server-confirmed write, including an offline replay.
-const unsubscribe = items.$onAction(({ name, args, after }) => {
-  if (name === 'request' && args[0] !== 'GET')
+// A confirmed list/detail reload also picks up syncs and changes from other clients.
+const unsubscribe = items.$onAction(({ name, after }) => {
+  if (name === 'request')
     after(() => {
       if (!disposed) refresh()
     })
 })
+// The browser zone defines these calendar periods. Recompute the next local
+// midnight each time so a DST day is not assumed to have exactly 24 hours.
+let rolloverTimer
+function scheduleRollover() {
+  clearTimeout(rolloverTimer)
+  const midnight = new Date()
+  midnight.setHours(24, 0, 0, 0)
+  rolloverTimer = setTimeout(
+    () => {
+      void loadProgress()
+      scheduleRollover()
+    },
+    Math.max(1, midnight.getTime() - Date.now()),
+  )
+}
+function onVisible() {
+  if (document.visibilityState === 'visible') {
+    refresh()
+    scheduleRollover()
+  }
+}
+scheduleRollover()
+document.addEventListener('visibilitychange', onVisible)
 onBeforeUnmount(() => {
+  clearTimeout(rolloverTimer)
+  document.removeEventListener('visibilitychange', onVisible)
   disposed = true
   ++listSequence
   ++progressSequence

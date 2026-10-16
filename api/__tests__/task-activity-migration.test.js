@@ -110,6 +110,17 @@ describe.skipIf(!databaseUrl)('0097 task activity on PostgreSQL', () => {
     expect(row.completed_at).toBeNull()
   })
 
+  it('uses the changed occurrence stamp even when a prior completed stamp remains', async () => {
+    const id = await task({ completed_at: '2026-10-15T10:00:00Z' })
+    await sql`UPDATE task_items SET last_occurrence_completed_at = '2026-10-16T10:00:00Z' WHERE id = ${id}`
+    const rows =
+      await sql`SELECT occurred_at FROM task_activity WHERE task_id = ${id} AND action = 'completed' ORDER BY occurred_at`
+    expect(rows.map((row) => row.occurred_at.toISOString())).toEqual([
+      '2026-10-15T10:00:00.000Z',
+      '2026-10-16T10:00:00.000Z',
+    ])
+  })
+
   it('retains parent and child deletion events, but erases everything on account deletion', async () => {
     const parent = await task()
     const child = await task({ parent_id: parent })

@@ -1,7 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskActivity from '../TaskActivity.vue'
+import { useTaskItemsStore } from '../../stores/taskItems'
+import { setAuth0Client } from '../../auth0-client'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 const requestMock = vi.fn()
@@ -26,6 +28,8 @@ function button(wrapper, text) {
 }
 
 beforeEach(async () => {
+  setAuth0Client(null)
+  requestMock.mockReset()
   setActivePinia(createPinia())
   vi.clearAllMocks()
   router = createRouter({
@@ -49,6 +53,10 @@ beforeEach(async () => {
   requestMock.mockImplementation(async (url) =>
     url.includes('task-progress') ? summary() : { activities: [event], nextCursor: null },
   )
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('TaskActivity', () => {
@@ -148,6 +156,41 @@ describe('TaskActivity', () => {
     expect(wrapper.text()).not.toContain('Created')
     wrapper.unmount()
   })
+  it('refreshes after a task list reload, including Todoist sync', async () => {
+    const wrapper = mount(TaskActivity, {
+      props: { taskId: 'task1' },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+    const before = requestMock.mock.calls.filter(([url]) => url.includes('task-progress')).length
+    requestMock.mockResolvedValueOnce({ items: [], nextCursor: null })
+    await useTaskItemsStore().loadItems('inbox', { force: true })
+    await flushPromises()
+    expect(requestMock.mock.calls.filter(([url]) => url.includes('task-progress'))).toHaveLength(
+      before + 1,
+    )
+    wrapper.unmount()
+  })
+
+  it('refreshes at local midnight and cancels the timer on unmount', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date(2026, 9, 16, 23, 59, 59))
+    const wrapper = mount(TaskActivity, {
+      props: { taskId: 'task1' },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+    const count = () =>
+      requestMock.mock.calls.filter(([url]) => url.includes('task-progress')).length
+    expect(count()).toBe(1)
+    await vi.advanceTimersByTimeAsync(1001)
+    await flushPromises()
+    expect(count()).toBe(2)
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+    expect(count()).toBe(2)
+  })
+
   it('reports loading failures with retry and renders changed values as text', async () => {
     requestMock.mockRejectedValue(new Error('Offline'))
     const wrapper = mount(TaskActivity, {
