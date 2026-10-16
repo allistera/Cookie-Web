@@ -35,21 +35,24 @@ test('the panel’s project chip drops a searchable list of the Inbox and nested
   await expect(panel.getByText('My Projects')).toBeVisible()
   const nested = panel.getByRole('option', { name: 'Public API' })
   const parent = panel.getByRole('option', { name: 'Work' })
-  expect((await nested.boundingBox()).x).toBeGreaterThan((await parent.boundingBox()).x)
-
-  // Typing narrows the list; Enter files the task there and closes the list.
-  await search.fill('api')
-  await expect(names).toHaveText(['Public API'])
-  await search.press('Enter')
-  await expect(panel.getByRole('combobox', { name: 'Project' })).toHaveCount(0)
-  await expect(panel.getByRole('button', { name: 'Project: Public API' })).toBeVisible()
-  await expect(panel.getByRole('button', { name: 'Project: Public API' })).toBeFocused()
+  // Depth indents the row's content, not the row itself, so compare the names.
+  const nestedName = nested.locator('.task-project-option-name')
+  const parentName = parent.locator('.task-project-option-name')
+  expect((await nestedName.boundingBox()).x).toBeGreaterThan((await parentName.boundingBox()).x)
 
   // Escape leaves the list, not the panel.
-  await panel.getByRole('button', { name: 'Project: Public API' }).click()
-  await panel.getByRole('combobox', { name: 'Project' }).press('Escape')
+  await search.press('Escape')
   await expect(panel.getByRole('combobox', { name: 'Project' })).toHaveCount(0)
   await expect(panel).toBeVisible()
+  await expect(chip).toBeFocused()
+
+  // Typing narrows the list; Enter files the task there and closes the list.
+  // The task then leaves the Inbox list, so the move is checked in its project.
+  await chip.click()
+  await panel.getByRole('combobox', { name: 'Project' }).fill('api')
+  await expect(names).toHaveText(['Public API'])
+  await panel.getByRole('combobox', { name: 'Project' }).press('Enter')
+  await expect(page.getByRole('combobox', { name: 'Project' })).toHaveCount(0)
 
   await page.goto(`/tasks?project=${api.id}`)
   await expect(page.locator('.task-row', { hasText: 'File me' })).toBeVisible()
