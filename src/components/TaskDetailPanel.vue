@@ -6,9 +6,19 @@ import TaskActivity from './TaskActivity.vue'
 import TaskComments from './TaskComments.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
+import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { taskBucketItem } from '../lib/bucketItems'
+import {
+  formatAddedStamp,
+  shortUserName,
+  SUBTASK_ORDERS,
+  sortSubtasks,
+  taskAsText,
+  taskSiblings,
+} from '../lib/taskDetail'
+import { applyMarkdownFormat, MARKDOWN_FORMATS, renderTaskMarkdown } from '../lib/taskMarkdown'
 import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
@@ -22,6 +32,12 @@ const router = useRouter()
 const items = useTaskItemsStore()
 const projects = useProjectsStore()
 const comments = useTaskCommentsStore()
+
+// Who the panel signs things as: the footer's "by …" and the comments'
+// author. A session without a name (or a test without a provider) leaves
+// it blank and the thread falls back to "You".
+const auth = useAuth()
+const userName = computed(() => shortUserName(auth?.user?.value?.name))
 
 const item = computed(() => items.itemById(props.taskId))
 watch(
@@ -70,11 +86,113 @@ const projectOptions = computed(() =>
 // 'inbox' is the select's stand-in for "no project": a value is needed for the
 // option, but the wire carries null.
 const selectedProject = computed(() => item.value?.projectId ?? 'inbox')
+const projectSelect = ref(null)
 
 function onProjectChange(event) {
   const value = String(event.target.value ?? '')
   items.moveItem(props.taskId, value === 'inbox' ? null : value)
 }
+
+// ---- header: siblings, link, size, menu ------------------------------------
+
+// The up and down arrows step through the rows beside this task in the
+// loaded list, the way the list itself reads.
+const siblings = computed(() => taskSiblings(items.items, item.value))
+const siblingIndex = computed(() => siblings.value.findIndex((row) => row.id === props.taskId))
+const previousId = computed(() =>
+  siblingIndex.value > 0 ? siblings.value[siblingIndex.value - 1].id : null,
+)
+const nextId = computed(() =>
+  siblingIndex.value >= 0 && siblingIndex.value < siblings.value.length - 1
+    ? siblings.value[siblingIndex.value + 1].id
+    : null,
+)
+
+function open(id) {
+  if (id) router.push({ path: '/tasks', query: { ...route.query, task: id } })
+}
+
+// The task's own address, as the list links it: /tasks?task=<id>.
+const taskLink = computed(
+  () =>
+    new URL(router.resolve({ path: '/tasks', query: { task: props.taskId } }).href, location.href)
+      .href,
+)
+
+async function copyToClipboard(text, done) {
+  try {
+    await navigator.clipboard.writeText(text)
+    items.notify(done, 'info')
+  } catch {
+    items.notify('Could not copy to the clipboard.', 'error')
+  }
+}
+
+function copyLink() {
+  return copyToClipboard(taskLink.value, 'Link copied.')
+}
+
+function copyAsText() {
+  return copyToClipboard(taskAsText(item.value, subtasks.value), 'Task copied as text.')
+}
+
+function openInNewWindow() {
+  window.open(taskLink.value, '_blank', 'noopener')
+}
+
+// Expanded, the panel fills the viewport rather than sitting as a dialog.
+const expanded = ref(false)
+
+const menuOpen = ref(false)
+const menuRoot = ref(null)
+const menuButton = ref(null)
+const menu = ref(null)
+
+async function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+  if (!menuOpen.value) return
+  await nextTick()
+  menu.value?.querySelector('[role="menuitem"]')?.focus()
+}
+
+function closeMenu({ refocus = true } = {}) {
+  if (!menuOpen.value) return
+  menuOpen.value = false
+  if (refocus) menuButton.value?.focus()
+}
+
+function runMenuAction(action) {
+  closeMenu()
+  return action()
+}
+
+// A copy of the task beside it: the same fields the server accepts on
+// create, filed under the same parent or project.
+async function duplicate() {
+  const row = item.value
+  if (!row) return
+  const created = await items.createItem({
+    content: row.content,
+    projectId: row.projectId ?? null,
+    parentId: row.parentId ?? null,
+    description: row.description ?? null,
+    dueDate: row.dueDate ?? null,
+    dueTime: row.dueTime ?? null,
+    timeZone: row.timeZone ?? null,
+    priority: priorityOf(row),
+    labels: row.labels ?? [],
+    recurrence: row.recurrence ?? undefined,
+  })
+  if (created) items.notify('Task duplicated.', 'info')
+}
+
+async function moveTo() {
+  await nextTick()
+  projectSelect.value?.focus()
+  projectSelect.value?.showPicker?.()
+}
+
+// ---- title and description -------------------------------------------------
 
 const titleEdit = useInlineEdit({
   read: () => item.value?.content ?? '',
@@ -94,29 +212,69 @@ const descriptionEdit = useInlineEdit({
 // Escape, discarding) leaves the edit. The rows track the draft as a fallback
 // for browsers without field-sizing, which otherwise does the growing.
 const descriptionRows = computed(() =>
-  Math.min(8, Math.max(2, descriptionEdit.draft.value.split('\n').length)),
+  Math.min(12, Math.max(3, descriptionEdit.draft.value.split('\n').length)),
 )
+
+// Read-only, the description is its markdown rendered; the editor is the
+// same text with a toolbar that writes the same marks around the selection.
+const descriptionHtml = computed(() => renderTaskMarkdown(item.value?.description))
+
+const TOOLBAR = [
+  { format: 'heading', text: 'H1' },
+  { format: 'bold', icon: 'format_bold' },
+  { format: 'italic', icon: 'format_italic' },
+  { format: 'strike', icon: 'strikethrough_s' },
+  { format: 'link', icon: 'link', group: true },
+  { format: 'code', icon: 'code' },
+  { format: 'bullet', icon: 'format_list_bulleted' },
+  { format: 'numbered', icon: 'format_list_numbered' },
+  { format: 'quote', icon: 'format_quote' },
+]
+
+// The toolbar's buttons take no focus (mousedown is prevented), so the
+// textarea keeps it and its selection is the one the format applies to.
+async function applyFormat(format) {
+  const field = descriptionEdit.inputRef.value
+  if (!field) return
+  const next = applyMarkdownFormat(field.value, field.selectionStart, field.selectionEnd, format)
+  descriptionEdit.draft.value = next.value
+  await nextTick()
+  field.focus()
+  field.setSelectionRange(next.selectionStart, next.selectionEnd)
+}
+
+// ---- sub-tasks --------------------------------------------------------------
 
 // Sub-tasks resolve out of the same loaded list the panel's own task does —
 // the list query returns them (completed included) alongside their parent.
 const subtasks = computed(() => items.items.filter((row) => row.parentId === props.taskId))
 const subtaskOffset = ref(0)
+const subtaskOrder = ref('manual')
+const hideCompleted = ref(false)
 watch(
   () => props.taskId,
   () => {
     subtaskOffset.value = 0
   },
 )
+const shownSubtasks = computed(() =>
+  sortSubtasks(
+    hideCompleted.value ? subtasks.value.filter((row) => !row.completedAt) : subtasks.value,
+    subtaskOrder.value,
+  ),
+)
 const visibleSubtasks = computed(() =>
-  subtasks.value.slice(subtaskOffset.value, subtaskOffset.value + 100),
+  shownSubtasks.value.slice(subtaskOffset.value, subtaskOffset.value + 100),
 )
 async function nextSubtaskPage() {
-  if (subtaskOffset.value + 100 >= subtasks.value.length)
+  if (subtaskOffset.value + 100 >= shownSubtasks.value.length)
     await items.loadDetail(props.taskId, { more: true })
-  if (subtaskOffset.value + 100 < subtasks.value.length) subtaskOffset.value += 100
+  if (subtaskOffset.value + 100 < shownSubtasks.value.length) subtaskOffset.value += 100
 }
 const doneCount = computed(() => subtasks.value.filter((row) => row.completedAt).length)
-const subtasksOpen = ref(true)
+const donePercent = computed(() =>
+  subtasks.value.length ? Math.round((doneCount.value / subtasks.value.length) * 100) : 0,
+)
 
 const addingSubtask = ref(false)
 const subtaskDraft = ref('')
@@ -137,6 +295,16 @@ async function submitSubtask() {
   if (!content) return
   await items.createItem({ content, parentId: props.taskId })
 }
+
+// ---- comments and activity ---------------------------------------------------
+
+const tab = ref('comments')
+const commentCount = computed(() => {
+  const thread = comments.thread(props.taskId)
+  return thread.loaded ? thread.comments.length : null
+})
+
+// ---- schedule -----------------------------------------------------------------
 
 // An empty input means the date was cleared; null is what the server treats
 // as "no date", where '' would be refused as malformed.
@@ -169,60 +337,24 @@ async function onLabelsChange(labels) {
   }
 }
 
-// Priority is a custom menu rather than a <select>: a native select cannot
-// carry the coloured flag beside each level, and the flag is what makes the
-// levels legible at a glance. It behaves as a listbox — one button that opens
-// it, one option per level, the current one marked.
+// Priority is four buttons in a row, the current one pressed: every level
+// is visible with its coloured flag, so choosing one is a single click.
 const priority = computed(() => priorityOf(item.value))
-const priorityMenuOpen = ref(false)
-const priorityButton = ref(null)
-const priorityMenu = ref(null)
-
-// The menu is fixed to the viewport, not absolutely positioned in the rail:
-// the dialog clips its overflow, and the field sits at the bottom of the
-// rail, so a menu dropping out of the button would be cut off at the
-// dialog's edge. It is measured against the button once rendered, and flips
-// above the button when the viewport has no room below.
-const priorityMenuStyle = ref({})
-
-function placePriorityMenu() {
-  const button = priorityButton.value
-  const menu = priorityMenu.value
-  if (!button || !menu) return
-  const rect = button.getBoundingClientRect()
-  const gap = 4
-  const height = menu.offsetHeight
-  const fitsBelow = rect.bottom + gap + height <= window.innerHeight
-  priorityMenuStyle.value = {
-    left: `${rect.left}px`,
-    width: `${rect.width}px`,
-    top: `${fitsBelow ? rect.bottom + gap : rect.top - gap - height}px`,
-  }
-}
-
-async function togglePriorityMenu() {
-  priorityMenuOpen.value = !priorityMenuOpen.value
-  if (!priorityMenuOpen.value) return
-  await nextTick()
-  placePriorityMenu()
-}
 
 async function choosePriority(value) {
-  priorityMenuOpen.value = false
-  priorityButton.value?.focus()
   if (value === priority.value) return
   await items.setPriority(props.taskId, value)
 }
 
+const addedStamp = computed(() => formatAddedStamp(item.value?.createdAt))
+
 // A click anywhere else in the panel closes the menu. The dialog stops clicks
 // from reaching the backdrop (which would close the whole panel), so this is
 // where an "outside" click is seen; a backdrop click closes everything anyway.
-const priorityField = ref(null)
-
 function onPanelClick(event) {
-  if (!priorityMenuOpen.value) return
-  if (event.target instanceof Node && priorityField.value?.contains(event.target)) return
-  priorityMenuOpen.value = false
+  if (!menuOpen.value) return
+  if (event.target instanceof Node && menuRoot.value?.contains(event.target)) return
+  closeMenu({ refocus: false })
 }
 
 // Completing takes the task out of the visible list, so the panel would be
@@ -319,9 +451,8 @@ function onKeydown(event) {
   if (event.key === 'Tab' && panel.value) return trapTab(event)
   if (event.key !== 'Escape') return
   // Escape with the menu open is asking to leave the menu, not the panel.
-  if (priorityMenuOpen.value) {
-    priorityMenuOpen.value = false
-    priorityButton.value?.focus()
+  if (menuOpen.value) {
+    closeMenu()
     return
   }
   close()
@@ -343,32 +474,168 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="task-panel-backdrop" @click="close()">
+  <div class="task-panel-backdrop" :class="{ expanded }" @click="close()">
     <div
       ref="panel"
       class="task-panel"
+      :class="{ expanded }"
       role="dialog"
       aria-modal="true"
       :aria-label="item?.content ?? 'Task'"
       @click.stop="onPanelClick($event)"
     >
       <header class="task-panel-header">
-        <span class="task-panel-project">
+        <label class="task-panel-project" title="Project">
           <span v-if="item?.projectId" class="project-symbol" aria-hidden="true"></span>
           <span v-else class="material-symbols-outlined" aria-hidden="true">inbox</span>
-          {{ projectName }}
-        </span>
+          <select
+            ref="projectSelect"
+            class="task-panel-project-select"
+            aria-label="Project"
+            :value="selectedProject"
+            @change="onProjectChange($event)"
+          >
+            <option value="inbox">Inbox</option>
+            <option v-for="row in projectOptions" :key="row.item.id" :value="row.item.id">
+              {{ '  '.repeat(row.depth) }}{{ row.item.name }}
+            </option>
+          </select>
+          <span class="material-symbols-outlined task-panel-project-chevron" aria-hidden="true"
+            >expand_more</span
+          >
+        </label>
 
         <div class="task-panel-actions">
           <button
-            class="task-panel-delete"
+            class="task-panel-prev"
             type="button"
-            title="Delete task"
-            aria-label="Delete task"
-            @click="remove()"
+            title="Previous task"
+            aria-label="Previous task"
+            :disabled="!previousId"
+            @click="open(previousId)"
           >
-            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_up</span>
           </button>
+          <button
+            class="task-panel-next"
+            type="button"
+            title="Next task"
+            aria-label="Next task"
+            :disabled="!nextId"
+            @click="open(nextId)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span>
+          </button>
+          <span class="task-panel-actions-divider" aria-hidden="true"></span>
+          <button
+            class="task-panel-copy-link"
+            type="button"
+            title="Copy link to task"
+            aria-label="Copy link to task"
+            @click="copyLink()"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">link</span>
+          </button>
+          <button
+            class="task-panel-expand"
+            type="button"
+            :title="expanded ? 'Shrink' : 'Expand'"
+            :aria-label="expanded ? 'Shrink task' : 'Expand task'"
+            :aria-pressed="expanded ? 'true' : 'false'"
+            @click="expanded = !expanded"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">{{
+              expanded ? 'close_fullscreen' : 'open_in_full'
+            }}</span>
+          </button>
+          <div ref="menuRoot" class="task-panel-menu-wrap">
+            <button
+              ref="menuButton"
+              class="task-panel-more"
+              :class="{ open: menuOpen }"
+              type="button"
+              title="More actions"
+              aria-label="More actions"
+              aria-haspopup="menu"
+              :aria-expanded="menuOpen ? 'true' : 'false'"
+              @click="toggleMenu()"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
+            </button>
+            <div
+              v-if="menuOpen"
+              ref="menu"
+              class="task-panel-menu"
+              role="menu"
+              aria-label="Task actions"
+            >
+              <button
+                type="button"
+                class="task-panel-menu-item task-panel-duplicate"
+                role="menuitem"
+                @click="runMenuAction(duplicate)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
+                Duplicate
+              </button>
+              <button
+                type="button"
+                class="task-panel-menu-item task-panel-move"
+                role="menuitem"
+                @click="runMenuAction(moveTo)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">drive_file_move</span>
+                Move to…
+              </button>
+              <button
+                type="button"
+                class="task-panel-menu-item"
+                role="menuitem"
+                @click="runMenuAction(copyLink)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">link</span>
+                Copy link to task
+              </button>
+              <button
+                type="button"
+                class="task-panel-menu-item task-panel-copy-text"
+                role="menuitem"
+                @click="runMenuAction(copyAsText)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">description</span>
+                Copy as text
+              </button>
+              <hr class="task-panel-menu-rule" role="separator" />
+              <button
+                type="button"
+                class="task-panel-menu-item task-panel-view-activity"
+                role="menuitem"
+                @click="runMenuAction(() => (tab = 'activity'))"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">history</span>
+                View activity
+              </button>
+              <button
+                type="button"
+                class="task-panel-menu-item"
+                role="menuitem"
+                @click="runMenuAction(openInNewWindow)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>
+                Open in new window
+              </button>
+              <hr class="task-panel-menu-rule" role="separator" />
+              <button
+                type="button"
+                class="task-panel-menu-item task-panel-delete"
+                role="menuitem"
+                @click="runMenuAction(remove)"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                Delete task
+              </button>
+            </div>
+          </div>
           <button
             ref="closeButton"
             class="task-panel-close"
@@ -418,128 +685,264 @@ onBeforeUnmount(() => {
             </h2>
           </div>
 
-          <textarea
-            v-if="descriptionEdit.editing.value"
-            :ref="(el) => (descriptionEdit.inputRef.value = el)"
-            v-model="descriptionEdit.draft.value"
-            class="task-panel-description-input"
-            placeholder="Add a description"
-            aria-label="Task description"
-            :rows="descriptionRows"
-            @keydown.escape.stop="descriptionEdit.editing.value = false"
-            @blur="descriptionEdit.submit"
-          ></textarea>
-          <p
-            v-else
-            class="task-panel-description"
-            role="button"
-            tabindex="0"
-            title="Edit description"
-            @click="descriptionEdit.start"
-            @keydown.enter.prevent="descriptionEdit.start"
-            @keydown.space.prevent="descriptionEdit.start"
-          >
-            {{ item?.description || 'Add a description' }}
-          </p>
+          <div v-if="descriptionEdit.editing.value" class="task-panel-editor">
+            <div class="task-panel-toolbar" role="toolbar" aria-label="Formatting">
+              <button
+                v-for="tool in TOOLBAR"
+                :key="tool.format"
+                type="button"
+                class="task-panel-tool"
+                :class="{ grouped: tool.group }"
+                :title="MARKDOWN_FORMATS[tool.format].label"
+                :aria-label="MARKDOWN_FORMATS[tool.format].label"
+                tabindex="-1"
+                @mousedown.prevent
+                @click="applyFormat(tool.format)"
+              >
+                <span v-if="tool.icon" class="material-symbols-outlined" aria-hidden="true">{{
+                  tool.icon
+                }}</span>
+                <span v-else class="task-panel-tool-text" aria-hidden="true">{{ tool.text }}</span>
+              </button>
+              <button
+                type="button"
+                class="task-panel-editor-done"
+                @mousedown.prevent
+                @click="descriptionEdit.submit"
+              >
+                Done
+              </button>
+            </div>
+            <textarea
+              :ref="(el) => (descriptionEdit.inputRef.value = el)"
+              v-model="descriptionEdit.draft.value"
+              class="task-panel-description-input"
+              placeholder="Add a description"
+              aria-label="Task description"
+              :rows="descriptionRows"
+              @keydown.escape.stop="descriptionEdit.editing.value = false"
+              @blur="descriptionEdit.submit"
+            ></textarea>
+          </div>
+          <div v-else class="task-panel-description-row">
+            <div
+              v-if="descriptionHtml"
+              class="task-panel-description task-panel-description-rendered"
+              role="button"
+              tabindex="0"
+              title="Edit description"
+              @click="descriptionEdit.start"
+              @keydown.enter.prevent="descriptionEdit.start"
+              @keydown.space.prevent="descriptionEdit.start"
+              v-html="descriptionHtml"
+            ></div>
+            <p
+              v-else
+              class="task-panel-description task-panel-description-empty"
+              role="button"
+              tabindex="0"
+              title="Edit description"
+              @click="descriptionEdit.start"
+              @keydown.enter.prevent="descriptionEdit.start"
+              @keydown.space.prevent="descriptionEdit.start"
+            >
+              Add a description
+            </p>
+            <button
+              type="button"
+              class="task-panel-format"
+              title="Format description"
+              @click="descriptionEdit.start"
+            >
+              <span class="task-panel-format-glyph" aria-hidden="true">Aa</span>
+              Format
+            </button>
+          </div>
 
           <section class="task-subtasks" aria-label="Sub-tasks">
             <header v-if="subtasks.length" class="task-subtasks-header">
-              <button
-                class="task-subtasks-toggle"
-                type="button"
-                :aria-expanded="subtasksOpen ? 'true' : 'false'"
-                @click="subtasksOpen = !subtasksOpen"
+              <span class="task-subtasks-title">Sub-tasks</span>
+              <span class="task-subtasks-count">{{ doneCount }}/{{ subtasks.length }}</span>
+              <span
+                class="task-subtasks-progress"
+                role="progressbar"
+                aria-label="Sub-tasks completed"
+                :aria-valuenow="donePercent"
+                aria-valuemin="0"
+                aria-valuemax="100"
               >
-                <span class="material-symbols-outlined" aria-hidden="true">
-                  {{ subtasksOpen ? 'keyboard_arrow_down' : 'keyboard_arrow_right' }}
-                </span>
-                <span class="task-subtasks-title">Sub-tasks</span>
-                <span class="task-subtasks-count"
-                  >{{ doneCount }}/{{ subtasks.length
-                  }}<span v-if="items.detailCursors[taskId]">
-                    loaded ({{ items.detailCounts[taskId]?.total }} total)</span
-                  ></span
-                >
+                <span
+                  class="task-subtasks-progress-bar"
+                  :style="{ width: `${donePercent}%` }"
+                ></span>
+              </span>
+              <span v-if="items.detailCursors[taskId]" class="task-subtasks-loaded">
+                loaded ({{ items.detailCounts[taskId]?.total }} total)
+              </span>
+              <label class="task-subtasks-sort">
+                <span class="material-symbols-outlined" aria-hidden="true">sort</span>
+                <span class="task-subtasks-sort-text">Sort</span>
+                <select v-model="subtaskOrder" aria-label="Sort sub-tasks">
+                  <option v-for="order in SUBTASK_ORDERS" :key="order.value" :value="order.value">
+                    {{ order.label }}
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="task-subtasks-hide"
+                :aria-pressed="hideCompleted ? 'true' : 'false'"
+                @click="hideCompleted = !hideCompleted"
+              >
+                {{ hideCompleted ? 'Show completed' : 'Hide completed' }}
               </button>
             </header>
 
-            <template v-if="subtasksOpen">
-              <ul v-if="subtasks.length" class="subtask-rows">
-                <li v-for="sub in visibleSubtasks" :key="sub.id" class="subtask-row">
-                  <button
-                    class="subtask-check"
-                    :class="{ done: sub.completedAt }"
-                    type="button"
-                    :aria-label="`${sub.completedAt ? 'Reopen' : 'Complete'} ${sub.content}`"
-                    @click="items.setCompleted(sub.id, !sub.completedAt)"
+            <ul v-if="visibleSubtasks.length" class="subtask-rows">
+              <li v-for="sub in visibleSubtasks" :key="sub.id" class="subtask-row">
+                <button
+                  class="subtask-check"
+                  :class="{ done: sub.completedAt }"
+                  type="button"
+                  :aria-label="`${sub.completedAt ? 'Reopen' : 'Complete'} ${sub.content}`"
+                  @click="items.setCompleted(sub.id, !sub.completedAt)"
+                >
+                  <span v-if="sub.completedAt" class="material-symbols-outlined" aria-hidden="true"
+                    >check</span
                   >
-                    <span
-                      v-if="sub.completedAt"
-                      class="material-symbols-outlined"
-                      aria-hidden="true"
-                      >check</span
-                    >
-                  </button>
-                  <span class="subtask-content" :class="{ done: sub.completedAt }">
-                    {{ sub.content }}
-                  </span>
-                </li>
-              </ul>
+                </button>
+                <span class="subtask-content" :class="{ done: sub.completedAt }">
+                  {{ sub.content }}
+                </span>
+                <button
+                  type="button"
+                  class="subtask-open"
+                  :title="`Open ${sub.content}`"
+                  :aria-label="`Open ${sub.content}`"
+                  @click="open(sub.id)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true"
+                    >keyboard_arrow_right</span
+                  >
+                </button>
+              </li>
+            </ul>
+            <p v-else-if="subtasks.length" class="task-subtasks-empty">
+              All sub-tasks are completed.
+            </p>
 
-              <button
-                v-if="subtaskOffset > 0"
-                class="add-subtask-btn"
-                @click="subtaskOffset -= 100"
-              >
-                Previous sub-tasks
-              </button>
-              <button
-                v-if="items.detailCursors[taskId] || subtaskOffset + 100 < subtasks.length"
-                class="add-subtask-btn"
-                :disabled="items.detailLoading[taskId]"
-                @click="nextSubtaskPage"
-              >
-                More sub-tasks
-              </button>
-              <form v-if="addingSubtask" class="add-subtask-row" @submit.prevent="submitSubtask">
-                <input
-                  ref="subtaskInput"
-                  v-model="subtaskDraft"
-                  placeholder="Sub-task name"
-                  aria-label="Sub-task name"
-                  @keydown.enter.prevent="submitSubtask"
-                  @keydown.escape.stop="addingSubtask = false"
-                  @blur="submitSubtask"
-                />
-              </form>
-              <button v-else class="add-subtask-btn" type="button" @click="startAddSubtask">
-                <span aria-hidden="true">+</span> Add sub-task
-              </button>
-            </template>
+            <button v-if="subtaskOffset > 0" class="subtask-page-btn" @click="subtaskOffset -= 100">
+              Previous sub-tasks
+            </button>
+            <button
+              v-if="items.detailCursors[taskId] || subtaskOffset + 100 < shownSubtasks.length"
+              class="subtask-page-btn"
+              :disabled="items.detailLoading[taskId]"
+              @click="nextSubtaskPage"
+            >
+              More sub-tasks
+            </button>
+            <form v-if="addingSubtask" class="add-subtask-row" @submit.prevent="submitSubtask">
+              <input
+                ref="subtaskInput"
+                v-model="subtaskDraft"
+                placeholder="Sub-task name"
+                aria-label="Sub-task name"
+                @keydown.enter.prevent="submitSubtask"
+                @keydown.escape.stop="addingSubtask = false"
+                @blur="submitSubtask"
+              />
+            </form>
+            <button v-else class="add-subtask-btn" type="button" @click="startAddSubtask">
+              <span class="material-symbols-outlined" aria-hidden="true">add</span>
+              Add sub-task
+            </button>
           </section>
 
-          <TaskComments :task-id="taskId" />
-          <TaskActivity :task-id="taskId" />
-        </div>
-        <aside class="task-panel-rail">
-          <div class="task-panel-field">
-            <h3>Project</h3>
-            <select
-              class="task-panel-project-select"
-              aria-label="Project"
-              :value="selectedProject"
-              @change="onProjectChange($event)"
+          <div class="task-panel-tabs" role="tablist" aria-label="Discussion">
+            <button
+              id="task-panel-tab-comments"
+              type="button"
+              class="task-panel-tab"
+              role="tab"
+              :aria-selected="tab === 'comments' ? 'true' : 'false'"
+              aria-controls="task-panel-tabpanel"
+              @click="tab = 'comments'"
             >
-              <option value="inbox">Inbox</option>
-              <option v-for="row in projectOptions" :key="row.item.id" :value="row.item.id">
-                {{ '\u00a0\u00a0'.repeat(row.depth) }}{{ row.item.name }}
-              </option>
-            </select>
+              Comments
+              <span v-if="commentCount !== null" class="task-comments-count">{{
+                commentCount
+              }}</span>
+            </button>
+            <button
+              id="task-panel-tab-activity"
+              type="button"
+              class="task-panel-tab"
+              role="tab"
+              :aria-selected="tab === 'activity' ? 'true' : 'false'"
+              aria-controls="task-panel-tabpanel"
+              @click="tab = 'activity'"
+            >
+              Activity
+            </button>
+          </div>
+          <div
+            id="task-panel-tabpanel"
+            class="task-panel-tabpanel"
+            role="tabpanel"
+            :aria-labelledby="`task-panel-tab-${tab}`"
+          >
+            <TaskComments v-if="tab === 'comments'" :task-id="taskId" :author-name="userName" />
+            <TaskActivity v-else :task-id="taskId" />
+          </div>
+        </div>
+
+        <aside class="task-panel-rail">
+          <h3 class="task-panel-section">Organise</h3>
+          <div class="task-panel-row">
+            <span class="task-panel-row-label">Labels</span>
+            <div class="task-panel-row-value task-panel-labels">
+              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
+                >sell</span
+              >
+              <TaskLabelPicker
+                :model-value="item?.labels ?? []"
+                :disabled="savingLabels"
+                @update:model-value="onLabelsChange"
+              />
+            </div>
           </div>
 
-          <div class="task-panel-field">
-            <h3>Date</h3>
-            <div class="task-panel-date">
+          <h3 id="task-panel-priority-label" class="task-panel-section">Priority</h3>
+          <div class="task-panel-priority" role="group" aria-labelledby="task-panel-priority-label">
+            <button
+              v-for="level in PRIORITIES"
+              :key="level.value"
+              type="button"
+              class="task-panel-priority-button"
+              :class="[`priority-${level.value}`, { selected: level.value === priority }]"
+              :aria-label="level.label"
+              :aria-pressed="level.value === priority ? 'true' : 'false'"
+              @click="choosePriority(level.value)"
+            >
+              <span
+                class="material-symbols-outlined priority-flag"
+                :class="`priority-${level.value}`"
+                aria-hidden="true"
+                >flag</span
+              >
+              <span class="task-panel-priority-short">{{ level.short }}</span>
+            </button>
+          </div>
+          <p class="task-panel-priority-current">{{ priorityInfo(priority).label }}</p>
+
+          <h3 class="task-panel-section">Schedule</h3>
+          <div class="task-panel-row">
+            <span class="task-panel-row-label">Date</span>
+            <div class="task-panel-row-value task-panel-date" :class="{ set: item?.dueDate }">
+              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
+                >calendar_month</span
+              >
               <input
                 class="task-panel-date-input"
                 type="date"
@@ -560,99 +963,44 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="task-panel-field">
-            <h3>Time</h3>
-            <input
-              class="task-panel-time-input"
-              type="time"
-              aria-label="Due time"
-              :value="item?.dueTime ?? ''"
-              :disabled="!item?.dueDate"
-              @change="onTimeChange($event)"
-            />
-            <p v-if="item?.dueTime" class="task-panel-time-zone">
-              {{ item.timeZone || localTimeZone }}
-            </p>
-          </div>
-
-          <div class="task-panel-field">
-            <h3>Labels</h3>
-            <TaskLabelPicker
-              :model-value="item?.labels ?? []"
-              :disabled="savingLabels"
-              @update:model-value="onLabelsChange"
-            />
-          </div>
-
-          <form class="task-panel-field" @submit.prevent="saveRecurrence">
-            <TaskRepeatInput v-model="recurrenceDraft" :disabled="savingRecurrence" />
-            <button class="task-panel-repeat-save" type="submit" :disabled="savingRecurrence">
-              Save repeat
-            </button>
-          </form>
-
-          <div class="task-panel-field">
-            <h3 id="task-panel-priority-label">Priority</h3>
-            <div ref="priorityField" class="task-panel-priority">
-              <button
-                ref="priorityButton"
-                class="task-panel-priority-button"
-                :class="[`priority-${priority}`, { open: priorityMenuOpen }]"
-                type="button"
-                aria-haspopup="listbox"
-                :aria-expanded="priorityMenuOpen ? 'true' : 'false'"
-                :aria-label="`Priority: ${priorityInfo(priority).label}`"
-                @click="togglePriorityMenu()"
+          <div class="task-panel-row">
+            <span class="task-panel-row-label">Time</span>
+            <div class="task-panel-row-value task-panel-time" :class="{ set: item?.dueTime }">
+              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
+                >schedule</span
               >
-                <span
-                  class="material-symbols-outlined priority-flag"
-                  :class="`priority-${priority}`"
-                  aria-hidden="true"
-                  >flag</span
-                >
-                <span class="task-panel-priority-short">{{ priorityInfo(priority).short }}</span>
-                <span
-                  class="material-symbols-outlined task-panel-priority-chevron"
-                  aria-hidden="true"
-                >
-                  {{ priorityMenuOpen ? 'expand_less' : 'expand_more' }}
-                </span>
-              </button>
-
-              <ul
-                v-if="priorityMenuOpen"
-                ref="priorityMenu"
-                class="task-panel-priority-menu"
-                :style="priorityMenuStyle"
-                role="listbox"
-                aria-labelledby="task-panel-priority-label"
-              >
-                <li
-                  v-for="level in PRIORITIES"
-                  :key="level.value"
-                  class="task-panel-priority-option"
-                  :class="{ selected: level.value === priority }"
-                  role="option"
-                  :aria-selected="level.value === priority ? 'true' : 'false'"
-                  @click="choosePriority(level.value)"
-                >
-                  <span
-                    class="material-symbols-outlined priority-flag"
-                    :class="`priority-${level.value}`"
-                    aria-hidden="true"
-                    >flag</span
-                  >
-                  <span class="task-panel-priority-option-label">{{ level.label }}</span>
-                  <span
-                    v-if="level.value === priority"
-                    class="material-symbols-outlined task-panel-priority-check"
-                    aria-hidden="true"
-                    >check</span
-                  >
-                </li>
-              </ul>
+              <input
+                class="task-panel-time-input"
+                type="time"
+                aria-label="Due time"
+                :value="item?.dueTime ?? ''"
+                :disabled="!item?.dueDate"
+                @change="onTimeChange($event)"
+              />
+              <span v-if="item?.dueTime" class="task-panel-time-zone">
+                {{ item.timeZone || localTimeZone }}
+              </span>
             </div>
           </div>
+
+          <form class="task-panel-row task-panel-repeat" @submit.prevent="saveRecurrence">
+            <span class="task-panel-row-label" aria-hidden="true">Repeat</span>
+            <div class="task-panel-row-value">
+              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
+                >repeat</span
+              >
+              <div class="task-panel-repeat-field">
+                <TaskRepeatInput v-model="recurrenceDraft" :disabled="savingRecurrence" />
+                <button class="task-panel-repeat-save" type="submit" :disabled="savingRecurrence">
+                  Save repeat
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <p v-if="addedStamp" class="task-panel-added">
+            Added {{ addedStamp }}<template v-if="userName"> by {{ userName }}</template>
+          </p>
         </aside>
       </div>
     </div>
@@ -671,17 +1019,29 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.35);
 }
 
+.task-panel-backdrop.expanded {
+  padding: 0;
+}
+
 .task-panel {
   width: 100%;
-  max-width: 860px;
+  max-width: 1000px;
   max-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-dialog);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
   overflow: hidden;
 }
+
+.task-panel.expanded {
+  max-width: none;
+  height: 100%;
+  border-radius: 0;
+}
+
+/* ---- header ---------------------------------------------------------- */
 
 .task-panel-header {
   display: flex;
@@ -692,36 +1052,79 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-color);
 }
 
+/* The project is a chip whose whole face is the select; the icon and the
+   chevron sit over it so it reads as a button. */
 .task-panel-project {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   font-size: 14px;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.task-panel-project:hover {
+  background: var(--bg-hover);
 }
 
 .task-panel-project .material-symbols-outlined {
   font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.task-panel-project-select {
+  appearance: none;
+  min-width: 0;
+  max-width: 220px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.task-panel-project-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.task-panel-project-chevron {
+  pointer-events: none;
 }
 
 .task-panel-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+}
+
+.task-panel-actions-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 8px;
+  background: var(--border-color);
 }
 
 .task-panel-actions button {
   display: flex;
   align-items: center;
-  padding: 4px;
+  padding: 6px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
 }
 
-.task-panel-actions button:hover:not(:disabled) {
+.task-panel-actions button:hover:not(:disabled),
+.task-panel-actions .task-panel-more.open {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -730,6 +1133,61 @@ onBeforeUnmount(() => {
   opacity: 0.35;
   cursor: default;
 }
+
+.task-panel-actions .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.task-panel-menu-wrap {
+  position: relative;
+}
+
+/* The menu drops out of its button, over the body. The panel is the
+   stacking context, so z-index only has to clear the body's content. */
+.task-panel-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 2;
+  min-width: 240px;
+  padding: 6px;
+  background: var(--bg-dialog);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.task-panel-actions .task-panel-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.task-panel-actions .task-panel-menu-item .material-symbols-outlined {
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.task-panel-actions .task-panel-menu-item.task-panel-delete,
+.task-panel-actions .task-panel-menu-item.task-panel-delete .material-symbols-outlined {
+  color: #d1453b;
+}
+
+.task-panel-menu-rule {
+  margin: 6px 0;
+  border: none;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ---- body ---------------------------------------------------------- */
 
 .task-panel-body {
   display: flex;
@@ -740,14 +1198,16 @@ onBeforeUnmount(() => {
 .task-panel-main {
   flex: 1;
   min-width: 0;
-  padding: 20px 24px;
+  padding: 28px 32px 32px;
   overflow-y: auto;
 }
 
 .task-panel-rail {
-  width: 260px;
+  width: 300px;
   flex: 0 0 auto;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
   border-left: 1px solid var(--border-color);
   background: var(--bg-app);
   overflow-y: auto;
@@ -760,11 +1220,11 @@ onBeforeUnmount(() => {
 }
 
 .task-panel-check {
-  width: 20px;
-  height: 20px;
-  margin-top: 3px;
+  width: 22px;
+  height: 22px;
+  margin-top: 8px;
   flex: 0 0 auto;
-  border: 1.5px solid var(--text-secondary);
+  border: 2px solid var(--text-secondary);
   border-radius: 50%;
   background: none;
   cursor: pointer;
@@ -786,17 +1246,10 @@ onBeforeUnmount(() => {
 
 .task-panel-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 28px;
   font-weight: 700;
+  line-height: 1.35;
   cursor: text;
-}
-
-.task-panel-description {
-  margin: 10px 0 0 32px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: text;
-  white-space: pre-wrap;
 }
 
 /* The title's click-to-edit is a real button for keyboard reach, stripped
@@ -820,11 +1273,13 @@ onBeforeUnmount(() => {
 /* Editing happens in place: the field carries the same metrics as the text it
    replaces and no box of its own, so entering and leaving edit mode moves
    nothing — the caret is the only sign the field is live. */
-.task-panel-title-input,
-.task-panel-description-input {
+.task-panel-title-input {
   display: block;
   width: 100%;
   font: inherit;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.35;
   color: inherit;
   background: transparent;
   border: none;
@@ -832,49 +1287,287 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-.task-panel-title-input {
-  font-size: 20px;
-  font-weight: 700;
-}
+/* ---- description ----------------------------------------------------- */
 
-.task-panel-description-input {
-  margin: 10px 0 0 32px;
-  width: calc(100% - 32px);
-  font-size: 14px;
-  resize: none;
-  field-sizing: content;
-}
-.task-subtasks {
-  margin: 22px 0 0 32px;
-}
-
-.task-subtasks-header {
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.task-subtasks-toggle {
+.task-panel-description-row {
   display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 16px 0 0 34px;
+}
+
+.task-panel-description {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  cursor: text;
+}
+
+.task-panel-description-empty {
+  color: var(--text-secondary);
+}
+
+.task-panel-description-rendered :deep(h1),
+.task-panel-description-rendered :deep(h2),
+.task-panel-description-rendered :deep(h3) {
+  margin: 0 0 12px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.task-panel-description-rendered :deep(h1) {
+  font-size: 22px;
+}
+
+.task-panel-description-rendered :deep(h2) {
+  font-size: 18px;
+}
+
+.task-panel-description-rendered :deep(h3) {
+  font-size: 16px;
+}
+
+.task-panel-description-rendered :deep(p),
+.task-panel-description-rendered :deep(ul),
+.task-panel-description-rendered :deep(ol),
+.task-panel-description-rendered :deep(blockquote) {
+  margin: 0 0 12px;
+}
+
+.task-panel-description-rendered :deep(ul),
+.task-panel-description-rendered :deep(ol) {
+  padding-left: 24px;
+}
+
+.task-panel-description-rendered :deep(blockquote) {
+  padding-left: 12px;
+  border-left: 3px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.task-panel-description-rendered :deep(pre) {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--bg-input);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.task-panel-description-rendered :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.task-panel-description-rendered :deep(p code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-input);
+}
+
+.task-panel-description-rendered :deep(a) {
+  color: var(--text-blue);
+}
+
+.task-panel-description-rendered :deep(> :last-child) {
+  margin-bottom: 0;
+}
+
+.task-panel-format {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: inherit;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-dialog);
   font: inherit;
   font-size: 14px;
-  font-weight: 600;
+  color: var(--text-primary);
   cursor: pointer;
 }
 
-.task-subtasks-toggle .material-symbols-outlined {
-  font-size: 18px;
+.task-panel-format:hover {
+  background: var(--bg-hover);
+}
+
+.task-panel-format-glyph {
+  font-weight: 700;
+}
+
+.task-panel-editor {
+  margin: 16px 0 0 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-dialog);
+  box-shadow: var(--shadow-sm);
+}
+
+.task-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.task-panel-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.task-panel-tool.grouped {
+  margin-left: 10px;
+}
+
+.task-panel-tool.grouped::before {
+  content: '';
+  position: relative;
+  left: -7px;
+  width: 1px;
+  height: 18px;
+  background: var(--border-color);
+}
+
+.task-panel-tool:hover {
+  background: var(--bg-hover);
+}
+
+.task-panel-tool .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.task-panel-tool-text {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.task-panel-editor-done {
+  margin-left: auto;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bg-input);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.task-panel-editor-done:hover {
+  background: var(--bg-hover);
+}
+
+.task-panel-description-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.55;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  field-sizing: content;
+}
+
+/* ---- sub-tasks ------------------------------------------------------- */
+
+.task-subtasks {
+  margin: 36px 0 0 34px;
+}
+
+.task-subtasks-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 15px;
+}
+
+.task-subtasks-title {
+  font-weight: 700;
+}
+
+.task-subtasks-count,
+.task-subtasks-loaded {
   color: var(--text-secondary);
 }
 
-.task-subtasks-count {
+.task-subtasks-progress {
+  display: block;
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.task-subtasks-progress-bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.task-subtasks-sort {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
   color: var(--text-secondary);
-  font-weight: 400;
+  cursor: pointer;
+}
+
+.task-subtasks-sort .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.task-subtasks-sort select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.task-subtasks-sort:hover,
+.task-subtasks-hide:hover {
+  color: var(--text-primary);
+}
+
+.task-subtasks-sort:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.task-subtasks-hide {
+  margin-left: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
 }
 
 .subtask-rows {
@@ -886,8 +1579,8 @@ onBeforeUnmount(() => {
 .subtask-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
+  gap: 12px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -895,8 +1588,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   flex: 0 0 auto;
   border: 1.5px solid var(--text-secondary);
@@ -916,11 +1609,12 @@ onBeforeUnmount(() => {
 }
 
 .subtask-check .material-symbols-outlined {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .subtask-content {
-  font-size: 14px;
+  flex: 1;
+  font-size: 15px;
   min-width: 0;
 }
 
@@ -929,95 +1623,7 @@ onBeforeUnmount(() => {
   text-decoration: line-through;
 }
 
-.add-subtask-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 6px 0;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.add-subtask-btn:hover {
-  color: var(--text-primary);
-}
-
-.add-subtask-row {
-  display: flex;
-  margin-top: 8px;
-}
-
-.add-subtask-row input {
-  flex: 1;
-  font: inherit;
-  font-size: 14px;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 6px 8px;
-}
-
-.task-panel-field + .task-panel-field {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border-color);
-}
-
-.task-panel-repeat-save {
-  margin-top: 8px;
-  padding: 4px 8px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-dialog);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.task-panel-field h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.task-panel-project-select {
-  width: 100%;
-  font: inherit;
-  font-size: 14px;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 4px 6px;
-}
-
-.task-panel-date {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.task-panel-date-input,
-.task-panel-time-input,
-.task-panel-time-input:disabled {
-  opacity: 0.55;
-}
-
-.task-panel-time-zone {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.task-panel-date-clear {
+.subtask-open {
   display: flex;
   padding: 2px;
   border: none;
@@ -1027,81 +1633,217 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.task-panel-date-clear:hover {
+.subtask-open:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
+.subtask-open .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.task-subtasks-empty {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.add-subtask-btn,
+.subtask-page-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 6px 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.add-subtask-btn .material-symbols-outlined {
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.add-subtask-btn:hover,
+.subtask-page-btn:hover {
+  color: var(--text-primary);
+}
+
+.add-subtask-row {
+  display: flex;
+  margin-top: 10px;
+}
+
+.add-subtask-row input {
+  flex: 1;
+  font: inherit;
+  font-size: 15px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+/* ---- comments and activity -------------------------------------------- */
+
+.task-panel-tabs {
+  display: flex;
+  gap: 24px;
+  margin: 40px 0 0 34px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.task-panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 10px;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.task-panel-tab:hover {
+  color: var(--text-primary);
+}
+
+.task-panel-tab[aria-selected='true'] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.task-comments-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.task-panel-tabpanel {
+  margin-left: 34px;
+}
+
+.task-panel-tabpanel :deep(.task-activity) {
+  margin: 12px 0 0;
+}
+
+/* ---- rail ----------------------------------------------------------- */
+
+.task-panel-section {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.task-panel-section + .task-panel-section,
+.task-panel-row + .task-panel-section,
+.task-panel-priority-current + .task-panel-section {
+  margin-top: 28px;
+}
+
+.task-panel-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 32px;
+  margin-bottom: 14px;
+  font-size: 15px;
+}
+
+.task-panel-row-label {
+  flex: 0 0 76px;
+  padding-top: 4px;
+  color: var(--text-secondary);
+}
+
+.task-panel-row-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.task-panel-row-icon {
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.task-panel-labels {
+  align-items: flex-start;
+}
+
+.task-panel-labels .task-panel-row-icon {
+  margin-top: 5px;
+}
+
+.task-panel-labels :deep(.task-label-picker) {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The four levels in one pill; the chosen one is lifted out as a card. */
 .task-panel-priority {
-  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-input);
 }
 
 .task-panel-priority-button {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  padding: 8px 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
   font: inherit;
   font-size: 14px;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 4px 6px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.task-panel-priority-button:hover,
-.task-panel-priority-button.open {
-  background: var(--bg-hover);
-}
-
-.task-panel-priority-short {
-  flex: 1;
-}
-
-.task-panel-priority-chevron {
-  font-size: 18px;
   color: var(--text-secondary);
-}
-
-.task-panel-priority-menu {
-  /* Placed from script (see placePriorityMenu); z-index only has to clear
-     the dialog's own content, since the backdrop already sits above the app. */
-  position: fixed;
-  z-index: 1;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  background: var(--bg-dialog);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-}
-
-.task-panel-priority-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 14px;
   cursor: pointer;
 }
 
-.task-panel-priority-option:hover,
-.task-panel-priority-option.selected {
-  background: var(--bg-hover);
+.task-panel-priority-button:hover {
+  color: var(--text-primary);
 }
 
-.task-panel-priority-option-label {
-  flex: 1;
+.task-panel-priority-button.selected {
+  background: var(--bg-dialog);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
-.task-panel-priority-check {
-  font-size: 18px;
-  color: var(--accent);
+.task-panel-priority-current {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* Todoist's colours: red, orange, blue, and a plain flag for the default.
@@ -1129,7 +1871,98 @@ onBeforeUnmount(() => {
 .priority-flag.priority-3 {
   color: #246fe0;
 }
-@media (max-width: 600px) {
+
+.task-panel-date-input,
+.task-panel-time-input {
+  min-width: 0;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.task-panel-date.set .task-panel-date-input,
+.task-panel-date.set .task-panel-row-icon,
+.task-panel-time.set .task-panel-time-input,
+.task-panel-time.set .task-panel-row-icon {
+  color: var(--text-green);
+}
+
+.task-panel-time-input:disabled {
+  opacity: 0.55;
+}
+
+.task-panel-time-zone {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.task-panel-date-clear {
+  display: flex;
+  margin-left: auto;
+  padding: 2px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.task-panel-date-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.task-panel-repeat {
+  margin-top: 4px;
+}
+
+.task-panel-repeat .task-panel-row-value {
+  align-items: flex-start;
+}
+
+.task-panel-repeat .task-panel-row-icon {
+  margin-top: 5px;
+}
+
+.task-panel-repeat-field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The repeat input carries its own label; the row already names it. */
+.task-panel-repeat-field :deep(.task-repeat label) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.task-panel-repeat-save {
+  margin-top: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-dialog);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.task-panel-added {
+  margin: auto 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
   .task-panel-backdrop {
     padding: 16px;
   }
@@ -1141,16 +1974,20 @@ onBeforeUnmount(() => {
 
   .task-panel-main {
     flex: none;
-    padding: 16px;
+    padding: 20px;
     overflow: visible;
   }
 
   .task-panel-rail {
     width: auto;
-    padding: 16px;
+    padding: 20px;
     border-left: none;
     border-top: 1px solid var(--border-color);
     overflow: visible;
+  }
+
+  .task-panel-added {
+    margin-top: 20px;
   }
 }
 </style>

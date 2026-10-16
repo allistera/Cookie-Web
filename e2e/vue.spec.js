@@ -2924,9 +2924,10 @@ test('Tasks: an overdue task is carried into Today and can be deleted', async ({
   await expect(page.locator('.task-due')).toHaveText('2 Jan')
   await expect(page.locator('.task-due')).toHaveClass(/overdue/)
 
-  // Delete it from the panel's header icon.
+  // Delete it from the panel's actions menu.
   page.once('dialog', (dialog) => dialog.accept())
   await page.locator('.task-open').click()
+  await page.locator('.task-panel-more').click()
   await page.locator('.task-panel-delete').click()
 
   await expect(page.locator('.task-panel')).toHaveCount(0)

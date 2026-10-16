@@ -27,7 +27,8 @@ test('A task thread takes comments and attachments, which can be edited and dele
   await composer.press('Enter')
   await expect(thread.locator('.task-comment')).toHaveCount(1)
   await expect(thread.locator('.task-comment-body')).toHaveText('Kick-off is Monday')
-  await expect(thread.locator('.task-comment-author')).toHaveText('You')
+  // Signed with the signed-in person's name (the e2e stub's is "Allister").
+  await expect(thread.locator('.task-comment-author')).toHaveText('Allister')
   await expect(composer).toHaveValue('')
 
   // A comment with a file: the entry shows the chip with name and size.
@@ -43,7 +44,7 @@ test('A task thread takes comments and attachments, which can be edited and dele
   const second = thread.locator('.task-comment').nth(1)
   await expect(second.locator('.task-comment-file')).toContainText('brief.pdf')
   await expect(second.locator('.task-comment-file')).toContainText('13 B')
-  await expect(thread.locator('.task-comments-count')).toHaveText('2')
+  await expect(panel.locator('.task-comments-count')).toHaveText('2')
 
   // Editing the first entry marks it edited.
   const first = thread.locator('.task-comment').nth(0)
