@@ -460,3 +460,29 @@ coalesces per-row inbox pings:
 The 0075 workspace revision still bumps on `blocks`: a content save changes
 `updated_at`, which the paged document listing returns and sorts by. No
 deploy ordering is needed.
+
+## Task activity and completion goals
+
+`0097_task_activity.sql` records creation, meaningful edits (with before/after
+values), completion, reopening, and deletion in a server-only `task_activity`
+table. A trigger covers every database writer, including sync and cascading
+project/subtask deletes. History keeps the task ID and title without a foreign
+key to the task, so deleting a task preserves its history; deleting the account
+removes it. No-op writes and indexing timestamps do not create activity.
+Existing tasks seed only their known creation and current completion timestamps.
+Past edits, deletes, reopenings, and recurring completions cannot be recovered.
+
+`task_items.last_occurrence_completed_at` lets the Worker record a recurring
+completion in the same update that advances the task's due date. Deploy the
+migration first, then `cookie-web-tasks`, then the web client. Goals are stored
+per account in `task_completion_goals`; zero disables a goal. Progress counts
+completion events across all tasks, including recurring occurrences. Reopening
+or deleting a task does not subtract previous completions. Days use the browser's
+IANA time zone; weeks run Monday through Sunday, respecting daylight saving.
+The task panel shows progress and a pageable timeline below comments, with
+filters for the current task, completed-task history, and all activity. The Tasks
+page also has a History button, available even when no active tasks remain.
+
+The CI Checks job runs the shipped migration against a separate disposable
+Postgres service using `TASK_ACTIVITY_TEST_DATABASE_URL`. It covers backfill,
+transitions, recurrence, cascades, rollback, row security, and goal constraints.
