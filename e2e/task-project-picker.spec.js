@@ -27,8 +27,10 @@ test('the panel’s project chip drops a searchable list of the Inbox and nested
   const search = panel.getByRole('combobox', { name: 'Project' })
   await expect(search).toBeFocused()
   await expect(search).toHaveAttribute('placeholder', 'Type a project name')
+  // An option's text also carries its icon ligature, so read the names.
   const options = panel.getByRole('option')
-  await expect(options).toHaveText(['Inbox', 'Work', 'Public API'])
+  const names = panel.locator('.task-project-option-name')
+  await expect(names).toHaveText(['Inbox', 'Work', 'Public API'])
   await expect(options.first()).toHaveAttribute('aria-selected', 'true')
   await expect(panel.getByText('My Projects')).toBeVisible()
   const nested = panel.getByRole('option', { name: 'Public API' })
@@ -37,7 +39,7 @@ test('the panel’s project chip drops a searchable list of the Inbox and nested
 
   // Typing narrows the list; Enter files the task there and closes the list.
   await search.fill('api')
-  await expect(options).toHaveText(['Public API'])
+  await expect(names).toHaveText(['Public API'])
   await search.press('Enter')
   await expect(panel.getByRole('combobox', { name: 'Project' })).toHaveCount(0)
   await expect(panel.getByRole('button', { name: 'Project: Public API' })).toBeVisible()
