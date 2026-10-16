@@ -5,15 +5,17 @@ import { useRouter } from 'vue-router'
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import { authHeaders } from '../lib/authHeaders'
 import { jsonRequest } from '../lib/jsonRequest'
+import { ACTION_LABELS, displayValue, FIELD_LABELS } from '../lib/taskActivity'
 import { formatCommentTime } from '../lib/taskComments'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskItemsStore } from '../stores/taskItems'
 
-const props = defineProps({ taskId: { type: String, default: '' } })
+// Account-wide history and completion goals for the list view's History.
+// One task's own changes are the panel's Activity tab (TaskHistory.vue).
 const router = useRouter()
 const items = useTaskItemsStore()
 const projects = useProjectsStore()
-const view = ref(props.taskId ? 'task' : 'completed')
+const view = ref('completed')
 const activities = ref([])
 const cursor = ref(null)
 const loading = ref(false)
@@ -45,7 +47,6 @@ async function loadActivity(more = false) {
   loading.value = true
   error.value = ''
   const params = new URLSearchParams()
-  if (view.value === 'task') params.set('task', props.taskId)
   if (view.value === 'completed') params.set('completed', 'true')
   if (more) params.set('after', cursor.value)
   try {
@@ -111,7 +112,7 @@ function refresh() {
   void loadProgress()
 }
 watch(
-  () => [props.taskId, view.value],
+  view,
   () => {
     activities.value = []
     cursor.value = null
@@ -159,37 +160,9 @@ onBeforeUnmount(() => {
   unsubscribe()
 })
 
-const actionLabels = {
-  created: 'Created',
-  edited: 'Edited',
-  completed: 'Completed',
-  reopened: 'Reopened',
-  deleted: 'Deleted',
-}
-const fieldLabels = {
-  content: 'Title',
-  description: 'Description',
-  project_id: 'Project',
-  parent_id: 'Parent task',
-  due_date: 'Due date',
-  due_time: 'Due time',
-  time_zone: 'Time zone',
-  labels: 'Labels',
-  priority: 'Priority',
-  recurrence: 'Repeat',
-  position: 'Order',
-  today_position: 'Today order',
-}
-function displayValue(value, field) {
-  if (field === 'project_id')
-    return value
-      ? projects.projects.find((row) => row.id === value)?.name || 'Another project'
-      : 'Inbox'
-  if (field === 'parent_id')
-    return value ? items.itemById(value)?.content || 'Another task' : 'None'
-  if (value === null || value === '') return 'None'
-  if (Array.isArray(value)) return value.join(', ') || 'None'
-  return String(value)
+const lookups = {
+  projectName: (id) => projects.projects.find((row) => row.id === id)?.name,
+  taskTitle: (id) => items.itemById(id)?.content,
 }
 function openTask(row) {
   void router.push({ path: '/tasks', query: { task: row.taskId } })
@@ -265,7 +238,6 @@ function openTask(row) {
     <label class="history-filter"
       >History
       <select v-model="view" aria-label="Activity history">
-        <option v-if="taskId" value="task">This task</option>
         <option value="completed">Completed tasks</option>
         <option value="all">All task activity</option>
       </select>
@@ -278,29 +250,27 @@ function openTask(row) {
     <ol class="activity-list" aria-label="Task activity timeline">
       <li v-for="row in activities" :key="row.id">
         <div class="activity-line">
-          <strong>{{ actionLabels[row.action] }}</strong>
+          <strong>{{ ACTION_LABELS[row.action] }}</strong>
           <time :datetime="row.occurredAt">{{ formatCommentTime(row.occurredAt) }}</time>
         </div>
-        <template v-if="view !== 'task'">
-          <button v-if="row.taskExists" type="button" class="task-link" @click="openTask(row)">
-            {{ row.title }}
-          </button>
-          <p v-else>{{ row.title }} <span class="muted">(deleted task)</span></p>
-        </template>
+        <button v-if="row.taskExists" type="button" class="task-link" @click="openTask(row)">
+          {{ row.title }}
+        </button>
+        <p v-else>{{ row.title }} <span class="muted">(deleted task)</span></p>
         <details v-if="Object.keys(row.changes).length">
           <summary>
             {{
               Object.keys(row.changes)
-                .map((field) => fieldLabels[field] || field)
+                .map((field) => FIELD_LABELS[field] || field)
                 .join(', ')
             }}
           </summary>
           <p v-for="(change, field) in row.changes" :key="field" class="change">
-            <strong>{{ fieldLabels[field] || field }}:</strong>
+            <strong>{{ FIELD_LABELS[field] || field }}:</strong>
             <template v-if="field === 'position' || field === 'today_position'">Reordered</template>
             <template v-else
-              >{{ displayValue(change.before, field) }} →
-              {{ displayValue(change.after, field) }}</template
+              >{{ displayValue(change.before, field, lookups) }} →
+              {{ displayValue(change.after, field, lookups) }}</template
             >
           </p>
         </details>

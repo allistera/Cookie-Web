@@ -2,9 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import TaskActivity from './TaskActivity.vue'
 import TaskComments from './TaskComments.vue'
+import TaskHistory from './TaskHistory.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
+import TaskProjectPicker from './TaskProjectPicker.vue'
 import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
@@ -20,7 +21,6 @@ import {
 } from '../lib/taskDetail'
 import { applyMarkdownFormat, MARKDOWN_FORMATS, renderTaskMarkdown } from '../lib/taskMarkdown'
 import { PRIORITIES, priorityInfo, priorityOf } from '../lib/taskPriority'
-import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskCommentsStore } from '../stores/taskComments'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -76,21 +76,12 @@ const projectName = computed(() => {
 // The open task is what 'b' pins to the bucket.
 useBucketCandidate(() => taskBucketItem(item.value, projectName.value))
 
-// Every project, in the sidebar's order and depth, so the picker reads the
-// same way the tree does. Expanding every id keeps the whole forest visible —
-// a picker that hid options behind collapsed parents would be unusable.
-const projectOptions = computed(() =>
-  flattenProjectTree(projects.projects, new Set(projects.projects.map((row) => row.id))),
-)
+// The picker hands back a project id, or null for the Inbox, as the wire
+// carries it.
+const projectPicker = ref(null)
 
-// 'inbox' is the select's stand-in for "no project": a value is needed for the
-// option, but the wire carries null.
-const selectedProject = computed(() => item.value?.projectId ?? 'inbox')
-const projectSelect = ref(null)
-
-function onProjectChange(event) {
-  const value = String(event.target.value ?? '')
-  items.moveItem(props.taskId, value === 'inbox' ? null : value)
+function onProjectChange(projectId) {
+  items.moveItem(props.taskId, projectId)
 }
 
 // ---- header: siblings, link, size, menu ------------------------------------
@@ -188,8 +179,7 @@ async function duplicate() {
 
 async function moveTo() {
   await nextTick()
-  projectSelect.value?.focus()
-  projectSelect.value?.showPicker?.()
+  await projectPicker.value?.open()
 }
 
 // ---- title and description -------------------------------------------------
@@ -500,25 +490,12 @@ onBeforeUnmount(() => {
       @click.stop="onPanelClick($event)"
     >
       <header class="task-panel-header">
-        <label class="task-panel-project" title="Project">
-          <span v-if="item?.projectId" class="project-symbol" aria-hidden="true"></span>
-          <span v-else class="material-symbols-outlined" aria-hidden="true">inbox</span>
-          <select
-            ref="projectSelect"
-            class="task-panel-project-select"
-            aria-label="Project"
-            :value="selectedProject"
-            @change="onProjectChange($event)"
-          >
-            <option value="inbox">Inbox</option>
-            <option v-for="row in projectOptions" :key="row.item.id" :value="row.item.id">
-              {{ '  '.repeat(row.depth) }}{{ row.item.name }}
-            </option>
-          </select>
-          <span class="material-symbols-outlined task-panel-project-chevron" aria-hidden="true"
-            >expand_more</span
-          >
-        </label>
+        <TaskProjectPicker
+          ref="projectPicker"
+          :model-value="item?.projectId ?? null"
+          :owner-name="userName"
+          @update:model-value="onProjectChange"
+        />
 
         <div class="task-panel-actions">
           <button
@@ -912,7 +889,7 @@ onBeforeUnmount(() => {
             :aria-labelledby="`task-panel-tab-${tab}`"
           >
             <TaskComments v-show="tab === 'comments'" :task-id="taskId" :author-name="userName" />
-            <TaskActivity v-if="activityOpened" v-show="tab === 'activity'" :task-id="taskId" />
+            <TaskHistory v-if="activityOpened" v-show="tab === 'activity'" :task-id="taskId" />
           </div>
         </div>
 
@@ -1069,53 +1046,6 @@ onBeforeUnmount(() => {
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
-}
-
-/* The project is a chip whose whole face is the select; the icon and the
-   chevron sit over it so it reads as a button. */
-.task-panel-project {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.task-panel-project:hover {
-  background: var(--bg-hover);
-}
-
-.task-panel-project .material-symbols-outlined {
-  font-size: 18px;
-  color: var(--text-secondary);
-}
-
-.task-panel-project-select {
-  appearance: none;
-  min-width: 0;
-  max-width: 220px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
-.task-panel-project-select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 2px;
-}
-
-.task-panel-project-chevron {
-  pointer-events: none;
 }
 
 .task-panel-actions {

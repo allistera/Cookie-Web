@@ -254,18 +254,20 @@ describe('TaskDetailPanel', () => {
     const hidden = (selector) => /display: none/.test(wrapper.get(selector).attributes('style'))
 
     expect(hidden('[data-testid="task-comments"]')).toBe(false)
-    expect(wrapper.find('.task-activity').exists()).toBe(false)
+    expect(wrapper.find('.task-history').exists()).toBe(false)
 
     await openMenu(wrapper)
     await wrapper.get('.task-panel-view-activity').trigger('click')
     await flushPromises()
-    expect(hidden('.task-activity')).toBe(false)
+    expect(hidden('.task-history')).toBe(false)
     expect(hidden('[data-testid="task-comments"]')).toBe(true)
     expect(wrapper.get('#task-panel-tab-activity').attributes('aria-selected')).toBe('true')
+    // The tab is this task's own changes, not the list view's progress report.
+    expect(wrapper.find('.task-activity').exists()).toBe(false)
 
     await wrapper.get('#task-panel-tab-comments').trigger('click')
     expect(hidden('[data-testid="task-comments"]')).toBe(false)
-    expect(hidden('.task-activity')).toBe(true)
+    expect(hidden('.task-history')).toBe(true)
   })
 
   // The thread stays mounted behind the Activity tab, so a half-written
@@ -473,10 +475,10 @@ describe('TaskDetailPanel', () => {
     expect(document.activeElement).toBe(close)
 
     // Shift+Tab from the first control wraps to the last one in the panel.
-    wrapper.get('.task-panel-project-select').element.focus()
+    wrapper.get('.task-panel-project').element.focus()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }))
     expect(wrapper.get('.task-panel').element.contains(document.activeElement)).toBe(true)
-    expect(document.activeElement).not.toBe(wrapper.get('.task-panel-project-select').element)
+    expect(document.activeElement).not.toBe(wrapper.get('.task-panel-project').element)
 
     await router.push('/tasks')
     await flushPromises()
@@ -847,29 +849,46 @@ describe('TaskDetailPanel', () => {
     expect(router.currentRoute.value.query.task).toBe('a')
   })
 
-  it("selects the task's current project in the picker", async () => {
+  const openPicker = async (wrapper) => {
+    await wrapper.get('.task-panel-project').trigger('click')
+    await flushPromises()
+  }
+  const pickerOption = (wrapper, name) =>
+    wrapper
+      .findAll('.task-project-option')
+      .find((node) => node.get('.task-project-option-name').text() === name)
+
+  it("marks the task's current project in the picker", async () => {
     seed([{ ...ITEMS[1], projectId: 'p1' }])
     const wrapper = await mountPanel()
     await flushPromises()
+    await openPicker(wrapper)
 
-    expect(wrapper.get('.task-panel-project-select').element.value).toBe('p1')
+    expect(pickerOption(wrapper, 'Githup').attributes('aria-selected')).toBe('true')
+    expect(pickerOption(wrapper, 'Inbox').attributes('aria-selected')).toBe('false')
   })
 
-  it('selects Inbox when the task belongs to no project', async () => {
+  it('marks the Inbox when the task belongs to no project', async () => {
     seed()
     const wrapper = await mountPanel()
     await flushPromises()
+    await openPicker(wrapper)
 
-    expect(wrapper.get('.task-panel-project-select').element.value).toBe('inbox')
+    expect(pickerOption(wrapper, 'Inbox').attributes('aria-selected')).toBe('true')
   })
 
-  it('lists the Inbox and every project as options', async () => {
+  it('lists a search box, the Inbox and every project', async () => {
     seed()
     const wrapper = await mountPanel()
     await flushPromises()
+    expect(wrapper.find('.task-project-menu').exists()).toBe(false)
+    await openPicker(wrapper)
 
-    const options = wrapper.findAll('.task-panel-project-select option')
-    expect(options.map((option) => option.text().trim())).toEqual(['Inbox', 'Githup'])
+    expect(wrapper.get('.task-project-search').attributes('placeholder')).toBe(
+      'Type a project name',
+    )
+    const options = wrapper.findAll('.task-project-option-name')
+    expect(options.map((option) => option.text())).toEqual(['Inbox', 'Githup'])
   })
 
   it('moves the task to another project', async () => {
@@ -877,11 +896,13 @@ describe('TaskDetailPanel', () => {
     const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
     const wrapper = await mountPanel()
     await flushPromises()
+    await openPicker(wrapper)
 
-    await wrapper.get('.task-panel-project-select').setValue('p1')
+    await pickerOption(wrapper, 'Githup').trigger('click')
     await flushPromises()
 
     expect(move).toHaveBeenCalledWith('b', 'p1')
+    expect(wrapper.find('.task-project-menu').exists()).toBe(false)
   })
 
   // The Inbox is the absence of a project, so it goes over the wire as null.
@@ -890,11 +911,49 @@ describe('TaskDetailPanel', () => {
     const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
     const wrapper = await mountPanel()
     await flushPromises()
+    await openPicker(wrapper)
 
-    await wrapper.get('.task-panel-project-select').setValue('inbox')
+    await pickerOption(wrapper, 'Inbox').trigger('click')
     await flushPromises()
 
     expect(move).toHaveBeenCalledWith('b', null)
+  })
+
+  it('finds a project by typing its name', async () => {
+    seed()
+    const move = vi.spyOn(items, 'moveItem').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+    await openPicker(wrapper)
+
+    await wrapper.get('.task-project-search').setValue('git')
+    expect(wrapper.findAll('.task-project-option-name').map((node) => node.text())).toEqual([
+      'Githup',
+    ])
+    await wrapper.get('.task-project-search').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(move).toHaveBeenCalledWith('b', 'p1')
+  })
+
+  // "Move to…" in the menu is the same picker, opened with its search ready.
+  it('opens the picker from Move to… in the menu', async () => {
+    seed()
+    await router.replace({ path: '/tasks', query: { task: 'b' } })
+    const wrapper = mount(RouterView, {
+      global: { plugins: [router], provide: AUTH },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    await openMenu(wrapper)
+    await wrapper.get('.task-panel-move').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('.task-project-menu').exists()).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get('.task-project-search').element)
+    wrapper.unmount()
   })
 
   it('sets a due date', async () => {

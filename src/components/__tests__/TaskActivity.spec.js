@@ -26,6 +26,9 @@ const summary = () => ({
 function button(wrapper, text) {
   return wrapper.findAll('button').find((node) => node.text() === text)
 }
+function mountActivity() {
+  return mount(TaskActivity, { global: { plugins: [router] } })
+}
 
 beforeEach(async () => {
   setAuth0Client(null)
@@ -60,26 +63,24 @@ afterEach(() => {
 })
 
 describe('TaskActivity', () => {
-  it('shows task history and account-wide daily/weekly progress', async () => {
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+  it('shows completed history and account-wide daily/weekly progress', async () => {
+    const wrapper = mountActivity()
     await flushPromises()
     expect(wrapper.text()).toContain('2 completed')
     expect(wrapper.text()).toContain('8 completed')
     expect(wrapper.text()).toContain('Created')
-    expect(requestMock.mock.calls.some(([url]) => url.endsWith('task-activity?task=task1'))).toBe(
-      true,
-    )
+    expect(
+      requestMock.mock.calls.some(([url]) => url.endsWith('task-activity?completed=true')),
+    ).toBe(true)
     expect(wrapper.findAll('progress')).toHaveLength(2)
+    expect(wrapper.findAll('option').map((node) => node.attributes('value'))).toEqual([
+      'completed',
+      'all',
+    ])
     wrapper.unmount()
   })
   it('saves goals, keeps failed drafts and allows goals to be disabled', async () => {
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountActivity()
     await flushPromises()
     await button(wrapper, 'Set completion goals').trigger('click')
     await wrapper.findAll('input')[0].setValue('0')
@@ -100,20 +101,17 @@ describe('TaskActivity', () => {
     expect(wrapper.text()).toContain('Goal: 20')
     wrapper.unmount()
   })
-  it('pages completed history, and never offers a deleted task link', async () => {
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+  it('pages all history, and never offers a deleted task link', async () => {
+    const wrapper = mountActivity()
     await flushPromises()
     requestMock.mockResolvedValueOnce({
       activities: [{ ...event, action: 'completed', taskExists: false }],
       nextCursor: 'next',
     })
-    await wrapper.get('select').setValue('completed')
+    await wrapper.get('select').setValue('all')
     await flushPromises()
     expect(requestMock).toHaveBeenLastCalledWith(
-      expect.stringContaining('completed=true'),
+      expect.stringMatching(/task-activity\?$/),
       expect.anything(),
     )
     expect(wrapper.text()).toContain('(deleted task)')
@@ -130,11 +128,11 @@ describe('TaskActivity', () => {
     expect(push).toHaveBeenCalledWith({ path: '/tasks', query: { task: 'task1' } })
     wrapper.unmount()
   })
-  it('discards a stale response after switching tasks', async () => {
+  it('discards a stale response after switching views', async () => {
     let resolveOld
     requestMock.mockImplementation((url) => {
       if (url.includes('task-progress')) return Promise.resolve(summary())
-      if (url.includes('task=task1'))
+      if (url.includes('completed=true'))
         return new Promise((resolve) => {
           resolveOld = resolve
         })
@@ -143,12 +141,9 @@ describe('TaskActivity', () => {
         nextCursor: null,
       })
     })
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountActivity()
     await flushPromises()
-    await wrapper.setProps({ taskId: 'task2' })
+    await wrapper.get('select').setValue('all')
     await flushPromises()
     resolveOld({ activities: [event], nextCursor: null })
     await flushPromises()
@@ -157,10 +152,7 @@ describe('TaskActivity', () => {
     wrapper.unmount()
   })
   it('refreshes after a task list reload, including Todoist sync', async () => {
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountActivity()
     await flushPromises()
     const before = requestMock.mock.calls.filter(([url]) => url.includes('task-progress')).length
     requestMock.mockResolvedValueOnce({ items: [], nextCursor: null })
@@ -175,10 +167,7 @@ describe('TaskActivity', () => {
   it('refreshes at local midnight and cancels the timer on unmount', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     vi.setSystemTime(new Date(2026, 9, 16, 23, 59, 59))
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountActivity()
     await flushPromises()
     const count = () =>
       requestMock.mock.calls.filter(([url]) => url.includes('task-progress')).length
@@ -193,10 +182,7 @@ describe('TaskActivity', () => {
 
   it('reports loading failures with retry and renders changed values as text', async () => {
     requestMock.mockRejectedValue(new Error('Offline'))
-    const wrapper = mount(TaskActivity, {
-      props: { taskId: 'task1' },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountActivity()
     await flushPromises()
     expect(wrapper.text()).toContain('Could not load activity.')
     expect(wrapper.text()).toContain('Could not load progress.')
