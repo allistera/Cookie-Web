@@ -68,7 +68,37 @@ describe('TaskComments', () => {
     expect(rows[0].find('.task-comment-file').exists()).toBe(false)
     expect(rows[1].get('.task-comment-file').text()).toContain('brief.pdf')
     expect(rows[1].get('.task-comment-file').text()).toContain('2.0 KB')
-    expect(wrapper.get('.task-comments-count').text()).toBe('2')
+    expect(rows[0].get('.task-comment-avatar').text()).toBe('?')
+  })
+
+  it('signs own entries and the composer with the given name', async () => {
+    vi.spyOn(store, 'loadThread').mockResolvedValue()
+    seed([COMMENT, { ...COMMENT, id: 'c3', mine: false }])
+    const wrapper = mount(TaskComments, { props: { taskId: TASK, authorName: 'Allister A.' } })
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-comment')
+    expect(rows[0].get('.task-comment-author').text()).toBe('Allister A.')
+    expect(rows[0].get('.task-comment-avatar').text()).toBe('A')
+    expect(rows[1].get('.task-comment-author').text()).toBe('Collaborator')
+    expect(rows[1].get('.task-comment-avatar').text()).toBe('C')
+    expect(wrapper.get('.task-comment-composer .task-comment-avatar').text()).toBe('A')
+  })
+
+  it('inserts a chosen emoji at the caret of the draft', async () => {
+    vi.spyOn(store, 'loadThread').mockResolvedValue()
+    seed([])
+    const wrapper = mountThread()
+    await flushPromises()
+    const textarea = wrapper.get('textarea[aria-label="Write a comment"]')
+    await textarea.setValue('ab')
+    textarea.element.setSelectionRange(1, 1)
+
+    await wrapper.get('button[aria-label="Add emoji"]').trigger('click')
+    await wrapper.get('.composer-emoji-popover .composer-emoji-item').trigger('click')
+    await flushPromises()
+
+    expect(textarea.element.value).toMatch(/^a.+b$/)
   })
 
   it('shows the empty state and the loading state', async () => {

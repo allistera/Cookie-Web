@@ -1,6 +1,6 @@
 import { expect, test } from './workerFixtures.js'
 
-test('Activity sits below comments, filters completed history and saves completion goals', async ({
+test('Activity is the panel’s second tab, filters completed history and saves completion goals', async ({
   page,
 }) => {
   const { item } = await (
@@ -42,10 +42,14 @@ test('Activity sits below comments, filters completed history and saves completi
     })
   })
   await page.goto(`/tasks?project=inbox&task=${item.id}`)
+  // The thread shows first; activity is the panel's second tab.
+  const panel = page.getByRole('dialog', { name: 'Review activity' })
+  await expect(panel.getByTestId('task-comments')).toBeVisible()
+  await panel.getByRole('tab', { name: 'Activity' }).click()
   const activity = page.getByRole('region', { name: 'Activity and progress' })
   await expect(activity).toContainText('2 completed')
   await expect(activity).toContainText('Created')
-  await expect(page.locator('[data-testid="task-comments"] + .task-activity')).toHaveCount(1)
+  await expect(panel.getByTestId('task-comments')).toBeHidden()
   await activity.getByLabel('Activity history').selectOption('completed')
   await expect(activity).toContainText('Earlier task (deleted task)')
   await activity.getByRole('button', { name: 'Set completion goals' }).click()
@@ -54,6 +58,7 @@ test('Activity sits below comments, filters completed history and saves completi
   await activity.getByRole('button', { name: 'Save goals' }).click()
   await expect(activity).toContainText('Goal: 25')
   await page.reload()
+  await panel.getByRole('tab', { name: 'Activity' }).click()
   await expect(activity).toContainText('Goal: 5')
   await page.getByRole('button', { name: 'Close task', exact: true }).click()
   await page.request.delete('/__e2e__/tasks-api/task-items', { data: { id: item.id } })

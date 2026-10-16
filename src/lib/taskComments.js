@@ -34,10 +34,11 @@ export function commentDraftProblem({ body = '', file = null } = {}) {
 }
 
 // Who wrote the entry, as the header names them. The thread is the task
-// owner's today, so an entry is almost always "You"; the fallback covers a
-// row written by another account should the task ever be shared.
-export function commentAuthorLabel(comment) {
-  return comment?.mine ? 'You' : 'Collaborator'
+// owner's today, so an entry is almost always the person's own name (or
+// "You" when the session has none); the fallback covers a row written by
+// another account should the task ever be shared.
+export function commentAuthorLabel(comment, ownName = '') {
+  return comment?.mine ? String(ownName ?? '').trim() || 'You' : 'Collaborator'
 }
 
 // Whether the attachment can be taken off the entry on its own. An entry

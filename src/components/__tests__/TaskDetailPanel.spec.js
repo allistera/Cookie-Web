@@ -1,11 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { h } from 'vue'
+import { h, ref } from 'vue'
 import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-router'
 
 import TaskDetailPanel from '../TaskDetailPanel.vue'
 import { useProjectsStore } from '../../stores/projects'
+import { useTaskCommentsStore } from '../../stores/taskComments'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
 
@@ -30,9 +32,24 @@ const TasksHost = {
   },
 }
 
-async function mountPanel(taskId = 'b') {
+// useAuth0() is inject()-based, so providing under its key signs the panel
+// in as a named person through the real interface.
+const AUTH = { [AUTH0_INJECTION_KEY]: { user: ref({ name: 'Allister Antosik' }) } }
+
+async function mountPanel(taskId = 'b', options = {}) {
   await router.replace({ path: '/tasks', query: { task: taskId } })
-  return mount(RouterView, { global: { plugins: [router] } })
+  return mount(RouterView, { global: { plugins: [router], provide: AUTH }, ...options })
+}
+
+async function openMenu(wrapper) {
+  await wrapper.get('.task-panel-more').trigger('click')
+  await flushPromises()
+}
+
+function stubClipboard() {
+  const writeText = vi.fn().mockResolvedValue()
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  return writeText
 }
 
 // The list is already loaded by the time the panel opens; the panel reads from
@@ -64,14 +81,316 @@ beforeEach(async () => {
 })
 
 describe('TaskDetailPanel', () => {
-  it('has no sibling navigation in the header', async () => {
+  it('steps to the previous and next sibling from the header', async () => {
     seed()
     const wrapper = await mountPanel()
     await flushPromises()
 
-    expect(wrapper.find('.task-panel-prev').exists()).toBe(false)
-    expect(wrapper.find('.task-panel-next').exists()).toBe(false)
-    expect(wrapper.find('.task-panel-close').exists()).toBe(true)
+    await wrapper.get('.task-panel-prev').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('a')
+    expect(wrapper.get('.task-panel-title').text()).toBe('First')
+
+    await wrapper.get('.task-panel-next').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
+  it('disables sibling navigation at the ends and skips dividers and sub-tasks', async () => {
+    seed([
+      ITEMS[0],
+      { id: 'd', kind: 'divider', content: '', projectId: null },
+      { id: 's', content: 'Step', parentId: 'a', projectId: null },
+      ITEMS[1],
+    ])
+    const wrapper = await mountPanel('a')
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-prev').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.task-panel-next').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.task-panel-next').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('b')
+    expect(wrapper.get('.task-panel-next').attributes('disabled')).toBeDefined()
+  })
+
+  it('copies the task link from the header', async () => {
+    seed()
+    const writeText = stubClipboard()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-copy-link').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/tasks\?task=b$/))
+    expect(items.notify).toHaveBeenCalledWith('Link copied.', 'info')
+  })
+
+  it('expands the panel to fill the viewport and back', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-expand').trigger('click')
+    expect(wrapper.get('.task-panel').classes()).toContain('expanded')
+    expect(wrapper.get('.task-panel-expand').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('.task-panel-expand').trigger('click')
+    expect(wrapper.get('.task-panel').classes()).not.toContain('expanded')
+  })
+
+  it('opens the actions menu and closes it on Escape without closing the panel', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await openMenu(wrapper)
+    expect(wrapper.get('.task-panel-more').attributes('aria-expanded')).toBe('true')
+    // A row's text starts with its icon's ligature name; the label follows.
+    const labels = wrapper
+      .findAll('[role="menuitem"]')
+      .map((row) => row.text().split(/\s+/).slice(1).join(' '))
+    expect(labels).toEqual([
+      'Duplicate',
+      'Move to…',
+      'Copy link to task',
+      'Copy as text',
+      'View activity',
+      'Open in new window',
+      'Delete task',
+    ])
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('.task-panel-menu').exists()).toBe(false)
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
+  it('closes the actions menu on a click elsewhere in the panel', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await openMenu(wrapper)
+    await wrapper.get('.task-panel-main').trigger('click')
+
+    expect(wrapper.find('.task-panel-menu').exists()).toBe(false)
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
+  it('duplicates the task with its fields beside it', async () => {
+    seed([
+      {
+        ...ITEMS[1],
+        description: 'Why',
+        dueDate: '2026-10-20',
+        dueTime: '09:00',
+        timeZone: 'Europe/London',
+        priority: 2,
+        labels: ['home'],
+        projectId: 'p1',
+      },
+    ])
+    const createItem = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 'copy' })
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await openMenu(wrapper)
+    await wrapper.get('.task-panel-duplicate').trigger('click')
+    await flushPromises()
+
+    expect(createItem).toHaveBeenCalledWith({
+      content: 'Second',
+      projectId: 'p1',
+      parentId: null,
+      description: 'Why',
+      dueDate: '2026-10-20',
+      dueTime: '09:00',
+      timeZone: 'Europe/London',
+      priority: 2,
+      labels: ['home'],
+      recurrence: undefined,
+    })
+    expect(items.notify).toHaveBeenCalledWith('Task duplicated.', 'info')
+    expect(wrapper.find('.task-panel-menu').exists()).toBe(false)
+  })
+
+  it('copies the task as text with its sub-tasks', async () => {
+    seed([
+      { ...ITEMS[1], description: '# Notes' },
+      { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
+    ])
+    const writeText = stubClipboard()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await openMenu(wrapper)
+    await wrapper.get('.task-panel-copy-text').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith('Second\n\n# Notes\n\n- [ ] Step one')
+  })
+
+  it('reports a clipboard that refuses', async () => {
+    seed()
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    })
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-copy-link').trigger('click')
+    await flushPromises()
+
+    expect(items.notify).toHaveBeenCalledWith('Could not copy to the clipboard.', 'error')
+  })
+
+  it('switches to the Activity tab, also from the menu', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+    // v-show hides with an inline display: none; the elements stay mounted.
+    const hidden = (selector) => /display: none/.test(wrapper.get(selector).attributes('style'))
+
+    expect(hidden('[data-testid="task-comments"]')).toBe(false)
+    expect(wrapper.find('.task-activity').exists()).toBe(false)
+
+    await openMenu(wrapper)
+    await wrapper.get('.task-panel-view-activity').trigger('click')
+    await flushPromises()
+    expect(hidden('.task-activity')).toBe(false)
+    expect(hidden('[data-testid="task-comments"]')).toBe(true)
+    expect(wrapper.get('#task-panel-tab-activity').attributes('aria-selected')).toBe('true')
+
+    await wrapper.get('#task-panel-tab-comments').trigger('click')
+    expect(hidden('[data-testid="task-comments"]')).toBe(false)
+    expect(hidden('.task-activity')).toBe(true)
+  })
+
+  // The thread stays mounted behind the Activity tab, so a half-written
+  // comment is still there on the way back.
+  it('keeps a comment draft while the Activity tab is shown', async () => {
+    seed()
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('textarea[aria-label="Write a comment"]').setValue('Half written')
+    await wrapper.get('#task-panel-tab-activity').trigger('click')
+    await wrapper.get('#task-panel-tab-comments').trigger('click')
+
+    expect(wrapper.get('textarea[aria-label="Write a comment"]').element.value).toBe('Half written')
+  })
+
+  it('marks the comment count as a lower bound while more pages remain', async () => {
+    seed()
+    const comments = useTaskCommentsStore()
+    vi.spyOn(comments, 'loadThread').mockResolvedValue()
+    comments.threads.b = {
+      comments: [{ id: 'c1', body: 'x', mine: true, createdAt: '2026-10-16T09:00:00Z' }],
+      nextCursor: 'more',
+      loaded: true,
+      loading: false,
+      error: null,
+    }
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-comments-count').text()).toBe('1+')
+    comments.threads.b.nextCursor = null
+    await flushPromises()
+    expect(wrapper.get('.task-comments-count').text()).toBe('1')
+  })
+
+  // Pages are cut in the list's own order before a sort or filter applies,
+  // so a later page never repeats or skips rows.
+  it('sorts and filters within the page, not across pages', async () => {
+    const page = Array.from({ length: 100 }, (_, index) => ({
+      id: `z${index}`,
+      content: `Z${String(index).padStart(3, '0')}`,
+      parentId: 'b',
+      completedAt: index === 0 ? '2026-09-01' : null,
+      projectId: null,
+    }))
+    seed([...ITEMS, ...page, { id: 'a1', content: 'A001', parentId: 'b', projectId: null }])
+    const wrapper = await mountPanel()
+    await flushPromises()
+    const names = () => wrapper.findAll('.subtask-content').map((row) => row.text())
+
+    await wrapper.get('select[aria-label="Sort sub-tasks"]').setValue('name')
+    expect(names()[0]).toBe('Z000')
+    expect(names()).toHaveLength(100)
+    await wrapper.get('.subtask-page-btn').trigger('click')
+    await flushPromises()
+    expect(names()).toEqual(['A001'])
+
+    await wrapper.get('.task-subtasks-hide').trigger('click')
+    expect(names()).toEqual(['A001'])
+    expect(wrapper.find('.task-subtasks-empty').exists()).toBe(false)
+  })
+
+  it('tells a filtered page apart from an all-completed list', async () => {
+    seed([
+      ...ITEMS,
+      { id: 's1', content: 'Done', parentId: 'b', completedAt: '2026-09-01', projectId: null },
+    ])
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-subtasks-hide').trigger('click')
+    expect(wrapper.get('.task-subtasks-empty').text()).toBe('All sub-tasks are completed.')
+  })
+
+  it('shows when the task was added and by whom', async () => {
+    seed([{ ...ITEMS[1], createdAt: '2026-10-16T14:11:00' }])
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.task-panel-added').text()).toBe('Added 16 Oct · 14:11 by Allister A.')
+  })
+
+  it('renders the description as markdown when not editing', async () => {
+    seed([{ ...ITEMS[1], description: '# heading 1\n\nParagraph\n\n```\nvar = "foo"\n```' }])
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    const rendered = wrapper.get('.task-panel-description')
+    expect(rendered.get('h1').text()).toBe('heading 1')
+    expect(rendered.get('p').text()).toBe('Paragraph')
+    expect(rendered.get('pre code').text()).toBe('var = "foo"')
+  })
+
+  it('opens the editor from the Format button and saves with Done', async () => {
+    seed()
+    const describeItem = vi.spyOn(items, 'describeItem').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-format').trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-panel-description-input').setValue('Done this way')
+    await wrapper.get('.task-panel-editor-done').trigger('click')
+    await flushPromises()
+
+    expect(describeItem).toHaveBeenCalledWith('b', 'Done this way')
+    expect(wrapper.find('.task-panel-description-input').exists()).toBe(false)
+  })
+
+  it('wraps the selection in the mark a toolbar button names', async () => {
+    seed([{ ...ITEMS[1], description: 'make it bold' }])
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-panel-description').trigger('click')
+    await flushPromises()
+    const field = wrapper.get('.task-panel-description-input').element
+    field.setSelectionRange(8, 12)
+    await wrapper.get('button[aria-label="Bold"]').trigger('click')
+    await flushPromises()
+
+    expect(field.value).toBe('make it **bold**')
+    expect([field.selectionStart, field.selectionEnd]).toEqual([10, 14])
+    expect(wrapper.find('.task-panel-description-input').exists()).toBe(true)
   })
 
   it('renders the task the URL names and follows it when the URL changes', async () => {
@@ -154,10 +473,10 @@ describe('TaskDetailPanel', () => {
     expect(document.activeElement).toBe(close)
 
     // Shift+Tab from the first control wraps to the last one in the panel.
-    wrapper.get('.task-panel-delete').element.focus()
+    wrapper.get('.task-panel-project-select').element.focus()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }))
     expect(wrapper.get('.task-panel').element.contains(document.activeElement)).toBe(true)
-    expect(document.activeElement).not.toBe(wrapper.get('.task-panel-delete').element)
+    expect(document.activeElement).not.toBe(wrapper.get('.task-panel-project-select').element)
 
     await router.push('/tasks')
     await flushPromises()
@@ -359,6 +678,8 @@ describe('TaskDetailPanel', () => {
     await flushPromises()
 
     expect(wrapper.get('.task-subtasks-count').text()).toBe('1/2')
+    expect(wrapper.get('.task-subtasks-progress').attributes('aria-valuenow')).toBe('50')
+    expect(wrapper.get('.task-subtasks-progress-bar').attributes('style')).toContain('width: 50%')
     const rows = wrapper.findAll('.subtask-row')
     expect(rows).toHaveLength(2)
     expect(rows[1].get('.subtask-content').classes()).toContain('done')
@@ -367,7 +688,49 @@ describe('TaskDetailPanel', () => {
     expect(setCompleted).toHaveBeenCalledWith('s1', true)
   })
 
-  it('collapses the sub-task list behind the header toggle', async () => {
+  it('hides completed sub-tasks behind the header toggle', async () => {
+    seed([
+      ...ITEMS,
+      { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
+      { id: 's2', content: 'Step two', parentId: 'b', completedAt: '2026-09-01', projectId: null },
+    ])
+    const wrapper = await mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.task-subtasks-hide').trigger('click')
+    expect(wrapper.findAll('.subtask-content').map((row) => row.text())).toEqual(['Step one'])
+    expect(wrapper.get('.task-subtasks-hide').text()).toBe('Show completed')
+    expect(wrapper.get('.task-subtasks-count').text()).toBe('1/2')
+    expect(wrapper.find('.add-subtask-btn').exists()).toBe(true)
+  })
+
+  it('sorts sub-tasks by name, date or priority', async () => {
+    seed([
+      ...ITEMS,
+      {
+        id: 's1',
+        content: 'Zed',
+        parentId: 'b',
+        dueDate: '2026-10-02',
+        priority: 4,
+        projectId: null,
+      },
+      { id: 's2', content: 'Alpha', parentId: 'b', dueDate: null, priority: 1, projectId: null },
+    ])
+    const wrapper = await mountPanel()
+    await flushPromises()
+    const names = () => wrapper.findAll('.subtask-content').map((row) => row.text())
+
+    expect(names()).toEqual(['Zed', 'Alpha'])
+    await wrapper.get('select[aria-label="Sort sub-tasks"]').setValue('name')
+    expect(names()).toEqual(['Alpha', 'Zed'])
+    await wrapper.get('select[aria-label="Sort sub-tasks"]').setValue('date')
+    expect(names()).toEqual(['Zed', 'Alpha'])
+    await wrapper.get('select[aria-label="Sort sub-tasks"]').setValue('priority')
+    expect(names()).toEqual(['Alpha', 'Zed'])
+  })
+
+  it('opens a sub-task in the panel from its row', async () => {
     seed([
       ...ITEMS,
       { id: 's1', content: 'Step one', parentId: 'b', completedAt: null, projectId: null },
@@ -375,9 +738,11 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
-    await wrapper.get('.task-subtasks-toggle').trigger('click')
-    expect(wrapper.find('.subtask-row').exists()).toBe(false)
-    expect(wrapper.find('.add-subtask-btn').exists()).toBe(false)
+    await wrapper.get('.subtask-open').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.task).toBe('s1')
+    expect(wrapper.get('.task-panel-title').text()).toBe('Step one')
   })
 
   it('adds a sub-task against the open task', async () => {
@@ -472,6 +837,7 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
+    await openMenu(wrapper)
     await wrapper.get('.task-panel-delete').trigger('click')
     await router.push({ path: '/tasks', query: { task: 'a' } })
     await flushPromises()
@@ -651,17 +1017,28 @@ describe('TaskDetailPanel', () => {
     expect(setLabels).toHaveBeenCalledWith('b', ['home', 'errands', 'calls'])
   })
 
-  // Priority is Todoist's four levels: 1 the most urgent, 4 the default.
-  it('shows the default priority for a task that has none', async () => {
+  // Priority is Todoist's four levels: 1 the most urgent, 4 the default,
+  // laid out as four buttons with the current one pressed.
+  it('shows the default priority pressed for a task that has none', async () => {
     seed()
     const wrapper = await mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.task-panel-priority-short').text()).toBe('P4')
-    expect(wrapper.get('.task-panel-priority-button .priority-flag').classes()).toContain(
-      'priority-4',
-    )
-    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
+    const buttons = wrapper.findAll('.task-panel-priority-button')
+    expect(buttons.map((button) => button.get('.task-panel-priority-short').text())).toEqual([
+      'P1',
+      'P2',
+      'P3',
+      'P4',
+    ])
+    expect(buttons.map((button) => button.attributes('aria-pressed'))).toEqual([
+      'false',
+      'false',
+      'false',
+      'true',
+    ])
+    expect(buttons[3].get('.priority-flag').classes()).toContain('priority-4')
+    expect(wrapper.get('.task-panel-priority-current').text()).toBe('Priority 4')
   })
 
   it('shows the priority the task already has', async () => {
@@ -669,49 +1046,21 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.task-panel-priority-short').text()).toBe('P1')
-    expect(wrapper.get('.task-panel-priority-button').attributes('aria-label')).toBe(
-      'Priority: Priority 1',
-    )
-    expect(wrapper.get('.task-panel-priority-button .priority-flag').classes()).toContain(
-      'priority-1',
-    )
+    const pressed = wrapper.get('.task-panel-priority-button[aria-pressed="true"]')
+    expect(pressed.attributes('aria-label')).toBe('Priority 1')
+    expect(pressed.get('.priority-flag').classes()).toContain('priority-1')
   })
 
-  it('opens a menu of the four levels with the current one marked', async () => {
-    seed([{ ...ITEMS[1], priority: 2 }])
-    const wrapper = await mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-priority-button').trigger('click')
-
-    const options = wrapper.findAll('.task-panel-priority-option')
-    expect(options.map((option) => option.get('.task-panel-priority-option-label').text())).toEqual(
-      ['Priority 1', 'Priority 2', 'Priority 3', 'Priority 4'],
-    )
-    expect(options.map((option) => option.attributes('aria-selected'))).toEqual([
-      'false',
-      'true',
-      'false',
-      'false',
-    ])
-    expect(options[1].find('.task-panel-priority-check').exists()).toBe(true)
-    expect(options[0].find('.task-panel-priority-check').exists()).toBe(false)
-    expect(wrapper.get('.task-panel-priority-button').attributes('aria-expanded')).toBe('true')
-  })
-
-  it('sets a priority from the menu and closes it', async () => {
+  it('sets a priority from its button', async () => {
     seed()
     const setPriority = vi.spyOn(items, 'setPriority').mockResolvedValue({})
     const wrapper = await mountPanel()
     await flushPromises()
 
-    await wrapper.get('.task-panel-priority-button').trigger('click')
-    await wrapper.findAll('.task-panel-priority-option')[0].trigger('click')
+    await wrapper.findAll('.task-panel-priority-button')[0].trigger('click')
     await flushPromises()
 
     expect(setPriority).toHaveBeenCalledWith('b', 1)
-    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
   })
 
   it('does not send the priority the task already has', async () => {
@@ -720,75 +1069,10 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
-    await wrapper.get('.task-panel-priority-button').trigger('click')
-    await wrapper.findAll('.task-panel-priority-option')[2].trigger('click')
+    await wrapper.findAll('.task-panel-priority-button')[2].trigger('click')
     await flushPromises()
 
     expect(setPriority).not.toHaveBeenCalled()
-    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
-  })
-
-  // Escape with the menu open is asking to leave the menu, not the panel.
-  it('closes the priority menu on Escape without closing the panel', async () => {
-    seed()
-    const wrapper = await mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-priority-button').trigger('click')
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    await flushPromises()
-
-    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
-    expect(router.currentRoute.value.query.task).toBe('b')
-  })
-
-  it('closes the priority menu on a click elsewhere in the panel', async () => {
-    seed()
-    const wrapper = await mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.task-panel-priority-button').trigger('click')
-    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(true)
-
-    await wrapper.get('.task-panel-main').trigger('click')
-
-    expect(wrapper.find('.task-panel-priority-menu').exists()).toBe(false)
-    expect(router.currentRoute.value.query.task).toBe('b')
-  })
-
-  // The dialog clips its overflow and the field sits at the bottom of the
-  // rail, so a menu positioned inside the rail was cut off at the dialog's
-  // edge. It is fixed to the viewport instead, measured from the button.
-  it('places the menu under the button, matching its width', async () => {
-    seed()
-    const wrapper = await mountPanel()
-    await flushPromises()
-    const button = wrapper.get('.task-panel-priority-button').element
-    button.getBoundingClientRect = () => ({ left: 100, width: 220, top: 500, bottom: 530 })
-    window.innerHeight = 900
-
-    await button.click()
-    await flushPromises()
-
-    const style = wrapper.get('.task-panel-priority-menu').attributes('style')
-    expect(style).toContain('left: 100px')
-    expect(style).toContain('width: 220px')
-    expect(style).toContain('top: 534px')
-  })
-
-  it('flips the menu above the button when the viewport has no room below', async () => {
-    seed()
-    const wrapper = await mountPanel()
-    await flushPromises()
-    const button = wrapper.get('.task-panel-priority-button').element
-    button.getBoundingClientRect = () => ({ left: 100, width: 220, top: 500, bottom: 530 })
-    window.innerHeight = 520
-
-    await button.click()
-    await flushPromises()
-
-    // jsdom gives the menu no height, so "above" is the gap alone.
-    expect(wrapper.get('.task-panel-priority-menu').attributes('style')).toContain('top: 496px')
   })
 
   it('deletes the task and closes', async () => {
@@ -798,6 +1082,7 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
+    await openMenu(wrapper)
     await wrapper.get('.task-panel-delete').trigger('click')
     await flushPromises()
 
@@ -814,6 +1099,7 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
+    await openMenu(wrapper)
     await wrapper.get('.task-panel-delete').trigger('click')
     await flushPromises()
 
@@ -828,6 +1114,7 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
+    await openMenu(wrapper)
     await wrapper.get('.task-panel-delete').trigger('click')
 
     expect(confirm).toHaveBeenCalledWith('Delete "Second"?')
@@ -842,6 +1129,7 @@ describe('TaskDetailPanel', () => {
     const wrapper = await mountPanel()
     await flushPromises()
 
+    await openMenu(wrapper)
     await wrapper.get('.task-panel-delete').trigger('click')
     await flushPromises()
 
@@ -854,11 +1142,11 @@ it('edits and removes a repeat schedule', async () => {
   const save = vi.spyOn(items, 'setRecurrence').mockResolvedValue({ id: 'b' })
   const wrapper = await mountPanel()
   await wrapper.get('.task-repeat input').setValue('every 2nd Tuesday')
-  await wrapper.get('form.task-panel-field').trigger('submit')
+  await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
   expect(save).toHaveBeenCalledWith('b', 'every 2nd Tuesday')
   await wrapper.get('.task-repeat input').setValue('')
-  await wrapper.get('form.task-panel-field').trigger('submit')
+  await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
   expect(save).toHaveBeenLastCalledWith('b', null)
   wrapper.unmount()
@@ -869,7 +1157,7 @@ it('keeps a rejected repeat draft for correction', async () => {
   vi.spyOn(items, 'setRecurrence').mockResolvedValue(null)
   const wrapper = await mountPanel()
   await wrapper.get('.task-repeat input').setValue('every nonsense')
-  await wrapper.get('form.task-panel-field').trigger('submit')
+  await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
   expect(wrapper.get('.task-repeat input').element.value).toBe('every nonsense')
   wrapper.unmount()
@@ -892,7 +1180,7 @@ it('closes without a missing-task notification after rescheduling out of Today',
   })
   const wrapper = await mountPanel()
   await wrapper.get('.task-repeat input').setValue('every Monday')
-  await wrapper.get('form.task-panel-field').trigger('submit')
+  await wrapper.get('form.task-panel-repeat').trigger('submit')
   await flushPromises()
   expect(items.items).toEqual([])
   expect(items.notify).not.toHaveBeenCalled()
