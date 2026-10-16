@@ -6,7 +6,7 @@ import TaskActivity from '../components/TaskActivity.vue'
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import TaskDisplay from '../components/TaskDisplay.vue'
 import { localToday } from '../lib/localDate'
-import { describeRule, filterIdOf, isFilterProject } from '../lib/taskFilters'
+import { addDays, describeRule, filterIdOf, isFilterProject } from '../lib/taskFilters'
 import { orderAfterDrop } from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
 import { useInlineEdit } from '../composables/useInlineEdit'
@@ -400,14 +400,111 @@ function onTaskClick(item, event) {
   open(item.id)
 }
 
-function onSelectionKeydown(event) {
-  if (event.key === 'Escape' && items.selectedIds.length) items.clearSelection()
+// Select all gathers the tasks on screen — not the dividers, which none of
+// the bulk actions apply to. A selection made before More tasks was pressed
+// stays part of the count, so "all" means every row on this page is in.
+const selectableItems = computed(() => visibleItems.value.filter((item) => !isDivider(item)))
+const allSelected = computed(
+  () =>
+    selectableItems.value.length > 0 &&
+    selectableItems.value.every((item) => items.selectedIds.includes(item.id)),
+)
+
+function selectAll() {
+  items.selectItems(selectableItems.value.map((item) => item.id))
 }
-onMounted(() => document.addEventListener('keydown', onSelectionKeydown))
+
+// --- Bulk bar ---
+// The same floating bar the inbox shows over checked emails, with the
+// edits a task takes: Done, Move, Reschedule, Priority, Label and Delete.
+// One menu opens at a time; a click anywhere outside it, or Escape, closes
+// it, and Escape with no menu open drops the selection.
+const bulkMenu = ref(null)
+
+function toggleBulkMenu(name) {
+  bulkMenu.value = bulkMenu.value === name ? null : name
+  // The sidebar has usually loaded the labels already; this covers a view
+  // reached before it did.
+  if (bulkMenu.value === 'label') labels.loadLabels()
+}
+
+function onSelectionKeydown(event) {
+  if (event.key !== 'Escape') return
+  if (bulkMenu.value) bulkMenu.value = null
+  else if (items.selectedIds.length) items.clearSelection()
+}
+
+// composedPath, not target.closest: a menu item is removed as the menu
+// closes, before this document listener runs.
+function onDocumentClick(event) {
+  const inMenu = event.composedPath().some((node) => node?.classList?.contains('ni-schedule-wrap'))
+  if (!inMenu) bulkMenu.value = null
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onSelectionKeydown)
+  document.addEventListener('click', onDocumentClick)
+})
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onSelectionKeydown)
+  document.removeEventListener('click', onDocumentClick)
   items.clearSelection()
 })
+
+// Where Move can send the selection: the Inbox and every project, each
+// named with its ancestors, less the list already on screen.
+const moveTargets = computed(() => {
+  const targets = [{ id: null, name: 'Inbox', detail: '' }]
+  for (const row of projects.projects) {
+    const path = projects.ancestorsOf(row.id).map((ancestor) => ancestor.name)
+    targets.push({ id: row.id, name: row.name, detail: path.slice(0, -1).join(' / ') })
+  }
+  return targets.filter((target) => (target.id ?? 'inbox') !== project.value)
+})
+
+const dueChoices = computed(() => {
+  const today = localToday()
+  return [
+    { id: 'today', label: 'Today', dueDate: today },
+    { id: 'tomorrow', label: 'Tomorrow', dueDate: addDays(today, 1) },
+    { id: 'next-week', label: 'Next week', dueDate: addDays(today, 7) },
+    { id: 'none', label: 'No date', dueDate: null },
+  ]
+})
+
+function completeSelected() {
+  items.completeItems([...items.selectedIds])
+}
+
+function moveSelected(projectId) {
+  bulkMenu.value = null
+  items.moveItems([...items.selectedIds], projectId)
+}
+
+function rescheduleSelected(choice) {
+  bulkMenu.value = null
+  items.rescheduleItems([...items.selectedIds], choice.dueDate)
+}
+
+function prioritiseSelected(priority) {
+  bulkMenu.value = null
+  items.prioritiseItems([...items.selectedIds], priority.value)
+}
+
+function labelSelected(label) {
+  bulkMenu.value = null
+  items.labelItems([...items.selectedIds], label.name)
+}
+
+// The same bargain as the row's delete: it cascades to sub-tasks and has no
+// undo, so it confirms first and names what it is about to remove.
+function deleteSelected() {
+  const ids = [...items.selectedIds]
+  const only = ids.length === 1 ? items.itemById(ids[0]) : undefined
+  const what = only ? `"${only.content}"` : `${ids.length} tasks`
+  if (!confirm(`Delete ${what}?`)) return
+  items.deleteItems(ids)
+}
 
 // A drop counts only on the row the last dragover accepted.
 function onTaskDrop(item) {
@@ -518,6 +615,14 @@ async function submitDraft() {
       >
         History
       </button>
+      <button
+        v-if="selectableItems.length && !items.selectedIds.length"
+        type="button"
+        class="tasks-select-all"
+        @click="selectAll"
+      >
+        Select all
+      </button>
       <TaskDisplay
         :layout="taskLayout"
         :grouping="grouping"
@@ -603,17 +708,165 @@ async function submitDraft() {
       <p v-else-if="filterMissing" class="tasks-filter-missing">This filter no longer exists.</p>
     </div>
 
+    <!-- Bulk action bar: floats over the list while any task is selected.
+       The selection can still be dragged onto the sidebar; the bar offers
+       the same moves without the drag, and the edits that have no target. -->
+    <Transition name="ni-bulk">
+      <div
+        v-if="items.selectedIds.length"
+        class="ni-bulk-bar"
+        role="toolbar"
+        aria-label="Selected tasks"
+      >
+        <button
+          type="button"
+          class="ni-bulk-icon"
+          title="Clear selection (Esc)"
+          aria-label="Clear selection"
+          @click="items.clearSelection()"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+        <span class="ni-bulk-count">{{ items.selectedIds.length }} selected</span>
+        <span class="ni-bulk-divider" aria-hidden="true"></span>
+        <button v-if="!allSelected" type="button" class="ni-bulk-pill" @click="selectAll">
+          <span class="material-symbols-outlined" aria-hidden="true">done_all</span>
+          <span>Select all</span>
+        </button>
+        <button
+          type="button"
+          class="ni-bulk-pill ni-bulk-pill--primary"
+          title="Mark as done"
+          @click="completeSelected"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">check</span>
+          <span>Done</span>
+        </button>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            type="button"
+            class="ni-bulk-pill"
+            title="Move to a project"
+            aria-haspopup="menu"
+            :aria-expanded="bulkMenu === 'move'"
+            @click="toggleBulkMenu('move')"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">drive_file_move</span>
+            <span>Move</span>
+          </button>
+          <div v-if="bulkMenu === 'move'" class="ni-schedule-menu" role="menu">
+            <button
+              v-for="target in moveTargets"
+              :key="target.id ?? 'inbox'"
+              type="button"
+              role="menuitem"
+              @click="moveSelected(target.id)"
+            >
+              <span>{{ target.name }}</span>
+              <span>{{ target.detail }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            type="button"
+            class="ni-bulk-pill"
+            title="Set the due date"
+            aria-haspopup="menu"
+            :aria-expanded="bulkMenu === 'due'"
+            @click="toggleBulkMenu('due')"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">schedule</span>
+            <span>Reschedule</span>
+          </button>
+          <div v-if="bulkMenu === 'due'" class="ni-schedule-menu" role="menu">
+            <button
+              v-for="choice in dueChoices"
+              :key="choice.id"
+              type="button"
+              role="menuitem"
+              @click="rescheduleSelected(choice)"
+            >
+              <span>{{ choice.label }}</span>
+              <span>{{ choice.dueDate ? formatDue(choice.dueDate) : '' }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            type="button"
+            class="ni-bulk-pill"
+            title="Set the priority"
+            aria-haspopup="menu"
+            :aria-expanded="bulkMenu === 'priority'"
+            @click="toggleBulkMenu('priority')"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">flag</span>
+            <span>Priority</span>
+          </button>
+          <div v-if="bulkMenu === 'priority'" class="ni-schedule-menu" role="menu">
+            <button
+              v-for="priority in PRIORITIES"
+              :key="priority.value"
+              type="button"
+              role="menuitem"
+              @click="prioritiseSelected(priority)"
+            >
+              <span>{{ priority.label }}</span>
+              <span
+                class="material-symbols-outlined"
+                :style="priority.color ? { color: priority.color } : undefined"
+                aria-hidden="true"
+                >flag</span
+              >
+            </button>
+          </div>
+        </div>
+        <div class="ni-schedule-wrap ni-schedule-wrap-bulk">
+          <button
+            type="button"
+            class="ni-bulk-pill"
+            title="Add a label"
+            aria-haspopup="menu"
+            :aria-expanded="bulkMenu === 'label'"
+            @click="toggleBulkMenu('label')"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">sell</span>
+            <span>Label</span>
+          </button>
+          <div v-if="bulkMenu === 'label'" class="ni-schedule-menu" role="menu">
+            <button
+              v-for="label in labels.labels"
+              :key="label.id"
+              type="button"
+              role="menuitem"
+              @click="labelSelected(label)"
+            >
+              <span>@{{ label.name }}</span>
+              <span
+                class="ni-label-dot"
+                :style="{ background: labelChipStyle(label.color).color }"
+              ></span>
+            </button>
+            <span v-if="!labels.labels.length" class="ni-schedule-menu-empty">No labels yet</span>
+          </div>
+        </div>
+        <span class="ni-bulk-divider" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="ni-bulk-pill ni-bulk-pill--icon ni-bulk-pill--danger"
+          title="Delete"
+          @click="deleteSelected"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+          <span class="visually-hidden">Delete</span>
+        </button>
+      </div>
+    </Transition>
+
     <!-- The store clears items.items before a switch goes out, so this only
        ever shows while genuinely waiting on the newly-selected project —
        never the previous project's rows. -->
-    <div v-if="items.selectedIds.length" class="task-selection-bar" role="status">
-      <span
-        >{{ items.selectedIds.length }} selected · drag onto a project, Inbox, Today or a
-        label</span
-      >
-      <button type="button" class="btn btn-secondary" @click="items.clearSelection()">Clear</button>
-    </div>
-
     <p v-if="items.isLoading && !items.items.length" class="tasks-loading">Loading tasks…</p>
     <p v-else-if="isFilter && taskLayout === 'list' && !topLevelItems.length" class="tasks-empty">
       No tasks match this filter.
@@ -825,7 +1078,8 @@ async function submitDraft() {
 </template>
 
 <style scoped>
-.tasks-history-button {
+.tasks-history-button,
+.tasks-select-all {
   font: inherit;
   color: var(--text-secondary);
   background: none;
@@ -1076,22 +1330,6 @@ async function submitDraft() {
 .task-row.selected {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.task-selection-bar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--text-primary);
-  font-size: 13px;
 }
 
 /* A divider: the grip, then a rule where a task's circle and title would be,

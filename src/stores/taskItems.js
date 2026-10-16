@@ -411,6 +411,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(row)
         if (!row.parentId && (row.completedAt || outsideList)) {
           this.items = this.items.filter((candidate) => candidate.id !== id)
+          this.deselect(id)
         } else if (this.loadedProject === 'today' || isFilterProject(this.loadedProject)) {
           this.items = sortForList(this.items, this.loadedProject)
         }
@@ -509,8 +510,103 @@ export const useTaskItemsStore = defineStore('taskItems', {
       this.selectedIds = []
     },
 
-    // Moves several tasks (a multi-select drag) to a project (null: Inbox),
-    // one request each, then reloads the list once rather than per task.
+    // Select all: every given id joins the selection, in list order after
+    // those already picked.
+    selectItems(ids) {
+      this.selectedIds = [...new Set([...this.selectedIds, ...ids])]
+    },
+
+    // A row that leaves the list (completed, moved out, deleted) leaves the
+    // selection with it, so the bar's count stays honest.
+    deselect(id) {
+      if (this.selectedIds.includes(id)) {
+        this.selectedIds = this.selectedIds.filter((selected) => selected !== id)
+      }
+    },
+
+    // One outcome message for a bulk edit: how many it reached, or how many
+    // of the asked-for it reached when some were refused.
+    reportBulk(verb, done, total) {
+      if (done < total) {
+        this.notify(`${verb} ${done} of ${total} tasks. Please try the rest again.`, 'error')
+      } else {
+        this.notify(`${verb} ${done} ${done === 1 ? 'task' : 'tasks'}.`)
+      }
+    },
+
+    // Applies one edit to each task of the bulk bar's selection. `edit(id)`
+    // resolves the row on success and null when the server refused it (the
+    // row's own failure toast has already shown); each row keeps its own
+    // rollback and offline queue through patchItem. The selection is spent
+    // either way, and the outcome is summed up once at the end.
+    async editItems(ids, edit, verb) {
+      const results = await Promise.all(ids.map((id) => edit(id)))
+      const done = results.filter(Boolean).length
+      this.clearSelection()
+      this.reportBulk(verb, done, ids.length)
+      return done
+    },
+
+    completeItems(ids) {
+      return this.editItems(ids, (id) => this.setCompleted(id, true), 'Completed')
+    },
+
+    // `dueDate` is 'YYYY-MM-DD', or null to clear it.
+    rescheduleItems(ids, dueDate) {
+      return this.editItems(ids, (id) => this.setDueDate(id, dueDate), 'Rescheduled')
+    },
+
+    prioritiseItems(ids, priority) {
+      return this.editItems(ids, (id) => this.setPriority(id, priority), 'Updated')
+    },
+
+    // Adds `label` to each task that lacks it (a task that already carries
+    // it counts as done without a request); the label counts refresh once.
+    async labelItems(ids, label) {
+      const done = await this.editItems(
+        ids,
+        (id) => {
+          const item = this.itemById(id)
+          if (!item) return Promise.resolve(null)
+          const labels = item.labels ?? []
+          if (labels.includes(label)) return Promise.resolve(item)
+          const next = [...labels, label]
+          return this.patchItem(
+            id,
+            { labels: next },
+            { labels: next },
+            'Failed to save task labels.',
+          )
+        },
+        'Labelled',
+      )
+      this.refreshLabelCounts()
+      return done
+    },
+
+    // Deletes several tasks, one request each (each cascades to its own
+    // sub-tasks, so they leave the list with it), and refreshes the label
+    // counts once at the end rather than per task.
+    async deleteItems(ids) {
+      let removed = 0
+      for (const id of ids) {
+        try {
+          await this.request('DELETE', { body: { id } })
+          this.items = this.items.filter((row) => row.id !== id && row.parentId !== id)
+          removed++
+        } catch (error) {
+          console.error('Failed to delete task:', error)
+        }
+      }
+      this.clearSelection()
+      this.refreshLabelCounts()
+      this.reportBulk('Deleted', removed, ids.length)
+      return removed
+    },
+
+    // Moves several tasks (a multi-select drag, or the bulk bar) to a
+    // project (null: Inbox), one request each, then reloads the list once
+    // rather than per task.
     async moveItems(ids, projectId) {
       let moved = 0
       for (const id of ids) {
@@ -523,9 +619,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
       this.clearSelection()
       if (this.loadedProject) await this.loadItems(this.loadedProject, { force: true })
-      if (moved < ids.length) {
-        this.notify(`Moved ${moved} of ${ids.length} tasks. Please try the rest again.`, 'error')
-      }
+      this.reportBulk('Moved', moved, ids.length)
       return moved
     },
 
@@ -607,6 +701,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const generation = this.loadSeq
       const project = this.loadedProject
       this.items = this.items.filter((row) => row.id !== id)
+      this.deselect(id)
       try {
         await this.request('DELETE', { body: { id } })
         // Sub-tasks go with it and may carry labels of their own, so this
