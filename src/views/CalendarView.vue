@@ -18,7 +18,8 @@ import {
   TASKS_CALENDAR_COLOR,
   TASKS_CALENDAR_ID,
   TASKS_CALENDAR_NAME,
-  taskToCalendarItem,
+  taskToCalendarItems,
+  taskCalendarWindows,
 } from '../lib/taskCalendarItems'
 
 const store = useInboxStore()
@@ -185,14 +186,20 @@ async function loadCalendarTasks(from, to) {
   const seq = ++tasksRequestSeq
   try {
     const headers = await store.authHeaders()
-    const response = await fetch(
-      `${TASKS_API_URL}/task-items?view=calendar&from=${from}&to=${to}`,
-      { headers },
+    const pages = await Promise.all(
+      taskCalendarWindows(from, to).map(async (window) => {
+        const response = await fetch(
+          `${TASKS_API_URL}/task-items?view=calendar&from=${window.from}&to=${window.to}`,
+          { headers },
+        )
+        if (!response.ok)
+          throw new Error(`GET /task-items?view=calendar responded ${response.status}`)
+        const { items } = await response.json()
+        return Array.isArray(items) ? items : []
+      }),
     )
-    if (!response.ok) throw new Error(`GET /task-items?view=calendar responded ${response.status}`)
-    const { items } = await response.json()
     if (seq !== tasksRequestSeq) return
-    calendarTasks.value = (Array.isArray(items) ? items : []).map(taskToCalendarItem)
+    calendarTasks.value = pages.flat().flatMap(taskToCalendarItems)
   } catch (error) {
     // Tasks are an overlay on the calendar: a failure keeps the events
     // readable rather than blocking them.

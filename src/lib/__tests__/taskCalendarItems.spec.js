@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { TASKS_CALENDAR_COLOR, TASKS_CALENDAR_ID, taskToCalendarItem } from '../taskCalendarItems'
+import {
+  TASKS_CALENDAR_COLOR,
+  TASKS_CALENDAR_ID,
+  taskToCalendarItem,
+  taskToCalendarItems,
+} from '../taskCalendarItems'
 
 const task = {
   id: 'task-1',
@@ -57,6 +62,34 @@ describe('taskToCalendarItem', () => {
     expect(taskToCalendarItem({ ...task, dueTime: '10:00', durationMinutes: null }).duration).toBe(
       30,
     )
+  })
+
+  it('splits an estimate across calendar days, preserving task navigation', () => {
+    const items = taskToCalendarItems({
+      ...task,
+      dueDate: '2026-12-31',
+      dueTime: '10:00',
+      durationMinutes: 1440,
+    })
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({
+      date: '2026-12-31',
+      start: '10:00',
+      duration: 840,
+      allDay: false,
+    })
+    expect(items[1]).toMatchObject({
+      date: '2027-01-01',
+      start: '00:00',
+      duration: 600,
+      allDay: false,
+      taskId: task.id,
+    })
+    expect(items[1].id).not.toBe(items[0].id)
+  })
+
+  it('does not add a segment when an estimate ends exactly at midnight', () => {
+    expect(taskToCalendarItems({ ...task, dueTime: '23:00', durationMinutes: 60 })).toHaveLength(1)
   })
 
   it('sends a task with no project to the Inbox', () => {

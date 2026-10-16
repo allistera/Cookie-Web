@@ -311,6 +311,16 @@ function onDateChange(dueDate) {
   items.setDueDate(props.taskId, dueDate)
 }
 
+const durationSaves = ref(0)
+async function onDurationChange(value) {
+  durationSaves.value += 1
+  try {
+    await items.setDuration(props.taskId, value)
+  } finally {
+    durationSaves.value -= 1
+  }
+}
+
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
 function onTimeChange(value) {
@@ -939,7 +949,8 @@ onBeforeUnmount(() => {
           <h3 class="task-panel-section">Estimated duration</h3>
           <TaskDurationInput
             :model-value="item?.durationMinutes ?? null"
-            @update:model-value="items.setDuration(taskId, $event)"
+            :saving="durationSaves > 0"
+            @update:model-value="onDurationChange"
           />
 
           <p v-if="addedStamp" class="task-panel-added">

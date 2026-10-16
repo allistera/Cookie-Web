@@ -19,6 +19,18 @@ describe('TaskDurationInput', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('1 to 1440')
   })
 
+  it('keeps a quick clear while an older save is pending', async () => {
+    const wrapper = mount(TaskDurationInput)
+    await wrapper.get('input').setValue('45')
+    await wrapper.setProps({ saving: true })
+    await wrapper.get('input').setValue('')
+    await wrapper.setProps({ modelValue: 45 })
+    expect(wrapper.get('input').element.value).toBe('')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[45], [null]])
+    await wrapper.setProps({ modelValue: null, saving: false })
+    expect(wrapper.get('input').element.value).toBe('')
+  })
+
   it('shows a new task’s estimate when the bound value changes', async () => {
     const wrapper = mount(TaskDurationInput, { props: { modelValue: 45 } })
     await wrapper.setProps({ modelValue: null })

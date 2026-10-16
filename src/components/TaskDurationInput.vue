@@ -4,13 +4,16 @@ import { ref, watch } from 'vue'
 const props = defineProps({
   modelValue: { type: Number, default: null },
   disabled: { type: Boolean, default: false },
+  saving: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
 const draft = ref('')
 const error = ref('')
+const editing = ref(false)
 watch(
-  () => props.modelValue,
-  (value) => {
+  [() => props.modelValue, () => props.saving],
+  ([value, saving]) => {
+    if (saving || editing.value) return
     draft.value = value ?? ''
     error.value = ''
   },
@@ -24,8 +27,9 @@ function save(event) {
     return
   }
   error.value = ''
+  editing.value = false
   const value = input.value === '' ? null : Number(input.value)
-  if (value !== props.modelValue) emit('update:modelValue', value)
+  emit('update:modelValue', value)
 }
 </script>
 
@@ -42,6 +46,7 @@ function save(event) {
         aria-label="Estimated duration in minutes"
         :aria-invalid="error ? 'true' : undefined"
         :disabled="disabled"
+        @input="editing = true"
         @change="save"
       />
       <span>min</span>

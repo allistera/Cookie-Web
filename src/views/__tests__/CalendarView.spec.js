@@ -200,7 +200,12 @@ const isEventsEndpoint = (url) => url === EVENTS_ENDPOINT || url.startsWith(`${E
 // Stands in for the calendar-events and calendar-management APIs with in-memory
 // lists, mirroring the local Vite fixture middleware's behavior closely
 // enough for these tests.
-function mockCalendarApi({ google = false, googleError = null, defaultCalendarId = null } = {}) {
+function mockCalendarApi({
+  google = false,
+  googleError = null,
+  defaultCalendarId = null,
+  tasks = SEED_TASKS,
+} = {}) {
   let events = [...SEED_EVENTS, ...(google ? GOOGLE_EVENTS : [])].map((event) => ({ ...event }))
   let calendars = [...SEED_CALENDARS, ...(google ? GOOGLE_CALENDARS : [])].map((calendar) => ({
     ...calendar,
@@ -269,7 +274,8 @@ function mockCalendarApi({ google = false, googleError = null, defaultCalendarId
         const params = new URLSearchParams(url.split('?')[1] ?? '')
         const from = params.get('from')
         const to = params.get('to')
-        const items = SEED_TASKS.filter((task) => task.dueDate >= from && task.dueDate <= to)
+        if ((Date.parse(to) - Date.parse(from)) / 86400000 > 100) return { ok: false, status: 400 }
+        const items = tasks.filter((task) => task.dueDate >= from && task.dueDate <= to)
         return { ok: true, json: async () => clone({ items }) }
       }
 
@@ -493,17 +499,38 @@ describe('CalendarView', () => {
     expect(wrapper.find('.task-event').exists()).toBe(true)
   })
 
-  it('requests tasks for the same window as events', async () => {
-    await mountCalendar()
+  it('shows the next-day portion of an overnight estimate in timed lanes', async () => {
+    mockCalendarApi({ tasks: [{ ...SEED_TASKS[1], dueTime: '10:00', durationMinutes: 1440 }] })
+    const wrapper = await mountCalendar()
+    await wrapper.get('[aria-label="Next period"]').trigger('click')
+    await flushPromises()
+    const task = wrapper.get('.day-event.task-event')
+    expect(task.text()).toContain('Call the bank')
+    expect(task.element.style.top).toBe('0px')
+    expect(task.element.style.height).toBe('192px')
+    expect(wrapper.find('.all-day-event.task-event').exists()).toBe(false)
+  })
 
+  it('covers the events window with task requests within the API limit', async () => {
+    await mountCalendar()
     const urls = fetch.mock.calls.map(([url]) => String(url))
     const eventsUrl = urls.find((url) => url.startsWith(`${EVENTS_ENDPOINT}?`))
-    const tasksUrl = urls.find((url) => url.startsWith(`${TASKS_ENDPOINT}?`))
     const eventParams = new URLSearchParams(eventsUrl.split('?')[1])
-    const taskParams = new URLSearchParams(tasksUrl.split('?')[1])
-    expect(taskParams.get('view')).toBe('calendar')
-    expect(taskParams.get('from')).toBe(eventParams.get('from'))
-    expect(taskParams.get('to')).toBe(eventParams.get('to'))
+    const windows = urls
+      .filter((url) => url.startsWith(`${TASKS_ENDPOINT}?`))
+      .map((url) => new URLSearchParams(url.split('?')[1]))
+    expect(windows.length).toBeGreaterThan(1)
+    expect(windows[0].get('from')).toBe(eventParams.get('from'))
+    expect(windows.at(-1).get('to')).toBe(eventParams.get('to'))
+    windows.forEach((params) => {
+      expect(params.get('view')).toBe('calendar')
+      expect(Date.parse(params.get('to')) - Date.parse(params.get('from'))).toBeLessThanOrEqual(
+        100 * 86400000,
+      )
+    })
+    windows.slice(1).forEach((params, index) => {
+      expect(Date.parse(params.get('from')) - Date.parse(windows[index].get('to'))).toBe(86400000)
+    })
   })
 
   it('keeps timed tasks out of conflict detection', async () => {
