@@ -392,14 +392,17 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // a wire-only field like `completed`, or a failed rollback would leave a
     // stray key on the item forever (Object.assign can add a property but
     // never remove one). `body` is the separate, possibly different, request
-    // payload the server expects.
+    // payload the server expects. Either may be a function of the row,
+    // called once the row's earlier edits have settled: an edit that builds
+    // on the row's current state (adding a label) must read it then, not
+    // when it was asked for.
     patchItem(id, localPatch, body, failureMessage) {
       let item = this.items.find((row) => row.id === id)
       if (!item) {
         this.notify(failureMessage, 'error')
         return Promise.resolve(null)
       }
-      const payload = { ...body }
+      const resolve = (value, row) => ({ ...(value instanceof Function ? value(row) : value) })
       // Serialize edits to the same row; a later edit snapshots the last
       // confirmed state, so an earlier response or rollback cannot undo it.
       // A row that no longer belongs on screen (completed, or moved out of
@@ -419,7 +422,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const perform = async () => {
         item = this.items.find((row) => row.id === id) ?? item
         const previous = { ...item }
-        const patch = { ...localPatch }
+        const patch = resolve(localPatch, item)
+        const payload = resolve(body, item)
         Object.assign(item, patch)
         try {
           const { item: updated } = await this.request('PATCH', { body: { id, ...payload } })
@@ -534,6 +538,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
     },
 
+    // The ids a bulk edit was given leave the selection once it is through;
+    // anything picked while its requests were in flight stays selected.
+    spendSelection(ids) {
+      this.selectedIds = this.selectedIds.filter((selected) => !ids.includes(selected))
+    },
+
     // Applies one edit to each task of the bulk bar's selection. `edit(id)`
     // resolves the row on success and null when the server refused it (the
     // row's own failure toast has already shown); each row keeps its own
@@ -542,7 +552,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     async editItems(ids, edit, verb) {
       const results = await Promise.all(ids.map((id) => edit(id)))
       const done = results.filter(Boolean).length
-      this.clearSelection()
+      this.spendSelection(ids)
       this.reportBulk(verb, done, ids.length)
       return done
     },
@@ -560,24 +570,18 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return this.editItems(ids, (id) => this.setPriority(id, priority), 'Updated')
     },
 
-    // Adds `label` to each task that lacks it (a task that already carries
-    // it counts as done without a request); the label counts refresh once.
+    // Adds `label` to each task. The server replaces a task's labels as one
+    // array, so the union is taken from the row as its edit runs — after any
+    // label edit already on its way (the panel's picker, say) has landed —
+    // rather than from the row as it was when the bar was pressed. The label
+    // counts refresh once.
     async labelItems(ids, label) {
+      const withLabel = (row) => ({
+        labels: row.labels?.includes(label) ? [...row.labels] : [...(row.labels ?? []), label],
+      })
       const done = await this.editItems(
         ids,
-        (id) => {
-          const item = this.itemById(id)
-          if (!item) return Promise.resolve(null)
-          const labels = item.labels ?? []
-          if (labels.includes(label)) return Promise.resolve(item)
-          const next = [...labels, label]
-          return this.patchItem(
-            id,
-            { labels: next },
-            { labels: next },
-            'Failed to save task labels.',
-          )
-        },
+        (id) => this.patchItem(id, withLabel, withLabel, 'Failed to save task labels.'),
         'Labelled',
       )
       this.refreshLabelCounts()
@@ -598,7 +602,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
           console.error('Failed to delete task:', error)
         }
       }
-      this.clearSelection()
+      this.spendSelection(ids)
       this.refreshLabelCounts()
       this.reportBulk('Deleted', removed, ids.length)
       return removed
@@ -617,7 +621,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
           console.error('Failed to move task:', error)
         }
       }
-      this.clearSelection()
+      this.spendSelection(ids)
       if (this.loadedProject) await this.loadItems(this.loadedProject, { force: true })
       this.reportBulk('Moved', moved, ids.length)
       return moved
@@ -700,6 +704,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const removed = this.items[index]
       const generation = this.loadSeq
       const project = this.loadedProject
+      const wasSelected = this.selectedIds.includes(id)
       this.items = this.items.filter((row) => row.id !== id)
       this.deselect(id)
       try {
@@ -717,6 +722,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
           !this.items.some((row) => row.id === id)
         ) {
           this.items.splice(index, 0, removed)
+          // Back into the selection too — unless it was dropped meanwhile,
+          // which is the person's call to keep.
+          if (wasSelected && this.selectedIds.length) this.selectItems([id])
         }
         this.notify(error.userMessage || 'Failed to delete the task.', 'error')
         return false

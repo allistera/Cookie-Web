@@ -271,6 +271,16 @@ watch(project, () => {
 const visibleItems = computed(() =>
   topLevelItems.value.slice(taskOffset.value, taskOffset.value + 100),
 )
+// A later page emptied by a bulk delete (or completion) falls back to the
+// last page that still has rows, rather than showing nothing.
+watch(
+  () => topLevelItems.value.length,
+  (count) => {
+    if (taskOffset.value && taskOffset.value >= count) {
+      taskOffset.value = Math.max(0, Math.floor((count - 1) / 100) * 100)
+    }
+  },
+)
 async function nextTaskPage() {
   if (taskOffset.value + 100 >= topLevelItems.value.length) {
     // A project switch mid-load resets the offset for the new project; don't

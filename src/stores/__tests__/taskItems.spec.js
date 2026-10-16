@@ -1097,6 +1097,22 @@ describe('selecting several tasks', () => {
     expect(store.selectedIds).toEqual([])
   })
 
+  it('puts a task the server would not delete back into the selection', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    store.loadedProject = 'p1'
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
+    store.selectedIds = ['t1', 't2']
+    stubFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: 'Nope' }) }))
+
+    await store.deleteItem('t1')
+
+    expect(store.items.map((row) => row.id)).toEqual(['t1', 't2'])
+    expect(store.selectedIds).toEqual(['t2', 't1'])
+  })
+
   it('moves every selected task, then reloads the list once', async () => {
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     store.loadedProject = 'p1'
@@ -1193,7 +1209,7 @@ describe('bulk edits from the selection bar', () => {
     expect(notify).toHaveBeenCalledWith('Updated 2 tasks.')
   })
 
-  it('adds a label only where it is missing, then refreshes the counts once', async () => {
+  it('adds a label without doubling it, then refreshes the counts once', async () => {
     const loadLabels = vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue(true)
     stubFetch(async (_url, options) => ({
       ok: true,
@@ -1202,10 +1218,51 @@ describe('bulk edits from the selection bar', () => {
 
     expect(await store.labelItems(['t1', 't2'], 'home')).toBe(2)
 
-    expect(patchBodies()).toEqual([{ id: 't1', labels: ['home'] }])
+    expect(patchBodies()).toEqual([
+      { id: 't1', labels: ['home'] },
+      { id: 't2', labels: ['home'] },
+    ])
     expect(store.items[0].labels).toEqual(['home'])
     expect(loadLabels).toHaveBeenCalledTimes(1)
     expect(notify).toHaveBeenCalledWith('Labelled 2 tasks.')
+  })
+
+  it('takes the label union after an edit already on its way has landed', async () => {
+    vi.spyOn(useTaskLabelsStore(), 'loadLabels').mockResolvedValue(true)
+    let release
+    const first = new Promise((resolve) => (release = resolve))
+    stubFetch(async (_url, options) => {
+      const body = JSON.parse(options.body)
+      if (body.labels?.includes('work')) await first
+      return { ok: true, json: async () => ({ item: body }) }
+    })
+
+    const picker = store.setLabels('t1', ['work'])
+    const bulk = store.labelItems(['t1'], 'home')
+    await Promise.resolve()
+    expect(patchBodies()).toEqual([{ id: 't1', labels: ['work'] }])
+    release()
+    await picker
+    await bulk
+
+    expect(patchBodies()[1]).toEqual({ id: 't1', labels: ['work', 'home'] })
+    expect(store.items[0].labels).toEqual(['work', 'home'])
+  })
+
+  it('spends only the ids it was given, keeping tasks picked meanwhile', async () => {
+    let release
+    const gate = new Promise((resolve) => (release = resolve))
+    stubFetch(async (_url, options) => {
+      await gate
+      return { ok: true, json: async () => ({ item: JSON.parse(options.body) }) }
+    })
+
+    const pending = store.prioritiseItems(['t1', 't2'], 2)
+    store.toggleSelected('t3')
+    release()
+    await pending
+
+    expect(store.selectedIds).toEqual(['t3'])
   })
 
   it('reports a bulk edit the server partly refused', async () => {
@@ -1246,7 +1303,8 @@ describe('bulk edits from the selection bar', () => {
       { id: 't3' },
     ])
     expect(store.items.map((row) => row.id)).toEqual(['t1', 't2'])
-    expect(store.selectedIds).toEqual([])
+    // t2 was selected but not part of this delete, so it stays selected.
+    expect(store.selectedIds).toEqual(['t2'])
     expect(loadLabels).toHaveBeenCalledTimes(1)
     expect(notify).toHaveBeenCalledWith('Deleted 1 of 2 tasks. Please try the rest again.', 'error')
   })

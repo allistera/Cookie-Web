@@ -2673,7 +2673,7 @@ test('Tasks: Shift-click selects several tasks, which drag onto a project togeth
   await page.locator('.task-open', { hasText: 'Alpha' }).click({ modifiers: ['Shift'] })
   await page.locator('.task-open', { hasText: 'Gamma' }).click()
   await expect(page).not.toHaveURL(/task=/)
-  await expect(page.locator('.task-selection-bar')).toContainText('2 selected')
+  await expect(page.getByRole('toolbar', { name: 'Selected tasks' })).toContainText('2 selected')
   await expect(page.locator('.task-row.selected')).toHaveCount(2)
 
   await page
@@ -2681,7 +2681,7 @@ test('Tasks: Shift-click selects several tasks, which drag onto a project togeth
     .locator('.task-grip')
     .dragTo(sidebar.locator('.project-item', { hasText: 'Errands' }))
   await expect(page.locator('.task-content')).toHaveText(['Beta'])
-  await expect(page.locator('.task-selection-bar')).toHaveCount(0)
+  await expect(page.getByRole('toolbar', { name: 'Selected tasks' })).toHaveCount(0)
   await sidebar.locator('.project-item', { hasText: 'Errands' }).click()
   await expect(page.locator('.task-content')).toHaveText(['Alpha', 'Gamma'])
 })

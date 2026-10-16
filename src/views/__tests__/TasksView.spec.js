@@ -1278,6 +1278,28 @@ describe('selecting several tasks', () => {
     expect(remove).toHaveBeenCalledWith(['t1', 't2'])
   })
 
+  it('falls back to the last page with rows when a later page empties', async () => {
+    const items = useTaskItemsStore()
+    items.items = Array.from({ length: 101 }, (_, index) => ({
+      id: `t${index}`,
+      content: `Task ${index}`,
+      position: index + 1,
+      completedAt: null,
+    }))
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.task-pagination button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.task-row')).toHaveLength(1)
+
+    items.items = items.items.slice(0, 100)
+    await flushPromises()
+
+    expect(wrapper.findAll('.task-row')).toHaveLength(100)
+    expect(wrapper.find('.task-pagination button').exists()).toBe(false)
+  })
+
   it('drags only the one task when it is not part of the selection', async () => {
     const { wrapper } = await mountWithTasks()
     const buttons = wrapper.findAll('.task-open')
