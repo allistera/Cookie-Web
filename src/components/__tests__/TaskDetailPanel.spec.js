@@ -213,6 +213,34 @@ describe('TaskDetailPanel', () => {
     expect(wrapper.get('.task-panel-field-summary').text()).toBe('Not set')
   })
 
+  it('waits for a preset save before accepting another selection', async () => {
+    seed()
+    let finishSave
+    const save = vi.spyOn(items, 'setDuration').mockImplementation(
+      (id, value) =>
+        new Promise((resolve) => {
+          finishSave = () => {
+            items.itemById(id).durationMinutes = value
+            resolve()
+          }
+        }),
+    )
+    const wrapper = await mountPanel()
+    const preset = wrapper.findAll('.task-panel-duration-presets button')[1]
+    await preset.trigger('click')
+    expect(preset.attributes('disabled')).toBeDefined()
+    await preset.trigger('click')
+    expect(save).toHaveBeenCalledTimes(1)
+    finishSave()
+    await flushPromises()
+    expect(preset.attributes('disabled')).toBeUndefined()
+    await preset.trigger('click')
+    expect(save).toHaveBeenLastCalledWith('b', null)
+    finishSave()
+    await flushPromises()
+    wrapper.unmount()
+  })
+
   it('shows an existing custom estimate for editing', async () => {
     seed([{ ...ITEMS[1], durationMinutes: 75 }])
     const wrapper = await mountPanel()
@@ -255,6 +283,41 @@ describe('TaskDetailPanel', () => {
     await input.setValue('home')
     await input.trigger('keydown', { key: 'Enter' })
     expect(save).toHaveBeenCalledWith('b', ['home'])
+  })
+
+  it('keeps the label editor available after removing its last label', async () => {
+    seed([{ ...ITEMS[1], labels: ['home'] }])
+    vi.spyOn(items, 'setLabels').mockImplementation(async (id, labels) => {
+      items.itemById(id).labels = labels
+    })
+    const wrapper = await mountPanel()
+    const input = wrapper.get('.task-label-picker-input')
+    await input.trigger('keydown', { key: 'Backspace' })
+    await flushPromises()
+    expect(wrapper.findAll('.task-label-chip')).toHaveLength(0)
+    expect(wrapper.get('.task-label-picker-input').element).toBe(input.element)
+    await input.setValue('work')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(items.itemById('b').labels).toEqual(['work'])
+    wrapper.unmount()
+  })
+
+  it('updates the overdue badge and schedule text across local midnight', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 9, 17, 23, 59, 59))
+    seed([{ ...ITEMS[1], dueDate: localToday() }])
+    const wrapper = await mountPanel()
+    try {
+      expect(wrapper.find('.task-panel-overdue').exists()).toBe(false)
+      expect(wrapper.get('.task-panel-schedule-text').text()).toBe('Today')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(wrapper.get('.task-panel-overdue').text()).toBe('Overdue')
+      expect(wrapper.get('.task-panel-schedule-text').text()).toBe('Yesterday')
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it('closes empty editors when switching to another task', async () => {

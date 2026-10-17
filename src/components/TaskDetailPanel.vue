@@ -11,6 +11,7 @@ import TaskDurationInput from './TaskDurationInput.vue'
 import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
+import { useLocalToday } from '../composables/useLocalToday'
 import { taskBucketItem } from '../lib/bucketItems'
 import { localToday } from '../lib/localDate'
 import {
@@ -312,8 +313,9 @@ function onDateChange(dueDate) {
   items.setDueDate(props.taskId, dueDate)
 }
 
+const today = useLocalToday()
 const overdue = computed(() =>
-  Boolean(item.value?.dueDate && !item.value?.completedAt && item.value.dueDate < localToday()),
+  Boolean(item.value?.dueDate && !item.value?.completedAt && item.value.dueDate < today.value),
 )
 const durationPresets = [
   { minutes: 15, label: '15 min' },
@@ -340,6 +342,7 @@ async function openCustomDuration() {
   durationEditor.value?.querySelector('input')?.focus()
 }
 function chooseDuration(minutes) {
+  if (durationSaves.value > 0) return
   customDurationOpen.value = false
   void onDurationChange(item.value?.durationMinutes === minutes ? null : minutes)
 }
@@ -383,6 +386,7 @@ function onTimeChange(value) {
 const savingLabels = ref(false)
 async function onLabelsChange(labels) {
   if (savingLabels.value) return
+  labelsOpen.value = true
   savingLabels.value = true
   try {
     await items.setLabels(props.taskId, labels)
@@ -987,6 +991,7 @@ onBeforeUnmount(() => {
                   :key="preset.minutes"
                   type="button"
                   :aria-pressed="item?.durationMinutes === preset.minutes"
+                  :disabled="durationSaves > 0"
                   @click="chooseDuration(preset.minutes)"
                 >
                   {{ preset.label }}
@@ -995,6 +1000,7 @@ onBeforeUnmount(() => {
                   type="button"
                   :aria-pressed="customDuration || customDurationOpen"
                   :aria-expanded="customDuration || customDurationOpen"
+                  :disabled="durationSaves > 0"
                   @click="openCustomDuration"
                 >
                   Custom
@@ -1054,6 +1060,7 @@ onBeforeUnmount(() => {
                 v-if="labelsOpen || item?.labels?.length"
                 ref="labelEditor"
                 class="task-panel-labels"
+                @focusin="labelsOpen = true"
               >
                 <TaskLabelPicker
                   :model-value="item?.labels ?? []"
@@ -1896,6 +1903,10 @@ onBeforeUnmount(() => {
 .task-panel-duration-presets button[aria-pressed='true'] {
   background: var(--rail-soft);
   border-color: var(--rail-muted);
+}
+.task-panel-duration-presets button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 .task-panel-duration-editor {
   margin-top: 10px;
