@@ -62,6 +62,47 @@ export async function enqueueOutbox({ kind, key, payload }) {
   if (stored === null) throw new Error('Offline storage is unavailable; the change was not kept')
 }
 
+// Stores a batch in one readwrite transaction. This prevents a partial offline
+// batch from being replayed after the caller has rolled back its optimistic UI.
+export async function enqueueOutboxBatch(entries) {
+  if (!entries.length) return
+  const db = getOfflineDb()
+  const owner = offlineOwner()
+  const stored = await db.updateAll(OUTBOX_STORE, (current) => {
+    const byKey = new Map(
+      current
+        .filter((entry) => entry.owner === owner)
+        .map((entry) => [`${entry.kind}\0${entry.key}`, entry]),
+    )
+    const writes = new Map()
+    for (const { kind, key, payload } of entries) {
+      const compoundKey = `${kind}\0${key}`
+      const existing = writes.get(compoundKey) ?? byKey.get(compoundKey)
+      writes.set(
+        compoundKey,
+        existing
+          ? {
+              ...existing,
+              payload: { ...existing.payload, ...payload },
+              revision: (existing.revision ?? 1) + 1,
+              updatedAt: Date.now(),
+            }
+          : {
+              kind,
+              key,
+              owner,
+              payload,
+              revision: 1,
+              createdAt: Date.now(),
+            },
+      )
+    }
+    return [...writes.values()]
+  })
+  await refreshOutboxPending()
+  if (stored === null) throw new Error('Offline storage is unavailable; the changes were not kept')
+}
+
 // Queued changes of one kind, oldest first, so a store hydrating from its
 // offline cache can lay them over the cached rows.
 export async function pendingOutboxEntries(kind) {

@@ -520,14 +520,17 @@ watch([activeFilter, activeTab], clearSelection)
 function markSelectedDone() {
   const emails = [...selectedEmails.value]
   const undoActions = []
-  const batchWrite = emails.length ? store.sendMessagesPatch(emails.map((email) => email.id), {
-    is_archived: true,
-    is_unread: false,
-  }) : Promise.resolve()
+  const batchWrite = emails.length
+    ? store.sendMessagesPatch(
+        emails.map((email) => email.id),
+        {
+          is_archived: true,
+          is_unread: false,
+        },
+      )
+    : Promise.resolve()
   const persist = (email, changes) =>
-    changes.is_archived === true
-      ? batchWrite
-      : store.updateMessage(email.id, changes)
+    changes.is_archived === true ? batchWrite : store.updateMessage(email.id, changes)
   for (const email of emails) {
     store.archiveEmail(email, false, undoActions, persist)
   }
@@ -563,7 +566,10 @@ async function starSelected() {
     applyStar(email, target)
   }
   try {
-    await store.sendMessagesPatch(changed.map((email) => email.id), { is_starred: target })
+    await store.sendMessagesPatchSerialized(
+      changed.map((email) => email.id),
+      { is_starred: target },
+    )
   } catch {
     for (const email of changed) {
       applyStar(email, !target)
@@ -583,7 +589,11 @@ async function markSelectedRead() {
   }
   let succeeded = true
   try {
-    if (emails.length) await store.sendMessagesPatch(emails.map((email) => email.id), { is_unread: false })
+    if (emails.length)
+      await store.sendMessagesPatchSerialized(
+        emails.map((email) => email.id),
+        { is_unread: false },
+      )
   } catch {
     succeeded = false
     for (const email of emails) {
@@ -602,7 +612,10 @@ function deleteSelected() {
   const emails = [...selectedEmails.value]
   const undoActions = []
   const batchWrite = emails.length
-    ? store.sendMessagesPatch(emails.map((email) => email.id), { is_deleted: true })
+    ? store.sendMessagesPatch(
+        emails.map((email) => email.id),
+        { is_deleted: true },
+      )
     : Promise.resolve()
   const persist = (email, changes) =>
     changes.is_deleted === true ? batchWrite : store.updateMessage(email.id, changes)
@@ -745,12 +758,22 @@ function toggleBulkCategoryMenu() {
 
 async function labelSelected(label) {
   const emails = [...selectedEmails.value]
-  const changed = emails.filter((email) => !(email.labels || []).some((item) => item.name === label.name))
+  const changed = emails.filter(
+    (email) => !(email.labels || []).some((item) => item.name === label.name),
+  )
   bulkLabelOpen.value = false
   try {
-    if (changed.length) await store.sendMessagesPost(changed.map((email) => email.id), 'add_label', { label_id: label.id })
+    if (changed.length)
+      await store.sendMessagesPost(
+        changed.map((email) => email.id),
+        'add_label',
+        { label_id: label.id },
+      )
     for (const email of changed) {
-      email.labels = [...(email.labels || []), { name: label.name, color: label.color, kind: label.kind }]
+      email.labels = [
+        ...(email.labels || []),
+        { name: label.name, color: label.color, kind: label.kind },
+      ]
     }
     store.notify(`Label "${label.name}" applied.`)
   } catch {
@@ -765,13 +788,25 @@ async function categorySelected(category) {
   let changed = 0
   try {
     if (emails.length) {
-      const result = await store.sendMessagesPatch(emails.map((email) => email.id), {
-        category_id: category?.id ?? null,
-      })
-      changed = result.updated
-      for (const list of [store.traditionalEmails, store.starredEmails, store.labelEmails, store.sentEmails, store.spamEmails, store.snoozedEmails, store.doneEmails]) {
+      const result = await store.sendMessagesPatch(
+        emails.map((email) => email.id),
+        {
+          category_id: category?.id ?? null,
+        },
+      )
+      const changedIds = result.queued ? emails.map((email) => email.id) : result.ids
+      changed = result.queued ? emails.length : result.updated
+      for (const list of [
+        store.traditionalEmails,
+        store.starredEmails,
+        store.labelEmails,
+        store.sentEmails,
+        store.spamEmails,
+        store.snoozedEmails,
+        store.doneEmails,
+      ]) {
         for (const email of list) {
-          if (result.ids.includes(email.id)) email.category = category ?? null
+          if (changedIds.includes(email.id)) email.category = category ?? null
         }
       }
     }
@@ -856,7 +891,10 @@ async function scheduleSelected(choice) {
   clearSelection()
   const scheduledFor = choice.date.toISOString()
   const batchWrite = emails.length
-    ? store.sendMessagesPatch(emails.map((email) => email.id), { scheduled_for: scheduledFor })
+    ? store.sendMessagesPatch(
+        emails.map((email) => email.id),
+        { scheduled_for: scheduledFor },
+      )
     : Promise.resolve()
   const persist = (email, changes) =>
     changes.scheduled_for === scheduledFor ? batchWrite : store.updateMessage(email.id, changes)

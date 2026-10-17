@@ -9,7 +9,12 @@ import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
 import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from '../lib/connectivity'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
-import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
+import {
+  enqueueOutbox,
+  enqueueOutboxBatch,
+  pendingOutboxEntries,
+  registerOutboxHandler,
+} from '../lib/outbox'
 import {
   AI_API_URL,
   DRAFTS_API_URL,
@@ -1606,7 +1611,9 @@ export const useInboxStore = defineStore('inbox', {
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${LABELS_API_URL}/categories?include_counts=false`, { headers })
+        const response = await fetch(`${LABELS_API_URL}/categories?include_counts=false`, {
+          headers,
+        })
         if (!response.ok) {
           throw new Error(`GET /categories responded ${response.status}`)
         }
@@ -2220,7 +2227,9 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-          method: 'PATCH', headers, body: JSON.stringify({ ids, ...changes }),
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ ids, ...changes }),
         })
         noteNetworkSuccess()
         if (!response.ok) throw new Error(`PATCH /api/messages responded ${response.status}`)
@@ -2228,15 +2237,61 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         if (!isNetworkError(error)) throw error
         noteNetworkFailure()
-        await Promise.all(ids.map((id) => enqueueOutbox({ kind: MESSAGE_PATCH, key: id, payload: { id, ...changes } })))
+        await enqueueOutboxBatch(
+          ids.map((id) => ({
+            kind: MESSAGE_PATCH,
+            key: id,
+            payload: { id, ...changes },
+          })),
+        )
         return { queued: true }
+      }
+    },
+
+    // Holds each message's ordinary single-row update queue while one batch
+    // request runs, preserving click order without splitting the request.
+    async sendMessagesPatchSerialized(ids, changes) {
+      const pending =
+        changes.is_starred !== undefined
+          ? pendingStarUpdates
+          : changes.is_unread !== undefined
+            ? pendingUnreadUpdates
+            : null
+      if (!pending) return this.sendMessagesPatch(ids, changes)
+
+      const uniqueIds = [...new Set(ids)]
+      if (!uniqueIds.length) return { updated: 0, ids: [] }
+      let release
+      const hold = new Promise((resolve) => {
+        release = resolve
+      })
+      let readyCount = 0
+      let markAllReady
+      const allReady = new Promise((resolve) => {
+        markAllReady = resolve
+      })
+      const reservations = uniqueIds.map((id) =>
+        serializePerMessage(pending, id, async () => {
+          readyCount++
+          if (readyCount === uniqueIds.length) markAllReady()
+          await hold
+        }),
+      )
+      try {
+        await allReady
+        return await this.sendMessagesPatch(uniqueIds, changes)
+      } finally {
+        release()
+        await Promise.all(reservations)
       }
     },
 
     async sendMessagesPost(ids, action, extra = {}) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-        method: 'POST', headers, body: JSON.stringify({ ids, action, ...extra }),
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ids, action, ...extra }),
       })
       noteNetworkSuccess()
       if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
@@ -2701,7 +2756,14 @@ export const useInboxStore = defineStore('inbox', {
     // Moves an inbox message out of sight until its scheduled time. Future
     // messages live in the Snoozed folder; the inbox API returns them again
     // once due, when the view places them in the Due Today group.
-    async scheduleEmail(email, scheduledFor, label, shouldNotify = true, undoActions = null, persist = null) {
+    async scheduleEmail(
+      email,
+      scheduledFor,
+      label,
+      shouldNotify = true,
+      undoActions = null,
+      persist = null,
+    ) {
       if (!email) return false
       const inboxIndex = this.traditionalEmails.indexOf(email)
       const snoozedIndex = this.snoozedEmails.indexOf(email)
@@ -4558,7 +4620,11 @@ export const useInboxStore = defineStore('inbox', {
         if (response.headers.get('Content-Type')?.includes('application/json')) {
           const { answer, sources } = await response.json()
           if (seq !== askSeq) return
-          pushCapped(this.chatHistory, { text: answer, sender: 'ai', sources: sources || [] }, MAX_CHAT_HISTORY)
+          pushCapped(
+            this.chatHistory,
+            { text: answer, sender: 'ai', sources: sources || [] },
+            MAX_CHAT_HISTORY,
+          )
           return
         }
         activeReply = { text: '', sender: 'ai', sources: [], typing: true }
