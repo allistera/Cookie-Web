@@ -4234,16 +4234,86 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     'marks only unread selected mail read with %s',
     async (action) => {
       store.traditionalEmails[1].unread = false
-      const unread = vi.spyOn(store, 'setUnread')
+      const unread = vi.spyOn(store, 'sendMessagesPatchSerialized').mockResolvedValue({
+        updated: 1,
+        ids: ['one'],
+      })
       await select()
       if (action === 'button')
         await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
       else await key('I', { shiftKey: true })
-      expect(unread).toHaveBeenCalledExactlyOnceWith(store.traditionalEmails[0], false)
+      expect(unread).toHaveBeenCalledExactlyOnceWith(['one'], { is_unread: false })
       expect(store.notify).toHaveBeenCalledWith('Marked as read.')
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     },
   )
+
+  it('updates selected stars in one batch and rolls back a rejected batch', async () => {
+    const update = vi.spyOn(store, 'sendMessagesPatchSerialized').mockResolvedValue({
+      updated: 2,
+      ids: ['one', 'two'],
+    })
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    expect(update).toHaveBeenCalledExactlyOnceWith(['one', 'two'], { is_starred: true })
+    expect(store.traditionalEmails.map((email) => email.starred)).toEqual([true, true])
+  })
+
+  it('rolls selected stars back when the batch request fails', async () => {
+    vi.spyOn(store, 'sendMessagesPatchSerialized').mockRejectedValue(
+      new Error('offline queue failed'),
+    )
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    await flushPromises()
+    expect(store.traditionalEmails.map((email) => email.starred)).toEqual([false, false])
+    expect(store.notify).toHaveBeenCalledWith('Failed to update starred state.', 'error')
+  })
+
+  it('adds bulk-starred emails to the loaded starred list', async () => {
+    store.isStarredLoaded = true
+    store.starredEmails = []
+    vi.spyOn(store, 'sendMessagesPatchSerialized').mockResolvedValue({
+      updated: 2,
+      ids: ['one', 'two'],
+    })
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    expect(store.starredEmails.map((email) => email.id).sort()).toEqual(['one', 'two'])
+  })
+
+  it('removes bulk-unstared emails from the loaded starred list', async () => {
+    store.isStarredLoaded = true
+    store.traditionalEmails.forEach((email) => {
+      email.starred = true
+    })
+    store.starredEmails = [...store.traditionalEmails]
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    expect(store.starredEmails).toEqual([])
+  })
+
+  it('restores selected unread state when the batch read request fails', async () => {
+    store.traditionalEmails[1].unread = true
+    vi.spyOn(store, 'sendMessagesPatchSerialized').mockRejectedValue(new Error('request failed'))
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
+    await flushPromises()
+    expect(store.traditionalEmails.map((email) => email.unread)).toEqual([true, true])
+    expect(store.notify).toHaveBeenCalledWith('Failed to mark messages as read.', 'error')
+  })
+
+  it('skips the batch request when no selected emails are unread', async () => {
+    store.traditionalEmails.forEach((email) => {
+      email.unread = false
+    })
+    const update = vi.spyOn(store, 'sendMessagesPatchSerialized')
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
+    expect(update).not.toHaveBeenCalled()
+    expect(store.notify).toHaveBeenCalledWith('Marked as read.')
+  })
 
   it.each(['button', 'shortcut'])(
     'deletes selected mail with %s and provides a working undo',
@@ -4279,13 +4349,15 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   it('adds a bulk label only to messages that do not already have it', async () => {
     store.labels = [label]
     store.traditionalEmails[0].labels = [{ name: 'Home' }]
-    const apply = vi.spyOn(store, 'toggleMessageLabel').mockResolvedValue()
+    const apply = vi
+      .spyOn(store, 'sendMessagesPost')
+      .mockResolvedValue({ updated: 1, ids: ['two'] })
     await select()
     await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
     await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
     expect(wrapper.findAll('.ni-bulk-bar [role="menu"]')).toHaveLength(1)
     await button(wrapper.get('.ni-bulk-bar [role="menu"]'), 'Home').trigger('click')
-    expect(apply).toHaveBeenCalledExactlyOnceWith(store.traditionalEmails[1], label)
+    expect(apply).toHaveBeenCalledExactlyOnceWith(['two'], 'add_label', { label_id: label.id })
     expect(store.notify).toHaveBeenCalledWith('Label "Home" applied.')
     expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
   })
@@ -4307,24 +4379,35 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     'applies bulk category %s and reports %s successful changes',
     async (name, successes, message) => {
       store.categories = [category]
-      vi.spyOn(store, 'setMessageCategory').mockResolvedValue(false)
-      for (let index = 0; index < successes; index++)
-        store.setMessageCategory.mockResolvedValueOnce(true)
+      const update = vi.spyOn(store, 'sendMessagesPatch').mockResolvedValue({
+        updated: successes,
+        ids: store.traditionalEmails.slice(0, successes).map((email) => email.id),
+      })
       await select()
       await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
       await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
       expect(wrapper.findAll('.ni-bulk-bar [role="menu"]')).toHaveLength(1)
       await button(wrapper.get('.ni-bulk-bar [role="menu"]'), name).trigger('click')
       await flushPromises()
-      expect(store.setMessageCategory).toHaveBeenCalledTimes(2)
-      expect(store.setMessageCategory).toHaveBeenCalledWith(
-        store.traditionalEmails[0],
-        name === 'Work' ? category : null,
-      )
+      expect(update).toHaveBeenCalledExactlyOnceWith(['one', 'two'], {
+        category_id: name === 'Work' ? category.id : null,
+      })
       expect(store.notify.mock.calls).toEqual(message ? [[message]] : [])
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     },
   )
+
+  it('updates selected categories locally when the batch was queued offline', async () => {
+    store.categories = [category]
+    vi.spyOn(store, 'sendMessagesPatch').mockResolvedValue({ queued: true })
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
+    await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
+    await button(wrapper.get('.ni-bulk-bar [role="menu"]'), 'Work').trigger('click')
+    await flushPromises()
+    expect(store.traditionalEmails.map((email) => email.category)).toEqual([category, category])
+    expect(store.notify).toHaveBeenCalledWith('Category "Work" applied to 2 emails.')
+  })
 
   it.each([0, 1, 2])(
     'reports only the %s successful bulk snoozes and provides undo',

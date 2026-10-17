@@ -79,6 +79,39 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
 
   const clear = (storeName) => run(storeName, 'readwrite', (store) => store.clear())
 
+  // Applies a synchronous read/modify/write to all records in one transaction.
+  // Used by batch outbox writes so either every row is queued or none is.
+  async function updateAll(storeName, update) {
+    const db = await open()
+    if (!db) return null
+    return new Promise((resolve) => {
+      let transaction
+      try {
+        transaction = db.transaction(storeName, 'readwrite')
+      } catch (error) {
+        console.error('Offline storage transaction failed:', error)
+        resolve(null)
+        return
+      }
+      const store = transaction.objectStore(storeName)
+      const request = store.getAll()
+      request.onsuccess = () => {
+        try {
+          for (const value of update(request.result)) store.put(value)
+        } catch (error) {
+          console.error('Offline storage write failed:', error)
+          transaction.abort()
+        }
+      }
+      transaction.oncomplete = () => resolve(true)
+      transaction.onerror = () => {
+        console.error('Offline storage write failed:', transaction.error)
+        resolve(null)
+      }
+      transaction.onabort = () => resolve(null)
+    })
+  }
+
   return {
     get: (storeName, key) => run(storeName, 'readonly', (store) => store.get(key)),
     getAll: async (storeName) =>
@@ -88,6 +121,7 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
       run(storeName, 'readwrite', (store) =>
         key === undefined ? store.put(value) : store.put(value, key),
       ),
+    updateAll,
     delete: (storeName, key) => run(storeName, 'readwrite', (store) => store.delete(key)),
     clear,
     clearAll: () => Promise.all([clear(CACHE_STORE), clear(OUTBOX_STORE)]),

@@ -133,7 +133,7 @@ describe('SettingsView', () => {
               })),
             }
           }
-          if (url === `${LABELS_API_URL}/categories`) {
+          if (String(url).split('?')[0] === `${LABELS_API_URL}/categories`) {
             return { categories: FIXTURE_CATEGORIES.map((category) => ({ ...category })) }
           }
           if (String(url).includes('/tasks/interests')) return { interests: [] }

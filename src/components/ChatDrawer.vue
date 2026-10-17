@@ -26,11 +26,9 @@ function handleSend() {
   }
 }
 
-// Auto scroll when chat updates. Messages are only ever pushed whole (never
-// mutated after), so the array's length is all that needs watching - no need
-// to deep-diff every message object on every change.
+// Streaming assistant replies mutate the last message as tokens arrive.
 watch(
-  () => store.chatHistory.length,
+  () => [store.chatHistory.length, store.chatHistory.at(-1)?.text],
   () => {
     nextTick(() => {
       if (drawerContentRef.value) {
