@@ -963,9 +963,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* The dialog keeps Todoist's shape: a fixed four-fifths of the viewport tall
-   whatever the task holds, centred, so sub-tasks and comments get the room
-   the description leaves rather than the panel hugging its content. */
+/* Keep a roomy, centred dialog regardless of content length, with space
+   around it to dismiss and independent scrolling for the content and rail. */
 .task-panel-backdrop {
   position: fixed;
   inset: 0;
@@ -973,7 +972,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10vh 24px;
+  padding: 7vh 24px;
   background: rgba(0, 0, 0, 0.35);
 }
 
@@ -983,7 +982,7 @@ onBeforeUnmount(() => {
 
 .task-panel {
   width: 100%;
-  max-width: 864px;
+  max-width: 1120px;
   height: 100%;
   display: flex;
   flex-direction: column;

@@ -74,6 +74,22 @@ describe('TaskSchedulePicker', () => {
     expect(wrapper.find('.task-schedule-day[data-date="2026-08-03"]').exists()).toBe(true)
   })
 
+  it('offers Today first and selects the current local date, including after midnight', async () => {
+    const wrapper = mountPicker({ dueDate: '2026-10-24' })
+    await open(wrapper)
+
+    expect(wrapper.findAll('.task-schedule-shortcut')[0].attributes('data-shortcut')).toBe('today')
+    expect(shortcut(wrapper, 'today').text()).toContain('Today')
+    await shortcut(wrapper, 'today').trigger('click')
+    expect(wrapper.emitted('update:dueDate')).toEqual([['2026-10-16']])
+    expect(wrapper.find('.task-schedule-menu').exists()).toBe(false)
+
+    vi.setSystemTime(new Date(2026, 9, 17, 0, 1))
+    await open(wrapper)
+    await shortcut(wrapper, 'today').trigger('click')
+    expect(wrapper.emitted('update:dueDate').at(-1)).toEqual(['2026-10-17'])
+  })
+
   it('chooses a shortcut, a day, or no date and closes', async () => {
     const wrapper = mountPicker()
     await open(wrapper)
