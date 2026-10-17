@@ -9,6 +9,7 @@ test('a task estimate survives reload and controls its calendar height', async (
     })
   ).json()
   await page.goto(`/tasks?project=inbox&task=${item.id}`)
+  await page.getByRole('button', { name: 'Custom', exact: true }).click()
   const input = page.getByRole('spinbutton', { name: 'Estimated duration in minutes' })
   await input.fill('90')
   const saved = page.waitForResponse(
@@ -33,7 +34,8 @@ test('a task estimate survives reload and controls its calendar height', async (
   await input.press('Tab')
   expect((await cleared).ok()).toBeTruthy()
   await page.reload()
-  await expect(input).toHaveValue('')
+  await expect(input).toHaveCount(0)
+  await expect(page.locator('.task-panel-field-summary').first()).toHaveText('Not set')
   await page.goto('/calendar')
   await page.getByRole('button', { name: 'Day', exact: true }).click()
   await expect(event).toHaveCSS('height', '48px')

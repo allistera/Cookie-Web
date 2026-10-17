@@ -6,6 +6,8 @@ import { h, ref } from 'vue'
 import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-router'
 
 import TaskDetailPanel from '../TaskDetailPanel.vue'
+import { localToday } from '../../lib/localDate'
+import { addDays } from '../../lib/taskSchedule'
 import { useProjectsStore } from '../../stores/projects'
 import { useTaskCommentsStore } from '../../stores/taskComments'
 import { useTaskItemsStore } from '../../stores/taskItems'
@@ -184,11 +186,153 @@ describe('TaskDetailPanel', () => {
       items.itemById(id).durationMinutes = value
     })
     const wrapper = await mountPanel()
+    await wrapper.get('.task-panel-duration-presets button:last-child').trigger('click')
     const input = wrapper.get('[aria-label="Estimated duration in minutes"]')
     await input.setValue('75')
     expect(save).toHaveBeenLastCalledWith('b', 75)
     await input.setValue('')
     expect(save).toHaveBeenLastCalledWith('b', null)
+  })
+
+  it('sets and clears duration presets and reflects the saved estimate', async () => {
+    seed()
+    const save = vi.spyOn(items, 'setDuration').mockImplementation(async (id, value) => {
+      items.itemById(id).durationMinutes = value
+    })
+    const wrapper = await mountPanel()
+    const presets = wrapper.findAll('.task-panel-duration-presets button')
+    for (const [index, minutes] of [15, 30, 45, 60, 120].entries()) {
+      await presets[index].trigger('click')
+      await flushPromises()
+      expect(save).toHaveBeenLastCalledWith('b', minutes)
+      expect(presets[index].attributes('aria-pressed')).toBe('true')
+    }
+    await presets[4].trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenLastCalledWith('b', null)
+    expect(wrapper.get('.task-panel-field-summary').text()).toBe('Not set')
+  })
+
+  it('waits for a preset save before accepting another selection', async () => {
+    seed()
+    let finishSave
+    const save = vi.spyOn(items, 'setDuration').mockImplementation(
+      (id, value) =>
+        new Promise((resolve) => {
+          finishSave = () => {
+            items.itemById(id).durationMinutes = value
+            resolve()
+          }
+        }),
+    )
+    const wrapper = await mountPanel()
+    const preset = wrapper.findAll('.task-panel-duration-presets button')[1]
+    await preset.trigger('click')
+    expect(preset.attributes('disabled')).toBeDefined()
+    await preset.trigger('click')
+    expect(save).toHaveBeenCalledTimes(1)
+    finishSave()
+    await flushPromises()
+    expect(preset.attributes('disabled')).toBeUndefined()
+    await preset.trigger('click')
+    expect(save).toHaveBeenLastCalledWith('b', null)
+    finishSave()
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('shows an existing custom estimate for editing', async () => {
+    seed([{ ...ITEMS[1], durationMinutes: 75 }])
+    const wrapper = await mountPanel()
+    expect(wrapper.get('[aria-label="Estimated duration in minutes"]').element.value).toBe('75')
+    expect(wrapper.get('.task-panel-field-summary').text()).toBe('75 min')
+  })
+
+  it('moves an overdue task to today and removes the overdue action', async () => {
+    seed([{ ...ITEMS[1], dueDate: addDays(localToday(), -1) }])
+    const save = vi.spyOn(items, 'setDueDate').mockImplementation(async (id, value) => {
+      items.itemById(id).dueDate = value
+    })
+    const wrapper = await mountPanel()
+    expect(wrapper.get('.task-panel-overdue').text()).toBe('Overdue')
+    await wrapper.get('.task-panel-move-today').trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalledWith('b', localToday())
+    expect(wrapper.find('.task-panel-overdue').exists()).toBe(false)
+    expect(wrapper.find('.task-panel-move-today').exists()).toBe(false)
+  })
+
+  it.each([
+    { dueDate: null },
+    { dueDate: localToday() },
+    { dueDate: addDays(localToday(), 1) },
+    { dueDate: addDays(localToday(), -1), completedAt: new Date().toISOString() },
+  ])('does not flag a task as overdue for %j', async (fields) => {
+    seed([{ ...ITEMS[1], ...fields }])
+    const wrapper = await mountPanel()
+    expect(wrapper.find('.task-panel-overdue').exists()).toBe(false)
+    expect(wrapper.find('.task-panel-move-today').exists()).toBe(false)
+  })
+
+  it('opens the label editor from Add label and saves a new label', async () => {
+    seed()
+    const save = vi.spyOn(items, 'setLabels').mockResolvedValue({})
+    const wrapper = await mountPanel()
+    await wrapper.get('.task-panel-add-label').trigger('click')
+    const input = wrapper.get('.task-label-picker-input')
+    await input.setValue('home')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(save).toHaveBeenCalledWith('b', ['home'])
+  })
+
+  it('keeps the label editor available after removing its last label', async () => {
+    seed([{ ...ITEMS[1], labels: ['home'] }])
+    vi.spyOn(items, 'setLabels').mockImplementation(async (id, labels) => {
+      items.itemById(id).labels = labels
+    })
+    const wrapper = await mountPanel()
+    const input = wrapper.get('.task-label-picker-input')
+    await input.trigger('keydown', { key: 'Backspace' })
+    await flushPromises()
+    expect(wrapper.findAll('.task-label-chip')).toHaveLength(0)
+    expect(wrapper.get('.task-label-picker-input').element).toBe(input.element)
+    await input.setValue('work')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(items.itemById('b').labels).toEqual(['work'])
+    wrapper.unmount()
+  })
+
+  it('updates the overdue badge and schedule text across local midnight', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 9, 17, 23, 59, 59))
+    seed([{ ...ITEMS[1], dueDate: localToday() }])
+    const wrapper = await mountPanel()
+    try {
+      expect(wrapper.find('.task-panel-overdue').exists()).toBe(false)
+      expect(wrapper.get('.task-panel-schedule-text').text()).toBe('Today')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(wrapper.get('.task-panel-overdue').text()).toBe('Overdue')
+      expect(wrapper.get('.task-panel-schedule-text').text()).toBe('Yesterday')
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('closes empty editors when switching to another task', async () => {
+    seed()
+    const wrapper = mount(TaskDetailPanel, {
+      props: { taskId: 'b' },
+      global: { plugins: [router], provide: AUTH },
+    })
+    await wrapper.get('.task-panel-duration-presets button:last-child').trigger('click')
+    await wrapper.get('.task-panel-add-label').trigger('click')
+    await wrapper.setProps({ taskId: 'c' })
+    expect(wrapper.find('[aria-label="Estimated duration in minutes"]').exists()).toBe(false)
+    expect(wrapper.find('.task-label-picker-input').exists()).toBe(false)
+    expect(wrapper.find('.task-panel-add-label').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('duplicates the task with its fields beside it', async () => {
@@ -1177,7 +1321,7 @@ describe('TaskDetailPanel', () => {
       'true',
     ])
     expect(buttons[3].get('.priority-flag').classes()).toContain('priority-4')
-    expect(wrapper.get('.task-panel-priority-current').text()).toBe('Priority 4')
+    expect(wrapper.get('.task-panel-priority-current').text()).toBe('No priority')
   })
 
   it('shows the priority the task already has', async () => {

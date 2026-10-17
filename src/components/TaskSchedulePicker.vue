@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import TaskRepeatInput from './TaskRepeatInput.vue'
+import { useLocalToday } from '../composables/useLocalToday'
 import { localToday } from '../lib/localDate'
 import { monthsFrom, parseDateInput, scheduleShortcuts, scheduleSummary } from '../lib/taskSchedule'
 
@@ -21,7 +22,7 @@ const emit = defineEmits(['update:dueDate', 'update:dueTime', 'saveRecurrence'])
 const MONTHS_SHOWN = 12
 
 const open = ref(false)
-const today = ref(localToday())
+const today = useLocalToday()
 const dateText = ref('')
 const dateError = ref('')
 const showTime = ref(false)
@@ -252,6 +253,7 @@ defineExpose({ open: openPicker })
         aria-label="Repeats"
         >repeat</span
       >
+      <slot />
     </button>
     <div
       v-if="open"
