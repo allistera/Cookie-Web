@@ -2021,6 +2021,11 @@ export function localApiPlugin(mode) {
         if (body.name !== undefined) project.name = body.name
         if (Object.hasOwn(body, 'parentId')) project.parentId = body.parentId
         if (Object.hasOwn(body, 'description')) project.description = body.description
+        if (Object.hasOwn(body, 'isFavorite')) {
+          if (![true, false].includes(body.isFavorite))
+            return json(res, { error: 'isFavorite must be a boolean' }, 400)
+          project.isFavorite = body.isFavorite
+        }
         return json(res, { project })
       }
       if (req.method === 'DELETE') {

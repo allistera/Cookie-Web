@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddTaskDialog from './AddTaskDialog.vue'
@@ -38,6 +38,79 @@ const filtersStore = useTaskFiltersStore()
 // Which projects are open, persisted so a reload restores the same tree.
 const expandedIds = ref(new Set(getStoredExpandedIds(EXPANDED_KEY)))
 watch(expandedIds, (ids) => saveExpandedIds(EXPANDED_KEY, ids))
+
+const favoriteProjects = computed(() =>
+  store.projects
+    .filter((project) => project.isFavorite)
+    .sort((a, b) => a.name.localeCompare(b.name)),
+)
+const projectMenu = ref(null)
+const projectMenuElement = ref(null)
+let projectMenuTrigger = null
+
+async function openProjectMenu(project, event) {
+  if (projectMenu.value?.project.id === project.id) {
+    closeProjectMenu()
+    return
+  }
+  projectMenuTrigger = event.currentTarget
+  const rect = projectMenuTrigger.getBoundingClientRect()
+  projectMenu.value = {
+    project,
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - 248)),
+    top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 200)),
+  }
+  await nextTick()
+  projectMenuElement.value?.querySelector('button')?.focus()
+}
+
+function closeProjectMenu(refocus = true) {
+  projectMenu.value = null
+  if (refocus) projectMenuTrigger?.focus()
+}
+
+function projectMenuAction(action) {
+  const project = projectMenu.value.project
+  closeProjectMenu()
+  action(project)
+}
+
+function onProjectMenuPointer(event) {
+  if (
+    !projectMenu.value ||
+    projectMenuElement.value?.contains(event.target) ||
+    projectMenuTrigger?.contains(event.target)
+  )
+    return
+  closeProjectMenu(false)
+}
+
+function onProjectMenuKey(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeProjectMenu()
+  } else if (event.key === 'Tab') {
+    closeProjectMenu()
+  } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault()
+    const buttons = [...projectMenuElement.value.querySelectorAll('button')]
+    const index = buttons.indexOf(document.activeElement)
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+    buttons[next]?.focus()
+  }
+}
+
+onMounted(() => document.addEventListener('pointerdown', onProjectMenuPointer))
+onUnmounted(() => document.removeEventListener('pointerdown', onProjectMenuPointer))
+watch(
+  () => route.fullPath,
+  () => closeProjectMenu(false),
+)
 
 const rows = computed(() => flattenProjectTree(store.projects, expandedIds.value))
 
@@ -101,6 +174,10 @@ const renameName = ref('')
 const renameInput = ref(null)
 
 async function startRename(project) {
+  expandedIds.value = new Set([
+    ...expandedIds.value,
+    ...store.ancestorsOf(project.id).map((row) => row.id),
+  ])
   renamingId.value = project.id
   renameName.value = project.name
   await nextTick()
@@ -507,6 +584,40 @@ function onLabelDrop(label, event) {
     </nav>
     <TaskFilterEditor v-if="filtersStore.editor" />
 
+    <div class="sb-section-label tasks-projects-label"><span>Favorites</span></div>
+    <nav class="sidebar-nav tasks-favorites-nav" aria-label="Favorites">
+      <router-link
+        v-for="project in favoriteProjects"
+        :key="project.id"
+        :to="{ path: '/tasks', query: { project: project.id } }"
+        class="nav-item project-item"
+        :class="{
+          active: selectedProject === project.id,
+          'drop-target': taskDropTarget === project.id,
+        }"
+        @dragover="onTaskDragOver(project.id, $event)"
+        @dragleave="onTaskDragLeave(project.id)"
+        @drop.prevent="onTaskDrop(project.id, $event)"
+      >
+        <span class="project-arrow-spacer" aria-hidden="true"></span>
+        <span class="project-symbol" aria-hidden="true"></span>
+        <span class="nav-text">{{ project.name }}</span>
+        <span class="row-actions" @click.prevent.stop>
+          <button
+            class="row-action-btn"
+            type="button"
+            :aria-label="`More actions for ${project.name}`"
+            aria-haspopup="menu"
+            :aria-expanded="projectMenu?.project.id === project.id"
+            @click="openProjectMenu(project, $event)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
+          </button>
+        </span>
+      </router-link>
+      <p v-if="!favoriteProjects.length" class="tasks-favorites-empty">No favorites yet</p>
+    </nav>
+
     <div
       class="sb-section-label tasks-projects-label"
       :class="{ 'drop-target': dropId === null }"
@@ -574,21 +685,13 @@ function onLabelDrop(label, event) {
         <span class="row-actions" @click.prevent.stop>
           <button
             class="row-action-btn"
-            data-action="add"
-            :title="`New project in ${row.item.name}`"
-            :aria-label="`New project in ${row.item.name}`"
-            @click="showNewProject(row.item.id)"
+            type="button"
+            :aria-label="`More actions for ${row.item.name}`"
+            aria-haspopup="menu"
+            :aria-expanded="projectMenu?.project.id === row.item.id"
+            @click="openProjectMenu(row.item, $event)"
           >
-            <span class="material-symbols-outlined" aria-hidden="true">add</span>
-          </button>
-          <button
-            class="row-action-btn"
-            data-action="delete"
-            :title="`Delete ${row.item.name}`"
-            :aria-label="`Delete ${row.item.name}`"
-            @click="removeProject(row.item)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
           </button>
         </span>
       </router-link>
@@ -711,10 +814,94 @@ function onLabelDrop(label, event) {
         No labels yet
       </p>
     </nav>
+    <div
+      v-if="projectMenu"
+      ref="projectMenuElement"
+      class="project-menu"
+      role="menu"
+      :aria-label="`Actions for ${projectMenu.project.name}`"
+      :style="{ left: `${projectMenu.left}px`, top: `${projectMenu.top}px` }"
+      @keydown="onProjectMenuKey"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        @click="projectMenuAction((project) => store.setFavorite(project.id, !project.isFavorite))"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">favorite</span>
+        {{ projectMenu.project.isFavorite ? 'Remove from favorites' : 'Add to favorites' }}
+      </button>
+      <hr />
+      <button
+        type="button"
+        role="menuitem"
+        data-action="add"
+        @click="projectMenuAction((project) => showNewProject(project.id))"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">add</span> Add sub-project
+      </button>
+      <button type="button" role="menuitem" @click="projectMenuAction(startRename)">
+        <span class="material-symbols-outlined" aria-hidden="true">edit</span> Rename
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="project-menu-delete"
+        data-action="delete"
+        @click="projectMenuAction(removeProject)"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">delete</span> Delete
+      </button>
+    </div>
   </aside>
 </template>
 
 <style scoped>
+.project-menu {
+  position: fixed;
+  z-index: 1000;
+  width: 240px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  box-shadow: 0 8px 28px #0002;
+}
+.project-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.project-menu button:hover,
+.project-menu button:focus-visible {
+  background: var(--bg-hover);
+}
+.project-menu .material-symbols-outlined {
+  font-size: 18px;
+}
+.project-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  margin: 4px 0;
+}
+.project-menu .project-menu-delete {
+  color: var(--accent-red, #dc2626);
+}
+@media (hover: none) {
+  .project-item .row-actions {
+    opacity: 1;
+  }
+}
 .ai-task-button {
   margin-bottom: 12px;
 }
@@ -769,6 +956,7 @@ function onLabelDrop(label, event) {
   font-size: 16px;
 }
 
+.tasks-favorites-empty,
 .tasks-projects-empty,
 .tasks-filters-empty,
 .tasks-labels-empty {

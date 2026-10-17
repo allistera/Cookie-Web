@@ -194,3 +194,12 @@ it('refetches after an in-flight load when a forced reload arrives meanwhile', a
   await expect(forced).resolves.toBe(true)
   expect(store.projects).toHaveLength(2)
 })
+
+it('rolls a rejected favorite change back and notifies', async () => {
+  store.projects = [{ ...PROJECT, isFavorite: false }]
+  const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+  stubFetch(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+  expect(await store.setFavorite('p1', true)).toBeNull()
+  expect(store.projects[0].isFavorite).toBe(false)
+  expect(notify).toHaveBeenCalledWith('Failed to update project favorites.', 'error')
+})

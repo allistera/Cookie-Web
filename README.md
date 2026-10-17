@@ -445,3 +445,15 @@ without a due time remain in the all-day area.
 
 Roll out migration `0098_task_duration.sql` before the updated task Worker, then
 the web client. Duration changes appear in the task's Activity tab.
+
+### Project favorites
+
+In Tasks, hover over a project and open its **…** menu, then choose **Add to
+favorites**. Favorites appear above My Projects and remain in the project tree.
+The same menu offers **Remove from favorites**. Favorites are saved per owned
+project and are available across devices, including nested projects whose parents
+are collapsed.
+
+Deploy Cookie-Web migration `0099_project_favorites.sql` before the task Worker,
+then the web client. `GET /projects` and project write responses include the
+boolean `isFavorite`; `PATCH /projects` accepts it to add or remove a favorite.
