@@ -4270,6 +4270,29 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     expect(store.notify).toHaveBeenCalledWith('Failed to update starred state.', 'error')
   })
 
+  it('adds bulk-starred emails to the loaded starred list', async () => {
+    store.isStarredLoaded = true
+    store.starredEmails = []
+    vi.spyOn(store, 'sendMessagesPatchSerialized').mockResolvedValue({
+      updated: 2,
+      ids: ['one', 'two'],
+    })
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    expect(store.starredEmails.map((email) => email.id)).toEqual(['one', 'two'])
+  })
+
+  it('removes bulk-unstared emails from the loaded starred list', async () => {
+    store.isStarredLoaded = true
+    store.traditionalEmails.forEach((email) => {
+      email.starred = true
+    })
+    store.starredEmails = [...store.traditionalEmails]
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    expect(store.starredEmails).toEqual([])
+  })
+
   it('restores selected unread state when the batch read request fails', async () => {
     store.traditionalEmails[1].unread = true
     vi.spyOn(store, 'sendMessagesPatchSerialized').mockRejectedValue(new Error('request failed'))
@@ -4278,6 +4301,17 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     await flushPromises()
     expect(store.traditionalEmails.map((email) => email.unread)).toEqual([true, true])
     expect(store.notify).toHaveBeenCalledWith('Failed to mark messages as read.', 'error')
+  })
+
+  it('skips the batch request when no selected emails are unread', async () => {
+    store.traditionalEmails.forEach((email) => {
+      email.unread = false
+    })
+    const update = vi.spyOn(store, 'sendMessagesPatchSerialized')
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
+    expect(update).not.toHaveBeenCalled()
+    expect(store.notify).toHaveBeenCalledWith('Marked as read.')
   })
 
   it.each(['button', 'shortcut'])(
