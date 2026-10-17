@@ -963,14 +963,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Keep a roomy, centred dialog regardless of content length, with space
+   around it to dismiss and independent scrolling for the content and rail. */
 .task-panel-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 7vh 24px;
   background: rgba(0, 0, 0, 0.35);
 }
 
@@ -980,8 +982,8 @@ onBeforeUnmount(() => {
 
 .task-panel {
   width: 100%;
-  max-width: 1000px;
-  max-height: 100%;
+  max-width: 1120px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-dialog);
@@ -1111,11 +1113,11 @@ onBeforeUnmount(() => {
 }
 
 .task-panel-rail {
-  width: 300px;
+  width: 280px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 20px;
   border-left: 1px solid var(--border-color);
   background: var(--bg-app);
   overflow-y: auto;

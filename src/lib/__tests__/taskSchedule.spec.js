@@ -43,8 +43,9 @@ describe('dates', () => {
 })
 
 describe('scheduleShortcuts', () => {
-  it('offers tomorrow, next Monday and next Saturday', () => {
+  it('offers today, tomorrow, next Monday and next Saturday', () => {
     expect(scheduleShortcuts(TODAY)).toEqual([
+      { id: 'today', label: 'Today', iso: TODAY, hint: 'Fri', icon: 'today' },
       { id: 'tomorrow', label: 'Tomorrow', iso: '2026-10-17', hint: 'Sat', icon: 'light_mode' },
       {
         id: 'next-week',
@@ -64,8 +65,12 @@ describe('scheduleShortcuts', () => {
   })
 
   it('counts next week from the coming Monday even on a Monday or Sunday', () => {
-    expect(scheduleShortcuts('2026-10-19')[1].iso).toBe('2026-10-26')
-    expect(scheduleShortcuts('2026-10-18')[1].iso).toBe('2026-10-19')
+    expect(scheduleShortcuts('2026-10-19').find((item) => item.id === 'next-week').iso).toBe(
+      '2026-10-26',
+    )
+    expect(scheduleShortcuts('2026-10-18').find((item) => item.id === 'next-week').iso).toBe(
+      '2026-10-19',
+    )
   })
 })
 

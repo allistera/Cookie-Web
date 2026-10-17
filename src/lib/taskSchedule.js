@@ -74,6 +74,13 @@ export function scheduleShortcuts(today) {
   const saturday = addDays(monday, 5)
   return [
     {
+      id: 'today',
+      label: 'Today',
+      iso: today,
+      hint: WEEKDAY.format(dateFromIso(today)),
+      icon: 'today',
+    },
+    {
       id: 'tomorrow',
       label: 'Tomorrow',
       iso: tomorrow,
