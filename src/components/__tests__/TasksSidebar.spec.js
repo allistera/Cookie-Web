@@ -185,7 +185,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith('Delete Work and its 1 sub-project?')
@@ -207,7 +208,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith('Delete Work and its 2 sub-projects?')
@@ -225,7 +227,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(confirm).not.toHaveBeenCalled()
@@ -246,7 +249,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(count).toHaveBeenCalledWith(['p1'])
@@ -265,7 +269,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith('Delete Work and its 1 task?')
@@ -285,7 +290,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(count).toHaveBeenCalledWith(['p1', 'p2'])
@@ -308,7 +314,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox')
@@ -337,7 +344,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox')
@@ -359,7 +367,8 @@ describe('TasksSidebar', () => {
 
     const wrapper = mountSidebar()
     await flushPromises()
-    await wrapper.get('.project-item .row-action-btn[data-action="delete"]').trigger('click')
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('.project-menu [data-action="delete"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/tasks?project=other')
@@ -842,7 +851,7 @@ describe('the Filters section', () => {
     await flushPromises()
 
     const sections = wrapper.findAll('.sb-section-label > span').map((label) => label.text())
-    expect(sections).toEqual(['Filters', 'My Projects', 'Labels'])
+    expect(sections).toEqual(['Filters', 'Favorites', 'My Projects', 'Labels'])
     const rows = wrapper.findAll('.tasks-filters-nav .filter-item')
     expect(rows.map((row) => row.get('.nav-text').text())).toEqual(['Urgent', 'Someday'])
     expect(rows[0].attributes('href')).toBe('/tasks?project=filter:f1')
@@ -938,4 +947,75 @@ describe('the Filters section', () => {
 
     expect(notify).toHaveBeenCalledWith('Saved filters are not loaded. Please try again.', 'error')
   })
+})
+
+describe('project favorites', () => {
+  it('adds and removes shortcuts without removing the original project', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', name: 'Work', parentId: null, isFavorite: false }]
+    store.isLoaded = true
+    vi.spyOn(store, 'request').mockImplementation(async (method, body) => ({
+      project: { ...store.projects[0], ...body },
+    }))
+    const wrapper = mountSidebar()
+    await wrapper.get('.tasks-projects-nav [aria-haspopup="menu"]').trigger('click')
+    expect(wrapper.get('[role="menu"]').text()).toContain('Add to favorites')
+    await wrapper.get('[role="menuitem"]').trigger('click')
+    await flushPromises()
+    expect(store.request).toHaveBeenCalledWith('PATCH', { id: 'p1', isFavorite: true })
+    expect(wrapper.get('.tasks-favorites-nav .nav-text').text()).toBe('Work')
+    expect(wrapper.get('.tasks-projects-nav .nav-text').text()).toBe('Work')
+    await wrapper.get('.tasks-favorites-nav .nav-item').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.project).toBe('p1')
+    await wrapper.get('.tasks-favorites-nav [aria-haspopup="menu"]').trigger('click')
+    expect(wrapper.get('[role="menu"]').text()).toContain('Remove from favorites')
+    await wrapper.get('[role="menuitem"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.tasks-favorites-nav .nav-item').exists()).toBe(false)
+    expect(wrapper.get('.tasks-projects-nav .nav-text').text()).toBe('Work')
+    wrapper.unmount()
+  })
+
+  it('shows saved nested favorites even with their parent collapsed and closes on Escape', async () => {
+    localStorage.clear()
+    const store = useProjectsStore()
+    store.projects = [
+      { id: 'p1', name: 'Work', parentId: null },
+      { id: 'p2', name: 'API', parentId: 'p1', isFavorite: true },
+    ]
+    store.isLoaded = true
+    const wrapper = mountSidebar()
+    expect(wrapper.findAll('.tasks-projects-nav .nav-item')).toHaveLength(1)
+    expect(wrapper.get('.tasks-favorites-nav .nav-text').text()).toBe('API')
+    await wrapper.get('.tasks-favorites-nav [aria-haspopup="menu"]').trigger('click')
+    await wrapper.get('[role="menu"]').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+it('reveals a new sub-project created from a collapsed nested favorite', async () => {
+  localStorage.clear()
+  const store = useProjectsStore()
+  store.projects = [
+    { id: 'p1', name: 'Work', parentId: null },
+    { id: 'p2', name: 'API', parentId: 'p1', isFavorite: true },
+  ]
+  store.isLoaded = true
+  vi.spyOn(store, 'request').mockResolvedValue({
+    project: { id: 'p3', name: 'Backend', parentId: 'p2' },
+  })
+  const wrapper = mountSidebar()
+  await wrapper.get('.tasks-favorites-nav [aria-haspopup="menu"]').trigger('click')
+  await wrapper.get('.project-menu [data-action="add"]').trigger('click')
+  await wrapper.get('.new-project-row input').setValue('Backend')
+  await wrapper.get('.new-project-row').trigger('submit')
+  await flushPromises()
+  expect(wrapper.findAll('.tasks-projects-nav .nav-text').map((row) => row.text())).toEqual([
+    'Work',
+    'API',
+    'Backend',
+  ])
+  wrapper.unmount()
 })

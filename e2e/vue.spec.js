@@ -2566,7 +2566,8 @@ test('Tasks projects nest, collapse, and survive a reload', async ({ page }) => 
 
   // A sub-project appears under its parent, which auto-expands to show it.
   await sidebar.locator('.project-item').hover()
-  await sidebar.locator('.project-item .row-action-btn[data-action="add"]').click()
+  await sidebar.locator('.project-item [aria-haspopup="menu"]').click()
+  await sidebar.getByRole('menuitem', { name: 'Add sub-project' }).click()
   await sidebar.locator('.new-project-row input').fill('API')
   await sidebar.locator('.new-project-row input').press('Enter')
   await expect(sidebar.locator('.project-item')).toHaveCount(2)
@@ -2975,7 +2976,8 @@ test('Tasks: a nested project name is not clipped by the row controls', async ({
 
   const parent = sidebar.locator('.project-item', { hasText: 'Personal' }).first()
   await parent.hover()
-  await parent.locator('[data-action="add"]').click()
+  await parent.locator('[aria-haspopup="menu"]').click()
+  await sidebar.getByRole('menuitem', { name: 'Add sub-project' }).click()
   await sidebar.locator('.new-project-row input').fill('Home Dashboard')
   await sidebar.locator('.new-project-row input').press('Enter')
 
@@ -3133,4 +3135,34 @@ test('two-finger swipes over the inbox list move between category tabs, and only
   expect(prevented).toBe(false)
   await expect(list).toHaveCSS('overscroll-behavior-x', 'contain')
   await expect(page.locator('.left-sidebar')).toHaveCSS('overscroll-behavior-x', 'auto')
+})
+
+test('Tasks: project favorites persist and can be removed from their shortcut', async ({
+  page,
+}) => {
+  await page.goto('/tasks')
+  const sidebar = page.locator('.tasks-sidebar')
+  await sidebar.getByRole('button', { name: 'New project', exact: true }).click()
+  await sidebar.getByRole('textbox', { name: 'New project name' }).fill('Favorite project')
+  await sidebar.getByRole('textbox', { name: 'New project name' }).press('Enter')
+  const project = sidebar.locator('.tasks-projects-nav .project-item', {
+    hasText: 'Favorite project',
+  })
+  await project.hover()
+  await project.getByRole('button', { name: 'More actions for Favorite project' }).click()
+  await sidebar.getByRole('menuitem', { name: 'Add to favorites' }).click()
+  const favorite = sidebar.locator('.tasks-favorites-nav .project-item', {
+    hasText: 'Favorite project',
+  })
+  await expect(favorite).toBeVisible()
+  await page.reload()
+  await expect(favorite).toBeVisible()
+  await favorite.click()
+  await expect(favorite).toHaveClass(/active/)
+  await favorite.getByRole('button', { name: 'More actions for Favorite project' }).click()
+  await sidebar.getByRole('menuitem', { name: 'Remove from favorites' }).click()
+  await expect(favorite).toHaveCount(0)
+  await expect(project).toBeVisible()
+  await page.reload()
+  await expect(favorite).toHaveCount(0)
 })

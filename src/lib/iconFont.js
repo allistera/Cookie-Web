@@ -49,6 +49,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'event_available',
   'expand_less',
   'expand_more',
+  'favorite',
   'filter_alt',
   'flag',
   'folder',

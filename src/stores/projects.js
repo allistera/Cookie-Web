@@ -164,6 +164,10 @@ export const useProjectsStore = defineStore('projects', {
       })
     },
 
+    setFavorite(id, isFavorite) {
+      return this.patchProject(id, { isFavorite }, 'Failed to update project favorites.')
+    },
+
     renameProject(id, name) {
       return this.patchProject(id, { name }, 'Failed to rename the project.')
     },
