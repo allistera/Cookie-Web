@@ -4248,6 +4248,34 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     },
   )
 
+  it('updates selected stars in one batch and rolls back a rejected batch', async () => {
+    const update = vi.spyOn(store, 'sendMessagesPatchSerialized').mockResolvedValue({
+      updated: 2,
+      ids: ['one', 'two'],
+    })
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    expect(update).toHaveBeenCalledExactlyOnceWith(['one', 'two'], { is_starred: true })
+    expect(store.traditionalEmails.map((email) => email.starred)).toEqual([true, true])
+
+    update.mockRejectedValueOnce(new Error('offline queue failed'))
+    await select()
+    await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
+    await flushPromises()
+    expect(store.traditionalEmails.map((email) => email.starred)).toEqual([true, true])
+    expect(store.notify).toHaveBeenCalledWith('Failed to update starred state.', 'error')
+  })
+
+  it('restores selected unread state when the batch read request fails', async () => {
+    store.traditionalEmails[1].unread = true
+    vi.spyOn(store, 'sendMessagesPatchSerialized').mockRejectedValue(new Error('request failed'))
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
+    await flushPromises()
+    expect(store.traditionalEmails.map((email) => email.unread)).toEqual([true, true])
+    expect(store.notify).toHaveBeenCalledWith('Failed to mark messages as read.', 'error')
+  })
+
   it.each(['button', 'shortcut'])(
     'deletes selected mail with %s and provides a working undo',
     async (action) => {
@@ -4329,6 +4357,18 @@ describe('TraditionalInboxView list and reader action coverage', () => {
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     },
   )
+
+  it('updates selected categories locally when the batch was queued offline', async () => {
+    store.categories = [category]
+    vi.spyOn(store, 'sendMessagesPatch').mockResolvedValue({ queued: true })
+    await select()
+    await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
+    await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
+    await button(wrapper.get('.ni-bulk-bar [role="menu"]'), 'Work').trigger('click')
+    await flushPromises()
+    expect(store.traditionalEmails.map((email) => email.category)).toEqual([category, category])
+    expect(store.notify).toHaveBeenCalledWith('Category "Work" applied to 2 emails.')
+  })
 
   it.each([0, 1, 2])(
     'reports only the %s successful bulk snoozes and provides undo',
