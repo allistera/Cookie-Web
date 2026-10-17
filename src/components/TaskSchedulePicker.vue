@@ -252,6 +252,7 @@ defineExpose({ open: openPicker })
         aria-label="Repeats"
         >repeat</span
       >
+      <slot />
     </button>
     <div
       v-if="open"

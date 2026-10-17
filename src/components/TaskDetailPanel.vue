@@ -12,6 +12,7 @@ import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { taskBucketItem } from '../lib/bucketItems'
+import { localToday } from '../lib/localDate'
 import {
   formatAddedStamp,
   shortUserName,
@@ -309,6 +310,52 @@ const commentCount = computed(() => {
 // the server treats as cleared where '' would be refused as malformed.
 function onDateChange(dueDate) {
   items.setDueDate(props.taskId, dueDate)
+}
+
+const overdue = computed(() =>
+  Boolean(item.value?.dueDate && !item.value?.completedAt && item.value.dueDate < localToday()),
+)
+const durationPresets = [
+  { minutes: 15, label: '15 min' },
+  { minutes: 30, label: '30 min' },
+  { minutes: 45, label: '45 min' },
+  { minutes: 60, label: '1 hour' },
+  { minutes: 120, label: '2 hours' },
+]
+const customDurationOpen = ref(false)
+const customDuration = computed(
+  () =>
+    item.value?.durationMinutes != null &&
+    !durationPresets.some(({ minutes }) => minutes === item.value.durationMinutes),
+)
+const durationSummary = computed(() => {
+  const minutes = item.value?.durationMinutes
+  if (minutes == null) return 'Not set'
+  return durationPresets.find((preset) => preset.minutes === minutes)?.label ?? `${minutes} min`
+})
+const durationEditor = ref(null)
+async function openCustomDuration() {
+  customDurationOpen.value = true
+  await nextTick()
+  durationEditor.value?.querySelector('input')?.focus()
+}
+function chooseDuration(minutes) {
+  customDurationOpen.value = false
+  void onDurationChange(item.value?.durationMinutes === minutes ? null : minutes)
+}
+const labelsOpen = ref(false)
+const labelEditor = ref(null)
+watch(
+  () => props.taskId,
+  () => {
+    customDurationOpen.value = false
+    labelsOpen.value = false
+  },
+)
+async function openLabels() {
+  labelsOpen.value = true
+  await nextTick()
+  labelEditor.value?.querySelector('input')?.focus()
 }
 
 const durationSaves = ref(0)
@@ -896,62 +943,130 @@ onBeforeUnmount(() => {
         </div>
 
         <aside class="task-panel-rail">
-          <h3 class="task-panel-section">Organise</h3>
-          <div class="task-panel-row">
-            <span class="task-panel-row-label">Labels</span>
-            <div class="task-panel-row-value task-panel-labels">
-              <span class="material-symbols-outlined task-panel-row-icon" aria-hidden="true"
-                >sell</span
+          <section class="task-panel-group" aria-labelledby="task-panel-schedule-label">
+            <h3 id="task-panel-schedule-label" class="task-panel-section">Schedule</h3>
+            <div class="task-panel-field">
+              <h4 class="task-panel-field-label">Due date</h4>
+              <TaskSchedulePicker
+                :class="{ overdue }"
+                :due-date="item?.dueDate ?? null"
+                :due-time="item?.dueTime ?? null"
+                :time-zone="item?.timeZone || localTimeZone"
+                :recurrence="item?.recurrence ?? null"
+                :saving-recurrence="savingRecurrence"
+                @update:due-date="onDateChange"
+                @update:due-time="onTimeChange"
+                @save-recurrence="saveRecurrence"
               >
-              <TaskLabelPicker
-                :model-value="item?.labels ?? []"
-                :disabled="savingLabels"
-                @update:model-value="onLabelsChange"
-              />
+                <span v-if="overdue" class="task-panel-overdue">Overdue</span>
+              </TaskSchedulePicker>
+              <button
+                v-if="overdue"
+                type="button"
+                class="task-panel-move-today"
+                @click="onDateChange(localToday())"
+              >
+                Move to today
+                <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+              </button>
             </div>
-          </div>
-
-          <h3 id="task-panel-priority-label" class="task-panel-section">Priority</h3>
-          <div class="task-panel-priority" role="group" aria-labelledby="task-panel-priority-label">
-            <button
-              v-for="level in PRIORITIES"
-              :key="level.value"
-              type="button"
-              class="task-panel-priority-button"
-              :class="[`priority-${level.value}`, { selected: level.value === priority }]"
-              :aria-label="level.label"
-              :aria-pressed="level.value === priority ? 'true' : 'false'"
-              @click="choosePriority(level.value)"
-            >
-              <span
-                class="material-symbols-outlined priority-flag"
-                :class="`priority-${level.value}`"
-                aria-hidden="true"
-                >flag</span
+            <div class="task-panel-field">
+              <div class="task-panel-field-heading">
+                <h4 id="task-panel-duration-label" class="task-panel-field-label">
+                  Estimated time
+                </h4>
+                <span class="task-panel-field-summary">{{ durationSummary }}</span>
+              </div>
+              <div
+                class="task-panel-duration-presets"
+                role="group"
+                aria-labelledby="task-panel-duration-label"
               >
-              <span class="task-panel-priority-short">{{ level.short }}</span>
-            </button>
-          </div>
-          <p class="task-panel-priority-current">{{ priorityInfo(priority).label }}</p>
+                <button
+                  v-for="preset in durationPresets"
+                  :key="preset.minutes"
+                  type="button"
+                  :aria-pressed="item?.durationMinutes === preset.minutes"
+                  @click="chooseDuration(preset.minutes)"
+                >
+                  {{ preset.label }}
+                </button>
+                <button
+                  type="button"
+                  :aria-pressed="customDuration || customDurationOpen"
+                  :aria-expanded="customDuration || customDurationOpen"
+                  @click="openCustomDuration"
+                >
+                  Custom
+                </button>
+              </div>
+              <div
+                v-if="customDuration || customDurationOpen"
+                ref="durationEditor"
+                class="task-panel-duration-editor"
+              >
+                <TaskDurationInput
+                  :model-value="item?.durationMinutes ?? null"
+                  :saving="durationSaves > 0"
+                  @update:model-value="onDurationChange"
+                />
+              </div>
+            </div>
+          </section>
 
-          <h3 class="task-panel-section">Schedule</h3>
-          <TaskSchedulePicker
-            :due-date="item?.dueDate ?? null"
-            :due-time="item?.dueTime ?? null"
-            :time-zone="item?.timeZone || localTimeZone"
-            :recurrence="item?.recurrence ?? null"
-            :saving-recurrence="savingRecurrence"
-            @update:due-date="onDateChange"
-            @update:due-time="onTimeChange"
-            @save-recurrence="saveRecurrence"
-          />
-
-          <h3 class="task-panel-section">Estimated duration</h3>
-          <TaskDurationInput
-            :model-value="item?.durationMinutes ?? null"
-            :saving="durationSaves > 0"
-            @update:model-value="onDurationChange"
-          />
+          <section class="task-panel-group" aria-labelledby="task-panel-organise-label">
+            <h3 id="task-panel-organise-label" class="task-panel-section">Organise</h3>
+            <div class="task-panel-field">
+              <div class="task-panel-field-heading">
+                <h4 id="task-panel-priority-label" class="task-panel-field-label">Priority</h4>
+                <span class="task-panel-field-summary task-panel-priority-current">{{
+                  priority === 4 ? 'No priority' : priorityInfo(priority).label
+                }}</span>
+              </div>
+              <div
+                class="task-panel-priority"
+                role="group"
+                aria-labelledby="task-panel-priority-label"
+              >
+                <button
+                  v-for="level in PRIORITIES"
+                  :key="level.value"
+                  type="button"
+                  class="task-panel-priority-button"
+                  :class="[`priority-${level.value}`, { selected: level.value === priority }]"
+                  :aria-label="level.label"
+                  :aria-pressed="level.value === priority ? 'true' : 'false'"
+                  @click="choosePriority(level.value)"
+                >
+                  <span
+                    class="material-symbols-outlined priority-flag"
+                    :class="`priority-${level.value}`"
+                    aria-hidden="true"
+                    >flag</span
+                  >
+                  <span class="task-panel-priority-short">{{ level.short }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="task-panel-field">
+              <h4 class="task-panel-field-label">Labels</h4>
+              <div
+                v-if="labelsOpen || item?.labels?.length"
+                ref="labelEditor"
+                class="task-panel-labels"
+              >
+                <TaskLabelPicker
+                  :model-value="item?.labels ?? []"
+                  :disabled="savingLabels"
+                  @update:model-value="onLabelsChange"
+                />
+              </div>
+              <button v-else type="button" class="task-panel-add-label" @click="openLabels">
+                <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                Add label
+              </button>
+            </div>
+          </section>
 
           <p v-if="addedStamp" class="task-panel-added">
             Added {{ addedStamp }}<template v-if="userName"> by {{ userName }}</template>
@@ -1113,13 +1228,24 @@ onBeforeUnmount(() => {
 }
 
 .task-panel-rail {
-  width: 280px;
+  width: 320px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   padding: 20px;
   border-left: 1px solid var(--border-color);
-  background: var(--bg-app);
+  --rail-bg: #f7f5ec;
+  --rail-surface: #ffffff;
+  --rail-text: #102d22;
+  --rail-muted: #607069;
+  --rail-border: #dcd9ce;
+  --rail-track: #ece9de;
+  --rail-soft: #e8efea;
+  --rail-danger: #bf4135;
+  --rail-danger-bg: #f6dbd6;
+  border-color: var(--rail-border);
+  background: var(--rail-bg);
+  color: var(--rail-text);
   overflow-y: auto;
 }
 
@@ -1657,136 +1783,199 @@ onBeforeUnmount(() => {
 
 /* ---- rail ----------------------------------------------------------- */
 
+/* The reference's 640px @2x rail is 320 CSS pixels wide. */
+[data-theme='dark'] .task-panel-rail {
+  --rail-bg: var(--bg-app);
+  --rail-surface: var(--bg-dialog);
+  --rail-text: var(--text-primary);
+  --rail-muted: #a4b2aa;
+  --rail-border: var(--border-color);
+  --rail-track: var(--bg-input);
+  --rail-soft: #21352a;
+  --rail-danger: #ef998f;
+  --rail-danger-bg: #482b29;
+}
+
+.task-panel-group {
+  padding: 4px 0 24px;
+}
+.task-panel-group + .task-panel-group {
+  border-top: 1px solid var(--rail-border);
+  padding-top: 24px;
+}
 .task-panel-section {
-  margin: 0 0 12px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  margin: 0 0 20px;
+  font: 600 12px/1.5 var(--font-mono);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--rail-muted);
 }
-
-.task-panel-section + .task-panel-section,
-.task-panel-row + .task-panel-section,
-.task-panel-priority-current + .task-panel-section {
-  margin-top: 28px;
+.task-panel-field + .task-panel-field {
+  margin-top: 20px;
 }
-
-.task-panel-row {
+.task-panel-field-label {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.task-panel-field-heading {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-height: 32px;
-  margin-bottom: 14px;
-  font-size: 15px;
-}
-
-.task-panel-row-label {
-  flex: 0 0 76px;
-  padding-top: 4px;
-  color: var(--text-secondary);
-}
-
-.task-panel-row-value {
-  display: flex;
-  align-items: center;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
 }
-
-.task-panel-row-icon {
-  font-size: 20px;
-  color: var(--text-secondary);
+.task-panel-field-summary {
+  color: var(--rail-muted);
+  font-size: 14px;
+  line-height: 20px;
 }
-
-.task-panel-labels {
-  align-items: flex-start;
+.task-panel-rail :deep(.task-panel-schedule) {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  gap: 10px;
+  border: 1px solid var(--rail-border);
+  border-radius: 12px;
+  background: var(--rail-surface);
+  color: var(--rail-text);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(16 45 34 / 7%);
 }
-
-.task-panel-labels .task-panel-row-icon {
-  margin-top: 5px;
+.task-panel-rail :deep(.task-panel-schedule .task-panel-schedule-icon) {
+  color: inherit;
+  font-size: 18px;
 }
-
+.task-panel-rail :deep(.overdue .task-panel-schedule) {
+  color: var(--rail-danger);
+}
+.task-panel-overdue {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--rail-danger-bg);
+  font: 600 11px/1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.task-panel-move-today,
+.task-panel-add-label,
+.task-panel-duration-presets button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--rail-border);
+  border-radius: 999px;
+  background: var(--rail-surface);
+  color: var(--rail-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.task-panel-move-today {
+  margin-top: 8px;
+  padding: 8px 14px;
+  background: var(--rail-soft);
+}
+.task-panel-move-today .material-symbols-outlined,
+.task-panel-add-label .material-symbols-outlined {
+  font-size: 18px;
+}
+.task-panel-duration-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.task-panel-duration-presets button {
+  min-height: 40px;
+  padding: 8px 4px;
+}
+.task-panel-duration-presets button[aria-pressed='true'] {
+  background: var(--rail-soft);
+  border-color: var(--rail-muted);
+}
+.task-panel-duration-editor {
+  margin-top: 10px;
+}
+.task-panel-add-label {
+  padding: 8px 14px;
+  color: var(--rail-text);
+}
 .task-panel-labels :deep(.task-label-picker) {
-  flex: 1;
-  min-width: 0;
+  border-color: var(--rail-border);
+  border-radius: 18px;
+  background: var(--rail-surface);
+  padding: 6px 10px;
+  font-size: 14px;
 }
-
-/* The four levels in one pill; the chosen one is lifted out as a card. */
 .task-panel-priority {
   display: flex;
-  gap: 4px;
   padding: 4px;
-  border-radius: 10px;
-  background: var(--bg-input);
+  border-radius: 14px;
+  background: var(--rail-track);
 }
-
 .task-panel-priority-button {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   flex: 1;
+  min-width: 0;
+  min-height: 40px;
   padding: 8px 4px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: none;
+  border-radius: 10px;
   background: none;
   font: inherit;
   font-size: 14px;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--rail-muted);
   cursor: pointer;
 }
-
-.task-panel-priority-button:hover {
-  color: var(--text-primary);
-}
-
 .task-panel-priority-button.selected {
-  background: var(--bg-dialog);
-  border-color: var(--border-color);
-  box-shadow: var(--shadow-sm);
-  color: var(--text-primary);
-  font-weight: 700;
+  background: var(--rail-surface);
+  box-shadow: 0 1px 3px rgb(16 45 34 / 12%);
+  color: var(--rail-text);
+  font-weight: 600;
 }
-
-.task-panel-priority-current {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+.task-panel-rail button:focus-visible {
+  outline: 2px solid var(--rail-muted);
+  outline-offset: 2px;
 }
-
-/* Todoist's colours: red, orange, blue, and a plain flag for the default.
-   Filled for the three real levels so the colour reads at 18px; outlined for
-   P4 so "no priority" looks like an absence rather than a grey level. */
+.task-panel-duration-presets button:hover,
+.task-panel-add-label:hover,
+.task-panel-move-today:hover,
+.task-panel-priority-button:hover {
+  background: var(--rail-soft);
+}
 .priority-flag {
   font-size: 18px;
-  color: var(--text-secondary);
+  color: var(--rail-muted);
 }
-
 .priority-flag.priority-1,
 .priority-flag.priority-2,
 .priority-flag.priority-3 {
   font-variation-settings: 'FILL' 1;
 }
-
 .priority-flag.priority-1 {
-  color: #d1453b;
+  color: #c85b49;
 }
-
 .priority-flag.priority-2 {
-  color: #eb8909;
+  color: #d49a35;
 }
-
 .priority-flag.priority-3 {
-  color: #246fe0;
+  color: #408b9b;
 }
 .task-panel-added {
   margin: auto 0 0;
-  padding-top: 20px;
-  border-top: 1px solid var(--border-color);
+  padding-top: 18px;
+  border-top: 1px solid var(--rail-border);
   font-size: 13px;
-  color: var(--text-secondary);
+  line-height: 20px;
+  color: var(--rail-muted);
 }
 
 @media (max-width: 720px) {
