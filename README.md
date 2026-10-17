@@ -377,10 +377,10 @@ and keeps your text if generation fails. The Tasks Worker must provide
 
 ### Saved task filters
 
-The Tasks sidebar has a **Filters** section between Today and My Projects.
-Press its **+** to build a filter from rules on due date (overdue, today,
-tomorrow, the next 7 days, any date, no date), project (including Inbox),
-priority, and label. Each rule reads as a sentence (`Due is Today`,
+Saved filters live in the Tasks sidebar's **Favorites** section, between Today
+and My Projects, ahead of any favorite projects. Press the section's **+** to
+build a filter from rules on due date (overdue, today, tomorrow, the next 7
+days, any date, no date), project (including Inbox), priority, and label. Each rule reads as a sentence (`Due is Today`,
 `Project is not Work`); a filter matches **all** or **any** of its rules, and
 holds up to ten. A saved filter lists the open tasks it fits from every
 project, by due date with undated tasks last, and each row names the project
@@ -449,10 +449,11 @@ the web client. Duration changes appear in the task's Activity tab.
 ### Project favorites
 
 In Tasks, hover over a project and open its **…** menu, then choose **Add to
-favorites**. Favorites appear above My Projects and remain in the project tree.
-The same menu offers **Remove from favorites**. Favorites are saved per owned
-project and are available across devices, including nested projects whose parents
-are collapsed.
+favorites**. Favorite projects appear in the **Favorites** section above My
+Projects, after any saved filters, and remain in the project tree. The same
+menu offers **Remove from favorites**. Favorites are saved per owned project
+and are available across devices, including nested projects whose parents are
+collapsed.
 
 Deploy Cookie-Web migration `0099_project_favorites.sql` before the task Worker,
 then the web client. `GET /projects` and project write responses include the

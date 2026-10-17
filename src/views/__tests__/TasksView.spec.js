@@ -1347,7 +1347,7 @@ describe('a saved filter view', () => {
 
     expect(load).toHaveBeenCalledWith('filter:f1')
     expect(wrapper.get('.tasks-title').text()).toBe('Urgent')
-    expect(wrapper.get('.tasks-breadcrumb').text()).toContain('Filters')
+    expect(wrapper.get('.tasks-breadcrumb').text()).toContain('Favorites')
     expect(wrapper.find('.tasks-description').exists()).toBe(false)
     expect(wrapper.get('.tasks-filter-match').text()).toBe('Any of')
     const chips = wrapper.findAll('.tasks-filter-chip')

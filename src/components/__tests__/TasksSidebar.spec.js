@@ -845,17 +845,17 @@ describe('the Filters section', () => {
     return store
   }
 
-  it('lists saved filters between Today and My Projects, linking to the filter view', async () => {
+  it('lists saved filters under Favorites, before the starred projects', async () => {
     seedFilters([FILTER, { ...FILTER, id: 'f2', name: 'Someday' }])
     const wrapper = mountSidebar()
     await flushPromises()
 
     const sections = wrapper.findAll('.sb-section-label > span').map((label) => label.text())
-    expect(sections).toEqual(['Filters', 'Favorites', 'My Projects', 'Labels'])
-    const rows = wrapper.findAll('.tasks-filters-nav .filter-item')
+    expect(sections).toEqual(['Favorites', 'My Projects', 'Labels'])
+    const rows = wrapper.findAll('.tasks-favorites-nav .filter-item')
     expect(rows.map((row) => row.get('.nav-text').text())).toEqual(['Urgent', 'Someday'])
     expect(rows[0].attributes('href')).toBe('/tasks?project=filter:f1')
-    expect(wrapper.find('.tasks-filters-empty').exists()).toBe(false)
+    expect(wrapper.find('.tasks-favorites-empty').exists()).toBe(false)
   })
 
   it('shows the empty hint and asks the store for the filters', async () => {
@@ -865,7 +865,7 @@ describe('the Filters section', () => {
     await flushPromises()
 
     expect(load).toHaveBeenCalled()
-    expect(wrapper.get('.tasks-filters-empty').text()).toBe('No filters yet')
+    expect(wrapper.get('.tasks-favorites-empty').text()).toBe('No favorites yet')
   })
 
   it('marks the viewed filter active', async () => {

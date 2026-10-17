@@ -80,7 +80,7 @@ const title = computed(() => {
 })
 const crumb = computed(() => {
   if (isLabel.value) return 'Labels'
-  return isFilter.value ? 'Filters' : 'My Projects'
+  return isFilter.value ? 'Favorites' : 'My Projects'
 })
 // Today has no compose row (a new task needs a home), and neither does a
 // filter: its rows are whatever the rules gather, not a list to add to.

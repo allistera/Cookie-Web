@@ -20,7 +20,7 @@ test('Saved filters gather matching tasks across projects and can be edited, ren
   }
 
   await page.goto('/tasks?project=inbox')
-  await expect(page.locator('.tasks-filters-nav')).toContainText('No filters yet')
+  await expect(page.locator('.tasks-favorites-nav')).toContainText('No favorites yet')
 
   await page.getByRole('button', { name: 'New filter', exact: true }).click()
   const editor = page.getByRole('dialog', { name: 'New filter' })
@@ -37,7 +37,7 @@ test('Saved filters gather matching tasks across projects and can be edited, ren
   await expect(page.locator('.task-content')).toHaveText(['Urgent in Work', 'Urgent in Inbox'])
   await expect(page.locator('.task-home')).toHaveText(['Work', 'Inbox'])
   await expect(page.locator('.add-task-btn')).toHaveCount(0)
-  const row = page.locator('.tasks-filters-nav .filter-item')
+  const row = page.locator('.tasks-favorites-nav .filter-item')
   await expect(row).toHaveCount(1)
   await expect(row).toHaveClass(/active/)
 
@@ -70,9 +70,9 @@ test('Saved filters gather matching tasks across projects and can be edited, ren
   await row.hover()
   await row.getByRole('button', { name: 'Delete filter Urgent inbox' }).click()
   await expect(page).toHaveURL(/project=inbox/)
-  await expect(page.locator('.tasks-filters-nav')).toContainText('No filters yet')
+  await expect(page.locator('.tasks-favorites-nav')).toContainText('No favorites yet')
   await page.getByRole('button', { name: 'Undo' }).click()
-  await expect(page.locator('.tasks-filters-nav .filter-item .nav-text')).toHaveText([
+  await expect(page.locator('.tasks-favorites-nav .filter-item .nav-text')).toHaveText([
     'Urgent inbox',
   ])
 })

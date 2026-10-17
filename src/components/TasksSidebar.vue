@@ -342,9 +342,10 @@ async function removeProject(project) {
 
 // --- Filters ---
 // Saved filters are rules, like Inbox and Today: each lists the tasks it
-// fits across every project. The "+" and a row's edit button open the
-// editor dialog (TaskFilterEditor); double-click renames in place, as a
-// project does.
+// fits across every project. They sit in Favorites beside the starred
+// projects. The section's "+" and a row's edit button open the editor
+// dialog (TaskFilterEditor); double-click renames in place, as a project
+// does.
 const renamingFilterId = ref(null)
 const renameFilterName = ref('')
 const renameFilterInput = ref(null)
@@ -527,10 +528,12 @@ function onLabelDrop(label, event) {
       </router-link>
     </nav>
 
-    <!-- Saved filters sit with Inbox and Today: like them, each is a rule
-       that gathers tasks from across the projects below. -->
+    <!-- Favorites gathers the shortcuts: saved filters first, then the
+       projects starred from the tree below. A filter is a rule like Inbox
+       and Today, collecting tasks from across the projects; a favorite
+       project is a second way to its row in My Projects. -->
     <div class="sb-section-label tasks-projects-label">
-      <span>Filters</span>
+      <span>Favorites</span>
       <button
         class="new-filter-btn"
         type="button"
@@ -541,7 +544,7 @@ function onLabelDrop(label, event) {
         <span class="material-symbols-outlined" aria-hidden="true">add</span>
       </button>
     </div>
-    <nav class="sidebar-nav tasks-filters-nav" aria-label="Filters">
+    <nav class="sidebar-nav tasks-favorites-nav" aria-label="Favorites">
       <router-link
         v-for="filter in filtersStore.filters"
         :key="filter.id"
@@ -585,12 +588,6 @@ function onLabelDrop(label, event) {
           </button>
         </span>
       </router-link>
-      <p v-if="!filtersStore.filters.length" class="tasks-filters-empty">No filters yet</p>
-    </nav>
-    <TaskFilterEditor v-if="filtersStore.editor" />
-
-    <div class="sb-section-label tasks-projects-label"><span>Favorites</span></div>
-    <nav class="sidebar-nav tasks-favorites-nav" aria-label="Favorites">
       <router-link
         v-for="project in favoriteProjects"
         :key="project.id"
@@ -620,8 +617,14 @@ function onLabelDrop(label, event) {
           </button>
         </span>
       </router-link>
-      <p v-if="!favoriteProjects.length" class="tasks-favorites-empty">No favorites yet</p>
+      <p
+        v-if="!filtersStore.filters.length && !favoriteProjects.length"
+        class="tasks-favorites-empty"
+      >
+        No favorites yet
+      </p>
     </nav>
+    <TaskFilterEditor v-if="filtersStore.editor" />
 
     <div
       class="sb-section-label tasks-projects-label"
@@ -963,7 +966,6 @@ function onLabelDrop(label, event) {
 
 .tasks-favorites-empty,
 .tasks-projects-empty,
-.tasks-filters-empty,
 .tasks-labels-empty {
   margin: 0;
   padding: 2px 8px;
