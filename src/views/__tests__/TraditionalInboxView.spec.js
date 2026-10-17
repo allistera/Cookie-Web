@@ -4257,12 +4257,16 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
     expect(update).toHaveBeenCalledExactlyOnceWith(['one', 'two'], { is_starred: true })
     expect(store.traditionalEmails.map((email) => email.starred)).toEqual([true, true])
+  })
 
-    update.mockRejectedValueOnce(new Error('offline queue failed'))
+  it('rolls selected stars back when the batch request fails', async () => {
+    vi.spyOn(store, 'sendMessagesPatchSerialized').mockRejectedValue(
+      new Error('offline queue failed'),
+    )
     await select()
     await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
     await flushPromises()
-    expect(store.traditionalEmails.map((email) => email.starred)).toEqual([true, true])
+    expect(store.traditionalEmails.map((email) => email.starred)).toEqual([false, false])
     expect(store.notify).toHaveBeenCalledWith('Failed to update starred state.', 'error')
   })
 
