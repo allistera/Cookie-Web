@@ -260,7 +260,7 @@ function isSnoozedAt(scheduledFor) {
 // badge. That list is the inbox except during a search, when it holds results
 // from every folder; a result is one only if the inbox itself would list it
 // (the server's received-inbox rule: not Done, sent, spam or snoozed).
-function isInboxRow(store, email) {
+export function isInboxRow(store, email) {
   if (!store.activeSearchQuery) return true
   return !email.isArchived && !email.isSent && !email.isSpam && !isSnoozedAt(email.scheduledFor)
 }
@@ -1577,7 +1577,7 @@ export const useInboxStore = defineStore('inbox', {
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${LABELS_API_URL}/labels`, { headers })
+        const response = await fetch(`${LABELS_API_URL}/labels?include_counts=false`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/labels responded ${response.status}`)
         }
@@ -1606,7 +1606,7 @@ export const useInboxStore = defineStore('inbox', {
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
-        const response = await fetch(`${LABELS_API_URL}/categories`, { headers })
+        const response = await fetch(`${LABELS_API_URL}/categories?include_counts=false`, { headers })
         if (!response.ok) {
           throw new Error(`GET /categories responded ${response.status}`)
         }
@@ -2216,6 +2216,33 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
+    async sendMessagesPatch(ids, changes) {
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
+          method: 'PATCH', headers, body: JSON.stringify({ ids, ...changes }),
+        })
+        noteNetworkSuccess()
+        if (!response.ok) throw new Error(`PATCH /api/messages responded ${response.status}`)
+        return response.json()
+      } catch (error) {
+        if (!isNetworkError(error)) throw error
+        noteNetworkFailure()
+        await Promise.all(ids.map((id) => enqueueOutbox({ kind: MESSAGE_PATCH, key: id, payload: { id, ...changes } })))
+        return { queued: true }
+      }
+    },
+
+    async sendMessagesPost(ids, action, extra = {}) {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch(`${MESSAGES_API_URL}/messages`, {
+        method: 'POST', headers, body: JSON.stringify({ ids, action, ...extra }),
+      })
+      noteNetworkSuccess()
+      if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
+      return response.json()
+    },
+
     replayMessagePatch({ id, ...changes }) {
       return this.sendMessagePatch(id, changes)
     },
@@ -2674,7 +2701,7 @@ export const useInboxStore = defineStore('inbox', {
     // Moves an inbox message out of sight until its scheduled time. Future
     // messages live in the Snoozed folder; the inbox API returns them again
     // once due, when the view places them in the Due Today group.
-    async scheduleEmail(email, scheduledFor, label, shouldNotify = true, undoActions = null) {
+    async scheduleEmail(email, scheduledFor, label, shouldNotify = true, undoActions = null, persist = null) {
       if (!email) return false
       const inboxIndex = this.traditionalEmails.indexOf(email)
       const snoozedIndex = this.snoozedEmails.indexOf(email)
@@ -2736,6 +2763,7 @@ export const useInboxStore = defineStore('inbox', {
         message: `Scheduled for ${label}.`,
         errorMessage: 'Failed to schedule email.',
         shouldNotify,
+        persist: persist ? (next) => persist(email, next) : undefined,
       })
       if (inboxIndex > -1) trackInboxRemoval(email.id, persistence)
       const success = await persistence
@@ -2745,7 +2773,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // Optimistically removes the email from the list (closing the reader if
     // it was open) and persists the archive flag.
-    archiveEmail(email, shouldNotify = true, undoActions = null) {
+    archiveEmail(email, shouldNotify = true, undoActions = null, persist = null) {
       if (!email) return null
       const positions = captureListPositions(email, [
         this.traditionalEmails,
@@ -2806,6 +2834,7 @@ export const useInboxStore = defineStore('inbox', {
         message: 'Marked done.',
         errorMessage: 'Failed to archive email.',
         shouldNotify,
+        persist: persist ? (next) => persist(email, next) : undefined,
       })
       if (positions[0].index > -1) trackInboxRemoval(email.id, persistence)
       if (undoActions) undoActions.push(undo)
@@ -2914,7 +2943,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // Soft-deletes an email: optimistically removes it from every visible
     // list (including Done) and persists the is_deleted flag.
-    deleteEmail(email, shouldNotify = true, undoActions = null) {
+    deleteEmail(email, shouldNotify = true, undoActions = null, persist = null) {
       if (!email) return null
       const positions = captureListPositions(email, [
         this.traditionalEmails,
@@ -2963,6 +2992,7 @@ export const useInboxStore = defineStore('inbox', {
         message: 'Deleted.',
         errorMessage: 'Failed to delete email.',
         shouldNotify,
+        persist: persist ? (next) => persist(email, next) : undefined,
       })
       if (positions[0].index > -1) trackInboxRemoval(email.id, persistence)
       if (undoActions) undoActions.push(undo)
@@ -4513,9 +4543,10 @@ export const useInboxStore = defineStore('inbox', {
       askAbortController = controller
       const seq = ++askSeq
       this.isChatLoading = true
+      let activeReply = null
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${SEARCH_API_URL}/ask`, {
+        const response = await fetch(`${SEARCH_API_URL}/ask?stream=1`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ question: query }),
@@ -4524,16 +4555,39 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`POST /ask responded ${response.status}`)
         }
-        const { answer, sources } = await response.json()
-        if (seq !== askSeq) return
-        pushCapped(
-          this.chatHistory,
-          { text: answer, sender: 'ai', sources: sources || [] },
-          MAX_CHAT_HISTORY,
-        )
+        if (response.headers.get('Content-Type')?.includes('application/json')) {
+          const { answer, sources } = await response.json()
+          if (seq !== askSeq) return
+          pushCapped(this.chatHistory, { text: answer, sender: 'ai', sources: sources || [] }, MAX_CHAT_HISTORY)
+          return
+        }
+        activeReply = { text: '', sender: 'ai', sources: [], typing: true }
+        pushCapped(this.chatHistory, activeReply, MAX_CHAT_HISTORY)
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error('Assistant stream unavailable')
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const events = buffer.split('\n\n')
+          buffer = events.pop() ?? ''
+          for (const event of events) {
+            const line = event.split('\n').find((part) => part.startsWith('data: '))
+            if (!line) continue
+            const data = JSON.parse(line.slice(6))
+            if (data.type === 'sources') activeReply.sources = data.sources || []
+            if (data.type === 'token') activeReply.text += data.text
+            if (data.type === 'done') activeReply.typing = false
+          }
+          if (seq !== askSeq) return
+        }
+        activeReply.typing = false
       } catch (error) {
         if (seq !== askSeq) return
         if (error?.name === 'AbortError') return
+        if (activeReply) activeReply.typing = false
         console.error('Ask failed:', error)
         pushCapped(
           this.chatHistory,
