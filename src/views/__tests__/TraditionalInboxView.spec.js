@@ -4279,7 +4279,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     })
     await select()
     await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
-    expect(store.starredEmails.map((email) => email.id)).toEqual(['one', 'two'])
+    expect(store.starredEmails.map((email) => email.id).sort()).toEqual(['one', 'two'])
   })
 
   it('removes bulk-unstared emails from the loaded starred list', async () => {
@@ -4288,6 +4288,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
       email.starred = true
     })
     store.starredEmails = [...store.traditionalEmails]
+    await router.replace({ path: '/inbox', query: { filter: 'starred' } })
     await select()
     await wrapper.get('.ni-bulk-bar [title="Star"]').trigger('click')
     expect(store.starredEmails).toEqual([])
