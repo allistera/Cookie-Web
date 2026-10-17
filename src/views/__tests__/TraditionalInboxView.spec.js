@@ -4234,12 +4234,15 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     'marks only unread selected mail read with %s',
     async (action) => {
       store.traditionalEmails[1].unread = false
-      const unread = vi.spyOn(store, 'setUnread')
+      const unread = vi.spyOn(store, 'sendMessagesPatchSerialized').mockResolvedValue({
+        updated: 1,
+        ids: ['one'],
+      })
       await select()
       if (action === 'button')
         await button(wrapper.get('.ni-bulk-bar'), 'Mark Read').trigger('click')
       else await key('I', { shiftKey: true })
-      expect(unread).toHaveBeenCalledExactlyOnceWith(store.traditionalEmails[0], false)
+      expect(unread).toHaveBeenCalledExactlyOnceWith(['one'], { is_unread: false })
       expect(store.notify).toHaveBeenCalledWith('Marked as read.')
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     },
@@ -4279,13 +4282,15 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   it('adds a bulk label only to messages that do not already have it', async () => {
     store.labels = [label]
     store.traditionalEmails[0].labels = [{ name: 'Home' }]
-    const apply = vi.spyOn(store, 'toggleMessageLabel').mockResolvedValue()
+    const apply = vi
+      .spyOn(store, 'sendMessagesPost')
+      .mockResolvedValue({ updated: 1, ids: ['two'] })
     await select()
     await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
     await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
     expect(wrapper.findAll('.ni-bulk-bar [role="menu"]')).toHaveLength(1)
     await button(wrapper.get('.ni-bulk-bar [role="menu"]'), 'Home').trigger('click')
-    expect(apply).toHaveBeenCalledExactlyOnceWith(store.traditionalEmails[1], label)
+    expect(apply).toHaveBeenCalledExactlyOnceWith(['two'], 'add_label', { label_id: label.id })
     expect(store.notify).toHaveBeenCalledWith('Label "Home" applied.')
     expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
   })
@@ -4307,20 +4312,19 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     'applies bulk category %s and reports %s successful changes',
     async (name, successes, message) => {
       store.categories = [category]
-      vi.spyOn(store, 'setMessageCategory').mockResolvedValue(false)
-      for (let index = 0; index < successes; index++)
-        store.setMessageCategory.mockResolvedValueOnce(true)
+      const update = vi.spyOn(store, 'sendMessagesPatch').mockResolvedValue({
+        updated: successes,
+        ids: store.traditionalEmails.slice(0, successes).map((email) => email.id),
+      })
       await select()
       await button(wrapper.get('.ni-bulk-bar'), 'Label').trigger('click')
       await button(wrapper.get('.ni-bulk-bar'), 'Category').trigger('click')
       expect(wrapper.findAll('.ni-bulk-bar [role="menu"]')).toHaveLength(1)
       await button(wrapper.get('.ni-bulk-bar [role="menu"]'), name).trigger('click')
       await flushPromises()
-      expect(store.setMessageCategory).toHaveBeenCalledTimes(2)
-      expect(store.setMessageCategory).toHaveBeenCalledWith(
-        store.traditionalEmails[0],
-        name === 'Work' ? category : null,
-      )
+      expect(update).toHaveBeenCalledExactlyOnceWith(['one', 'two'], {
+        category_id: name === 'Work' ? category.id : null,
+      })
       expect(store.notify.mock.calls).toEqual(message ? [[message]] : [])
       expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     },

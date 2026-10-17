@@ -855,7 +855,7 @@ describe('Inbox Store', () => {
     const fetchMock = vi.fn(async (url) => ({
       ok: true,
       json: async () =>
-        String(url).endsWith('/categories')
+        String(url).split('?')[0].endsWith('/categories')
           ? { categories: [{ id: 'c1' }] }
           : { labels: [{ id: 'l1' }] },
     }))
@@ -3246,6 +3246,7 @@ describe('Inbox Store', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
+        headers: { get: () => 'application/json' },
         json: async () => ({
           answer: '**City Construction** sent a revised plan.',
           sources: [{ id: 'm1', subject: 'Revised Floor Plan', from_name: 'City Construction' }],
@@ -3256,7 +3257,7 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await store.askAssistant('What happened with the renovation?')
 
-    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/ask`, {
+    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/ask?stream=1`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3297,6 +3298,7 @@ describe('Inbox Store', () => {
       .mockImplementationOnce(() => firstResponse)
       .mockResolvedValueOnce({
         ok: true,
+        headers: { get: () => 'application/json' },
         json: async () => ({ answer: 'new answer', sources: [] }),
       })
     vi.stubGlobal('fetch', fetchMock)
@@ -3307,7 +3309,11 @@ describe('Inbox Store', () => {
     await store.askAssistant('new question')
 
     expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
-    resolveFirst({ ok: true, json: async () => ({ answer: 'stale answer', sources: [] }) })
+    resolveFirst({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ answer: 'stale answer', sources: [] }),
+    })
     await first
 
     expect(
