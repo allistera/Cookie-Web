@@ -851,7 +851,7 @@ describe('the Filters section', () => {
     await flushPromises()
 
     const sections = wrapper.findAll('.sb-section-label > span').map((label) => label.text())
-    expect(sections).toEqual(['Filters', 'My Projects', 'Labels'])
+    expect(sections).toEqual(['Filters', 'Favorites', 'My Projects', 'Labels'])
     const rows = wrapper.findAll('.tasks-filters-nav .filter-item')
     expect(rows.map((row) => row.get('.nav-text').text())).toEqual(['Urgent', 'Someday'])
     expect(rows[0].attributes('href')).toBe('/tasks?project=filter:f1')
@@ -993,4 +993,29 @@ describe('project favorites', () => {
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
     wrapper.unmount()
   })
+})
+
+it('reveals a new sub-project created from a collapsed nested favorite', async () => {
+  localStorage.clear()
+  const store = useProjectsStore()
+  store.projects = [
+    { id: 'p1', name: 'Work', parentId: null },
+    { id: 'p2', name: 'API', parentId: 'p1', isFavorite: true },
+  ]
+  store.isLoaded = true
+  vi.spyOn(store, 'request').mockResolvedValue({
+    project: { id: 'p3', name: 'Backend', parentId: 'p2' },
+  })
+  const wrapper = mountSidebar()
+  await wrapper.get('.tasks-favorites-nav [aria-haspopup="menu"]').trigger('click')
+  await wrapper.get('.project-menu [data-action="add"]').trigger('click')
+  await wrapper.get('.new-project-row input').setValue('Backend')
+  await wrapper.get('.new-project-row').trigger('submit')
+  await flushPromises()
+  expect(wrapper.findAll('.tasks-projects-nav .nav-text').map((row) => row.text())).toEqual([
+    'Work',
+    'API',
+    'Backend',
+  ])
+  wrapper.unmount()
 })

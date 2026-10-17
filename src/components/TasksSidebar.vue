@@ -49,7 +49,7 @@ const projectMenuElement = ref(null)
 let projectMenuTrigger = null
 
 async function openProjectMenu(project, event) {
-  if (projectMenu.value?.project.id === project.id) {
+  if (projectMenu.value?.project.id === project.id && projectMenuTrigger === event.currentTarget) {
     closeProjectMenu()
     return
   }
@@ -166,7 +166,12 @@ async function submitNewProject() {
   if (!name) return
   const created = await store.createProject({ name, parentId })
   if (!created) return
-  if (parentId) expandedIds.value = new Set(expandedIds.value).add(parentId)
+  if (parentId) {
+    expandedIds.value = new Set([
+      ...expandedIds.value,
+      ...store.ancestorsOf(parentId).map((row) => row.id),
+    ])
+  }
 }
 
 const renamingId = ref(null)
@@ -859,7 +864,7 @@ function onLabelDrop(label, event) {
 <style scoped>
 .project-menu {
   position: fixed;
-  z-index: 1000;
+  z-index: var(--z-popover);
   width: 240px;
   padding: 6px;
   border: 1px solid var(--border-color);
