@@ -315,7 +315,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
       try {
         const body = parentId === null ? { content, projectId } : { content, parentId }
         if (recurrence?.trim()) Object.assign(body, { recurrence, today: localToday() })
-        for (const key of ['description', 'dueDate', 'dueTime', 'timeZone', 'priority', 'labels']) {
+        for (const key of [
+          'description',
+          'dueDate',
+          'dueTime',
+          'timeZone',
+          'durationMinutes',
+          'priority',
+          'labels',
+        ]) {
           if (fields[key] !== undefined) body[key] = fields[key]
         }
         const { item } = await this.request('POST', { body })
@@ -351,6 +359,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     setDueTime(id, dueTime, timeZone) {
       return this.patchItem(id, {}, { dueTime, timeZone }, 'Failed to set the time.')
+    },
+
+    setDuration(id, durationMinutes) {
+      return this.patchItem(id, {}, { durationMinutes }, 'Failed to save the estimated duration.')
     },
 
     async setLabels(id, labels) {

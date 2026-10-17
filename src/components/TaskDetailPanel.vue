@@ -7,6 +7,7 @@ import TaskHistory from './TaskHistory.vue'
 import TaskLabelPicker from './TaskLabelPicker.vue'
 import TaskProjectPicker from './TaskProjectPicker.vue'
 import TaskSchedulePicker from './TaskSchedulePicker.vue'
+import TaskDurationInput from './TaskDurationInput.vue'
 import { useAuth } from '../composables/useAuth'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useInlineEdit } from '../composables/useInlineEdit'
@@ -162,6 +163,7 @@ async function duplicate() {
     dueDate: row.dueDate ?? null,
     dueTime: row.dueTime ?? null,
     timeZone: row.timeZone ?? null,
+    durationMinutes: row.durationMinutes ?? null,
     priority: priorityOf(row),
     labels: row.labels ?? [],
     recurrence: row.recurrence ?? undefined,
@@ -307,6 +309,16 @@ const commentCount = computed(() => {
 // the server treats as cleared where '' would be refused as malformed.
 function onDateChange(dueDate) {
   items.setDueDate(props.taskId, dueDate)
+}
+
+const durationSaves = ref(0)
+async function onDurationChange(value) {
+  durationSaves.value += 1
+  try {
+    await items.setDuration(props.taskId, value)
+  } finally {
+    durationSaves.value -= 1
+  }
 }
 
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -932,6 +944,13 @@ onBeforeUnmount(() => {
             @update:due-date="onDateChange"
             @update:due-time="onTimeChange"
             @save-recurrence="saveRecurrence"
+          />
+
+          <h3 class="task-panel-section">Estimated duration</h3>
+          <TaskDurationInput
+            :model-value="item?.durationMinutes ?? null"
+            :saving="durationSaves > 0"
+            @update:model-value="onDurationChange"
           />
 
           <p v-if="addedStamp" class="task-panel-added">

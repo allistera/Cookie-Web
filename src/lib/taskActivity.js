@@ -17,6 +17,7 @@ export const FIELD_LABELS = {
   parent_id: 'Parent task',
   due_date: 'Due date',
   due_time: 'Due time',
+  duration_minutes: 'Estimated duration',
   time_zone: 'Time zone',
   labels: 'Labels',
   priority: 'Priority',
@@ -41,6 +42,7 @@ export function displayValue(value, field, { projectName, taskTitle } = {}) {
   if (field === 'parent_id') return value ? taskTitle?.(value) || 'Another task' : 'None'
   if (isEmpty(value)) return 'None'
   if (Array.isArray(value)) return value.join(', ')
+  if (field === 'duration_minutes') return `${value} min`
   if (field === 'priority') return `P${value}`
   return String(value)
 }

@@ -433,3 +433,15 @@ Document AI uses the authenticated `/document-chat` route on `cookie-web-ai`; th
 New plain tables use a lightweight cell editor with Add row and Add column controls. Choose **Open spreadsheet** for formulas and advanced spreadsheet tools. Existing formula tables and workbook snapshots keep the full spreadsheet editor, with offscreen activation deferred until needed. Plain-table edits keep the existing content-grid storage/export format.
 
 Document blocks become interactive only after Editor.js has installed its change observer. Task deep links wait for their detail lookup; temporary failures remain retryable. AI document creation completes its save without replacing a document opened while the request was pending.
+
+### Estimated task duration
+
+Set **Estimated duration** in a task's detail panel or the **Advanced** Add Task
+form. Enter 1–1440 minutes; clear the input to remove the estimate. Estimates can
+be saved before scheduling a task and are preserved when duplicating a task or
+completing a recurring occurrence. In Calendar, a task with a due time occupies
+its estimated duration, defaulting to 30 minutes when no estimate is set. Tasks
+without a due time remain in the all-day area.
+
+Roll out migration `0098_task_duration.sql` before the updated task Worker, then
+the web client. Duration changes appear in the task's Activity tab.

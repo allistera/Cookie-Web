@@ -486,3 +486,10 @@ page also has a History button, available even when no active tasks remain.
 The CI Checks job runs the shipped migration against a separate disposable
 Postgres service using `TASK_ACTIVITY_TEST_DATABASE_URL`. It covers backfill,
 transitions, recurrence, cascades, rollback, row security, and goal constraints.
+
+## Estimated task duration
+
+`0098_task_duration.sql` adds nullable `task_items.duration_minutes`, a whole
+number from 1 to 1440 for tasks only, and records estimate edits in task activity.
+Existing tasks have no estimate. A duration does not require a date or time.
+Apply the migration before deploying `cookie-web-tasks`, then deploy Cookie-Web.

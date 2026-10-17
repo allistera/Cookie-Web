@@ -2072,16 +2072,29 @@ export function localApiPlugin(mode) {
               String(a.dueDate).localeCompare(String(b.dueDate)) ||
               String(a.dueTime ?? '99:99').localeCompare(String(b.dueTime ?? '99:99')),
           )
-          .map(({ id, projectId, parentId, content, dueDate, dueTime, timeZone, priority }) => ({
-            id,
-            projectId,
-            parentId,
-            content,
-            dueDate,
-            dueTime,
-            timeZone,
-            priority,
-          }))
+          .map(
+            ({
+              id,
+              projectId,
+              parentId,
+              content,
+              dueDate,
+              dueTime,
+              timeZone,
+              durationMinutes,
+              priority,
+            }) => ({
+              id,
+              projectId,
+              parentId,
+              content,
+              dueDate,
+              dueTime,
+              durationMinutes: durationMinutes ?? null,
+              timeZone,
+              priority,
+            }),
+          )
         return json(res, { items })
       }
       if (req.method === 'GET' && (url.searchParams.get('project') ?? '').startsWith('filter:')) {
@@ -2285,6 +2298,7 @@ export function localApiPlugin(mode) {
           description: body.description ?? null,
           dueDate: hasDue ? String(body.dueDate) : null,
           dueTime: body.dueTime ?? null,
+          durationMinutes: body.durationMinutes ?? null,
           timeZone: body.dueTime ? (body.timeZone ?? null) : null,
           labels: Array.isArray(body.labels) ? [...new Set(body.labels)] : [],
           priority: body.priority ?? 4,
@@ -2307,6 +2321,7 @@ export function localApiPlugin(mode) {
         const hasDueDate = Object.hasOwn(body, 'dueDate')
         const hasTime = Object.hasOwn(body, 'dueTime') || Object.hasOwn(body, 'timeZone')
         const hasLabels = Object.hasOwn(body, 'labels')
+        const hasDuration = Object.hasOwn(body, 'durationMinutes')
         const hasPriority = Object.hasOwn(body, 'priority')
         const hasRecurrence = Object.hasOwn(body, 'recurrence')
         const hasCompleted = Object.hasOwn(body, 'completed')
@@ -2317,6 +2332,7 @@ export function localApiPlugin(mode) {
           !hasDueDate &&
           !hasTime &&
           !hasLabels &&
+          !hasDuration &&
           !hasPriority &&
           !hasRecurrence &&
           !hasCompleted
@@ -2353,6 +2369,7 @@ export function localApiPlugin(mode) {
           item.dueTime = body.dueTime ?? null
           item.timeZone = item.dueTime ? (body.timeZone ?? item.timeZone ?? null) : null
         }
+        if (hasDuration) item.durationMinutes = body.durationMinutes
         if (hasLabels) item.labels = Array.isArray(body.labels) ? [...new Set(body.labels)] : []
         if (hasPriority) item.priority = body.priority ?? 4
         if (hasRecurrence) item.recurrence = body.recurrence || null
