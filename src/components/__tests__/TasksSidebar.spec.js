@@ -84,7 +84,7 @@ describe('TasksSidebar', () => {
     expect(wrapper.get('.tasks-projects-empty').text()).toBe('No projects yet')
   })
 
-  it('shows server task counts for projects and favorites, including zero and nested projects', async () => {
+  it('shows positive server counts for projects and favorites and hides zero counts', async () => {
     localStorage.removeItem('cookie-tasks-expanded-projects')
     useTaskLabelsStore().isLoaded = true
     useTaskFiltersStore().isLoaded = true
@@ -105,12 +105,19 @@ describe('TasksSidebar', () => {
     expect(counts('.tasks-favorites-nav')).toEqual(['1234'])
 
     await wrapper.get('.project-arrow').trigger('click')
-    expect(counts('.tasks-projects-nav')).toEqual(['1234', '0'])
+    expect(counts('.tasks-projects-nav')).toEqual(['1234'])
 
     store.projects[0].taskCount = 1233
+    store.projects[1].taskCount = 2
     await wrapper.vm.$nextTick()
-    expect(counts('.tasks-projects-nav')).toEqual(['1233', '0'])
+    expect(counts('.tasks-projects-nav')).toEqual(['1233', '2'])
     expect(counts('.tasks-favorites-nav')).toEqual(['1233'])
+
+    store.projects[0].taskCount = 0
+    store.projects[1].taskCount = 0
+    await wrapper.vm.$nextTick()
+    expect(counts('.tasks-projects-nav')).toEqual([])
+    expect(counts('.tasks-favorites-nav')).toEqual([])
   })
 
   it('does not invent a count when an older Worker or offline cache omits it', async () => {

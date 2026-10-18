@@ -451,7 +451,7 @@ the web client. Duration changes appear in the task's Activity tab.
 ### Project favorites
 
 Project rows in My Projects and Favorites show a muted count of unfinished
-top-level tasks at the right edge, including zero for empty projects. Counts
+top-level tasks at the right edge with 60% opacity; zero counts are hidden. Counts
 exclude subtasks, dividers, completed tasks, and tasks in nested projects.
 They refresh after task changes. Deploy the updated task Worker before the
 web client to supply `taskCount` on `GET /projects`; no migration is needed.

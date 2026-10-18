@@ -605,7 +605,7 @@ function onLabelDrop(label, event) {
         <span class="project-symbol" aria-hidden="true"></span>
         <span class="nav-text">{{ project.name }}</span>
         <span
-          v-if="project.taskCount != null"
+          v-if="project.taskCount > 0"
           class="project-task-count"
           :aria-label="`${project.taskCount} unfinished tasks`"
           >{{ project.taskCount }}</span
@@ -697,7 +697,7 @@ function onLabelDrop(label, event) {
         />
         <span v-else class="nav-text">{{ row.item.name }}</span>
         <span
-          v-if="row.item.taskCount != null"
+          v-if="row.item.taskCount > 0"
           class="project-task-count"
           :aria-label="`${row.item.taskCount} unfinished tasks`"
           >{{ row.item.taskCount }}</span
@@ -1043,6 +1043,7 @@ function onLabelDrop(label, event) {
   flex-shrink: 0;
   margin-left: auto;
   color: var(--text-secondary);
+  opacity: 0.6;
   font-size: 12px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
