@@ -10,6 +10,7 @@ import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../l
 import { filterIdOf, isFilterProject, taskMatchesFilter } from '../lib/taskFilters'
 import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
+import { useProjectsStore } from './projects'
 import { useTaskFiltersStore } from './taskFilters'
 import { useTaskLabelsStore } from './taskLabels'
 
@@ -144,6 +145,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // again rather than keeping a second tally here.
     refreshLabelCounts() {
       useTaskLabelsStore().loadLabels({ force: true })
+    },
+
+    refreshProjectCounts() {
+      const projects = useProjectsStore()
+      // The sidebar owns the initial load. Forced loads share pending requests
+      // and fetch again after any request that started before this mutation.
+      if (projects.isLoaded || projects.isLoading) projects.loadProjects({ force: true })
     },
 
     async request(method, { params = '', body } = {}) {
@@ -328,6 +336,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         }
         const { item } = await this.request('POST', { body })
         if (this.belongsToLoadedList(item)) this.items.push(item)
+        this.refreshProjectCounts()
         if (item.labels?.length) this.refreshLabelCounts()
         return item
       } catch (error) {
@@ -345,6 +354,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       if (this.belongsToLoadedList(item)) {
         this.items.push(item, ...subtasks)
       }
+      this.refreshProjectCounts()
       return item
     },
 
@@ -443,6 +453,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
           Object.assign(item, updated)
           const onScreen = this.items.includes(item)
           settleInList(item)
+          if (['completed', 'projectId', 'parentId'].some((key) => Object.hasOwn(payload, key))) {
+            this.refreshProjectCounts()
+          }
           if (onScreen && Object.hasOwn(payload, 'projectId') && this.loadedProject) {
             await this.loadItems(this.loadedProject, { force: true })
           }
@@ -617,6 +630,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       this.spendSelection(ids)
       this.refreshLabelCounts()
       this.reportBulk('Deleted', removed, ids.length)
+      if (removed) this.refreshProjectCounts()
       return removed
     },
 
@@ -636,6 +650,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       this.spendSelection(ids)
       if (this.loadedProject) await this.loadItems(this.loadedProject, { force: true })
       this.reportBulk('Moved', moved, ids.length)
+      if (moved) this.refreshProjectCounts()
       return moved
     },
 
@@ -691,6 +706,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const { item: updated } = await this.request('PATCH', { body: payload })
       const item = this.items.find((row) => row.id === payload.id)
       if (item) Object.assign(item, updated)
+      this.refreshProjectCounts()
     },
 
     async setCompleted(id, completed) {
@@ -724,6 +740,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         // Sub-tasks go with it and may carry labels of their own, so this
         // does not check the removed row's labels before asking.
         this.refreshLabelCounts()
+        this.refreshProjectCounts()
         return true
       } catch (error) {
         console.error('Failed to delete task:', error)
