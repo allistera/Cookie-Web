@@ -84,6 +84,44 @@ describe('TasksSidebar', () => {
     expect(wrapper.get('.tasks-projects-empty').text()).toBe('No projects yet')
   })
 
+  it('shows server task counts for projects and favorites, including zero and nested projects', async () => {
+    localStorage.removeItem('cookie-tasks-expanded-projects')
+    useTaskLabelsStore().isLoaded = true
+    useTaskFiltersStore().isLoaded = true
+    const store = useProjectsStore()
+    store.projects = [
+      { id: 'p1', parentId: null, name: 'Work', taskCount: 1234, isFavorite: true },
+      { id: 'p2', parentId: 'p1', name: 'API', taskCount: 0 },
+    ]
+    store.isLoaded = true
+    // A partial task page must not determine the sidebar counts.
+    useTaskItemsStore().items = [{ id: 't1', projectId: 'p1' }]
+
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const counts = (section) =>
+      wrapper.findAll(`${section} .project-task-count`).map((count) => count.text())
+    expect(counts('.tasks-projects-nav')).toEqual(['1234'])
+    expect(counts('.tasks-favorites-nav')).toEqual(['1234'])
+
+    await wrapper.get('.project-arrow').trigger('click')
+    expect(counts('.tasks-projects-nav')).toEqual(['1234', '0'])
+
+    store.projects[0].taskCount = 1233
+    await wrapper.vm.$nextTick()
+    expect(counts('.tasks-projects-nav')).toEqual(['1233', '0'])
+    expect(counts('.tasks-favorites-nav')).toEqual(['1233'])
+  })
+
+  it('does not invent a count when an older Worker or offline cache omits it', async () => {
+    const store = useProjectsStore()
+    store.projects = [{ id: 'p1', parentId: null, name: 'Work', isFavorite: true }]
+    store.isLoaded = true
+    const wrapper = mountSidebar()
+    await flushPromises()
+    expect(wrapper.find('.project-task-count').exists()).toBe(false)
+  })
+
   // Today is the default view: TasksView renders it for a bare /tasks, so the
   // sidebar has to highlight it there while keeping explicit Inbox working.
   it('marks Today active for a bare /tasks and Inbox active when explicitly selected', async () => {

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { localToday } from '../../lib/localDate'
 import { useTaskItemsStore } from '../taskItems'
 import { useInboxStore } from '../inbox'
+import { useProjectsStore } from '../projects'
 import { useTaskFiltersStore } from '../taskFilters'
 import { useTaskLabelsStore } from '../taskLabels'
 
@@ -1007,6 +1008,45 @@ describe('a label list', () => {
 
     expect(fetch.mock.calls[0][0]).toContain('project=label%3Ahome')
     expect(store.loadedProject).toBe('label:home')
+  })
+})
+
+describe('project counts', () => {
+  it.each([
+    ['create', (tasks) => tasks.createItem({ content: 'New', projectId: 'p1' })],
+    ['generate', (tasks) => tasks.generateItem('Plan a release')],
+    ['complete', (tasks) => tasks.setCompleted('t1', true)],
+    ['move', (tasks) => tasks.moveItem('t1', 'p2')],
+    ['delete', (tasks) => tasks.deleteItem('t1')],
+    ['bulk delete', (tasks) => tasks.deleteItems(['t1'])],
+    ['bulk move', (tasks) => tasks.moveItems(['t1'], 'p2')],
+    ['offline replay', (tasks) => tasks.replayTaskPatch({ id: 't1', completed: true })],
+  ])('refreshes loaded project counts after a successful %s', async (_, mutate) => {
+    const projects = useProjectsStore()
+    projects.isLoaded = true
+    const reload = vi.spyOn(projects, 'loadProjects').mockResolvedValue(true)
+    vi.spyOn(store, 'refreshLabelCounts').mockImplementation(() => {})
+    vi.spyOn(store, 'request').mockResolvedValue({ item: { ...ITEM }, subtasks: [] })
+    store.items = [{ ...ITEM }]
+
+    await mutate(store)
+
+    expect(reload).toHaveBeenCalledExactlyOnceWith({ force: true })
+  })
+
+  it('keeps counts after a refused mutation and avoids refreshing for a rename', async () => {
+    const projects = useProjectsStore()
+    projects.isLoaded = true
+    const reload = vi.spyOn(projects, 'loadProjects').mockResolvedValue(true)
+    const request = vi.spyOn(store, 'request').mockRejectedValue(new Error('Refused'))
+    store.items = [{ ...ITEM }]
+
+    expect(await store.setCompleted('t1', true)).toBeNull()
+    expect(reload).not.toHaveBeenCalled()
+
+    request.mockResolvedValue({ item: { ...ITEM, content: 'Renamed' } })
+    await store.renameItem('t1', 'Renamed')
+    expect(reload).not.toHaveBeenCalled()
   })
 })
 

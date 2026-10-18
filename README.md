@@ -450,6 +450,12 @@ the web client. Duration changes appear in the task's Activity tab.
 
 ### Project favorites
 
+Project rows in My Projects and Favorites show a muted count of unfinished
+top-level tasks at the right edge, including zero for empty projects. Counts
+exclude subtasks, dividers, completed tasks, and tasks in nested projects.
+They refresh after task changes. Deploy the updated task Worker before the
+web client to supply `taskCount` on `GET /projects`; no migration is needed.
+
 In Tasks, hover over a project and open its **…** menu, then choose **Add to
 favorites**. Favorite projects appear in the **Favorites** section above My
 Projects, after any saved filters, and remain in the project tree. The same

@@ -604,6 +604,12 @@ function onLabelDrop(label, event) {
         <span class="project-arrow-spacer" aria-hidden="true"></span>
         <span class="project-symbol" aria-hidden="true"></span>
         <span class="nav-text">{{ project.name }}</span>
+        <span
+          v-if="project.taskCount != null"
+          class="project-task-count"
+          :aria-label="`${project.taskCount} unfinished tasks`"
+          >{{ project.taskCount }}</span
+        >
         <span class="row-actions" @click.prevent.stop>
           <button
             class="row-action-btn"
@@ -690,6 +696,12 @@ function onLabelDrop(label, event) {
           @blur="submitRename(row.item)"
         />
         <span v-else class="nav-text">{{ row.item.name }}</span>
+        <span
+          v-if="row.item.taskCount != null"
+          class="project-task-count"
+          :aria-label="`${row.item.taskCount} unfinished tasks`"
+          >{{ row.item.taskCount }}</span
+        >
         <span class="row-actions" @click.prevent.stop>
           <button
             class="row-action-btn"
@@ -1024,6 +1036,25 @@ function onLabelDrop(label, event) {
   padding-left: 28px;
   background: linear-gradient(to right, transparent, var(--bg-hover) 28px);
   opacity: 0;
+}
+
+.project-task-count {
+  order: 1;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reserve the menu's space so it never overlaps the count or shifts it. */
+.project-item:has(.project-task-count) .row-actions {
+  position: static;
+  transform: none;
+  flex-shrink: 0;
+  padding-left: 0;
+  background: none;
 }
 
 .project-item:hover .row-actions,
