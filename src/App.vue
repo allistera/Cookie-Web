@@ -8,8 +8,6 @@ import { useOutOfOfficeStore } from './stores/outOfOffice'
 import { useSendersStore } from './stores/senders'
 import { useBucketsStore } from './stores/buckets'
 import OfflineBanner from './components/OfflineBanner.vue'
-import OutOfOfficeBanner from './components/OutOfOfficeBanner.vue'
-import SidebarResizer from './components/SidebarResizer.vue'
 import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearOfflineData, setOfflineOwner } from './lib/offlineCache'
@@ -28,6 +26,8 @@ import { getRealtimeClient } from './lib/supabase'
 import { lazyComponent } from './router/chunkReload'
 
 // Lazy chunks: one retry, then the stale-chunk reload (see router/chunkReload).
+const OutOfOfficeBanner = lazyComponent(() => import('./components/OutOfOfficeBanner.vue'))
+const SidebarResizer = lazyComponent(() => import('./components/SidebarResizer.vue'))
 const ChatDrawer = lazyComponent(() => import('./components/ChatDrawer.vue'))
 const ContactInsightsDrawer = lazyComponent(() => import('./components/ContactInsightsDrawer.vue'))
 const CommandPalette = lazyComponent(() => import('./components/CommandPalette.vue'))

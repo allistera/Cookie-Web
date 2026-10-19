@@ -22,6 +22,8 @@ const TOOLBOX_ICON = `
 // items render as raw i18n keys (e.g. "sheets-sort-ui.general.sort") instead
 // of "Sort".
 async function loadUniver() {
+  // Select exports before returning modules so lazy imports can tree-shake
+  // unused core APIs instead of retaining every preset namespace export.
   const [
     presets,
     core,
@@ -39,20 +41,44 @@ async function loadUniver() {
     hyperLink,
     _hyperLinkLocaleEn,
   ] = await Promise.all([
-    import('@univerjs/presets'),
-    import('@univerjs/preset-sheets-core'),
+    import('@univerjs/presets').then(
+      ({ createUniver, defaultTheme, LocaleType, mergeLocales, CommandType }) => ({
+        createUniver,
+        defaultTheme,
+        LocaleType,
+        mergeLocales,
+        CommandType,
+      }),
+    ),
+    import('@univerjs/preset-sheets-core').then(({ UniverSheetsCorePreset }) => ({
+      UniverSheetsCorePreset,
+    })),
     import('@univerjs/preset-sheets-core/locales/en-US'),
-    import('@univerjs/preset-sheets-sort'),
+    import('@univerjs/preset-sheets-sort').then(({ UniverSheetsSortPreset }) => ({
+      UniverSheetsSortPreset,
+    })),
     import('@univerjs/preset-sheets-sort/locales/en-US'),
-    import('@univerjs/preset-sheets-filter'),
+    import('@univerjs/preset-sheets-filter').then(({ UniverSheetsFilterPreset }) => ({
+      UniverSheetsFilterPreset,
+    })),
     import('@univerjs/preset-sheets-filter/locales/en-US'),
-    import('@univerjs/preset-sheets-conditional-formatting'),
+    import('@univerjs/preset-sheets-conditional-formatting').then(
+      ({ UniverSheetsConditionalFormattingPreset }) => ({
+        UniverSheetsConditionalFormattingPreset,
+      }),
+    ),
     import('@univerjs/preset-sheets-conditional-formatting/locales/en-US'),
-    import('@univerjs/preset-sheets-data-validation'),
+    import('@univerjs/preset-sheets-data-validation').then(
+      ({ UniverSheetsDataValidationPreset }) => ({ UniverSheetsDataValidationPreset }),
+    ),
     import('@univerjs/preset-sheets-data-validation/locales/en-US'),
-    import('@univerjs/preset-sheets-find-replace'),
+    import('@univerjs/preset-sheets-find-replace').then(({ UniverSheetsFindReplacePreset }) => ({
+      UniverSheetsFindReplacePreset,
+    })),
     import('@univerjs/preset-sheets-find-replace/locales/en-US'),
-    import('@univerjs/preset-sheets-hyper-link'),
+    import('@univerjs/preset-sheets-hyper-link').then(({ UniverSheetsHyperLinkPreset }) => ({
+      UniverSheetsHyperLinkPreset,
+    })),
     import('@univerjs/preset-sheets-hyper-link/locales/en-US'),
   ])
   await Promise.all([

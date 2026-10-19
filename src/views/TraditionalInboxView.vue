@@ -12,7 +12,6 @@ import {
 import { useAuth } from '../composables/useAuth'
 import { isOnline } from '../lib/connectivity'
 import ComposerEditor from '../components/ComposerEditor.vue'
-import ShareAvailability from '../components/ShareAvailability.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmailBody from '../components/EmailBody.vue'
 import ContactAddress from '../components/ContactAddress.vue'
@@ -48,6 +47,9 @@ import {
   findEmailCalendarEvent,
   rememberedEmailCalendarEvent,
 } from '../lib/emailCalendarEvents'
+import { lazyComponent } from '../router/chunkReload'
+
+const ShareAvailability = lazyComponent(() => import('../components/ShareAvailability.vue'))
 
 const store = useInboxStore()
 const contactInsights = useContactInsightsStore()

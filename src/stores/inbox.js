@@ -1,5 +1,4 @@
 import { startTiming } from '../lib/performance'
-import { sendMail } from '../lib/mailSending'
 import { defineStore } from 'pinia'
 import { markRaw, toRaw } from 'vue'
 import { parseAutoArchive } from '../lib/autoArchive'
@@ -28,11 +27,8 @@ import {
 } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
 import { recipientsValid } from '../lib/recipients'
-import { isSafeUnsubscribeUrl } from '../lib/isSafeUnsubscribeUrl'
-import { parseMailto } from '../lib/unsubscribeContent'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
-import { stripReplyQuote } from '../lib/forwardEmail'
 
 // Inbox tab ids. Important and Other are fixed; other categories get their own.
 // Category ids are stable across renames and cannot collide with fixed tabs.
@@ -2667,6 +2663,10 @@ export const useInboxStore = defineStore('inbox', {
       if (!email || this.unsubscribingId) return
       this.unsubscribingId = email.id
       try {
+        const [{ isSafeUnsubscribeUrl }, { parseMailto }] = await Promise.all([
+          import('../lib/isSafeUnsubscribeUrl'),
+          import('../lib/unsubscribeContent'),
+        ])
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
@@ -3129,7 +3129,10 @@ export const useInboxStore = defineStore('inbox', {
 
     // replyToMessageId (optional) threads the stored sent copy with the
     // message being replied to.
-    sendMail,
+    async sendMail(message) {
+      const { sendMail } = await import('../lib/mailSending')
+      return sendMail.call(this, message)
+    },
 
     async setMessageFollowUp(email, followUpAt) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
@@ -4568,6 +4571,7 @@ export const useInboxStore = defineStore('inbox', {
     // already went out) so the caller can tell the user rather than silently
     // losing the row.
     async cancelScheduledSend(scheduledSend) {
+      const { stripReplyQuote } = await import('../lib/forwardEmail')
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       const response = await fetch('/api/send?resource=scheduled', {
         method: 'DELETE',
