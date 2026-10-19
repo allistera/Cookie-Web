@@ -4694,6 +4694,9 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   it('inserts availability into the reply and blocks Send during its preview', async () => {
     vi.spyOn(store, 'sendMail').mockResolvedValue({ followUpScheduled: false })
     await reply()
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent({ name: 'ShareAvailability' }).exists()).toBe(true),
+    )
     const availability = wrapper.findComponent({ name: 'ShareAvailability' })
     availability.vm.$emit('insert', '<p>Tuesday 10am</p>')
     await nextTick()

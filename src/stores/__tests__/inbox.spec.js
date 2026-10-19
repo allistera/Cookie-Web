@@ -282,8 +282,10 @@ describe('Inbox Store', () => {
 
       store.sendEmail()
       await vi.advanceTimersByTimeAsync(5000)
-      const deleted = fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')
-      expect(deleted[0]).toContain(`/drafts/${DRAFT_ID}`)
+      await vi.waitFor(() => {
+        const deleted = fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')
+        expect(deleted?.[0]).toContain(`/drafts/${DRAFT_ID}`)
+      })
       vi.useRealTimers()
     })
 
@@ -3097,7 +3099,7 @@ describe('Inbox Store', () => {
       await vi.waitFor(() => expect(store.isSendingEmail).toBe(true))
       const second = await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')
       expect(second).toBe(false)
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
 
       resolveSend({
         ok: true,
@@ -5175,6 +5177,21 @@ describe('Inbox Store', () => {
       await store.unsubscribeEmail(EMAIL)
 
       expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('sends only one unsubscribe when clicked twice immediately', async () => {
+      stubUnsubscribeResponse({ status: 'unsubscribed' })
+      const store = useInboxStore()
+      store.archiveEmail = vi.fn()
+
+      const first = store.unsubscribeEmail(EMAIL)
+      expect(store.unsubscribingId).toBe(EMAIL.id)
+      const second = store.unsubscribeEmail(EMAIL)
+      await Promise.all([first, second])
+
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(store.archiveEmail).toHaveBeenCalledOnce()
+      expect(store.unsubscribingId).toBe(null)
     })
   })
 
