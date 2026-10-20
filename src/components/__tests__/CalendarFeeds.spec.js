@@ -178,11 +178,35 @@ describe('private calendar feeds in Settings', () => {
     )
     await wrapper.get('[aria-label="Generate private link for Work"]').trigger('click')
     await flushPromises()
+    fetchMock.mockResolvedValueOnce(reply({ feeds: [] }))
     setCalendarsOwner('different-owner')
     await wrapper.setProps({ calendars: [] })
     finish(reply({ calendarId: 'work', token }, 201))
     await flushPromises()
     expect(wrapper.find('input').exists()).toBe(false)
     expect(wrapper.text()).not.toContain(token)
+  })
+
+  it('loads the new account while an old status request is still pending', async () => {
+    let finishOld
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve
+        }),
+    )
+    wrapper = mount(CalendarFeeds, { props: { calendars } })
+    await flushPromises()
+    fetchMock.mockResolvedValueOnce(reply({ feeds: [] }))
+    setCalendarsOwner('different-owner')
+    await wrapper.setProps({ calendars: [{ id: 'new-work', name: 'New Work', color: '#4f7c6b' }] })
+    await flushPromises()
+    expect(wrapper.get('[aria-label="Generate private link for New Work"]').element.disabled).toBe(
+      false,
+    )
+    finishOld(reply({ feeds: [{ calendarId: 'work' }] }))
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Loading private feeds')
+    expect(wrapper.text()).not.toContain('Private feed enabled')
   })
 })

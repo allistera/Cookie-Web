@@ -23,6 +23,18 @@ onBeforeUnmount(() => {
   links.value = {}
 })
 watch(
+  calendarSession,
+  () => {
+    links.value = {}
+    enabled.value = new Set()
+    confirmation.value = null
+    busy.value = null
+    notice.value = ''
+    loadFeeds()
+  },
+  { flush: 'sync' },
+)
+watch(
   () => props.calendars.map((calendar) => calendar.id),
   (ids) => {
     links.value = Object.fromEntries(Object.entries(links.value).filter(([id]) => ids.includes(id)))
@@ -235,7 +247,11 @@ onMounted(loadFeeds)
 
 <style scoped>
 .feed-row {
+  display: flex;
   flex-wrap: wrap;
+}
+.feed-row > .calendar-settings-copy {
+  flex: 1 1 140px;
 }
 .feed-actions,
 .feed-link {
