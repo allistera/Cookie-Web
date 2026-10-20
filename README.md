@@ -42,6 +42,15 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 
 ## Features
 
+- Settings → Calendars → **Private calendar feeds** generates a read-only
+  subscription URL for each native Cookie calendar. Copy it into another app's
+  calendar-subscription field. Links are shown only when generated; replacing
+  a link invalidates the previous one, and revoking it stops further downloads.
+  Anyone holding a link can read that calendar's full event details. Imported
+  and Google calendars are excluded. Refresh timing belongs to the subscriber;
+  previously downloaded events may remain after revocation. Native event times
+  retain Cookie's floating local-time behaviour.
+
 - Inbox, Starred, Sent, Snoozed, Spam, Done, and label views.
 - The inbox Important tab combines high-priority and due mail with mail assigned
   to a category named Important (ignoring case and surrounding spaces). Each email

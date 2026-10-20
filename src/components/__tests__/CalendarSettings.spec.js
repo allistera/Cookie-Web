@@ -63,6 +63,9 @@ function mockCalendarApi({ google = { connected: false }, defaultCalendarId = nu
     vi.fn(async (url, options = {}) => {
       const method = options.method || 'GET'
       const body = options.body ? JSON.parse(options.body) : {}
+      if (url === `${CALENDAR_API_URL}/calendar-feeds`) {
+        return { ok: true, json: async () => ({ feeds: [] }) }
+      }
       if (url === GOOGLE_ENDPOINT) {
         if (!connection)
           return { ok: true, json: async () => ({ configured: false, connected: false }) }

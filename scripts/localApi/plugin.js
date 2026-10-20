@@ -63,6 +63,7 @@ export function localApiPlugin(mode) {
         messageCategories: new Map(),
         calendarEvents: null,
         calendars: null,
+        calendarFeeds: new Set(),
         defaultCalendarId: null,
         googleCalendar: null,
         labels: null,
@@ -1354,12 +1355,45 @@ export function localApiPlugin(mode) {
     res.statusCode = 405
     res.end(JSON.stringify({ error: 'Method not allowed' }))
   }
+  const handleCalendarFeeds = async (req, res) => {
+    const state = fixtureMailboxState(req, res)
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Cache-Control', 'no-store')
+    if (req.method === 'GET') {
+      res.end(
+        JSON.stringify({ feeds: [...state.calendarFeeds].map((calendarId) => ({ calendarId })) }),
+      )
+      return
+    }
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const { calendarId } = JSON.parse(raw || '{}')
+    if (req.method === 'DELETE') {
+      state.calendarFeeds.delete(calendarId)
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
+    const calendar = state.calendars?.find(
+      (item) => item.id === calendarId && !item.subscriptionUrl,
+    )
+    if (req.method !== 'POST' || !calendar) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Calendar not found' }))
+      return
+    }
+    state.calendarFeeds.add(calendarId)
+    res.statusCode = 201
+    res.end(
+      JSON.stringify({ calendarId, token: `${randomUUID()}${randomUUID()}`.replaceAll('-', '') }),
+    )
+  }
   // Worker-origin dispatcher for cookie-web-calendar (e2e/workerFixtures.js
   // routes calendar-api.infinitywave.online back here).
   const handleWorkerCalendarApi = (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     if (url.pathname === '/calendar-events') return handleCalendarEvents(req, res)
     if (url.pathname === '/calendars') return handleCalendars(req, res)
+    if (url.pathname === '/calendar-feeds') return handleCalendarFeeds(req, res)
     if (url.pathname.startsWith('/google-calendar')) return handleGoogleCalendar(req, res)
     res.statusCode = 404
     res.setHeader('Content-Type', 'application/json')

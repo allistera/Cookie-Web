@@ -62,6 +62,21 @@ window. Apply this migration before deploying `data-enricher` and
 `cookie-web-tasks`; the Cookie-Web view only reads the `done` flag they
 return.
 
+## Private calendar feeds
+
+`0101_calendar_feeds.sql` creates the server-only `calendar_feeds` table.
+Each native calendar can have one active token; only its SHA-256 digest is
+stored. The composite foreign key binds it to the calendar's owner and deletes
+it when the calendar is deleted. Generation/replacement and revocation use
+the calendar Worker's authenticated `/calendar-feeds` endpoint; subscribers
+use `GET /calendar-feed.ics?token=…` without a Cookie session.
+
+Apply the migration, deploy the matching `cookie-web-calendar` Worker, then
+use Settings → Calendars → Private calendar feeds in Cookie-Web. While the
+migration or Worker is pending, feed controls report an unavailable status
+and ordinary calendar management remains usable. No links are enabled by
+this migration.
+
 ## Google Calendar
 
 `0091_google_calendar.sql` adds `google_calendar_connections` (one row per
