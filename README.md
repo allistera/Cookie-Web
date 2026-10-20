@@ -563,3 +563,9 @@ collapsed.
 Deploy Cookie-Web migration `0099_project_favorites.sql` before the task Worker,
 then the web client. `GET /projects` and project write responses include the
 boolean `isFavorite`; `PATCH /projects` accepts it to add or remove a favorite.
+
+Processing appears under **More** only while its message count is above zero.
+
+Document AI sends a random conversation UUID to the AI Worker, reusing it across
+turns and retries and resetting it when switching documents. The Worker uses this
+for Sentry Conversations without capturing prompts, document contents, or replies.

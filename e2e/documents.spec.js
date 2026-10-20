@@ -1470,3 +1470,30 @@ test('Files can be uploaded into a folder, switched to list view, previewed and 
   await page.locator('.browser-menu button[data-action="delete"]').click()
   await expect(card).toHaveCount(0)
 })
+
+test('Document AI reuses an opaque conversation ID across turns and resets on navigation', async ({
+  page,
+}) => {
+  const ids = []
+  await page.route(`${AI_API_URL}/document-chat`, (route) => {
+    ids.push(route.request().postDataJSON().conversationId)
+    return route.fulfill({ json: { reply: `Reply ${ids.length}`, proposal: null } })
+  })
+  await page.goto('/documents')
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  const panel = page.getByRole('complementary', { name: 'Document AI' })
+  for (let turn = 1; turn <= 2; turn++) {
+    await panel.getByRole('textbox', { name: 'Message document AI' }).fill(`Question ${turn}`)
+    await panel.getByRole('button', { name: 'Send message' }).click()
+    await expect(panel.getByText(`Reply ${turn}`, { exact: true })).toBeVisible()
+  }
+  expect(ids[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+  expect(ids[1]).toBe(ids[0])
+  await page.locator('.documents-sidebar .doc-item', { hasText: 'Scratchpad' }).click()
+  await waitForEditorReady(page)
+  await page.getByRole('button', { name: 'Open document AI' }).click()
+  await panel.getByRole('textbox', { name: 'Message document AI' }).fill('New document question')
+  await panel.getByRole('button', { name: 'Send message' }).click()
+  await expect(panel.getByText('Reply 3', { exact: true })).toBeVisible()
+  expect(ids[2]).not.toBe(ids[0])
+})
