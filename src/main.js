@@ -44,12 +44,10 @@ if (auth0 && auth0Domain) {
 }
 if (auth0) app.use(auth0)
 
-// Install the Vue error handler before rendering components. The helper
-// tolerates SDK loading failures so monitoring cannot break app startup.
-initSentry(app).then(() => {
-  app.mount('#app')
+// Install the temporary error handler synchronously, but never wait for the
+// optional SDK download before rendering the inbox or starting offline support.
+void initSentry(app)
+app.mount('#app')
 
-  // Keep development and deterministic E2E runs free of persistent workers;
-  // production registers the offline shell and recent-mail cache after mount.
-  if (!isE2E) registerServiceWorker()
-})
+// Keep development and deterministic E2E runs free of persistent workers.
+if (!isE2E) registerServiceWorker()

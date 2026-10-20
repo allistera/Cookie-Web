@@ -4,8 +4,20 @@ export async function initSentry(app, loadSdk = () => import('@sentry/vue')) {
   const dsn = import.meta.env.VITE_SENTRY_DSN?.trim()
   if (!import.meta.env.PROD || import.meta.env.VITE_E2E === 'true' || !dsn) return
 
+  const previousHandler = app.config.errorHandler
+  const pending = []
+  app.config.errorHandler = (error, instance, info) => {
+    if (pending.length < 20) pending.push(error)
+    if (previousHandler) previousHandler.call(app, error, instance, info)
+    else console.error('An application error occurred before monitoring was ready.')
+  }
+
   try {
-    const { init } = await loadSdk()
+    const [{ init, captureException }, { sanitizeEvent }] = await Promise.all([
+      loadSdk(),
+      import('./sentryPrivacy'),
+    ])
+    app.config.errorHandler = previousHandler
     init({
       app,
       dsn,
@@ -27,19 +39,13 @@ export async function initSentry(app, loadSdk = () => import('@sentry/vue')) {
         queues: false,
         stackFrameVariables: false,
       },
-      beforeSend(event) {
-        return {
-          ...event,
-          request: undefined,
-          user: undefined,
-          breadcrumbs: undefined,
-          tags: { ...event.tags, service: 'cookie-web' },
-        }
-      },
+      beforeSend: sanitizeEvent,
     })
+    for (const error of pending) captureException(error)
   } catch {
-    // Monitoring must not prevent the app from mounting if its chunk fails
-    // to load (for example, when blocked by an extension).
+    app.config.errorHandler = previousHandler
     console.warn('Error monitoring could not be initialized.')
+  } finally {
+    pending.length = 0
   }
 }
