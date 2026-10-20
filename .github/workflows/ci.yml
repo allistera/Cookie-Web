@@ -40,7 +40,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      cleanup-postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: cleanup-test-only
+          POSTGRES_DB: cookie_object_cleanup_test
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
+      OBJECT_CLEANUP_TEST_DATABASE_URL: postgres://postgres:cleanup-test-only@127.0.0.1:5434/cookie_object_cleanup_test
       TASK_ACTIVITY_TEST_DATABASE_URL: postgres://postgres:activity-test-only@127.0.0.1:5433/cookie_task_activity_test
       SCREENING_TEST_DATABASE_URL: postgres://postgres:screening-test-only@127.0.0.1:5432/cookie_screening_test
 
@@ -56,6 +70,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit
 
       - name: Check formatting
         run: npm run format:check

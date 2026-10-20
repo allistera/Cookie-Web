@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { URL } from 'node:url'
 import { fixtureSubscriptionUrl } from './fixtures/calendars.js'
@@ -1193,8 +1193,8 @@ export function localApiPlugin(mode) {
   //
   // Stands in for cookie-web-calendar's /google-calendar routes and its live
   // Google reads. Google is never contacted: "Connect Google Calendar" is sent
-  // to this server's own callback, which marks the fixture account connected
-  // and bounces the browser back to Settings exactly as the Worker would.
+  // to this server's own callback, which stages a fresh handle. The SPA must
+  // complete the transaction with the verifier it saved before navigation.
   const ensureGoogleCalendar = async (state) => {
     if (!state.googleCalendar) {
       const { FIXTURE_GOOGLE_EMAIL, fixtureGoogleCalendars, fixtureGoogleEvents } =
@@ -1307,10 +1307,14 @@ export function localApiPlugin(mode) {
     const google = await ensureGoogleCalendar(state)
     const url = new URL(req.url, 'http://localhost')
     if (url.pathname === '/google-calendar/callback') {
-      google.connected = true
-      google.email = google.fixtureEmail
+      if (!google.pending || google.pending.state !== url.searchParams.get('state')) {
+        res.statusCode = 400
+        res.end('Google sign-in expired')
+        return
+      }
+      google.pending.completion = randomBytes(32).toString('base64url')
       const back = new URL(google.returnTo || '/settings/calendar', `http://${req.headers.host}`)
-      back.searchParams.set('google', 'connected')
+      back.hash = `google_completion=${google.pending.completion}`
       res.statusCode = 302
       res.setHeader('Location', back.toString())
       res.end()
@@ -1330,11 +1334,32 @@ export function localApiPlugin(mode) {
     const body = JSON.parse(raw || '{}')
     if (req.method === 'POST' && body.action === 'authorize') {
       google.returnTo = body.returnTo
+      google.pending = {
+        state: randomBytes(32).toString('base64url'),
+        verifier: randomBytes(32).toString('base64url'),
+      }
       res.end(
         JSON.stringify({
-          url: `http://${req.headers.host}/__e2e__/calendar-api/google-calendar/callback?state=fixture`,
+          url: `http://${req.headers.host}/__e2e__/calendar-api/google-calendar/callback?state=${google.pending.state}`,
+          verifier: google.pending.verifier,
         }),
       )
+      return
+    }
+    if (req.method === 'POST' && body.action === 'complete') {
+      if (
+        !google.pending?.completion ||
+        body.completion !== google.pending.completion ||
+        body.verifier !== google.pending.verifier
+      ) {
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: 'Google sign-in could not be verified' }))
+        return
+      }
+      google.pending = null
+      google.connected = true
+      google.email = google.fixtureEmail
+      res.end(JSON.stringify({ connected: true }))
       return
     }
     if (req.method === 'PATCH') {

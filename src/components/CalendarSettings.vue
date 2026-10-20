@@ -10,6 +10,11 @@ import {
   useCalendars,
 } from '../composables/useCalendars'
 import { NAVIGATE_TO, navigateTo as leaveTo } from '../lib/externalNavigation'
+import {
+  clearGoogleAuthorization,
+  pendingGoogleAuthorization,
+  rememberGoogleAuthorization,
+} from '../lib/googleCalendarAuth'
 import CalendarFeeds from './CalendarFeeds.vue'
 
 const store = useInboxStore()
@@ -344,8 +349,11 @@ async function connectGoogle() {
       }),
     })
     if (!response.ok) throw new Error(`POST google-calendar responded ${response.status}`)
-    const { url } = await response.json()
+    const { url, verifier } = await response.json()
     if (!url) throw new Error('No authorization URL')
+    // Failure to retain the proof must stop navigation, not create an
+    // unbound connection attempt (e.g. storage disabled in this browser).
+    rememberGoogleAuthorization(verifier)
     // Stays busy: the page is on its way to Google.
     navigateTo(String(url))
   } catch (error) {
@@ -427,12 +435,64 @@ function googleCalendarHint(calendar) {
     .join(' · ')
 }
 
-// Google's redirect lands on /settings/calendar?google=connected|error (via
-// the Worker's callback). Report it once and drop it from the URL.
-function consumeGoogleReturn() {
+// Remove the fresh callback handle from the address bar before authenticating
+// the completion, and retain it in this tab if Auth0 needs another login.
+async function consumeGoogleReturn() {
+  const session = calendarSession()
+  const fragment = new URLSearchParams((router?.currentRoute.value.hash || '').replace(/^#/, ''))
+  const completion = fragment.get('google_completion')
+  let pending
+  try {
+    pending = pendingGoogleAuthorization(completion ?? undefined)
+  } catch {
+    pending = null
+  }
+  if (completion) {
+    await router.replace({ hash: '' })
+  }
+  if (completion || pending) {
+    if (!pending) {
+      googleError.value = 'Start Google sign-in again in this browser.'
+      return
+    }
+    googleBusy.value = true
+    try {
+      const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+      if (!isCalendarSessionCurrent(session)) return
+      const response = await fetch(GOOGLE_CALENDAR_ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action: 'complete',
+          completion: pending.completion,
+          verifier: pending.verifier,
+        }),
+      })
+      // A terminal response consumes or rejects this flow. A network/auth
+      // failure keeps it available for a reload until the transaction expires.
+      if (
+        response.ok ||
+        (response.status >= 400 && response.status < 500) ||
+        response.status === 502
+      ) {
+        clearGoogleAuthorization()
+      }
+      if (!response.ok) throw new Error('Google sign-in could not be completed')
+      if (!isCalendarSessionCurrent(session)) return
+      store.notify('Google Calendar connected. Choose which calendars to show.', 'info')
+    } catch {
+      if (isCalendarSessionCurrent(session)) {
+        googleError.value = 'Google Calendar could not be connected. Retry or start sign-in again.'
+      }
+    } finally {
+      if (isCalendarSessionCurrent(session)) googleBusy.value = false
+    }
+    return
+  }
   const query = router?.currentRoute.value.query
   const outcome = query?.google
   if (!outcome) return
+  clearGoogleAuthorization()
   if (outcome === 'connected') {
     store.notify('Google Calendar connected. Choose which calendars to show.', 'info')
   } else {
@@ -449,8 +509,8 @@ function consumeGoogleReturn() {
   router.replace({ query: rest })
 }
 
-onMounted(() => {
-  consumeGoogleReturn()
+onMounted(async () => {
+  await consumeGoogleReturn()
   loadCalendars()
   loadGoogle()
 })

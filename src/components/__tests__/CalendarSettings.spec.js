@@ -6,6 +6,7 @@ import CalendarSettings from '../CalendarSettings.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { resetCalendarsStateForTests } from '../../composables/useCalendars'
 import { NAVIGATE_TO } from '../../lib/externalNavigation'
+import { clearGoogleAuthorization, rememberGoogleAuthorization } from '../../lib/googleCalendarAuth'
 import { fixtureSubscriptionUrl } from '../../../scripts/localApi/fixtures/calendars.js'
 
 import { CALENDAR_API_URL } from '../../lib/apiWorkers'
@@ -18,6 +19,12 @@ enableAutoUnmount(afterEach)
 const ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const GOOGLE_ENDPOINT = `${CALENDAR_API_URL}/google-calendar`
 const clone = (value) => JSON.parse(JSON.stringify(value))
+const googleCalls = (method) =>
+  vi
+    .mocked(fetch)
+    .mock.calls.filter(
+      ([url, options]) => url === GOOGLE_ENDPOINT && (options?.method || 'GET') === method,
+    )
 
 const GOOGLE_CALENDARS = [
   {
@@ -80,8 +87,15 @@ function mockCalendarApi({ google = { connected: false }, defaultCalendarId = nu
         if (method === 'POST' && body.action === 'authorize') {
           return {
             ok: true,
-            json: async () => ({ url: 'https://accounts.google.com/o/oauth2/v2/auth?state=s1' }),
+            json: async () => ({
+              url: 'https://accounts.google.com/o/oauth2/v2/auth?state=s1',
+              verifier: 'v'.repeat(43),
+            }),
           }
+        }
+        if (method === 'POST' && body.action === 'complete') {
+          connection.connected = true
+          return { ok: true, json: async () => ({ connected: true }) }
         }
         if (method === 'PATCH') {
           connection.selected = body.calendarIds
@@ -169,6 +183,7 @@ async function mountManager() {
 }
 
 beforeEach(() => {
+  clearGoogleAuthorization()
   setActivePinia(createPinia())
   const store = useInboxStore()
   vi.spyOn(store, 'authHeaders').mockResolvedValue({})
@@ -178,6 +193,41 @@ beforeEach(() => {
 })
 
 describe('CalendarSettings', () => {
+  it('rejects a callback opened in a browser that did not start linking', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/settings/:section?', component: CalendarSettings }],
+    })
+    await router.push(`/settings/calendar#google_completion=${'c'.repeat(43)}`)
+    await router.isReady()
+    const wrapper = mount(CalendarSettings, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Start Google sign-in again in this browser.')
+    expect(googleCalls('POST')).toHaveLength(0)
+    expect(router.currentRoute.value.hash).toBe('')
+  })
+
+  it('finishes with the saved browser proof and clears the callback fragment', async () => {
+    rememberGoogleAuthorization('v'.repeat(43))
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/settings/:section?', component: CalendarSettings }],
+    })
+    await router.push(`/settings/calendar#google_completion=${'c'.repeat(43)}`)
+    await router.isReady()
+    mount(CalendarSettings, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(JSON.parse(googleCalls('POST')[0][1].body)).toEqual({
+      action: 'complete',
+      completion: 'c'.repeat(43),
+      verifier: 'v'.repeat(43),
+    })
+    expect(router.currentRoute.value.hash).toBe('')
+    expect(useInboxStore().notify).toHaveBeenCalledWith(
+      expect.stringContaining('Google Calendar connected'),
+      'info',
+    )
+  })
   it('lists calendars and creates calendars and subscriptions', async () => {
     const wrapper = await mountManager()
 
@@ -332,13 +382,6 @@ describe('CalendarSettings default calendar', () => {
 })
 
 describe('CalendarSettings Google Calendar', () => {
-  const googleCalls = (method) =>
-    vi
-      .mocked(fetch)
-      .mock.calls.filter(
-        ([url, options]) => url === GOOGLE_ENDPOINT && (options?.method || 'GET') === method,
-      )
-
   it('offers to connect and sends the browser to the consent URL the Worker issues', async () => {
     const wrapper = await mountManager()
 
