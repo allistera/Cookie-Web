@@ -52,7 +52,7 @@ let loaded = false
 const calendarLoads = createSharedLoad()
 const LOADS = {}
 let owner = null
-let generation = 0
+const generation = ref(0)
 
 // App sets this synchronously at the authentication boundary. Outstanding
 // reads and syncs from the previous account must never repopulate the cache.
@@ -62,8 +62,8 @@ export function setCalendarsOwner(sub) {
   resetCalendarsState()
 }
 
-export const calendarSession = () => generation
-export const isCalendarSessionCurrent = (session) => session === generation
+export const calendarSession = () => generation.value
+export const isCalendarSessionCurrent = (session) => session === generation.value
 
 // Cookie's own calendars, which Settings creates, renames and deletes.
 const localCalendars = computed(() =>
@@ -91,15 +91,15 @@ export function useCalendars(authHeaders, notify) {
   }
 
   async function fetchCalendars() {
-    const session = generation
+    const session = generation.value
     const revision = defaultRevision
     try {
       const headers = await authHeaders()
-      if (session !== generation) return false
+      if (session !== generation.value) return false
       const response = await fetch(CALENDARS_ENDPOINT, { headers })
       if (!response.ok) throw new Error(`GET calendars responded ${response.status}`)
       const body = await response.json()
-      if (session !== generation) return false
+      if (session !== generation.value) return false
       if (!Array.isArray(body.calendars)) throw new Error('Invalid calendars response')
       calendars.value = body.calendars ?? []
       if (revision === defaultRevision) {
@@ -108,7 +108,7 @@ export function useCalendars(authHeaders, notify) {
       loaded = true
       return true
     } catch (error) {
-      if (session !== generation) return false
+      if (session !== generation.value) return false
       console.error('Failed to load calendars:', error)
       notify('Failed to load calendars.', 'error')
       return false
@@ -118,16 +118,16 @@ export function useCalendars(authHeaders, notify) {
   // Pulls a subscribed calendar's feed now. Updates the shared row with the
   // outcome and returns it, leaving any UI state to the caller.
   async function syncCalendar(id) {
-    const session = generation
+    const session = generation.value
     const headers = await authHeaders({ 'Content-Type': 'application/json' })
-    if (session !== generation) return { ok: false, errorMessage: 'Account changed' }
+    if (session !== generation.value) return { ok: false, errorMessage: 'Account changed' }
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'sync', id }),
     })
     const body = await response.json().catch(() => ({}))
-    if (session !== generation) return { ok: false, errorMessage: 'Account changed' }
+    if (session !== generation.value) return { ok: false, errorMessage: 'Account changed' }
     const errorMessage = body.subscriptionError || body.error || null
     const index = calendars.value.findIndex((item) => item.id === id)
     if (index !== -1) {
@@ -144,18 +144,18 @@ export function useCalendars(authHeaders, notify) {
   // Saves (or, with null, clears) the calendar new events go to. Resolves to
   // whether the Worker accepted it; the shared ref only changes on success.
   async function setDefaultCalendar(id) {
-    const session = generation
+    const session = generation.value
     const headers = await authHeaders({ 'Content-Type': 'application/json' })
-    if (session !== generation) return false
+    if (session !== generation.value) return false
     const response = await fetch(CALENDARS_ENDPOINT, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({ defaultCalendarId: id ?? null }),
     })
-    if (session !== generation) return false
+    if (session !== generation.value) return false
     if (!response.ok) return false
     const body = await response.json().catch(() => ({}))
-    if (session !== generation) return false
+    if (session !== generation.value) return false
     defaultRevision += 1
     defaultCalendarId.value = body.defaultCalendarId ? String(body.defaultCalendarId) : null
     return true
@@ -175,7 +175,7 @@ export function useCalendars(authHeaders, notify) {
 }
 
 function resetCalendarsState() {
-  generation += 1
+  generation.value += 1
   calendars.value = []
   defaultCalendarId.value = null
   defaultRevision += 1

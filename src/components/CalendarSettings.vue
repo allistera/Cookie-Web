@@ -10,6 +10,7 @@ import {
   useCalendars,
 } from '../composables/useCalendars'
 import { NAVIGATE_TO, navigateTo as leaveTo } from '../lib/externalNavigation'
+import CalendarFeeds from './CalendarFeeds.vue'
 
 const store = useInboxStore()
 // Optional in standalone component tests; used to read and clear the
@@ -646,6 +647,8 @@ onMounted(() => {
         </div>
       </form>
     </section>
+
+    <CalendarFeeds v-if="!isLoading" :calendars="localCalendars" />
 
     <section class="calendar-settings-group" aria-labelledby="google-calendar-heading">
       <div class="calendar-settings-group-header">

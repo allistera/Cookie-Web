@@ -1,7 +1,7 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarSettings from '../CalendarSettings.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { resetCalendarsStateForTests } from '../../composables/useCalendars'
@@ -13,6 +13,7 @@ import { CALENDAR_API_URL } from '../../lib/apiWorkers'
 // jsdom cannot navigate; the Google consent trip is observed through the
 // injected navigation seam.
 const navigateTo = vi.fn()
+enableAutoUnmount(afterEach)
 
 const ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const GOOGLE_ENDPOINT = `${CALENDAR_API_URL}/google-calendar`
@@ -63,6 +64,9 @@ function mockCalendarApi({ google = { connected: false }, defaultCalendarId = nu
     vi.fn(async (url, options = {}) => {
       const method = options.method || 'GET'
       const body = options.body ? JSON.parse(options.body) : {}
+      if (url === `${CALENDAR_API_URL}/calendar-feeds`) {
+        return { ok: true, json: async () => ({ feeds: [] }) }
+      }
       if (url === GOOGLE_ENDPOINT) {
         if (!connection)
           return { ok: true, json: async () => ({ configured: false, connected: false }) }
