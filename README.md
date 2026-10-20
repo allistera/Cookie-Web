@@ -255,6 +255,40 @@ The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Attachm
 
 Vercel stores browser build values. GitHub Actions stores only the secrets its migration workflow needs.
 
+### Browser error monitoring
+
+The browser uses [`@sentry/vue`](https://docs.sentry.io/platforms/javascript/guides/vue/)
+for uncaught JavaScript errors, unhandled promise rejections, and Vue component
+errors. Set these **build-time** variables in Vercel, then redeploy:
+
+| Name                      | Purpose                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `VITE_SENTRY_DSN`         | Browser project's Sentry DSN. Omit to disable monitoring.                       |
+| `VITE_SENTRY_ENVIRONMENT` | Environment label, such as `production` or `preview`; defaults to `production`. |
+| `VITE_SENTRY_RELEASE`     | Optional release identifier, such as the deployed commit SHA.                   |
+
+The SDK loads in the background without delaying app mount or service-worker
+registration. A temporary Vue handler buffers up to 20 errors until it is ready;
+existing error handlers still run. Browser errors outside Vue during this brief
+loading window are not captured. Development and
+E2E runs skip initialization even when a DSN is present. SDK loading or
+initialization failures do not prevent mounting. Tracing, session replay, and
+logs are not enabled. User identity, request metadata, breadcrumbs, Vue props,
+and Sentry's optional data-collection categories are excluded. Free-form error messages and diagnostic context are removed before delivery.
+Only standard error types and same-origin `/assets/*.js` stack locations
+(with query strings and fragments removed) are retained, alongside SDK event
+identifiers and configured environment/release metadata. Custom error names,
+source snippets, local variables, and arbitrary tags are excluded. This trades
+error-message detail for mailbox privacy.
+
+The CSP allows Sentry's default, US, and EU ingestion domains. A self-hosted or
+custom ingestion domain must also be added to `connect-src` in `vercel.json`.
+Source-map uploads are not configured; never put a Sentry auth token in a
+`VITE_` variable, since those values are public browser build configuration.
+To verify delivery after deployment, trigger a temporary uncaught error from
+the browser console and check the Sentry project's Issues view for the event
+with `service: cookie-web`. Remove any temporary verification code afterward.
+
 ### Auth0 user provisioning
 
 API authorization binds the token's verified Auth0 issuer and immutable `sub`
