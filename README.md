@@ -255,39 +255,79 @@ The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Attachm
 
 Vercel stores browser build values. GitHub Actions stores only the secrets its migration workflow needs.
 
-### Browser error monitoring
+### Browser monitoring and Vercel configuration
 
 The browser uses [`@sentry/vue`](https://docs.sentry.io/platforms/javascript/guides/vue/)
-for uncaught JavaScript errors, unhandled promise rejections, and Vue component
-errors. Set these **build-time** variables in Vercel, then redeploy:
+for errors, page-load/navigation performance, request timings, Web Vitals, and
+browser CPU profiles where the JavaScript Self-Profiling API is supported.
+Vercel's Sentry integration variables are read at **build time**; redeploy after
+changing them. Only the public DSN, environment, and release are embedded in the
+browser bundle.
 
-| Name                      | Purpose                                                                         |
-| ------------------------- | ------------------------------------------------------------------------------- |
-| `VITE_SENTRY_DSN`         | Browser project's Sentry DSN. Omit to disable monitoring.                       |
-| `VITE_SENTRY_ENVIRONMENT` | Environment label, such as `production` or `preview`; defaults to `production`. |
-| `VITE_SENTRY_RELEASE`     | Optional release identifier, such as the deployed commit SHA.                   |
+| Variable                       | Use                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `SENTRY_DSN`                   | Enables browser reporting in production builds.                                              |
+| `VERCEL_ENV`                   | Environment label (`production` or `preview`); defaults to `production` outside Vercel.      |
+| `VERCEL_GIT_COMMIT_SHA`        | Release identifier shared by events and source-map uploads.                                  |
+| `SENTRY_AUTH_TOKEN`            | Build-only credential for source-map upload. Never expose through `VITE_`.                   |
+| `SENTRY_ORG`, `SENTRY_PROJECT` | Source-map upload destination.                                                               |
+| `SENTRY_PUBLIC_KEY`            | Not needed separately; the browser DSN already contains its public key.                      |
+| `SENTRY_OTLP_TRACES_URL`       | Server-side OpenTelemetry endpoint; not used by this browser SDK.                            |
+| `SENTRY_VERCEL_LOG_DRAIN_URL`  | Used by Vercel log-drain configuration, not the browser; this PR does not provision a drain. |
+
+Existing `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`, and `VITE_SENTRY_RELEASE`
+overrides remain supported. `SENTRY_ENVIRONMENT` and `SENTRY_RELEASE` also take
+precedence over Vercel's environment/commit defaults. An explicitly empty
+`VITE_SENTRY_DSN` disables monitoring even if `SENTRY_DSN` is present.
+
+Browser tracing samples 10% of traces and uses Vue router names for navigation.
+It records numeric Web Vitals and timing data, with URLs, query strings,
+DOM selectors/text, arbitrary span attributes, and span links removed before
+sending. Only the app's known route names and standard operation names survive.
+Browser profiling samples 10% of sessions and runs while sampled traces are
+active (`profileLifecycle: 'trace'`). Vercel sends `Document-Policy: js-profiling`
+on app document responses. Supported browsers can then collect execution-stack
+samples; browsers without the profiling API still report errors and traces.
+Profiles include code locations and function names, not mailbox values; they
+are separate from the error/span filtering described here.
+Request tracing headers are not propagated to APIs. This covers browser
+performance, not backend tracing or custom business metrics. Session replay
+and application log collection remain disabled.
 
 The SDK loads in the background without delaying app mount or service-worker
 registration. A temporary Vue handler buffers up to 20 errors until it is ready;
-existing error handlers still run. Browser errors outside Vue during this brief
-loading window are not captured. Development and
-E2E runs skip initialization even when a DSN is present. SDK loading or
-initialization failures do not prevent mounting. Tracing, session replay, and
-logs are not enabled. User identity, request metadata, breadcrumbs, Vue props,
-and Sentry's optional data-collection categories are excluded. Free-form error messages and diagnostic context are removed before delivery.
-Only standard error types and same-origin `/assets/*.js` stack locations
-(with query strings and fragments removed) are retained, alongside SDK event
-identifiers and configured environment/release metadata. Custom error names,
-source snippets, local variables, and arbitrary tags are excluded. This trades
-error-message detail for mailbox privacy.
+existing error handlers still run. Browser errors outside Vue during this
+loading window are not captured, and early request spans can be missed.
+Development and E2E runs skip initialization even when a DSN is present.
+SDK loading or initialization failures do not prevent mounting.
+
+Error events exclude user identity, request metadata, breadcrumbs, Vue props,
+free-form messages, and arbitrary diagnostic context. They retain standard
+error types and same-origin `/assets/*.js` stack locations without query strings
+or fragments, plus validated source-map debug IDs and configured release metadata.
+This trades error-message detail for mailbox privacy. Performance spans have
+separate filtering because Sentry v11 streams them independently of errors.
+
+When the DSN, auth token, organization, and project are all present for a build,
+the Sentry Vite plugin creates hidden source maps, uploads them, and deletes
+`dist/**/*.map` before deployment. Shared modules already needed at startup are
+bundled together to avoid paying Sentry's debug-ID bootstrap overhead in many
+small chunks; the existing entry and feature size budgets remain unchanged.
+The build uses native module preloads without the legacy preload polyfill;
+browsers without module-preload support still load ES modules normally, but
+without that preload optimization. Missing credentials leave source maps off;
+invalid credentials cause the upload/build to fail so an unsuccessful upload is
+visible. Fix any **Needs Attention** token status in the Vercel integration
+before deploying with uploads enabled. No token is needed for browser reporting.
 
 The CSP allows Sentry's default, US, and EU ingestion domains. A self-hosted or
 custom ingestion domain must also be added to `connect-src` in `vercel.json`.
-Source-map uploads are not configured; never put a Sentry auth token in a
-`VITE_` variable, since those values are public browser build configuration.
-To verify delivery after deployment, trigger a temporary uncaught error from
-the browser console and check the Sentry project's Issues view for the event
-with `service: cookie-web`. Remove any temporary verification code afterward.
+After deploying, trigger a temporary asynchronous uncaught error and check the
+Sentry project's Issues view for `service: cookie-web` and the expected release.
+Browse several routes and check performance traces/Web Vitals and the Profiling
+view in a supported browser; sampling means
+not every visit appears. Source-map upload and live ingestion require valid
+Sentry configuration and cannot be verified by the credential-free CI build.
 
 ### Auth0 user provisioning
 
