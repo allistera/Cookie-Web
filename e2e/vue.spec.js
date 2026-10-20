@@ -3205,7 +3205,7 @@ test('Tasks: project favorites persist and can be removed from their shortcut', 
 })
 
 test('Processing under More with 0 messages', async ({ page }) => {
-  await page.route(`${EMAILS_API_URL}/emails?*`, (route) =>
+  await page.route(`${EMAILS_API_URL}/emails**`, (route) =>
     route.fulfill({ json: { emails: [], total: 0, unreadCount: 0, processingCount: 0 } }),
   )
   await page.goto('/inbox?filter=processing')
@@ -3216,7 +3216,7 @@ test('Processing under More with 0 messages', async ({ page }) => {
 })
 
 test('Processing under More with 2 messages', async ({ page }) => {
-  await page.route(`${EMAILS_API_URL}/emails?*`, (route) =>
+  await page.route(`${EMAILS_API_URL}/emails**`, (route) =>
     route.fulfill({ json: { emails: [], total: 0, unreadCount: 0, processingCount: 2 } }),
   )
   await page.goto('/inbox?filter=processing')
