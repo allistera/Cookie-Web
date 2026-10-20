@@ -7,11 +7,13 @@ import { useSavedViewsStore } from './stores/savedViews'
 import { useOutOfOfficeStore } from './stores/outOfOffice'
 import { useSendersStore } from './stores/senders'
 import { useBucketsStore } from './stores/buckets'
-import OfflineBanner from './components/OfflineBanner.vue'
 import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearOfflineData, setOfflineOwner } from './lib/offlineCache'
-import { installOutboxSync, syncOutbox } from './lib/outbox'
+import { drainDraftRecoveryWrites } from './lib/draftRecovery'
+import { clearGoogleAuthorization } from './lib/googleCalendarAuth'
+import { installOutboxSync, outboxPending, syncOutbox } from './lib/outbox'
+import { isOnline } from './lib/connectivity'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
@@ -27,6 +29,7 @@ import { lazyComponent } from './router/chunkReload'
 
 // Lazy chunks: one retry, then the stale-chunk reload (see router/chunkReload).
 const OutOfOfficeBanner = lazyComponent(() => import('./components/OutOfOfficeBanner.vue'))
+const OfflineBanner = lazyComponent(() => import('./components/OfflineBanner.vue'))
 const SidebarResizer = lazyComponent(() => import('./components/SidebarResizer.vue'))
 const ChatDrawer = lazyComponent(() => import('./components/ChatDrawer.vue'))
 const ContactInsightsDrawer = lazyComponent(() => import('./components/ContactInsightsDrawer.vue'))
@@ -54,6 +57,13 @@ const router = useRouter()
 const { loginWithRedirect, logout, isAuthenticated, user, isLoading } = useAuth()
 const showLogoutMenu = ref(false)
 const showMoreNav = ref(false)
+const tasksNavigationOpen = ref(false)
+watch(
+  () => route.fullPath,
+  () => {
+    tasksNavigationOpen.value = false
+  },
+)
 // A temporary sidebar width set by dragging SidebarResizer; unset keeps
 // each sidebar's own default.
 const { width: sidebarWidth } = useSidebarWidth()
@@ -287,6 +297,14 @@ function openSettings() {
 }
 
 async function handleLogout() {
+  if (
+    store.draftRecoveries.length &&
+    !window.confirm(
+      'Some drafts are saved only on this device. Logging out removes these local copies. Log out anyway?',
+    )
+  )
+    return
+  setOfflineOwner(null)
   setCalendarsOwner(null)
   store.setComposeOwner(null)
   savedViewsStore.setOwner(null)
@@ -294,12 +312,21 @@ async function handleLogout() {
   bucketsStore.setOwner(null)
   searchStore.clear()
   clearCachedMail()
+  clearGoogleAuthorization()
   // Mail, tasks and documents cached for offline use belong to the account
   // signing out; the logout redirect waits for the delete to land.
+  await drainDraftRecoveryWrites()
   await clearOfflineData()
-  setOfflineOwner(null)
   logout({ logoutParams: { returnTo: window.location.origin } })
 }
+
+function warnAboutUnstoredDrafts(event) {
+  if (!store.draftRecoveries.some((entry) => !entry.durable)) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', warnAboutUnstoredDrafts))
+onUnmounted(() => window.removeEventListener('beforeunload', warnAboutUnstoredDrafts))
 
 // Header Search: one combined box (mail + documents) leading to the
 // dedicated /search results page, which keeps q/scope/page in the URL so
@@ -390,6 +417,7 @@ const LIST_ONLY_FOLDERS = [
   'label',
   'screening',
   'blocked',
+  'processing',
 ]
 function landsOnInboxList() {
   return (
@@ -443,9 +471,9 @@ onUnmounted(() => {
 })
 
 watch(
-  isAuthenticated,
-  (authenticated) => {
-    if (authenticated) {
+  () => (isAuthenticated.value ? user.value?.sub : null),
+  (sub) => {
+    if (sub) {
       scheduleIdleTask(() => loadMaterialSymbols())
       // The first inbox page carries the same counts and Realtime identity,
       // so a session landing on the inbox list skips the separate state call.
@@ -577,7 +605,7 @@ onUnmounted(() => {
 
   <!-- Authenticated App -->
   <template v-else>
-    <router-view v-if="route.meta.layout === 'settings'" />
+    <router-view v-if="route.meta.layout === 'settings'" :key="store.composeOwnerSub" />
     <div v-else class="app-container">
       <!-- TOP HEADER -->
       <header class="app-header">
@@ -714,10 +742,28 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <OfflineBanner />
+      <OfflineBanner v-if="!isOnline || outboxPending" />
       <OutOfOfficeBanner />
 
-      <div class="app-body" :style="sidebarWidthStyle">
+      <button
+        v-if="activeApp === 'tasks'"
+        type="button"
+        class="tasks-navigation-toggle"
+        aria-controls="tasks-navigation"
+        :aria-expanded="tasksNavigationOpen"
+        @click="tasksNavigationOpen = !tasksNavigationOpen"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">menu</span>
+        {{ tasksNavigationOpen ? 'Hide task navigation' : 'Show task navigation' }}
+      </button>
+      <div
+        class="app-body"
+        :class="{
+          'tasks-app': activeApp === 'tasks',
+          'tasks-navigation-open': tasksNavigationOpen,
+        }"
+        :style="sidebarWidthStyle"
+      >
         <!-- LEFT SIDEBAR -->
         <aside v-if="activeApp === 'email'" class="left-sidebar">
           <button class="compose-btn" @click="store.openComposer()">
@@ -753,6 +799,17 @@ onUnmounted(() => {
             >
               <span class="material-symbols-outlined">star</span>
               <span class="nav-text">Starred</span>
+            </router-link>
+            <router-link
+              :to="{ path: '/inbox', query: { filter: 'processing' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'processing' }"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">pending</span>
+              <span class="nav-text">Processing</span>
+              <span v-if="store.processingCount" class="nav-badge">{{
+                store.processingCount
+              }}</span>
             </router-link>
             <router-link
               v-if="store.screeningCount || route.query.filter === 'screening'"
@@ -868,13 +925,13 @@ onUnmounted(() => {
         <DocumentsSidebar v-else-if="activeApp === 'documents'" />
 
         <!-- Tasks: its own sidebar replaces the mail one -->
-        <TasksSidebar v-else-if="activeApp === 'tasks'" />
+        <TasksSidebar v-else-if="activeApp === 'tasks'" id="tasks-navigation" />
 
         <SidebarResizer v-if="['email', 'documents', 'tasks'].includes(activeApp)" />
 
         <!-- MAIN CONTENT PANEL -->
         <main class="main-content">
-          <router-view />
+          <router-view :key="store.composeOwnerSub" />
         </main>
 
         <Transition name="contact-drawer">

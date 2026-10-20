@@ -1,6 +1,6 @@
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
-import { setActivePinia, createPinia } from 'pinia'
+import { enableAutoUnmount, mount } from '@vue/test-utils'
+import { setActivePinia, getActivePinia, createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 
@@ -12,9 +12,12 @@ import { useSavedViewsStore } from '../../stores/savedViews'
 import { setAuth0Client } from '../../auth0-client'
 import { setTheme } from '../../lib/theme'
 
+enableAutoUnmount(afterEach)
+
 // useCommands needs a component's injection context for useRoute/useRouter,
 // so run it inside a bare harness mounted with a real memory-history router.
 async function setupCommands(routeName = 'ai-inbox') {
+  const pinia = getActivePinia()
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -41,7 +44,7 @@ async function setupCommands(routeName = 'ai-inbox') {
       return () => null
     },
   })
-  mount(Harness, { global: { plugins: [router] } })
+  mount(Harness, { global: { plugins: [pinia, router] } })
 
   return { commands, filterCommands, push }
 }
@@ -199,6 +202,7 @@ describe('useCommands', () => {
   })
 
   it('offers document exports only while a document is open', async () => {
+    const pinia = getActivePinia()
     const elsewhere = await setupCommands('documents')
     expect(elsewhere.commands.value.map((c) => c.id)).not.toContain('export-pdf')
 
@@ -216,7 +220,7 @@ describe('useCommands', () => {
           return () => null
         },
       }),
-      { global: { plugins: [router] } },
+      { global: { plugins: [pinia, router] } },
     )
     const documents = useDocumentsStore()
     commands.value.find((c) => c.id === 'export-pdf').run()
@@ -226,6 +230,7 @@ describe('useCommands', () => {
   })
 
   it('Add Divider is offered on a task list but not on Today', async () => {
+    const pinia = getActivePinia()
     const today = await setupCommands('tasks')
     expect(today.commands.value.map((c) => c.id)).not.toContain('add-divider')
 
@@ -243,7 +248,7 @@ describe('useCommands', () => {
           return () => null
         },
       }),
-      { global: { plugins: [router] } },
+      { global: { plugins: [pinia, router] } },
     )
     commands.value.find((c) => c.id === 'add-divider').run()
     expect(useTaskItemsStore().viewActionRequest).toMatchObject({ action: 'add-divider' })
@@ -315,6 +320,7 @@ describe('useCommands', () => {
 
     compose.run()
     expect(store.isComposerActive).toBe(true)
+    await vi.waitFor(() => expect(store.contactsLoaded).toBe(true))
   })
 
   it('shows email commands when an email is open, with state-aware titles', async () => {

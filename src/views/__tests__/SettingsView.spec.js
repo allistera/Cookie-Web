@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -9,6 +9,8 @@ import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
 import { AI_API_URL, EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+
+enableAutoUnmount(afterEach)
 
 // useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
@@ -251,6 +253,22 @@ describe('SettingsView', () => {
     await wrapper.get('.rule-generator-form').trigger('submit')
     await flushPromises()
   }
+
+  it('loads account settings after authentication supplies the owner', async () => {
+    const signedInUser = authUser.value
+    authUser.value = undefined
+    const wrapper = mountView()
+    await flushPromises()
+    expect(fetch).not.toHaveBeenCalled()
+
+    authUser.value = signedInUser
+    await vi.waitFor(() => expect(store.rules).toHaveLength(1))
+    await vi.waitFor(() => expect(store.labels).toHaveLength(2))
+    await vi.waitFor(() => expect(store.categories).toHaveLength(1))
+    await vi.waitFor(() => expect(store.composePreferencesLoaded).toBe(true))
+    await openRulesPane(wrapper)
+    expect(wrapper.get('[title="Edit Bills"]').exists()).toBe(true)
+  })
 
   it('generates an editable draft without creating a rule', async () => {
     const wrapper = await openView()
@@ -921,10 +939,10 @@ describe('SettingsView', () => {
   })
 
   it('requests browser permission and enables new-mail notifications for the current user', async () => {
-    store.userId = '11111111-1111-1111-1111-111111111111'
     const requestPermission = vi.fn().mockResolvedValue('granted')
     vi.stubGlobal('Notification', { permission: 'default', requestPermission })
     const wrapper = await openView()
+    store.userId = '11111111-1111-1111-1111-111111111111'
 
     await openPane(wrapper, 'notifications')
     await wrapper.find('.browser-notifications-switch').setValue(true)
@@ -940,13 +958,13 @@ describe('SettingsView', () => {
   })
 
   it('keeps browser notifications off when permission is denied', async () => {
-    store.userId = '11111111-1111-1111-1111-111111111111'
     const requestPermission = vi.fn().mockImplementation(async () => {
       Notification.permission = 'denied'
       return 'denied'
     })
     vi.stubGlobal('Notification', { permission: 'default', requestPermission })
     const wrapper = await openView()
+    store.userId = '11111111-1111-1111-1111-111111111111'
 
     await openPane(wrapper, 'notifications')
     await wrapper.find('.browser-notifications-switch').setValue(true)
@@ -1038,11 +1056,13 @@ describe('SettingsView', () => {
 
     await wrapper.findAll('.label-auto-tag-switch')[1].setValue(true)
 
-    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'l2', auto_apply: true }),
-    })
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'l2', auto_apply: true }),
+      }),
+    )
     expect(store.labels[1].auto_apply).toBe(true)
   })
 
@@ -1242,11 +1262,13 @@ describe('SettingsView', () => {
 
     await wrapper.find('.rule-row input[type="checkbox"]').setValue(false)
 
-    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'r1', enabled: false }),
-    })
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels/rules`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'r1', enabled: false }),
+      }),
+    )
     expect(store.rules[0].enabled).toBe(false)
   })
 
@@ -1421,6 +1443,11 @@ describe('SettingsView', () => {
   })
 
   describe('Personalisation pane', () => {
+    beforeEach(() => {
+      // Preloaded preferences belong to the account initialized by App before this route mounts.
+      store.setComposeOwner(authUser.value.sub)
+    })
+
     async function openPersonalisationPane(wrapper) {
       await openPane(wrapper, 'personalisation')
     }

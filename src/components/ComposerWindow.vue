@@ -105,6 +105,10 @@ watch(
 
 const scheduleSendOpen = ref(false)
 const scheduleSendOptions = computed(() => (scheduleSendOpen.value ? scheduleChoices() : []))
+const scheduledRetryAt = computed(() => store.composerSendIdentity?.outgoing?.sendAt)
+const scheduledRetryLabel = computed(() =>
+  scheduledRetryAt.value ? new Date(scheduledRetryAt.value).toLocaleString() : '',
+)
 const followUpOpen = ref(false)
 const followUpOptions = computed(() => (followUpOpen.value ? scheduleChoices() : []))
 const followUpLabel = computed(() => {
@@ -309,6 +313,27 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+    <div class="composer-save-status" role="status">
+      {{
+        store.composerSaveState === 'saved'
+          ? 'Saved'
+          : store.composerSaveState === 'saving'
+            ? 'Saving…'
+            : store.composerSaveState === 'local'
+              ? 'Saved on this device. Waiting to sync.'
+              : 'Not saved. Keep this tab open and retry.'
+      }}
+      <button
+        v-if="store.composerSaveState === 'local' || store.composerSaveState === 'error'"
+        type="button"
+        @click="store.flushComposerDraft()"
+      >
+        Retry save
+      </button>
+    </div>
+    <div v-if="scheduledRetryAt" class="composer-save-status" role="status">
+      Confirm the original request for {{ scheduledRetryLabel }} before changing its time.
+    </div>
     <div class="composer-body">
       <div class="composer-main">
         <div
@@ -421,9 +446,9 @@ onUnmounted(() => {
               :aria-busy="store.isSendingEmail"
               @click="store.sendEmail"
             >
-              {{ store.isSendingEmail ? 'Sending…' : 'Send' }}
+              {{ store.isSendingEmail ? 'Sending…' : scheduledRetryAt ? 'Retry schedule' : 'Send' }}
             </button>
-            <div class="ni-schedule-wrap ni-schedule-wrap-upward">
+            <div v-if="!scheduledRetryAt" class="ni-schedule-wrap ni-schedule-wrap-upward">
               <button
                 type="button"
                 class="btn btn-primary composer-schedule-caret"

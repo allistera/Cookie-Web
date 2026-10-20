@@ -1,13 +1,19 @@
 import { startTiming } from '../lib/performance'
 import { defineStore } from 'pinia'
 import { markRaw, toRaw } from 'vue'
-import { parseAutoArchive } from '../lib/autoArchive'
+import { invokeMailSettings } from '../lib/lazyMailSettings'
 import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
 import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from '../lib/connectivity'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import {
+  loadDraftRecoveries,
+  newRecoveryId,
+  removeDraftRecovery,
+  writeDraftRecovery,
+} from '../lib/draftRecovery'
 import {
   enqueueOutbox,
   enqueueOutboxBatch,
@@ -21,8 +27,6 @@ import {
   SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
-  NOTIFICATIONS_API_URL,
-  RECEIPTS_API_URL,
   TASKS_API_URL,
 } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
@@ -39,7 +43,6 @@ export const isImportantCategory = (category) =>
   category?.name?.trim().toLowerCase() === 'important'
 import { convertEmojiInHtml, convertEmojiToEmoticons } from '../lib/emoticons'
 import { parseComposePreferences } from '../lib/composePreferences'
-import { sanitizeStoredSnippets } from '../lib/snippets'
 import { unresolvedSnippetFields, unresolvedSnippetWarning } from '../lib/snippetVariables'
 
 // Outbox kind for message flag changes (star, read, done, snooze) made while
@@ -300,14 +303,17 @@ function reversibleMessageUpdate(
     isCurrent = () => true,
   },
 ) {
+  const generation = store.composeGeneration
+  const currentAccount = () => generation === store.composeGeneration
   const send = persist ?? ((next) => store.updateMessage(email.id, next))
   let undoRequested = false
   let toastId = null
   apply()
 
   const persistence = send(changes)
-    .then(() => true)
+    .then(() => currentAccount())
     .catch((error) => {
+      if (!currentAccount()) return false
       console.error(errorMessage, error)
       if (!undoRequested && isCurrent()) {
         restore()
@@ -318,14 +324,15 @@ function reversibleMessageUpdate(
     })
 
   const undo = async () => {
-    if (undoRequested) return
+    if (undoRequested || !currentAccount()) return
     undoRequested = true
     restore()
-    if (!(await persistence)) return
+    if (!(await persistence) || !currentAccount()) return
 
     try {
       await send(undoChanges)
     } catch (error) {
+      if (!currentAccount()) return
       console.error('Failed to undo email action:', error)
       apply()
       store.notify('Failed to undo email action.', 'error')
@@ -411,6 +418,7 @@ let latestReplySave = { ticket: 0, session: -1 }
 // draft: saves queued before that carry the content it replaced.
 let composerAdoptions = 0
 let replyAdoptions = 0
+let recoveryRevision = 0
 // Optimistic concurrency for PATCH /drafts/:id: the updatedAt of the version
 // this client last received for each draft, sent back as expectedUpdatedAt so
 // a save cannot silently overwrite an edit made in another tab. Writes to one
@@ -471,6 +479,14 @@ const folderLoadSeq = {}
 // has its own loader: it additionally tracks the unread count, userId, and
 // search interplay. Folders without consumers of a "loaded" flag omit it.
 const FOLDER_STATE = {
+  processing: {
+    list: 'processingEmails',
+    cursor: 'processingCursor',
+    hasMore: 'hasMoreProcessing',
+    loaded: 'isProcessingLoaded',
+    refreshing: 'isProcessingRefreshing',
+    label: 'processing mail',
+  },
   screening: {
     list: 'screeningEmails',
     cursor: 'screeningCursor',
@@ -548,6 +564,8 @@ export function mapEmailRow(message) {
     sender: message.from_name || message.from_address,
     address: message.from_address,
     screeningStatus: message.screening_status ?? 'allowed',
+    aiStatus: message.ai_status ?? null,
+    enrichmentFailures: message.enrichment_attempts ?? 0,
     // Outbound rows render "To: <recipient>" instead of the sender.
     isSent: Boolean(message.is_sent),
     to: firstRecipient ? firstRecipient.name || firstRecipient.address : null,
@@ -695,6 +713,12 @@ export const useInboxStore = defineStore('inbox', {
     isSentLoaded: false,
     isSentRefreshing: false,
     spamEmails: [],
+    processingEmails: [],
+    processingCursor: null,
+    hasMoreProcessing: false,
+    isProcessingLoaded: false,
+    isProcessingRefreshing: false,
+    processingCount: 0,
     screeningEmails: [],
     screeningCursor: null,
     hasMoreScreening: false,
@@ -779,6 +803,13 @@ export const useInboxStore = defineStore('inbox', {
     composerHtml: '', // rich HTML body from the WYSIWYG editor
     composerReplyToMessageId: null,
     composerFollowUpAt: null,
+    composerRecoveryId: null,
+    composerSendIdentity: null,
+    composerSaveState: 'saved',
+    draftRecoveries: [],
+    settledRecoveryRevisions: new Map(),
+    replyRecoveryId: null,
+    replySendIdentity: null,
     // Saved drafts, newest first, for the Drafts view.
     drafts: [],
     isDraftsLoading: false,
@@ -952,7 +983,7 @@ export const useInboxStore = defineStore('inbox', {
     // something in it. Kept current by autosave (rememberDraft) and discard
     // rather than by re-fetching, so the folder appears as soon as the first
     // save lands and goes when the last draft is sent or thrown away.
-    draftCount: (state) => state.drafts.length,
+    draftCount: (state) => state.drafts.length + state.draftRecoveries.length,
     // The sidebar lists Scheduled only while a Send Later is still queued.
     scheduledSendCount: (state) =>
       state.isScheduledSendsLoaded ? state.scheduledSends.length : state.scheduledCountHint,
@@ -967,6 +998,7 @@ export const useInboxStore = defineStore('inbox', {
         state.labelEmails.find((e) => e.id === id) ??
         state.sentEmails.find((e) => e.id === id) ??
         state.spamEmails.find((e) => e.id === id) ??
+        state.processingEmails.find((e) => e.id === id) ??
         state.screeningEmails.find((e) => e.id === id) ??
         state.blockedEmails.find((e) => e.id === id) ??
         state.snoozedEmails.find((e) => e.id === id) ??
@@ -1085,7 +1117,9 @@ export const useInboxStore = defineStore('inbox', {
     // Fetches one keyset page of a list. Throws on a non-2xx response so the
     // callers' catch blocks handle notification.
     async fetchEmailPage({ folder, before, limit = PAGE_SIZE, label } = {}) {
+      const generation = this.composeGeneration
       const headers = await this.authHeaders()
+      if (generation !== this.composeGeneration) throw new Error('The signed-in account changed')
       const params = new URLSearchParams()
       if (folder) params.set('folder', folder)
       if (folder === 'label' && label) params.set('label', label)
@@ -1106,6 +1140,7 @@ export const useInboxStore = defineStore('inbox', {
       snoozedCount,
       scheduledCount,
       starredCount,
+      processingCount,
       screeningCount,
       blockedCount,
     }) {
@@ -1113,25 +1148,31 @@ export const useInboxStore = defineStore('inbox', {
       if (Number.isFinite(snoozedCount)) this.snoozedCount = snoozedCount
       if (Number.isFinite(scheduledCount)) this.scheduledCountHint = scheduledCount
       if (Number.isFinite(starredCount)) this.starredCount = starredCount
+      if (Number.isFinite(processingCount)) this.processingCount = processingCount
       if (Number.isFinite(screeningCount)) this.screeningCount = screeningCount
       if (Number.isFinite(blockedCount)) this.blockedCount = blockedCount
     },
 
     async loadInboxState({ force = false } = {}) {
       if (this.isInboxStateLoaded && !force) return
+      const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
         const state = await response.json()
+        if (generation !== this.composeGeneration) return
         noteNetworkSuccess()
         this.applyInboxState(state)
         writeOfflineCache('inbox:state', state, owner)
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          const cached = await readOfflineCache('inbox:state')
+          const cached = await readOfflineCache('inbox:state', owner)
+          if (generation !== this.composeGeneration) return
           if (cached) {
             this.applyInboxState(cached.value)
             return
@@ -1244,6 +1285,7 @@ export const useInboxStore = defineStore('inbox', {
       return Promise.all([
         this.isInboxLoaded ? this.refreshInboxEmails() : this.loadInboxState({ force: true }),
         this.loadDrafts({ silent: true }),
+        this.isProcessingLoaded ? this.loadFolder('processing') : Promise.resolve(),
         this.isScreeningLoaded ? this.loadFolder('screening') : Promise.resolve(),
         this.isBlockedLoaded ? this.loadFolder('blocked') : Promise.resolve(),
       ])
@@ -1444,28 +1486,10 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadMoreFolder('sent')
     },
 
-    async loadReadReceipts(emails) {
-      if (!emails.length) return
-      try {
-        const headers = await this.authHeaders()
-        const ids = emails.map((email) => email.id).join(',')
-        const response = await fetch(
-          `${RECEIPTS_API_URL}/read-receipts?messageIds=${encodeURIComponent(ids)}`,
-          { headers },
-        )
-        if (!response.ok) throw new Error(`GET /read-receipts responded ${response.status}`)
-        const { receipts } = await response.json()
-        const byMessage = new Map(receipts.map((receipt) => [receipt.message_id, receipt]))
-        for (const email of emails) {
-          const receipt = byMessage.get(email.id)
-          email.readAt = receipt?.first_opened_at ?? null
-          email.readCount = receipt?.open_count ?? 0
-        }
-      } catch (error) {
-        // Receipt status is advisory; never make Sent unusable when it fails.
-        console.error('Failed to load read receipts:', error)
-      }
+    loadReadReceipts(...args) {
+      return invokeMailSettings(this, 'loadReadReceipts', args)
     },
+
     loadSpamEmails() {
       return this.loadFolder('spam')
     },
@@ -1511,6 +1535,7 @@ export const useInboxStore = defineStore('inbox', {
     // continue there, so it is held back for the next page — unless the whole
     // page is one oversized day, where the size cap wins over the invariant.
     async loadDonePage(pageIndex = 0) {
+      const generation = this.composeGeneration
       const cursor = this.donePageCursors[pageIndex] ?? null
       const owner = offlineOwner()
       this.isDoneRefreshing = true
@@ -1520,6 +1545,7 @@ export const useInboxStore = defineStore('inbox', {
           before: cursor ?? undefined,
           limit: DONE_PAGE_SIZE,
         })
+        if (generation !== this.composeGeneration) return
         // Done pages by day rather than by cursor like the other folders,
         // but its first page is cached the same way.
         if (pageIndex === 0) writeOfflineCache(folderCacheKey('done'), { emails }, owner)
@@ -1536,6 +1562,7 @@ export const useInboxStore = defineStore('inbox', {
         this.doneHasNext = Boolean(nextCursor && last)
         this.donePageCursors[pageIndex + 1] = this.doneHasNext ? `${last.sentAt}|${last.id}` : null
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
           if (pageIndex === 0 && (await this.applyCachedDonePage())) return
@@ -1543,16 +1570,19 @@ export const useInboxStore = defineStore('inbox', {
         console.error('Failed to load done emails:', error)
         this.notify('Failed to load done emails.', 'error')
       } finally {
-        this.isDoneRefreshing = false
+        if (generation === this.composeGeneration) this.isDoneRefreshing = false
       }
     },
 
     // Done's cached first page in place of one the Worker could not serve;
     // one page is all there is offline, so there is no next page.
     async applyCachedDonePage() {
+      const generation = this.composeGeneration
       const cached = await readOfflineCache(folderCacheKey('done'))
+      if (generation !== this.composeGeneration) return true
       if (!cached) return false
       const queued = await pendingOutboxEntries(MESSAGE_PATCH)
+      if (generation !== this.composeGeneration) return true
       this.doneEmails = applyQueuedMessageChanges(cached.value.emails, queued).map(mapEmailRow)
       this.donePageIndex = 0
       this.isDoneLoaded = true
@@ -1575,22 +1605,27 @@ export const useInboxStore = defineStore('inbox', {
     // again on open and get the loaded copy unless they ask for a refetch.
     async loadLabels({ force = false } = {}) {
       if (this.isLabelsLoaded && !force) return
+      const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${LABELS_API_URL}/labels?include_counts=false`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/labels responded ${response.status}`)
         }
         const { labels } = await response.json()
+        if (generation !== this.composeGeneration) return
         noteNetworkSuccess()
         this.labels = labels
         this.isLabelsLoaded = true
         writeOfflineCache('labels', labels, owner)
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          const cached = await readOfflineCache('labels')
+          const cached = await readOfflineCache('labels', owner)
+          if (generation !== this.composeGeneration) return
           if (cached) {
             this.labels = cached.value
             this.isLabelsLoaded = true
@@ -1604,9 +1639,11 @@ export const useInboxStore = defineStore('inbox', {
 
     async loadCategories({ force = false } = {}) {
       if (this.isCategoriesLoaded && !force) return
+      const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${LABELS_API_URL}/categories?include_counts=false`, {
           headers,
         })
@@ -1614,14 +1651,17 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /categories responded ${response.status}`)
         }
         const { categories } = await response.json()
+        if (generation !== this.composeGeneration) return
         noteNetworkSuccess()
         this.categories = categories
         this.isCategoriesLoaded = true
         writeOfflineCache('categories', categories, owner)
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          const cached = await readOfflineCache('categories')
+          const cached = await readOfflineCache('categories', owner)
+          if (generation !== this.composeGeneration) return
           if (cached) {
             this.categories = cached.value
             this.isCategoriesLoaded = true
@@ -1633,48 +1673,20 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async loadNtfySubscription() {
-      const headers = await this.authHeaders()
-      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { headers, cache: 'no-store' })
-      if (!response.ok) throw new Error(`GET /ntfy responded ${response.status}`)
-      const subscription = await response.json()
-      // A paused subscription keeps its topic so the phone stays subscribed;
-      // only a user who never set ntfy up has no topic at all.
-      this.ntfySubscription = subscription.topic ? subscription : null
-      return this.ntfySubscription
+    loadNtfySubscription(...args) {
+      return invokeMailSettings(this, 'loadNtfySubscription', args)
     },
 
-    async createNtfySubscription() {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { method: 'POST', headers })
-      if (!response.ok) throw new Error(`POST /ntfy responded ${response.status}`)
-      this.ntfySubscription = await response.json()
-      return this.ntfySubscription
+    createNtfySubscription(...args) {
+      return invokeMailSettings(this, 'createNtfySubscription', args)
     },
 
-    async disableNtfySubscription() {
-      const headers = await this.authHeaders()
-      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { method: 'DELETE', headers })
-      if (!response.ok) throw new Error(`DELETE /ntfy responded ${response.status}`)
-      if (this.ntfySubscription) {
-        this.ntfySubscription = { ...this.ntfySubscription, enabled: false }
-      }
+    disableNtfySubscription(...args) {
+      return invokeMailSettings(this, 'disableNtfySubscription', args)
     },
 
-    async sendNtfyTest() {
-      const headers = await this.authHeaders()
-      const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy/test`, {
-        method: 'POST',
-        headers,
-      })
-      if (!response.ok) {
-        const details = await response.json().catch(() => ({}))
-        const error = new Error(`POST /ntfy/test responded ${response.status}`)
-        error.code = details.error
-        error.retryAfterSeconds = details.retryAfterSeconds
-        throw error
-      }
-      return response.json()
+    sendNtfyTest(...args) {
+      return invokeMailSettings(this, 'sendNtfyTest', args)
     },
 
     // "Not important" from the reader's More menu. The Worker remembers the
@@ -1683,6 +1695,7 @@ export const useInboxStore = defineStore('inbox', {
     // out of Important now. Applied optimistically; the toast offers Undo.
     async markNotImportant(email) {
       if (!email) return false
+      const generation = this.composeGeneration
       const before = { isPriority: email.isPriority, category: email.category ?? null }
       setImportanceFields(
         this,
@@ -1692,6 +1705,7 @@ export const useInboxStore = defineStore('inbox', {
       )
       try {
         const result = await this.postImportance(email, { action: 'mark_not_important' })
+        if (generation !== this.composeGeneration) return false
         const sender = result.sender || 'this sender'
         this.notify(`Mail from ${sender} won't be marked important.`, 'info', {
           label: 'Undo',
@@ -1699,6 +1713,7 @@ export const useInboxStore = defineStore('inbox', {
         })
         return true
       } catch (error) {
+        if (generation !== this.composeGeneration) return false
         console.error('Failed to mark email not important:', error)
         setImportanceFields(this, email, before.isPriority, before.category)
         this.notify('Failed to mark the email not important.', 'error')
@@ -1707,12 +1722,14 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async undoNotImportant(email, before, previous) {
+      const generation = this.composeGeneration
       const after = { isPriority: email.isPriority, category: email.category ?? null }
       setImportanceFields(this, email, before.isPriority, before.category)
       try {
         await this.postImportance(email, { action: 'undo_not_important', previous })
         return true
       } catch (error) {
+        if (generation !== this.composeGeneration) return false
         console.error('Failed to undo not important:', error)
         setImportanceFields(this, email, after.isPriority, after.category)
         this.notify('Failed to undo. The sender is still marked not important.', 'error')
@@ -1720,184 +1737,28 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async postImportance(email, body) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ id: email.id, ...body }),
-      })
-      if (!response.ok) throw new Error(`POST /messages responded ${response.status}`)
-      return response.json()
+    postImportance(...args) {
+      return invokeMailSettings(this, 'postImportance', args)
     },
 
-    async setMessageCategory(email, category) {
-      if (!email) return false
-      const categoryId = category?.id ?? null
-      if ((email.category?.id ?? null) === categoryId) return true
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ id: email.id, action: 'set_category', category_id: categoryId }),
-        })
-        if (!response.ok) throw new Error(`POST /messages responded ${response.status}`)
-        const { category: assignedCategory } = await response.json()
-        for (const list of [
-          this.traditionalEmails,
-          this.starredEmails,
-          this.labelEmails,
-          this.sentEmails,
-          this.spamEmails,
-          this.snoozedEmails,
-          this.doneEmails,
-        ]) {
-          const cached = list.find((item) => item.id === email.id)
-          if (cached) cached.category = assignedCategory ?? null
-        }
-        email.category = assignedCategory ?? null
-        return true
-      } catch (error) {
-        console.error('Failed to update message category:', error)
-        this.notify('Failed to update category.', 'error')
-        return false
-      }
+    setMessageCategory(...args) {
+      return invokeMailSettings(this, 'setMessageCategory', args)
     },
 
-    async createCategory({ name, color, description }) {
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/categories`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ name, color, description }),
-        })
-        if (response.status === 409) {
-          this.notify('A category with that name already exists.', 'error')
-          return false
-        }
-        if (!response.ok) throw new Error(`POST /categories responded ${response.status}`)
-        const { category } = await response.json()
-        this.categories = [...this.categories, category].sort((a, b) =>
-          a.name.localeCompare(b.name),
-        )
-        this.notify('Category created.')
-        return true
-      } catch (error) {
-        console.error('Failed to create category:', error)
-        this.notify('Failed to create category.', 'error')
-        return false
-      }
+    createCategory(...args) {
+      return invokeMailSettings(this, 'createCategory', args)
     },
 
-    async deleteCategory(id) {
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/categories`, {
-          method: 'DELETE',
-          headers,
-          body: JSON.stringify({ id }),
-        })
-        if (!response.ok) throw new Error(`DELETE /categories responded ${response.status}`)
-        this.categories = this.categories.filter((category) => category.id !== id)
-        for (const list of [
-          this.traditionalEmails,
-          this.starredEmails,
-          this.labelEmails,
-          this.sentEmails,
-          this.spamEmails,
-          this.snoozedEmails,
-          this.doneEmails,
-        ]) {
-          for (const email of list) {
-            if (email.category?.id === id) email.category = null
-          }
-        }
-        this.notify('Category deleted.')
-        return true
-      } catch (error) {
-        console.error('Failed to delete category:', error)
-        this.notify('Failed to delete category.', 'error')
-        return false
-      }
+    deleteCategory(...args) {
+      return invokeMailSettings(this, 'deleteCategory', args)
     },
 
-    async updateCategory(category, { name, description }) {
-      const nextName = name.trim()
-      const nextDescription = description.trim()
-      if (!nextName) return false
-      if (nextName === category.name && nextDescription === (category.description || ''))
-        return true
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/categories`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({
-            id: category.id,
-            name: nextName,
-            description: nextDescription,
-          }),
-        })
-        if (response.status === 409) {
-          this.notify('A category with that name already exists.', 'error')
-          return false
-        }
-        if (!response.ok) throw new Error(`PATCH /categories responded ${response.status}`)
-        const { category: updatedCategory } = await response.json()
-        Object.assign(category, updatedCategory)
-        this.categories.sort((a, b) => a.name.localeCompare(b.name))
-        for (const list of [
-          this.traditionalEmails,
-          this.starredEmails,
-          this.labelEmails,
-          this.sentEmails,
-          this.spamEmails,
-          this.snoozedEmails,
-          this.doneEmails,
-        ]) {
-          for (const email of list) {
-            if (email.category?.id === category.id) Object.assign(email.category, updatedCategory)
-          }
-        }
-        this.notify('Category updated.')
-        return true
-      } catch (error) {
-        console.error('Failed to update category:', error)
-        this.notify('Failed to update category.', 'error')
-        return false
-      }
+    updateCategory(...args) {
+      return invokeMailSettings(this, 'updateCategory', args)
     },
 
-    async setCategoryNotifications(category, enabled) {
-      if (!category) return false
-      if (this.categoryNotificationSavingIds.has(category.id)) return false
-      this.categoryNotificationSavingIds.add(category.id)
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/categories`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({
-            id: category.id,
-            notifications_enabled: enabled,
-          }),
-        })
-        if (!response.ok) throw new Error(`PATCH /categories responded ${response.status}`)
-        const { category: updatedCategory } = await response.json()
-        Object.assign(category, updatedCategory)
-        this.notify(
-          enabled ? 'Category notifications enabled.' : 'Category notifications disabled.',
-        )
-        return true
-      } catch (error) {
-        console.error('Failed to update category notifications:', error)
-        this.notify('Failed to update category notifications.', 'error')
-        return false
-      } finally {
-        this.categoryNotificationSavingIds.delete(category.id)
-      }
+    setCategoryNotifications(...args) {
+      return invokeMailSettings(this, 'setCategoryNotifications', args)
     },
 
     // Apply or remove a palette label on a message from the reader's tag menu.
@@ -1907,10 +1768,12 @@ export const useInboxStore = defineStore('inbox', {
     // email object so the reader pills and any label-filtered view stay in sync.
     async toggleMessageLabel(email, label) {
       if (!email || !label) return
+      const generation = this.composeGeneration
       const applied = (email.labels || []).some((l) => l.name === label.name)
       const action = applied ? 'remove_label' : 'add_label'
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
@@ -1918,6 +1781,7 @@ export const useInboxStore = defineStore('inbox', {
         })
         if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
         const { labels } = await response.json()
+        if (generation !== this.composeGeneration) return
         email.labels = labels
         if (!isWithheld(email) && this.isLabelLoaded && this.labelFolderName === label.name) {
           syncFolderMembership(
@@ -1927,201 +1791,46 @@ export const useInboxStore = defineStore('inbox', {
           )
         }
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to update message labels:', error)
         this.notify('Failed to update tags.', 'error')
       }
     },
 
     // Returns true on success so the settings form knows to reset.
-    async createLabel({ name, color, description }) {
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ name, color, description }),
-        })
-        if (response.status === 409) {
-          this.notify('A label with that name already exists.', 'error')
-          return false
-        }
-        if (!response.ok) {
-          throw new Error(`POST /api/labels responded ${response.status}`)
-        }
-        const { label } = await response.json()
-        this.labels = [...this.labels, label].sort((a, b) => a.name.localeCompare(b.name))
-        this.notify('Label created.')
-        return true
-      } catch (error) {
-        console.error('Failed to create label:', error)
-        this.notify('Failed to create label.', 'error')
-        return false
-      }
+    createLabel(...args) {
+      return invokeMailSettings(this, 'createLabel', args)
     },
 
-    async deleteLabel(id) {
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels`, {
-          method: 'DELETE',
-          headers,
-          body: JSON.stringify({ id }),
-        })
-        if (!response.ok) {
-          throw new Error(`DELETE /api/labels responded ${response.status}`)
-        }
-        this.labels = this.labels.filter((label) => label.id !== id)
-        this.notify('Label deleted.')
-      } catch (error) {
-        console.error('Failed to delete label:', error)
-        this.notify('Failed to delete label.', 'error')
-      }
+    deleteLabel(...args) {
+      return invokeMailSettings(this, 'deleteLabel', args)
     },
 
-    async renameLabel(label, name) {
-      const nextName = name.trim()
-      if (!nextName || nextName === label.name) return nextName === label.name
-
-      const previousName = label.name
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ id: label.id, name: nextName }),
-        })
-        if (response.status === 409) {
-          this.notify('A label with that name already exists.', 'error')
-          return false
-        }
-        if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
-
-        const { label: updatedLabel } = await response.json()
-        Object.assign(label, updatedLabel)
-        this.labels.sort((a, b) => a.name.localeCompare(b.name))
-        for (const list of [
-          this.traditionalEmails,
-          this.starredEmails,
-          this.labelEmails,
-          this.sentEmails,
-          this.spamEmails,
-          this.snoozedEmails,
-          this.doneEmails,
-        ]) {
-          for (const email of list) {
-            for (const messageLabel of email.labels || []) {
-              if (messageLabel.name === previousName) messageLabel.name = updatedLabel.name
-            }
-          }
-        }
-
-        this.notify('Label renamed.')
-        return true
-      } catch (error) {
-        console.error('Failed to rename label:', error)
-        this.notify('Failed to rename label.', 'error')
-        return false
-      }
+    renameLabel(...args) {
+      return invokeMailSettings(this, 'renameLabel', args)
     },
 
-    async setLabelAutoApply(label, autoApply) {
-      const previous = label.auto_apply
-      label.auto_apply = autoApply
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ id: label.id, auto_apply: autoApply }),
-        })
-        if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
-      } catch (error) {
-        label.auto_apply = previous
-        console.error('Failed to update label auto-tagging:', error)
-        this.notify('Failed to update auto-tagging.', 'error')
-      }
+    setLabelAutoApply(...args) {
+      return invokeMailSettings(this, 'setLabelAutoApply', args)
     },
 
-    async loadRules() {
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`${LABELS_API_URL}/labels/rules`, { headers })
-        if (!response.ok) {
-          throw new Error(`GET /api/labels?resource=rules responded ${response.status}`)
-        }
-        const { rules } = await response.json()
-        this.rules = rules
-      } catch (error) {
-        console.error('Failed to load rules:', error)
-        this.notify('Failed to load tag rules.', 'error')
-      }
+    loadRules(...args) {
+      return invokeMailSettings(this, 'loadRules', args)
     },
 
     // Returns the created rule on success (so the settings form knows to reset), or null.
     // `newRule` uses API shape directly: { name, action, label_id, match_type, conditions }.
-    async createRule(newRule) {
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(newRule),
-        })
-        if (!response.ok) {
-          throw new Error(`POST /api/labels?resource=rules responded ${response.status}`)
-        }
-        const { rule } = await response.json()
-        this.rules = [...this.rules, rule]
-        this.notify('Rule created.')
-        return rule
-      } catch (error) {
-        console.error('Failed to create rule:', error)
-        this.notify('Failed to create rule.', 'error')
-        return null
-      }
+    createRule(...args) {
+      return invokeMailSettings(this, 'createRule', args)
     },
 
     // `changes` uses API shape directly, e.g. { enabled: false } or { conditions: [...] }.
-    async updateRule(rule, changes) {
-      const previous = { ...rule }
-      Object.assign(rule, changes)
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ id: rule.id, ...changes }),
-        })
-        if (!response.ok)
-          throw new Error(`PATCH /api/labels?resource=rules responded ${response.status}`)
-        const { rule: updatedRule } = await response.json()
-        Object.assign(rule, updatedRule)
-        return true
-      } catch (error) {
-        Object.assign(rule, previous)
-        console.error('Failed to update rule:', error)
-        this.notify('Failed to update rule.', 'error')
-        return false
-      }
+    updateRule(...args) {
+      return invokeMailSettings(this, 'updateRule', args)
     },
 
-    async deleteRule(id) {
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
-          method: 'DELETE',
-          headers,
-          body: JSON.stringify({ id }),
-        })
-        if (!response.ok) {
-          throw new Error(`DELETE /api/labels?resource=rules responded ${response.status}`)
-        }
-        this.rules = this.rules.filter((rule) => rule.id !== id)
-        this.notify('Rule deleted.')
-      } catch (error) {
-        console.error('Failed to delete rule:', error)
-        this.notify('Failed to delete rule.', 'error')
-      }
+    deleteRule(...args) {
+      return invokeMailSettings(this, 'deleteRule', args)
     },
 
     // Search results replace the inbox list until clearSearch() restores it.
@@ -2138,6 +1847,7 @@ export const useInboxStore = defineStore('inbox', {
       this.isRefreshing = true
       try {
         const headers = await this.authHeaders()
+        if (seq !== this.listSeq) return
         const mode = semantic ? '' : '&mode=keyword'
         const response = await fetch(`${SEARCH_API_URL}/search?q=${encodeURIComponent(q)}${mode}`, {
           headers,
@@ -2203,8 +1913,9 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async sendMessagePatch(id, changes) {
+    async sendMessagePatch(id, changes, owner = offlineOwner()) {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
       const response = await fetch(`${MESSAGES_API_URL}/messages`, {
         method: 'PATCH',
         headers,
@@ -2294,8 +2005,8 @@ export const useInboxStore = defineStore('inbox', {
       return response.json()
     },
 
-    replayMessagePatch({ id, ...changes }) {
-      return this.sendMessagePatch(id, changes)
+    replayMessagePatch({ id, ...changes }, owner = offlineOwner()) {
+      return this.sendMessagePatch(id, changes, owner)
     },
 
     async setThreadMuted(id, muted) {
@@ -2493,15 +2204,18 @@ export const useInboxStore = defineStore('inbox', {
 
     async fetchCalendarInvite(id) {
       if (pendingInviteFetches.has(id)) return pendingInviteFetches.get(id)
+      const generation = this.composeGeneration
       const request = (async () => {
         try {
           const headers = await this.authHeaders()
+          if (generation !== this.composeGeneration) return
           const response = await fetch(
             `${MESSAGES_API_URL}/messages/calendar-invite?id=${encodeURIComponent(id)}`,
             { headers },
           )
           if (!response.ok) return
           const { calendar_invite } = await response.json()
+          if (generation !== this.composeGeneration) return
           // Bodies are replaced, not mutated, so identity with `cached` can
           // change underneath a slow invite fetch (a thread mute, say). The
           // invite still belongs to this entry as long as it is still waiting.
@@ -2513,54 +2227,15 @@ export const useInboxStore = defineStore('inbox', {
         } catch {
           // Keep the body readable and retry enrichment on the next open.
         } finally {
-          pendingInviteFetches.delete(id)
+          if (pendingInviteFetches.get(id) === request) pendingInviteFetches.delete(id)
         }
       })()
       pendingInviteFetches.set(id, request)
       return request
     },
 
-    async downloadAttachment(attachment) {
-      if (!attachment?.id || !attachment.downloadable) return false
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(
-          `${MESSAGES_API_URL}/messages/attachment?id=${encodeURIComponent(attachment.id)}`,
-          { headers },
-        )
-        if (!response.ok) {
-          throw new Error(`GET attachment endpoint responded ${response.status}`)
-        }
-        const { url: rawUrl, filename } = await response.json()
-        const url = String(rawUrl ?? '')
-        if (!url) throw new Error('Attachment URL is missing')
-        // The URL is server-supplied; only a real web (or local blob) link
-        // may reach a synthetic click, so a compromised/misconfigured
-        // response can't navigate to javascript:/data:.
-        try {
-          const { protocol } = new URL(url)
-          if (protocol !== 'https:' && protocol !== 'http:' && protocol !== 'blob:') {
-            throw new Error(`Unsupported attachment URL protocol: ${protocol}`)
-          }
-        } catch (error) {
-          console.error('Rejected unsafe attachment URL:', error)
-          this.notify('Attachment download failed.', 'error')
-          return false
-        }
-
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename || attachment.filename || 'attachment'
-        link.rel = 'noopener'
-        document.body.append(link)
-        link.click()
-        link.remove()
-        return true
-      } catch (error) {
-        console.error('Failed to download attachment:', error)
-        this.notify('Failed to download attachment.', 'error')
-        return false
-      }
+    downloadAttachment(...args) {
+      return invokeMailSettings(this, 'downloadAttachment', args)
     },
 
     async ensureThreadSummary(email) {
@@ -2661,6 +2336,7 @@ export const useInboxStore = defineStore('inbox', {
     // shows a disabled "AI Unsubscribe Failed" state instead.
     async unsubscribeEmail(email) {
       if (!email || this.unsubscribingId) return
+      const generation = this.composeGeneration
       this.unsubscribingId = email.id
       try {
         const [{ isSafeUnsubscribeUrl }, { parseMailto }] = await Promise.all([
@@ -2668,6 +2344,7 @@ export const useInboxStore = defineStore('inbox', {
           import('../lib/unsubscribeContent'),
         ])
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
@@ -2680,6 +2357,7 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`POST /api/messages responded ${response.status}`)
         }
         const result = await response.json()
+        if (generation !== this.composeGeneration) return
         if (result.status === 'unsubscribed') {
           const cached = this.messageBodies.get(email.id)
           if (cached) {
@@ -2718,6 +2396,7 @@ export const useInboxStore = defineStore('inbox', {
           this.notify('This sender offers no automated unsubscribe.', 'error')
         }
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Unsubscribe failed:', error)
         this.notify('Failed to unsubscribe. Please try again.', 'error')
       } finally {
@@ -2733,6 +2412,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     toggleStar(email) {
+      const generation = this.composeGeneration
       const nextStarred = !email.starred
       email.starred = nextStarred
       if (!isWithheld(email)) this.adjustStarredCount(nextStarred ? 1 : -1)
@@ -2740,6 +2420,7 @@ export const useInboxStore = defineStore('inbox', {
         syncFolderMembership(this.starredEmails, email, nextStarred)
       serializePerMessage(pendingStarUpdates, email.id, () =>
         this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
+          if (generation !== this.composeGeneration) return
           console.error('Failed to update starred state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
           if (email.starred === nextStarred) {
@@ -3015,6 +2696,7 @@ export const useInboxStore = defineStore('inbox', {
         this.spamEmails,
         this.doneEmails,
         this.sentEmails,
+        this.processingEmails,
         this.screeningEmails,
         this.blockedEmails,
       ])
@@ -3069,6 +2751,7 @@ export const useInboxStore = defineStore('inbox', {
     // PATCH has settled (never rejects), for callers that reload afterwards;
     // a no-op still waits for a write in flight, so a reload can't outrun it.
     setUnread(email, unread) {
+      const generation = this.composeGeneration
       if (email.unread === unread) return pendingUnreadUpdates.get(email.id) ?? Promise.resolve()
       const countsTowardInbox = this.traditionalEmails.includes(email) && isInboxRow(this, email)
       email.unread = unread
@@ -3077,6 +2760,7 @@ export const useInboxStore = defineStore('inbox', {
       }
       return serializePerMessage(pendingUnreadUpdates, email.id, () =>
         this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
+          if (generation !== this.composeGeneration) return
           console.error('Failed to update read state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
           if (email.unread === unread) {
@@ -3185,12 +2869,100 @@ export const useInboxStore = defineStore('inbox', {
       this.composeGeneration += 1
       this.composeOwnerSub = owner
       this.senderQueueGeneration++
-      this.screeningEmails = []
-      this.blockedEmails = []
-      this.screeningCursor = this.blockedCursor = null
-      this.hasMoreScreening = this.hasMoreBlocked = false
-      this.isScreeningLoaded = this.isBlockedLoaded = false
-      this.isScreeningRefreshing = this.isBlockedRefreshing = false
+      // Invalidate requests before dropping their views. Reusing this store
+      // during silent authentication must be as private as a fresh page.
+      this.listSeq++
+      for (const [folder, keys] of Object.entries(FOLDER_STATE)) {
+        folderLoadSeq[folder] = (folderLoadSeq[folder] ?? 0) + 1
+        this[keys.list] = []
+        this[keys.cursor] = null
+        this[keys.hasMore] = this[keys.loaded] = this[keys.refreshing] = false
+      }
+      for (const key of [
+        'traditionalEmails',
+        'doneEmails',
+        'labels',
+        'categories',
+        'rules',
+        'scheduledSends',
+        'contacts',
+        'tasks',
+        'interests',
+        'chatHistory',
+        'toasts',
+      ])
+        this[key] = []
+      for (const key of [
+        'isInboxStateLoaded',
+        'isInboxLoaded',
+        'isRefreshing',
+        'hasMoreEmails',
+        'isDoneLoaded',
+        'isDoneRefreshing',
+        'doneHasNext',
+        'isLabelsLoaded',
+        'isCategoriesLoaded',
+        'isScheduledSendsLoaded',
+        'isScheduledSendsLoading',
+        'contactsLoaded',
+        'tasksLoaded',
+        'isTasksLoading',
+        'interestsLoaded',
+        'personaliseGithub',
+        'enrichmentSettingsLoaded',
+        'autoArchiveLoaded',
+        'spamRetentionLoaded',
+        'isChatDrawerActive',
+        'isChatLoading',
+        'isAiDraftActive',
+        'isAiDraftLoading',
+        'calendarNewEventPending',
+      ])
+        this[key] = false
+      for (const key of [
+        'unreadInboxCount',
+        'spamCount',
+        'snoozedCount',
+        'starredCount',
+        'processingCount',
+        'screeningCount',
+        'blockedCount',
+        'scheduledCountHint',
+        'donePageIndex',
+      ])
+        this[key] = 0
+      for (const key of [
+        'userId',
+        'ntfySubscription',
+        'emailsCursor',
+        'labelFolderName',
+        'inboxTab',
+        'scheduledSendsError',
+        'tasksError',
+        'digest',
+        'news',
+        'readerActionRequest',
+        'calendarNewEventDraft',
+        'replyDraftConflict',
+        'unsubscribingId',
+        'followUpDraftTaskId',
+      ])
+        this[key] = null
+      this.donePageCursors = [null]
+      this.activeSearchQuery = this.aiDraftPreview = this.composerAiInstruction = ''
+      this.categoryNotificationSavingIds.clear()
+      this.summaryLoadingIds.clear()
+      this.mutingThreadIds.clear()
+      this.enrichmentSettings = parseEnrichmentSettings(defaultEnrichmentSettings)
+      this.autoArchive = { marketing: false, coldPitches: false, socialNoise: false }
+      this.spamRetentionDays = 30
+      this.spamRetentionBounds = { defaultDays: 30, minDays: 1, maxDays: 365 }
+      searchAbortController?.abort()
+      askAbortController?.abort()
+      searchAbortController = askAbortController = null
+      askSeq++
+      aiDraftRequestSeq++
+      pendingInviteFetches.clear()
       this.openEmailId = null
       this.bodyLoadingId = null
       this.messageBodies.clear()
@@ -3211,6 +2983,29 @@ export const useInboxStore = defineStore('inbox', {
       this.composerSubject = ''
       this.composerHtml = ''
       this.composerTextArea = ''
+      this.composerRecoveryId = null
+      this.composerSendIdentity = null
+      this.replyRecoveryId = null
+      this.replySendIdentity = null
+      this.draftRecoveries = []
+      this.settledRecoveryRevisions.clear()
+      this.composerSaveState = 'saved'
+      this.composerDraftId = null
+      this.replyDraftId = null
+      this.drafts = []
+      this.draftsLoadedAt = 0
+      this.isDraftsLoading = false
+      draftsLoadSeq += 1
+      pendingDraftsLoads.delete(this)
+      this.composerAttachments = []
+      this.composerReplyToMessageId = null
+      this.composerFollowUpAt = null
+      clearTimeout(composerDraftTimer)
+      clearTimeout(replyDraftTimer)
+      clearInterval(sendCountdownTimer)
+      this.pendingSend = null
+      this.replySessionId += 1
+      if (owner) this.loadDraftRecoveries()
     },
 
     async loadComposePreferences({ force = false } = {}) {
@@ -3262,128 +3057,23 @@ export const useInboxStore = defineStore('inbox', {
       this.composePreferencesError = ''
     },
 
-    async saveComposePreferences({
-      signatureHtml = this.signatureHtml,
-      snippets = this.snippets,
-    } = {}) {
-      if (!this.composeOwnerSub || !this.composePreferencesLoaded)
-        throw new Error('Composer preferences must be loaded before saving')
-      if (this.composePreferencesSaving) throw new Error('Composer preferences are already saving')
-      const owner = this.composeOwnerSub
-      const generation = this.composeGeneration
-      const next = {
-        revision: this.composePreferencesRevision,
-        signatureHtml: sanitizeEmailHtml(signatureHtml),
-        snippets: sanitizeStoredSnippets(snippets),
-      }
-      if (next.snippets.length !== snippets.length) {
-        this.composePreferencesError =
-          'A snippet is empty, duplicated, or exceeds the 50-snippet limit.'
-        return false
-      }
-      this.composePreferencesSaving = true
-      this.composePreferencesError = ''
-      this.composePreferencesConflict = false
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
-        const response = await fetch(`${EMAILS_API_URL}/emails/compose-preferences`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify(next),
-        })
-        const payload = await response.json()
-        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
-        if (response.status === 409) {
-          this.applyComposePreferences(payload.current)
-          this.composePreferencesConflict = true
-          this.composePreferencesError =
-            'These preferences changed in another session. Review the latest version before saving again.'
-          return false
-        }
-        if (!response.ok)
-          throw new Error(payload.error || `PUT compose preferences responded ${response.status}`)
-        this.applyComposePreferences(payload)
-        return true
-      } catch (error) {
-        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
-        this.composePreferencesError =
-          'Could not save composer preferences. Your edit is still here; please try again.'
-        console.error('Failed to save compose preferences:', error)
-        return false
-      } finally {
-        if (owner === this.composeOwnerSub && generation === this.composeGeneration)
-          this.composePreferencesSaving = false
-      }
+    saveComposePreferences(...args) {
+      return invokeMailSettings(this, 'saveComposePreferences', args)
     },
 
     // Returns an unsaved suggestion. Only createRule/updateRule persist rules.
-    async requestAiRuleDraft(instruction) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${AI_API_URL}/rule-draft`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ instruction: instruction.trim() }),
-      })
-      const data = await response.json()
-      if (!response.ok)
-        throw new Error(data.error || 'AI rule generation failed. Please try again.')
-      if (
-        !data.draft ||
-        !['conditions', 'ai'].includes(data.draft.kind) ||
-        !Array.isArray(data.draft.conditions)
-      ) {
-        throw new Error('AI returned an invalid rule. Please try again.')
-      }
-      return data.draft
+    requestAiRuleDraft(...args) {
+      return invokeMailSettings(this, 'requestAiRuleDraft', args)
     },
 
-    async requestAiSnippet(instruction) {
-      const prompt = instruction.trim()
-      if (!prompt || !this.composeOwnerSub) return null
-      const owner = this.composeOwnerSub
-      const generation = this.composeGeneration
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return null
-        const response = await fetch(`${AI_API_URL}/compose`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ mode: 'snippet', instruction: prompt }),
-        })
-        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return null
-        if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
-        const { snippet } = await response.json()
-        return owner === this.composeOwnerSub && generation === this.composeGeneration
-          ? snippet
-          : null
-      } catch (error) {
-        if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return null
-        console.error('AI snippet generation failed:', error)
-        this.notify('AI snippet generation failed. Please try again.', 'error')
-        return null
-      }
+    requestAiSnippet(...args) {
+      return invokeMailSettings(this, 'requestAiSnippet', args)
     },
 
     // Loads the contact list (two-way correspondents) for compose auto-suggest.
     // Best-effort and cached: a failure just leaves auto-suggest empty.
-    async loadContacts() {
-      if (this.contactsLoaded) return
-      try {
-        const headers = await this.authHeaders()
-        // cache: 'no-store' — contacts are per-account; the shared browser
-        // HTTP cache must never serve them across an account switch.
-        const response = await fetch(`${MESSAGES_API_URL}/messages/contacts`, {
-          headers,
-          cache: 'no-store',
-        })
-        if (!response.ok) throw new Error(`GET contacts responded ${response.status}`)
-        const { contacts } = await response.json()
-        this.contacts = contacts
-        this.contactsLoaded = true
-      } catch (error) {
-        console.error('Failed to load contacts:', error)
-      }
+    loadContacts(...args) {
+      return invokeMailSettings(this, 'loadContacts', args)
     },
 
     // Loads gathered tasks for the AI dashboard. Best-effort and cached: a
@@ -3391,140 +3081,67 @@ export const useInboxStore = defineStore('inbox', {
     // control passes force to re-read past the cache.
     async loadTasks({ force = false } = {}) {
       if (this.tasksLoaded && !force) return
+      const generation = this.composeGeneration
       this.isTasksLoading = true
       this.tasksError = null
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${TASKS_API_URL}/tasks?date=${localToday()}`, { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
         const { tasks, digest, news } = await response.json()
+        if (generation !== this.composeGeneration) return
         this.tasks = tasks
         this.digest = digest ?? null
         this.news = news ?? null
         this.tasksLoaded = true
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to load tasks:', error)
         this.tasksError = 'Could not load your day.'
       } finally {
-        this.isTasksLoading = false
+        if (generation === this.composeGeneration) this.isTasksLoading = false
       }
     },
 
     // Loads the personalisation topics. Best-effort and cached, like
     // loadTasks: a failure leaves the settings list empty rather than blocking
     // the modal.
-    async loadInterests() {
-      if (this.interestsLoaded) return
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`${TASKS_API_URL}/tasks/interests`, { headers })
-        if (!response.ok) throw new Error(`GET interests responded ${response.status}`)
-        const { interests, personaliseGithub } = await response.json()
-        this.interests = interests
-        this.personaliseGithub = personaliseGithub === true
-        this.interestsLoaded = true
-      } catch (error) {
-        console.error('Failed to load interests:', error)
-      }
+    loadInterests(...args) {
+      return invokeMailSettings(this, 'loadInterests', args)
     },
 
     // Replaces the stored personalisation topics. Throws on failure so the
     // settings pane can report it; the server's normalized list wins, so the
     // in-memory copy matches what the enricher will actually read.
-    async saveInterests(interests, personaliseGithub = this.personaliseGithub) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${TASKS_API_URL}/tasks/interests`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ interests, personaliseGithub }),
-      })
-      if (!response.ok) {
-        throw new Error(`PUT interests responded ${response.status}`)
-      }
-      const saved = await response.json()
-      this.interests = saved.interests
-      this.personaliseGithub = saved.personaliseGithub === true
-      this.interestsLoaded = true
-      return this.interests
+    saveInterests(...args) {
+      return invokeMailSettings(this, 'saveInterests', args)
     },
 
-    async loadEnrichmentSettings() {
-      if (this.enrichmentSettingsLoaded) return
-      const headers = await this.authHeaders()
-      const response = await fetch(`${TASKS_API_URL}/tasks/enrichment-settings`, { headers })
-      if (!response.ok) throw new Error(`GET enrichment settings responded ${response.status}`)
-      const saved = parseEnrichmentSettings(await response.json())
-      if (this.enrichmentSettingsLoaded) return
-      this.enrichmentSettings = saved
-      this.enrichmentSettingsLoaded = true
+    loadEnrichmentSettings(...args) {
+      return invokeMailSettings(this, 'loadEnrichmentSettings', args)
     },
 
-    async saveEnrichmentSettings(enrichmentSettings) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${TASKS_API_URL}/tasks/enrichment-settings`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ enrichmentSettings }),
-      })
-      if (!response.ok) throw new Error(`PUT enrichment settings responded ${response.status}`)
-      this.enrichmentSettings = parseEnrichmentSettings(await response.json())
-      this.enrichmentSettingsLoaded = true
-      return this.enrichmentSettings
+    saveEnrichmentSettings(...args) {
+      return invokeMailSettings(this, 'saveEnrichmentSettings', args)
     },
 
-    async loadAutoArchive() {
-      if (this.autoArchiveLoaded) return
-      const headers = await this.authHeaders()
-      const response = await fetch(`${EMAILS_API_URL}/emails/auto-archive`, { headers })
-      if (!response.ok) throw new Error(`GET auto archive responded ${response.status}`)
-      const saved = parseAutoArchive(await response.json())
-      if (this.autoArchiveLoaded) return
-      this.autoArchive = saved
-      this.autoArchiveLoaded = true
+    loadAutoArchive(...args) {
+      return invokeMailSettings(this, 'loadAutoArchive', args)
     },
 
-    async saveAutoArchive(autoArchive) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${EMAILS_API_URL}/emails/auto-archive`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ autoArchive }),
-      })
-      if (!response.ok) throw new Error(`PUT auto archive responded ${response.status}`)
-      this.autoArchive = parseAutoArchive(await response.json())
-      this.autoArchiveLoaded = true
+    saveAutoArchive(...args) {
+      return invokeMailSettings(this, 'saveAutoArchive', args)
     },
 
-    async loadSpamRetention() {
-      if (this.spamRetentionLoaded) return
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(`${EMAILS_API_URL}/emails/spam-retention`, { headers })
-        if (!response.ok) throw new Error(`GET spam retention responded ${response.status}`)
-        const payload = await response.json()
-        // A save that completed while this was in flight is newer than
-        // whatever the server had when it answered.
-        if (this.spamRetentionLoaded) return
-        this.applySpamRetention(payload)
-      } catch (error) {
-        console.error('Failed to load spam retention:', error)
-      }
+    loadSpamRetention(...args) {
+      return invokeMailSettings(this, 'loadSpamRetention', args)
     },
 
     // Throws on failure so the settings pane can report it; the server's
     // normalized value wins, so the pane shows what the sweep will use.
-    async saveSpamRetention(days) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${EMAILS_API_URL}/emails/spam-retention`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ spamRetentionDays: days }),
-      })
-      if (!response.ok) {
-        throw new Error(`PUT spam retention responded ${response.status}`)
-      }
-      this.applySpamRetention(await response.json())
-      return this.spamRetentionDays
+    saveSpamRetention(...args) {
+      return invokeMailSettings(this, 'saveSpamRetention', args)
     },
 
     applySpamRetention({ spamRetentionDays, defaultDays, minDays, maxDays }) {
@@ -3670,6 +3287,8 @@ export const useInboxStore = defineStore('inbox', {
       this.composerFollowUpAt = null
       this.composerAttachments = []
       this.composerDraftId = null
+      this.composerRecoveryId = null
+      this.composerSendIdentity = null
       this.isAiDraftActive = false
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
@@ -3677,10 +3296,115 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // --- Drafts ---------------------------------------------------------
-    // Composer contents are autosaved server-side (cookie-web-drafts), so a
-    // reload, a crash, or a different device picks the message back up. Only
-    // the undo-send holding state (pendingSend) stays client-side, since it
-    // is a countdown rather than a document.
+    // Local recovery is written before the debounced server save. It is
+    // acknowledged by revision, so an older save cannot erase newer typing.
+    async loadDraftRecoveries() {
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      if (!owner) return
+      const records = await loadDraftRecoveries(owner)
+      if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return
+      const current = new Map(this.draftRecoveries.map((entry) => [entry.id, entry]))
+      for (const record of records) {
+        if (record.revision <= (this.settledRecoveryRevisions.get(record.id) ?? 0)) continue
+        if (record.revision > (current.get(record.id)?.revision ?? 0)) {
+          current.set(record.id, { ...record, durable: true })
+        }
+      }
+      this.draftRecoveries = [...current.values()]
+    },
+
+    persistComposerRecovery(snapshot, session = this.composerSessionId) {
+      if (!snapshot) return Promise.resolve(null)
+      const owner = snapshot.owner ?? this.composeOwnerSub
+      if (!owner || owner !== this.composeOwnerSub) return Promise.resolve(null)
+      const generation = this.composeGeneration
+      const hadRecoveryId = Boolean(snapshot.recoveryId)
+      const id = snapshot.recoveryId || newRecoveryId()
+      snapshot.recoveryId = id
+      snapshot.owner = owner
+      if (
+        session === this.composerSessionId &&
+        this.isComposerActive &&
+        (!hadRecoveryId || this.composerRecoveryId === id)
+      )
+        this.composerRecoveryId = id
+      const previous = this.draftRecoveries.find((entry) => entry.id === id)
+      const revision = Math.max(Date.now(), recoveryRevision + 1, (previous?.revision ?? 0) + 1)
+      recoveryRevision = revision
+      snapshot.recoveryRevision = revision
+      const record = {
+        id,
+        owner,
+        revision,
+        savedAt: Date.now(),
+        durable: false,
+        snapshot: JSON.parse(JSON.stringify(snapshot)),
+      }
+      this.draftRecoveries = [record, ...this.draftRecoveries.filter((entry) => entry.id !== id)]
+      const isCurrent = () =>
+        owner === this.composeOwnerSub && generation === this.composeGeneration
+      if (this.composerRecoveryId === id) this.composerSaveState = 'saving'
+      return writeDraftRecovery(record, isCurrent).then((stored) => {
+        if (!isCurrent()) return null
+        record.durable = stored === true
+        const current = this.draftRecoveries.find((entry) => entry.id === id)
+        if (current?.revision !== revision) return record
+        current.durable = stored === true
+        if (this.composerRecoveryId === id) {
+          this.composerSaveState = current.durable ? 'local' : 'error'
+        }
+        return current
+      })
+    },
+
+    async acknowledgeDraftRecovery(snapshot) {
+      if (!snapshot?.recoveryId || snapshot.owner !== this.composeOwnerSub) return
+      // The drafts API does not store delivery identities. Keep a submitted
+      // message's retry identity until delivery is confirmed, even when its
+      // editable text has since autosaved successfully.
+      if (snapshot.sendIdentity?.requestId) return
+      this.settledRecoveryRevisions.set(snapshot.recoveryId, snapshot.recoveryRevision)
+      await removeDraftRecovery(snapshot.owner, snapshot.recoveryId, snapshot.recoveryRevision)
+      if (snapshot.owner !== this.composeOwnerSub) return
+      this.draftRecoveries = this.draftRecoveries.filter(
+        (entry) => entry.id !== snapshot.recoveryId || entry.revision !== snapshot.recoveryRevision,
+      )
+      if (
+        this.composerRecoveryId === snapshot.recoveryId &&
+        !this.draftRecoveries.some((entry) => entry.id === snapshot.recoveryId)
+      )
+        this.composerSaveState = 'saved'
+    },
+
+    async discardComposerRecovery(recoveryId, owner = this.composeOwnerSub, revision) {
+      if (!recoveryId || !owner) return
+      if (owner === this.composeOwnerSub) {
+        const settled =
+          revision ?? this.draftRecoveries.find((entry) => entry.id === recoveryId)?.revision
+        if (settled) this.settledRecoveryRevisions.set(recoveryId, settled)
+      }
+      await removeDraftRecovery(owner, recoveryId, revision)
+      if (owner === this.composeOwnerSub) {
+        this.draftRecoveries = this.draftRecoveries.filter(
+          (entry) =>
+            entry.id !== recoveryId || (revision !== undefined && entry.revision !== revision),
+        )
+      }
+    },
+
+    async openRecoveredDraft(record) {
+      if (record.owner !== this.composeOwnerSub) return
+      if (this.isComposerActive && this.composerRecoveryId === record.id) return
+      // A recovery opens as a copy: saving it must not overwrite a newer
+      // server version or another tab's recovery. Retain the source until
+      // the independent copy is durable; a newer source revision survives.
+      this.restoreComposerMessage({ ...record.snapshot, recoveryId: newRecoveryId() }, null)
+      const copy = await this.persistComposerRecovery(this.composerDraftSnapshot())
+      if (copy?.durable) {
+        await this.discardComposerRecovery(record.id, record.owner, record.revision)
+      }
+    },
 
     // silent: the sign-in bootstrap that decides whether the sidebar shows a
     // Drafts folder at all. A failure there should not toast — the folder
@@ -3782,7 +3506,13 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async writeDraft(draftId, draft) {
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      if (draft.owner && draft.owner !== owner) throw new Error('The signed-in account changed')
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      const isCurrent = () =>
+        owner === this.composeOwnerSub && generation === this.composeGeneration
+      if (!isCurrent()) throw new Error('The signed-in account changed')
       const payload = {
         to: draft.to ?? '',
         subject: draft.subject ?? '',
@@ -3800,13 +3530,19 @@ export const useInboxStore = defineStore('inbox', {
           : `${DRAFTS_API_URL}/drafts`,
         { method: draftId ? 'PATCH' : 'POST', headers, body: JSON.stringify(payload) },
       )
-      // 204: the draft was emptied and the row is gone. 400 on a create is
-      // the worker declining to store an untouched composer.
+      if (!isCurrent()) throw new Error('The signed-in account changed')
+      // Only the explicit empty-draft response acknowledges an untouched
+      // composer. Other 400s (invalid attachment, recipient, or payload)
+      // must leave the recoverable local copy in place.
       if (response.status === 204) {
         this.forgetDraft(draftId)
         return null
       }
-      if (response.status === 400 && !draftId) return null
+      if (response.status === 400 && !draftId) {
+        const body = await response.json().catch(() => ({}))
+        if (body.error === 'Draft is empty') return null
+        throw new Error('Draft save responded 400')
+      }
       // A draft deleted elsewhere (another tab, the Drafts view) should start
       // a fresh row rather than resurrect a dead id.
       if (response.status === 404 && draftId) {
@@ -3817,6 +3553,7 @@ export const useInboxStore = defineStore('inbox', {
       // becomes the one this client holds.
       if (response.status === 409 && draftId) {
         const { draft: current } = await response.json().catch(() => ({}))
+        if (!isCurrent()) throw new Error('The signed-in account changed')
         if (current?.id) {
           this.noteDraftVersion(current)
           this.rememberDraft(current)
@@ -3825,7 +3562,8 @@ export const useInboxStore = defineStore('inbox', {
       }
       if (!response.ok) throw new Error(`Draft save responded ${response.status}`)
       const { draft: saved } = await response.json()
-      if (!saved?.id) return null
+      if (!isCurrent()) throw new Error('The signed-in account changed')
+      if (!saved?.id) throw new Error('Draft save returned no saved draft')
       this.noteDraftVersion(saved)
       this.rememberDraft({ ...draft, id: saved.id, updatedAt: saved.updatedAt })
       return saved.id
@@ -3844,6 +3582,8 @@ export const useInboxStore = defineStore('inbox', {
         followUpAt: this.composerFollowUpAt,
         attachments: [...this.composerAttachments],
         draftId: this.composerDraftId,
+        recoveryId: this.composerRecoveryId,
+        sendIdentity: this.composerSendIdentity,
         owner: this.composeOwnerSub,
         adoption: composerAdoptions,
       }
@@ -3851,7 +3591,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // A composer save found its draft changed in another tab. If that draft
     // is still the one on screen, the composer takes the server's version
-    // (the save wrote nothing, so this tab's edits since then are dropped).
+    // Local edits remain in a recovery copy in Drafts.
     adoptConflictingComposerDraft(session, draft, closing) {
       const onScreen =
         !closing &&
@@ -3859,10 +3599,18 @@ export const useInboxStore = defineStore('inbox', {
         session === this.composerSessionId &&
         this.composerDraftId === draft.id
       if (!onScreen) {
-        this.notify('This draft was changed in another tab, so your latest edits were not saved.')
+        this.notify('This draft changed in another tab. Your local edits are kept in Drafts.')
+        return
+      }
+      if (this.composerSendIdentity?.requestId) {
+        this.notify('This draft changed elsewhere. Confirm its previous delivery before editing.')
         return
       }
       composerAdoptions += 1
+      // Keep the local version under its own recovery id before showing
+      // the server version. Subsequent typing must not replace that copy.
+      this.composerRecoveryId = null
+      this.composerSendIdentity = null
       this.composerTo = draft.to ?? ''
       this.composerSubject = draft.subject ?? ''
       this.composerTextArea = draft.text ?? ''
@@ -3870,7 +3618,9 @@ export const useInboxStore = defineStore('inbox', {
       this.composerReplyToMessageId = draft.replyToMessageId ?? null
       this.composerFollowUpAt = draft.followUpAt ?? null
       this.composerAttachments = draft.attachments ?? []
-      this.notify('This draft was changed in another tab. Showing the latest version.')
+      this.notify(
+        'This draft changed in another tab. Showing the latest version; your local edits are kept in Drafts.',
+      )
     },
 
     // Autosave is best-effort: a failed save must never interrupt typing or
@@ -3893,6 +3643,7 @@ export const useInboxStore = defineStore('inbox', {
       }
       try {
         const draftId = await this.persistDraft(rowId, draft)
+        await this.acknowledgeDraftRecovery(draft)
         lastComposerSave = { session, draftId }
         // A send, a close, or another draft opening while this was in flight
         // means the id belongs to a message that is no longer the one on
@@ -3907,15 +3658,20 @@ export const useInboxStore = defineStore('inbox', {
           return
         }
         console.error('Draft autosave failed:', error)
+        if (draft.closing && draft.owner === this.composeOwnerSub) {
+          this.notify('Your draft could not sync. A recovery copy is available in Drafts.', 'error')
+        }
       }
     },
 
     saveComposerDraft(session = this.composerSessionId, draft = this.composerDraftSnapshot()) {
+      const recovery = this.persistComposerRecovery(draft, session)
       composerSavesPending += 1
       const ticket = ++composerSaveTicket
       if (draft) latestComposerSave = { ticket, session }
       composerSaveChain = composerSaveChain
-        .then(() => {
+        .then(async () => {
+          await recovery
           // Overtaken by a newer save of the same message: that one writes.
           // A close's save is never skipped; it is the message's last word.
           if (
@@ -3937,6 +3693,7 @@ export const useInboxStore = defineStore('inbox', {
       // Captured now, not when the timer fires: by then the composer may hold
       // a different message entirely.
       const session = this.composerSessionId
+      this.persistComposerRecovery(this.composerDraftSnapshot(), session)
       clearTimeout(composerDraftTimer)
       composerDraftTimer = setTimeout(
         () => this.saveComposerDraft(session),
@@ -3956,14 +3713,22 @@ export const useInboxStore = defineStore('inbox', {
       const rowId = this.replyDraftId
       try {
         const draftId = await this.persistDraft(rowId, draft)
+        await this.acknowledgeDraftRecovery(draft)
         lastReplySave = { session, draftId }
         if (session !== this.replySessionId) return
         this.replyDraftId = draftId
       } catch (error) {
         if (error instanceof DraftConflictError) {
           lastReplySave = { session, draftId: rowId }
+          if (draft.sendIdentity?.requestId) {
+            this.notify(
+              'This draft changed elsewhere. Confirm its previous delivery before editing.',
+            )
+            return
+          }
           if (session === this.replySessionId && this.replyDraftId === error.draft.id) {
             replyAdoptions += 1
+            this.replyRecoveryId = null
             this.replyDraftConflict = { session, draft: error.draft }
             this.notify('This draft was changed in another tab. Showing the latest version.')
           } else {
@@ -3978,12 +3743,16 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     saveReplyDraft(draft, session = this.replySessionId) {
+      draft = { ...draft, recoveryId: this.replyRecoveryId, draftId: this.replyDraftId }
+      const recovery = this.persistComposerRecovery(draft, -1)
+      if (session === this.replySessionId) this.replyRecoveryId = draft.recoveryId ?? null
       replySavesPending += 1
       const ticket = ++replySaveTicket
       const adoption = replyAdoptions
       latestReplySave = { ticket, session }
       replySaveChain = replySaveChain
-        .then(() => {
+        .then(async () => {
+          await recovery
           if (latestReplySave.session === session && latestReplySave.ticket > ticket) return
           return this.writeReplyDraft(draft, session, adoption)
         })
@@ -3995,6 +3764,9 @@ export const useInboxStore = defineStore('inbox', {
 
     scheduleReplyDraftSave(draft) {
       const session = this.replySessionId
+      const snapshot = { ...draft, recoveryId: this.replyRecoveryId, draftId: this.replyDraftId }
+      this.persistComposerRecovery(snapshot, -1)
+      this.replyRecoveryId = snapshot.recoveryId ?? null
       clearTimeout(replyDraftTimer)
       replyDraftTimer = setTimeout(
         () => this.saveReplyDraft(draft, session),
@@ -4010,13 +3782,18 @@ export const useInboxStore = defineStore('inbox', {
     // Navigation captures the departing draft before the next reader adopts
     // another row. Drain its autosaves, then persist the last edit to that row.
     async leaveReplyDraft(draft) {
+      draft = { ...draft, recoveryId: this.replyRecoveryId, draftId: this.replyDraftId }
+      const recovery = this.persistComposerRecovery(draft, -1)
       const draftId = this.consumeReplyDraft()
       const handoff = this.settleReplyHandoff()
       const saves = replySaveChain
       try {
+        await recovery
         await saves
         const savedId = draftId || (handoff ? await handoff : null)
+        if (draft.owner && draft.owner !== this.composeOwnerSub) return
         await this.persistDraft(savedId, draft)
+        await this.acknowledgeDraftRecovery(draft)
       } catch (error) {
         if (error instanceof DraftConflictError) {
           this.notify('This draft was changed in another tab, so your latest edits were not saved.')
@@ -4060,6 +3837,8 @@ export const useInboxStore = defineStore('inbox', {
       this.replySessionId += 1
       const draftId = this.replyDraftId
       this.replyDraftId = null
+      this.replyRecoveryId = null
+      this.replySendIdentity = null
       replyHandoff =
         !draftId && replySavesPending > 0 ? lateDraftIdFor(replySaveChain, session, 'reply') : null
       return draftId
@@ -4082,11 +3861,16 @@ export const useInboxStore = defineStore('inbox', {
 
     async discardDraft(draftId) {
       if (!draftId) return
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      const isCurrent = () =>
+        owner === this.composeOwnerSub && generation === this.composeGeneration
       const index = this.drafts.findIndex((draft) => draft.id === draftId)
       const removed = index === -1 ? null : this.drafts[index]
       this.forgetDraft(draftId)
       try {
         const headers = await this.authHeaders()
+        if (!isCurrent()) return
         const response = await fetch(`${DRAFTS_API_URL}/drafts/${encodeURIComponent(draftId)}`, {
           method: 'DELETE',
           headers,
@@ -4095,6 +3879,7 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`DELETE /drafts responded ${response.status}`)
         }
       } catch (error) {
+        if (!isCurrent()) return
         console.error('Failed to delete draft:', error)
         // The row is still on the server, so the list — and the sidebar
         // folder counting it — must say so. Back where it was.
@@ -4146,6 +3931,9 @@ export const useInboxStore = defineStore('inbox', {
       this.composerFollowUpAt = draft.followUpAt ?? null
       this.composerAttachments = draft.attachments ?? []
       this.composerDraftId = draft.id
+      this.composerRecoveryId = null
+      this.composerSendIdentity = null
+      this.composerSaveState = 'saved'
       this.isComposerActive = true
     },
 
@@ -4155,6 +3943,7 @@ export const useInboxStore = defineStore('inbox', {
     // and the new session keeps its in-flight autosave from claiming
     // composerDraftId for the restored message. Returns that session.
     restoreComposerMessage(message, draftId) {
+      if (message.owner !== undefined && message.owner !== this.composeOwnerSub) return null
       this.closeComposer({ save: this.isComposerActive })
       this.composerTo = message.to
       this.composerSubject = message.subject
@@ -4164,6 +3953,8 @@ export const useInboxStore = defineStore('inbox', {
       this.composerFollowUpAt = message.followUpAt
       this.composerAttachments = message.attachments ?? []
       this.composerDraftId = draftId ?? null
+      this.composerRecoveryId = message.recoveryId ?? null
+      this.composerSendIdentity = message.sendIdentity ?? null
       this.isComposerActive = true
       return this.composerSessionId
     },
@@ -4273,29 +4064,8 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async requestAiReply({ replyToMessageId, to, subject, existingText }) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${AI_API_URL}/compose`, {
-        method: 'POST',
-        headers,
-        signal: AbortSignal.timeout(25_000),
-        body: JSON.stringify({
-          instruction:
-            'Write a concise, helpful reply to this email in its language. ' +
-            'Use the existing draft as guidance and preserve its meaning. ' +
-            'Keep facts and commitments grounded in the supplied context; ask for missing information when needed. ' +
-            'Return the reply body without a quoted original, signature, or placeholders.',
-          replyToMessageId,
-          to,
-          subject,
-          existingText,
-        }),
-      })
-      if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
-      const { draft } = await response.json()
-      const text = draft.text.trim()
-      if (!text || text.length > 10_000) throw new Error('AI returned an invalid reply')
-      return convertEmojiToEmoticons(text)
+    requestAiReply(...args) {
+      return invokeMailSettings(this, 'requestAiReply', args)
     },
 
     async requestAiDraft({ replyToMessageId = this.composerReplyToMessageId } = {}) {
@@ -4388,6 +4158,7 @@ export const useInboxStore = defineStore('inbox', {
     // stop two rapid clicks from queueing a second send.
     async sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
+      if (this.composerSendIdentity?.outgoing?.sendAt) return this.sendEmailLater()
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
@@ -4403,7 +4174,11 @@ export const useInboxStore = defineStore('inbox', {
         replyToMessageId: this.composerReplyToMessageId,
         followUpAt: this.composerFollowUpAt,
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
+        recoveryId: this.composerRecoveryId,
+        sendIdentity: this.composerSendIdentity,
+        owner: this.composeOwnerSub,
       })
+      this.persistComposerRecovery(draft)
       const draftId = this.consumeComposerDraft()
       this.closeComposer({ save: false })
       this.startPendingSend({ ...draft, draftId })
@@ -4468,29 +4243,37 @@ export const useInboxStore = defineStore('inbox', {
       draft.outcome = 'sending'
       this.isSendingEmail = true
       try {
-        const result = await this.sendMail({
-          to: draft.to,
-          subject: draft.subject,
-          text: draft.text,
-          html: draft.html,
-          replyToMessageId: draft.replyToMessageId,
-          followUpAt: draft.followUpAt,
-          attachments: draft.attachments,
-        })
+        if (draft.owner && draft.owner !== this.composeOwnerSub) return
+        const result = await this.sendMail(draft)
         this.notify(
-          result?.followUpScheduled === false
-            ? 'Email sent, but the reminder could not be saved.'
-            : 'Email sent.',
+          result?.sentCopyPending
+            ? 'Email sent. Your Sent copy is being recovered.'
+            : result?.followUpScheduled === false
+              ? 'Email sent, but the reminder could not be saved.'
+              : 'Email sent.',
           result?.followUpScheduled === false ? 'error' : 'info',
         )
         // Only now is the message really gone; deleting the draft any earlier
         // would lose it if the send failed.
         draft.outcome = 'sent'
         await this.discardDraft(draft.draftId)
+        await this.discardComposerRecovery(draft.recoveryId, draft.owner, draft.recoveryRevision)
       } catch (error) {
         draft.outcome = 'failed'
+        if (
+          error.code === 'ACCOUNT_CHANGED' ||
+          (draft.owner && draft.owner !== this.composeOwnerSub)
+        )
+          return
         console.error('Failed to send email:', error)
-        this.notify('Failed to send email. Please try again.', 'error')
+        this.notify(
+          error.code === 'DELIVERY_UNCERTAIN' || error.code === 'DELIVERY_CONFLICT'
+            ? 'Delivery needs confirmation. Check with the recipient before sending another copy.'
+            : error.code === 'DELIVERY_PENDING'
+              ? 'Delivery is being confirmed. Retry this unchanged draft shortly.'
+              : 'Sending was not confirmed. Retry this unchanged draft.',
+          'error',
+        )
         draft.restoredSession = this.restoreComposerMessage(draft, draft.draftId)
       } finally {
         this.isSendingEmail = false
@@ -4506,6 +4289,11 @@ export const useInboxStore = defineStore('inbox', {
       if (this.isSendingEmail || this.pendingSend) return false
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return false
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
+      const originalSendAt = this.composerSendIdentity?.outgoing?.sendAt
+      if (originalSendAt) {
+        sendAt = originalSendAt
+        label = new Date(originalSendAt).toLocaleString()
+      }
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
       if (unresolved.length) {
         this.notify(unresolvedSnippetWarning(unresolved), 'error')
@@ -4519,24 +4307,55 @@ export const useInboxStore = defineStore('inbox', {
         replyToMessageId: this.composerReplyToMessageId,
         followUpAt: this.composerFollowUpAt,
         attachments: this.composerAttachments.map((attachment) => ({ ...attachment })),
+        recoveryId: this.composerRecoveryId,
+        sendIdentity: this.composerSendIdentity,
+        owner: this.composeOwnerSub,
       })
+      const recovery = this.persistComposerRecovery(draft)
       let draftId = this.consumeComposerDraft()
       this.closeComposer({ save: false })
       this.isSendingEmail = true
       try {
+        await recovery
+        if (draft.owner !== this.composeOwnerSub) return false
         // A first save still in flight owns the only row for this message.
         const handoff = draftId ? null : this.settleComposerHandoff()
         if (handoff) draftId = await handoff
-        const { scheduledSend } = await this.sendMail({ ...draft, sendAt })
-        if (this.isScheduledSendsLoaded) this.scheduledSends.unshift(scheduledSend)
-        else this.scheduledCountHint += 1
-        this.notify(`Email scheduled for ${label}.`)
+        draft.sendAt = sendAt
+        const { scheduledSend } = await this.sendMail(draft)
+        const status = scheduledSend.status
+        if (this.isScheduledSendsLoaded) {
+          this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
+          if (status !== 'sent') this.scheduledSends.unshift(scheduledSend)
+        } else if (status !== 'sent') this.scheduledCountHint += 1
+        const outcome = {
+          sent: 'Email was already sent.',
+          sending: 'The original scheduled email is being sent.',
+          failed: 'The original scheduled send failed. Review it in Scheduled.',
+          uncertain:
+            'Delivery needs confirmation. Check with the recipient before sending another copy.',
+        }
+        this.notify(
+          outcome[status] ?? `Email scheduled for ${label}.`,
+          status === 'failed' || status === 'uncertain' ? 'error' : 'info',
+        )
         // The scheduled_sends row is now the durable copy of this message.
         await this.discardDraft(draftId)
+        await this.discardComposerRecovery(draft.recoveryId, draft.owner, draft.recoveryRevision)
         return true
       } catch (error) {
+        if (
+          error.code === 'ACCOUNT_CHANGED' ||
+          (draft.owner && draft.owner !== this.composeOwnerSub)
+        )
+          return false
         console.error('Failed to schedule email:', error)
-        this.notify('Failed to schedule email. Please try again.', 'error')
+        this.notify(
+          error.code === 'DELIVERY_CONFLICT'
+            ? 'Confirm the original schedule before sending an edited copy.'
+            : 'Scheduling was not confirmed. Retry the original schedule from this draft.',
+          'error',
+        )
         this.restoreComposerMessage(draft, draftId)
         return false
       } finally {
@@ -4548,20 +4367,24 @@ export const useInboxStore = defineStore('inbox', {
     // Best-effort and cached, like loadContacts/loadTasks.
     async loadScheduledSends() {
       if (this.isScheduledSendsLoaded) return
+      const generation = this.composeGeneration
       this.isScheduledSendsLoading = true
       this.scheduledSendsError = null
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch('/api/send?resource=scheduled', { headers })
         if (!response.ok) throw new Error(`GET scheduled sends responded ${response.status}`)
         const { scheduledSends } = await response.json()
+        if (generation !== this.composeGeneration) return
         this.scheduledSends = scheduledSends
         this.isScheduledSendsLoaded = true
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to load scheduled sends:', error)
         this.scheduledSendsError = 'Could not load your scheduled mail.'
       } finally {
-        this.isScheduledSendsLoading = false
+        if (generation === this.composeGeneration) this.isScheduledSendsLoading = false
       }
     },
 
@@ -4571,17 +4394,25 @@ export const useInboxStore = defineStore('inbox', {
     // already went out) so the caller can tell the user rather than silently
     // losing the row.
     async cancelScheduledSend(scheduledSend) {
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      const isCurrent = () =>
+        owner === this.composeOwnerSub && generation === this.composeGeneration
       const { stripReplyQuote } = await import('../lib/forwardEmail')
+      if (!isCurrent()) return false
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (!isCurrent()) return false
       const response = await fetch('/api/send?resource=scheduled', {
         method: 'DELETE',
         headers,
         body: JSON.stringify({ id: scheduledSend.id }),
       })
+      if (!isCurrent()) return false
       if (!response.ok) {
         throw new Error(`DELETE scheduled send responded ${response.status}`)
       }
       const { scheduledSend: canceled } = await response.json()
+      if (!isCurrent()) return false
       this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
       // A scheduled reply went in with the original quoted below it; sending
       // it again quotes afresh, so the composer gets the reply alone.
@@ -4589,6 +4420,7 @@ export const useInboxStore = defineStore('inbox', {
       // It has no draft row (scheduling discarded it), so autosave starts a
       // new one rather than writing over whatever draft is open now.
       this.restoreComposerMessage({
+        owner,
         to: canceled.toAddresses,
         subject: canceled.subject,
         text: html === (canceled.html ?? '') ? canceled.text : htmlToText(html),
@@ -4612,6 +4444,7 @@ export const useInboxStore = defineStore('inbox', {
       let activeReply = null
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (seq !== askSeq) return
         const response = await fetch(`${SEARCH_API_URL}/ask?stream=1`, {
           method: 'POST',
           headers,
@@ -4621,6 +4454,7 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`POST /ask responded ${response.status}`)
         }
+        if (seq !== askSeq) return
         if (response.headers.get('Content-Type')?.includes('application/json')) {
           const { answer, sources } = await response.json()
           if (seq !== askSeq) return
@@ -4677,4 +4511,6 @@ export const useInboxStore = defineStore('inbox', {
 })
 
 // Replays flag changes queued while offline; see updateMessage.
-registerOutboxHandler(MESSAGE_PATCH, (payload) => useInboxStore().replayMessagePatch(payload))
+registerOutboxHandler(MESSAGE_PATCH, (payload, { owner } = {}) =>
+  useInboxStore().replayMessagePatch(payload, owner),
+)

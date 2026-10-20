@@ -18,6 +18,8 @@ describe('send adapter failures', () => {
     const res = responseRecorder()
     await createHandler({ fetch })({ method: 'POST', body: {}, headers: {} }, res)
     expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ code: 'DELIVERY_PENDING' })
+    expect(res.body).toContain('same unchanged message')
     expect(res.body).not.toContain('private')
   })
   it('rejects malformed JSON before forwarding', async () => {

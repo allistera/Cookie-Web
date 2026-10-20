@@ -139,7 +139,7 @@ describe('TaskHistory', () => {
     expect(requestMock).toHaveBeenCalledTimes(1)
 
     requestMock.mockResolvedValueOnce({ items: [], nextCursor: null })
-    await useTaskItemsStore().loadItems('inbox', { force: true })
+    await useTaskItemsStore().request('PATCH', { body: { id: 'task1', content: 'Updated' } })
     await flushPromises()
 
     expect(requestMock.mock.calls.filter(([url]) => url.includes('task-activity'))).toHaveLength(2)

@@ -15,17 +15,21 @@ import {
   TASKS_API_URL,
 } from '../../lib/apiWorkers'
 
+beforeEach(() => {
+  setActivePinia(createPinia())
+  setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
+})
+
+afterEach(async () => {
+  // Composer opening starts optional settings imports without awaiting them.
+  // Settle those requests against this test's fixtures before restoring fetch.
+  await vi.dynamicImportSettled()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
 describe('Inbox Store', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
-    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
-
   describe('Message body cache', () => {
     const bodyResponse = (extra = {}) => ({
       ok: true,
@@ -311,7 +315,11 @@ describe('Inbox Store', () => {
       const store = useInboxStore()
       store.isComposerActive = true
       store.userId = 'user-1'
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+        json: async () => ({ contacts: [] }),
+      })
       vi.stubGlobal('fetch', fetchMock)
       vi.spyOn(store, 'uploadAttachmentFiles').mockImplementation(async () => {
         // The composer is closed and reopened while the upload is in flight.
@@ -647,12 +655,15 @@ describe('Inbox Store', () => {
       // Let the queued autosave start before handing off its in-flight row.
       await vi.waitFor(() => expect(store.persistDraft).toHaveBeenCalled())
       const later = store.sendEmailLater('2026-09-04T09:00:00Z', 'tomorrow')
-      await Promise.resolve()
-      expect(calls).toEqual([])
-
-      finishSave()
-      await save
-      await later
+      try {
+        await Promise.resolve()
+        expect(calls).toEqual([])
+      } finally {
+        // A failed assertion must not leave the shared autosave queue blocked.
+        finishSave()
+        await save
+        await later
+      }
 
       expect(calls.map(([, method]) => method)).toEqual(['POST', 'DELETE'])
       expect(calls[1][0]).toContain(`/drafts/${DRAFT_ID}`)
@@ -671,6 +682,7 @@ describe('Inbox Store', () => {
 
     it('saves what was written when closing behind a save still in flight', async () => {
       const store = useInboxStore()
+      vi.spyOn(store, 'loadContacts').mockResolvedValue()
       armComposer(store)
       const saved = []
       let finishFirst
@@ -771,6 +783,8 @@ describe('Inbox Store', () => {
         isPriority: false,
         isArchived: false,
         screeningStatus: 'allowed',
+        aiStatus: null,
+        enrichmentFailures: 0,
         to: null,
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
@@ -1901,13 +1915,18 @@ describe('Inbox Store', () => {
   })
 
   it('turns an email task into an editable, threaded follow-up draft', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ contacts: [] }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ draft: { subject: 'Ignored', text: 'Tuesday works for me.' } }),
-      })
+    const fetchMock = vi.fn(async (url) => {
+      if (url === `${MESSAGES_API_URL}/messages/contacts`) {
+        return { ok: true, json: async () => ({ contacts: [] }) }
+      }
+      if (url === `${AI_API_URL}/compose`) {
+        return {
+          ok: true,
+          json: async () => ({ draft: { subject: 'Ignored', text: 'Tuesday works for me.' } }),
+        }
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
     store.signatureHtml = '<p>Best, <strong>Allister</strong></p>'
@@ -1930,7 +1949,8 @@ describe('Inbox Store', () => {
     expect(store.composerTextArea).toContain('Tuesday works for me.')
     expect(store.composerTextArea).toContain('Best, Allister')
     expect(store.isAiDraftActive).toBe(false)
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+    const composeCall = fetchMock.mock.calls.find(([url]) => url === `${AI_API_URL}/compose`)
+    expect(JSON.parse(composeCall[1].body)).toMatchObject({
       to: 'contractor@example.com',
       subject: 'Re: Delivery date',
       replyToMessageId: '11111111-1111-1111-1111-111111111111',
@@ -2000,6 +2020,7 @@ describe('Inbox Store', () => {
       ),
     )
     const store = useInboxStore()
+    vi.spyOn(store, 'loadContacts').mockResolvedValue()
     vi.spyOn(store, 'persistDraft').mockResolvedValue(null)
     store.isComposerActive = true
     store.composerAiInstruction = 'Write a reply.'
@@ -2961,7 +2982,9 @@ describe('Inbox Store', () => {
       expect(store.pendingSend).toBeNull()
       expect(store.isComposerActive).toBe(true)
       expect(store.composerTextArea).toBe('Checking in.')
-      expect(store.toasts.at(-1)?.message).toBe('Failed to send email. Please try again.')
+      expect(store.toasts.at(-1)?.message).toBe(
+        'Sending was not confirmed. Retry this unchanged draft.',
+      )
       expect(consoleError).toHaveBeenCalledWith('Failed to send email:', expect.any(Error))
     })
 
@@ -3041,6 +3064,41 @@ describe('Inbox Store', () => {
       })
     })
 
+    it.each([
+      ['sent', 'Email was already sent.'],
+      ['sending', 'The original scheduled email is being sent.'],
+      ['failed', 'The original scheduled send failed. Review it in Scheduled.'],
+      [
+        'uncertain',
+        'Delivery needs confirmation. Check with the recipient before sending another copy.',
+      ],
+    ])('shows the existing %s outcome when retrying a schedule', async (status, message) => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('Connection lost'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ scheduledSend: { id: 'existing-send', status } }),
+        })
+      vi.stubGlobal('fetch', fetchMock)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const store = useInboxStore()
+      armComposer(store)
+      store.isScheduledSendsLoaded = true
+      store.scheduledSends = [{ id: 'existing-send', status: 'pending' }]
+
+      expect(await store.sendEmailLater('2026-08-02T09:00:00.000Z', 'Tomorrow')).toBe(false)
+      expect(await store.sendEmail()).toBe(true)
+
+      expect(store.toasts.at(-1)?.message).toBe(message)
+      expect(store.scheduledSends).toEqual(
+        status === 'sent' ? [] : [{ id: 'existing-send', status }],
+      )
+      const requests = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+      expect(requests[1]).toEqual(requests[0])
+      expect(store.isComposerActive).toBe(false)
+    })
+
     it('includes carried attachment ids when scheduling a forwarded email', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -3069,7 +3127,9 @@ describe('Inbox Store', () => {
 
     it('restores the draft into the composer if scheduling fails', async () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 429 })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(new Response('Too many requests', { status: 429 }))
       vi.stubGlobal('fetch', fetchMock)
       const store = useInboxStore()
       armComposer(store)
@@ -3079,7 +3139,9 @@ describe('Inbox Store', () => {
       expect(result).toBe(false)
       expect(store.isComposerActive).toBe(true)
       expect(store.composerTo).toBe('someone@example.com')
-      expect(store.toasts.at(-1)?.message).toMatch(/failed/i)
+      expect(store.toasts.at(-1)?.message).toBe(
+        'Scheduling was not confirmed. Retry the original schedule from this draft.',
+      )
       expect(consoleError).toHaveBeenCalledWith('Failed to schedule email:', expect.any(Error))
     })
 
@@ -3761,7 +3823,7 @@ describe('Inbox Store', () => {
   })
 
   it('throws when sending mail fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('Bad gateway', { status: 502 })))
 
     const store = useInboxStore()
     await expect(
@@ -5606,6 +5668,44 @@ describe('finding an email by id', () => {
 })
 
 describe('sidebar folder counts', () => {
+  it('loads and opens processing mail with status while keeping its own pagination', async () => {
+    const store = useInboxStore()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          emails: [
+            {
+              id: 'pending-mail',
+              from_address: 'sender@example.com',
+              subject: 'Still readable',
+              sent_at: new Date().toISOString(),
+              ai_status: 'pending',
+              enrichment_attempts: 3,
+            },
+          ],
+          nextCursor: 'next',
+        }),
+      }),
+    )
+    await store.loadFolder('processing')
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('folder=processing'),
+      expect.anything(),
+    )
+    expect(store.emailById('pending-mail')).toMatchObject({
+      subject: 'Still readable',
+      aiStatus: 'pending',
+      enrichmentFailures: 3,
+    })
+    expect(store.hasMoreProcessing).toBe(true)
+    store.applyFolderCounts({ processingCount: 1 })
+    expect(store.processingCount).toBe(1)
+    store.setComposeOwner('another-account')
+    expect(store.processingEmails).toEqual([])
+    expect(store.processingCount).toBe(0)
+  })
   it('takes Starred, New senders and Blocked counts from the inbox state', async () => {
     const store = useInboxStore()
     vi.stubGlobal(
@@ -5773,11 +5873,6 @@ describe('email Categories', () => {
 })
 
 describe('draft summaries and retry recovery', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
-    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
-  })
-
   it('fetches the complete draft before opening a summary', async () => {
     const store = useInboxStore()
     const full = {
@@ -5813,7 +5908,7 @@ describe('draft summaries and retry recovery', () => {
     expect(fetchMock.mock.calls[0][0]).toContain('/drafts?view=summary')
   })
 
-  it('reuses the scheduled request id after an uncertain response', async () => {
+  it('retries the original scheduled time and request id after an uncertain response', async () => {
     const store = useInboxStore()
     store.composerTo = 'a@example.com'
     store.composerTextArea = 'Body'
@@ -5826,10 +5921,14 @@ describe('draft summaries and retry recovery', () => {
       })
     vi.stubGlobal('fetch', fetchMock)
     expect(await store.sendEmailLater('2099-01-01T09:00:00Z', 'later')).toBe(false)
-    expect(await store.sendEmailLater('2099-01-01T09:00:00Z', 'later')).toBe(true)
+    expect(await store.sendEmailLater('2099-01-01T09:05:00Z', 'five minutes later')).toBe(true)
     const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
     expect(bodies[0].requestId).toBeTruthy()
     expect(bodies[1].requestId).toBe(bodies[0].requestId)
+    expect(bodies[1].sendAt).toBe('2099-01-01T09:00:00Z')
+    expect(store.toasts.at(-1)?.message).toBe(
+      `Email scheduled for ${new Date('2099-01-01T09:00:00Z').toLocaleString()}.`,
+    )
   })
 })
 
@@ -5838,16 +5937,6 @@ describe('ntfy subscription toggle', () => {
     topic: 'cookie-user-topic',
     subscribeUrl: 'https://ntfy.example.com/cookie-user-topic',
   }
-
-  beforeEach(() => {
-    setActivePinia(createPinia())
-    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
 
   it('keeps a paused subscription so its topic stays available while off', async () => {
     vi.stubGlobal(
@@ -5914,16 +6003,6 @@ describe('draft optimistic concurrency', () => {
   const DRAFT_ID = 'draft-occ'
   const V1 = '2026-10-02T10:00:00.000Z'
   const V2 = '2026-10-02T10:00:05.000Z'
-
-  beforeEach(() => {
-    setActivePinia(createPinia())
-    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
 
   function armComposer(store) {
     store.isComposerActive = true
@@ -5996,7 +6075,7 @@ describe('draft optimistic concurrency', () => {
     expect(store.composerDraftId).toBe(DRAFT_ID)
     expect(store.drafts[0]).toMatchObject({ id: DRAFT_ID, text: 'Newer words', updatedAt: V2 })
     expect(notify).toHaveBeenCalledWith(
-      'This draft was changed in another tab. Showing the latest version.',
+      'This draft changed in another tab. Showing the latest version; your local edits are kept in Drafts.',
     )
 
     // The next save is based on the adopted version.
@@ -6069,16 +6148,6 @@ describe('draft optimistic concurrency', () => {
 })
 
 describe('unread count during a refresh', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
-    setAuth0Client({ getAccessTokenSilently: vi.fn().mockResolvedValue('test-access-token') })
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
-
   const listRow = (id, unread) => ({
     id,
     from_name: 'Sender',

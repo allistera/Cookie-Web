@@ -170,6 +170,9 @@ describe('inline AI reply button', () => {
 
   async function clickAi() {
     await wrapper.get('.ni-reply-ai-btn').trigger('click')
+    // The reply action loads on demand. Wait for its observable request,
+    // rather than assuming a promise flush also finishes the module import.
+    await vi.waitFor(() => expect(requests.length).toBeGreaterThan(0))
     await flushPromises()
   }
 
@@ -4447,6 +4450,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   )
 
   it.each([
+    ['processing', 'Processing', 'loadMoreFolder'],
     ['screening', 'Screening', 'loadMoreFolder'],
     ['blocked', 'Blocked', 'loadMoreFolder'],
     ['sent', 'Sent', 'loadMoreSentEmails'],
@@ -4479,6 +4483,19 @@ describe('TraditionalInboxView list and reader action coverage', () => {
       expect(wrapper.get('.ni-load-more').text()).toContain('Loading')
     },
   )
+
+  it('makes unclassified mail readable and offers an explicit refresh', async () => {
+    vi.spyOn(store, 'loadFolder').mockResolvedValue()
+    store.processingEmails = [{ ...makeEmail('pending', Date.now() - HOUR), enrichmentFailures: 3 }]
+    await router.replace({ path: '/inbox', query: { filter: 'processing' } })
+    wrapper = mountView()
+    expect(wrapper.text()).toContain('Spam checks are incomplete')
+    expect(wrapper.text()).toContain('Classification unavailable')
+    await wrapper.get('.ni-processing-notice button').trigger('click')
+    expect(store.loadFolder).toHaveBeenLastCalledWith('processing')
+    await wrapper.get('.ni-row').trigger('click')
+    expect(store.openEmailId).toBe('pending')
+  })
 
   it('paginates the Done archive in both directions', async () => {
     vi.spyOn(store, 'loadDonePage').mockResolvedValue()

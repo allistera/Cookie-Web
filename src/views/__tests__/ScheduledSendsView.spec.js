@@ -106,6 +106,34 @@ describe('ScheduledSendsView', () => {
     expect(wrapper.find('.scheduled-sends-time').classes()).toContain('is-failed')
   })
 
+  it.each([
+    ['uncertain', 'Delivery needs confirmation'],
+    ['sending', 'Sending…'],
+    ['sent', 'Sent'],
+    ['failed', 'Failed to send'],
+  ])(
+    'shows %s outcome and prevents canceling an already dispatched request',
+    async (status, label) => {
+      const fetchMock = stubFetch([
+        {
+          id: 'existing-send',
+          toAddresses: 'reader@example.com',
+          subject: 'Original request',
+          scheduledFor: '2026-08-02T09:00:00.000Z',
+          status,
+        },
+      ])
+      const wrapper = mount(ScheduledSendsView)
+      await flushPromises()
+
+      expect(wrapper.get('.scheduled-sends-time').text()).toBe(label)
+      expect(wrapper.get('.scheduled-sends-cancel').element.disabled).toBe(true)
+      await wrapper.get('.scheduled-sends-cancel').trigger('click')
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
+      wrapper.unmount()
+    },
+  )
+
   it('cancels a scheduled send and removes it from the list', async () => {
     const fetchMock = stubFetch([
       {

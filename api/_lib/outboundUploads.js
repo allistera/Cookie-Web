@@ -259,6 +259,10 @@ async function deleteUploadedAttachment(req, res, userId, services) {
           WHERE ssa.outbound_attachment_id = oa.id
             AND s.status IN ('pending', 'sending')
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM outbound_delivery_uploads du
+          WHERE du.outbound_attachment_id = oa.id
+        )
       RETURNING oa.blob_url,
                 NOT EXISTS (
                   SELECT 1 FROM attachments a WHERE a.blob_url = oa.blob_url
@@ -290,15 +294,8 @@ async function deleteUploadedAttachment(req, res, userId, services) {
     )
     return
   }
-  // Best effort: the row is already gone, and a stranded blob is the
-  // orphan sweep's problem rather than a failed removal for the user.
-  if (row.blobUnreferenced) {
-    try {
-      await services.deleteBlob(row.blob_url)
-    } catch (err) {
-      console.error('failed to delete attachment blob:', err.message)
-    }
-  }
+  // Migration 0103 transactionally queues physical deletion. The cleanup
+  // consumer rechecks live references and retries storage failures.
   res.statusCode = 204
   res.end()
 }

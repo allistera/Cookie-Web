@@ -62,6 +62,7 @@ test('AI Task keeps the prompt on failure and supports keyboard dismissal on mob
     route.fulfill({ status: 502, json: { error: 'Could not generate task. Try again.' } }),
   )
   await page.goto('/tasks?project=inbox')
+  await page.getByRole('button', { name: 'Show task navigation' }).click()
   await page.getByRole('button', { name: 'AI Task', exact: true }).click()
   const input = page.getByRole('textbox', { name: 'Describe your task' })
   await input.fill('Plan day trip to london')

@@ -65,6 +65,24 @@ afterEach(() => {
 })
 
 describe('NewDocumentDialog AI document', () => {
+  it('focuses the dialog, wraps Tab in both directions, and restores the opener', async () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const wrapper = mountDialog()
+    await flushPromises()
+    const close = wrapper.get('[aria-label="Close new document dialog"]')
+    const manage = wrapper.get('.new-document-manage-link')
+    expect(document.activeElement).toBe(close.element)
+    await close.trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(manage.element)
+    await manage.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(close.element)
+    wrapper.unmount()
+    expect(document.activeElement).toBe(opener)
+    opener.remove()
+  })
+
   it('lists the AI option under Blank document and swaps it for a prompt when chosen', async () => {
     const wrapper = mountDialog()
     await flushPromises()

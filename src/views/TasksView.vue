@@ -1169,6 +1169,19 @@ async function submitDraft() {
   flex-shrink: 0;
   margin-left: auto;
 }
+@media (max-width: 760px) {
+  .tasks-view {
+    padding: 20px 16px;
+  }
+  .tasks-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .tasks-breadcrumb {
+    flex-basis: 100%;
+    overflow-wrap: anywhere;
+  }
+}
 .tasks-breadcrumb {
   min-width: 0;
   flex-wrap: wrap;

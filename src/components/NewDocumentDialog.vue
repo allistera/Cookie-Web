@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import DocumentIcon from './DocumentIcon.vue'
 import { useDocumentsStore } from '../stores/documents'
+import { useModalFocus } from '../composables/useModalFocus'
 
 const store = useDocumentsStore()
 const router = useRouter()
@@ -14,6 +15,9 @@ const isCreating = ref(false)
 const aiPromptOpen = ref(false)
 const aiInstruction = ref('')
 const aiPromptRef = ref(null)
+const aiOptionRef = ref(null)
+const dialog = ref(null)
+useModalFocus(dialog)
 
 onMounted(() => {
   store.loadTemplates()
@@ -32,9 +36,11 @@ async function openAiPrompt() {
   aiPromptRef.value?.focus()
 }
 
-function closeAiPrompt() {
+async function closeAiPrompt() {
   if (isCreating.value) return
   aiPromptOpen.value = false
+  await nextTick()
+  aiOptionRef.value?.focus()
 }
 
 function openCreated(document) {
@@ -70,10 +76,12 @@ async function createAiDocument() {
 <template>
   <div class="new-document-overlay" @mousedown.self="store.closeNewDocumentDialog()">
     <section
+      ref="dialog"
       class="new-document-dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-document-title"
+      tabindex="-1"
     >
       <header class="new-document-dialog-header">
         <div>
@@ -137,6 +145,7 @@ async function createAiDocument() {
           v-else
           type="button"
           class="new-document-option new-document-ai-option"
+          ref="aiOptionRef"
           :disabled="isCreating"
           @click="openAiPrompt"
         >

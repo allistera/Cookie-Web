@@ -279,7 +279,7 @@ describe('DELETE /api/send?resource=attachment', () => {
     return { method: 'DELETE', url: `/api/send?resource=attachment&id=${id}`, headers: {} }
   }
 
-  it('deletes the blob when no sent copy still references it', async () => {
+  it('leaves physical blob deletion to the durable cleanup queue', async () => {
     mocks.getSql.mockReturnValue(
       vi.fn(async () => [{ found: true, blob_url: BLOB_URL, blobUnreferenced: true }]),
     )
@@ -288,10 +288,10 @@ describe('DELETE /api/send?resource=attachment', () => {
     await handler(deleteRequest(ATTACHMENT_ID), res)
 
     expect(res.statusCode).toBe(204)
-    expect(mocks.deleteBlob).toHaveBeenCalledWith(BLOB_URL)
+    expect(mocks.deleteBlob).not.toHaveBeenCalled()
   })
 
-  it('deletes the blob only after checking no other upload row of the user shares it', async () => {
+  it('checks shared upload references before queueing deletion', async () => {
     const sql = vi.fn(async () => [{ found: true, blob_url: BLOB_URL, blobUnreferenced: true }])
     mocks.getSql.mockReturnValue(sql)
     const res = makeRes()
@@ -302,7 +302,7 @@ describe('DELETE /api/send?resource=attachment', () => {
       /FROM outbound_attachments other\s+WHERE other\.user_id = oa\.user_id\s+AND other\.blob_url = oa\.blob_url\s+AND other\.id <> oa\.id/,
     )
     expect(res.statusCode).toBe(204)
-    expect(mocks.deleteBlob).toHaveBeenCalledWith(BLOB_URL)
+    expect(mocks.deleteBlob).not.toHaveBeenCalled()
   })
 
   it('keeps the bytes when a sent message shares the same blob', async () => {
@@ -338,6 +338,7 @@ describe('DELETE /api/send?resource=attachment', () => {
 
     const query = sql.mock.calls[0][0].join('')
     expect(query).toMatch(/FROM draft_attachments da\s+WHERE da\.outbound_attachment_id = oa\.id/)
+    expect(query).toContain('FROM outbound_delivery_uploads du')
     expect(query).toMatch(/s\.status IN \('pending', 'sending'\)/)
     expect(res.statusCode).toBe(409)
     expect(mocks.deleteBlob).not.toHaveBeenCalled()
@@ -362,7 +363,7 @@ describe('DELETE /api/send?resource=attachment', () => {
     expect(values).toContain(DRAFT_ID)
     expect(values).toContain(USER_ID)
     expect(res.statusCode).toBe(204)
-    expect(mocks.deleteBlob).toHaveBeenCalledWith(BLOB_URL)
+    expect(mocks.deleteBlob).not.toHaveBeenCalled()
   })
 
   it('rejects a malformed draftId', async () => {

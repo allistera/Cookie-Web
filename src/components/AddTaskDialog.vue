@@ -8,6 +8,7 @@ import { useTaskItemsStore } from '../stores/taskItems'
 import { useProjectsStore } from '../stores/projects'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { PRIORITIES } from '../lib/taskPriority'
+import { useModalFocus } from '../composables/useModalFocus'
 
 const emit = defineEmits(['close'])
 const items = useTaskItemsStore()
@@ -15,6 +16,8 @@ const projects = useProjectsStore()
 const mode = ref('ai')
 const text = ref('')
 const titleInput = ref(null)
+const dialog = ref(null)
+useModalFocus(dialog, { initialFocus: titleInput })
 const isSaving = ref(false)
 const error = ref('')
 const parsedText = ref(null)
@@ -117,14 +120,21 @@ function onKeydown(event) {
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
-  titleInput.value?.focus()
 })
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
   <div class="add-task-dialog-backdrop" @click="close">
-    <div class="add-task-dialog" role="dialog" aria-modal="true" aria-label="Add task" @click.stop>
+    <div
+      ref="dialog"
+      class="add-task-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add task"
+      tabindex="-1"
+      @click.stop
+    >
       <form class="add-task-dialog-form" @submit.prevent="submit">
         <header class="add-task-heading">
           <h2>New task</h2>

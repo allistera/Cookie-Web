@@ -183,11 +183,18 @@ export const useDocumentsStore = defineStore('documents', {
       useInboxStore().notify(message, kind)
     },
 
-    async request(method, { params = '', body } = {}) {
+    async request(method, { params = '', body, owner = offlineOwner() } = {}) {
       const headers = await this.authHeaders(
         body !== undefined ? { 'Content-Type': 'application/json' } : {},
       )
-      return jsonRequest(`${TASKS_API_URL}/documents${params}`, { method, headers, body })
+      if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
+      const result = await jsonRequest(`${TASKS_API_URL}/documents${params}`, {
+        method,
+        headers,
+        body,
+      })
+      if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
+      return result
     },
 
     async filesRequest(method, path = '', { body } = {}) {
@@ -642,10 +649,13 @@ export const useDocumentsStore = defineStore('documents', {
     // document changed elsewhere in the meantime refuses the PATCH with 409;
     // the offline edits are then saved as a copy beside it rather than
     // dropped or written over the newer version.
-    async replayDocumentPatch(payload) {
+    async replayDocumentPatch(payload, owner = offlineOwner()) {
       const { id, updatedAt, ...content } = payload
       try {
-        const { document } = await this.request('PATCH', { body: { id, ...content, updatedAt } })
+        const { document } = await this.request('PATCH', {
+          body: { id, ...content, updatedAt },
+          owner,
+        })
         const row = this.documents.find((doc) => doc.id === id)
         if (row) {
           const previous = { ...row }
@@ -655,7 +665,7 @@ export const useDocumentsStore = defineStore('documents', {
         if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
       } catch (error) {
         if (error?.status !== 409) throw error
-        await this.saveOfflineEditsAsCopy(id, content, error)
+        await this.saveOfflineEditsAsCopy(id, content, error, owner)
       }
     },
 
@@ -664,23 +674,27 @@ export const useDocumentsStore = defineStore('documents', {
     // the server has it now (replay only runs online) and takes the offline
     // edits on top: a renamed document keeps its body, folder and tags. A
     // document deleted elsewhere falls back to its offline copy.
-    async saveOfflineEditsAsCopy(id, content, conflict) {
+    async saveOfflineEditsAsCopy(id, content, conflict, owner = offlineOwner()) {
       let base
       try {
         ;({ document: base } = await this.request('GET', {
           params: `?id=${encodeURIComponent(id)}`,
+          owner,
         }))
       } catch (error) {
         if (isNetworkError(error)) throw error
-        base = (await readOfflineCache(documentCacheKey(id)))?.value ?? {}
+        base = (await readOfflineCache(documentCacheKey(id), owner))?.value ?? {}
       }
+      if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
       const title = content.title ?? base.title ?? 'Untitled'
       const copy = await this.createDocument({
         folderId: base.folder_id ?? null,
         title: `${title} (offline copy)`,
+        owner,
       })
       if (!copy) throw new Error('Failed to save offline edits as a copy', { cause: conflict })
       const { document } = await this.request('PATCH', {
+        owner,
         body: {
           id: copy.id,
           title: copy.title,
@@ -695,12 +709,18 @@ export const useDocumentsStore = defineStore('documents', {
       )
     },
 
-    async createDocument({ folderId = null, title, templateId = null } = {}) {
+    async createDocument({
+      folderId = null,
+      title,
+      templateId = null,
+      owner = offlineOwner(),
+    } = {}) {
       try {
         const body = { kind: 'document', folderId, templateId }
         if (title !== undefined) body.title = title
         const { document } = await this.request('POST', {
           body,
+          owner,
         })
         this.documents.unshift(document)
         this.syncDocumentPages(document)
@@ -1197,4 +1217,6 @@ export const useDocumentsStore = defineStore('documents', {
   },
 })
 
-registerOutboxHandler(DOCUMENT_PATCH, (payload) => useDocumentsStore().replayDocumentPatch(payload))
+registerOutboxHandler(DOCUMENT_PATCH, (payload, { owner } = {}) =>
+  useDocumentsStore().replayDocumentPatch(payload, owner),
+)

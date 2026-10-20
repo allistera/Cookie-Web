@@ -65,7 +65,12 @@ export function createHandler(overrides = {}) {
       res.end(payload)
     } catch {
       res.statusCode = 502
-      res.end(JSON.stringify({ error: 'Sending is temporarily unavailable. Please retry.' }))
+      res.end(
+        JSON.stringify({
+          code: 'DELIVERY_PENDING',
+          error: 'Delivery confirmation is unavailable. Retry the same unchanged message.',
+        }),
+      )
     }
   }
 }

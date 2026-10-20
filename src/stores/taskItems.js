@@ -111,6 +111,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     loadedDate: null,
     isLoading: false,
     loadSeq: 0,
+    historyRevision: 0,
     // Action asked for by the command palette: 'new-task' and 'add-divider'
     // (TasksView owns the list) or 'new-project' (TasksSidebar owns the
     // inline project row). The owner consumes it, on mount too if it was
@@ -125,6 +126,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
   },
 
   actions: {
+    // Explicit external sync invalidation, separate from ordinary list reads.
+    invalidateHistory() {
+      this.historyRevision++
+    },
     // Delegates so a dead session is recognised in one place: it sends the
     // person to sign in rather than letting each store report a generic
     // failure against a session that will never work again.
@@ -154,11 +159,18 @@ export const useTaskItemsStore = defineStore('taskItems', {
       if (projects.isLoaded || projects.isLoading) projects.loadProjects({ force: true })
     },
 
-    async request(method, { params = '', body } = {}) {
+    async request(method, { params = '', body, owner = offlineOwner() } = {}) {
       const headers = await this.authHeaders(
         body !== undefined ? { 'Content-Type': 'application/json' } : {},
       )
-      return jsonRequest(`${TASKS_API_URL}/task-items${params}`, { method, headers, body })
+      if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
+      const result = await jsonRequest(`${TASKS_API_URL}/task-items${params}`, {
+        method,
+        headers,
+        body,
+      })
+      if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
+      return result
     },
 
     async loadItems(project, { force = false } = {}) {
@@ -702,8 +714,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     // Replays an edit queued while offline; see patchItem.
-    async replayTaskPatch(payload) {
-      const { item: updated } = await this.request('PATCH', { body: payload })
+    async replayTaskPatch(payload, owner = offlineOwner()) {
+      const { item: updated } = await this.request('PATCH', { body: payload, owner })
       const item = this.items.find((row) => row.id === payload.id)
       if (item) Object.assign(item, updated)
       this.refreshProjectCounts()
@@ -762,4 +774,6 @@ export const useTaskItemsStore = defineStore('taskItems', {
   },
 })
 
-registerOutboxHandler(TASK_PATCH, (payload) => useTaskItemsStore().replayTaskPatch(payload))
+registerOutboxHandler(TASK_PATCH, (payload, { owner } = {}) =>
+  useTaskItemsStore().replayTaskPatch(payload, owner),
+)

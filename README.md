@@ -83,7 +83,9 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   one occurrence at a time, and each dialog links to the event in Google
   Calendar. Calendars the account can only read open read-only. The
   `cookie-web-calendar` Worker holds the tokens and talks to Google; the browser
-  never does. Apply `migrations/0091_google_calendar.sql` and set that Worker's
+  never does. Linking finishes only in the tab that started it and under the
+  same signed-in Cookie account. Apply `migrations/0091_google_calendar.sql`
+  and `migrations/0102_google_calendar_browser_binding.sql` and set that Worker's
   Google secrets (Cookie-Worker README, "Google Calendar") before deploying.
 - Auth0 authentication and per-user mailbox queries.
 - Press `?` (or pick Keyboard Shortcuts in the `/` command palette) for a list of
@@ -179,12 +181,24 @@ and completions, and document edits (shown as "Saved on this device" in the
 editor). They stay on screen, survive a reload, and go out in order when the
 browser reports being online again, when the tab becomes visible, and at the
 next start. Later changes to the same item merge into the earlier queued one.
-A change the server refuses is dropped rather than retried forever; a
+Temporary server refusals (including 429 and 5xx) and expired sessions retain
+the change for a later sync. Permanent refusals stay in the sync banner with
+explicit Retry and Discard actions; no failed request silently deletes an edit. A
 document that changed elsewhere while you were offline has your edits saved
 beside it as "<title> (offline copy)". Sending mail, search and AI features
 need a connection and the Send buttons wait for one.
 
-Signing out deletes the offline cache and outbox. Chromium and Firefox run
+Composer and inline reply edits also keep account-scoped recovery copies in
+IndexedDB before remote autosave. Drafts lists local copies after a failed save
+or a conflict; opening one creates a separate draft so it cannot overwrite
+another tab's newer version. The composer distinguishes server saves, local
+saves, and unavailable storage. Unconfirmed delivery identities stay with the
+local copy until sending is confirmed, so retrying after reload reuses the same
+request. If local storage is unavailable, keep the tab open until remote saving
+succeeds.
+
+Signing out deletes the offline cache, outbox, and local draft recovery copies;
+unsynced drafts trigger a warning before this deletion. Chromium and Firefox run
 `e2e/offline.spec.js`, which cuts the Workers off and checks the cached
 inbox, a queued star and its replay.
 

@@ -112,6 +112,41 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
     })
   }
 
+  // A read/modify/write in one transaction. Returning undefined keeps the
+  // current value; null deletes it. Used when an acknowledgement must not
+  // remove a newer local edit that arrived while its request was in flight.
+  async function mutate(storeName, key, update) {
+    const db = await open()
+    if (!db) return null
+    return new Promise((resolve) => {
+      let transaction
+      try {
+        transaction = db.transaction(storeName, 'readwrite')
+      } catch {
+        resolve(null)
+        return
+      }
+      const store = transaction.objectStore(storeName)
+      const request = store.get(key)
+      let changed = false
+      request.onsuccess = () => {
+        try {
+          const next = update(request.result)
+          if (next === undefined) return
+          if (next === null) store.delete(key)
+          else if (store.keyPath) store.put(next)
+          else store.put(next, key)
+          changed = true
+        } catch {
+          transaction.abort()
+        }
+      }
+      transaction.oncomplete = () => resolve(changed)
+      transaction.onerror = () => resolve(null)
+      transaction.onabort = () => resolve(null)
+    })
+  }
+
   return {
     get: (storeName, key) => run(storeName, 'readonly', (store) => store.get(key)),
     getAll: async (storeName) =>
@@ -122,6 +157,7 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
         key === undefined ? store.put(value) : store.put(value, key),
       ),
     updateAll,
+    mutate,
     delete: (storeName, key) => run(storeName, 'readwrite', (store) => store.delete(key)),
     clear,
     clearAll: () => Promise.all([clear(CACHE_STORE), clear(OUTBOX_STORE)]),

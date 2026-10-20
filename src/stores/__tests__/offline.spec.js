@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isOnline, resetConnectivityForTests } from '../../lib/connectivity'
 import { setOfflineOwner } from '../../lib/offlineCache'
 import { OUTBOX_STORE, createOfflineDb, setOfflineDb } from '../../lib/offlineDb'
-import { flushOutbox, refreshOutboxPending, registerOutboxHandler } from '../../lib/outbox'
+import {
+  enqueueOutbox,
+  flushOutbox,
+  refreshOutboxPending,
+  registerOutboxHandler,
+} from '../../lib/outbox'
 import { DOCUMENT_PATCH, useDocumentsStore } from '../documents'
 import { MESSAGE_PATCH, applyQueuedMessageChanges, useInboxStore } from '../inbox'
 import { useProjectsStore } from '../projects'
@@ -77,6 +82,27 @@ const EMAIL_ROWS = [
   },
 ]
 const INBOX_PAGE = { emails: EMAIL_ROWS, nextCursor: 'more', unreadCount: 7, userId: 'user-1' }
+
+it('does not dispatch a queued edit using credentials resolved after an account change', async () => {
+  const store = prepare(useTaskItemsStore())
+  let authorize
+  store.authHeaders.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        authorize = resolve
+      }),
+  )
+  const fetchMock = vi.fn()
+  vi.stubGlobal('fetch', fetchMock)
+  await enqueueOutbox({ kind: TASK_PATCH, key: 't1', payload: { id: 't1', content: 'Alice edit' } })
+  const sync = flushOutbox()
+  await vi.waitFor(() => expect(authorize).toBeDefined())
+  setOfflineOwner('auth0|bob')
+  authorize({})
+  await sync
+  expect(fetchMock).not.toHaveBeenCalled()
+  expect(await outboxPayloads()).toEqual([{ id: 't1', content: 'Alice edit' }])
+})
 
 describe('inbox store offline', () => {
   it('shows the last inbox page when the emails Worker cannot be reached', async () => {

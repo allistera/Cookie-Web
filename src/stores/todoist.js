@@ -184,6 +184,7 @@ export const useTodoistStore = defineStore('todoist', {
       ]
       if (items.loadedProject) reloads.push(items.loadItems(items.loadedProject, { force: true }))
       await Promise.all(reloads)
+      items.invalidateHistory()
     },
   },
 })
