@@ -312,7 +312,10 @@ When the DSN, auth token, organization, and project are all present for a build,
 the Sentry Vite plugin creates hidden source maps, uploads them, and deletes
 `dist/**/*.map` before deployment. Shared modules already needed at startup are
 bundled together to avoid paying Sentry's debug-ID bootstrap overhead in many
-small chunks; the existing entry and feature size budgets remain unchanged. Missing credentials leave source maps off;
+small chunks; the existing entry and feature size budgets remain unchanged.
+The build uses native module preloads without the legacy preload polyfill;
+browsers without module-preload support still load ES modules normally, but
+without that preload optimization. Missing credentials leave source maps off;
 invalid credentials cause the upload/build to fail so an unsuccessful upload is
 visible. Fix any **Needs Attention** token status in the Vercel integration
 before deploying with uploads enabled. No token is needed for browser reporting.

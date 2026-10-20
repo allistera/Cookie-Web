@@ -19,6 +19,9 @@ export default defineConfig(({ mode, command }) => {
     define: command === 'build' ? sentry.define : undefined,
     build: {
       sourcemap: sentry.upload ? 'hidden' : false,
+      // Native module preloads avoid shipping a legacy preload-only shim.
+      // Browsers without preload support still load native ES modules.
+      modulePreload: { polyfill: false },
       rolldownOptions: {
         output: {
           codeSplitting: {
