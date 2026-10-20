@@ -1,3 +1,5 @@
+import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import { sanitizeStoredSnippets } from '../lib/snippets'
 // Optional mail settings and contact suggestions load only when requested.
 import {
   AI_API_URL,
@@ -11,6 +13,61 @@ import { parseAutoArchive } from '../lib/autoArchive'
 import { parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
 export const mailSettingsActions = {
+  async saveComposePreferences({
+    signatureHtml = this.signatureHtml,
+    snippets = this.snippets,
+  } = {}) {
+    if (!this.composeOwnerSub || !this.composePreferencesLoaded)
+      throw new Error('Composer preferences must be loaded before saving')
+    if (this.composePreferencesSaving) throw new Error('Composer preferences are already saving')
+    const owner = this.composeOwnerSub
+    const generation = this.composeGeneration
+    const next = {
+      revision: this.composePreferencesRevision,
+      signatureHtml: sanitizeEmailHtml(signatureHtml),
+      snippets: sanitizeStoredSnippets(snippets),
+    }
+    if (next.snippets.length !== snippets.length) {
+      this.composePreferencesError =
+        'A snippet is empty, duplicated, or exceeds the 50-snippet limit.'
+      return false
+    }
+    this.composePreferencesSaving = true
+    this.composePreferencesError = ''
+    this.composePreferencesConflict = false
+    try {
+      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
+      const response = await fetch(`${EMAILS_API_URL}/emails/compose-preferences`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(next),
+      })
+      const payload = await response.json()
+      if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
+      if (response.status === 409) {
+        this.applyComposePreferences(payload.current)
+        this.composePreferencesConflict = true
+        this.composePreferencesError =
+          'These preferences changed in another session. Review the latest version before saving again.'
+        return false
+      }
+      if (!response.ok)
+        throw new Error(payload.error || `PUT compose preferences responded ${response.status}`)
+      this.applyComposePreferences(payload)
+      return true
+    } catch (error) {
+      if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
+      this.composePreferencesError =
+        'Could not save composer preferences. Your edit is still here; please try again.'
+      console.error('Failed to save compose preferences:', error)
+      return false
+    } finally {
+      if (owner === this.composeOwnerSub && generation === this.composeGeneration)
+        this.composePreferencesSaving = false
+    }
+  },
+
   async loadRules() {
     try {
       const headers = await this.authHeaders()
