@@ -939,10 +939,10 @@ describe('SettingsView', () => {
   })
 
   it('requests browser permission and enables new-mail notifications for the current user', async () => {
-    store.userId = '11111111-1111-1111-1111-111111111111'
     const requestPermission = vi.fn().mockResolvedValue('granted')
     vi.stubGlobal('Notification', { permission: 'default', requestPermission })
     const wrapper = await openView()
+    store.userId = '11111111-1111-1111-1111-111111111111'
 
     await openPane(wrapper, 'notifications')
     await wrapper.find('.browser-notifications-switch').setValue(true)
@@ -958,13 +958,13 @@ describe('SettingsView', () => {
   })
 
   it('keeps browser notifications off when permission is denied', async () => {
-    store.userId = '11111111-1111-1111-1111-111111111111'
     const requestPermission = vi.fn().mockImplementation(async () => {
       Notification.permission = 'denied'
       return 'denied'
     })
     vi.stubGlobal('Notification', { permission: 'default', requestPermission })
     const wrapper = await openView()
+    store.userId = '11111111-1111-1111-1111-111111111111'
 
     await openPane(wrapper, 'notifications')
     await wrapper.find('.browser-notifications-switch').setValue(true)
@@ -1056,11 +1056,13 @@ describe('SettingsView', () => {
 
     await wrapper.findAll('.label-auto-tag-switch')[1].setValue(true)
 
-    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'l2', auto_apply: true }),
-    })
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'l2', auto_apply: true }),
+      }),
+    )
     expect(store.labels[1].auto_apply).toBe(true)
   })
 
@@ -1260,11 +1262,13 @@ describe('SettingsView', () => {
 
     await wrapper.find('.rule-row input[type="checkbox"]').setValue(false)
 
-    expect(fetch).toHaveBeenLastCalledWith(`${LABELS_API_URL}/labels/rules`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'r1', enabled: false }),
-    })
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(`${LABELS_API_URL}/labels/rules`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'r1', enabled: false }),
+      }),
+    )
     expect(store.rules[0].enabled).toBe(false)
   })
 
@@ -1439,6 +1443,11 @@ describe('SettingsView', () => {
   })
 
   describe('Personalisation pane', () => {
+    beforeEach(() => {
+      // Preloaded preferences belong to the account initialized by App before this route mounts.
+      store.setComposeOwner(authUser.value.sub)
+    })
+
     async function openPersonalisationPane(wrapper) {
       await openPane(wrapper, 'personalisation')
     }

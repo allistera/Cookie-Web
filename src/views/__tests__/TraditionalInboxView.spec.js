@@ -170,6 +170,9 @@ describe('inline AI reply button', () => {
 
   async function clickAi() {
     await wrapper.get('.ni-reply-ai-btn').trigger('click')
+    // The reply action loads on demand. Wait for its observable request,
+    // rather than assuming a promise flush also finishes the module import.
+    await vi.waitFor(() => expect(requests.length).toBeGreaterThan(0))
     await flushPromises()
   }
 
