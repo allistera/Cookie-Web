@@ -39,6 +39,7 @@ const aiConversation = ref(null)
 const editorRevision = ref(0)
 let aiController = null
 let aiRequestSerial = 0
+let aiConversationId = null
 
 function resetAiChat() {
   aiRequestSerial++
@@ -46,6 +47,7 @@ function resetAiChat() {
   aiController = null
   aiBusy.value = false
   aiMessages.value = []
+  aiConversationId = null
   aiError.value = ''
 }
 onBeforeUnmount(resetAiChat)
@@ -87,7 +89,9 @@ async function sendAiMessage() {
     const userMessage = { role: 'user', content: instruction }
     aiMessages.value.push(userMessage)
     void scrollAiChat()
+    aiConversationId ??= crypto.randomUUID()
     const result = await requestDocumentChat(store, {
+      conversationId: aiConversationId,
       instruction,
       document,
       history,

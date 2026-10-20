@@ -3203,3 +3203,29 @@ test('Tasks: project favorites persist and can be removed from their shortcut', 
   await page.reload()
   await expect(favorite).toHaveCount(0)
 })
+
+test('Processing under More with 0 messages', async ({ page }) => {
+  await page.route(`${EMAILS_API_URL}/emails**`, (route) =>
+    route.fulfill({ json: { emails: [], total: 0, unreadCount: 0, processingCount: 0 } }),
+  )
+  await page.goto('/inbox?filter=processing')
+  const processing = page.locator('.nav-item', { hasText: 'Processing' })
+  await expect(processing).toHaveCount(0)
+  await page.locator('.nav-item', { hasText: 'More' }).click()
+  await expect(processing).toHaveCount(0)
+})
+
+test('Processing under More with 2 messages', async ({ page }) => {
+  await page.route(`${EMAILS_API_URL}/emails**`, (route) =>
+    route.fulfill({ json: { emails: [], total: 0, unreadCount: 0, processingCount: 2 } }),
+  )
+  await page.goto('/inbox?filter=processing')
+  const processing = page.locator('.nav-item', { hasText: 'Processing' })
+  await expect(processing).toHaveCount(0)
+  await page.locator('.nav-item', { hasText: 'More' }).click()
+  await expect(processing).toBeVisible()
+  await expect(processing.locator('.nav-badge')).toHaveText('2')
+  await expect(processing).toHaveClass(/active/)
+  await page.locator('.nav-item', { hasText: 'Less' }).click()
+  await expect(processing).toHaveCount(0)
+})

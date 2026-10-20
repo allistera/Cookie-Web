@@ -10,8 +10,11 @@ export function documentContentKey(document) {
   })
 }
 
-export async function requestDocumentChat(store, { instruction, document, history, signal }) {
-  const body = { instruction, document, history }
+export async function requestDocumentChat(
+  store,
+  { instruction, document, history, conversationId, signal },
+) {
+  const body = { instruction, document, history, conversationId }
   if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 1024 * 1024) {
     throw new Error('This document is too large to send to AI chat.')
   }

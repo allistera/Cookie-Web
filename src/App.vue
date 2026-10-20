@@ -801,17 +801,6 @@ onUnmounted(() => {
               <span class="nav-text">Starred</span>
             </router-link>
             <router-link
-              :to="{ path: '/inbox', query: { filter: 'processing' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'processing' }"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">pending</span>
-              <span class="nav-text">Processing</span>
-              <span v-if="store.processingCount" class="nav-badge">{{
-                store.processingCount
-              }}</span>
-            </router-link>
-            <router-link
               v-if="store.screeningCount || route.query.filter === 'screening'"
               :to="{ path: '/inbox', query: { filter: 'screening' } }"
               class="nav-item"
@@ -827,6 +816,18 @@ onUnmounted(() => {
               <span class="nav-text">{{ showMoreNav ? 'Less' : 'More' }}</span>
             </a>
             <template v-if="showMoreNav">
+              <router-link
+                v-if="store.processingCount > 0"
+                :to="{ path: '/inbox', query: { filter: 'processing' } }"
+                class="nav-item"
+                :class="{ active: route.query.filter === 'processing' }"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">pending</span>
+                <span class="nav-text">Processing</span>
+                <span v-if="store.processingCount" class="nav-badge">{{
+                  store.processingCount
+                }}</span>
+              </router-link>
               <!-- Snoozed and Scheduled only exist while they hold something:
                    store.snoozedCount arrives with the inbox state, and the
                    Send Later queue is loaded quietly on sign-in. -->
