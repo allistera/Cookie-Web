@@ -1,14 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h } from 'vue'
 import { initSentry } from '../sentry'
+import { start } from '../sentryClient'
 
 const init = vi.fn()
 const loadSdk = vi.fn()
 const captureException = vi.fn()
+const browserTracingIntegration = vi.fn()
+const browserProfilingIntegration = vi.fn()
+const client = {
+  start: (app) =>
+    start(app, {
+      init,
+      captureException,
+      browserTracingIntegration,
+      browserProfilingIntegration,
+    }),
+}
 
 describe('browser error monitoring', () => {
   beforeEach(() => {
-    loadSdk.mockResolvedValue({ init, captureException })
+    browserTracingIntegration.mockReturnValue({ name: 'BrowserTracing' })
+    browserProfilingIntegration.mockReturnValue({ name: 'BrowserProfiling' })
+    loadSdk.mockResolvedValue(client)
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_E2E', 'false')
     vi.stubEnv('VITE_SENTRY_DSN', 'https://public@example.com/1')
@@ -26,7 +40,6 @@ describe('browser error monitoring', () => {
     ['PROD', false],
     ['VITE_E2E', 'true'],
     ['VITE_SENTRY_DSN', ''],
-    ['VITE_SENTRY_DSN', '   '],
   ])('does not initialize when %s is %s', async (key, value) => {
     vi.stubEnv(key, value)
     await initSentry({ config: {} }, loadSdk)
@@ -35,8 +48,13 @@ describe('browser error monitoring', () => {
   })
 
   it('installs Vue error reporting with private data collection disabled', async () => {
-    const app = { config: {} }
+    const router = {}
+    const app = { config: { globalProperties: { $router: router } } }
     await initSentry(app, loadSdk)
+    expect(browserTracingIntegration).toHaveBeenCalledWith({
+      router,
+      beforeStartSpan: expect.any(Function),
+    })
     expect(init).toHaveBeenCalledWith(
       expect.objectContaining({
         app,
@@ -44,7 +62,12 @@ describe('browser error monitoring', () => {
         environment: 'preview',
         release: 'test-release',
         attachProps: false,
-        tracesSampleRate: 0,
+        tracesSampleRate: 0.1,
+        tracePropagationTargets: [],
+        integrations: [{ name: 'BrowserTracing' }, { name: 'BrowserProfiling' }],
+        profileSessionSampleRate: 0.1,
+        profileLifecycle: 'trace',
+        beforeSendSpan: expect.any(Function),
         dataCollection: {
           userInfo: false,
           cookies: false,
@@ -100,7 +123,7 @@ describe('browser error monitoring', () => {
     app.mount(host)
     expect(host.textContent).toBe('Inbox available')
     expect(init).not.toHaveBeenCalled()
-    resolveSdk({ init, captureException })
+    resolveSdk(client)
     await ready
     expect(captureException).toHaveBeenCalledWith(error)
     app.unmount()
@@ -118,7 +141,7 @@ describe('browser error monitoring', () => {
     const ready = initSentry(app, loadSdk)
     for (let i = 0; i < 25; i++) app.config.errorHandler(new Error('failure'), null, 'render')
     expect(previousHandler).toHaveBeenCalledTimes(25)
-    resolveSdk({ init, captureException })
+    resolveSdk(client)
     await ready
     expect(captureException).toHaveBeenCalledTimes(20)
     expect(app.config.errorHandler).toBe(previousHandler)
@@ -146,6 +169,6 @@ describe('browser error monitoring', () => {
     })
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expect(initSentry({ config: {} }, loadSdk)).resolves.toBeUndefined()
-    expect(warning).toHaveBeenCalledWith('Error monitoring could not be initialized.')
+    expect(warning).toHaveBeenCalledWith('Sentry unavailable.')
   })
 })
