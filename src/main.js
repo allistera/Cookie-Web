@@ -10,6 +10,7 @@ import { installConnectivityListeners } from './lib/connectivity'
 import { registerServiceWorker } from './lib/serviceWorker'
 import { installStaleChunkReload } from './lib/staleChunkReload'
 import { initTheme } from './lib/theme'
+import { initSentry } from './lib/sentry'
 
 // Apply the saved theme (and start tracking the OS for 'system') before mount
 // so the first paint already carries the right data-theme — no flash.
@@ -43,8 +44,12 @@ if (auth0 && auth0Domain) {
 }
 if (auth0) app.use(auth0)
 
-app.mount('#app')
+// Install the Vue error handler before rendering components. The helper
+// tolerates SDK loading failures so monitoring cannot break app startup.
+initSentry(app).then(() => {
+  app.mount('#app')
 
-// Keep development and deterministic E2E runs free of persistent workers;
-// production registers the offline shell and recent-mail cache after mount.
-if (!isE2E) registerServiceWorker()
+  // Keep development and deterministic E2E runs free of persistent workers;
+  // production registers the offline shell and recent-mail cache after mount.
+  if (!isE2E) registerServiceWorker()
+})
