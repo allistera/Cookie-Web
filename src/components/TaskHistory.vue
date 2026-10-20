@@ -1,4 +1,5 @@
 <script setup>
+import { subscribeTaskMutations } from '../lib/taskMutationRefresh'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import { TASKS_API_URL } from '../lib/apiWorkers'
@@ -21,7 +22,6 @@ const cursor = ref(null)
 const loading = ref(false)
 const error = ref('')
 let sequence = 0
-let disposed = false
 
 async function load(more = false) {
   if (more && (!cursor.value || loading.value)) return
@@ -56,14 +56,8 @@ watch(
   { immediate: true },
 )
 
-// A confirmed task write (an edit in this panel, a sync, another client's
-// change picked up by a reload) is what adds a line, so reload after each.
-const unsubscribe = items.$onAction(({ name, after }) => {
-  if (name === 'request')
-    after(() => {
-      if (!disposed) void load()
-    })
-})
+// Refresh once per successful mutation or completed bulk edit.
+const unsubscribe = subscribeTaskMutations(items, () => void load())
 // Another client's edit made while this tab was hidden reaches no local
 // action, so coming back to the tab reloads too.
 function onVisible() {
@@ -71,7 +65,6 @@ function onVisible() {
 }
 document.addEventListener('visibilitychange', onVisible)
 onBeforeUnmount(() => {
-  disposed = true
   ++sequence
   unsubscribe()
   document.removeEventListener('visibilitychange', onVisible)

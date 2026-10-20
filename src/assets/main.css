@@ -531,6 +531,50 @@ body {
   padding: 0 8px 8px;
 }
 
+.tasks-navigation-toggle {
+  display: none;
+}
+
+.composer-save-status {
+  padding: 4px 20px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.composer-save-status button {
+  margin-left: 8px;
+  font: inherit;
+}
+
+@media (max-width: 760px) {
+  .tasks-navigation-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 0;
+    color: var(--text-primary);
+    background: transparent;
+    font: inherit;
+    text-align: left;
+  }
+  .app-body.tasks-app {
+    flex-direction: column;
+    min-height: 0;
+  }
+  .tasks-app > .tasks-sidebar {
+    display: none;
+    width: 100%;
+    max-height: 45dvh;
+    overflow-y: auto;
+  }
+  .tasks-app.tasks-navigation-open > .tasks-sidebar {
+    display: flex;
+  }
+  .tasks-app > .main-content {
+    min-height: 0;
+  }
+}
+
 /* Left Sidebar (Linear style: borderless, sits on the gray canvas) */
 .left-sidebar {
   /* --sidebar-width is set on .app-body while the user has dragged the

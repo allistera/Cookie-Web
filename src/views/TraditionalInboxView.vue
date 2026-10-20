@@ -63,6 +63,11 @@ const threadMutePending = computed(() => store.mutingThreadIds.has(threadMuteBod
 // server-backed lists loaded lazily when opened. The inbox still hides
 // starred rows client-side so starring moves mail out of Inbox immediately.
 const FILTER_META = {
+  processing: {
+    title: 'Processing',
+    icon: 'hourglass_top',
+    emptyText: 'No mail awaiting processing.',
+  },
   screening: { title: 'New senders', icon: 'person', emptyText: 'No senders awaiting review.' },
   blocked: { title: 'Blocked', icon: 'visibility_off', emptyText: 'No blocked mail.' },
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
@@ -86,11 +91,19 @@ watch(
     if (filter === 'done') store.loadDonePage(0)
     if (filter === 'starred') store.loadStarredEmails()
     if (filter === 'label') store.loadLabelEmails(label)
-    if (filter === 'screening' || filter === 'blocked') store.loadFolder(filter)
+    if (['processing', 'screening', 'blocked'].includes(filter)) store.loadFolder(filter)
     if (
-      !['sent', 'spam', 'snoozed', 'done', 'starred', 'label', 'screening', 'blocked'].includes(
-        filter,
-      ) &&
+      ![
+        'sent',
+        'spam',
+        'snoozed',
+        'done',
+        'starred',
+        'label',
+        'screening',
+        'blocked',
+        'processing',
+      ].includes(filter) &&
       !store.isInboxLoaded &&
       store.traditionalEmails.length === 0
     ) {
@@ -207,6 +220,8 @@ const activeTab = computed(() => {
 
 const filteredEmails = computed(() => {
   switch (activeFilter.value) {
+    case 'processing':
+      return store.processingEmails
     case 'screening':
       return store.screeningEmails
     case 'blocked':
@@ -266,6 +281,7 @@ const showTabEmpty = computed(
 
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
+  if (activeFilter.value === 'processing') return store.hasMoreProcessing
   if (activeFilter.value === 'screening') return store.hasMoreScreening
   if (activeFilter.value === 'blocked') return store.hasMoreBlocked
   if (activeFilter.value === 'sent') return store.hasMoreSent
@@ -283,6 +299,7 @@ const showDonePager = computed(
 )
 
 const isLoadingMore = computed(() => {
+  if (activeFilter.value === 'processing') return store.isProcessingRefreshing
   if (activeFilter.value === 'screening') return store.isScreeningRefreshing
   if (activeFilter.value === 'blocked') return store.isBlockedRefreshing
   if (activeFilter.value === 'sent') return store.isSentRefreshing
@@ -295,7 +312,7 @@ const isLoadingMore = computed(() => {
 })
 
 function loadMore() {
-  if (activeFilter.value === 'screening' || activeFilter.value === 'blocked')
+  if (['processing', 'screening', 'blocked'].includes(activeFilter.value))
     store.loadMoreFolder(activeFilter.value)
   else if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
@@ -1234,6 +1251,8 @@ watch(
       pendingReplyDraft.value = null
     }
     store.replyDraftId = null
+    store.replyRecoveryId = null
+    store.replySendIdentity = null
     store.replySessionId += 1
     replyGenerationSeq += 1
     isGeneratingReply.value = false
@@ -1514,6 +1533,7 @@ function discardReply() {
   // draft behind. consumeReplyDraft() also cancels any queued autosave, so
   // nothing re-creates the row a moment later.
   pendingReplyDraft.value = null
+  store.discardComposerRecovery(store.replyRecoveryId)
   store.discardDraft(store.consumeReplyDraft())
   // Files picked for a reply that is being thrown away have no other owner,
   // so reclaim their bytes now instead of leaving them to the orphan sweep.
@@ -1536,6 +1556,9 @@ function replyDraftPayload() {
     replyToMessageId: email?.id ?? null,
     followUpAt: replyFollowUpAt.value,
     attachments: replyAttachments.value,
+    recoveryId: store.replyRecoveryId,
+    sendIdentity: store.replySendIdentity,
+    owner: store.composeOwnerSub,
   }
 }
 
@@ -1624,6 +1647,10 @@ async function generateInlineReply() {
 function generateReplyDraft() {
   const email = openEmail.value
   if (!email) return
+  if (composerHasDraft()) {
+    store.notify('Close your current draft before opening this reply in the composer.', 'error')
+    return
+  }
   store.composerTo = replyTo.value
   store.composerSubject = replySubject.value
   store.composerReplyToMessageId = email.id
@@ -1631,6 +1658,8 @@ function generateReplyDraft() {
   store.composerTextArea = replyTextPlain.value
   store.composerFollowUpAt = replyFollowUpAt.value
   store.composerAttachments = replyAttachments.value
+  store.composerRecoveryId = store.replyRecoveryId
+  store.composerSendIdentity = store.replySendIdentity
   // The composer now owns this draft row and keeps autosaving into it.
   const replyDraftId = store.consumeReplyDraft()
   if (replyDraftId) handledReplyDrafts.add(replyDraftId)
@@ -1751,6 +1780,8 @@ async function sendReply() {
   // email while a first save is still in flight resets the reply box, and
   // the mail must still go to this email's sender with what was typed.
   const payload = replyDraftPayload()
+  payload.html = sanitizeEmailHtml(payload.html)
+  const recovery = store.persistComposerRecovery(payload, -1)
   // Taken before the request so a queued autosave cannot re-create the row
   // while the mail is in flight; deleted only once the send succeeds.
   let replyDraftId = store.consumeReplyDraft()
@@ -1764,16 +1795,13 @@ async function sendReply() {
   // A reminder picked from a menu left open would miss the snapshot above.
   replyFollowUpOpen.value = false
   try {
+    await recovery
     // A first save still in flight owns the only row for this reply.
     const handoff = replyDraftId ? null : store.settleReplyHandoff()
     if (handoff) replyDraftId = await handoff
-    const result = await store.sendMail({
-      ...payload,
-      // Sanitize the rich body once, here at the send boundary (same as the
-      // composer's send path).
-      html: sanitizeEmailHtml(payload.html),
-    })
+    const result = await store.sendMail(payload)
     await store.discardDraft(replyDraftId)
+    await store.discardComposerRecovery(payload.recoveryId, payload.owner, payload.recoveryRevision)
     if (session === store.replySessionId) {
       // The send consumed them; clear before discardReply() so its cleanup
       // doesn't delete attachments that just went out.
@@ -1783,16 +1811,28 @@ async function sendReply() {
     store.notify(
       result?.followUpScheduled === false
         ? 'Reply sent, but the reminder could not be saved.'
-        : 'Reply sent.',
+        : result?.sentCopyPending
+          ? 'Reply sent. Its Sent copy is still syncing.'
+          : 'Reply sent.',
       result?.followUpScheduled === false ? 'error' : 'info',
     )
   } catch (error) {
     console.error('Failed to send reply:', error)
-    store.notify('Failed to send reply. Please try again.', 'error')
-    // Nothing went out, so the draft is still the only copy of this reply.
+    store.notify(
+      ['DELIVERY_UNCERTAIN', 'DELIVERY_CONFLICT'].includes(error.code)
+        ? 'Delivery needs confirmation before retrying. Your reply is kept in Drafts.'
+        : error.code === 'DELIVERY_PENDING'
+          ? 'Delivery is still being checked. Retry this unchanged reply to check its status.'
+          : 'Failed to send reply. Please try again.',
+      'error',
+    )
+    if (payload.owner !== store.composeOwnerSub) return
+    // The recovery keeps the request identity when delivery is uncertain.
     handledReplyDrafts.delete(replyDraftId)
     if (session === store.replySessionId) {
       store.replyDraftId = replyDraftId
+      store.replyRecoveryId = payload.recoveryId
+      store.replySendIdentity = payload.sendIdentity
       pendingReplyDraft.value = replyDraftPayload()
       store.scheduleReplyDraftSave(pendingReplyDraft.value)
     } else {
@@ -2084,6 +2124,11 @@ onUnmounted(() => {
     </div>
 
     <!-- Header -->
+    <p v-if="activeFilter === 'processing'" class="ni-processing-notice" role="status">
+      This mail is available to read while automatic classification is pending or unavailable. Spam
+      checks are incomplete; remote images remain blocked by default.
+      <button type="button" @click="store.loadFolder('processing')">Refresh</button>
+    </p>
     <div v-if="activeFilter" class="ni-header">
       <div class="ni-title">
         <span class="material-symbols-outlined ni-title-icon" :style="headerIconStyle">{{
@@ -2143,6 +2188,7 @@ onUnmounted(() => {
           :highlighted="highlightedId === row.email.id"
           :has-ai-summary="emailHasAiSummary(row.email)"
           :show-done="activeFilter !== 'done'"
+          :show-processing="activeFilter === 'processing'"
           @open="openReader"
           @toggle-select="toggleSelect"
           @toggle-star="toggleStar"
@@ -3043,5 +3089,13 @@ onUnmounted(() => {
 .ni-label-loading {
   display: flex;
   justify-content: center;
+}
+.ni-processing-notice {
+  padding: 12px 24px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ni-processing-notice button {
+  margin-left: 8px;
 }
 </style>

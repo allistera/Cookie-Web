@@ -40,6 +40,29 @@ beforeEach(() => {
 })
 
 describe('AddTaskDialog natural-language quick add', () => {
+  it('keeps Tab within enabled dialog controls and returns focus to its opener', async () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const wrapper = mountDialog()
+    await flushPromises()
+    const first = wrapper.get('[aria-label="Describe your task"]')
+    const cancel = wrapper.get('.add-task-dialog-cancel')
+    expect(document.activeElement).toBe(first.element)
+    await first.trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(cancel.element)
+    await cancel.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(first.element)
+    await first.setValue('A task')
+    const submit = wrapper.get('[type="submit"]')
+    submit.element.focus()
+    await submit.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(first.element)
+    wrapper.unmount()
+    expect(document.activeElement).toBe(opener)
+    opener.remove()
+  })
+
   it('creates an unscheduled task with an estimate from Advanced', async () => {
     const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
     const wrapper = mountDialog()

@@ -6,6 +6,7 @@ const store = useInboxStore()
 
 onMounted(() => {
   store.loadDrafts({ force: true })
+  store.loadDraftRecoveries()
 })
 
 // Drafts are edited constantly, so "when" is more usefully relative than
@@ -40,6 +41,13 @@ async function discard(draft) {
   // create a second draft, so close it if this was the one being edited.
   if (store.composerDraftId === draft.id) store.closeComposer({ save: false })
 }
+
+function discardRecovery(record) {
+  if (window.confirm('Discard this local recovery copy? This cannot be undone.')) {
+    if (store.composerRecoveryId === record.id) store.closeComposer({ save: false })
+    store.discardComposerRecovery(record.id, record.owner)
+  }
+}
 </script>
 
 <template>
@@ -51,15 +59,45 @@ async function discard(draft) {
       </p>
     </header>
 
-    <div v-if="store.isDraftsLoading && !store.drafts.length" class="drafts-empty">
+    <section v-if="store.draftRecoveries.length" aria-labelledby="recovered-drafts-title">
+      <h2 id="recovered-drafts-title">Recoverable local drafts</h2>
+      <p class="drafts-subtitle">
+        These edits have not been saved to your account. Open a copy to review and retry. Local
+        copies are removed when you log out.
+      </p>
+      <ul class="drafts-list">
+        <li v-for="record in store.draftRecoveries" :key="record.id" class="drafts-row">
+          <button type="button" class="drafts-open" @click="store.openRecoveredDraft(record)">
+            <span class="drafts-subject">{{ record.snapshot.subject || '(no subject)' }}</span>
+            <span class="drafts-to">{{ record.snapshot.to || 'No recipient yet' }}</span>
+            <span class="drafts-preview">{{ draftPreview(record.snapshot) }}</span>
+            <span class="drafts-to">
+              {{
+                record.durable ? 'Saved on this device' : 'Storage unavailable — keep this tab open'
+              }}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="drafts-discard"
+            :aria-label="`Discard local copy of ${record.snapshot.subject || 'draft'}`"
+            @click="discardRecovery(record)"
+          >
+            Discard
+          </button>
+        </li>
+      </ul>
+    </section>
+
+    <div v-if="store.isDraftsLoading && !store.draftCount" class="drafts-empty">
       Loading your drafts…
     </div>
 
-    <div v-else-if="!store.drafts.length" class="drafts-empty">
+    <div v-else-if="!store.draftCount" class="drafts-empty">
       Nothing saved. Anything you start writing shows up here.
     </div>
 
-    <ul v-else class="drafts-list">
+    <ul v-else-if="store.drafts.length" class="drafts-list">
       <li v-for="draft in store.drafts" :key="draft.id" class="drafts-row">
         <button type="button" class="drafts-open" @click="openDraft(draft)">
           <span class="drafts-line">

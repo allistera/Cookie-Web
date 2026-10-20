@@ -1,5 +1,6 @@
 import { readonly, ref } from 'vue'
 
+import { isDeadSession } from './authHeaders'
 import { isNetworkError, noteNetworkFailure, noteNetworkSuccess, onReconnect } from './connectivity'
 import { offlineOwner } from './offlineCache'
 import { OUTBOX_STORE, getOfflineDb } from './offlineDb'
@@ -19,21 +20,38 @@ import { OUTBOX_STORE, getOfflineDb } from './offlineDb'
 // replay tells that an entry changed while its request was in flight.
 const handlers = new Map()
 const pending = ref(0)
+const failures = ref([])
 let flushing = null
 
 export const outboxPending = readonly(pending)
+export const outboxFailures = readonly(failures)
 
 export function registerOutboxHandler(kind, handler) {
   handlers.set(kind, handler)
 }
 
-async function ownEntries() {
-  const owner = offlineOwner()
+async function ownEntries(owner = offlineOwner()) {
   return (await getOfflineDb().getAll(OUTBOX_STORE)).filter((entry) => entry.owner === owner)
 }
 
 export async function refreshOutboxPending() {
-  pending.value = (await ownEntries()).length
+  const owner = offlineOwner()
+  const entries = await ownEntries(owner)
+  if (owner !== offlineOwner()) return pending.value
+  pending.value = entries.length
+  failures.value = entries
+    .filter((entry) => entry.failure)
+    .map(({ seq, kind, failure, payload }) => ({
+      seq,
+      failure,
+      label:
+        String(payload.title || payload.content || '').slice(0, 80) ||
+        (kind === 'document-patch'
+          ? 'Document edit'
+          : kind === 'task-patch'
+            ? 'Task edit'
+            : 'Email update'),
+    }))
   return pending.value
 }
 
@@ -41,25 +59,7 @@ export async function refreshOutboxPending() {
 // or out of space): the caller must then treat the change as failed rather
 // than as saved on this device, since nothing would ever send it.
 export async function enqueueOutbox({ kind, key, payload }) {
-  const db = getOfflineDb()
-  const existing = (await ownEntries()).find((entry) => entry.kind === kind && entry.key === key)
-  const stored = existing
-    ? await db.put(OUTBOX_STORE, {
-        ...existing,
-        payload: { ...existing.payload, ...payload },
-        revision: (existing.revision ?? 1) + 1,
-        updatedAt: Date.now(),
-      })
-    : await db.put(OUTBOX_STORE, {
-        kind,
-        key,
-        owner: offlineOwner(),
-        payload,
-        revision: 1,
-        createdAt: Date.now(),
-      })
-  await refreshOutboxPending()
-  if (stored === null) throw new Error('Offline storage is unavailable; the change was not kept')
+  return enqueueOutboxBatch([{ kind, key, payload }])
 }
 
 // Stores a batch in one readwrite transaction. This prevents a partial offline
@@ -69,6 +69,7 @@ export async function enqueueOutboxBatch(entries) {
   const db = getOfflineDb()
   const owner = offlineOwner()
   const stored = await db.updateAll(OUTBOX_STORE, (current) => {
+    if (owner !== offlineOwner()) throw new Error('The signed-in account changed')
     const byKey = new Map(
       current
         .filter((entry) => entry.owner === owner)
@@ -86,6 +87,7 @@ export async function enqueueOutboxBatch(entries) {
               payload: { ...existing.payload, ...payload },
               revision: (existing.revision ?? 1) + 1,
               updatedAt: Date.now(),
+              failure: null,
             }
           : {
               kind,
@@ -109,11 +111,9 @@ export async function pendingOutboxEntries(kind) {
   return (await ownEntries()).filter((entry) => entry.kind === kind)
 }
 
-// Resolves { replayed, dropped, remaining }. A network failure stops the
-// replay and keeps the rest for next time; a change the server refuses
-// (gone, conflicting, invalid) is dropped, since sending it again would
-// fail the same way and block everything behind it. Handlers tell the
-// person about such a drop themselves where it matters. An entry whose
+// Resolves { replayed, dropped, remaining }. Only acknowledged changes are
+// removed. Permanent refusals wait for an explicit retry or discard, while
+// temporary failures pause the pass until the next sync. An entry whose
 // handler is not registered yet (its store module has not loaded) is kept
 // and skipped; see syncOutbox. An entry edited while its request was in
 // flight (its revision moved on) is kept too, and sent in a further pass.
@@ -140,27 +140,47 @@ async function replay() {
 
 async function replayPass(result) {
   const db = getOfflineDb()
-  const entries = await ownEntries()
+  const owner = offlineOwner()
+  const entries = await ownEntries(owner)
   result.remaining = 0
   let revised = 0
   for (const [index, entry] of entries.entries()) {
+    if (owner !== offlineOwner()) {
+      result.remaining += entries.length - index
+      return { stopped: true, revised }
+    }
     const handler = handlers.get(entry.kind)
-    if (!handler) {
+    if (!handler || entry.failure === 'blocked') {
       result.remaining++
       continue
     }
     try {
-      await handler(entry.payload)
+      await handler(entry.payload, { owner })
+      if (owner !== offlineOwner()) return { stopped: true, revised }
       noteNetworkSuccess()
       result.replayed++
     } catch (error) {
-      if (isNetworkError(error)) {
-        noteNetworkFailure()
+      const network = isNetworkError(error)
+      if (network) noteNetworkFailure()
+      const authentication = isDeadSession(error) || error?.status === 401
+      const permanent = [400, 403, 404, 405, 409, 410, 413, 415, 422].includes(error?.status)
+      const failure = authentication ? 'authentication' : permanent ? 'blocked' : 'retry'
+      await db.mutate(OUTBOX_STORE, entry.seq, (current) => {
+        if (
+          owner !== offlineOwner() ||
+          !current ||
+          current.owner !== owner ||
+          current.revision !== entry.revision
+        )
+          return undefined
+        return { ...current, failure }
+      })
+      if (!permanent) {
         result.remaining += entries.length - index
         return { stopped: true, revised }
       }
-      console.error('Dropped an offline change the server refused:', error)
-      result.dropped++
+      result.remaining++
+      continue
     }
     // Only the revision that was sent is settled: a change merged in while
     // the request ran stays queued and goes in the next pass.
@@ -169,10 +189,30 @@ async function replayPass(result) {
       revised++
       continue
     }
-    await db.delete(OUTBOX_STORE, entry.seq)
+    await db.mutate(OUTBOX_STORE, entry.seq, (latest) =>
+      owner === offlineOwner() && latest?.revision === entry.revision ? null : undefined,
+    )
   }
   result.remaining += revised
   return { stopped: false, revised }
+}
+
+export async function retryOutboxEntry(seq) {
+  const owner = offlineOwner()
+  await getOfflineDb().mutate(OUTBOX_STORE, seq, (entry) =>
+    owner === offlineOwner() && entry?.owner === owner ? { ...entry, failure: null } : undefined,
+  )
+  const result = await flushOutbox()
+  await refreshOutboxPending()
+  return result
+}
+
+export async function discardOutboxEntry(seq) {
+  const owner = offlineOwner()
+  await getOfflineDb().mutate(OUTBOX_STORE, seq, (entry) =>
+    owner === offlineOwner() && entry?.owner === owner ? null : undefined,
+  )
+  await refreshOutboxPending()
 }
 
 // Replays whatever is queued, after `prepare` has had the chance to load
@@ -213,5 +253,6 @@ export function installOutboxSync({
 export function resetOutboxForTests() {
   handlers.clear()
   pending.value = 0
+  failures.value = []
   flushing = null
 }

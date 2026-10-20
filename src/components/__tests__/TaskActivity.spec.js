@@ -151,12 +151,12 @@ describe('TaskActivity', () => {
     expect(wrapper.text()).not.toContain('Created')
     wrapper.unmount()
   })
-  it('refreshes after a task list reload, including Todoist sync', async () => {
+  it('refreshes after a confirmed task mutation', async () => {
     const wrapper = mountActivity()
     await flushPromises()
     const before = requestMock.mock.calls.filter(([url]) => url.includes('task-progress')).length
     requestMock.mockResolvedValueOnce({ items: [], nextCursor: null })
-    await useTaskItemsStore().loadItems('inbox', { force: true })
+    await useTaskItemsStore().request('PATCH', { body: { id: 'task1', content: 'Updated' } })
     await flushPromises()
     expect(requestMock.mock.calls.filter(([url]) => url.includes('task-progress'))).toHaveLength(
       before + 1,

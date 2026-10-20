@@ -309,6 +309,24 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+    <div class="composer-save-status" role="status">
+      {{
+        store.composerSaveState === 'saved'
+          ? 'Saved'
+          : store.composerSaveState === 'saving'
+            ? 'Saving…'
+            : store.composerSaveState === 'local'
+              ? 'Saved on this device. Waiting to sync.'
+              : 'Not saved. Keep this tab open and retry.'
+      }}
+      <button
+        v-if="store.composerSaveState === 'local' || store.composerSaveState === 'error'"
+        type="button"
+        @click="store.flushComposerDraft()"
+      >
+        Retry save
+      </button>
+    </div>
     <div class="composer-body">
       <div class="composer-main">
         <div

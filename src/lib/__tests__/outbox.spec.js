@@ -11,12 +11,15 @@ import { setOfflineOwner } from '../offlineCache'
 import { OUTBOX_STORE, createOfflineDb, setOfflineDb } from '../offlineDb'
 import {
   enqueueOutbox,
+  discardOutboxEntry,
   flushOutbox,
   installOutboxSync,
   outboxPending,
+  outboxFailures,
   pendingOutboxEntries,
   registerOutboxHandler,
   resetOutboxForTests,
+  retryOutboxEntry,
   syncOutbox,
 } from '../outbox'
 
@@ -127,8 +130,7 @@ describe('flushOutbox', () => {
     expect(outboxPending.value).toBe(2)
   })
 
-  it('drops a change the server refused and carries on', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('retains a refused change for review while syncing independent changes', async () => {
     const refused = new Error('PATCH responded 404')
     refused.status = 404
     const handler = vi.fn().mockRejectedValueOnce(refused).mockResolvedValueOnce(undefined)
@@ -136,9 +138,65 @@ describe('flushOutbox', () => {
     await enqueueOutbox({ kind: 'message-patch', key: 'gone', payload: { id: 'gone' } })
     await enqueueOutbox({ kind: 'message-patch', key: 'm2', payload: { id: 'm2' } })
 
-    expect(await flushOutbox()).toEqual({ replayed: 1, dropped: 1, remaining: 0 })
+    expect(await flushOutbox()).toEqual({ replayed: 1, dropped: 0, remaining: 1 })
+    const [entry] = await db.getAll(OUTBOX_STORE)
+    expect(entry).toMatchObject({ key: 'gone', failure: 'blocked' })
+    expect(outboxFailures.value).toHaveLength(1)
+    await flushOutbox()
+    expect(handler).toHaveBeenCalledTimes(2)
+    await retryOutboxEntry(entry.seq)
+    expect(handler).toHaveBeenCalledTimes(3)
     expect(await db.getAll(OUTBOX_STORE)).toEqual([])
-    expect(console.error).toHaveBeenCalledOnce()
+  })
+
+  it.each([429, 500, 503, 401])(
+    'keeps a %s response durable and replays after recovery',
+    async (status) => {
+      const refusal = Object.assign(new Error('Temporarily refused'), { status })
+      const handler = vi.fn().mockRejectedValueOnce(refusal).mockResolvedValue(undefined)
+      registerOutboxHandler('task-patch', handler)
+      await enqueueOutbox({
+        kind: 'task-patch',
+        key: 't1',
+        payload: { id: 't1', content: 'Keep this edit' },
+      })
+      expect(await flushOutbox()).toEqual({ replayed: 0, dropped: 0, remaining: 1 })
+      expect((await db.getAll(OUTBOX_STORE))[0].payload.content).toBe('Keep this edit')
+      expect(outboxFailures.value[0].failure).toBe(status === 401 ? 'authentication' : 'retry')
+      expect(await flushOutbox()).toEqual({ replayed: 1, dropped: 0, remaining: 0 })
+    },
+  )
+
+  it('requires an explicit discard and never discards another account’s entry', async () => {
+    await enqueueOutbox({ kind: 'task-patch', key: 't1', payload: { id: 't1' } })
+    const [{ seq }] = await db.getAll(OUTBOX_STORE)
+    setOfflineOwner('auth0|bob')
+    await discardOutboxEntry(seq)
+    expect(await db.getAll(OUTBOX_STORE)).toHaveLength(1)
+    setOfflineOwner('auth0|alice')
+    await discardOutboxEntry(seq)
+    expect(await db.getAll(OUTBOX_STORE)).toEqual([])
+  })
+
+  it('stops replay on account change without deleting the old account’s changes', async () => {
+    let release
+    const handler = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+    registerOutboxHandler('task-patch', handler)
+    await enqueueOutbox({ kind: 'task-patch', key: 't1', payload: { id: 't1' } })
+    await enqueueOutbox({ kind: 'task-patch', key: 't2', payload: { id: 't2' } })
+    const flushing = flushOutbox()
+    await vi.waitFor(() => expect(release).toBeDefined())
+    setOfflineOwner('auth0|bob')
+    release()
+    await flushing
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(await db.getAll(OUTBOX_STORE)).toHaveLength(2)
+    expect(outboxPending.value).toBe(0)
   })
 
   it('keeps an entry whose handler has not registered yet', async () => {
@@ -165,6 +223,18 @@ describe('flushOutbox', () => {
 })
 
 describe('flushOutbox with edits during replay', () => {
+  it('coalesces concurrent writes atomically without losing either field', async () => {
+    await Promise.all([
+      enqueueOutbox({ kind: 'task-patch', key: 't1', payload: { id: 't1', content: 'Title' } }),
+      enqueueOutbox({ kind: 'task-patch', key: 't1', payload: { id: 't1', description: 'Notes' } }),
+    ])
+    const entries = await db.getAll(OUTBOX_STORE)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      revision: 2,
+      payload: { content: 'Title', description: 'Notes' },
+    })
+  })
   it('keeps a change merged in while its request was in flight and sends it next', async () => {
     const sent = []
     let releaseFirst

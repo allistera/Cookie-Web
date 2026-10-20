@@ -1,4 +1,5 @@
 <script setup>
+import { subscribeTaskMutations } from '../lib/taskMutationRefresh'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -121,13 +122,8 @@ watch(
   { immediate: true },
 )
 void loadProgress()
-// A confirmed list/detail reload also picks up syncs and changes from other clients.
-const unsubscribe = items.$onAction(({ name, after }) => {
-  if (name === 'request')
-    after(() => {
-      if (!disposed) refresh()
-    })
-})
+// Reads do not invalidate history; successful writes and bulk edits do.
+const unsubscribe = subscribeTaskMutations(items, refresh)
 // The browser zone defines these calendar periods. Recompute the next local
 // midnight each time so a DST day is not assumed to have exactly 24 hours.
 let rolloverTimer
