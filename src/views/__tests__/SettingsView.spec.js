@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -9,6 +9,8 @@ import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
 import { AI_API_URL, EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+
+enableAutoUnmount(afterEach)
 
 // useAuth0() is inject()-based, so providing under its key feeds the page a
 // signed-in user through the real interface.
@@ -251,6 +253,22 @@ describe('SettingsView', () => {
     await wrapper.get('.rule-generator-form').trigger('submit')
     await flushPromises()
   }
+
+  it('loads account settings after authentication supplies the owner', async () => {
+    const signedInUser = authUser.value
+    authUser.value = undefined
+    const wrapper = mountView()
+    await flushPromises()
+    expect(fetch).not.toHaveBeenCalled()
+
+    authUser.value = signedInUser
+    await vi.waitFor(() => expect(store.rules).toHaveLength(1))
+    await vi.waitFor(() => expect(store.labels).toHaveLength(2))
+    await vi.waitFor(() => expect(store.categories).toHaveLength(1))
+    await vi.waitFor(() => expect(store.composePreferencesLoaded).toBe(true))
+    await openRulesPane(wrapper)
+    expect(wrapper.get('[title="Edit Bills"]').exists()).toBe(true)
+  })
 
   it('generates an editable draft without creating a rule', async () => {
     const wrapper = await openView()

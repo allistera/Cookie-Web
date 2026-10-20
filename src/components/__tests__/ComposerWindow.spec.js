@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
@@ -97,6 +97,36 @@ describe('ComposerWindow forwarded attachments', () => {
     ])
     expect(wrapper.text()).not.toContain('plan.pdf')
   })
+})
+
+it('shows the original time and retries scheduling instead of offering a new send time', async () => {
+  setActivePinia(createPinia())
+  const store = useInboxStore()
+  store.isComposerActive = true
+  store.composerTo = 'reader@example.com'
+  store.composerTextArea = 'Scheduled message'
+  const sendAt = '2099-01-01T09:00:00Z'
+  store.composerSendIdentity = {
+    requestId: 'original-request',
+    fingerprint: 'original-message',
+    outgoing: { sendAt },
+  }
+  const retry = vi.spyOn(store, 'sendEmailLater').mockResolvedValue(true)
+  const wrapper = mount(ComposerWindow)
+  try {
+    expect(wrapper.text()).toContain(new Date(sendAt).toLocaleString())
+    expect(wrapper.get('.composer-send-btn-split').text()).toBe('Retry schedule')
+    expect(wrapper.find('.composer-schedule-caret').exists()).toBe(false)
+
+    await wrapper.get('.composer-send-btn-split').trigger('click')
+
+    expect(retry).toHaveBeenCalledExactlyOnceWith()
+    expect(store.composerSendIdentity.outgoing.sendAt).toBe(sendAt)
+  } finally {
+    wrapper.unmount()
+    store.closeComposer({ save: false })
+    retry.mockRestore()
+  }
 })
 
 // The footer is either the send row with the AI icon at its right edge, or

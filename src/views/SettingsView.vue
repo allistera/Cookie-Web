@@ -65,12 +65,6 @@ watch(
   { immediate: true },
 )
 
-store.loadLabels()
-store.loadCategories()
-store.loadRules()
-store.loadInterests()
-store.loadSpamRetention()
-
 // --- Personalisation (server-side: the enricher Worker reads these) ---
 const interestDraft = ref('')
 const interestError = ref('')
@@ -159,7 +153,14 @@ watch(
     isGeneratingSnippet.value = false
     snippetGenerationVersion += 1
     refreshLegacyValues()
-    if (sub) store.loadComposePreferences()
+    if (sub) {
+      store.loadLabels()
+      store.loadCategories()
+      store.loadRules()
+      store.loadInterests()
+      store.loadSpamRetention()
+      store.loadComposePreferences()
+    }
   },
   { immediate: true },
 )

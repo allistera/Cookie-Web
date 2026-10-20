@@ -27,7 +27,6 @@ import {
   SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
-  RECEIPTS_API_URL,
   TASKS_API_URL,
 } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
@@ -304,14 +303,17 @@ function reversibleMessageUpdate(
     isCurrent = () => true,
   },
 ) {
+  const generation = store.composeGeneration
+  const currentAccount = () => generation === store.composeGeneration
   const send = persist ?? ((next) => store.updateMessage(email.id, next))
   let undoRequested = false
   let toastId = null
   apply()
 
   const persistence = send(changes)
-    .then(() => true)
+    .then(() => currentAccount())
     .catch((error) => {
+      if (!currentAccount()) return false
       console.error(errorMessage, error)
       if (!undoRequested && isCurrent()) {
         restore()
@@ -322,14 +324,15 @@ function reversibleMessageUpdate(
     })
 
   const undo = async () => {
-    if (undoRequested) return
+    if (undoRequested || !currentAccount()) return
     undoRequested = true
     restore()
-    if (!(await persistence)) return
+    if (!(await persistence) || !currentAccount()) return
 
     try {
       await send(undoChanges)
     } catch (error) {
+      if (!currentAccount()) return
       console.error('Failed to undo email action:', error)
       apply()
       store.notify('Failed to undo email action.', 'error')
@@ -1114,7 +1117,9 @@ export const useInboxStore = defineStore('inbox', {
     // Fetches one keyset page of a list. Throws on a non-2xx response so the
     // callers' catch blocks handle notification.
     async fetchEmailPage({ folder, before, limit = PAGE_SIZE, label } = {}) {
+      const generation = this.composeGeneration
       const headers = await this.authHeaders()
+      if (generation !== this.composeGeneration) throw new Error('The signed-in account changed')
       const params = new URLSearchParams()
       if (folder) params.set('folder', folder)
       if (folder === 'label' && label) params.set('label', label)
@@ -1150,19 +1155,24 @@ export const useInboxStore = defineStore('inbox', {
 
     async loadInboxState({ force = false } = {}) {
       if (this.isInboxStateLoaded && !force) return
+      const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${EMAILS_API_URL}/emails/state`, { headers })
         if (!response.ok) throw new Error(`GET inbox state responded ${response.status}`)
         const state = await response.json()
+        if (generation !== this.composeGeneration) return
         noteNetworkSuccess()
         this.applyInboxState(state)
         writeOfflineCache('inbox:state', state, owner)
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          const cached = await readOfflineCache('inbox:state')
+          const cached = await readOfflineCache('inbox:state', owner)
+          if (generation !== this.composeGeneration) return
           if (cached) {
             this.applyInboxState(cached.value)
             return
@@ -1476,28 +1486,10 @@ export const useInboxStore = defineStore('inbox', {
       return this.loadMoreFolder('sent')
     },
 
-    async loadReadReceipts(emails) {
-      if (!emails.length) return
-      try {
-        const headers = await this.authHeaders()
-        const ids = emails.map((email) => email.id).join(',')
-        const response = await fetch(
-          `${RECEIPTS_API_URL}/read-receipts?messageIds=${encodeURIComponent(ids)}`,
-          { headers },
-        )
-        if (!response.ok) throw new Error(`GET /read-receipts responded ${response.status}`)
-        const { receipts } = await response.json()
-        const byMessage = new Map(receipts.map((receipt) => [receipt.message_id, receipt]))
-        for (const email of emails) {
-          const receipt = byMessage.get(email.id)
-          email.readAt = receipt?.first_opened_at ?? null
-          email.readCount = receipt?.open_count ?? 0
-        }
-      } catch (error) {
-        // Receipt status is advisory; never make Sent unusable when it fails.
-        console.error('Failed to load read receipts:', error)
-      }
+    loadReadReceipts(...args) {
+      return invokeMailSettings(this, 'loadReadReceipts', args)
     },
+
     loadSpamEmails() {
       return this.loadFolder('spam')
     },
@@ -1543,6 +1535,7 @@ export const useInboxStore = defineStore('inbox', {
     // continue there, so it is held back for the next page — unless the whole
     // page is one oversized day, where the size cap wins over the invariant.
     async loadDonePage(pageIndex = 0) {
+      const generation = this.composeGeneration
       const cursor = this.donePageCursors[pageIndex] ?? null
       const owner = offlineOwner()
       this.isDoneRefreshing = true
@@ -1552,6 +1545,7 @@ export const useInboxStore = defineStore('inbox', {
           before: cursor ?? undefined,
           limit: DONE_PAGE_SIZE,
         })
+        if (generation !== this.composeGeneration) return
         // Done pages by day rather than by cursor like the other folders,
         // but its first page is cached the same way.
         if (pageIndex === 0) writeOfflineCache(folderCacheKey('done'), { emails }, owner)
@@ -1568,6 +1562,7 @@ export const useInboxStore = defineStore('inbox', {
         this.doneHasNext = Boolean(nextCursor && last)
         this.donePageCursors[pageIndex + 1] = this.doneHasNext ? `${last.sentAt}|${last.id}` : null
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
           if (pageIndex === 0 && (await this.applyCachedDonePage())) return
@@ -1575,16 +1570,19 @@ export const useInboxStore = defineStore('inbox', {
         console.error('Failed to load done emails:', error)
         this.notify('Failed to load done emails.', 'error')
       } finally {
-        this.isDoneRefreshing = false
+        if (generation === this.composeGeneration) this.isDoneRefreshing = false
       }
     },
 
     // Done's cached first page in place of one the Worker could not serve;
     // one page is all there is offline, so there is no next page.
     async applyCachedDonePage() {
+      const generation = this.composeGeneration
       const cached = await readOfflineCache(folderCacheKey('done'))
+      if (generation !== this.composeGeneration) return true
       if (!cached) return false
       const queued = await pendingOutboxEntries(MESSAGE_PATCH)
+      if (generation !== this.composeGeneration) return true
       this.doneEmails = applyQueuedMessageChanges(cached.value.emails, queued).map(mapEmailRow)
       this.donePageIndex = 0
       this.isDoneLoaded = true
@@ -1607,22 +1605,27 @@ export const useInboxStore = defineStore('inbox', {
     // again on open and get the loaded copy unless they ask for a refetch.
     async loadLabels({ force = false } = {}) {
       if (this.isLabelsLoaded && !force) return
+      const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${LABELS_API_URL}/labels?include_counts=false`, { headers })
         if (!response.ok) {
           throw new Error(`GET /api/labels responded ${response.status}`)
         }
         const { labels } = await response.json()
+        if (generation !== this.composeGeneration) return
         noteNetworkSuccess()
         this.labels = labels
         this.isLabelsLoaded = true
         writeOfflineCache('labels', labels, owner)
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          const cached = await readOfflineCache('labels')
+          const cached = await readOfflineCache('labels', owner)
+          if (generation !== this.composeGeneration) return
           if (cached) {
             this.labels = cached.value
             this.isLabelsLoaded = true
@@ -1636,9 +1639,11 @@ export const useInboxStore = defineStore('inbox', {
 
     async loadCategories({ force = false } = {}) {
       if (this.isCategoriesLoaded && !force) return
+      const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${LABELS_API_URL}/categories?include_counts=false`, {
           headers,
         })
@@ -1646,14 +1651,17 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`GET /categories responded ${response.status}`)
         }
         const { categories } = await response.json()
+        if (generation !== this.composeGeneration) return
         noteNetworkSuccess()
         this.categories = categories
         this.isCategoriesLoaded = true
         writeOfflineCache('categories', categories, owner)
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          const cached = await readOfflineCache('categories')
+          const cached = await readOfflineCache('categories', owner)
+          if (generation !== this.composeGeneration) return
           if (cached) {
             this.categories = cached.value
             this.isCategoriesLoaded = true
@@ -1687,6 +1695,7 @@ export const useInboxStore = defineStore('inbox', {
     // out of Important now. Applied optimistically; the toast offers Undo.
     async markNotImportant(email) {
       if (!email) return false
+      const generation = this.composeGeneration
       const before = { isPriority: email.isPriority, category: email.category ?? null }
       setImportanceFields(
         this,
@@ -1696,6 +1705,7 @@ export const useInboxStore = defineStore('inbox', {
       )
       try {
         const result = await this.postImportance(email, { action: 'mark_not_important' })
+        if (generation !== this.composeGeneration) return false
         const sender = result.sender || 'this sender'
         this.notify(`Mail from ${sender} won't be marked important.`, 'info', {
           label: 'Undo',
@@ -1703,6 +1713,7 @@ export const useInboxStore = defineStore('inbox', {
         })
         return true
       } catch (error) {
+        if (generation !== this.composeGeneration) return false
         console.error('Failed to mark email not important:', error)
         setImportanceFields(this, email, before.isPriority, before.category)
         this.notify('Failed to mark the email not important.', 'error')
@@ -1711,12 +1722,14 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async undoNotImportant(email, before, previous) {
+      const generation = this.composeGeneration
       const after = { isPriority: email.isPriority, category: email.category ?? null }
       setImportanceFields(this, email, before.isPriority, before.category)
       try {
         await this.postImportance(email, { action: 'undo_not_important', previous })
         return true
       } catch (error) {
+        if (generation !== this.composeGeneration) return false
         console.error('Failed to undo not important:', error)
         setImportanceFields(this, email, after.isPriority, after.category)
         this.notify('Failed to undo. The sender is still marked not important.', 'error')
@@ -1724,49 +1737,12 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async postImportance(email, body) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ id: email.id, ...body }),
-      })
-      if (!response.ok) throw new Error(`POST /messages responded ${response.status}`)
-      return response.json()
+    postImportance(...args) {
+      return invokeMailSettings(this, 'postImportance', args)
     },
 
-    async setMessageCategory(email, category) {
-      if (!email) return false
-      const categoryId = category?.id ?? null
-      if ((email.category?.id ?? null) === categoryId) return true
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ id: email.id, action: 'set_category', category_id: categoryId }),
-        })
-        if (!response.ok) throw new Error(`POST /messages responded ${response.status}`)
-        const { category: assignedCategory } = await response.json()
-        for (const list of [
-          this.traditionalEmails,
-          this.starredEmails,
-          this.labelEmails,
-          this.sentEmails,
-          this.spamEmails,
-          this.snoozedEmails,
-          this.doneEmails,
-        ]) {
-          const cached = list.find((item) => item.id === email.id)
-          if (cached) cached.category = assignedCategory ?? null
-        }
-        email.category = assignedCategory ?? null
-        return true
-      } catch (error) {
-        console.error('Failed to update message category:', error)
-        this.notify('Failed to update category.', 'error')
-        return false
-      }
+    setMessageCategory(...args) {
+      return invokeMailSettings(this, 'setMessageCategory', args)
     },
 
     createCategory(...args) {
@@ -1777,81 +1753,12 @@ export const useInboxStore = defineStore('inbox', {
       return invokeMailSettings(this, 'deleteCategory', args)
     },
 
-    async updateCategory(category, { name, description }) {
-      const nextName = name.trim()
-      const nextDescription = description.trim()
-      if (!nextName) return false
-      if (nextName === category.name && nextDescription === (category.description || ''))
-        return true
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/categories`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({
-            id: category.id,
-            name: nextName,
-            description: nextDescription,
-          }),
-        })
-        if (response.status === 409) {
-          this.notify('A category with that name already exists.', 'error')
-          return false
-        }
-        if (!response.ok) throw new Error(`PATCH /categories responded ${response.status}`)
-        const { category: updatedCategory } = await response.json()
-        Object.assign(category, updatedCategory)
-        this.categories.sort((a, b) => a.name.localeCompare(b.name))
-        for (const list of [
-          this.traditionalEmails,
-          this.starredEmails,
-          this.labelEmails,
-          this.sentEmails,
-          this.spamEmails,
-          this.snoozedEmails,
-          this.doneEmails,
-        ]) {
-          for (const email of list) {
-            if (email.category?.id === category.id) Object.assign(email.category, updatedCategory)
-          }
-        }
-        this.notify('Category updated.')
-        return true
-      } catch (error) {
-        console.error('Failed to update category:', error)
-        this.notify('Failed to update category.', 'error')
-        return false
-      }
+    updateCategory(...args) {
+      return invokeMailSettings(this, 'updateCategory', args)
     },
 
-    async setCategoryNotifications(category, enabled) {
-      if (!category) return false
-      if (this.categoryNotificationSavingIds.has(category.id)) return false
-      this.categoryNotificationSavingIds.add(category.id)
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-        const response = await fetch(`${LABELS_API_URL}/categories`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({
-            id: category.id,
-            notifications_enabled: enabled,
-          }),
-        })
-        if (!response.ok) throw new Error(`PATCH /categories responded ${response.status}`)
-        const { category: updatedCategory } = await response.json()
-        Object.assign(category, updatedCategory)
-        this.notify(
-          enabled ? 'Category notifications enabled.' : 'Category notifications disabled.',
-        )
-        return true
-      } catch (error) {
-        console.error('Failed to update category notifications:', error)
-        this.notify('Failed to update category notifications.', 'error')
-        return false
-      } finally {
-        this.categoryNotificationSavingIds.delete(category.id)
-      }
+    setCategoryNotifications(...args) {
+      return invokeMailSettings(this, 'setCategoryNotifications', args)
     },
 
     // Apply or remove a palette label on a message from the reader's tag menu.
@@ -1861,10 +1768,12 @@ export const useInboxStore = defineStore('inbox', {
     // email object so the reader pills and any label-filtered view stay in sync.
     async toggleMessageLabel(email, label) {
       if (!email || !label) return
+      const generation = this.composeGeneration
       const applied = (email.labels || []).some((l) => l.name === label.name)
       const action = applied ? 'remove_label' : 'add_label'
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
@@ -1872,6 +1781,7 @@ export const useInboxStore = defineStore('inbox', {
         })
         if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
         const { labels } = await response.json()
+        if (generation !== this.composeGeneration) return
         email.labels = labels
         if (!isWithheld(email) && this.isLabelLoaded && this.labelFolderName === label.name) {
           syncFolderMembership(
@@ -1881,6 +1791,7 @@ export const useInboxStore = defineStore('inbox', {
           )
         }
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to update message labels:', error)
         this.notify('Failed to update tags.', 'error')
       }
@@ -1936,6 +1847,7 @@ export const useInboxStore = defineStore('inbox', {
       this.isRefreshing = true
       try {
         const headers = await this.authHeaders()
+        if (seq !== this.listSeq) return
         const mode = semantic ? '' : '&mode=keyword'
         const response = await fetch(`${SEARCH_API_URL}/search?q=${encodeURIComponent(q)}${mode}`, {
           headers,
@@ -2292,15 +2204,18 @@ export const useInboxStore = defineStore('inbox', {
 
     async fetchCalendarInvite(id) {
       if (pendingInviteFetches.has(id)) return pendingInviteFetches.get(id)
+      const generation = this.composeGeneration
       const request = (async () => {
         try {
           const headers = await this.authHeaders()
+          if (generation !== this.composeGeneration) return
           const response = await fetch(
             `${MESSAGES_API_URL}/messages/calendar-invite?id=${encodeURIComponent(id)}`,
             { headers },
           )
           if (!response.ok) return
           const { calendar_invite } = await response.json()
+          if (generation !== this.composeGeneration) return
           // Bodies are replaced, not mutated, so identity with `cached` can
           // change underneath a slow invite fetch (a thread mute, say). The
           // invite still belongs to this entry as long as it is still waiting.
@@ -2312,54 +2227,15 @@ export const useInboxStore = defineStore('inbox', {
         } catch {
           // Keep the body readable and retry enrichment on the next open.
         } finally {
-          pendingInviteFetches.delete(id)
+          if (pendingInviteFetches.get(id) === request) pendingInviteFetches.delete(id)
         }
       })()
       pendingInviteFetches.set(id, request)
       return request
     },
 
-    async downloadAttachment(attachment) {
-      if (!attachment?.id || !attachment.downloadable) return false
-      try {
-        const headers = await this.authHeaders()
-        const response = await fetch(
-          `${MESSAGES_API_URL}/messages/attachment?id=${encodeURIComponent(attachment.id)}`,
-          { headers },
-        )
-        if (!response.ok) {
-          throw new Error(`GET attachment endpoint responded ${response.status}`)
-        }
-        const { url: rawUrl, filename } = await response.json()
-        const url = String(rawUrl ?? '')
-        if (!url) throw new Error('Attachment URL is missing')
-        // The URL is server-supplied; only a real web (or local blob) link
-        // may reach a synthetic click, so a compromised/misconfigured
-        // response can't navigate to javascript:/data:.
-        try {
-          const { protocol } = new URL(url)
-          if (protocol !== 'https:' && protocol !== 'http:' && protocol !== 'blob:') {
-            throw new Error(`Unsupported attachment URL protocol: ${protocol}`)
-          }
-        } catch (error) {
-          console.error('Rejected unsafe attachment URL:', error)
-          this.notify('Attachment download failed.', 'error')
-          return false
-        }
-
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename || attachment.filename || 'attachment'
-        link.rel = 'noopener'
-        document.body.append(link)
-        link.click()
-        link.remove()
-        return true
-      } catch (error) {
-        console.error('Failed to download attachment:', error)
-        this.notify('Failed to download attachment.', 'error')
-        return false
-      }
+    downloadAttachment(...args) {
+      return invokeMailSettings(this, 'downloadAttachment', args)
     },
 
     async ensureThreadSummary(email) {
@@ -2460,6 +2336,7 @@ export const useInboxStore = defineStore('inbox', {
     // shows a disabled "AI Unsubscribe Failed" state instead.
     async unsubscribeEmail(email) {
       if (!email || this.unsubscribingId) return
+      const generation = this.composeGeneration
       this.unsubscribingId = email.id
       try {
         const [{ isSafeUnsubscribeUrl }, { parseMailto }] = await Promise.all([
@@ -2467,6 +2344,7 @@ export const useInboxStore = defineStore('inbox', {
           import('../lib/unsubscribeContent'),
         ])
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
@@ -2479,6 +2357,7 @@ export const useInboxStore = defineStore('inbox', {
           throw new Error(`POST /api/messages responded ${response.status}`)
         }
         const result = await response.json()
+        if (generation !== this.composeGeneration) return
         if (result.status === 'unsubscribed') {
           const cached = this.messageBodies.get(email.id)
           if (cached) {
@@ -2517,6 +2396,7 @@ export const useInboxStore = defineStore('inbox', {
           this.notify('This sender offers no automated unsubscribe.', 'error')
         }
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Unsubscribe failed:', error)
         this.notify('Failed to unsubscribe. Please try again.', 'error')
       } finally {
@@ -2532,6 +2412,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     toggleStar(email) {
+      const generation = this.composeGeneration
       const nextStarred = !email.starred
       email.starred = nextStarred
       if (!isWithheld(email)) this.adjustStarredCount(nextStarred ? 1 : -1)
@@ -2539,6 +2420,7 @@ export const useInboxStore = defineStore('inbox', {
         syncFolderMembership(this.starredEmails, email, nextStarred)
       serializePerMessage(pendingStarUpdates, email.id, () =>
         this.updateMessage(email.id, { is_starred: nextStarred }).catch((error) => {
+          if (generation !== this.composeGeneration) return
           console.error('Failed to update starred state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
           if (email.starred === nextStarred) {
@@ -2869,6 +2751,7 @@ export const useInboxStore = defineStore('inbox', {
     // PATCH has settled (never rejects), for callers that reload afterwards;
     // a no-op still waits for a write in flight, so a reload can't outrun it.
     setUnread(email, unread) {
+      const generation = this.composeGeneration
       if (email.unread === unread) return pendingUnreadUpdates.get(email.id) ?? Promise.resolve()
       const countsTowardInbox = this.traditionalEmails.includes(email) && isInboxRow(this, email)
       email.unread = unread
@@ -2877,6 +2760,7 @@ export const useInboxStore = defineStore('inbox', {
       }
       return serializePerMessage(pendingUnreadUpdates, email.id, () =>
         this.updateMessage(email.id, { is_unread: unread }).catch((error) => {
+          if (generation !== this.composeGeneration) return
           console.error('Failed to update read state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
           if (email.unread === unread) {
@@ -2985,16 +2869,100 @@ export const useInboxStore = defineStore('inbox', {
       this.composeGeneration += 1
       this.composeOwnerSub = owner
       this.senderQueueGeneration++
-      this.processingEmails = []
-      this.processingCursor = null
-      this.hasMoreProcessing = this.isProcessingLoaded = this.isProcessingRefreshing = false
-      this.processingCount = 0
-      this.screeningEmails = []
-      this.blockedEmails = []
-      this.screeningCursor = this.blockedCursor = null
-      this.hasMoreScreening = this.hasMoreBlocked = false
-      this.isScreeningLoaded = this.isBlockedLoaded = false
-      this.isScreeningRefreshing = this.isBlockedRefreshing = false
+      // Invalidate requests before dropping their views. Reusing this store
+      // during silent authentication must be as private as a fresh page.
+      this.listSeq++
+      for (const [folder, keys] of Object.entries(FOLDER_STATE)) {
+        folderLoadSeq[folder] = (folderLoadSeq[folder] ?? 0) + 1
+        this[keys.list] = []
+        this[keys.cursor] = null
+        this[keys.hasMore] = this[keys.loaded] = this[keys.refreshing] = false
+      }
+      for (const key of [
+        'traditionalEmails',
+        'doneEmails',
+        'labels',
+        'categories',
+        'rules',
+        'scheduledSends',
+        'contacts',
+        'tasks',
+        'interests',
+        'chatHistory',
+        'toasts',
+      ])
+        this[key] = []
+      for (const key of [
+        'isInboxStateLoaded',
+        'isInboxLoaded',
+        'isRefreshing',
+        'hasMoreEmails',
+        'isDoneLoaded',
+        'isDoneRefreshing',
+        'doneHasNext',
+        'isLabelsLoaded',
+        'isCategoriesLoaded',
+        'isScheduledSendsLoaded',
+        'isScheduledSendsLoading',
+        'contactsLoaded',
+        'tasksLoaded',
+        'isTasksLoading',
+        'interestsLoaded',
+        'personaliseGithub',
+        'enrichmentSettingsLoaded',
+        'autoArchiveLoaded',
+        'spamRetentionLoaded',
+        'isChatDrawerActive',
+        'isChatLoading',
+        'isAiDraftActive',
+        'isAiDraftLoading',
+        'calendarNewEventPending',
+      ])
+        this[key] = false
+      for (const key of [
+        'unreadInboxCount',
+        'spamCount',
+        'snoozedCount',
+        'starredCount',
+        'processingCount',
+        'screeningCount',
+        'blockedCount',
+        'scheduledCountHint',
+        'donePageIndex',
+      ])
+        this[key] = 0
+      for (const key of [
+        'userId',
+        'ntfySubscription',
+        'emailsCursor',
+        'labelFolderName',
+        'inboxTab',
+        'scheduledSendsError',
+        'tasksError',
+        'digest',
+        'news',
+        'readerActionRequest',
+        'calendarNewEventDraft',
+        'replyDraftConflict',
+        'unsubscribingId',
+        'followUpDraftTaskId',
+      ])
+        this[key] = null
+      this.donePageCursors = [null]
+      this.activeSearchQuery = this.aiDraftPreview = this.composerAiInstruction = ''
+      this.categoryNotificationSavingIds.clear()
+      this.summaryLoadingIds.clear()
+      this.mutingThreadIds.clear()
+      this.enrichmentSettings = parseEnrichmentSettings(defaultEnrichmentSettings)
+      this.autoArchive = { marketing: false, coldPitches: false, socialNoise: false }
+      this.spamRetentionDays = 30
+      this.spamRetentionBounds = { defaultDays: 30, minDays: 1, maxDays: 365 }
+      searchAbortController?.abort()
+      askAbortController?.abort()
+      searchAbortController = askAbortController = null
+      askSeq++
+      aiDraftRequestSeq++
+      pendingInviteFetches.clear()
       this.openEmailId = null
       this.bodyLoadingId = null
       this.messageBodies.clear()
@@ -3113,22 +3081,26 @@ export const useInboxStore = defineStore('inbox', {
     // control passes force to re-read past the cache.
     async loadTasks({ force = false } = {}) {
       if (this.tasksLoaded && !force) return
+      const generation = this.composeGeneration
       this.isTasksLoading = true
       this.tasksError = null
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${TASKS_API_URL}/tasks?date=${localToday()}`, { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
         const { tasks, digest, news } = await response.json()
+        if (generation !== this.composeGeneration) return
         this.tasks = tasks
         this.digest = digest ?? null
         this.news = news ?? null
         this.tasksLoaded = true
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to load tasks:', error)
         this.tasksError = 'Could not load your day.'
       } finally {
-        this.isTasksLoading = false
+        if (generation === this.composeGeneration) this.isTasksLoading = false
       }
     },
 
@@ -3335,7 +3307,9 @@ export const useInboxStore = defineStore('inbox', {
       const current = new Map(this.draftRecoveries.map((entry) => [entry.id, entry]))
       for (const record of records) {
         if (record.revision <= (this.settledRecoveryRevisions.get(record.id) ?? 0)) continue
-        if (!current.has(record.id)) current.set(record.id, { ...record, durable: true })
+        if (record.revision > (current.get(record.id)?.revision ?? 0)) {
+          current.set(record.id, { ...record, durable: true })
+        }
       }
       this.draftRecoveries = [...current.values()]
     },
@@ -3419,12 +3393,17 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    openRecoveredDraft(record) {
+    async openRecoveredDraft(record) {
       if (record.owner !== this.composeOwnerSub) return
+      if (this.isComposerActive && this.composerRecoveryId === record.id) return
       // A recovery opens as a copy: saving it must not overwrite a newer
-      // server version after a conflict. A send identity remains unchanged.
-      this.restoreComposerMessage({ ...record.snapshot, recoveryId: record.id }, null)
-      this.composerSaveState = record.durable ? 'local' : 'error'
+      // server version or another tab's recovery. Retain the source until
+      // the independent copy is durable; a newer source revision survives.
+      this.restoreComposerMessage({ ...record.snapshot, recoveryId: newRecoveryId() }, null)
+      const copy = await this.persistComposerRecovery(this.composerDraftSnapshot())
+      if (copy?.durable) {
+        await this.discardComposerRecovery(record.id, record.owner, record.revision)
+      }
     },
 
     // silent: the sign-in bootstrap that decides whether the sidebar shows a
@@ -4085,29 +4064,8 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async requestAiReply({ replyToMessageId, to, subject, existingText }) {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-      const response = await fetch(`${AI_API_URL}/compose`, {
-        method: 'POST',
-        headers,
-        signal: AbortSignal.timeout(25_000),
-        body: JSON.stringify({
-          instruction:
-            'Write a concise, helpful reply to this email in its language. ' +
-            'Use the existing draft as guidance and preserve its meaning. ' +
-            'Keep facts and commitments grounded in the supplied context; ask for missing information when needed. ' +
-            'Return the reply body without a quoted original, signature, or placeholders.',
-          replyToMessageId,
-          to,
-          subject,
-          existingText,
-        }),
-      })
-      if (!response.ok) throw new Error(`POST /compose responded ${response.status}`)
-      const { draft } = await response.json()
-      const text = draft.text.trim()
-      if (!text || text.length > 10_000) throw new Error('AI returned an invalid reply')
-      return convertEmojiToEmoticons(text)
+    requestAiReply(...args) {
+      return invokeMailSettings(this, 'requestAiReply', args)
     },
 
     async requestAiDraft({ replyToMessageId = this.composerReplyToMessageId } = {}) {
@@ -4200,6 +4158,7 @@ export const useInboxStore = defineStore('inbox', {
     // stop two rapid clicks from queueing a second send.
     async sendEmail() {
       if (this.isSendingEmail || this.pendingSend) return
+      if (this.composerSendIdentity?.outgoing?.sendAt) return this.sendEmailLater()
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
@@ -4330,6 +4289,11 @@ export const useInboxStore = defineStore('inbox', {
       if (this.isSendingEmail || this.pendingSend) return false
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return false
       if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
+      const originalSendAt = this.composerSendIdentity?.outgoing?.sendAt
+      if (originalSendAt) {
+        sendAt = originalSendAt
+        label = new Date(originalSendAt).toLocaleString()
+      }
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
       if (unresolved.length) {
         this.notify(unresolvedSnippetWarning(unresolved), 'error')
@@ -4359,9 +4323,22 @@ export const useInboxStore = defineStore('inbox', {
         if (handoff) draftId = await handoff
         draft.sendAt = sendAt
         const { scheduledSend } = await this.sendMail(draft)
-        if (this.isScheduledSendsLoaded) this.scheduledSends.unshift(scheduledSend)
-        else this.scheduledCountHint += 1
-        this.notify(`Email scheduled for ${label}.`)
+        const status = scheduledSend.status
+        if (this.isScheduledSendsLoaded) {
+          this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
+          if (status !== 'sent') this.scheduledSends.unshift(scheduledSend)
+        } else if (status !== 'sent') this.scheduledCountHint += 1
+        const outcome = {
+          sent: 'Email was already sent.',
+          sending: 'The original scheduled email is being sent.',
+          failed: 'The original scheduled send failed. Review it in Scheduled.',
+          uncertain:
+            'Delivery needs confirmation. Check with the recipient before sending another copy.',
+        }
+        this.notify(
+          outcome[status] ?? `Email scheduled for ${label}.`,
+          status === 'failed' || status === 'uncertain' ? 'error' : 'info',
+        )
         // The scheduled_sends row is now the durable copy of this message.
         await this.discardDraft(draftId)
         await this.discardComposerRecovery(draft.recoveryId, draft.owner, draft.recoveryRevision)
@@ -4373,7 +4350,12 @@ export const useInboxStore = defineStore('inbox', {
         )
           return false
         console.error('Failed to schedule email:', error)
-        this.notify('Failed to schedule email. Please try again.', 'error')
+        this.notify(
+          error.code === 'DELIVERY_CONFLICT'
+            ? 'Confirm the original schedule before sending an edited copy.'
+            : 'Scheduling was not confirmed. Retry the original schedule from this draft.',
+          'error',
+        )
         this.restoreComposerMessage(draft, draftId)
         return false
       } finally {
@@ -4385,20 +4367,24 @@ export const useInboxStore = defineStore('inbox', {
     // Best-effort and cached, like loadContacts/loadTasks.
     async loadScheduledSends() {
       if (this.isScheduledSendsLoaded) return
+      const generation = this.composeGeneration
       this.isScheduledSendsLoading = true
       this.scheduledSendsError = null
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return
         const response = await fetch('/api/send?resource=scheduled', { headers })
         if (!response.ok) throw new Error(`GET scheduled sends responded ${response.status}`)
         const { scheduledSends } = await response.json()
+        if (generation !== this.composeGeneration) return
         this.scheduledSends = scheduledSends
         this.isScheduledSendsLoaded = true
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to load scheduled sends:', error)
         this.scheduledSendsError = 'Could not load your scheduled mail.'
       } finally {
-        this.isScheduledSendsLoading = false
+        if (generation === this.composeGeneration) this.isScheduledSendsLoading = false
       }
     },
 
@@ -4408,17 +4394,25 @@ export const useInboxStore = defineStore('inbox', {
     // already went out) so the caller can tell the user rather than silently
     // losing the row.
     async cancelScheduledSend(scheduledSend) {
+      const owner = this.composeOwnerSub
+      const generation = this.composeGeneration
+      const isCurrent = () =>
+        owner === this.composeOwnerSub && generation === this.composeGeneration
       const { stripReplyQuote } = await import('../lib/forwardEmail')
+      if (!isCurrent()) return false
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (!isCurrent()) return false
       const response = await fetch('/api/send?resource=scheduled', {
         method: 'DELETE',
         headers,
         body: JSON.stringify({ id: scheduledSend.id }),
       })
+      if (!isCurrent()) return false
       if (!response.ok) {
         throw new Error(`DELETE scheduled send responded ${response.status}`)
       }
       const { scheduledSend: canceled } = await response.json()
+      if (!isCurrent()) return false
       this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
       // A scheduled reply went in with the original quoted below it; sending
       // it again quotes afresh, so the composer gets the reply alone.
@@ -4426,6 +4420,7 @@ export const useInboxStore = defineStore('inbox', {
       // It has no draft row (scheduling discarded it), so autosave starts a
       // new one rather than writing over whatever draft is open now.
       this.restoreComposerMessage({
+        owner,
         to: canceled.toAddresses,
         subject: canceled.subject,
         text: html === (canceled.html ?? '') ? canceled.text : htmlToText(html),
@@ -4449,6 +4444,7 @@ export const useInboxStore = defineStore('inbox', {
       let activeReply = null
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (seq !== askSeq) return
         const response = await fetch(`${SEARCH_API_URL}/ask?stream=1`, {
           method: 'POST',
           headers,
@@ -4458,6 +4454,7 @@ export const useInboxStore = defineStore('inbox', {
         if (!response.ok) {
           throw new Error(`POST /ask responded ${response.status}`)
         }
+        if (seq !== askSeq) return
         if (response.headers.get('Content-Type')?.includes('application/json')) {
           const { answer, sources } = await response.json()
           if (seq !== askSeq) return

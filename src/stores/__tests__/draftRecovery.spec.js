@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useInboxStore } from '../inbox'
-import { createOfflineDb, setOfflineDb } from '../../lib/offlineDb'
+import { createOfflineDb, getOfflineDb, setOfflineDb } from '../../lib/offlineDb'
 import { drainDraftRecoveryWrites, loadDraftRecoveries } from '../../lib/draftRecovery'
 
 let store
@@ -77,6 +77,51 @@ describe('durable draft recovery', () => {
     expect(store.isComposerActive).toBe(true)
   })
 
+  it.each(['auth', 'fetch', 'body'])(
+    'does not cancel or restore another account’s scheduled send after switching during %s',
+    async (stage) => {
+      let release
+      const blocked = new Promise((resolve) => {
+        release = resolve
+      })
+      const payload = {
+        scheduledSend: {
+          id: 'alice-send',
+          toAddresses: 'alice-reader@example.com',
+          subject: 'Alice’s subject',
+          text: 'Alice’s private message',
+        },
+      }
+      const readBody = vi.fn(() => (stage === 'body' ? blocked : Promise.resolve(payload)))
+      const response = { ok: true, json: readBody }
+      const auth = vi
+        .spyOn(store, 'authHeaders')
+        .mockImplementation(() => (stage === 'auth' ? blocked : Promise.resolve({})))
+      const fetchMock = vi.fn(() => (stage === 'fetch' ? blocked : Promise.resolve(response)))
+      vi.stubGlobal('fetch', fetchMock)
+      const canceling = store.cancelScheduledSend({ id: 'alice-send' })
+      const awaitedStage = { auth, fetch: fetchMock, body: readBody }[stage]
+      await vi.waitFor(() => expect(awaitedStage).toHaveBeenCalledOnce())
+
+      store.setComposeOwner('bob')
+      store.isComposerActive = true
+      store.composerSubject = 'Bob’s subject'
+      store.composerTextArea = 'Bob’s private message'
+      store.scheduledSends = [{ id: 'bob-send', status: 'pending' }]
+      release(stage === 'auth' ? {} : stage === 'fetch' ? response : payload)
+
+      expect(await canceling).toBe(false)
+      expect(store.composeOwnerSub).toBe('bob')
+      expect(store.isComposerActive).toBe(true)
+      expect(store.composerSubject).toBe('Bob’s subject')
+      expect(store.composerTextArea).toBe('Bob’s private message')
+      expect(store.scheduledSends).toEqual([{ id: 'bob-send', status: 'pending' }])
+      expect(store.draftRecoveries).toEqual([])
+      expect(store.notify).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledTimes(stage === 'auth' ? 0 : 1)
+    },
+  )
+
   it('recovers a closed composer after a failed save and a fresh store', async () => {
     const save = vi.spyOn(store, 'persistDraft').mockRejectedValue(new Error('Unavailable'))
     store.closeComposer()
@@ -89,10 +134,63 @@ describe('durable draft recovery', () => {
     reloaded.composeOwnerSub = 'alice'
     await reloaded.loadDraftRecoveries()
     expect(reloaded.draftCount).toBe(1)
-    reloaded.openRecoveredDraft(reloaded.draftRecoveries[0])
+    await reloaded.openRecoveredDraft(reloaded.draftRecoveries[0])
     expect(reloaded.composerTextArea).toBe('Keep my latest words')
     expect(reloaded.composerDraftId).toBeNull()
     expect(reloaded.composerSaveState).toBe('local')
+  })
+
+  it('refreshes newer persisted revisions and preserves both branches when opening a stale copy', async () => {
+    await store.persistComposerRecovery(store.composerDraftSnapshot())
+    const other = useInboxStore(createPinia())
+    other.composeOwnerSub = 'alice'
+    await other.loadDraftRecoveries()
+    const stale = other.draftRecoveries[0]
+
+    store.composerTextArea = 'Newer words in the first tab'
+    await store.persistComposerRecovery(store.composerDraftSnapshot())
+    await other.loadDraftRecoveries()
+    expect(other.draftRecoveries[0].snapshot.text).toBe('Newer words in the first tab')
+    expect(other.draftRecoveries[0].revision).toBeGreaterThan(stale.revision)
+
+    await other.openRecoveredDraft(stale)
+    expect(other.composerRecoveryId).not.toBe(stale.id)
+    other.composerTextArea = 'Separate edits from the stale tab'
+    await other.persistComposerRecovery(other.composerDraftSnapshot())
+
+    const saved = await loadDraftRecoveries('alice')
+    expect(saved).toHaveLength(2)
+    expect(saved.map((record) => record.snapshot.text)).toEqual(
+      expect.arrayContaining(['Newer words in the first tab', 'Separate edits from the stale tab']),
+    )
+    other.closeComposer({ save: false })
+  })
+
+  it('replaces a recovery source only after its independent copy is durable', async () => {
+    await store.persistComposerRecovery(store.composerDraftSnapshot())
+    store.closeComposer({ save: false })
+    for (let index = 0; index < 3; index += 1) {
+      const [source] = await loadDraftRecoveries('alice')
+      await store.openRecoveredDraft(source)
+      expect(store.composerRecoveryId).not.toBe(source.id)
+      expect(await loadDraftRecoveries('alice')).toHaveLength(1)
+      store.closeComposer({ save: false })
+    }
+  })
+
+  it('keeps the durable source when creating an independent recovery copy fails', async () => {
+    await store.persistComposerRecovery(store.composerDraftSnapshot())
+    store.closeComposer({ save: false })
+    const [source] = await loadDraftRecoveries('alice')
+    const db = getOfflineDb()
+    setOfflineDb(createOfflineDb({ indexedDB: null }))
+
+    await store.openRecoveredDraft(source)
+
+    expect(store.composerTextArea).toBe(source.snapshot.text)
+    expect(store.composerSaveState).toBe('error')
+    setOfflineDb(db)
+    expect(await loadDraftRecoveries('alice')).toEqual([source])
   })
 
   it('keeps a newer local edit when an older server save is acknowledged', async () => {
@@ -178,16 +276,18 @@ describe('durable draft recovery', () => {
     const identity = {
       requestId: 'delivery-1',
       fingerprint: 'body-hash',
-      outgoing: { text: 'Frozen body' },
+      outgoing: { text: 'Frozen body', sendAt: '2099-01-01T09:00:00Z' },
     }
     store.composerSendIdentity = identity
     vi.spyOn(store, 'persistDraft').mockResolvedValue('d1')
     await store.saveComposerDraft()
     const [record] = await loadDraftRecoveries('alice')
     expect(record.snapshot.sendIdentity).toEqual(identity)
-    store.openRecoveredDraft(record)
+    store.closeComposer({ save: false })
+    await store.openRecoveredDraft(record)
     expect(store.composerSendIdentity).toEqual(identity)
-    await store.discardComposerRecovery(record.id, 'alice')
+    expect(store.composerRecoveryId).not.toBe(record.id)
+    await store.discardComposerRecovery(store.composerRecoveryId, 'alice')
     expect(await loadDraftRecoveries('alice')).toEqual([])
   })
 
@@ -250,7 +350,7 @@ describe('durable draft recovery', () => {
     })
     const [record] = await loadDraftRecoveries('alice')
     expect(record.snapshot.text).toBe('Unsent reply')
-    store.openRecoveredDraft(record)
+    await store.openRecoveredDraft(record)
     expect(store.composerReplyToMessageId).toBe('m1')
   })
 })

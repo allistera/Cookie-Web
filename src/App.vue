@@ -471,9 +471,9 @@ onUnmounted(() => {
 })
 
 watch(
-  isAuthenticated,
-  (authenticated) => {
-    if (authenticated) {
+  () => (isAuthenticated.value ? user.value?.sub : null),
+  (sub) => {
+    if (sub) {
       scheduleIdleTask(() => loadMaterialSymbols())
       // The first inbox page carries the same counts and Realtime identity,
       // so a session landing on the inbox list skips the separate state call.
@@ -605,7 +605,7 @@ onUnmounted(() => {
 
   <!-- Authenticated App -->
   <template v-else>
-    <router-view v-if="route.meta.layout === 'settings'" />
+    <router-view v-if="route.meta.layout === 'settings'" :key="store.composeOwnerSub" />
     <div v-else class="app-container">
       <!-- TOP HEADER -->
       <header class="app-header">
@@ -931,7 +931,7 @@ onUnmounted(() => {
 
         <!-- MAIN CONTENT PANEL -->
         <main class="main-content">
-          <router-view />
+          <router-view :key="store.composeOwnerSub" />
         </main>
 
         <Transition name="contact-drawer">

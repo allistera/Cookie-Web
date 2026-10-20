@@ -470,11 +470,7 @@ async function consumeGoogleReturn() {
       })
       // A terminal response consumes or rejects this flow. A network/auth
       // failure keeps it available for a reload until the transaction expires.
-      if (
-        response.ok ||
-        (response.status >= 400 && response.status < 500) ||
-        response.status === 502
-      ) {
+      if (response.ok || (response.status >= 400 && response.status < 500)) {
         clearGoogleAuthorization()
       }
       if (!response.ok) throw new Error('Google sign-in could not be completed')

@@ -18,6 +18,17 @@ function formatScheduledFor(scheduledFor) {
   })
 }
 
+function statusLabel(item) {
+  return (
+    {
+      failed: 'Failed to send',
+      uncertain: 'Delivery needs confirmation',
+      sending: 'Sending…',
+      sent: 'Sent',
+    }[item.status] ?? formatScheduledFor(item.scheduledFor)
+  )
+}
+
 // Cancelling reopens the draft in the composer (see store.cancelScheduledSend),
 // so a failure here just needs to tell the user — nothing to roll back
 // locally, the row is still in the list either way.
@@ -68,10 +79,20 @@ async function cancel(scheduledSend) {
           <span class="scheduled-sends-subject">{{ item.subject || '(no subject)' }}</span>
           <span class="scheduled-sends-to">To: {{ item.toAddresses }}</span>
         </div>
-        <span class="scheduled-sends-time" :class="{ 'is-failed': item.status === 'failed' }">
-          {{ item.status === 'failed' ? 'Failed to send' : formatScheduledFor(item.scheduledFor) }}
+        <span
+          class="scheduled-sends-time"
+          :class="{ 'is-failed': item.status === 'failed' || item.status === 'uncertain' }"
+        >
+          {{ statusLabel(item) }}
         </span>
-        <button type="button" class="scheduled-sends-cancel" @click="cancel(item)">Cancel</button>
+        <button
+          type="button"
+          class="scheduled-sends-cancel"
+          :disabled="Boolean(item.status && item.status !== 'pending')"
+          @click="cancel(item)"
+        >
+          Cancel
+        </button>
       </li>
     </ul>
   </div>

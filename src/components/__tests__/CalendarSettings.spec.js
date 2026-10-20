@@ -6,7 +6,11 @@ import CalendarSettings from '../CalendarSettings.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { resetCalendarsStateForTests } from '../../composables/useCalendars'
 import { NAVIGATE_TO } from '../../lib/externalNavigation'
-import { clearGoogleAuthorization, rememberGoogleAuthorization } from '../../lib/googleCalendarAuth'
+import {
+  clearGoogleAuthorization,
+  pendingGoogleAuthorization,
+  rememberGoogleAuthorization,
+} from '../../lib/googleCalendarAuth'
 import { fixtureSubscriptionUrl } from '../../../scripts/localApi/fixtures/calendars.js'
 
 import { CALENDAR_API_URL } from '../../lib/apiWorkers'
@@ -228,6 +232,45 @@ describe('CalendarSettings', () => {
       'info',
     )
   })
+
+  it.each([502, 503])('retries the saved completion after a %s gateway failure', async (status) => {
+    rememberGoogleAuthorization('v'.repeat(43))
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/settings/:section?', component: CalendarSettings }],
+    })
+    await router.push(`/settings/calendar#google_completion=${'c'.repeat(43)}`)
+    await router.isReady()
+    const baseFetch = fetch.getMockImplementation()
+    let failCompletion = true
+    fetch.mockImplementation((url, options = {}) => {
+      if (url === GOOGLE_ENDPOINT && options.method === 'POST' && failCompletion) {
+        failCompletion = false
+        return Promise.resolve({ ok: false, status })
+      }
+      return baseFetch(url, options)
+    })
+    const wrapper = mount(CalendarSettings, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Google Calendar could not be connected.')
+    expect(router.currentRoute.value.hash).toBe('')
+    expect(pendingGoogleAuthorization()).toMatchObject({
+      completion: 'c'.repeat(43),
+      verifier: 'v'.repeat(43),
+    })
+    wrapper.unmount()
+
+    mount(CalendarSettings, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(googleCalls('POST')).toHaveLength(2)
+    expect(googleCalls('POST')[1][1].body).toBe(googleCalls('POST')[0][1].body)
+    expect(useInboxStore().notify).toHaveBeenCalledWith(
+      expect.stringContaining('Google Calendar connected'),
+      'info',
+    )
+    expect(pendingGoogleAuthorization()).toBeNull()
+  })
+
   it('lists calendars and creates calendars and subscriptions', async () => {
     const wrapper = await mountManager()
 

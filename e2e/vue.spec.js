@@ -2106,10 +2106,11 @@ test('Drafts folder sits under Sent only while a draft exists', async ({ page })
   await composer.locator('.composer-subject-inline').fill('Half-written')
   await composer.locator('.composer-editor').fill('Back to this later.')
 
-  // Autosave lands after the typing pause and the folder follows it in,
-  // directly beneath Sent.
+  // Local recovery makes the folder visible immediately. Wait for account
+  // autosave explicitly before testing the server-backed reload below.
   await expect(draftsItem).toBeVisible()
   await expect(draftsItem.locator('.nav-badge')).toHaveText('1')
+  await expect(composer.getByRole('status')).toHaveText('Saved')
   const labels = await page.locator('.sidebar-nav .nav-item .nav-text').allTextContents()
   expect(labels.indexOf('Drafts')).toBe(labels.indexOf('Sent') + 1)
 
@@ -2120,9 +2121,45 @@ test('Drafts folder sits under Sent only while a draft exists', async ({ page })
 
   await draftsItem.click()
   await expect(page.locator('.drafts-row', { hasText: 'Half-written' })).toBeVisible()
-  await page.locator('.drafts-discard').click()
+  await page.getByRole('button', { name: 'Discard Half-written', exact: true }).click()
   await expect(page.locator('.drafts-row')).toHaveCount(0)
   await expect(draftsItem).toHaveCount(0)
+})
+
+test('A local recovery survives a failed draft save and reload until explicitly discarded', async ({
+  page,
+}) => {
+  await page.route(`${DRAFTS_API_URL}/drafts`, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await route.fulfill({ status: 503, json: { error: 'Draft storage unavailable' } })
+  })
+  await page.goto('/')
+  await page.locator('.compose-btn').click()
+  const composer = page.locator('#composerToast')
+  const failedSave = page.waitForResponse(
+    (response) =>
+      response.url() === `${DRAFTS_API_URL}/drafts` &&
+      response.request().method() === 'POST' &&
+      response.status() === 503,
+  )
+  await composer.locator('.composer-subject-inline').fill('Recover after reload')
+  await composer.locator('.composer-editor').fill('Keep these unsynced edits.')
+  await failedSave
+  await expect(composer.getByRole('status')).toContainText('Saved on this device')
+
+  await page.goto('/drafts')
+  const localDrafts = page.getByRole('region', { name: 'Recoverable local drafts' })
+  await expect(localDrafts).toContainText('Recover after reload')
+  await expect(localDrafts).toContainText('Keep these unsynced edits.')
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await localDrafts
+    .getByRole('button', { name: 'Discard local copy of Recover after reload', exact: true })
+    .click()
+  await expect(localDrafts).toHaveCount(0)
+  await page.reload()
+  await expect(localDrafts).toHaveCount(0)
+  await expect(page.locator('.drafts-row')).toHaveCount(0)
 })
 
 test('Command palette Reply opens the inline reply box', async ({ page }) => {
