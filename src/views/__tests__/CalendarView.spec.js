@@ -1280,6 +1280,64 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  it('reloads occurrences when a series repeat is cleared', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const occurrence = wrapper
+      .findAll('.day-event')
+      .find((event) => event.text().includes('Recurring review'))
+    await occurrence.trigger('click')
+    await wrapper.get('select[aria-label="Event repeats"]').setValue('none')
+    const before = fetch.mock.calls.filter(
+      ([url, options]) =>
+        isEventsEndpoint(String(url)) && (!options?.method || options.method === 'GET'),
+    ).length
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+    expect(
+      fetch.mock.calls.filter(
+        ([url, options]) =>
+          isEventsEndpoint(String(url)) && (!options?.method || options.method === 'GET'),
+      ).length,
+    ).toBeGreaterThan(before)
+    wrapper.unmount()
+  })
+
+  it('shows a persistent notice when the calendar response is truncated', async () => {
+    const real = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options) => {
+      const response = await real(url, options)
+      if (isEventsEndpoint(String(url)) && !options?.method)
+        return { ...response, json: async () => ({ ...(await response.json()), truncated: true }) }
+      return response
+    })
+    const wrapper = await mountCalendar()
+    expect(wrapper.get('[role="status"]').text()).toContain('Some events could not be shown')
+    wrapper.unmount()
+  })
+
+  it('ignores errors from a superseded calendar window', async () => {
+    const real = fetch.getMockImplementation()
+    let rejectFirst
+    let calls = 0
+    fetch.mockImplementation(async (url, options) => {
+      if (isEventsEndpoint(String(url)) && !options?.method && ++calls === 1)
+        return new Promise((_resolve, reject) => {
+          rejectFirst = reject
+        })
+      return real(url, options)
+    })
+    const notify = vi.spyOn(useInboxStore(), 'notify').mockImplementation(() => {})
+    const wrapper = mount(CalendarView)
+    await flushPromises()
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    for (let i = 0; i < 6; i++) await wrapper.get('[aria-label="Next period"]').trigger('click')
+    await flushPromises()
+    rejectFirst(new Error('old window failed'))
+    await flushPromises()
+    expect(notify).not.toHaveBeenCalledWith('Failed to load calendar events.', 'error')
+    wrapper.unmount()
+  })
+
   it('edits a recurring occurrence using the series master date', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 

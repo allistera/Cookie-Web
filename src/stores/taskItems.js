@@ -8,7 +8,7 @@ import { localToday } from '../lib/localDate'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import { filterIdOf, isFilterProject, taskMatchesFilter } from '../lib/taskFilters'
-import { dealPositions, orderAfterDrop, sortForList } from '../lib/taskOrder'
+import { dealPositions, sortForList } from '../lib/taskOrder'
 import { useInboxStore } from './inbox'
 import { useProjectsStore } from './projects'
 import { useTaskFiltersStore } from './taskFilters'
@@ -173,7 +173,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return result
     },
 
-    async loadItems(project, { force = false } = {}) {
+    async loadItems(project, { force = false, preserveOnError = false } = {}) {
       // Today and a saved filter (whose date rules are relative) are fetched
       // for the caller's own date, and refetched once it moves on.
       const today = project === 'today' || isFilterProject(project) ? localToday() : null
@@ -184,6 +184,14 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // it fails outright. loadedProject is set back to `project` only on
       // success, so a failed load also leaves the store retryable rather
       // than stuck believing it already "loaded" nothing.
+      const retained = preserveOnError
+        ? {
+            items: [...this.items],
+            nextCursor: this.nextCursor,
+            loadedProject: this.loadedProject,
+            loadedDate: this.loadedDate,
+          }
+        : null
       const seq = ++this.loadSeq
       const owner = offlineOwner()
       this.items = []
@@ -210,7 +218,8 @@ export const useTaskItemsStore = defineStore('taskItems', {
         writeOfflineCache(`tasks:${project}`, { items, date: today }, owner)
       } catch (error) {
         if (seq !== this.loadSeq) return
-        if (isNetworkError(error)) {
+        if (retained) Object.assign(this, retained)
+        else if (isNetworkError(error)) {
           if (await this.applyCachedItems(project, today, seq)) return
         }
         console.error('Failed to load tasks:', error)
@@ -300,16 +309,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // Read-only: used only to name what a delete is about to destroy before
     // it happens, never to populate the visible list.
     async countForProjects(ids) {
-      const results = await Promise.all(
-        ids.map((id) =>
-          this.request('GET', { params: `?project=${encodeURIComponent(id)}&completed=1` }),
-        ),
-      )
-      // Dividers are rows too, but nobody counts them as tasks.
-      return results.reduce(
-        (total, { items = [] }) => total + items.filter((row) => row.kind !== 'divider').length,
-        0,
-      )
+      if (!ids.length) return 0
+      const params = new URLSearchParams({ view: 'count', projects: ids.join(',') })
+      const { count } = await this.request('GET', { params: `?${params}` })
+      return count
     },
 
     // Whether a task belongs in the list currently on screen. Add Task creates
@@ -393,26 +396,17 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return item
     },
 
-    // A divider is a rule between rows (kind: 'divider'), added from the line
-    // under `afterId`. The server puts every new row last, so once it is
-    // back the list is re-arranged to carry it up to where it was asked for;
-    // a failed re-arrange leaves it at the bottom rather than losing it.
+    // Insert a divider after its anchor in the complete project order,
+    // including tasks beyond the currently loaded page.
     async addDivider({ projectId = null, afterId }) {
       try {
-        const { item } = await this.request('POST', { body: { kind: 'divider', projectId } })
-        if (!this.belongsToLoadedList(item)) return item
-        this.items.push(item)
-        const rows = this.items.filter((row) => !row.parentId && row.id !== item.id)
-        const offset =
-          Math.floor(
-            Math.max(
-              0,
-              rows.findIndex((row) => row.id === afterId),
-            ) / 100,
-          ) * 100
-        const ids = [...rows.slice(offset, offset + 100).map((row) => row.id), item.id]
-        const order = orderAfterDrop(ids, item.id, afterId, 'after')
-        if (order) await this.reorderItems(order)
+        const { item } = await this.request('POST', {
+          body: { kind: 'divider', projectId, afterId },
+        })
+        if (this.belongsToLoadedList(item)) {
+          // Insertion renumbers the whole project, including rows outside this page.
+          await this.loadItems(this.loadedProject, { force: true })
+        }
         return item
       } catch (error) {
         console.error('Failed to add divider:', error)
@@ -430,7 +424,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // called once the row's earlier edits have settled: an edit that builds
     // on the row's current state (adding a label) must read it then, not
     // when it was asked for.
-    patchItem(id, localPatch, body, failureMessage) {
+    patchItem(id, localPatch, body, failureMessage, { reload = true, onQueued = () => {} } = {}) {
       let item = this.items.find((row) => row.id === id)
       if (!item) {
         this.notify(failureMessage, 'error')
@@ -447,7 +441,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
         if (!this.items.includes(row)) return
         const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(row)
         if (!row.parentId && (row.completedAt || outsideList)) {
-          this.items = this.items.filter((candidate) => candidate.id !== id)
+          this.items = this.items.filter(
+            (candidate) => candidate.id !== id && (!outsideList || candidate.parentId !== id),
+          )
           this.deselect(id)
         } else if (this.loadedProject === 'today' || isFilterProject(this.loadedProject)) {
           this.items = sortForList(this.items, this.loadedProject)
@@ -468,7 +464,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
           if (['completed', 'projectId', 'parentId'].some((key) => Object.hasOwn(payload, key))) {
             this.refreshProjectCounts()
           }
-          if (onScreen && Object.hasOwn(payload, 'projectId') && this.loadedProject) {
+          if (reload && onScreen && Object.hasOwn(payload, 'projectId') && this.loadedProject) {
             await this.loadItems(this.loadedProject, { force: true })
           }
           return item
@@ -477,6 +473,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
           // reconnect (replayTaskPatch). The server's own refusals, and a
           // queue that cannot be written, roll back below.
           if (isNetworkError(error) && (await queueTaskPatch(id, payload))) {
+            onQueued()
             settleInList(item)
             return item
           }
@@ -650,19 +647,22 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // project (null: Inbox), one request each, then reloads the list once
     // rather than per task.
     async moveItems(ids, projectId) {
-      let moved = 0
-      for (const id of ids) {
-        try {
-          await this.request('PATCH', { body: { id, projectId } })
-          moved++
-        } catch (error) {
-          console.error('Failed to move task:', error)
-        }
-      }
+      let queued = false
+      const results = await Promise.all(
+        ids.map((id) =>
+          this.patchItem(id, { projectId }, { projectId }, 'Failed to move task.', {
+            reload: false,
+            onQueued: () => {
+              queued = true
+            },
+          }),
+        ),
+      )
+      const moved = results.filter(Boolean).length
       this.spendSelection(ids)
-      if (this.loadedProject) await this.loadItems(this.loadedProject, { force: true })
+      if (moved && !queued && this.loadedProject)
+        await this.loadItems(this.loadedProject, { force: true, preserveOnError: true })
       this.reportBulk('Moved', moved, ids.length)
-      if (moved) this.refreshProjectCounts()
       return moved
     },
 
@@ -740,13 +740,16 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     async deleteItem(id) {
-      const index = this.items.findIndex((row) => row.id === id)
-      const removed = this.items[index]
+      const removed = this.items
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.id === id || row.parentId === id)
+      const removedIds = new Set(removed.map(({ row }) => row.id))
       const generation = this.loadSeq
       const project = this.loadedProject
-      const wasSelected = this.selectedIds.includes(id)
-      this.items = this.items.filter((row) => row.id !== id)
-      this.deselect(id)
+      const selection = this.selectedIds.filter((selected) => removedIds.has(selected))
+      this.items = this.items.filter((row) => !removedIds.has(row.id))
+      this.selectedIds = this.selectedIds.filter((selected) => !removedIds.has(selected))
+      const selectionAfterDelete = [...this.selectedIds]
       try {
         await this.request('DELETE', { body: { id } })
         // Sub-tasks go with it and may carry labels of their own, so this
@@ -756,16 +759,13 @@ export const useTaskItemsStore = defineStore('taskItems', {
         return true
       } catch (error) {
         console.error('Failed to delete task:', error)
-        if (
-          removed &&
-          generation === this.loadSeq &&
-          project === this.loadedProject &&
-          !this.items.some((row) => row.id === id)
-        ) {
-          this.items.splice(index, 0, removed)
-          // Back into the selection too — unless it was dropped meanwhile,
-          // which is the person's call to keep.
-          if (wasSelected && this.selectedIds.length) this.selectItems([id])
+        if (generation === this.loadSeq && project === this.loadedProject) {
+          for (const { row, index } of removed) {
+            if (!this.items.some((item) => item.id === row.id)) this.items.splice(index, 0, row)
+          }
+          if (JSON.stringify(this.selectedIds) === JSON.stringify(selectionAfterDelete)) {
+            this.selectItems(selection)
+          }
         }
         this.notify(error.userMessage || 'Failed to delete the task.', 'error')
         return false

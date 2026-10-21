@@ -1,4 +1,5 @@
 <script setup>
+import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
 import { computed, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useDocumentsStore } from '../stores/documents'
@@ -30,9 +31,6 @@ const START_HOUR = 8
 const END_HOUR = 19
 const HOUR_HEIGHT = 56
 const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
-
-const dateKey = (date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 const today = new Date()
 const todayKey = dateKey(today)
@@ -84,6 +82,7 @@ const monthWeeks = computed(() => {
 })
 
 const events = ref([])
+const eventsTruncated = ref(false)
 
 async function loadEvents() {
   const key = selectedKey.value
@@ -93,15 +92,8 @@ async function loadEvents() {
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
     if (selectedKey.value !== key) return
-    events.value = (body.events ?? []).map((event) => ({
-      ...event,
-      // Older calendar rows can predate the all_day flag. Midnight events
-      // spanning a complete day are still all-day events and must never be
-      // positioned against the hourly agenda — mirrors CalendarView.vue.
-      allDay:
-        event.allDay === true ||
-        (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
-    }))
+    events.value = (body.events ?? []).map(normalizeCalendarEvent)
+    eventsTruncated.value = Boolean(body.truncated)
   } catch (error) {
     console.error('Failed to load the daily note calendar sidebar:', error)
   }
@@ -183,6 +175,11 @@ function hourLabel(hour) {
         </span>
       </div>
     </div>
+
+    <p v-if="eventsTruncated" role="status">
+      Some events could not be shown. Open Calendar to view a shorter range or select fewer
+      calendars.
+    </p>
 
     <div v-if="allDayEvents.length" class="sidebar-all-day" aria-label="All-day events">
       <span v-for="event in allDayEvents" :key="event.id" class="sidebar-all-day-chip">

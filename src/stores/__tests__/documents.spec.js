@@ -1218,3 +1218,24 @@ describe('syncDocumentPages', () => {
     expect(sync.mock.calls[0][0].map(({ document }) => document.id)).toEqual(['d-1', 'd-3'])
   })
 })
+
+describe('overlapping metadata failures', () => {
+  it.each([false, true])(
+    'restores confirmed metadata in either response order (%s)',
+    async (reverse) => {
+      store.documents = structuredClone(DOCS)
+      const before = { ...store.documents[0] }
+      const responses = []
+      stubFetch({ PATCH: () => new Promise((resolve) => responses.push(() => resolve(fail()))) })
+      const star = store.updateDocumentMeta(before.id, { starred: !before.starred })
+      const move = store.updateDocumentMeta(before.id, { folderId: 'new-folder' })
+      await vi.waitFor(() => expect(responses).toHaveLength(2))
+      responses[reverse ? 1 : 0]()
+      await (reverse ? move : star)
+      responses[reverse ? 0 : 1]()
+      await Promise.all([star, move])
+      expect(store.documents[0].starred).toBe(before.starred)
+      expect(store.documents[0].folder_id).toBe(before.folder_id)
+    },
+  )
+})

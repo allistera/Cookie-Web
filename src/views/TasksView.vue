@@ -104,7 +104,15 @@ const openTaskId = computed(() => {
 // detail panel's delete makes. A divider holds nothing, so it just goes.
 async function removeItem(item) {
   if (!isDivider(item) && !confirm(`Delete "${item.content}"?`)) return
-  await items.deleteItem(item.id)
+  const open = items.itemById(openTaskId.value)
+  const closesPanel = openTaskId.value === item.id || open?.parentId === item.id
+  if (await items.deleteItem(item.id)) {
+    if (closesPanel) {
+      const query = { ...route.query }
+      delete query.task
+      router.replace({ query })
+    }
+  }
 }
 
 // --- Dividers ---

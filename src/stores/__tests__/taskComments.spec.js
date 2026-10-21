@@ -99,6 +99,20 @@ describe('task comments store', () => {
     expect(store.thread(TASK).comments.map((row) => row.id)).toEqual(['c1', 'c2', 'new'])
   })
 
+  it('keeps loaded later pages and posted comments across a paginated refresh', async () => {
+    const later = { ...COMMENT, id: 'c2', createdAt: '2026-10-15T09:10:00Z' }
+    stubFetch(async (url) =>
+      String(url).includes('after=')
+        ? ok({ comments: [later], nextCursor: null })
+        : ok({ comments: [COMMENT], nextCursor: 'page-2' }),
+    )
+    await store.loadThread(TASK)
+    await store.loadThread(TASK, { more: true })
+    store.thread(TASK).comments.push({ ...COMMENT, id: 'new', createdAt: '2026-10-15T10:00:00Z' })
+    await store.loadThread(TASK, { force: true })
+    expect(store.thread(TASK).comments.map((row) => row.id)).toEqual(['c1', 'c2', 'new'])
+  })
+
   it('refreshes a loaded thread when forced, dropping entries gone elsewhere', async () => {
     stubFetch(async () => ok({ comments: [COMMENT, { ...COMMENT, id: 'c2' }], nextCursor: null }))
     await store.loadThread(TASK)

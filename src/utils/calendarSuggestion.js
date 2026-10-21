@@ -1,3 +1,4 @@
+import { dateKey } from './calendarDates'
 const MONTHS = new Map([
   ['jan', 0],
   ['feb', 1],
@@ -40,8 +41,6 @@ const TIME =
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i
 
 const pad2 = (value) => String(value).padStart(2, '0')
-const dateKey = (date) =>
-  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
 function validDate(year, month, day) {

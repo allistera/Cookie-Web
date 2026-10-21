@@ -6251,3 +6251,16 @@ describe('composer attachment uploads', () => {
     expect(store.pendingAttachmentUploads).toBe(0)
   })
 })
+
+it('deduplicates folder pages against rows inserted optimistically', async () => {
+  const store = useInboxStore()
+  store.starredEmails = [{ id: 'already', subject: 'local' }]
+  store.starredCursor = 'page-2'
+  vi.spyOn(store, 'fetchEmailPage').mockResolvedValue({
+    emails: [{ id: 'already', subject: 'server' }, { id: 'new' }],
+    nextCursor: null,
+  })
+  await store.loadMoreStarredEmails()
+  expect(store.starredEmails.map((row) => row.id)).toEqual(['already', 'new'])
+  expect(store.starredEmails[0].subject).toBe('local')
+})

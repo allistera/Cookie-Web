@@ -37,7 +37,6 @@ const pageLoads = new WeakMap()
 const todayNoteOpens = new WeakMap()
 // Latest updateDocumentMeta call per document id, per store; see there.
 const metaRequests = new WeakMap()
-let metaSeq = 0
 export const documentPageKey = (scope = {}) =>
   JSON.stringify([scope.folder ?? null, Boolean(scope.starred), scope.tag || null])
 
@@ -1005,35 +1004,59 @@ export const useDocumentsStore = defineStore('documents', {
       return document
     },
 
-    // Metadata updates (star, move, emoji): applied optimistically to the
-    // list row, rolled back if the PATCH fails. Only the latest call for a
-    // document applies its response or rollback, so a slower, older PATCH
-    // cannot undo a newer optimistic change.
+    // Keep a confirmed baseline separate from pending optimistic patches.
+    // Only successful fields advance it; a failed edit can never become a
+    // later edit's rollback snapshot.
     async updateDocumentMeta(id, patch) {
       const row = this.documents.find((doc) => doc.id === id)
       if (!row) return
-      const latest = metaRequests.get(toRaw(this)) ?? new Map()
-      metaRequests.set(toRaw(this), latest)
-      const seq = ++metaSeq
-      latest.set(id, seq)
-      const before = { ...row }
-      Object.assign(row, patch.starred !== undefined ? { starred: patch.starred } : {})
-      if (patch.folderId !== undefined) row.folder_id = patch.folderId
-      if (patch.emoji !== undefined) row.emoji = patch.emoji
+      const requests = metaRequests.get(toRaw(this)) ?? new Map()
+      metaRequests.set(toRaw(this), requests)
+      let state = requests.get(id)
+      if (!state) {
+        state = {
+          confirmed: { starred: row.starred, folder_id: row.folder_id, emoji: row.emoji },
+          pending: new Map(),
+          versions: {},
+          seq: 0,
+        }
+        requests.set(id, state)
+      }
+      const seq = ++state.seq
+      const fields = {}
+      if (patch.starred !== undefined) fields.starred = patch.starred
+      if (patch.folderId !== undefined) fields.folder_id = patch.folderId
+      if (patch.emoji !== undefined) fields.emoji = patch.emoji
+      state.pending.set(seq, fields)
+      const beforeOptimistic = { ...row }
+      Object.assign(row, fields)
+      this.syncDocumentPages(row, beforeOptimistic)
       try {
         const { document } = await this.request('PATCH', { body: { id, ...patch } })
-        // A superseded call keeps the newer row but still files it on the
-        // right pages: the newer call may be for another field and may fail.
-        if (latest.get(id) === seq) {
-          Object.assign(row, document)
-          if (this.openDoc?.id === id) Object.assign(this.openDoc, document)
+        if (document.updated_at && String(document.updated_at) > String(row.updated_at ?? ''))
+          row.updated_at = document.updated_at
+        for (const key of Object.keys(fields)) {
+          if (seq > (state.versions[key] ?? 0)) {
+            state.confirmed[key] = Object.hasOwn(document, key) ? document[key] : fields[key]
+            state.versions[key] = seq
+          }
         }
-        this.syncDocumentPages(row, before)
       } catch (error) {
         console.error('Failed to update document:', error)
-        if (latest.get(id) !== seq) return
-        Object.assign(row, before)
         this.notify('Failed to update the document.', 'error')
+      } finally {
+        const before = { ...row }
+        state.pending.delete(seq)
+        const next = { ...state.confirmed }
+        for (const [pendingSeq, pending] of state.pending) {
+          for (const [key, value] of Object.entries(pending)) {
+            if (pendingSeq > (state.versions[key] ?? 0)) next[key] = value
+          }
+        }
+        Object.assign(row, next)
+        if (this.openDoc?.id === id) Object.assign(this.openDoc, next)
+        this.syncDocumentPages(row, before)
+        if (!state.pending.size) requests.delete(id)
       }
     },
 
