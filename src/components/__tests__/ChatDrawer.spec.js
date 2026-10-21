@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import ChatDrawer from '../ChatDrawer.vue'
@@ -12,6 +12,8 @@ describe('ChatDrawer message formatting', () => {
     setActivePinia(createPinia())
     store = useInboxStore()
   })
+
+  afterEach(() => vi.restoreAllMocks())
 
   it('renders **bold** markers as <strong> without showing asterisks', () => {
     store.chatHistory = [{ text: 'Update from **City Construction**: plan revised.', sender: 'ai' }]
@@ -87,5 +89,63 @@ describe('ChatDrawer message formatting', () => {
     const wrapper = mount(ChatDrawer)
 
     expect(wrapper.find('.chat-msg.user').text()).toBe('Summarize my kitchen renovation updates.')
+  })
+})
+
+describe('chat drawer actions', () => {
+  let store
+  let wrapper
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useInboxStore()
+  })
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.restoreAllMocks()
+  })
+
+  it('sends trimmed prompts by button or Enter and ignores blank input', async () => {
+    const ask = vi.spyOn(store, 'askAssistant').mockImplementation(() => {})
+    wrapper = mount(ChatDrawer)
+    const input = wrapper.get('input')
+    await input.setValue('   ')
+    await wrapper.get('[aria-label="Send message"]').trigger('click')
+    expect(ask).not.toHaveBeenCalled()
+    await input.setValue('  Find the invoice  ')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(ask).toHaveBeenCalledWith('Find the invoice')
+    expect(input.element.value).toBe('')
+    await input.setValue('Follow up')
+    await wrapper.get('[aria-label="Send message"]').trigger('click')
+    expect(ask).toHaveBeenLastCalledWith('Follow up')
+  })
+
+  it('scrolls appended and streamed replies into view and displays loading state', async () => {
+    store.isChatDrawerActive = true
+    wrapper = mount(ChatDrawer)
+    const content = wrapper.get('.drawer-content').element
+    Object.defineProperty(content, 'scrollHeight', { configurable: true, value: 500 })
+    store.isChatLoading = true
+    await flushPromises()
+    expect(wrapper.text()).toContain('Searching your mailbox...')
+    store.chatHistory.push({ sender: 'ai', text: 'Starting', typing: true })
+    await flushPromises()
+    expect(content.scrollTop).toBe(500)
+    content.scrollTop = 0
+    store.chatHistory[0].text = 'Starting with a reply'
+    await flushPromises()
+    expect(content.scrollTop).toBe(500)
+    expect(wrapper.get('.chat-msg.ai').classes()).toContain('typing-cursor')
+    await wrapper.get('[aria-label="Close Cookie Assistant"]').trigger('click')
+    expect(store.isChatDrawerActive).toBe(false)
+    expect(wrapper.get('[role=dialog]').attributes('inert')).toBeDefined()
+  })
+
+  it('renders assistant HTML as text', () => {
+    store.chatHistory = [{ sender: 'ai', text: '<img src=x onerror=alert(1)> **safe**' }]
+    wrapper = mount(ChatDrawer)
+    expect(wrapper.find('.chat-msg img').exists()).toBe(false)
+    expect(wrapper.get('.chat-line').text()).toContain('<img src=x onerror=alert(1)>')
+    expect(wrapper.get('strong').text()).toBe('safe')
   })
 })
