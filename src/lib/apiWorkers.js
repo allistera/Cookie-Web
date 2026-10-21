@@ -19,3 +19,5 @@ export const NOTIFICATIONS_API_URL = 'https://notifications-api.infinitywave.onl
 export const SEARCH_API_URL = 'https://search-api.infinitywave.online'
 export const RECEIPTS_API_URL = 'https://receipts-api.infinitywave.online'
 export const TASKS_API_URL = 'https://tasks-api.infinitywave.online'
+export const SEND_API_URL = 'https://send-api.infinitywave.online'
+export const MCP_API_URL = 'https://mcp.infinitywave.online'
