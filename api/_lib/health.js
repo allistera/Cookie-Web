@@ -51,9 +51,7 @@ export function createHealthChecks(overrides = {}) {
     database: async (signal) => {
       if (!env.DATABASE_URL) throw new Error('Database is not configured')
       const query = sqlClient()`SELECT 1`
-      const cancel = () => {
-        void query.cancel().catch(() => undefined)
-      }
+      const cancel = () => query.cancel()
       signal.addEventListener('abort', cancel, { once: true })
       try {
         await query

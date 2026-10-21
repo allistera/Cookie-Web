@@ -106,7 +106,7 @@ describe('production health probes', () => {
   })
   it('cancels a database probe when its deadline expires', async () => {
     vi.useFakeTimers()
-    const query = Object.assign(new Promise(() => {}), { cancel: vi.fn(async () => {}) })
+    const query = Object.assign(new Promise(() => {}), { cancel: vi.fn() })
     const { database } = createHealthChecks({
       getSql: () => () => query,
       env: { DATABASE_URL: 'configured' },
