@@ -12,6 +12,7 @@ describe('router', () => {
 
   afterEach(() => {
     setAuth0Client(null)
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -53,6 +54,7 @@ describe('router', () => {
 describe('route authentication', () => {
   afterEach(() => {
     setAuth0Client(null)
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -73,13 +75,13 @@ describe('route authentication', () => {
       setAuth0Client(null)
       await router.push('/')
       const auth = { isLoading: ref(true), isAuthenticated: ref(false) }
+      const loadingRead = vi.spyOn(auth.isLoading, 'value', 'get')
       setAuth0Client(auth)
       let completed = false
       const navigation = router.push('/scheduled').then(() => {
         completed = true
       })
-      await nextTick()
-      await nextTick()
+      await vi.waitFor(() => expect(loadingRead).toHaveBeenCalled())
       expect(completed).toBe(false)
       auth.isAuthenticated.value = authenticated
       auth.isLoading.value = false
