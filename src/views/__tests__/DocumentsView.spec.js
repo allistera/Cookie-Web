@@ -34,7 +34,7 @@ beforeEach(() => {
   })
 })
 
-async function mountAt(path) {
+async function mountAt(path, editor = true) {
   await router.push(path)
   await router.isReady()
   const wrapper = mount(RouterView, {
@@ -45,7 +45,7 @@ async function mountAt(path) {
         FilePreview: true,
         DocumentCalendarSidebar: true,
         NewDocumentDialog: true,
-        DocumentEditor: true,
+        DocumentEditor: editor,
       },
     },
   })
@@ -54,6 +54,95 @@ async function mountAt(path) {
 }
 
 describe('DocumentsView', () => {
+  it.each(['saved', 'changed', 'flush-failed', 'save-failed'])(
+    'handles an existing-document AI proposal when %s',
+    async (outcome) => {
+      const original = { id: 'doc-a', title: 'Original', blocks: [] }
+      let snapshot = { ...original }
+      const editor = {
+        props: ['doc'],
+        emits: ['save', 'dirty'],
+        methods: {
+          snapshot: () => Promise.resolve(snapshot),
+          flushPendingBlocks: () => Promise.resolve(),
+        },
+        template: '<div class="test-document-editor" />',
+      }
+      store.openDoc = original
+      vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+      const schedule = vi.spyOn(store, 'scheduleContentSave').mockImplementation(() => {})
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          Response.json({
+            reply: 'Try this revision',
+            model: 'test-model',
+            proposal: { title: 'Revised', blocks: [], preview: 'Revision' },
+          }),
+        ),
+      )
+      const wrapper = await mountAt('/documents/doc-a', editor)
+      await wrapper.get('[aria-label="Open document AI"]').trigger('click')
+      wrapper.get('[role=log]').element.scrollTo = vi.fn()
+      await wrapper.get('textarea').setValue('Revise this')
+      await wrapper.get('[aria-label="Send message"]').trigger('click')
+      await flushPromises()
+      if (outcome === 'changed') snapshot = { ...original, title: 'Locally edited' }
+      if (outcome === 'flush-failed') store.flushPendingSave.mockResolvedValueOnce(false)
+      if (outcome === 'save-failed')
+        store.flushPendingSave.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      await wrapper.get('.message-assistant button').trigger('click')
+      await flushPromises()
+      expect(schedule).toHaveBeenCalledTimes(['saved', 'save-failed'].includes(outcome) ? 1 : 0)
+      const expectedErrors = {
+        saved: '',
+        changed: 'The document changed since this suggestion. Ask AI again using the latest draft.',
+        'flush-failed': 'Save your current changes before applying this suggestion.',
+        'save-failed':
+          'The changes are in your draft, but saving failed. Use Retry save in the document header.',
+      }
+      expect(wrapper.find('.document-ai-error').exists()).toBe(outcome !== 'saved')
+      expect(
+        wrapper
+          .findAll('.document-ai-error')
+          .map((node) => node.text())
+          .join(''),
+      ).toBe(expectedErrors[outcome])
+      expect(wrapper.get('.message-assistant button').text()).toBe(
+        ['saved', 'save-failed'].includes(outcome) ? 'Applied' : 'Apply changes',
+      )
+      wrapper.unmount()
+    },
+  )
+
+  it('retains conversation history for a follow-up question', async () => {
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () =>
+        Response.json({ reply: 'An answer', model: 'test-model', proposal: null }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = await mountAt('/documents')
+    await wrapper.get('[aria-label="Open document AI"]').trigger('click')
+    wrapper.get('[role=log]').element.scrollTo = vi.fn()
+    await wrapper.get('textarea').setValue('First question')
+    await wrapper.get('[aria-label="Send message"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('textarea').setValue('Follow up')
+    await wrapper.get('[aria-label="Send message"]').trigger('click')
+    await flushPromises()
+    const first = JSON.parse(fetchMock.mock.calls[0][1].body)
+    const second = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(second.conversationId).toBe(first.conversationId)
+    expect(second.history).toEqual([
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'An answer' },
+    ])
+    expect(wrapper.findAll('.message-assistant')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
   it.each([
     ['saving', 'Saving…'],
     ['saved', 'All changes saved'],
