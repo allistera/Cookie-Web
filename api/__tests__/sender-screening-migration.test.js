@@ -35,7 +35,7 @@ const OTHER = '22222222-2222-4222-8222-222222222222'
 const THREAD = '33333333-3333-4333-8333-333333333333'
 const OTHER_THREAD = '44444444-4444-4444-8444-444444444444'
 
-describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on PostgreSQL', () => {
+describe.skipIf(!databaseUrl)('sender screening and private inbox pings on PostgreSQL', () => {
   let sql
   beforeAll(async () => {
     sql = postgres(databaseUrl, { max: 2 })
@@ -43,7 +43,7 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
     // not a JavaScript imitation of its trigger/notification behavior.
     await sql.unsafe(`
       CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
-      CREATE TABLE public.users (id uuid PRIMARY KEY, prefs jsonb NOT NULL DEFAULT '{}');
+      CREATE TABLE public.users (id uuid PRIMARY KEY, auth0_sub text UNIQUE, prefs jsonb NOT NULL DEFAULT '{}');
       CREATE TABLE public.threads (id uuid PRIMARY KEY, user_id uuid REFERENCES public.users(id), is_muted boolean NOT NULL DEFAULT false);
       CREATE TABLE public.messages (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.users(id),
@@ -79,14 +79,43 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
     await applyMigration(sql, '0088_sender_screening.sql')
     await applyMigration(sql, '0089_sender_domain_decisions.sql')
     await applyMigration(sql, '0090_write_path_cleanup.sql')
+    // Exercise the Supabase-only path, including its managed-table boundary.
+    // Vanilla Postgres has no supautils policy exception, so an event trigger
+    // refuses table ALTERs while allowing the policy DDL Supabase permits.
+    await sql.unsafe(`
+      CREATE SCHEMA auth;
+      CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+        SELECT COALESCE(NULLIF(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
+      $$;
+      CREATE FUNCTION realtime.topic() RETURNS text LANGUAGE sql STABLE AS $$
+        SELECT current_setting('realtime.topic', true)
+      $$;
+      CREATE TABLE realtime.messages (extension text);
+      ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+      GRANT USAGE ON SCHEMA auth, realtime TO anon, authenticated;
+      GRANT SELECT, INSERT ON realtime.messages TO anon, authenticated;
+      CREATE FUNCTION public.reject_managed_realtime_alter() RETURNS event_trigger
+      LANGUAGE plpgsql AS $$
+      DECLARE command record;
+      BEGIN
+        FOR command IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+          IF command.object_identity = 'realtime.messages' AND command.command_tag = 'ALTER TABLE' THEN
+            RAISE EXCEPTION 'must be owner of table messages' USING ERRCODE = '42501';
+          END IF;
+        END LOOP;
+      END;
+      $$;
+      CREATE EVENT TRIGGER reject_managed_realtime_alter ON ddl_command_end
+        WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION public.reject_managed_realtime_alter();
+    `)
     await applyMigration(sql, '0105_private_inbox_broadcasts.sql')
     await applyMigration(sql, '0108_inbox_ping_comparison.sql')
   })
   beforeEach(async () => {
     await sql.unsafe(`TRUNCATE public.message_ai, public.messages, public.threads, public.users,
       public.sender_decisions, public.browser_notification_events, public.ntfy_notification_events,
-      public.ntfy_subscriptions, realtime.pings CASCADE`)
-    await sql`INSERT INTO users(id) VALUES (${OWNER}), (${OTHER})`
+      public.ntfy_subscriptions, realtime.pings, realtime.messages CASCADE`)
+    await sql`INSERT INTO users(id, auth0_sub) VALUES (${OWNER}, 'auth0|owner'), (${OTHER}, 'auth0|other')`
     await sql`INSERT INTO threads(id, user_id) VALUES (${THREAD}, ${OWNER}), (${OTHER_THREAD}, ${OTHER})`
     await sql`INSERT INTO ntfy_subscriptions(user_id, enabled) VALUES (${OWNER}, true), (${OTHER}, true)`
   })
@@ -116,6 +145,49 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
     return sql`SELECT (SELECT count(*)::int FROM browser_notification_events) AS browser,
       (SELECT count(*)::int FROM ntfy_notification_events) AS ntfy`
   }
+
+  it('installs private-channel authorization without altering the managed table', async () => {
+    await expect(
+      sql`ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY`,
+    ).rejects.toMatchObject({ code: '42501' })
+    const [table] =
+      await sql`SELECT relrowsecurity FROM pg_class WHERE oid = 'realtime.messages'::regclass`
+    expect(table.relrowsecurity).toBe(true)
+    await sql`INSERT INTO realtime.messages(extension) VALUES ('broadcast'), ('presence')`
+    const receive = (subject, topic) =>
+      sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`
+        await tx`SELECT set_config('request.jwt.claims', ${JSON.stringify({ sub: subject })}, true)`
+        await tx`SELECT set_config('realtime.topic', ${topic}, true)`
+        return tx`SELECT extension FROM realtime.messages`
+      })
+    expect(await receive('auth0|owner', `inbox:${OWNER}`)).toEqual([{ extension: 'broadcast' }])
+    expect(await receive('auth0|owner', `inbox:${OTHER}`)).toEqual([])
+    expect(await receive('auth0|other', `inbox:${OWNER}`)).toEqual([])
+    expect(await receive('auth0|unknown', `inbox:${OWNER}`)).toEqual([])
+    await expect(
+      sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`
+        await tx`SELECT set_config('request.jwt.claims', ${JSON.stringify({ sub: 'auth0|owner' })}, true)`
+        await tx`SELECT set_config('realtime.topic', ${`inbox:${OWNER}`}, true)`
+        await tx`INSERT INTO realtime.messages(extension) VALUES ('broadcast')`
+      }),
+    ).rejects.toMatchObject({ code: '42501' })
+  })
+
+  it('refuses to install a private-channel policy when managed RLS is disabled', async () => {
+    const migration = await readFile(
+      new URL('../../migrations/0105_private_inbox_broadcasts.sql', import.meta.url),
+      'utf8',
+    )
+    await expect(
+      sql.begin(async (tx) => {
+        await tx`DROP EVENT TRIGGER reject_managed_realtime_alter`
+        await tx`ALTER TABLE realtime.messages DISABLE ROW LEVEL SECURITY`
+        await tx.unsafe(migration.replace(/^(BEGIN|COMMIT);[ \t]*$/gm, ''))
+      }),
+    ).rejects.toThrow('realtime.messages must already have row level security enabled by Supabase')
+  })
 
   it('defaults off, persists allowed mail, queues alerts once, and deduplicates an MTA retry', async () => {
     expect((await arrive({ messageId: 'retry-id' })).screening_status).toBe('allowed')

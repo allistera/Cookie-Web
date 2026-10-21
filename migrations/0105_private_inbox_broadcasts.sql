@@ -115,6 +115,15 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Supabase owns this table and enables RLS itself. Its postgres role can
+  -- manage policies through supautils, but cannot ALTER the managed table.
+  -- Check the prerequisite without requiring ownership or silently proceeding
+  -- with a policy that would not be enforced.
+  IF NOT (SELECT relrowsecurity FROM pg_catalog.pg_class
+          WHERE oid = 'realtime.messages'::regclass) THEN
+    RAISE EXCEPTION 'realtime.messages must already have row level security enabled by Supabase';
+  END IF;
+
   EXECUTE $fn$
     CREATE OR REPLACE FUNCTION public.inbox_topic_for_auth_subject()
     RETURNS text
@@ -132,7 +141,6 @@ BEGIN
 
   EXECUTE 'REVOKE ALL ON FUNCTION public.inbox_topic_for_auth_subject() FROM PUBLIC, anon';
   EXECUTE 'GRANT EXECUTE ON FUNCTION public.inbox_topic_for_auth_subject() TO authenticated';
-  EXECUTE 'ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY';
   EXECUTE 'DROP POLICY IF EXISTS cookie_inbox_broadcast_receive ON realtime.messages';
   EXECUTE $policy$
     CREATE POLICY cookie_inbox_broadcast_receive
