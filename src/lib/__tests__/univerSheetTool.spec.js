@@ -118,3 +118,77 @@ describe('isSnapshotMutation', () => {
     expect(isSnapshotMutation(undefined, CommandType)).toBe(false)
   })
 })
+
+describe('spreadsheet tool rendering', () => {
+  afterEach(() => {
+    document.body.replaceChildren()
+    vi.restoreAllMocks()
+  })
+
+  it('saves edits from the basic table and isolates cell navigation from the document', async () => {
+    const onChange = vi.fn()
+    const tool = new UniverSheetTool({ data: { content: [['Original']] }, config: { onChange } })
+    const parent = document.createElement('div')
+    const keydown = vi.fn()
+    parent.addEventListener('keydown', keydown)
+    parent.append(tool.render())
+    document.body.append(parent)
+    const cell = parent.querySelector('td')
+    cell.textContent = 'Edited <value>'
+    cell.dispatchEvent(new Event('input', { bubbles: true }))
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    expect(await tool.save()).toEqual({ content: [['Edited &lt;value&gt;']] })
+    expect(onChange).toHaveBeenCalledOnce()
+    expect(keydown).not.toHaveBeenCalled()
+    tool.destroy()
+  })
+
+  it('promotes a basic table through the spreadsheet action', async () => {
+    const tool = new UniverSheetTool({ data: { content: [['Keep']] } })
+    const mount = vi.spyOn(tool, 'mountUniver').mockResolvedValue()
+    const root = tool.render()
+    document.body.append(root)
+    const upgrade = [...root.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Open spreadsheet',
+    )
+    upgrade.click()
+    expect(mount).toHaveBeenCalledExactlyOnceWith(root.querySelector('.basic-table-editor'))
+    expect(upgrade.disabled).toBe(true)
+    expect(await tool.save()).toEqual({ content: [['Keep']] })
+    tool.destroy()
+  })
+
+  it('previews formula tables and mounts only after activation', () => {
+    vi.stubGlobal('IntersectionObserver', undefined)
+    const tool = new UniverSheetTool({ data: { content: [['=1+1', 'Formula']] } })
+    const mount = vi.spyOn(tool, 'mountUniver').mockResolvedValue()
+    const root = tool.render()
+    document.body.append(root)
+    const preview = root.querySelector('.document-block-preview')
+    expect(preview.textContent).toContain('=1+1 · Formula')
+    expect(mount).not.toHaveBeenCalled()
+    preview.click()
+    preview.click()
+    expect(mount).toHaveBeenCalledExactlyOnceWith(preview)
+    tool.destroy()
+  })
+
+  it('previews workbook cell values without loading the runtime', () => {
+    vi.stubGlobal('IntersectionObserver', undefined)
+    const tool = new UniverSheetTool({
+      data: {
+        workbook: {
+          sheetOrder: ['s'],
+          sheets: { s: { cellData: { 0: { 0: { v: 'Saved' }, 1: { v: 0 } } } } },
+        },
+      },
+    })
+    const mount = vi.spyOn(tool, 'mountUniver').mockResolvedValue()
+    const root = tool.render()
+    document.body.append(root)
+    expect(root.textContent).toContain('Saved · 0')
+    tool.destroy()
+    root.querySelector('button').click()
+    expect(mount).not.toHaveBeenCalled()
+  })
+})
