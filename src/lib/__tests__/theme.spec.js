@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   applyResolvedTheme,
   getStoredTheme,
+  initTheme,
   resolveTheme,
   setTheme,
   THEME_OPTIONS,
@@ -29,6 +30,7 @@ describe('theme lib', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('exposes exactly the three supported preferences', () => {
@@ -79,5 +81,52 @@ describe('theme lib', () => {
     stubPrefersDark(false)
     applyResolvedTheme('system')
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+  })
+})
+
+describe('theme startup and storage failures', () => {
+  afterEach(() => {
+    localStorage.clear()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('tracks OS changes only while the system preference is selected', () => {
+    localStorage.clear()
+    const media = { matches: false, addEventListener: vi.fn() }
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => media),
+    )
+    initTheme()
+    expect(document.documentElement.dataset.theme).toBe('light')
+    const [event, change] = media.addEventListener.mock.calls[0]
+    expect(event).toBe('change')
+    media.matches = true
+    change()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    setTheme('light')
+    change()
+    expect(document.documentElement.dataset.theme).toBe('light')
+  })
+
+  it('applies a theme even when storage cannot be read or written', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Blocked')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Blocked')
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal('matchMedia', undefined)
+    expect(getStoredTheme()).toBe('system')
+    initTheme()
+    expect(document.documentElement.dataset.theme).toBe('light')
+    setTheme('dark')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(console.error).toHaveBeenCalledWith(
+      'Failed to save theme preference:',
+      expect.any(Error),
+    )
   })
 })
