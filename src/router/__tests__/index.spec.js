@@ -21,6 +21,30 @@ describe('router', () => {
     expect(router.currentRoute.value.fullPath).toBe('/')
   })
 
+  it.each([
+    ['/', 'ai-inbox'],
+    ['/inbox', 'traditional-inbox'],
+    ['/calendar', 'calendar'],
+    ['/drafts', 'drafts'],
+    ['/scheduled', 'scheduled-sends'],
+    ['/documents/file/upload-1', 'document-file'],
+    ['/documents/doc-1', 'documents'],
+    ['/search?q=work', 'search'],
+    ['/tasks', 'tasks'],
+    ['/settings/account', 'settings'],
+  ])('loads the authenticated view for %s', async (path, name) => {
+    const frame = vi.fn((complete) => {
+      complete()
+      return 1
+    })
+    vi.stubGlobal('requestAnimationFrame', frame)
+    await router.push(path)
+    await nextTick()
+    expect(router.currentRoute.value.name).toBe(name)
+    expect(router.currentRoute.value.meta.requiresAuth).toBe(true)
+    expect(router.currentRoute.value.matched[0].components.default).toBeTruthy()
+  })
+
   it('still resolves known routes', () => {
     expect(router.resolve('/settings/rules').name).toBe('settings')
   })

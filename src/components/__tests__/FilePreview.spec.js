@@ -11,6 +11,7 @@ let store
 const revoke = vi.fn()
 
 beforeEach(async () => {
+  revoke.mockClear()
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/documents/:id?', name: 'documents', component: { template: '<div />' } }],
