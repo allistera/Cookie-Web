@@ -1,3 +1,5 @@
+import { recordTiming } from './applicationMetrics'
+
 // Local Performance Timeline entries, without user content or identifiers.
 // Bounded by operation name so a long-lived mail tab cannot grow the buffer.
 export function startTiming(name) {
@@ -10,7 +12,9 @@ export function startTiming(name) {
     const key = `cookie:${name}`
     try {
       clock.clearMeasures(key)
-      clock.measure(key, { start: started, end: clock.now() })
+      const end = clock.now()
+      clock.measure(key, { start: started, end })
+      recordTiming(name, end - started)
     } catch {
       /* Performance instrumentation must not affect app behavior. */
     }
