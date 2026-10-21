@@ -133,7 +133,10 @@ test('closing inline availability with Escape keeps the reader and reply draft',
 }) => {
   await calendarFixtures(page)
   await page.goto('/inbox')
-  await page.getByRole('button', { name: /Earlier/ }).click()
+  await expect(page.getByRole('button', { name: /Earlier/ })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   const reader = page.locator('.ni-reader')
   await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Reply' }).click()
