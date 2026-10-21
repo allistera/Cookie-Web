@@ -1,3 +1,4 @@
+import healthHandler from '../../api/health.js'
 import process from 'node:process'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
@@ -3117,6 +3118,10 @@ export function localApiPlugin(mode) {
   }
 
   const mount = (server) => {
+    server.middlewares.use((req, res, next) => {
+      if (new URL(req.url, 'http://localhost').pathname !== '/api/health') return next()
+      return healthHandler(req, res)
+    })
     server.middlewares.use('/api/messages', handleLegacyMessagesApi)
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/calendar-events', handleCalendarEvents)

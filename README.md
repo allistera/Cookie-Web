@@ -234,20 +234,45 @@ Without `DATABASE_URL`, the local API middleware uses fixture data. Add the requ
 
 Never commit `.env.local` or use the production database for routine local development.
 
+## Health monitoring
+
+`GET /api/health` is a public readiness endpoint; `HEAD` returns the same status
+without a body. It returns `200` with `status: "ok"` when all checks pass, or
+`503` with `status: "degraded"` and an error status for each failed dependency.
+Responses use `Cache-Control: no-store` and contain only component statuses.
+
+Checks run in parallel with a three-second deadline each: a read-only Postgres
+`SELECT 1`, Meilisearch `/health`, and the `/health` routes on the eleven
+`cookie-web-*` API Workers and `cookie-mcp`. Worker probes check HTTP liveness;
+they do not authenticate users, send mail, call AI providers, or verify scheduled
+jobs. External provider credentials, schema migrations, and worker-specific
+Hyperdrive connections are not validated by these probes.
+
+Deploy the updated API Workers and `cookie-mcp` before this web release. Older
+Workers without `/health` cause readiness to return `503`. Configure
+`DATABASE_URL` in Vercel for the database check; no new secret is needed.
+The same endpoint runs in Vite dev/preview using real checks, so missing local
+configuration is reported as unhealthy rather than hidden by fixture data.
+Use a development database for local monitoring.
+
+```sh
+curl -i https://mail.infinitywave.online/api/health
+```
+
 ## Configuration
 
 The main runtime variables are:
 
-| Name                     | Purpose                                                                        |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| `DATABASE_URL`           | Supabase Postgres connection used by migrations and local development tooling. |
-| `OPENAI_API_KEY`         | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.              |
-| `OPENAI_COMPOSE_MODEL`   | Optional AI Compose model override.                                            |
-| `VITE_AUTH0_DOMAIN`      | Auth0 domain exposed to the browser: `auth.infinitywave.online` in production. |
-| `VITE_AUTH0_CLIENT_ID`   | Auth0 SPA client ID exposed to the browser.                                    |
-| `VITE_AUTH0_AUDIENCE`    | Auth0 API audience exposed to the browser.                                     |
-| `VITE_SUPABASE_URL`      | Supabase project URL used for Realtime.                                        |
-| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings.                 |
+| Name                     | Purpose                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | Supabase Postgres connection used by health checks, uploads, migrations, and local tooling. |
+| `OPENAI_API_KEY`         | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.                           |
+| `OPENAI_COMPOSE_MODEL`   | Optional AI Compose model override.                                                         |
+| `VITE_AUTH0_DOMAIN`      | Auth0 domain exposed to the browser: `auth.infinitywave.online` in production.              |
+| `VITE_AUTH0_CLIENT_ID`   | Auth0 SPA client ID exposed to the browser.                                                 |
+| `VITE_AUTH0_AUDIENCE`    | Auth0 API audience exposed to the browser.                                                  |
+| `VITE_SUPABASE_URL`      | Supabase project URL used for Realtime.                                                     |
+| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings.                              |
 
 `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those two now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 

@@ -1,10 +1,11 @@
+import { SEND_API_URL } from '../src/lib/apiWorkers.js'
 import { createUploadHandler } from './_lib/outboundUploads.js'
 export { sanitizeAttachmentFilename } from './_lib/outboundUploads.js'
 import { readJsonBody } from './_lib/body.js'
 
 // Preserve the old URL contract while Cookie-Worker owns sending, retries,
 // quotas, reminders, and sent-copy persistence for both browser and iOS.
-const SEND_URL = 'https://send-api.infinitywave.online/send'
+const SEND_URL = `${SEND_API_URL}/send`
 const METHODS = {
   send: ['POST'],
   scheduled: ['GET', 'DELETE'],
