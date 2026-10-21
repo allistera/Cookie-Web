@@ -569,3 +569,25 @@ Processing appears under **More** only while its message count is above zero.
 Document AI sends a random conversation UUID to the AI Worker, reusing it across
 turns and retries and resetting it when switching documents. The Worker uses this
 for Sentry Conversations without capturing prompts, document contents, or replies.
+
+### Application metrics
+
+The browser emits `web.operations` (counter) and `web.operation.duration`
+(distribution, milliseconds) using the existing production `VITE_SENTRY_DSN`.
+Sentry v11 enables metrics by default, independently of tracing sampling. Shared
+application timers cover route readiness, reader readiness, message-body loading,
+search, and `jsonRequest` operations across stores. The fixed `operation` label
+identifies these timings; counts include both completed and failed attempts.
+These are operation timings, not a count of every network fetch or user action.
+The API Workers independently measure their HTTP and background handler calls;
+the Vercel upload-token and proxy handlers do not have server-side Sentry clients.
+
+Up to 100 early timing observations are buffered while the lazy SDK loads.
+Development, E2E, and builds without a DSN do not collect metrics. The metric
+filter allows only fixed metric names, operation labels, and the `cookie-web`
+service, stripping user identity and arbitrary SDK attributes. No mail content,
+URLs, document IDs, or search terms are included.
+
+After deployment, navigate, search, and open a message, then verify both metric
+names in Sentry's Application Metrics view. CI verifies instrumentation and
+privacy behavior; live ingestion requires authenticated access to Sentry.

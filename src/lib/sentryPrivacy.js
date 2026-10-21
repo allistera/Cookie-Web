@@ -1,3 +1,5 @@
+import { sanitizeMetric } from './applicationMetrics'
+
 const errorTypes = new Set([
   'Error',
   'TypeError',
@@ -181,6 +183,7 @@ export function createSentryOptions(
       queues: false,
       stackFrameVariables: false,
     },
+    beforeSendMetric: sanitizeMetric,
     beforeSend: sanitizeEvent,
     beforeSendSpan: sanitizeSpan,
   }

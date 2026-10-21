@@ -68,6 +68,7 @@ describe('browser error monitoring', () => {
         profileSessionSampleRate: 0.1,
         profileLifecycle: 'trace',
         beforeSendSpan: expect.any(Function),
+        beforeSendMetric: expect.any(Function),
         dataCollection: {
           userInfo: false,
           cookies: false,
