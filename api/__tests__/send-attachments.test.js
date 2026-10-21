@@ -3,6 +3,7 @@ import process from 'node:process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createHandler, sanitizeAttachmentFilename } from '../send.js'
+import { createUploadHandler } from '../_lib/outboundUploads.js'
 
 const USER_ID = '11111111-1111-1111-1111-111111111111'
 const OTHER_USER_ID = '99999999-9999-4999-8999-999999999999'
@@ -400,5 +401,93 @@ describe('sanitizeAttachmentFilename', () => {
   it('falls back to a generic name when nothing usable is left', () => {
     expect(sanitizeAttachmentFilename('')).toBe('attachment')
     expect(sanitizeAttachmentFilename('..')).toBe('attachment')
+  })
+})
+
+describe('attachment upload failure boundaries', () => {
+  const upload = createUploadHandler({
+    ...mocks,
+    verifyAccessToken: async () => ({ userId: USER_ID }),
+  })
+
+  it.each(['upload-token', 'attachment'])(
+    'rejects unsupported methods for %s',
+    async (resource) => {
+      const res = makeRes()
+      await upload({ method: 'GET', url: `/api/send?resource=${resource}` }, res)
+      expect(res.statusCode).toBe(405)
+      expect(mocks.getSql).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['upload-token', 'attachment'])('rejects malformed JSON for %s', async (resource) => {
+    const res = makeRes()
+    await upload({ method: 'POST', url: `/api/send?resource=${resource}`, body: '{' }, res)
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error).toBe('Invalid JSON body')
+    expect(mocks.getSql).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    undefined,
+    'not-a-url',
+    'http://store.vercel-storage.com/a',
+    'https://vercel-storage.com.evil.test/a',
+  ])('rejects invalid blob URL %s', async (url) => {
+    const res = makeRes()
+    await upload(registerRequest({ url }), res)
+    expect(res.statusCode).toBe(400)
+    expect(mocks.headBlob).not.toHaveBeenCalled()
+  })
+
+  it.each([-1, 1.5, undefined, Infinity])('rejects unreadable stored size %s', async (size) => {
+    mocks.headBlob.mockResolvedValue({ pathname: `outbound-attachments/${USER_ID}/file`, size })
+    const sql = vi.fn()
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+    await upload(registerRequest({ url: BLOB_URL }), res)
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error).toBe('Uploaded attachment has no readable size')
+    expect(sql).not.toHaveBeenCalled()
+  })
+
+  it('returns not found when storage lookup fails', async () => {
+    mocks.headBlob.mockRejectedValueOnce(new Error('missing blob'))
+    const res = makeRes()
+    await upload(registerRequest({ url: BLOB_URL }), res)
+    expect(res.statusCode).toBe(404)
+    expect(res.body.error).toBe('Uploaded attachment not found')
+  })
+
+  it('returns a generic failure when registration cannot access the database', async () => {
+    mocks.getSql.mockImplementationOnce(() => {
+      throw new Error('connection failed')
+    })
+    const res = makeRes()
+    await upload(registerRequest({ url: BLOB_URL }), res)
+    expect(res.statusCode).toBe(500)
+    expect(res.body.error).toBe('Attachment request failed')
+    expect(mocks.headBlob).not.toHaveBeenCalled()
+  })
+
+  it.each(['', 'invalid'])('rejects invalid deletion id %s', async (id) => {
+    const res = makeRes()
+    await upload({ method: 'DELETE', url: `/api/send?resource=attachment&id=${id}` }, res)
+    expect(res.statusCode).toBe(400)
+    expect(mocks.getSql).not.toHaveBeenCalled()
+  })
+
+  it('derives display metadata from storage when the client omits it', async () => {
+    mocks.headBlob.mockResolvedValue({
+      pathname: `outbound-attachments/${USER_ID}/file.txt`,
+      size: 0,
+    })
+    const sql = vi.fn(async () => [{ id: ATTACHMENT_ID, filename: 'file.txt', created: true }])
+    mocks.getSql.mockReturnValue(sql)
+    const res = makeRes()
+    await upload(registerRequest({ url: BLOB_URL }), res)
+    expect(res.statusCode).toBe(201)
+    expect(sql.mock.calls[0].slice(1)).toEqual([USER_ID, 'file.txt', null, 0, BLOB_URL])
+    expect(res.body.attachment).toEqual({ id: ATTACHMENT_ID, filename: 'file.txt' })
   })
 })
