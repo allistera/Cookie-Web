@@ -54,7 +54,9 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Inbox, Starred, Sent, Snoozed, Spam, Done, and label views.
 - The inbox Important tab combines high-priority and due mail with mail assigned
   to a category named Important (ignoring case and surrounding spaces). Each email
-  is counted once, and the command menu offers the same combined tab.
+  is counted once, and the command menu offers the same combined tab. Inbox tabs
+  appear only when they contain loaded emails; when the selected tab becomes
+  empty, the first populated tab opens automatically.
 - The Mail inbox tabs show a compact chip for today's next timed calendar event,
   including its start time, title, and live countdown. Clicking the chip opens
   Calendar on that date with the event details showing. It is hidden when no
