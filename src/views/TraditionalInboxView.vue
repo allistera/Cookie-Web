@@ -274,11 +274,6 @@ const showInboxZero = computed(
     !store.isRefreshing,
 )
 
-// Explain an empty selected tab while preserving the whole-inbox empty message.
-const showTabEmpty = computed(
-  () => Boolean(activeTab.value) && !filteredEmails.value.length && !showInboxZero.value,
-)
-
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
   if (activeFilter.value === 'processing') return store.hasMoreProcessing
@@ -2116,7 +2111,7 @@ onUnmounted(() => {
           @click="store.setInboxTab(tab.id)"
         >
           <span class="ni-tab-name">{{ tab.name }}</span>
-          <span v-if="tab.count > 0" class="ni-tab-count">{{ tab.count }}</span>
+          <span class="ni-tab-count">{{ tab.count }}</span>
         </button>
       </div>
 
@@ -2207,13 +2202,6 @@ onUnmounted(() => {
         </div>
         <div class="ni-empty" v-else-if="activeFilter && !filteredEmails.length">
           {{ emptyText }}
-        </div>
-        <div class="ni-empty" v-if="showTabEmpty">
-          {{
-            activeTab === PRIORITY_TAB
-              ? 'No important emails. High-priority and due emails land here.'
-              : 'No emails in this category.'
-          }}
         </div>
         <div class="ni-empty ni-inbox-zero" v-if="showInboxZero" role="status" aria-live="polite">
           No emails in your inbox.
