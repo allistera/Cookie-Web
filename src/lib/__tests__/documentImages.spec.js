@@ -61,6 +61,71 @@ describe('resolveDocumentImageUrl', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('shares a pending signed-link request between concurrent callers', async () => {
+    let complete
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const first = resolveDocumentImageUrl(PRIVATE, { getHeaders })
+    const second = resolveDocumentImageUrl(PRIVATE, { getHeaders })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    complete(signedResponse('https://signed/shared', '2099-01-01T00:00:00Z'))
+    expect(await Promise.all([first, second])).toEqual([
+      'https://signed/shared',
+      'https://signed/shared',
+    ])
+  })
+
+  it('does not let an old failed request evict a replacement cache entry', async () => {
+    let fail
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = reject
+          }),
+      )
+      .mockResolvedValueOnce(signedResponse('https://signed/replacement', '2099-01-01T00:00:00Z'))
+    vi.stubGlobal('fetch', fetchMock)
+    const old = resolveDocumentImageUrl(PRIVATE, { getHeaders })
+    const oldFailure = old.catch((error) => error)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    clearDocumentImageCache()
+    expect(await resolveDocumentImageUrl(PRIVATE, { getHeaders })).toBe(
+      'https://signed/replacement',
+    )
+    fail(new Error('old request failed'))
+    expect(await oldFailure).toEqual(new Error('old request failed'))
+    expect(await resolveDocumentImageUrl(PRIVATE, { getHeaders })).toBe(
+      'https://signed/replacement',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('allows retrying after header acquisition fails', async () => {
+    const headers = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('session expired'))
+      .mockResolvedValueOnce({ Authorization: 'Bearer renewed' })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(signedResponse('https://signed/retry', '2099-01-01T00:00:00Z'))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(resolveDocumentImageUrl(PRIVATE, { getHeaders: headers })).rejects.toThrow(
+      'session expired',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(await resolveDocumentImageUrl(PRIVATE, { getHeaders: headers })).toBe(
+      'https://signed/retry',
+    )
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: 'Bearer renewed' })
+  })
+
   it('does not cache a failed request', async () => {
     const fetchMock = vi
       .fn()
@@ -105,6 +170,15 @@ describe('withPrivateDocumentImages', () => {
     expect(resolve).toHaveBeenCalledWith(PRIVATE)
     expect(tool.data.file.url).toBe(PRIVATE)
     expect(tool.ui.nodes.imageContainer.dataset.mutationFree).toBe('true')
+  })
+
+  it('resolves private images even when the tool has no image container', async () => {
+    const Tool = withPrivateDocumentImages(FakeImageTool, async () => 'https://signed/no-container')
+    const tool = new Tool({})
+    delete tool.ui.nodes
+    tool.image = { url: PRIVATE }
+    await vi.waitFor(() => expect(tool.filled).toEqual(['https://signed/no-container']))
+    expect(tool.data.file.url).toBe(PRIVATE)
   })
 
   it('shows ordinary images directly, including after an upload', () => {
