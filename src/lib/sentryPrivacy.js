@@ -1,4 +1,4 @@
-import { sanitizeMetric } from './applicationMetrics'
+import { sanitizeMetric } from './sentryMetrics'
 
 const errorTypes = new Set([
   'Error',

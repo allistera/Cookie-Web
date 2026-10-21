@@ -6,7 +6,8 @@ beforeEach(async () => {
   vi.stubEnv('PROD', true)
   vi.stubEnv('VITE_E2E', 'false')
   vi.stubEnv('VITE_SENTRY_DSN', 'https://public@example.com/1')
-  ;({ recordTiming, connectMetrics, sanitizeMetric } = await import('../applicationMetrics'))
+  ;({ recordTiming } = await import('../applicationMetrics'))
+  ;({ connectMetrics, sanitizeMetric } = await import('../sentryMetrics'))
 })
 afterEach(() => vi.unstubAllEnvs())
 

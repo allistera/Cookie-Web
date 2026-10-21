@@ -5,7 +5,7 @@ import {
   browserTracingIntegration,
   browserProfilingIntegration,
 } from '@sentry/vue'
-import { connectMetrics } from './applicationMetrics'
+import { connectMetrics } from './sentryMetrics'
 import { createSentryOptions } from './sentryPrivacy'
 
 export function start(
