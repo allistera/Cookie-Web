@@ -116,11 +116,11 @@ watch(
 // --- Inbox tabs (Important | <each assigned category> | Other) ---
 // The plain inbox partitions its loaded rows client-side, so the counts
 // describe what is on screen (and grow with Load More) rather than the
-// whole mailbox. Important is always offered first: it holds mail the ingest
+// whole mailbox. Important comes first when populated: it holds mail the ingest
 // classifier rated high plus anything due now (a scheduled email whose time
 // has come, or a follow-up reminder). Other collects the rest that carries
 // no configured category. Categories named Important share the fixed tab.
-// Keep every category visible, including categories with no loaded mail.
+// Only offer tabs that contain loaded inbox mail.
 // Tab ids: PRIORITY_TAB, OTHER_TAB, or inboxTabForCategory(id).
 const categoryTabId = inboxTabForCategory
 
@@ -198,24 +198,24 @@ const inboxTabs = computed(() => {
         name: category.name,
       })),
     { id: OTHER_TAB, name: 'Other' },
-  ].map((tab) => ({
-    ...tab,
-    count: counts.get(tab.id) ?? 0,
-    hasUnread: unreadTabs.has(tab.id),
-  }))
+  ]
+    .filter((tab) => counts.has(tab.id))
+    .map((tab) => ({
+      ...tab,
+      count: counts.get(tab.id),
+      hasUnread: unreadTabs.has(tab.id),
+    }))
 })
 
 const showInboxTabs = computed(() => !activeFilter.value && !store.activeSearchQuery)
 
-// The chosen tab while it is still offered (Important always is, even
-// empty, so a deliberate click on it sticks). Otherwise, before any choice
-// or once the chosen category was deleted, the first tab holding
-// mail. Null while the bar is hidden, when nothing narrows.
+// Keep the chosen tab while it has mail; otherwise use the first populated
+// tab. Null when no tabs are available or the bar is hidden.
 const activeTab = computed(() => {
   if (!showInboxTabs.value) return null
   const tabs = inboxTabs.value
   if (tabs.some((tab) => tab.id === store.inboxTab)) return store.inboxTab
-  return (tabs.find((tab) => tab.count > 0) ?? tabs[0]).id
+  return tabs[0]?.id ?? null
 })
 
 const filteredEmails = computed(() => {

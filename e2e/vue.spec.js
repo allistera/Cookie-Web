@@ -3061,7 +3061,7 @@ test('The Tasks column fills its panel rather than collapsing to its content', a
   expect(view.width).toBe(Math.min(900, panel.width))
 })
 
-test('Inbox tabs open on Important, narrow by category, and Other holds the rest', async ({
+test('Inbox tabs hide empty categories and preserve the selected populated tab', async ({
   page,
 }) => {
   await page.goto('/inbox')
@@ -3075,21 +3075,18 @@ test('Inbox tabs open on Important, narrow by category, and Other holds the rest
   await expect(priorityRow).toBeVisible()
 
   // The only Projects email is the high-rated one, and Important keeps it to
-  // itself, so its category tab is empty rather than listing it a second time.
-  await page.locator('.ni-tab', { hasText: 'Projects' }).click()
-  await expect(priorityRow).toHaveCount(0)
-  await expect(page.locator('.ni-empty')).toHaveText('No emails in this category.')
+  // itself, so its empty category tab is hidden.
+  await expect(page.locator('.ni-tab', { hasText: 'Projects' })).toHaveCount(0)
 
   await page.locator('.ni-tab', { hasText: 'Other' }).click()
   await expect(priorityRow).toHaveCount(0)
   await expect(page.locator('.ni-row .ni-category-pill')).toHaveCount(0)
 
   // The choice survives leaving the inbox and coming back.
-  await page.locator('.ni-tab', { hasText: 'Projects' }).click()
   await page.locator('.nav-item', { hasText: 'Starred' }).click()
   await expect(page.locator('.ni-tabs')).toHaveCount(0)
   await page.locator('.nav-item', { hasText: 'Inbox' }).first().click()
-  await expect(page.locator('.ni-tab', { hasText: 'Projects' })).toHaveAttribute(
+  await expect(page.locator('.ni-tab', { hasText: 'Other' })).toHaveAttribute(
     'aria-selected',
     'true',
   )
