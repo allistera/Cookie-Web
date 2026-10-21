@@ -1129,12 +1129,19 @@ describe('selecting several tasks', () => {
   })
 
   it('moves every selected task, then reloads the list once', async () => {
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     store.loadedProject = 'p1'
     store.selectedIds = ['t1', 't2']
     stubFetch(async (_url, options) => ({
       ok: true,
-      json: async () => (options.method === 'PATCH' ? { item: { ...ITEM } } : { items: [] }),
+      json: async () =>
+        options.method === 'PATCH'
+          ? { item: { ...ITEM, ...JSON.parse(options.body) } }
+          : { items: [] },
     }))
 
     expect(await store.moveItems(['t1', 't2'], 'p2')).toBe(2)
@@ -1150,12 +1157,16 @@ describe('selecting several tasks', () => {
   })
 
   it('keeps going past a refused task and says how many moved', async () => {
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
     stubFetch(async (_url, options) =>
       JSON.parse(options.body).id === 't1'
         ? { ok: false, status: 404, json: async () => ({ error: 'Not found' }) }
-        : { ok: true, json: async () => ({ item: { ...ITEM } }) },
+        : { ok: true, json: async () => ({ item: { ...ITEM, ...JSON.parse(options.body) } }) },
     )
 
     expect(await store.moveItems(['t1', 't2'], null)).toBe(1)

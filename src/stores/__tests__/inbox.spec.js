@@ -6257,7 +6257,10 @@ it('deduplicates folder pages against rows inserted optimistically', async () =>
   store.starredEmails = [{ id: 'already', subject: 'local' }]
   store.starredCursor = 'page-2'
   vi.spyOn(store, 'fetchEmailPage').mockResolvedValue({
-    emails: [{ id: 'already', subject: 'server' }, { id: 'new' }],
+    emails: [
+      { id: 'already', subject: 'server', sent_at: '2026-10-21T10:00:00Z' },
+      { id: 'new', sent_at: '2026-10-21T09:00:00Z' },
+    ],
     nextCursor: null,
   })
   await store.loadMoreStarredEmails()

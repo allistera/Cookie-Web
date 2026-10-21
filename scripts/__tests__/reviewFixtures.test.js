@@ -7,7 +7,7 @@ describe('review fixture parity', () => {
   it('expands a long daily series throughout the requested window', () => {
     const range = { from: '2028-01-01', to: '2030-12-31' }
     const page = expandEventsPage(
-      [{ id: 'daily', date: '2020-01-01', recurrenceRule: 'DAILY' }],
+      [{ id: 'daily', date: '2020-01-01', start: '09:00', recurrenceRule: 'DAILY' }],
       new Date('2026-01-01'),
       range,
     )
@@ -20,6 +20,7 @@ describe('review fixture parity', () => {
       Array.from({ length: 5 }, (_, id) => ({
         id: String(id),
         date: '2020-01-01',
+        start: '09:00',
         recurrenceRule: 'DAILY',
       })),
       new Date('2026-01-01'),
