@@ -266,96 +266,69 @@ describe('task items store', () => {
   })
 
   describe('countForProjects', () => {
-    it('sums tasks, completed included, across every given project', async () => {
-      stubFetch(async (url) => {
-        const items = url.includes('project=p1') ? [{}, {}] : [{}]
-        return { ok: true, json: async () => ({ items }) }
+    it('asks for one server count across the whole subtree', async () => {
+      stubFetch(async () => ({ ok: true, json: async () => ({ count: 603 }) }))
+      expect(await store.countForProjects(['p1', 'p2'])).toBe(603)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      const params = new URL(fetch.mock.calls[0][0], 'https://test').searchParams
+      expect(params.get('view')).toBe('count')
+      expect(params.get('projects')).toBe('p1,p2')
+    })
+    it('does not request an empty subtree', async () => {
+      stubFetch(async () => {
+        throw new Error('unexpected')
       })
-
-      const total = await store.countForProjects(['p1', 'p2'])
-
-      expect(total).toBe(3)
-      expect(fetch).toHaveBeenCalledTimes(2)
-      for (const [url] of fetch.mock.calls) {
-        expect(url).toContain('completed=1')
-      }
-    })
-
-    it('treats a project with no tasks as zero', async () => {
-      stubFetch(async () => ({ ok: true, json: async () => ({ items: [] }) }))
-
-      const total = await store.countForProjects(['p1'])
-
-      expect(total).toBe(0)
-    })
-
-    it('does not count dividers as tasks', async () => {
-      stubFetch(async () => ({
-        ok: true,
-        json: async () => ({ items: [{ kind: 'task' }, { kind: 'divider' }, {}] }),
-      }))
-
-      expect(await store.countForProjects(['p1'])).toBe(2)
+      expect(await store.countForProjects([])).toBe(0)
+      expect(fetch).not.toHaveBeenCalled()
     })
   })
 })
 
-// A divider is a row of kind 'divider'. The server puts it last; the store
-// then re-arranges the list to carry it up under the row it was asked for.
 describe('adding a divider', () => {
-  const DIVIDER = { id: 'd1', kind: 'divider', projectId: 'p1', parentId: null, content: '' }
-
-  it('creates it in the project and re-arranges it under the given row', async () => {
+  it('asks the server to insert after the anchor and reloads its order', async () => {
     store.loadedProject = 'p1'
-    store.items = [
-      { ...ITEM, id: 'a', position: 1 },
-      { ...ITEM, id: 'b', position: 2 },
-    ]
-    stubFetch(async (url) => ({
+    const divider = { id: 'd1', kind: 'divider', projectId: 'p1', position: 2 }
+    const rows = [{ ...ITEM, id: 'a', position: 1 }, divider, { ...ITEM, id: 'b', position: 3 }]
+    stubFetch(async (_url, options) => ({
       ok: true,
-      json: async () =>
-        url.includes('/reorder') ? { items: [] } : { item: { ...DIVIDER, position: 3 } },
+      json: async () => (options.method === 'POST' ? { item: divider } : { items: rows }),
     }))
-
     await store.addDivider({ projectId: 'p1', afterId: 'a' })
-
-    const [, create] = fetch.mock.calls[0]
-    expect(JSON.parse(create.body)).toEqual({ kind: 'divider', projectId: 'p1' })
-    const [reorderUrl, reorder] = fetch.mock.calls[1]
-    expect(reorderUrl).toContain('/task-items/reorder')
-    expect(JSON.parse(reorder.body)).toEqual({ ids: ['a', 'd1', 'b'] })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      kind: 'divider',
+      projectId: 'p1',
+      afterId: 'a',
+    })
+    expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1)
     expect(store.items.map((row) => row.id)).toEqual(['a', 'd1', 'b'])
   })
 
   it('sends null for an Inbox divider', async () => {
     store.loadedProject = 'inbox'
-    store.items = [{ ...ITEM, id: 'a', projectId: null, position: 1 }]
-    stubFetch(async (url) => ({
+    stubFetch(async (_url, options) => ({
       ok: true,
       json: async () =>
-        url.includes('/reorder')
-          ? { items: [] }
-          : { item: { ...DIVIDER, projectId: null, position: 2 } },
+        options.method === 'POST'
+          ? { item: { id: 'd', kind: 'divider', projectId: null } }
+          : { items: [] },
     }))
-
     await store.addDivider({ projectId: null, afterId: 'a' })
-
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ kind: 'divider', projectId: null })
-    expect(store.items.map((row) => row.id)).toEqual(['a', 'd1'])
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      kind: 'divider',
+      projectId: null,
+      afterId: 'a',
+    })
   })
 
-  it('surfaces the server message when the divider is refused', async () => {
-    store.loadedProject = 'p1'
+  it('surfaces the server message when the anchor is refused', async () => {
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     stubFetch(async () => ({
       ok: false,
       status: 404,
-      json: async () => ({ error: 'Project not found' }),
+      json: async () => ({ error: 'Anchor task not found' }),
     }))
-
     expect(await store.addDivider({ projectId: 'p1', afterId: 'a' })).toBeNull()
-    expect(notify).toHaveBeenCalledWith('Project not found', 'error')
-    expect(store.items).toEqual([])
+    expect(notify).toHaveBeenCalledWith('Anchor task not found', 'error')
   })
 })
 
@@ -1156,12 +1129,19 @@ describe('selecting several tasks', () => {
   })
 
   it('moves every selected task, then reloads the list once', async () => {
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     store.loadedProject = 'p1'
     store.selectedIds = ['t1', 't2']
     stubFetch(async (_url, options) => ({
       ok: true,
-      json: async () => (options.method === 'PATCH' ? { item: { ...ITEM } } : { items: [] }),
+      json: async () =>
+        options.method === 'PATCH'
+          ? { item: { ...ITEM, ...JSON.parse(options.body) } }
+          : { items: [] },
     }))
 
     expect(await store.moveItems(['t1', 't2'], 'p2')).toBe(2)
@@ -1177,12 +1157,16 @@ describe('selecting several tasks', () => {
   })
 
   it('keeps going past a refused task and says how many moved', async () => {
+    store.items = [
+      { ...ITEM, id: 't1' },
+      { ...ITEM, id: 't2' },
+    ]
     const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
     stubFetch(async (_url, options) =>
       JSON.parse(options.body).id === 't1'
         ? { ok: false, status: 404, json: async () => ({ error: 'Not found' }) }
-        : { ok: true, json: async () => ({ item: { ...ITEM } }) },
+        : { ok: true, json: async () => ({ item: { ...ITEM, ...JSON.parse(options.body) } }) },
     )
 
     expect(await store.moveItems(['t1', 't2'], null)).toBe(1)
@@ -1349,5 +1333,31 @@ describe('bulk edits from the selection bar', () => {
     expect(store.selectedIds).toEqual(['t2'])
     expect(loadLabels).toHaveBeenCalledTimes(1)
     expect(notify).toHaveBeenCalledWith('Deleted 1 of 2 tasks. Please try the rest again.', 'error')
+  })
+})
+
+describe('cascaded single task deletion', () => {
+  it('removes the parent and its children', async () => {
+    store.items = [
+      { ...ITEM, id: 'p' },
+      { ...ITEM, id: 'c', parentId: 'p' },
+      { ...ITEM, id: 'other' },
+    ]
+    store.selectedIds = ['p', 'c']
+    stubFetch(async () => ({ ok: true, json: async () => ({ ok: true }) }))
+    expect(await store.deleteItem('p')).toBe(true)
+    expect(store.items.map((row) => row.id)).toEqual(['other'])
+    expect(store.selectedIds).toEqual([])
+  })
+  it('restores children and the sole selected task after rejection', async () => {
+    store.items = [
+      { ...ITEM, id: 'p' },
+      { ...ITEM, id: 'c', parentId: 'p' },
+    ]
+    store.selectedIds = ['p']
+    stubFetch(async () => ({ ok: false, status: 500, json: async () => ({ error: 'Failed' }) }))
+    expect(await store.deleteItem('p')).toBe(false)
+    expect(store.items.map((row) => row.id)).toEqual(['p', 'c'])
+    expect(store.selectedIds).toEqual(['p'])
   })
 })

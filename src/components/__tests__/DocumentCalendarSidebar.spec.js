@@ -128,3 +128,18 @@ describe('DocumentCalendarSidebar', () => {
     )
   })
 })
+
+it('shows partial schedule notices from a truncated response', async () => {
+  mockApi()
+  const real = fetch.getMockImplementation()
+  fetch.mockImplementation(async (url) => {
+    const response = await real(url)
+    if (String(url).includes('calendar-events'))
+      return { ...response, json: async () => ({ ...(await response.json()), truncated: true }) }
+    return response
+  })
+  const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
+  await flushPromises()
+  expect(wrapper.get('[role="status"]').text()).toContain('Some events could not be shown')
+  wrapper.unmount()
+})

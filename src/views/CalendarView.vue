@@ -1,4 +1,5 @@
 <script setup>
+import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
@@ -176,6 +177,7 @@ function defaultCalendarId() {
 }
 
 const events = ref([])
+const eventsTruncated = ref(false)
 // Open tasks due inside the loaded window, already shaped as calendar items
 // (lib/taskCalendarItems). Kept apart from events so nothing that edits or
 // saves events ever sees a task; they only meet in visibleEvents.
@@ -241,20 +243,13 @@ async function loadEvents() {
     const headers = await store.authHeaders()
     const response = await fetch(calendarEventsUrl(from, to), { headers })
     if (!response.ok) throw new Error(`GET /calendar-events responded ${response.status}`)
-    const { events: rows, googleError } = await response.json()
+    const { events: rows, googleError, truncated } = await response.json()
     // A rapid navigation may have started a newer load for a different
     // window; dropping the stale response keeps events/loadedEventRange
     // describing the same fetch.
     if (seq !== eventsRequestSeq) return
-    events.value = rows.map((event) => ({
-      ...event,
-      // Older calendar rows can predate the all_day flag. Midnight events
-      // spanning a complete day are still all-day events and must never be
-      // positioned against the visible hourly timeline.
-      allDay:
-        event.allDay === true ||
-        (String(event.start).startsWith('00:00') && Number(event.duration) >= 24 * 60),
-    }))
+    events.value = rows.map(normalizeCalendarEvent)
+    eventsTruncated.value = Boolean(truncated)
     loadedEventRange.value = { from, to }
     eventsLoadedAt = Date.now()
     reportGoogleError(googleError)
@@ -262,6 +257,7 @@ async function loadEvents() {
     // for (the watcher only compares against the previous window).
     ensureEventRange()
   } catch (error) {
+    if (seq !== eventsRequestSeq) return
     console.error('Failed to load calendar events:', error)
     store.notify('Failed to load calendar events.', 'error')
   }
@@ -324,9 +320,6 @@ const visibleEvents = computed(() =>
 // entire visible timeline.
 const timedVisibleEvents = computed(() => visibleEvents.value.filter((event) => !event.allDay))
 const allDayVisibleEvents = computed(() => visibleEvents.value.filter((event) => event.allDay))
-
-const dateKey = (date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 const addDays = (date, days) => {
   const next = new Date(date)
@@ -907,7 +900,7 @@ async function saveEvent() {
       // row, avoiding a full ±210-day reload. Recurring series need
       // re-expansion, and so does a Google event: an all-day one spanning
       // several days comes back as one row per day.
-      if (effectiveRepeat === 'none' && !toGoogle) {
+      if (effectiveRepeat === 'none' && !toGoogle && !existing?.recurrenceRule) {
         const { event: updated } = await response.json()
         events.value = events.value.map((event) =>
           (event.seriesId ?? event.id) === editingId ? { ...updated, seriesId: updated.id } : event,
@@ -1219,6 +1212,10 @@ onUnmounted(() => {
             </div>
           </div>
         </header>
+
+        <p v-if="eventsTruncated" role="status" class="calendar-truncation-notice">
+          Some events could not be shown. View a shorter date range or select fewer calendars.
+        </p>
 
         <section
           v-if="viewMode !== 'week'"

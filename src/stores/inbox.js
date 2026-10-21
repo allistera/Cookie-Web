@@ -1436,7 +1436,8 @@ export const useInboxStore = defineStore('inbox', {
           await this.loadReadReceipts(nextEmails)
           if (seq !== folderLoadSeq[folder]) return
         }
-        this[keys.list].push(...nextEmails)
+        const existingIds = new Set(this[keys.list].map((email) => email.id))
+        this[keys.list].push(...nextEmails.filter((email) => !existingIds.has(email.id)))
         this[keys.cursor] = nextCursor ?? null
         this[keys.hasMore] = Boolean(nextCursor)
       } catch (error) {

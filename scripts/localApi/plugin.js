@@ -606,6 +606,7 @@ export function localApiPlugin(mode) {
     }
     return emails.filter((email) => {
       if (!inFolder(email)) return false
+      if (filters.starred && !email.is_starred) return false
       const sender = [email.from_name, email.from_address].join(' ').toLowerCase()
       const haystack = [sender, email.subject, email.body_text].join(' ').toLowerCase()
       if (!terms.every((term) => haystack.includes(term))) return false
@@ -668,8 +669,8 @@ export function localApiPlugin(mode) {
       }
     }
 
-    const { parseSearchQuery } = await import('./query-parse.js')
-    const { text, filters } = parseSearchQuery(rawQuery)
+    const { parseFederatedSearchQuery } = await import('./query-parse.js')
+    const { text, filters } = parseFederatedSearchQuery(rawQuery)
     const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
     const hasMailOnlyOperator = Boolean(
       filters.from ||
@@ -686,7 +687,10 @@ export function localApiPlugin(mode) {
       const { fixtureEmails, fixtureSentEmails } = await import('./fixtures/emails.js')
       const { summaries, archived, schedules, followUps } = state
       emailResults = matchFixtureEmails({
-        emails: [...fixtureEmails(), ...fixtureSentEmails()],
+        emails: [...fixtureEmails(), ...fixtureSentEmails()].map((email) => ({
+          ...email,
+          is_starred: state.stars.get(email.id) ?? email.is_starred,
+        })),
         filters,
         terms,
         schedules,
@@ -710,6 +714,7 @@ export function localApiPlugin(mode) {
       }
       docResults = state.documents
         .filter((doc) => {
+          if (filters.starred && !doc.starred) return false
           const haystack = `${doc.title} ${JSON.stringify(doc.blocks)}`.toLowerCase()
           if (!terms.every((term) => haystack.includes(term))) return false
           if (
@@ -781,9 +786,12 @@ export function localApiPlugin(mode) {
     const rawQuery = url.searchParams.get('q') || ''
     const { text, filters } = parseSearchQuery(rawQuery)
     const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
-    const { summaries, archived, schedules, followUps } = fixtureMailboxState(req, res)
+    const { summaries, archived, schedules, followUps, stars } = fixtureMailboxState(req, res)
     const emails = matchFixtureEmails({
-      emails: [...fixtureEmails(), ...fixtureSentEmails()],
+      emails: [...fixtureEmails(), ...fixtureSentEmails()].map((email) => ({
+        ...email,
+        is_starred: stars.get(email.id) ?? email.is_starred,
+      })),
       filters,
       terms,
       schedules,
@@ -963,7 +971,8 @@ export function localApiPlugin(mode) {
       return
     }
     {
-      const { expandEvents, buildRecurrenceRule } = await import('./recurrence.js')
+      const { expandEventsPage, parseRangeParams, buildRecurrenceRule } =
+        await import('./recurrence.js')
       const state = await ensureCalendarEvents(fixtureMailboxState(req, res))
       const google = await ensureGoogleCalendar(state)
       res.setHeader('Content-Type', 'application/json')
@@ -980,7 +989,15 @@ export function localApiPlugin(mode) {
                 (!from || !to || (event.date >= from && event.date <= to)),
             )
           : []
-        res.end(JSON.stringify({ events: [...expandEvents(state.calendarEvents), ...googleRows] }))
+        const { range, error } = parseRangeParams(params)
+        if (error) return json(res, { error: 'Invalid calendar range' }, 400)
+        const stored = state.calendarEvents.filter(
+          (event) => event.recurrenceRule || (event.date >= range.from && event.date <= range.to),
+        )
+        const page = expandEventsPage(stored, new Date(), range)
+        res.end(
+          JSON.stringify({ events: [...page.events, ...googleRows], truncated: page.truncated }),
+        )
         return
       }
       let raw = ''
@@ -1520,6 +1537,7 @@ export function localApiPlugin(mode) {
         const terms = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []
         const documents = state.documents
           .filter((doc) => {
+            if (filters.starred && !doc.starred) return false
             const haystack = `${doc.title} ${JSON.stringify(doc.blocks)}`.toLowerCase()
             if (!terms.every((term) => haystack.includes(term))) return false
             if (
@@ -2114,6 +2132,14 @@ export function localApiPlugin(mode) {
       return json(res, { error: 'Method not allowed' }, 405)
     }
     if (segments[0] === 'task-items') {
+      if (req.method === 'GET' && url.searchParams.get('view') === 'count') {
+        const ids = new Set((url.searchParams.get('projects') ?? '').split(','))
+        return json(res, {
+          count: state.taskItems.filter(
+            (item) => ids.has(item.projectId) && item.kind !== 'divider',
+          ).length,
+        })
+      }
       if (req.method === 'GET' && url.searchParams.get('view') === 'calendar') {
         // Mirrors getCalendarTaskItems: every open task due inside the
         // window, across every project, for Cookie Calendar.
@@ -2371,6 +2397,22 @@ export function localApiPlugin(mode) {
           position: Date.now() / 1000 + state.taskItems.length,
           completedAt: null,
           createdAt: new Date().toISOString(),
+        }
+        if (kind === 'divider' && body.afterId !== undefined) {
+          const rows = state.taskItems
+            .filter((row) => !row.parentId && row.projectId === item.projectId)
+            .sort(
+              (a, b) =>
+                a.position - b.position ||
+                a.createdAt.localeCompare(b.createdAt) ||
+                a.id.localeCompare(b.id),
+            )
+          const anchor = rows.findIndex((row) => row.id === body.afterId)
+          if (anchor < 0) return json(res, { error: 'Anchor task not found' }, 404)
+          rows.splice(anchor + 1, 0, item)
+          rows.forEach((row, index) => {
+            row.position = index + 1
+          })
         }
         state.taskItems.push(item)
         return json(res, { item }, 201)

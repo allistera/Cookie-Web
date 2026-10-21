@@ -717,6 +717,36 @@ describe('deleting a task from the list', () => {
     expect(remove).toHaveBeenCalledWith('a')
   })
 
+  it.each(['a', 'child'])(
+    'closes the open %s panel after deleting its parent from the list',
+    async (openId) => {
+      const items = seedOne()
+      items.items.push({ id: 'child', parentId: 'a', content: 'Child', projectId: 'p2' })
+      vi.spyOn(items, 'deleteItem').mockResolvedValue(true)
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      await router.replace({ query: { project: 'p2', task: openId } })
+      const wrapper = mountView()
+      await flushPromises()
+      await wrapper.get('.task-delete').trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.query.task).toBeUndefined()
+      wrapper.unmount()
+    },
+  )
+
+  it('keeps the open panel when a list deletion fails', async () => {
+    const items = seedOne()
+    vi.spyOn(items, 'deleteItem').mockResolvedValue(false)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await router.replace({ query: { project: 'p2', task: 'a' } })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.task-delete').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('a')
+    wrapper.unmount()
+  })
+
   it('names the task in the confirmation', async () => {
     const items = seedOne()
     vi.spyOn(items, 'deleteItem').mockResolvedValue(true)

@@ -48,7 +48,7 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
       CREATE TABLE public.messages (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.users(id),
         thread_id uuid NOT NULL REFERENCES public.threads(id), from_address text NOT NULL,
-        message_id text, is_sent boolean NOT NULL DEFAULT false, is_deleted boolean NOT NULL DEFAULT false,
+        body_text text, body_html text, message_id text, is_sent boolean NOT NULL DEFAULT false, is_deleted boolean NOT NULL DEFAULT false,
         is_unread boolean NOT NULL DEFAULT true, is_archived boolean NOT NULL DEFAULT false,
         sent_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now(), search_indexed_at timestamptz,
         search tsvector GENERATED ALWAYS AS (to_tsvector('simple', from_address)) STORED
@@ -68,9 +68,9 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
       CREATE TABLE public.ntfy_subscriptions (user_id uuid PRIMARY KEY, enabled boolean);
       CREATE TABLE public.ntfy_notification_events (user_id uuid, message_id uuid UNIQUE);
       CREATE SCHEMA realtime;
-      CREATE TABLE realtime.pings (payload jsonb);
+      CREATE TABLE realtime.pings (payload jsonb, private boolean);
       CREATE FUNCTION realtime.send(jsonb, text, text, boolean) RETURNS void LANGUAGE sql AS
-        'INSERT INTO realtime.pings (payload) VALUES ($1)';
+        'INSERT INTO realtime.pings (payload, private) VALUES ($1, $4)';
     `)
     await applyMigration(sql, '0080_quiet_inbox_ping.sql')
     await sql.unsafe(`CREATE TRIGGER messages_notify_inbox_changed AFTER INSERT OR UPDATE OR DELETE
@@ -79,6 +79,8 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
     await applyMigration(sql, '0088_sender_screening.sql')
     await applyMigration(sql, '0089_sender_domain_decisions.sql')
     await applyMigration(sql, '0090_write_path_cleanup.sql')
+    await applyMigration(sql, '0105_private_inbox_broadcasts.sql')
+    await applyMigration(sql, '0108_inbox_ping_comparison.sql')
   })
   beforeEach(async () => {
     await sql.unsafe(`TRUNCATE public.message_ai, public.messages, public.threads, public.users,
@@ -264,6 +266,19 @@ describe.skipIf(!databaseUrl)('0088-0090 sender screening and inbox pings on Pos
       folder_index: true,
       inlinable: true,
     })
+  })
+  it('pings for a body change alongside an indexing stamp, but skips stamp-only writes', async () => {
+    const message = await arrive()
+    await sql`TRUNCATE realtime.pings`
+    await sql`UPDATE messages SET search_indexed_at = now() WHERE id = ${message.id}`
+    expect(await sql`SELECT * FROM realtime.pings`).toHaveLength(0)
+    await sql`UPDATE messages SET body_text = repeat('large body', 10000), search_indexed_at = now() + interval '1 second' WHERE id = ${message.id}`
+    expect(await sql`SELECT * FROM realtime.pings`).toHaveLength(1)
+    expect((await sql`SELECT private FROM realtime.pings`)[0].private).toBe(true)
+    await sql`TRUNCATE realtime.pings`
+    await sql`UPDATE messages SET body_html = '<b>changed</b>', search_indexed_at = now() + interval '2 seconds' WHERE id = ${message.id}`
+    expect(await sql`SELECT * FROM realtime.pings`).toHaveLength(1)
+    expect((await sql`SELECT private FROM realtime.pings`)[0].private).toBe(true)
   })
   it('keeps new decision data private from browser roles', async () => {
     const [privacy] = await sql`SELECT relrowsecurity AS rls,

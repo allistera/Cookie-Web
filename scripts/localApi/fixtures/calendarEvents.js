@@ -11,7 +11,7 @@ const rows = [
     calendar: 'work',
     // Exercises the "Auto-scheduled" insight card's real (if currently
     // always-false-in-production) count — see migration 0033.
-    autoScheduled: true,
+    autoScheduled: false,
   },
   {
     id: 'priya',
@@ -20,7 +20,7 @@ const rows = [
     start: '10:00',
     duration: 30,
     calendar: 'work',
-    autoScheduled: true,
+    autoScheduled: false,
   },
   {
     id: 'focus',

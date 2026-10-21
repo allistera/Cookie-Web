@@ -79,6 +79,7 @@ export const useTaskCommentsStore = defineStore('taskComments', {
       if (thread.loading) return
       if (thread.loaded && !more && !force) return
       if (more && !thread.nextCursor) return
+      const initialIds = new Set(thread.comments.map((row) => row.id))
       thread.loading = true
       thread.error = null
       try {
@@ -93,11 +94,15 @@ export const useTaskCommentsStore = defineStore('taskComments', {
         // replaces it, except for entries newer than the page's last row:
         // those were added here while the page was in flight, or belong
         // to a page not yet loaded, and the server has them either way.
-        const lastStamp = String(comments.at(-1)?.createdAt ?? '')
+        const last = comments.at(-1)
+        const newerThanPage = (row) =>
+          last &&
+          (String(row.createdAt) > String(last.createdAt) ||
+            (String(row.createdAt) === String(last.createdAt) && String(row.id) > String(last.id)))
         const kept = thread.comments.filter(
           (row) =>
             !incomingIds.has(row.id) &&
-            (more || (nextCursor === null && String(row.createdAt ?? '') > lastStamp)),
+            (more || (newerThanPage(row) && (nextCursor !== null || !initialIds.has(row.id)))),
         )
         thread.comments = sortComments([...kept, ...comments])
         thread.nextCursor = nextCursor

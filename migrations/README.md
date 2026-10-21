@@ -508,3 +508,10 @@ transitions, recurrence, cascades, rollback, row security, and goal constraints.
 number from 1 to 1440 for tasks only, and records estimate edits in task activity.
 Existing tasks have no estimate. A duration does not require a date or time.
 Apply the migration before deploying `cookie-web-tasks`, then deploy Cookie-Web.
+
+### Inbox ping comparison (0108)
+
+`0108_inbox_ping_comparison.sql` replaces body-inclusive JSON comparisons with
+schema-derived metadata row comparisons and separate body comparisons. Index
+stamp-only updates still skip realtime pings. Future migrations adding message
+columns should regenerate this function so those fields participate too.
