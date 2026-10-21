@@ -2512,6 +2512,8 @@ describe('TraditionalInboxView multi-select', () => {
   })
 
   it('drops the selection when the inbox tab changes', async () => {
+    store.traditionalEmails[2].isPriority = true
+    store.inboxTab = 'other'
     const wrapper = mountView()
     await checkbox(wrapper, 0).trigger('click')
     expect(wrapper.find('.ni-bulk-bar').exists()).toBe(true)
@@ -3955,6 +3957,7 @@ describe('TraditionalInboxView inbox tabs', () => {
   })
 
   it('shows categories as mail arrives and hides categories containing only starred mail', async () => {
+    store.isInboxLoaded = true
     store.traditionalEmails = []
     const wrapper = mountView()
     expect(tabTexts(wrapper)).toEqual([])
@@ -4015,6 +4018,7 @@ describe('TraditionalInboxView inbox tabs', () => {
   })
 
   it('hides tabs in filtered views and shows no tabs with an empty inbox', async () => {
+    store.isInboxLoaded = true
     await router.replace({ path: '/inbox', query: { filter: 'starred' } })
     let wrapper = mountView()
     expect(wrapper.find('.ni-tabs').exists()).toBe(false)
@@ -4575,6 +4579,8 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   })
 
   it('moves between neighbouring tabs with trackpad swipes and stops at their edges', async () => {
+    store.traditionalEmails[0].isPriority = true
+    store.inboxTab = 'other'
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.stubGlobal('matchMedia', () => ({ matches: true }))
     try {
