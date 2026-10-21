@@ -9,6 +9,7 @@ import { useInboxStore } from '../stores/inbox'
 import { useOutOfOfficeStore } from '../stores/outOfOffice'
 import { useContactInsightsStore } from '../stores/contactInsights'
 import { useSidebarWidth } from '../composables/useSidebarWidth'
+import { useBucketsStore } from '../stores/buckets'
 
 let wrapper
 let router
@@ -71,6 +72,107 @@ async function key(value, options = {}) {
 }
 
 describe('application shell', () => {
+  it('opens the composer and expands the optional mail folders', async () => {
+    await render()
+    const compose = vi.spyOn(store, 'openComposer').mockImplementation(() => {})
+    await wrapper.get('.compose-btn').trigger('click')
+    expect(compose).toHaveBeenCalledOnce()
+    store.processingCount = 2
+    store.snoozedCount = 1
+    store.scheduledCountHint = 1
+    store.spamCount = 1
+    store.blockedCount = 1
+    store.starredCount = 1
+    store.drafts = [{ id: 'draft' }]
+    await wrapper.get('a[href="#"]').trigger('click')
+    for (const label of [
+      'Processing',
+      'Snoozed',
+      'Scheduled',
+      'Drafts',
+      'Spam',
+      'Blocked',
+      'Starred',
+    ]) {
+      expect(wrapper.findAll('.nav-text').map((node) => node.text())).toContain(label)
+    }
+    await wrapper.get('a[href="#"]').trigger('click')
+    expect(wrapper.findAll('.nav-text').map((node) => node.text())).not.toContain('Processing')
+  })
+
+  it.each([
+    ['ms:star', 'star'],
+    ['📁', '📁'],
+    ['ms:INVALID!', 'work'],
+    ['', 'work'],
+  ])('renders bucket icon %s and toggles the panel', async (icon, displayed) => {
+    await render()
+    const buckets = useBucketsStore()
+    buckets.bucket = { title: 'Research', icon, items: [], expiresAt: Date.now() + 60000 }
+    await nextTick()
+    expect(wrapper.get('.bucket-trigger-tile').text()).toBe(displayed)
+    expect(wrapper.get('.bucket-trigger').attributes('aria-label')).toBe('Open bucket: Research')
+    await wrapper.get('.bucket-trigger').trigger('click')
+    expect(buckets.isOpen).toBe(true)
+    await wrapper.get('.bucket-trigger').trigger('click')
+    expect(buckets.isOpen).toBe(false)
+  })
+
+  it('pins the current bucket candidate with the keyboard shortcut', async () => {
+    await render()
+    const buckets = useBucketsStore()
+    buckets.candidate = { type: 'document', id: 'doc', title: 'Notes' }
+    const pin = vi.spyOn(buckets, 'togglePin').mockReturnValue('pinned')
+    await key('b')
+    expect(pin).toHaveBeenCalledWith(buckets.candidate)
+    expect(store.toasts.at(-1).message).toBe('Pinned to the bucket.')
+  })
+
+  it.each([{ repeat: true }, { metaKey: true }, { ctrlKey: true }, { altKey: true }])(
+    'ignores modified or repeated action shortcuts %j',
+    async (options) => {
+      await render()
+      store.pendingSend = { secondsLeft: 5 }
+      const undo = vi.spyOn(store, 'undoLatestAction').mockImplementation(() => {})
+      const buckets = useBucketsStore()
+      buckets.candidate = { type: 'document', id: 'doc', title: 'Notes' }
+      const pin = vi.spyOn(buckets, 'togglePin').mockReturnValue(null)
+      await key('u', options)
+      await key('?', options)
+      await key('b', options)
+      expect(undo).not.toHaveBeenCalled()
+      expect(pin).not.toHaveBeenCalled()
+      expect(store.isShortcutsHelpOpen).toBe(false)
+    },
+  )
+
+  it('leaves help shortcuts to an existing modal', async () => {
+    await render()
+    const dialog = document.createElement('dialog')
+    dialog.setAttribute('open', '')
+    document.body.append(dialog)
+    await key('?')
+    expect(store.isShortcutsHelpOpen).toBe(false)
+    dialog.remove()
+    await key('?')
+    expect(store.isShortcutsHelpOpen).toBe(true)
+  })
+
+  it('refreshes out-of-office on focus and polls only while visible', async () => {
+    vi.useFakeTimers()
+    await render()
+    const load = useOutOfOfficeStore().load
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(load).not.toHaveBeenCalled()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(load).toHaveBeenCalledWith({ force: true })
+    vi.mocked(load).mockClear()
+    window.dispatchEvent(new Event('focus'))
+    expect(load).toHaveBeenCalledWith({ force: true })
+  })
+
   it('shows loading and login states and starts authentication', async () => {
     auth.isLoading.value = true
     auth.isAuthenticated.value = false
