@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   convertBlocksToHTML,
   convertBlocksToMarkdown,
   prepareExportBlocks,
+  downloadMarkdown,
+  sanitizeFilename,
 } from '../documentExport'
 
 const block = (type, data) => ({ type, data })
@@ -201,5 +203,112 @@ describe('document export', () => {
     const code = 'a``'.repeat(300000)
     const markdown = convertBlocksToMarkdown([block('code', { code })])
     expect(markdown.startsWith('```\n')).toBe(true)
+  })
+})
+
+describe('document export boundaries', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['-1', '0.5', 'Infinity'])('rejects invalid spreadsheet row %s', (row) => {
+    const blocks = [
+      block('table', { workbook: { sheets: { s: { cellData: { [row]: { 0: { v: 'x' } } } } } } }),
+    ]
+    expect(() => convertBlocksToMarkdown(blocks)).toThrow('too large to export')
+    expect(() => convertBlocksToHTML(blocks)).toThrow('too large to export')
+  })
+
+  it('rejects missing sheets rather than dropping their content', () => {
+    const blocks = [block('table', { workbook: { sheetOrder: ['missing'] } })]
+    expect(() => convertBlocksToMarkdown(blocks)).toThrow('sheet is missing')
+  })
+
+  it('exports empty sheets and formula-only cells', () => {
+    const blocks = [
+      block('table', {
+        workbook: {
+          sheets: {
+            empty: { name: 'Empty' },
+            formula: { cellData: { 0: null, 1: { 0: {}, 1: { f: '=A1+1' } } } },
+          },
+        },
+      }),
+    ]
+    expect(convertBlocksToMarkdown(blocks)).toContain('### Empty\n\n')
+    expect(convertBlocksToHTML(blocks)).toContain('<td>=A1+1</td>')
+  })
+
+  it('keeps public images and saved drawings without fetching them', async () => {
+    const blocks = [
+      block('image', { url: 'https://example.com/image.png' }),
+      block('excalidraw', { file: { url: 'https://example.com/drawing.png' } }),
+    ]
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await prepareExportBlocks(blocks)).toEqual(blocks)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(convertBlocksToMarkdown(blocks)).toContain('![](https://example.com/image.png)')
+  })
+
+  it('reports failed private image downloads', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+    const blocks = [
+      block('image', {
+        file: { url: 'https://abc.private.blob.vercel-storage.com/documents/u1/pic.png' },
+      }),
+    ]
+    await expect(
+      prepareExportBlocks(blocks, { resolveImage: async () => 'https://signed/pic' }),
+    ).rejects.toThrow('An image could not be exported.')
+  })
+
+  it('reports image reader failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['image']) }),
+    )
+    vi.stubGlobal(
+      'FileReader',
+      class {
+        readAsDataURL() {
+          this.onerror()
+        }
+      },
+    )
+    const blocks = [
+      block('image', {
+        file: { url: 'https://abc.private.blob.vercel-storage.com/documents/u1/pic.png' },
+      }),
+    ]
+    await expect(
+      prepareExportBlocks(blocks, { resolveImage: async () => 'https://signed/pic' }),
+    ).rejects.toThrow('An image could not be exported.')
+  })
+
+  it('downloads Markdown with its requested filename and releases the URL', () => {
+    const createObjectURL = vi.fn(() => 'blob:export')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    let downloaded
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+      downloaded = {
+        name: this.download,
+        href: this.getAttribute('href'),
+        attached: document.body.contains(this),
+      }
+    })
+    downloadMarkdown('# Title', 'notes')
+    expect(downloaded).toEqual({ name: 'notes.md', href: 'blob:export', attached: true })
+    expect(createObjectURL.mock.calls[0][0].type).toBe('text/markdown')
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:export')
+    expect(document.querySelector('a[download="notes.md"]')).toBeNull()
+  })
+
+  it('sanitizes filenames and provides an empty-name fallback', () => {
+    expect(sanitizeFilename('A / B:*?')).toBe('A-B')
+    expect(sanitizeFilename('<>:*?')).toBe('document')
+    expect(sanitizeFilename('a'.repeat(120))).toHaveLength(100)
   })
 })
