@@ -39,6 +39,21 @@ Use the Supavisor session pooler on port `5432` for GitHub-hosted migrations. Gi
 
 Use a development project for local migration testing. Do not point routine local commands at production.
 
+## Private inbox broadcast migration (0105)
+
+Supabase owns `realtime.messages` and enables its row level security by default.
+The migration role can manage policies on that table but cannot run `ALTER TABLE`
+on it. Migration `0105_private_inbox_broadcasts.sql` checks the existing RLS flag
+and creates the owner-scoped receive policy without changing the managed table.
+See [Supabase's ownership-error guidance](https://supabase.com/docs/guides/troubleshooting/realtime-must-be-owner-of-table-messages).
+
+The ownership failure rolls back the entire migration and its tracking row.
+The correction to this failed, unrecorded migration lets the normal workflow
+retry it; a later migration could not unblock an earlier failure. Environments
+that already recorded `0105` continue to skip it. No credential or ownership
+change is required. If the RLS prerequisite is missing, the migration fails
+rather than installing an unenforced policy.
+
 ## AI enrichment migrations
 
 `0010_ai_enrichment.sql` adds per-label auto-tag settings, model-label provenance, and durable `message_ai` enrichment state.
