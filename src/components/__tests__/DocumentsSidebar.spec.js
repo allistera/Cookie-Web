@@ -439,3 +439,81 @@ describe('DocumentsSidebar folder editing', () => {
     },
   )
 })
+
+describe('DocumentsSidebar drag and loading states', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('ignores drags without a supported text payload', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const move = vi.spyOn(useDocumentsStore(), 'moveDocument').mockResolvedValue()
+    const tree = wrapper.get('.documents-tree')
+    await tree.trigger('dragover', { dataTransfer: { types: ['Files'] } })
+    expect(tree.classes()).not.toContain('drop-target')
+    await tree.trigger('drop', { dataTransfer: { getData: () => 'folder:unknown' } })
+    await tree.trigger('drop')
+    expect(move).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('highlights external text drags and clears only when leaving the drop zone', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const tree = wrapper.get('.documents-tree')
+    const dataTransfer = { types: ['text/plain'], dropEffect: '' }
+    await tree.trigger('dragover', { dataTransfer })
+    expect(tree.classes()).toContain('drop-target')
+    expect(dataTransfer.dropEffect).toBe('move')
+    await tree.trigger('dragleave', { relatedTarget: tree.get('.folder-item').element })
+    expect(tree.classes()).toContain('drop-target')
+    await tree.trigger('dragleave', { relatedTarget: document.body })
+    expect(tree.classes()).not.toContain('drop-target')
+    wrapper.unmount()
+  })
+
+  it('moves externally dragged documents into a folder', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const move = vi.spyOn(useDocumentsStore(), 'moveDocument').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('drop', {
+      dataTransfer: { getData: () => 'document:d-scratch' },
+    })
+    expect(move).toHaveBeenCalledExactlyOnceWith('d-scratch', 'f-projects')
+    wrapper.unmount()
+  })
+
+  it('clears the drag highlight when a document drag ends', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const row = wrapper.get('.documents-tree .doc-item')
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' }
+    await row.trigger('dragstart', { dataTransfer: transfer })
+    await wrapper.get('.folder-item').trigger('dragover', { dataTransfer: transfer })
+    expect(wrapper.get('.folder-item').classes()).toContain('drop-target')
+    await row.trigger('dragend')
+    expect(wrapper.get('.folder-item').classes()).not.toContain('drop-target')
+    expect(transfer.setData).toHaveBeenCalledExactlyOnceWith('text/plain', 'd-scratch')
+    wrapper.unmount()
+  })
+
+  it('disables Today while opening and stays put when no note is returned', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    let finish
+    const open = vi.spyOn(useDocumentsStore(), 'openTodayNote').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const button = wrapper.get('.time-management-nav .nav-item')
+    await button.trigger('click')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(open).toHaveBeenCalledTimes(1)
+    finish(null)
+    await flushPromises()
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(push).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
