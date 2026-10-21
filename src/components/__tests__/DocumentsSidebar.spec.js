@@ -356,3 +356,86 @@ describe('DocumentsSidebar', () => {
     expect(moveFile).toHaveBeenCalledWith('x-1', 'f-projects')
   })
 })
+
+describe('DocumentsSidebar folder editing', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('renames a folder once even when Enter is followed by blur', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rename = vi.spyOn(useDocumentsStore(), 'renameFolder').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('dblclick')
+    const input = wrapper.get('.folder-rename-input')
+    await input.setValue('  Renamed  ')
+    await input.trigger('keydown', { key: 'Enter' })
+    await input.trigger('blur')
+    expect(rename).toHaveBeenCalledExactlyOnceWith('f-projects', 'Renamed')
+    expect(wrapper.find('.folder-rename-input').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['Projects', '   '])('does not submit a redundant rename: %s', async (title) => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rename = vi.spyOn(useDocumentsStore(), 'renameFolder').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('dblclick')
+    await wrapper.get('.folder-rename-input').setValue(title)
+    await wrapper.get('.folder-rename-input').trigger('blur')
+    expect(rename).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('cancels folder renaming with Escape', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rename = vi.spyOn(useDocumentsStore(), 'renameFolder').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('dblclick')
+    await wrapper.get('.folder-rename-input').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('.folder-rename-input').exists()).toBe(false)
+    expect(rename).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores an empty folder title', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const create = vi.spyOn(useDocumentsStore(), 'createFolder').mockResolvedValue(null)
+    await wrapper.get('.new-folder-btn').trigger('click')
+    await wrapper.get('.new-folder-row input').setValue('   ')
+    await wrapper.get('.new-folder-row').trigger('submit')
+    expect(create).not.toHaveBeenCalled()
+    expect(wrapper.find('.new-folder-row').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('creates a nested folder and expands its parent', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const create = vi.spyOn(useDocumentsStore(), 'createFolder').mockResolvedValue({ id: 'child' })
+    await wrapper.get('[aria-label="New folder in Projects"]').trigger('click')
+    await wrapper.get('.new-folder-row input').setValue('Child')
+    await wrapper.get('.new-folder-row').trigger('submit')
+    await flushPromises()
+    expect(create).toHaveBeenCalledExactlyOnceWith({ title: 'Child', parentId: 'f-projects' })
+    expect(JSON.parse(localStorage.getItem('cookie-documents-expanded-folders'))).toEqual(
+      expect.arrayContaining(['child', 'f-projects']),
+    )
+    wrapper.unmount()
+  })
+
+  it.each([true, false])(
+    'navigates away from an open document only after successful deletion: %s',
+    async (deleted) => {
+      await router.replace('/documents/d-scratch')
+      const wrapper = mountSidebar()
+      await flushPromises()
+      vi.spyOn(useDocumentsStore(), 'deleteDocument').mockResolvedValue(deleted)
+      confirm.mockReturnValue(true)
+      push.mockClear()
+      await wrapper.get('[aria-label="Delete Scratch"]').trigger('click')
+      await flushPromises()
+      expect(push.mock.calls).toEqual(deleted ? [['/documents']] : [])
+      wrapper.unmount()
+    },
+  )
+})
