@@ -575,6 +575,41 @@ describe('TraditionalInboxView day accordion', () => {
     expect(groupHeader(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
   })
 
+  it.each([
+    ['Yesterday', 1],
+    ['Last seven days', 3],
+    ['Earlier', 10],
+  ])('opens %s when it is the first available group', (label, daysAgo) => {
+    store.traditionalEmails = [makeEmail('first', Date.now() - daysAgo * DAY)]
+    const wrapper = mountView()
+
+    expect(groupHeader(wrapper, label).attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('opens the first group when emails arrive after mounting and respects manual collapse', async () => {
+    store.traditionalEmails = []
+    const wrapper = mountView()
+    store.traditionalEmails = [
+      makeEmail('yesterday', Date.now() - DAY),
+      makeEmail('earlier', Date.now() - 10 * DAY),
+    ]
+    await nextTick()
+
+    expect(groupHeader(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('true')
+    expect(groupHeader(wrapper, 'Earlier').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
+    await groupHeader(wrapper, 'Yesterday').trigger('click')
+    store.traditionalEmails = [...store.traditionalEmails]
+    await nextTick()
+    expect(groupHeader(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('.ni-row')).toHaveLength(0)
+    await groupHeader(wrapper, 'Yesterday').trigger('click')
+    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('shows auto_awesome before the subject only when an email has an AI summary', async () => {
     store.traditionalEmails[0].hasAiSummary = true
     const plainEmail = makeEmail('today-plain', Date.now() - 2 * HOUR)
@@ -1017,9 +1052,9 @@ describe('TraditionalInboxView group Mark Read tooltip', () => {
   it('clicking Mark Read does not toggle the group accordion', async () => {
     const wrapper = mountView()
 
-    expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
+    expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('true')
     await header(wrapper, 'Yesterday').find('.ni-group-mark-read').trigger('click')
-    expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('false')
+    expect(header(wrapper, 'Yesterday').attributes('aria-expanded')).toBe('true')
   })
 
   it('only touches emails of its own day group', async () => {

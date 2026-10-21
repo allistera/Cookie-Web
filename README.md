@@ -88,6 +88,9 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   and `migrations/0102_google_calendar_browser_binding.sql` and set that Worker's
   Google secrets (Cookie-Worker README, "Google Calendar") before deploying.
 - Auth0 authentication and per-user mailbox queries.
+- The email list opens its first available date group by default, including
+  Yesterday when there is no mail from Today. Due Today and Today also default
+  to open. Click a group header to expand or collapse it.
 - Press `?` (or pick Keyboard Shortcuts in the `/` command palette) for a list of
   every keyboard shortcut.
 - The bucket collects emails, documents, tasks and calendar events for a piece
