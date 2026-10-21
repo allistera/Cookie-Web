@@ -472,21 +472,21 @@ const groupUnreadCounts = computed(() => {
   return counts
 })
 
-// Due Today and Today start open; every older day group starts closed.
-const openGroups = ref(new Set(['Due Today', 'Today']))
+// Explicit toggles override the defaults, including for the first available group.
+const groupOpenOverrides = ref(new Map())
 
 function isGroupOpen(label) {
   // Search results and filtered views always show expanded; the accordion
   // applies to browsing the full inbox.
   if (store.activeSearchQuery || activeFilter.value) return true
-  return openGroups.value.has(label)
+  return (
+    groupOpenOverrides.value.get(label) ??
+    (label === emailGroups.value[0]?.label || label === 'Due Today' || label === 'Today')
+  )
 }
 
 function toggleGroup(label) {
-  const next = new Set(openGroups.value)
-  if (next.has(label)) next.delete(label)
-  else next.add(label)
-  openGroups.value = next
+  groupOpenOverrides.value = new Map(groupOpenOverrides.value).set(label, !isGroupOpen(label))
 }
 
 function toggleStar(email) {
@@ -1226,8 +1226,8 @@ function openReader(email) {
     const group = emailGroups.value.find(({ emails }) =>
       emails.some((candidate) => candidate.id === email.id),
     )
-    if (group && !openGroups.value.has(group.label)) {
-      openGroups.value = new Set(openGroups.value).add(group.label)
+    if (group && !isGroupOpen(group.label)) {
+      groupOpenOverrides.value = new Map(groupOpenOverrides.value).set(group.label, true)
     }
   }
   store.openReader(email)

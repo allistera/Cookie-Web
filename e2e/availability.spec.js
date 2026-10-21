@@ -102,8 +102,11 @@ test('new mail reviews, edits and inserts proposed times while protecting the ex
 test('inline replies can insert the same reviewed proposal text', async ({ page }) => {
   await calendarFixtures(page)
   await page.goto('/inbox')
-  // The fixed 2030 clock puts the mailbox fixture in its collapsed Earlier group.
-  await page.getByRole('button', { name: /Earlier/ }).click()
+  // The fixed 2030 clock puts all mail in Earlier, which opens by default.
+  await expect(page.getByRole('button', { name: /Earlier/ })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
   const reader = page.locator('.ni-reader')
   await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Reply' }).click()
