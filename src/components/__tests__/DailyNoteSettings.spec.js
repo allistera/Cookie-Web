@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DailyNoteSettings from '../DailyNoteSettings.vue'
 import { useDocumentsStore } from '../../stores/documents'
@@ -24,6 +24,8 @@ describe('DailyNoteSettings', () => {
     store = useDocumentsStore()
     vi.spyOn(store, 'notify').mockImplementation(() => {})
   })
+
+  afterEach(() => vi.restoreAllMocks())
 
   const saveButton = (wrapper) =>
     wrapper.findAll('button').find((button) => button.text() === 'Save')
@@ -91,5 +93,91 @@ describe('DailyNoteSettings', () => {
     editor.vm.$emit('save', { id: editor.props('doc').id, blocks })
     await flushPromises()
     expect(wrapper.find('.editor-stub').text()).toBe('2')
+  })
+})
+
+describe('saving daily-note defaults', () => {
+  let store
+  let wrapper
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useDocumentsStore()
+    vi.spyOn(store, 'notify').mockImplementation(() => {})
+    vi.spyOn(store, 'loadDailyNoteSeed').mockImplementation(async () => {
+      store.dailyNoteSeed = [{ type: 'paragraph', data: { text: 'Saved template' } }]
+      store.dailyNoteSeedLoaded = true
+      return true
+    })
+  })
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.restoreAllMocks()
+  })
+
+  it('saves the latest editor snapshot instead of an older emitted draft', async () => {
+    const blocks = [{ type: 'paragraph', data: { text: 'Latest edit' } }]
+    const snapshot = vi.spyOn(DocumentEditor.methods, 'snapshot').mockResolvedValue({ blocks })
+    const save = vi.spyOn(store, 'saveDailyNoteSeed').mockResolvedValue(true)
+    wrapper = mountSettings()
+    await flushPromises()
+    await wrapper.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(snapshot).toHaveBeenCalledOnce()
+    expect(save).toHaveBeenCalledExactlyOnceWith(blocks)
+    expect(store.notify).toHaveBeenCalledWith('Daily note default saved.')
+    expect(store.dailyNoteSeed[0].data.text).toBe('Saved template')
+  })
+
+  it('prevents duplicate saves and restores the button after a failed save', async () => {
+    let resolveSave
+    const save = vi.spyOn(store, 'saveDailyNoteSeed').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    wrapper = mountSettings()
+    await flushPromises()
+    await wrapper.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.btn-primary').text()).toBe('Saving…')
+    expect(wrapper.get('.btn-primary').element.disabled).toBe(true)
+    await wrapper.get('.btn-primary').trigger('click')
+    expect(save).toHaveBeenCalledOnce()
+    resolveSave(false)
+    await flushPromises()
+    expect(wrapper.get('.btn-primary').text()).toBe('Save')
+    expect(wrapper.get('.btn-primary').element.disabled).toBe(false)
+    expect(store.notify).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])(
+    'resets the editor only after a successful reset (%s)',
+    async (success) => {
+      const save = vi.spyOn(store, 'saveDailyNoteSeed').mockImplementation(async () => {
+        if (success) store.dailyNoteSeed = []
+        return success
+      })
+      wrapper = mountSettings()
+      await flushPromises()
+      const oldId = wrapper.findComponent(DocumentEditor).props('doc').id
+      await wrapper.get('.btn-secondary').trigger('click')
+      await flushPromises()
+      expect(save).toHaveBeenCalledExactlyOnceWith([])
+      expect(wrapper.findComponent(DocumentEditor).props('doc').id === oldId).toBe(!success)
+      expect(store.notify.mock.calls).toEqual(success ? [['Daily note default reset.']] : [])
+      expect(wrapper.get('.btn-primary').element.disabled).toBe(false)
+    },
+  )
+
+  it('keeps current blocks when the editor emits a title-only patch', async () => {
+    wrapper = mountSettings()
+    await flushPromises()
+    const editor = wrapper.findComponent(DocumentEditor)
+    editor.vm.$emit('save', { title: 'Ignored title' })
+    await flushPromises()
+    expect(editor.props('doc').blocks).toEqual([
+      { type: 'paragraph', data: { text: 'Saved template' } },
+    ])
   })
 })

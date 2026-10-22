@@ -11,6 +11,7 @@ let store
 const revoke = vi.fn()
 
 beforeEach(async () => {
+  revoke.mockClear()
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/documents/:id?', name: 'documents', component: { template: '<div />' } }],
@@ -29,6 +30,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('FilePreview', () => {
@@ -109,5 +111,94 @@ describe('FilePreview', () => {
     finish(new Blob(['x']))
     await flushPromises()
     expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+})
+
+describe('file downloads and navigation', () => {
+  let wrapper
+  afterEach(() => wrapper?.unmount())
+
+  it.each(['archive.zip', ''])(
+    'downloads unsupported files with filename %s and releases their URL',
+    async (name) => {
+      vi.useFakeTimers()
+      vi.spyOn(store, 'loadFile').mockResolvedValue({ name, mime_type: 'application/zip' })
+      vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['zip']))
+      const downloads = []
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+        downloads.push({ href: this.href, name: this.download })
+      })
+      wrapper = mount(FilePreview, { props: { fileId: 'zip' }, global: { plugins: [router] } })
+      await flushPromises()
+      expect(downloads).toEqual([{ href: 'blob:preview', name: name || 'download' }])
+      expect(wrapper.text()).toContain('Its download has started.')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(revoke).toHaveBeenCalledWith('blob:preview')
+    },
+  )
+
+  it('downloads the current preview on request and reports download failures', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(store, 'loadFile').mockResolvedValue({ name: 'image.png', mime_type: 'image/png' })
+    const fetchBlob = vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['image']))
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    wrapper = mount(FilePreview, { props: { fileId: 'image' }, global: { plugins: [router] } })
+    await flushPromises()
+    await wrapper.get('.file-preview-download').trigger('click')
+    await flushPromises()
+    expect(fetchBlob).toHaveBeenLastCalledWith('image')
+    expect(click).toHaveBeenCalledOnce()
+    fetchBlob.mockRejectedValueOnce(new Error('Offline'))
+    await wrapper.get('.file-preview-download').trigger('click')
+    await flushPromises()
+    expect(notify).toHaveBeenCalledWith('Download failed.', 'error')
+    await vi.advanceTimersByTimeAsync(1000)
+  })
+
+  it.each([null, 'work'])('returns to the containing folder (%s)', async (folder) => {
+    vi.spyOn(store, 'loadFile').mockResolvedValue({
+      name: 'image.png',
+      mime_type: 'image/png',
+      folder_id: folder,
+    })
+    vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['image']))
+    await router.push('/documents/file')
+    wrapper = mount(FilePreview, { props: { fileId: 'image' }, global: { plugins: [router] } })
+    await flushPromises()
+    await wrapper.get('[aria-label="Back to folder"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/documents')
+    expect(router.currentRoute.value.query).toEqual(folder ? { folder } : {})
+  })
+
+  it('does not fetch bytes for stale metadata or show stale failures', async () => {
+    let resolveOld
+    let rejectCurrent
+    vi.spyOn(store, 'loadFile')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            rejectCurrent = reject
+          }),
+      )
+      .mockResolvedValue({ name: 'new.png', mime_type: 'image/png' })
+    const fetchBlob = vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['new']))
+    wrapper = mount(FilePreview, { props: { fileId: 'old' }, global: { plugins: [router] } })
+    await wrapper.setProps({ fileId: 'current' })
+    await wrapper.setProps({ fileId: 'new' })
+    await flushPromises()
+    resolveOld({ name: 'old.png', mime_type: 'image/png' })
+    rejectCurrent(new Error('Stale failure'))
+    await flushPromises()
+    expect(fetchBlob).toHaveBeenCalledExactlyOnceWith('new')
+    expect(wrapper.get('h1').text()).toBe('new.png')
+    expect(wrapper.find('[role=alert]').exists()).toBe(false)
   })
 })

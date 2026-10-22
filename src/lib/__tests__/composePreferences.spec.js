@@ -21,4 +21,19 @@ describe('API composer preferences', () => {
       'Invalid composer preferences response',
     )
   })
+
+  it.each([null, undefined, { revision: -1 }, { revision: 1.5 }, { revision: Infinity }])(
+    'rejects missing or invalid revision data: %j',
+    (value) => {
+      expect(() => parseComposePreferences(value)).toThrow('Invalid composer preferences response')
+    },
+  )
+
+  it('accepts the initial revision with empty preferences', () => {
+    expect(parseComposePreferences({ revision: 0, signatureHtml: '', snippets: [] })).toEqual({
+      revision: 0,
+      signatureHtml: '',
+      snippets: [],
+    })
+  })
 })

@@ -388,11 +388,11 @@ npm run build
 npm run test:e2e
 ```
 
-CI enforces coverage per file for `SenderSettings.vue` and `TraditionalInboxView.vue`,
-the executable source changed by the sender-controls work. It uploads the LCOV and JSON
-summary reports as the `unit-coverage` artifact so measured files and source lines remain
-traceable to the tested revision. The minimums are 95% for lines and statements and 90%
-for functions and branches.
+CI measures all JavaScript and Vue application source under `src/` and `api/`,
+including files not imported by tests. Test files are excluded. The per-file target
+is 100% for lines, statements, functions, and branches. CI uploads detailed JSON,
+JSON summary, and LCOV reports as the `unit-coverage` artifact, including when the
+coverage target is not met, so gaps remain traceable to the tested revision.
 
 Install Playwright browsers once if required:
 

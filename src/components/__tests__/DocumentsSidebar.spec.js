@@ -356,3 +356,164 @@ describe('DocumentsSidebar', () => {
     expect(moveFile).toHaveBeenCalledWith('x-1', 'f-projects')
   })
 })
+
+describe('DocumentsSidebar folder editing', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('renames a folder once even when Enter is followed by blur', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rename = vi.spyOn(useDocumentsStore(), 'renameFolder').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('dblclick')
+    const input = wrapper.get('.folder-rename-input')
+    await input.setValue('  Renamed  ')
+    await input.trigger('keydown', { key: 'Enter' })
+    await input.trigger('blur')
+    expect(rename).toHaveBeenCalledExactlyOnceWith('f-projects', 'Renamed')
+    expect(wrapper.find('.folder-rename-input').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['Projects', '   '])('does not submit a redundant rename: %s', async (title) => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rename = vi.spyOn(useDocumentsStore(), 'renameFolder').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('dblclick')
+    await wrapper.get('.folder-rename-input').setValue(title)
+    await wrapper.get('.folder-rename-input').trigger('blur')
+    expect(rename).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('cancels folder renaming with Escape', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const rename = vi.spyOn(useDocumentsStore(), 'renameFolder').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('dblclick')
+    await wrapper.get('.folder-rename-input').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('.folder-rename-input').exists()).toBe(false)
+    expect(rename).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores an empty folder title', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const create = vi.spyOn(useDocumentsStore(), 'createFolder').mockResolvedValue(null)
+    await wrapper.get('.new-folder-btn').trigger('click')
+    await wrapper.get('.new-folder-row input').setValue('   ')
+    await wrapper.get('.new-folder-row').trigger('submit')
+    expect(create).not.toHaveBeenCalled()
+    expect(wrapper.find('.new-folder-row').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('creates a nested folder and expands its parent', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const create = vi.spyOn(useDocumentsStore(), 'createFolder').mockResolvedValue({ id: 'child' })
+    await wrapper.get('[aria-label="New folder in Projects"]').trigger('click')
+    await wrapper.get('.new-folder-row input').setValue('Child')
+    await wrapper.get('.new-folder-row').trigger('submit')
+    await flushPromises()
+    expect(create).toHaveBeenCalledExactlyOnceWith({ title: 'Child', parentId: 'f-projects' })
+    expect(JSON.parse(localStorage.getItem('cookie-documents-expanded-folders'))).toEqual(
+      expect.arrayContaining(['child', 'f-projects']),
+    )
+    wrapper.unmount()
+  })
+
+  it.each([true, false])(
+    'navigates away from an open document only after successful deletion: %s',
+    async (deleted) => {
+      await router.replace('/documents/d-scratch')
+      const wrapper = mountSidebar()
+      await flushPromises()
+      vi.spyOn(useDocumentsStore(), 'deleteDocument').mockResolvedValue(deleted)
+      confirm.mockReturnValue(true)
+      push.mockClear()
+      await wrapper.get('[aria-label="Delete Scratch"]').trigger('click')
+      await flushPromises()
+      expect(push.mock.calls).toEqual(deleted ? [['/documents']] : [])
+      wrapper.unmount()
+    },
+  )
+})
+
+describe('DocumentsSidebar drag and loading states', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('ignores drags without a supported text payload', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const move = vi.spyOn(useDocumentsStore(), 'moveDocument').mockResolvedValue()
+    const tree = wrapper.get('.documents-tree')
+    await tree.trigger('dragover', { dataTransfer: { types: ['Files'] } })
+    expect(tree.classes()).not.toContain('drop-target')
+    await tree.trigger('drop', { dataTransfer: { getData: () => 'folder:unknown' } })
+    await tree.trigger('drop')
+    expect(move).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('highlights external text drags and clears only when leaving the drop zone', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const tree = wrapper.get('.documents-tree')
+    const dataTransfer = { types: ['text/plain'], dropEffect: '' }
+    await tree.trigger('dragover', { dataTransfer })
+    expect(tree.classes()).toContain('drop-target')
+    expect(dataTransfer.dropEffect).toBe('move')
+    await tree.trigger('dragleave', { relatedTarget: tree.get('.folder-item').element })
+    expect(tree.classes()).toContain('drop-target')
+    await tree.trigger('dragleave', { relatedTarget: document.body })
+    expect(tree.classes()).not.toContain('drop-target')
+    wrapper.unmount()
+  })
+
+  it('moves externally dragged documents into a folder', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const move = vi.spyOn(useDocumentsStore(), 'moveDocument').mockResolvedValue()
+    await wrapper.get('.folder-item').trigger('drop', {
+      dataTransfer: { getData: () => 'document:d-scratch' },
+    })
+    expect(move).toHaveBeenCalledExactlyOnceWith('d-scratch', 'f-projects')
+    wrapper.unmount()
+  })
+
+  it('clears the drag highlight when a document drag ends', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const row = wrapper.get('.documents-tree .doc-item')
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' }
+    await row.trigger('dragstart', { dataTransfer: transfer })
+    await wrapper.get('.folder-item').trigger('dragover', { dataTransfer: transfer })
+    expect(wrapper.get('.folder-item').classes()).toContain('drop-target')
+    await row.trigger('dragend')
+    expect(wrapper.get('.folder-item').classes()).not.toContain('drop-target')
+    expect(transfer.setData).toHaveBeenCalledExactlyOnceWith('text/plain', 'd-scratch')
+    wrapper.unmount()
+  })
+
+  it('disables Today while opening and stays put when no note is returned', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    let finish
+    const open = vi.spyOn(useDocumentsStore(), 'openTodayNote').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const button = wrapper.get('.time-management-nav .nav-item')
+    await button.trigger('click')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(open).toHaveBeenCalledTimes(1)
+    finish(null)
+    await flushPromises()
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(push).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})

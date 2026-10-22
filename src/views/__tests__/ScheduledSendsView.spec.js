@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ScheduledSendsView from '../ScheduledSendsView.vue'
 import { useInboxStore } from '../../stores/inbox'
 
@@ -36,7 +36,45 @@ beforeEach(() => {
   vi.spyOn(store, 'notify').mockImplementation(() => {})
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
 describe('ScheduledSendsView', () => {
+  it('retries loading after a request failure', async () => {
+    const store = useInboxStore()
+    const load = vi.spyOn(store, 'loadScheduledSends').mockResolvedValue()
+    store.scheduledSendsError = 'Could not load scheduled mail.'
+    const wrapper = mount(ScheduledSendsView)
+    await wrapper.get('.scheduled-sends-error button').trigger('click')
+    expect(load).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('keeps the row and reports a failed cancellation', async () => {
+    const store = useInboxStore()
+    vi.spyOn(store, 'loadScheduledSends').mockResolvedValue()
+    const item = {
+      id: 'sched-1',
+      subject: '',
+      toAddresses: 'reader@example.com',
+      scheduledFor: '2026-08-02T09:00:00Z',
+    }
+    store.scheduledSends = [item]
+    vi.spyOn(store, 'cancelScheduledSend').mockRejectedValue(new Error('Connection lost'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = mount(ScheduledSendsView)
+    expect(wrapper.get('.scheduled-sends-subject').text()).toBe('(no subject)')
+    expect(wrapper.get('.scheduled-sends-cancel').element.disabled).toBe(false)
+    await wrapper.get('.scheduled-sends-cancel').trigger('click')
+    await flushPromises()
+    expect(store.notify).toHaveBeenCalledWith('Failed to cancel scheduled send.', 'error')
+    expect(wrapper.findAll('.scheduled-sends-row')).toHaveLength(1)
+    expect(store.isComposerActive).toBe(false)
+    wrapper.unmount()
+  })
+
   it('shows a loading state, not the empty message, while the queue loads', async () => {
     vi.stubGlobal(
       'fetch',
