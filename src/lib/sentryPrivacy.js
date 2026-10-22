@@ -1,5 +1,7 @@
 import { sanitizeMetric } from './sentryMetrics'
 
+export const SENTRY_TUNNEL_PATH = '/monitoring'
+
 const errorTypes = new Set([
   'Error',
   'TypeError',
@@ -175,8 +177,13 @@ export function createSentryOptions(
       browserProfilingIntegration(),
     ],
     tracesSampleRate: 0.1,
-    profileSessionSampleRate: 0.1,
+    // Every session is eligible; profiles only run while one of the 10% of
+    // sampled traces is active, so the trace rate still bounds profile volume.
+    profileSessionSampleRate: 1,
     profileLifecycle: 'trace',
+    // Same-origin path that vercel.json proxies to the Sentry envelope
+    // endpoint, so ad and privacy blockers do not drop telemetry.
+    tunnel: SENTRY_TUNNEL_PATH,
     // Observe request timings without forwarding tracing headers to APIs.
     tracePropagationTargets: [],
     // Sentry 11 collects these categories by default. Mailbox content and

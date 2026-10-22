@@ -6,7 +6,13 @@
       "permanent": false
     }
   ],
-  "rewrites": [{ "source": "/((?!api/|assets/).*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/monitoring",
+      "destination": "https://o4510748410576896.ingest.de.sentry.io/api/4511682260566096/envelope/"
+    },
+    { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",

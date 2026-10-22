@@ -65,8 +65,9 @@ describe('browser error monitoring', () => {
         tracesSampleRate: 0.1,
         tracePropagationTargets: [],
         integrations: [{ name: 'BrowserTracing' }, { name: 'BrowserProfiling' }],
-        profileSessionSampleRate: 0.1,
+        profileSessionSampleRate: 1,
         profileLifecycle: 'trace',
+        tunnel: '/monitoring',
         beforeSendSpan: expect.any(Function),
         beforeSendMetric: expect.any(Function),
         dataCollection: {
