@@ -40,4 +40,23 @@ describe('content security policy', () => {
     expect(connect).toContain('https://vercel.com')
     expect(connect).toContain('https://*.vercel-storage.com')
   })
+
+  it.each([
+    ['script-src', ['https://vercel.live']],
+    ['connect-src', ['https://vercel.live', 'wss://ws-us3.pusher.com']],
+    ['frame-src', ['https://vercel.live']],
+    ['style-src', ['https://vercel.live']],
+    ['font-src', ['https://vercel.live', 'https://assets.vercel.com']],
+  ])('allows the Vercel Toolbar resources in %s', (directive, sources) => {
+    expect(csp()[directive]).toEqual(expect.arrayContaining(sources))
+  })
+
+  it('keeps script execution restricted to the app and Vercel Toolbar', () => {
+    const policy = csp()
+    expect(policy['script-src']).toEqual(["'self'", 'https://vercel.live'])
+    expect(policy['object-src']).toEqual(["'none'"])
+    expect(policy['frame-ancestors']).toEqual(["'none'"])
+    // The existing HTTPS image policy already covers Vercel Toolbar images.
+    expect(policy['img-src']).toEqual(expect.arrayContaining(['https:', 'data:', 'blob:']))
+  })
 })

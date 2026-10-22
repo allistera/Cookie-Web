@@ -287,6 +287,11 @@ Vercel stores browser build values. GitHub Actions stores only the secrets its m
 
 ### Browser monitoring and Vercel configuration
 
+The page Content Security Policy permits the Vercel Toolbar's documented script,
+connection, frame, style, and font origins, including its Pusher WebSocket. This
+supports the toolbar when Vercel injects it in production or preview deployments.
+See [Vercel's toolbar CSP requirements](https://vercel.com/docs/vercel-toolbar/managing-toolbar#content-security-policy).
+
 The browser uses [`@sentry/vue`](https://docs.sentry.io/platforms/javascript/guides/vue/)
 for errors, page-load/navigation performance, request timings, Web Vitals, and
 browser CPU profiles where the JavaScript Self-Profiling API is supported.
