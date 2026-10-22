@@ -36,7 +36,7 @@ describe('Sentry payload privacy', () => {
         },
       })
       for (const key of ['sentry.profiler_id', 'sentry.profile_id', 'thread.id', 'thread.name']) {
-        expect(attributes).not.toHaveProperty(key)
+        expect(Object.hasOwn(attributes, key)).toBe(false)
       }
     },
   )
