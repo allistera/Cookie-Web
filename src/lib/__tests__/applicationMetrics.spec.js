@@ -6,6 +6,8 @@ beforeEach(async () => {
   vi.stubEnv('PROD', true)
   vi.stubEnv('VITE_E2E', 'false')
   vi.stubEnv('VITE_SENTRY_DSN', 'https://public@example.com/1')
+  vi.stubEnv('VITE_SENTRY_ENVIRONMENT', 'production')
+  vi.stubEnv('VITE_SENTRY_RELEASE', '')
   ;({ recordTiming } = await import('../applicationMetrics'))
   ;({ connectMetrics, sanitizeMetric } = await import('../sentryMetrics'))
 })
@@ -89,10 +91,61 @@ describe('application metrics', () => {
       name: 'web.operations',
       value: 1,
       type: 'counter',
-      attributes: { service: 'cookie-web', operation: 'search' },
+      attributes: {
+        service: 'cookie-web',
+        operation: 'search',
+        'sentry.environment': 'production',
+      },
     })
     expect(sanitizeMetric({ ...input, name: 'private' })).toBeNull()
     expect(sanitizeMetric({ ...input, value: Infinity })).toBeNull()
     expect(sanitizeMetric({ ...input, attributes: { operation: 'private' } })).toBeNull()
+  })
+
+  it('preserves deployment filters while removing user and request context', () => {
+    vi.stubEnv('VITE_SENTRY_ENVIRONMENT', 'preview')
+    vi.stubEnv('VITE_SENTRY_RELEASE', 'release-123')
+    const metric = sanitizeMetric({
+      name: 'web.operation.duration',
+      value: 12,
+      attributes: {
+        operation: 'search',
+        'sentry.environment': 'untrusted-environment',
+        'sentry.release': 'untrusted-release',
+        'user.email': 'private@example.com',
+        'sentry.replay_id': 'private-session',
+        url: 'https://example.com/private',
+      },
+    })
+    expect(metric).toEqual({
+      name: 'web.operation.duration',
+      value: 12,
+      type: 'distribution',
+      unit: 'millisecond',
+      attributes: {
+        service: 'cookie-web',
+        operation: 'search',
+        'sentry.environment': 'preview',
+        'sentry.release': 'release-123',
+      },
+    })
+  })
+
+  it('drops malformed deployment metadata', () => {
+    expect(
+      sanitizeMetric({
+        name: 'web.operations',
+        value: 1,
+        attributes: {
+          operation: 'search',
+          'sentry.environment': { private: 'mail' },
+          'sentry.release': ['private'],
+        },
+      }).attributes,
+    ).toEqual({
+      service: 'cookie-web',
+      operation: 'search',
+      'sentry.environment': 'production',
+    })
   })
 })
