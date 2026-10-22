@@ -9,7 +9,7 @@
   "rewrites": [
     {
       "source": "/monitoring",
-      "destination": "https://o4510748410576896.ingest.de.sentry.io/api/4511682260566096/envelope/"
+      "destination": "https://o4512301183074304.ingest.de.sentry.io/api/4512301205749840/envelope/"
     },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ],
