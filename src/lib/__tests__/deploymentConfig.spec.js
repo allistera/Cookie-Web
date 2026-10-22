@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import { SENTRY_TUNNEL_PATH } from '../sentryPrivacy'
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 describe('deployment caching', () => {
@@ -58,5 +60,30 @@ describe('content security policy', () => {
     expect(policy['frame-ancestors']).toEqual(["'none'"])
     // The existing HTTPS image policy already covers Vercel Toolbar images.
     expect(policy['img-src']).toEqual(expect.arrayContaining(['https:', 'data:', 'blob:']))
+  })
+})
+
+describe('sentry tunnel', () => {
+  function rewrites() {
+    return JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')).rewrites
+  }
+
+  // Ad and privacy blockers cancel requests to *.ingest.sentry.io, so the SDK
+  // posts envelopes to a same-origin path that Vercel proxies to Sentry.
+  it('proxies the SDK tunnel path to the Sentry envelope endpoint', () => {
+    const tunnel = rewrites().find((entry) => entry.source === SENTRY_TUNNEL_PATH)
+    expect(tunnel?.destination).toMatch(
+      /^https:\/\/o\d+\.ingest\.(?:de|us)\.sentry\.io\/api\/\d+\/envelope\/$/u,
+    )
+  })
+
+  // Vercel applies the first matching rewrite, so the SPA fallback must not
+  // swallow tunnel posts and answer them with index.html.
+  it('matches the tunnel before the single-page app fallback', () => {
+    const sources = rewrites().map((entry) => entry.source)
+    expect(sources.indexOf(SENTRY_TUNNEL_PATH)).toBeLessThan(
+      sources.indexOf('/((?!api/|assets/).*)'),
+    )
+    expect(sources.indexOf(SENTRY_TUNNEL_PATH)).toBeGreaterThanOrEqual(0)
   })
 })

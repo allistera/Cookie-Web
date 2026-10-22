@@ -319,12 +319,18 @@ Browser tracing samples 10% of traces and uses Vue router names for navigation.
 It records numeric Web Vitals and timing data, with URLs, query strings,
 DOM selectors/text, arbitrary span attributes, and span links removed before
 sending. Only the app's known route names and standard operation names survive.
-Browser profiling samples 10% of sessions and runs while sampled traces are
-active (`profileLifecycle: 'trace'`). Vercel sends `Document-Policy: js-profiling`
-on app document responses. Supported browsers can then collect execution-stack
+Browser profiling is enabled for every session and runs only while one of
+the sampled traces is active (`profileLifecycle: 'trace'`), so the trace rate
+bounds profile volume. Vercel sends `Document-Policy: js-profiling` on app
+document responses. Supported browsers can then collect execution-stack
 samples; browsers without the profiling API still report errors and traces.
 Profiles include code locations and function names, not mailbox values; they
 are separate from the error/span filtering described here.
+The SDK posts envelopes to the same-origin `/monitoring` path (`tunnel`), which
+`vercel.json` rewrites to the project's Sentry envelope endpoint. Browsers with
+ad or privacy blockers cancel direct requests to `*.ingest.sentry.io`, so
+without the tunnel their errors, traces, and profiles never arrive. Update the
+rewrite destination if the Sentry organisation or project changes.
 Request tracing headers are not propagated to APIs. This covers browser
 performance, not backend tracing or custom business metrics. Session replay
 and application log collection remain disabled.
