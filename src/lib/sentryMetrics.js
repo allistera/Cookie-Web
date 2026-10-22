@@ -37,8 +37,17 @@ export function sanitizeMetric(metric) {
     name: metric.name,
     value: metric.value,
     type: metric.name === 'web.operations' ? 'counter' : 'distribution',
-    attributes: { service: 'cookie-web', operation: metric.attributes.operation },
+    attributes: {
+      service: 'cookie-web',
+      operation: metric.attributes.operation,
+      'sentry.environment': import.meta.env.VITE_SENTRY_ENVIRONMENT || 'production',
+    },
   }
   if (metric.name === 'web.operation.duration') sanitized.unit = 'millisecond'
+  // Rebuild deployment labels from the same configuration as the SDK so
+  // dashboard filters work without retaining arbitrary enriched attributes.
+  if (import.meta.env.VITE_SENTRY_RELEASE) {
+    sanitized.attributes['sentry.release'] = import.meta.env.VITE_SENTRY_RELEASE
+  }
   return sanitized
 }

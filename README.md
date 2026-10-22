@@ -359,6 +359,15 @@ view in a supported browser; sampling means
 not every visit appears. Source-map upload and live ingestion require valid
 Sentry configuration and cannot be verified by the credential-free CI build.
 
+If profiling is empty, check the browser's Sentry envelope requests. Browser
+profiling requires a supported Chromium browser and the `Document-Policy:
+js-profiling` response header. Both trace and profiling session sampling apply.
+Profile chunks are uploaded separately; the span privacy filter preserves only
+validated profiler/profile IDs and fixed thread metadata to link them to traces.
+A `429` with `profile_duration_ui_usage_exceeded` indicates an organization
+profiling quota limit in Sentry; changing the DSN or enabling profiling again
+does not resolve that quota. Review Sentry usage and limits before changing them.
+
 ### Auth0 user provisioning
 
 API authorization binds the token's verified Auth0 issuer and immutable `sub`
@@ -389,10 +398,10 @@ npm run test:e2e
 ```
 
 CI measures all JavaScript and Vue application source under `src/` and `api/`,
-including files not imported by tests. Test files are excluded. The per-file target
-is 100% for lines, statements, functions, and branches. CI uploads detailed JSON,
-JSON summary, and LCOV reports as the `unit-coverage` artifact, including when the
-coverage target is not met, so gaps remain traceable to the tested revision.
+including files not imported by tests. Test files are excluded. Coverage is
+reported without a minimum percentage requirement. CI uploads detailed JSON,
+JSON summary, and LCOV reports as the `unit-coverage` artifact so gaps remain
+traceable to the tested revision.
 
 Install Playwright browsers once if required:
 
@@ -614,10 +623,14 @@ the Vercel upload-token and proxy handlers do not have server-side Sentry client
 
 Up to 100 early timing observations are buffered while the lazy SDK loads.
 Development, E2E, and builds without a DSN do not collect metrics. The metric
-filter allows only fixed metric names, operation labels, and the `cookie-web`
-service, stripping user identity and arbitrary SDK attributes. No mail content,
+filter allows only fixed metric names, operation labels, the `cookie-web`
+service, and SDK environment/release labels so dashboard filters work. It strips
+user identity and arbitrary SDK attributes. No mail content,
 URLs, document IDs, or search terms are included.
 
 After deployment, navigate, search, and open a message, then verify both metric
 names in Sentry's Application Metrics view. CI verifies instrumentation and
 privacy behavior; live ingestion requires authenticated access to Sentry.
+When investigating missing metrics from older releases, clear the environment
+filter: those releases stripped the SDK environment/release labels. Successful
+envelope responses verify transport acceptance, not dashboard visibility.

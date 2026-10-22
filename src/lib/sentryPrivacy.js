@@ -127,6 +127,16 @@ export function sanitizeSpan(span) {
   for (const key of ['sentry.segment.id', 'sentry.pageload.span_id']) {
     if (/^[0-9a-f]{16}$/iu.test(source[key])) attributes[key] = source[key]
   }
+  // Profiles are uploaded separately. These opaque IDs link spans to their
+  // profile chunks; dropping them makes accepted profiles hard to discover.
+  for (const key of ['sentry.profiler_id', 'sentry.profile_id']) {
+    const id = /^[0-9a-f]{32}$/iu.exec(source[key])?.[0]
+    if (id && id === source[key]) attributes[key] = id
+  }
+  if (source['thread.id'] === '0') attributes['thread.id'] = '0'
+  if (['main', 'worker'].includes(source['thread.name'])) {
+    attributes['thread.name'] = source['thread.name']
+  }
   for (const key of numericAttributes) {
     if (Number.isFinite(source[key])) {
       attributes[key] = source[key]
