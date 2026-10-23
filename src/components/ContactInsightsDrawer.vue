@@ -19,6 +19,16 @@ let ownerAddress = null
 
 const contact = computed(() => store.contact)
 const displayName = computed(() => contact.value?.name || contact.value?.address || 'Contact')
+// Where a block applies: the sender's whole domain ('@example.com' covers its
+// subdomains too) or, for public email providers, this exact address.
+const blocked = computed(() => {
+  const screening = store.screening
+  if (screening?.decision !== 'blocked') return null
+  const key = String(screening.key ?? '')
+  return key.startsWith('@')
+    ? { scope: 'domain', text: `Domain blocked: ${key.slice(1)} and its subdomains` }
+    : { scope: 'address', text: 'Address blocked' }
+})
 const initials = computed(() => {
   const source = contact.value?.name || contact.value?.address?.split('@')[0] || ''
   return (
@@ -136,6 +146,15 @@ onBeforeUnmount(() => {
           <span>{{ contact.address }}</span>
         </span>
       </section>
+
+      <p v-if="blocked" class="contact-screening-blocked" :data-scope="blocked.scope">
+        <span class="material-symbols-outlined" aria-hidden="true">block</span>
+        <span>{{ blocked.text }}</span>
+        <router-link to="/settings/senders">Manage</router-link>
+      </p>
+      <p v-else-if="store.screening?.failed" class="contact-screening-unknown">
+        Could not check whether this sender is blocked.
+      </p>
 
       <section class="contact-profile" aria-label="Contact profile">
         <label>
@@ -356,6 +375,44 @@ onBeforeUnmount(() => {
   color: var(--text-blue);
   font-size: 16px;
   font-weight: 700;
+}
+
+.contact-screening-blocked,
+.contact-screening-unknown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.contact-screening-blocked {
+  background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
+  color: var(--danger, #e5484d);
+}
+
+.contact-screening-blocked .material-symbols-outlined {
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.contact-screening-blocked > span:not(.material-symbols-outlined) {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.contact-screening-blocked a {
+  flex-shrink: 0;
+  color: inherit;
+  font-weight: 600;
+}
+
+.contact-screening-unknown {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
 }
 
 .contact-profile {

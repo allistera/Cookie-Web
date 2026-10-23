@@ -51,6 +51,32 @@ describe('ContactInsightsDrawer', () => {
     expect(openHistoryEmail).toHaveBeenCalledWith(store.history[0])
   })
 
+  it('says when the contact is blocked, naming the domain or the address', async () => {
+    const store = readyStore()
+    store.screening = { key: '@example.com', decision: 'blocked', failed: false }
+    const wrapper = mount(ContactInsightsDrawer, { global: { stubs: { RouterLink: true } } })
+
+    const notice = wrapper.get('.contact-screening-blocked')
+    expect(notice.text()).toContain('Domain blocked: example.com and its subdomains')
+    expect(notice.attributes('data-scope')).toBe('domain')
+
+    store.screening = { key: 'alex@example.com', decision: 'blocked', failed: false }
+    await flushPromises()
+    expect(wrapper.get('.contact-screening-blocked').text()).toContain('Address blocked')
+    expect(wrapper.get('.contact-screening-blocked').attributes('data-scope')).toBe('address')
+
+    store.screening = { key: '@example.com', decision: 'accepted', failed: false }
+    await flushPromises()
+    expect(wrapper.find('.contact-screening-blocked').exists()).toBe(false)
+    expect(wrapper.find('.contact-screening-unknown').exists()).toBe(false)
+
+    store.screening = { key: null, decision: null, failed: true }
+    await flushPromises()
+    expect(wrapper.get('.contact-screening-unknown').text()).toContain(
+      'Could not check whether this sender is blocked.',
+    )
+  })
+
   it('autosaves private notes after typing pauses', async () => {
     const store = readyStore()
     const saveContact = vi.spyOn(store, 'saveContact').mockResolvedValue(true)

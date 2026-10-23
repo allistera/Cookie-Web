@@ -3135,6 +3135,37 @@ test('Contact insights opens from an email address and saves private context', a
   await expect(drawer.getByPlaceholder('Add a private note about this contact…')).toHaveValue(note)
 })
 
+test('Contact insights says when the sender’s domain is blocked', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/inbox')
+  // A domain decision covers every address on it, so insights for
+  // updates@cityconstruction.com must report the domain block.
+  const blocked = await page.request.put('/__e2e__/emails-api/emails/senders', {
+    data: { action: 'block', address: '@cityconstruction.com' },
+  })
+  expect(blocked.ok()).toBe(true)
+
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  const reader = page.locator('.ni-reader')
+  await reader
+    .locator('.contact-address', { hasText: 'updates@cityconstruction.com' })
+    .first()
+    .hover()
+  await reader
+    .getByRole('dialog', { name: 'Contact actions for updates@cityconstruction.com' })
+    .getByRole('button', { name: 'View Insights' })
+    .click()
+
+  const drawer = page.getByRole('complementary', { name: 'Contact insights' })
+  const notice = drawer.locator('.contact-screening-blocked')
+  await expect(notice).toContainText('Domain blocked: cityconstruction.com and its subdomains')
+  await notice.getByRole('link', { name: 'Manage' }).click()
+  await expect(page).toHaveURL(/\/settings\/senders$/)
+  await expect(page.locator('.sender-settings')).toContainText(
+    'cityconstruction.com and its subdomains — blocked',
+  )
+})
+
 test('two-finger swipes over the inbox list move between category tabs, and only there', async ({
   page,
 }) => {
