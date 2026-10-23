@@ -158,17 +158,50 @@ export function localApiPlugin(mode) {
         res.end(JSON.stringify({ address, decision: state.senderDecisions.get(address) || null }))
         return
       }
-      const requested = url.searchParams.get('address')
+      const requested = String(url.searchParams.get('address') ?? '')
+        .trim()
+        .toLowerCase()
       const after = url.searchParams.get('after') || ''
-      const decisions = [...state.senderDecisions]
-        .map(([address, decision]) => ({ address, decision }))
-        .filter((entry) => entry.address > after && (!requested || requested === entry.address))
+      const decisions = [...state.senderDecisions].map(([address, decision]) => ({
+        address,
+        decision,
+      }))
+      if (requested) {
+        // Mirrors effective_sender_decision(): the sender's own row, else the
+        // most specific '@domain' row covering its domain or a subdomain.
+        const domain = requested.slice(requested.lastIndexOf('@') + 1)
+        const effective = decisions
+          .filter(
+            (entry) =>
+              entry.address === requested ||
+              (entry.address.startsWith('@') &&
+                (domain === entry.address.slice(1) ||
+                  domain.endsWith(`.${entry.address.slice(1)}`))),
+          )
+          .sort((a, b) =>
+            a.address === requested
+              ? -1
+              : b.address === requested
+                ? 1
+                : b.address.length - a.address.length,
+          )
+        res.end(
+          JSON.stringify({
+            enabled: state.senderScreening,
+            decisions: effective.slice(0, 1),
+            nextCursor: null,
+          }),
+        )
+        return
+      }
+      const page = decisions
+        .filter((entry) => entry.address > after)
         .sort((a, b) => a.address.localeCompare(b.address))
       res.end(
         JSON.stringify({
           enabled: state.senderScreening,
-          decisions: decisions.slice(0, 50),
-          nextCursor: decisions.length > 50 ? decisions[49].address : null,
+          decisions: page.slice(0, 50),
+          nextCursor: page.length > 50 ? page[49].address : null,
         }),
       )
       return

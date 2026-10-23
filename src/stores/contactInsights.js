@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { MESSAGES_API_URL } from '../lib/apiWorkers'
+import { EMAILS_API_URL, MESSAGES_API_URL } from '../lib/apiWorkers'
 import { jsonRequest } from '../lib/jsonRequest'
 import { useInboxStore } from './inbox'
 
@@ -10,10 +10,29 @@ function cleanAddress(value) {
     .toLowerCase()
 }
 
+// The screening decision that applies to this sender: its own row, else the
+// most specific domain row covering it ('@example.com'). `decision` is null
+// when none applies; `failed` marks a lookup that could not be completed, so
+// the drawer never presents an unknown decision as "not blocked".
+async function fetchScreening(address, headers) {
+  try {
+    const data = await jsonRequest(
+      `${EMAILS_API_URL}/emails/senders?address=${encodeURIComponent(address)}`,
+      { headers },
+    )
+    const applied = data.decisions?.[0] ?? null
+    return { key: applied?.address ?? null, decision: applied?.decision ?? null, failed: false }
+  } catch (error) {
+    console.error('Failed to load the sender decision:', error)
+    return { key: null, decision: null, failed: true }
+  }
+}
+
 export const useContactInsightsStore = defineStore('contactInsights', {
   state: () => ({
     isOpen: false,
     contact: null,
+    screening: null,
     history: [],
     nextCursor: null,
     isLoading: false,
@@ -37,6 +56,7 @@ export const useContactInsightsStore = defineStore('contactInsights', {
         linkedinUrl: null,
         notes: '',
       }
+      this.screening = null
       this.history = []
       this.nextCursor = null
       this.loadError = ''
@@ -58,10 +78,12 @@ export const useContactInsightsStore = defineStore('contactInsights', {
         const headers = await useInboxStore().authHeaders()
         const params = new URLSearchParams({ address, limit: '10' })
         if (more) params.set('before', this.nextCursor)
-        const data = await jsonRequest(`${MESSAGES_API_URL}/messages/contact-insights?${params}`, {
-          headers,
-        })
+        const [data, screening] = await Promise.all([
+          jsonRequest(`${MESSAGES_API_URL}/messages/contact-insights?${params}`, { headers }),
+          more ? this.screening : fetchScreening(address, headers),
+        ])
         if (requestId !== this.requestId || this.contact?.address !== address) return
+        this.screening = screening
         this.contact = {
           ...this.contact,
           ...data.contact,
