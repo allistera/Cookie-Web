@@ -620,7 +620,8 @@ Deploy Cookie-Web migration `0099_project_favorites.sql` before the task Worker,
 then the web client. `GET /projects` and project write responses include the
 boolean `isFavorite`; `PATCH /projects` accepts it to add or remove a favorite.
 
-Processing appears under **More** only while its message count is above zero.
+Mail processing stays inside the Worker. The web app has no Processing folder,
+count, or classification status; old Processing links open the normal inbox.
 
 Document AI sends a random conversation UUID to the AI Worker, reusing it across
 turns and retries and resetting it when switching documents. The Worker uses this

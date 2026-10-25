@@ -77,7 +77,7 @@ describe('application shell', () => {
     const compose = vi.spyOn(store, 'openComposer').mockImplementation(() => {})
     await wrapper.get('.compose-btn').trigger('click')
     expect(compose).toHaveBeenCalledOnce()
-    store.processingCount = 2
+    store.applyFolderCounts({ processingCount: 2 })
     store.snoozedCount = 1
     store.scheduledCountHint = 1
     store.spamCount = 1
@@ -85,19 +85,11 @@ describe('application shell', () => {
     store.starredCount = 1
     store.drafts = [{ id: 'draft' }]
     await wrapper.get('a[href="#"]').trigger('click')
-    for (const label of [
-      'Processing',
-      'Snoozed',
-      'Scheduled',
-      'Drafts',
-      'Spam',
-      'Blocked',
-      'Starred',
-    ]) {
+    for (const label of ['Snoozed', 'Scheduled', 'Drafts', 'Spam', 'Blocked', 'Starred']) {
       expect(wrapper.findAll('.nav-text').map((node) => node.text())).toContain(label)
     }
-    await wrapper.get('a[href="#"]').trigger('click')
     expect(wrapper.findAll('.nav-text').map((node) => node.text())).not.toContain('Processing')
+    await wrapper.get('a[href="#"]').trigger('click')
   })
 
   it.each([

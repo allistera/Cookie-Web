@@ -479,14 +479,6 @@ const folderLoadSeq = {}
 // has its own loader: it additionally tracks the unread count, userId, and
 // search interplay. Folders without consumers of a "loaded" flag omit it.
 const FOLDER_STATE = {
-  processing: {
-    list: 'processingEmails',
-    cursor: 'processingCursor',
-    hasMore: 'hasMoreProcessing',
-    loaded: 'isProcessingLoaded',
-    refreshing: 'isProcessingRefreshing',
-    label: 'processing mail',
-  },
   screening: {
     list: 'screeningEmails',
     cursor: 'screeningCursor',
@@ -564,8 +556,6 @@ export function mapEmailRow(message) {
     sender: message.from_name || message.from_address,
     address: message.from_address,
     screeningStatus: message.screening_status ?? 'allowed',
-    aiStatus: message.ai_status ?? null,
-    enrichmentFailures: message.enrichment_attempts ?? 0,
     // Outbound rows render "To: <recipient>" instead of the sender.
     isSent: Boolean(message.is_sent),
     to: firstRecipient ? firstRecipient.name || firstRecipient.address : null,
@@ -713,12 +703,6 @@ export const useInboxStore = defineStore('inbox', {
     isSentLoaded: false,
     isSentRefreshing: false,
     spamEmails: [],
-    processingEmails: [],
-    processingCursor: null,
-    hasMoreProcessing: false,
-    isProcessingLoaded: false,
-    isProcessingRefreshing: false,
-    processingCount: 0,
     screeningEmails: [],
     screeningCursor: null,
     hasMoreScreening: false,
@@ -998,7 +982,6 @@ export const useInboxStore = defineStore('inbox', {
         state.labelEmails.find((e) => e.id === id) ??
         state.sentEmails.find((e) => e.id === id) ??
         state.spamEmails.find((e) => e.id === id) ??
-        state.processingEmails.find((e) => e.id === id) ??
         state.screeningEmails.find((e) => e.id === id) ??
         state.blockedEmails.find((e) => e.id === id) ??
         state.snoozedEmails.find((e) => e.id === id) ??
@@ -1140,7 +1123,6 @@ export const useInboxStore = defineStore('inbox', {
       snoozedCount,
       scheduledCount,
       starredCount,
-      processingCount,
       screeningCount,
       blockedCount,
     }) {
@@ -1148,7 +1130,6 @@ export const useInboxStore = defineStore('inbox', {
       if (Number.isFinite(snoozedCount)) this.snoozedCount = snoozedCount
       if (Number.isFinite(scheduledCount)) this.scheduledCountHint = scheduledCount
       if (Number.isFinite(starredCount)) this.starredCount = starredCount
-      if (Number.isFinite(processingCount)) this.processingCount = processingCount
       if (Number.isFinite(screeningCount)) this.screeningCount = screeningCount
       if (Number.isFinite(blockedCount)) this.blockedCount = blockedCount
     },
@@ -1285,7 +1266,6 @@ export const useInboxStore = defineStore('inbox', {
       return Promise.all([
         this.isInboxLoaded ? this.refreshInboxEmails() : this.loadInboxState({ force: true }),
         this.loadDrafts({ silent: true }),
-        this.isProcessingLoaded ? this.loadFolder('processing') : Promise.resolve(),
         this.isScreeningLoaded ? this.loadFolder('screening') : Promise.resolve(),
         this.isBlockedLoaded ? this.loadFolder('blocked') : Promise.resolve(),
       ])
@@ -2697,7 +2677,6 @@ export const useInboxStore = defineStore('inbox', {
         this.spamEmails,
         this.doneEmails,
         this.sentEmails,
-        this.processingEmails,
         this.screeningEmails,
         this.blockedEmails,
       ])
@@ -2925,7 +2904,6 @@ export const useInboxStore = defineStore('inbox', {
         'spamCount',
         'snoozedCount',
         'starredCount',
-        'processingCount',
         'screeningCount',
         'blockedCount',
         'scheduledCountHint',
