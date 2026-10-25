@@ -16,7 +16,6 @@ defineProps({
   highlighted: { type: Boolean, default: false },
   hasAiSummary: { type: Boolean, default: false },
   showDone: { type: Boolean, default: true },
-  showProcessing: { type: Boolean, default: false },
 })
 
 defineEmits(['open', 'toggle-select', 'toggle-star', 'done', 'toggle-unread'])
@@ -68,11 +67,6 @@ function followUpTitle(followUpAt) {
         >auto_awesome</span
       >
       <span class="ni-subject-text">{{ email.subject }}</span>
-      <span v-if="showProcessing" class="ni-processing-status">
-        {{
-          email.enrichmentFailures >= 3 ? 'Classification unavailable' : 'Awaiting classification'
-        }}
-      </span>
     </div>
     <div class="ni-row-labels">
       <span
@@ -147,11 +141,3 @@ function followUpTitle(followUpAt) {
     </div>
   </div>
 </template>
-
-<style scoped>
-.ni-processing-status {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-left: 8px;
-}
-</style>

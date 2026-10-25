@@ -142,7 +142,6 @@ describe('mailbox account isolation', () => {
       'starredEmails',
       'labelEmails',
       'doneEmails',
-      'processingEmails',
       'screeningEmails',
       'blockedEmails',
       'labels',

@@ -620,7 +620,8 @@ Deploy Cookie-Web migration `0099_project_favorites.sql` before the task Worker,
 then the web client. `GET /projects` and project write responses include the
 boolean `isFavorite`; `PATCH /projects` accepts it to add or remove a favorite.
 
-Processing appears under **More** only while its message count is above zero.
+Mail processing stays inside the Worker. The web app has no Processing folder,
+count, or classification status; old Processing links open the normal inbox.
 
 Document AI sends a random conversation UUID to the AI Worker, reusing it across
 turns and retries and resetting it when switching documents. The Worker uses this
@@ -651,3 +652,12 @@ privacy behavior; live ingestion requires authenticated access to Sentry.
 When investigating missing metrics from older releases, clear the environment
 filter: those releases stripped the SDK environment/release labels. Successful
 envelope responses verify transport acceptance, not dashboard visibility.
+
+### Vercel dependency security pins
+
+The npm overrides pin Vercel Blob's `undici` to `6.29.1` and Vercel CLI
+configuration's `zod` to `4.6.7` to address the dependency audit advisories
+GHSA-4qv8-2p9j-2685, GHSA-xjj6-f33q-929c, and GHSA-mrhx-c7xc-m3w5.
+These stay within the existing major versions. The scoped pins leave unrelated
+consumers unchanged; remove them when the upstream dependency tree resolves to
+patched versions without overrides.

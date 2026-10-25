@@ -63,11 +63,6 @@ const threadMutePending = computed(() => store.mutingThreadIds.has(threadMuteBod
 // server-backed lists loaded lazily when opened. The inbox still hides
 // starred rows client-side so starring moves mail out of Inbox immediately.
 const FILTER_META = {
-  processing: {
-    title: 'Processing',
-    icon: 'hourglass_top',
-    emptyText: 'No mail awaiting processing.',
-  },
   screening: { title: 'New senders', icon: 'person', emptyText: 'No senders awaiting review.' },
   blocked: { title: 'Blocked', icon: 'visibility_off', emptyText: 'No blocked mail.' },
   starred: { title: 'Starred', icon: 'star', emptyText: 'No starred emails.' },
@@ -91,19 +86,11 @@ watch(
     if (filter === 'done') store.loadDonePage(0)
     if (filter === 'starred') store.loadStarredEmails()
     if (filter === 'label') store.loadLabelEmails(label)
-    if (['processing', 'screening', 'blocked'].includes(filter)) store.loadFolder(filter)
+    if (['screening', 'blocked'].includes(filter)) store.loadFolder(filter)
     if (
-      ![
-        'sent',
-        'spam',
-        'snoozed',
-        'done',
-        'starred',
-        'label',
-        'screening',
-        'blocked',
-        'processing',
-      ].includes(filter) &&
+      !['sent', 'spam', 'snoozed', 'done', 'starred', 'label', 'screening', 'blocked'].includes(
+        filter,
+      ) &&
       !store.isInboxLoaded &&
       store.traditionalEmails.length === 0
     ) {
@@ -220,8 +207,6 @@ const activeTab = computed(() => {
 
 const filteredEmails = computed(() => {
   switch (activeFilter.value) {
-    case 'processing':
-      return store.processingEmails
     case 'screening':
       return store.screeningEmails
     case 'blocked':
@@ -276,7 +261,6 @@ const showInboxZero = computed(
 
 const showLoadMore = computed(() => {
   if (store.activeSearchQuery) return false
-  if (activeFilter.value === 'processing') return store.hasMoreProcessing
   if (activeFilter.value === 'screening') return store.hasMoreScreening
   if (activeFilter.value === 'blocked') return store.hasMoreBlocked
   if (activeFilter.value === 'sent') return store.hasMoreSent
@@ -294,7 +278,6 @@ const showDonePager = computed(
 )
 
 const isLoadingMore = computed(() => {
-  if (activeFilter.value === 'processing') return store.isProcessingRefreshing
   if (activeFilter.value === 'screening') return store.isScreeningRefreshing
   if (activeFilter.value === 'blocked') return store.isBlockedRefreshing
   if (activeFilter.value === 'sent') return store.isSentRefreshing
@@ -307,7 +290,7 @@ const isLoadingMore = computed(() => {
 })
 
 function loadMore() {
-  if (['processing', 'screening', 'blocked'].includes(activeFilter.value))
+  if (['screening', 'blocked'].includes(activeFilter.value))
     store.loadMoreFolder(activeFilter.value)
   else if (activeFilter.value === 'sent') store.loadMoreSentEmails()
   else if (activeFilter.value === 'spam') store.loadMoreSpamEmails()
@@ -2119,11 +2102,6 @@ onUnmounted(() => {
     </div>
 
     <!-- Header -->
-    <p v-if="activeFilter === 'processing'" class="ni-processing-notice" role="status">
-      This mail is available to read while automatic classification is pending or unavailable. Spam
-      checks are incomplete; remote images remain blocked by default.
-      <button type="button" @click="store.loadFolder('processing')">Refresh</button>
-    </p>
     <div v-if="activeFilter" class="ni-header">
       <div class="ni-title">
         <span class="material-symbols-outlined ni-title-icon" :style="headerIconStyle">{{
@@ -2183,7 +2161,6 @@ onUnmounted(() => {
           :highlighted="highlightedId === row.email.id"
           :has-ai-summary="emailHasAiSummary(row.email)"
           :show-done="activeFilter !== 'done'"
-          :show-processing="activeFilter === 'processing'"
           @open="openReader"
           @toggle-select="toggleSelect"
           @toggle-star="toggleStar"
@@ -3077,13 +3054,5 @@ onUnmounted(() => {
 .ni-label-loading {
   display: flex;
   justify-content: center;
-}
-.ni-processing-notice {
-  padding: 12px 24px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.ni-processing-notice button {
-  margin-left: 8px;
 }
 </style>

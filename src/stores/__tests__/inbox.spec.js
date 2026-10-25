@@ -783,8 +783,6 @@ describe('Inbox Store', () => {
         isPriority: false,
         isArchived: false,
         screeningStatus: 'allowed',
-        aiStatus: null,
-        enrichmentFailures: 0,
         to: null,
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
@@ -5668,43 +5666,12 @@ describe('finding an email by id', () => {
 })
 
 describe('sidebar folder counts', () => {
-  it('loads and opens processing mail with status while keeping its own pagination', async () => {
+  it('ignores worker-only processing counts', () => {
     const store = useInboxStore()
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          emails: [
-            {
-              id: 'pending-mail',
-              from_address: 'sender@example.com',
-              subject: 'Still readable',
-              sent_at: new Date().toISOString(),
-              ai_status: 'pending',
-              enrichment_attempts: 3,
-            },
-          ],
-          nextCursor: 'next',
-        }),
-      }),
-    )
-    await store.loadFolder('processing')
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('folder=processing'),
-      expect.anything(),
-    )
-    expect(store.emailById('pending-mail')).toMatchObject({
-      subject: 'Still readable',
-      aiStatus: 'pending',
-      enrichmentFailures: 3,
-    })
-    expect(store.hasMoreProcessing).toBe(true)
-    store.applyFolderCounts({ processingCount: 1 })
-    expect(store.processingCount).toBe(1)
-    store.setComposeOwner('another-account')
-    expect(store.processingEmails).toEqual([])
-    expect(store.processingCount).toBe(0)
+    store.applyFolderCounts({ processingCount: 2, starredCount: 1 })
+    expect(store.$state).not.toHaveProperty('processingCount')
+    expect(store.$state).not.toHaveProperty('processingEmails')
+    expect(store.starredCount).toBe(1)
   })
   it('takes Starred, New senders and Blocked counts from the inbox state', async () => {
     const store = useInboxStore()

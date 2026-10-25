@@ -4498,7 +4498,6 @@ describe('TraditionalInboxView list and reader action coverage', () => {
   )
 
   it.each([
-    ['processing', 'Processing', 'loadMoreFolder'],
     ['screening', 'Screening', 'loadMoreFolder'],
     ['blocked', 'Blocked', 'loadMoreFolder'],
     ['sent', 'Sent', 'loadMoreSentEmails'],
@@ -4532,17 +4531,16 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     },
   )
 
-  it('makes unclassified mail readable and offers an explicit refresh', async () => {
+  it('falls back to the inbox for an old Processing link without loading processing mail', async () => {
     vi.spyOn(store, 'loadFolder').mockResolvedValue()
-    store.processingEmails = [{ ...makeEmail('pending', Date.now() - HOUR), enrichmentFailures: 3 }]
+    store.traditionalEmails = [makeEmail('inbox-mail', Date.now() - HOUR)]
     await router.replace({ path: '/inbox', query: { filter: 'processing' } })
     wrapper = mountView()
-    expect(wrapper.text()).toContain('Spam checks are incomplete')
-    expect(wrapper.text()).toContain('Classification unavailable')
-    await wrapper.get('.ni-processing-notice button').trigger('click')
-    expect(store.loadFolder).toHaveBeenLastCalledWith('processing')
+    expect(store.loadFolder).not.toHaveBeenCalled()
+    expect(wrapper.find('.ni-processing-notice').exists()).toBe(false)
+    expect(wrapper.find('.ni-header').exists()).toBe(false)
     await wrapper.get('.ni-row').trigger('click')
-    expect(store.openEmailId).toBe('pending')
+    expect(store.openEmailId).toBe('inbox-mail')
   })
 
   it('paginates the Done archive in both directions', async () => {
