@@ -652,3 +652,12 @@ privacy behavior; live ingestion requires authenticated access to Sentry.
 When investigating missing metrics from older releases, clear the environment
 filter: those releases stripped the SDK environment/release labels. Successful
 envelope responses verify transport acceptance, not dashboard visibility.
+
+### Vercel dependency security pins
+
+The npm overrides pin Vercel Blob's `undici` to `6.29.1` and Vercel CLI
+configuration's `zod` to `4.6.7` to address the dependency audit advisories
+GHSA-4qv8-2p9j-2685, GHSA-xjj6-f33q-929c, and GHSA-mrhx-c7xc-m3w5.
+These stay within the existing major versions. The scoped pins leave unrelated
+consumers unchanged; remove them when the upstream dependency tree resolves to
+patched versions without overrides.
