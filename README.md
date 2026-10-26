@@ -388,6 +388,24 @@ user between Auth0 connections, verify ownership in Auth0 and explicitly update
 that user's `auth0_sub` before switching the login. Reusing the email address is
 not sufficient account linking.
 
+### Live inbox sign-in
+
+The live inbox joins a private Supabase Realtime channel with the user's Auth0
+ID token. Supabase accepts that token only when both of these are in place:
+
+- Supabase has Auth0 added as a third-party auth provider for the tenant, under
+  Authentication, Sign In / Providers, Third-Party Auth.
+- An Auth0 Post Login Action sets the ID token claim `role` to `authenticated`
+  with `api.idToken.setCustomClaim('role', 'authenticated')`, and is bound to the
+  post-login trigger. Auth0 strips that claim from access tokens.
+
+Until both are in place the channel stays unjoined, and the inbox refreshes every
+three minutes instead. After changing the Action, sign out and back in, because a
+session keeps the ID token it was issued with. If the channel still does not join,
+compare the token's `iss` with the issuer Supabase trusts. Production uses the
+custom domain `auth.infinitywave.online`, so tokens carry that domain as their
+`iss`.
+
 ## Database migrations
 
 Migrations are append-only and live in [`migrations/`](migrations/). Apply all pending files with:

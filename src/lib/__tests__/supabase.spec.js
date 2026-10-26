@@ -36,18 +36,37 @@ describe('realtime client', () => {
     await a.disconnect()
   })
 
-  it('authenticates the socket with the Auth0 token and never redirects to login', async () => {
+  it('authenticates the socket with the Auth0 ID token and never redirects to login', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-key')
     const { setAuth0Client } = await import('../../auth0-client')
     const { getRealtimeClient, realtimeAccessToken } = await import('../supabase')
     const loginWithRedirect = vi.fn()
+    // Unsigned JWT whose payload carries only the expiry the client reads.
+    const idToken = (seconds) => {
+      const exp = Math.floor(Date.now() / 1000) + seconds
+      return `eyJhbGciOiJSUzI1NiJ9.${btoa(JSON.stringify({ exp }))}.signature`
+    }
 
+    const fresh = idToken(3600)
     setAuth0Client({
-      getAccessTokenSilently: vi.fn().mockResolvedValue('token-1'),
+      getAccessTokenSilently: vi.fn().mockResolvedValue({ id_token: fresh }),
       loginWithRedirect,
     })
-    await expect(realtimeAccessToken()).resolves.toBe('token-1')
+    await expect(realtimeAccessToken()).resolves.toBe(fresh)
+
+    // An ID token inside the renewal window is replaced by a forced refresh.
+    const renewed = idToken(3600)
+    const getTokens = vi
+      .fn()
+      .mockResolvedValueOnce({ id_token: idToken(10) })
+      .mockResolvedValueOnce({ id_token: renewed })
+    setAuth0Client({ getAccessTokenSilently: getTokens, loginWithRedirect })
+    await expect(realtimeAccessToken()).resolves.toBe(renewed)
+    expect(getTokens).toHaveBeenLastCalledWith({
+      detailedResponse: true,
+      cacheMode: 'off',
+    })
 
     setAuth0Client({
       getAccessTokenSilently: vi.fn().mockRejectedValue(new Error('login_required')),
