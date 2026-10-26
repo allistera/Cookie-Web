@@ -24,7 +24,6 @@ import { setCalendarsOwner } from './composables/useCalendars'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { useAppBadge } from './composables/useAppBadge'
-import { getRealtimeClient } from './lib/supabase'
 import { lazyComponent } from './router/chunkReload'
 
 // Lazy chunks: one retry, then the stale-chunk reload (see router/chunkReload).
@@ -502,6 +501,8 @@ watch(
       realtimeClient.value = null
       return
     }
+    // Imported on first sign-in so the realtime client stays out of the entry chunk.
+    const { getRealtimeClient } = await import('./lib/realtimeClient.js')
     const client = await getRealtimeClient()
     if (isAuthenticated.value) realtimeClient.value = client
   },

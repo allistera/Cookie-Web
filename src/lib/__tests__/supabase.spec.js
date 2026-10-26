@@ -13,7 +13,7 @@ describe('realtime client', () => {
   ])('disables realtime without both configuration values (%s)', async (url, key) => {
     vi.stubEnv('VITE_SUPABASE_URL', url)
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', key)
-    const { getRealtimeClient } = await import('../supabase')
+    const { getRealtimeClient } = await import('../realtimeClient')
     expect(await getRealtimeClient()).toBeNull()
   })
 
@@ -23,7 +23,7 @@ describe('realtime client', () => {
   ])('creates and reuses one client for %s', async (url, websocketUrl) => {
     vi.stubEnv('VITE_SUPABASE_URL', url)
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-key')
-    const { getRealtimeClient } = await import('../supabase')
+    const { getRealtimeClient } = await import('../realtimeClient')
     const first = getRealtimeClient()
     const second = getRealtimeClient()
     expect(first).toBe(second)
@@ -40,7 +40,8 @@ describe('realtime client', () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-key')
     const { setAuth0Client } = await import('../../auth0-client')
-    const { getRealtimeClient, realtimeAccessToken } = await import('../supabase')
+    const { realtimeAccessToken } = await import('../supabase')
+    const { getRealtimeClient } = await import('../realtimeClient')
     const loginWithRedirect = vi.fn()
     // Unsigned JWT whose payload carries only the expiry the client reads.
     const idToken = (seconds) => {
