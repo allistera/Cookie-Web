@@ -1,6 +1,5 @@
-// Base URLs for Cookie's own Cloudflare Workers (cookie-web-labels,
-// cookie-web-messages, cookie-web-notifications, cookie-web-tasks, in the
-// separate Cookie-Worker repo), called directly from the browser. Public
+// Base URLs for Cookie's own Cloudflare Workers, which live in the separate
+// Cookie-Worker repo and are called directly from the browser. Public
 // identifiers, not secrets — same treatment as VITE_AUTH0_DOMAIN. Each
 // Worker's CORS allowlist (Cookie-Worker's shared/cors.js) permits this
 // app's production origin, any localhost port, and *.vercel.app preview

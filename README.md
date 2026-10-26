@@ -6,7 +6,7 @@ or `in:done` to restrict folders. Deleted messages remain excluded. Quote a
 term or phrase for exact keyword matching, using `mode=keyword` in a search
 URL when you want keyword-only results.
 
-Cookie is a private, AI-assisted email application. The Vue frontend and authenticated Vercel functions provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail.
+Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only two residual functions, `api/health.js` and `api/send.js`.
 
 The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
 
@@ -14,7 +14,7 @@ The production application is available at [mail.infinitywave.online](https://ma
 
 | Repository                                                  | Responsibility                                                                         |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Cookie-Web                                                  | Vue browser client, Auth0-protected Vercel API, and shared database migrations         |
+| Cookie-Web                                                  | Vue browser client, two residual Vercel functions, and shared database migrations      |
 | [Cookie-Worker](https://github.com/allistera/Cookie-Worker) | Cloudflare Workers for inbound mail, scheduled enrichment, and scheduled-send flushing |
 | [Cookie-iOS](https://github.com/allistera/Cookie-iOS)       | Native SwiftUI client of the Cookie-Web API                                            |
 | [Cookie-Docs](https://github.com/allistera/Cookie-Docs)     | Blume/MDX documentation site for the whole system                                      |
@@ -30,12 +30,13 @@ Cloudflare Email Routing
        -> run best-effort OpenAI classification
        -> index into Meilisearch
 
-Vue 3 browser application
+Vue 3 browser application (static build served from Vercel)
   -> Auth0-protected Cloudflare Workers (and `/api/send`, still on Vercel)
        -> Supabase Postgres
        -> Meilisearch (self-hosted)
        -> OpenAI Responses API
        -> Resend
+  <- Supabase Realtime: content-free "inbox changed" pings on a private channel
 ```
 
 Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.com/allistera/Cookie-Worker). Database migrations remain in this repository because both runtimes share the same schema.
@@ -386,6 +387,24 @@ to `users.auth0_sub`; token email claims never select a mailbox. When moving a
 user between Auth0 connections, verify ownership in Auth0 and explicitly update
 that user's `auth0_sub` before switching the login. Reusing the email address is
 not sufficient account linking.
+
+### Live inbox sign-in
+
+The live inbox joins a private Supabase Realtime channel with the user's Auth0
+ID token. Supabase accepts that token only when both of these are in place:
+
+- Supabase has Auth0 added as a third-party auth provider for the tenant, under
+  Authentication, Sign In / Providers, Third-Party Auth.
+- An Auth0 Post Login Action sets the ID token claim `role` to `authenticated`
+  with `api.idToken.setCustomClaim('role', 'authenticated')`, and is bound to the
+  post-login trigger. Auth0 strips that claim from access tokens.
+
+Until both are in place the channel stays unjoined, and the inbox refreshes every
+three minutes instead. After changing the Action, sign out and back in, because a
+session keeps the ID token it was issued with. If the channel still does not join,
+compare the token's `iss` with the issuer Supabase trusts. Production uses the
+custom domain `auth.infinitywave.online`, so tokens carry that domain as their
+`iss`.
 
 ## Database migrations
 

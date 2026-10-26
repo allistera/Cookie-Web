@@ -5,6 +5,7 @@ import {
   showNewEmailNotification,
 } from '../lib/browserNotifications'
 import { NOTIFICATIONS_API_URL } from '../lib/apiWorkers'
+import { realtimeAccessToken } from '../lib/supabase'
 
 const DEBOUNCE_MS = 1500
 const NOTIFICATION_CLAIM_RETRIES = 60
@@ -13,19 +14,23 @@ const NOTIFICATION_CLAIM_RETRIES = 60
 // catch up on. Browsers only start freezing background tabs after minutes.
 export const RESUME_REFRESH_AFTER_MS = 60_000
 
-// The inbox:<uuid> broadcast channel is public, so anyone holding the anon
-// key and a user's id can send pings. Coalesce broadcast-driven refreshes
-// into at most one per interval — hidden tab or not — so a flood of pings
-// costs the API a refetch every few seconds, not one per ping.
+// Pings are coalesced into at most one refresh per interval, hidden tab or
+// not, so a burst of pings costs the API a refetch every few seconds, not one
+// per ping.
 export const BROADCAST_REFRESH_INTERVAL_MS = 5000
-// Forged INSERT pings can carry any well-formed uuid, so cap how many
-// notification claims one refresh may POST; real inserts rarely burst past it.
+// While the channel is not SUBSCRIBED, the inbox is refreshed at this interval
+// and the join is retried with a fresh token, so mail still arrives when
+// realtime is down.
+export const REALTIME_FALLBACK_INTERVAL_MS = 3 * 60 * 1000
+// Each INSERT ping may name an event to claim. Cap how many claims one refresh
+// may POST, so a burst of pings cannot flood the notification endpoint. Real
+// inserts rarely burst past it.
 export const MAX_PENDING_NOTIFICATION_EVENTS = 10
 const PING_OPS = new Set(['INSERT', 'UPDATE', 'DELETE'])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// The trigger only ever sends {op, event_id?}; anything else on the public
-// channel is not ours, so it parses to null and is ignored.
+// The trigger only ever sends {op, event_id?}; anything else on the channel is
+// not ours, so it parses to null and is ignored.
 function parsePing(payload) {
   const op = payload?.op
   if (!PING_OPS.has(op)) return null
@@ -39,11 +44,24 @@ function parsePing(payload) {
 // Auth0-protected API when a ping arrives. Requires: authenticated, a known
 // store.userId (set from GET /emails), and a non-null supabase client
 // (it's null when VITE_SUPABASE_URL/ANON_KEY are unset — dev/e2e run with
-// live-inbox silently off). Re-subscribes whenever userId or auth state
+// live-inbox silently off). The channel is private, so each join first sets
+// the Auth0 access token from getAccessToken and joins only if one is
+// available. Until the channel is SUBSCRIBED, a fallback timer refreshes the
+// inbox and retries the join. Re-subscribes whenever userId or auth state
 // changes, and cleans up on scope dispose.
-export function useRealtimeInbox(store, supabase, isAuthenticated) {
+export function useRealtimeInbox(
+  store,
+  supabase,
+  isAuthenticated,
+  getAccessToken = realtimeAccessToken,
+) {
   let channel = null
   let channelClient = null
+  // The latest removal of a previous channel. realtime-js keeps a channel in
+  // the client until its leave completes, so a join waits for this first.
+  let detaching = Promise.resolve()
+  let joinAttempt = 0
+  let fallbackTimer = null
   let debounceTimer = null
   let refreshPromise = null
   let refreshUserId = null
@@ -229,17 +247,51 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     }, wait)
   }
 
+  // The Realtime token, or null when none can be had. It never triggers a
+  // login: a dead session leaves the channel unjoined until the fallback retries.
+  async function fetchAccessToken() {
+    try {
+      return await getAccessToken()
+    } catch {
+      return null
+    }
+  }
+
+  function startFallback() {
+    fallbackTimer ??= setInterval(fallbackTick, REALTIME_FALLBACK_INTERVAL_MS)
+  }
+
+  function stopFallback() {
+    clearInterval(fallbackTimer)
+    fallbackTimer = null
+  }
+
+  // Runs while the channel is not SUBSCRIBED. It retries the join with a fresh
+  // token, because a join that never happened, or a channel the server closed,
+  // does not recover by itself. Then it refreshes the inbox. The open thread is
+  // refetched only if its row changed, not on every tick, because this runs
+  // every few minutes for as long as realtime is down.
+  function fallbackTick() {
+    const userId = store.userId
+    if (isAuthenticated.value && userId && client()) subscribe(userId)
+    refreshNow()
+  }
+
+  function detachChannel() {
+    if (channel) detaching = channelClient.removeChannel(channel)
+    channel = null
+    channelClient = null
+  }
+
   function teardown() {
     lifecycleVersion += 1
+    joinAttempt += 1
     if (debounceTimer) {
       clearTimeout(debounceTimer)
       debounceTimer = null
     }
-    if (channel) {
-      channelClient?.removeChannel(channel)
-      channel = null
-      channelClient = null
-    }
+    detachChannel()
+    stopFallback()
     wasDisconnected = false
     refreshQueued = false
     openThreadDirty = false
@@ -248,43 +300,60 @@ export function useRealtimeInbox(store, supabase, isAuthenticated) {
     notificationRetryTimers.clear()
   }
 
-  function subscribe(userId) {
-    teardown()
-    channelClient = client()
-    channel = channelClient
-      .channel(`inbox:${userId}`)
-      .on('broadcast', { event: 'inbox-changed' }, (event) => {
-        const ping = parsePing(event?.payload)
-        if (!ping) return
-        if (ping.op !== 'UPDATE') openThreadDirty = true
-        if (
-          ping.op === 'INSERT' &&
-          ping.eventId &&
-          pendingNotificationEventIds.size < MAX_PENDING_NOTIFICATION_EVENTS
-        ) {
-          pendingNotificationEventIds.add(ping.eventId)
-        }
-        scheduleRefresh()
-      })
-      .subscribe((status) => {
+  // Joins the user's private inbox channel. The client is authenticated before
+  // the join, so the server accepts the subscription. Without a token nothing
+  // is joined, and the fallback timer keeps running.
+  async function subscribe(userId) {
+    const attempt = (joinAttempt += 1)
+    detachChannel()
+    startFallback()
+    try {
+      await detaching
+      const token = await fetchAccessToken()
+      const realtime = client()
+      if (attempt !== joinAttempt || !token || !realtime) return
+      await realtime.setAuth(token)
+      if (attempt !== joinAttempt) return
+
+      const created = realtime
+        .channel(`inbox:${userId}`, { config: { private: true } })
+        .on('broadcast', { event: 'inbox-changed' }, (event) => {
+          const ping = parsePing(event?.payload)
+          if (!ping) return
+          if (ping.op !== 'UPDATE') openThreadDirty = true
+          if (
+            ping.op === 'INSERT' &&
+            ping.eventId &&
+            pendingNotificationEventIds.size < MAX_PENDING_NOTIFICATION_EVENTS
+          ) {
+            pendingNotificationEventIds.add(ping.eventId)
+          }
+          scheduleRefresh()
+        })
+      channel = created
+      channelClient = realtime
+      created.subscribe((status) => {
+        if (channel !== created) return
         if (status === 'SUBSCRIBED') {
+          stopFallback()
           // Catch pings missed while offline/reconnecting.
           if (wasDisconnected) catchUp()
           wasDisconnected = false
         } else {
           wasDisconnected = true
+          startFallback()
         }
       })
+    } catch (error) {
+      console.error('Failed to subscribe to the inbox realtime channel:', error)
+    }
   }
 
   watch(
     () => [isAuthenticated.value, store.userId, client()],
     ([authenticated, userId, realtime]) => {
-      if (authenticated && userId && realtime) {
-        subscribe(userId)
-      } else {
-        teardown()
-      }
+      teardown()
+      if (authenticated && userId && realtime) subscribe(userId)
     },
     { immediate: true },
   )
