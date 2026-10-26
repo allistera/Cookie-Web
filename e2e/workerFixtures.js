@@ -14,12 +14,13 @@ import {
   TASKS_API_URL,
 } from '../src/lib/apiWorkers.js'
 
-// The app talks to nine Cloudflare Workers at absolute cross-origin URLs
+// The app talks to twelve Cloudflare Workers at absolute cross-origin URLs
 // (src/lib/apiWorkers.js). Nothing same-origin can intercept those, and e2e
 // mode holds no bearer token, so left alone every one of them reaches the real
 // production Worker and 401s — which is what broke 28 of the 64 specs.
 //
-// Each origin is routed back to the dev/preview server's own fixture handlers
+// ORIGINS below routes nine of the twelve; notifications, send and mcp are not
+// routed. Each origin is routed back to the dev/preview server's own fixture handlers
 // (the /__e2e__/* mounts in scripts/localApi/plugin.js), preserving method, path, query and
 // body. Going through the server rather than answering in-process is
 // deliberate: /api/emails, /api/search and the Worker handlers all read the

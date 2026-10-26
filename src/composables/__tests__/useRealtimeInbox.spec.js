@@ -5,6 +5,7 @@ import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest'
 import {
   BROADCAST_REFRESH_INTERVAL_MS,
   MAX_PENDING_NOTIFICATION_EVENTS,
+  REALTIME_FALLBACK_INTERVAL_MS,
   RESUME_REFRESH_AFTER_MS,
   useRealtimeInbox,
 } from '../useRealtimeInbox'
@@ -14,8 +15,9 @@ import { NOTIFICATIONS_API_URL } from '../../lib/apiWorkers'
 
 const BASE_TITLE = 'Cookie AI Inbox - Workspace Intelligence'
 
-// Minimal chainable stand-in for the supabase-js RealtimeChannel API used by
-// the composable: .channel(name).on('broadcast', ...).subscribe(statusCb).
+// Minimal stand-in for the realtime-js client the composable uses: setAuth(token),
+// channel(topic, options).on('broadcast', ...).subscribe(statusCb) and
+// removeChannel(channel). Every channel() call returns the same channel object.
 function makeMockClient() {
   let onBroadcast
   let onStatus
@@ -30,6 +32,7 @@ function makeMockClient() {
     }),
   }
   return {
+    setAuth: vi.fn(() => Promise.resolve()),
     channel: vi.fn(() => channelObj),
     removeChannel: vi.fn(),
     channelObj,
@@ -40,6 +43,11 @@ function makeMockClient() {
       onStatus?.(status)
     },
   }
+}
+
+// Lets the composable's async join (token, setAuth, subscribe) run to completion.
+async function flushAsync() {
+  for (let i = 0; i < 20; i += 1) await Promise.resolve()
 }
 
 describe('useRealtimeInbox', () => {
@@ -71,8 +79,14 @@ describe('useRealtimeInbox', () => {
     vi.restoreAllMocks()
   })
 
-  function mount(client, isAuthenticated = ref(true)) {
-    scope.run(() => useRealtimeInbox(store, client, isAuthenticated))
+  // Mounts the composable and lets its first join settle.
+  async function mount(
+    client,
+    isAuthenticated = ref(true),
+    getAccessToken = () => Promise.resolve('token-1'),
+  ) {
+    scope.run(() => useRealtimeInbox(store, client, isAuthenticated, getAccessToken))
+    await flushAsync()
   }
 
   function setHidden(hidden, dispatch = true) {
@@ -83,12 +97,12 @@ describe('useRealtimeInbox', () => {
     if (dispatch) document.dispatchEvent(new Event('visibilitychange'))
   }
 
-  it('refreshes the inbox after a debounce once a ping arrives', () => {
+  it('refreshes the inbox after a debounce once a ping arrives', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
-    expect(client.channel).toHaveBeenCalledWith('inbox:user-1')
+    expect(client.channel).toHaveBeenCalledWith('inbox:user-1', { config: { private: true } })
     client.ping()
     expect(store.refreshInbox).not.toHaveBeenCalled()
 
@@ -102,10 +116,10 @@ describe('useRealtimeInbox', () => {
   // Regression check for the debounce itself: a naive implementation that
   // refreshes immediately on every ping (no debounce) would fail this
   // "one refresh for many rapid pings" assertion.
-  it('collapses multiple rapid pings into a single refresh', () => {
+  it('collapses multiple rapid pings into a single refresh', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     client.ping()
     vi.advanceTimersByTime(500)
@@ -125,7 +139,7 @@ describe('useRealtimeInbox', () => {
     store.refreshInbox.mockImplementation(async () => {
       store.unreadInboxCount = 4
     })
-    mount(client)
+    await mount(client)
     scope.run(() => useTitleUnreadBadge(store))
 
     setHidden(true)
@@ -166,7 +180,7 @@ describe('useRealtimeInbox', () => {
         })
         .mockResolvedValueOnce({ ok: true, status: 204 }),
     )
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
@@ -234,7 +248,7 @@ describe('useRealtimeInbox', () => {
         })
         .mockResolvedValueOnce({ ok: true, status: 204 }),
     )
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
@@ -254,7 +268,7 @@ describe('useRealtimeInbox', () => {
     )
     vi.stubGlobal('Notification', Object.assign(vi.fn(), { permission: 'granted' }))
     vi.stubGlobal('fetch', vi.fn())
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     client.ping({ op: 'UPDATE', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
@@ -299,7 +313,7 @@ describe('useRealtimeInbox', () => {
         })
         .mockResolvedValueOnce({ ok: true, status: 204 }),
     )
-    mount(client)
+    await mount(client)
 
     setHidden(false)
     client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
@@ -329,7 +343,7 @@ describe('useRealtimeInbox', () => {
         }),
       }),
     )
-    mount(client)
+    await mount(client)
 
     setHidden(false)
     client.ping({ op: 'INSERT', event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
@@ -338,12 +352,11 @@ describe('useRealtimeInbox', () => {
     expect(Notification).not.toHaveBeenCalled()
   })
 
-  // The broadcast channel is public: a flood of forged pings must not turn
-  // into a refetch per ping, visible tab or hidden.
+  // A burst of pings must not turn into a refetch per ping, visible tab or hidden.
   it('coalesces a flood of pings into one refresh per interval while hidden', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     for (let i = 0; i < 20; i += 1) client.ping()
@@ -362,7 +375,7 @@ describe('useRealtimeInbox', () => {
   it('spaces visible-tab broadcast refreshes by the interval', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     client.ping()
     await vi.advanceTimersByTimeAsync(1500)
@@ -375,7 +388,7 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshInbox).toHaveBeenCalledTimes(2)
   })
 
-  it('caps notification claims from a flood of forged insert pings', async () => {
+  it('caps notification claims from a burst of insert pings', async () => {
     const client = makeMockClient()
     store.userId = '11111111-1111-1111-1111-111111111111'
     localStorage.setItem(
@@ -384,7 +397,7 @@ describe('useRealtimeInbox', () => {
     )
     vi.stubGlobal('Notification', Object.assign(vi.fn(), { permission: 'granted' }))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     for (let i = 0; i < 50; i += 1) {
@@ -399,11 +412,11 @@ describe('useRealtimeInbox', () => {
     expect(fetch).toHaveBeenCalledTimes(1 + MAX_PENDING_NOTIFICATION_EVENTS)
   })
 
-  it('ignores malformed pings', () => {
+  it('ignores malformed pings', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
     vi.stubGlobal('fetch', vi.fn())
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     client.ping(null)
@@ -422,7 +435,7 @@ describe('useRealtimeInbox', () => {
     store.userId = 'user-1'
     store.traditionalEmails = [{ id: 'message-1', unread: false }]
     store.openEmailId = 'message-1'
-    mount(client)
+    await mount(client)
 
     client.ping({ op: 'UPDATE' })
     await vi.advanceTimersByTimeAsync(1500)
@@ -439,7 +452,7 @@ describe('useRealtimeInbox', () => {
     store.refreshInbox.mockImplementation(async () => {
       store.traditionalEmails[0].unread = true
     })
-    mount(client)
+    await mount(client)
 
     client.ping({ op: 'UPDATE' })
     await vi.advanceTimersByTimeAsync(1500)
@@ -452,7 +465,7 @@ describe('useRealtimeInbox', () => {
     store.userId = 'user-1'
     store.traditionalEmails = [{ id: 'message-1', unread: false }]
     store.openEmailId = 'message-1'
-    mount(client)
+    await mount(client)
 
     client.ping({ op: 'INSERT' })
     await vi.advanceTimersByTimeAsync(1500)
@@ -460,11 +473,11 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshOpenThread).toHaveBeenCalledTimes(1)
   })
 
-  it('does not refresh while a search is active', () => {
+  it('does not refresh while a search is active', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
     store.activeSearchQuery = 'birthday'
-    mount(client)
+    await mount(client)
 
     client.ping()
     vi.advanceTimersByTime(2000)
@@ -472,12 +485,12 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshInbox).not.toHaveBeenCalled()
   })
 
-  it('refreshes an open thread while search results remain stable', () => {
+  it('refreshes an open thread while search results remain stable', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
     store.openEmailId = 'message-1'
     store.activeSearchQuery = 'kitchen'
-    mount(client)
+    await mount(client)
 
     client.ping({ op: 'INSERT' })
     vi.advanceTimersByTime(1500)
@@ -486,10 +499,10 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshOpenThread).toHaveBeenCalledTimes(1)
   })
 
-  it('refreshes once when the channel reaches SUBSCRIBED after being disconnected', () => {
+  it('refreshes once when the channel reaches SUBSCRIBED after being disconnected', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     client.setStatus('SUBSCRIBED')
     expect(store.refreshInbox).not.toHaveBeenCalled()
@@ -499,9 +512,9 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshInbox).toHaveBeenCalledTimes(1)
   })
 
-  it('does nothing when the supabase client is null', () => {
+  it('does nothing when the supabase client is null', async () => {
     store.userId = 'user-1'
-    expect(() => mount(null)).not.toThrow()
+    await mount(null)
     expect(store.refreshInbox).not.toHaveBeenCalled()
   })
 
@@ -510,12 +523,13 @@ describe('useRealtimeInbox', () => {
     const clientRef = ref(null)
     const isAuthenticated = ref(true)
     store.userId = 'user-1'
-    mount(clientRef, isAuthenticated)
+    await mount(clientRef, isAuthenticated)
 
     expect(client.channel).not.toHaveBeenCalled()
     clientRef.value = client
     await nextTick()
-    expect(client.channel).toHaveBeenCalledWith('inbox:user-1')
+    await flushAsync()
+    expect(client.channel).toHaveBeenCalledWith('inbox:user-1', { config: { private: true } })
 
     isAuthenticated.value = false
     clientRef.value = null
@@ -523,16 +537,16 @@ describe('useRealtimeInbox', () => {
     expect(client.removeChannel).toHaveBeenCalledWith(client.channelObj)
   })
 
-  it('does not subscribe when unauthenticated or userId is unknown', () => {
+  it('does not subscribe when unauthenticated or userId is unknown', async () => {
     const client = makeMockClient()
-    mount(client, ref(false))
+    await mount(client, ref(false))
     expect(client.channel).not.toHaveBeenCalled()
   })
 
-  it('catches up once when a suspended background tab becomes visible', () => {
+  it('catches up once when a suspended background tab becomes visible', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
@@ -542,10 +556,10 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshInbox).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels a pending broadcast refresh when visibility catch-up refreshes immediately', () => {
+  it('cancels a pending broadcast refresh when visibility catch-up refreshes immediately', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     client.ping()
     setHidden(true)
@@ -563,7 +577,7 @@ describe('useRealtimeInbox', () => {
     )
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
@@ -587,7 +601,7 @@ describe('useRealtimeInbox', () => {
     )
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
@@ -605,10 +619,10 @@ describe('useRealtimeInbox', () => {
 
   // Alt-tabbing away and back is not a suspension: the broadcast channel
   // stayed connected, so nothing was missed and nothing needs refetching.
-  it('does not refetch when the tab was hidden only briefly', () => {
+  it('does not refetch when the tab was hidden only briefly', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS - 1)
@@ -618,10 +632,10 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshOpenThread).not.toHaveBeenCalled()
   })
 
-  it('refetches when the tab was hidden long enough to have been frozen', () => {
+  it('refetches when the tab was hidden long enough to have been frozen', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
@@ -638,7 +652,7 @@ describe('useRealtimeInbox', () => {
     )
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     client.ping()
     vi.advanceTimersByTime(1500)
@@ -661,7 +675,7 @@ describe('useRealtimeInbox', () => {
     )
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
@@ -678,14 +692,14 @@ describe('useRealtimeInbox', () => {
     expect(store.refreshInbox).toHaveBeenCalledTimes(2)
   })
 
-  it("does not let an old user's slow refresh suppress a new user's catch-up", () => {
+  it("does not let an old user's slow refresh suppress a new user's catch-up", async () => {
     let finishOldRefresh
     store.refreshInbox.mockImplementationOnce(
       () => new Promise((resolve) => (finishOldRefresh = resolve)),
     )
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
 
     setHidden(true)
     vi.advanceTimersByTime(RESUME_REFRESH_AFTER_MS)
@@ -699,10 +713,90 @@ describe('useRealtimeInbox', () => {
     finishOldRefresh()
   })
 
-  it('removes the visibility listener on scope dispose', () => {
+  it('sets the access token before joining the private channel', async () => {
     const client = makeMockClient()
     store.userId = 'user-1'
-    mount(client)
+    await mount(client)
+
+    expect(client.channel).toHaveBeenCalledWith('inbox:user-1', { config: { private: true } })
+    expect(client.setAuth).toHaveBeenCalledWith('token-1')
+    expect(client.setAuth.mock.invocationCallOrder[0]).toBeLessThan(
+      client.channelObj.subscribe.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('re-applies a fresh token on every re-subscribe', async () => {
+    const client = makeMockClient()
+    const isAuthenticated = ref(true)
+    const tokens = ['token-1', 'token-2']
+    store.userId = 'user-1'
+    await mount(client, isAuthenticated, async () => tokens.shift())
+
+    isAuthenticated.value = false
+    await nextTick()
+    isAuthenticated.value = true
+    await nextTick()
+    await flushAsync()
+
+    expect(client.setAuth).toHaveBeenNthCalledWith(1, 'token-1')
+    expect(client.setAuth).toHaveBeenNthCalledWith(2, 'token-2')
+    expect(client.channelObj.subscribe).toHaveBeenCalledTimes(2)
+  })
+
+  it('joins nothing without a token and refreshes on the fallback interval', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    await mount(client, ref(true), () => Promise.reject(new Error('no session')))
+
+    expect(client.channel).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(REALTIME_FALLBACK_INTERVAL_MS - 1)
+    expect(store.refreshInbox).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the fallback running after a channel error until SUBSCRIBED', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    await mount(client)
+
+    client.setStatus('CHANNEL_ERROR')
+    vi.advanceTimersByTime(REALTIME_FALLBACK_INTERVAL_MS)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(1)
+    await flushAsync()
+    expect(client.channelObj.subscribe).toHaveBeenCalledTimes(2)
+
+    client.setStatus('SUBSCRIBED')
+    expect(store.refreshInbox).toHaveBeenCalledTimes(2)
+
+    vi.advanceTimersByTime(REALTIME_FALLBACK_INTERVAL_MS * 2)
+    expect(store.refreshInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves the fallback idle once the channel is SUBSCRIBED', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    await mount(client)
+
+    client.setStatus('SUBSCRIBED')
+    vi.advanceTimersByTime(REALTIME_FALLBACK_INTERVAL_MS * 2)
+    expect(store.refreshInbox).not.toHaveBeenCalled()
+  })
+
+  it('stops the fallback when the scope is disposed', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    await mount(client, ref(true), () => Promise.reject(new Error('no session')))
+
+    scope.stop()
+    vi.advanceTimersByTime(REALTIME_FALLBACK_INTERVAL_MS * 2)
+    expect(store.refreshInbox).not.toHaveBeenCalled()
+  })
+
+  it('removes the visibility listener on scope dispose', async () => {
+    const client = makeMockClient()
+    store.userId = 'user-1'
+    await mount(client)
     scope.stop()
 
     setHidden(true)

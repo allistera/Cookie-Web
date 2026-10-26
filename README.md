@@ -6,7 +6,7 @@ or `in:done` to restrict folders. Deleted messages remain excluded. Quote a
 term or phrase for exact keyword matching, using `mode=keyword` in a search
 URL when you want keyword-only results.
 
-Cookie is a private, AI-assisted email application. The Vue frontend and authenticated Vercel functions provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail.
+Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only two residual functions, `api/health.js` and `api/send.js`.
 
 The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
 
@@ -14,7 +14,7 @@ The production application is available at [mail.infinitywave.online](https://ma
 
 | Repository                                                  | Responsibility                                                                         |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Cookie-Web                                                  | Vue browser client, Auth0-protected Vercel API, and shared database migrations         |
+| Cookie-Web                                                  | Vue browser client, two residual Vercel functions, and shared database migrations      |
 | [Cookie-Worker](https://github.com/allistera/Cookie-Worker) | Cloudflare Workers for inbound mail, scheduled enrichment, and scheduled-send flushing |
 | [Cookie-iOS](https://github.com/allistera/Cookie-iOS)       | Native SwiftUI client of the Cookie-Web API                                            |
 | [Cookie-Docs](https://github.com/allistera/Cookie-Docs)     | Blume/MDX documentation site for the whole system                                      |
@@ -30,12 +30,13 @@ Cloudflare Email Routing
        -> run best-effort OpenAI classification
        -> index into Meilisearch
 
-Vue 3 browser application
+Vue 3 browser application (static build served from Vercel)
   -> Auth0-protected Cloudflare Workers (and `/api/send`, still on Vercel)
        -> Supabase Postgres
        -> Meilisearch (self-hosted)
        -> OpenAI Responses API
        -> Resend
+  <- Supabase Realtime: content-free "inbox changed" pings on a private channel
 ```
 
 Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.com/allistera/Cookie-Worker). Database migrations remain in this repository because both runtimes share the same schema.

@@ -35,4 +35,32 @@ describe('realtime client', () => {
     expect(a.isConnected()).toBe(false)
     await a.disconnect()
   })
+
+  it('authenticates the socket with the Auth0 token and never redirects to login', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-key')
+    const { setAuth0Client } = await import('../../auth0-client')
+    const { getRealtimeClient, realtimeAccessToken } = await import('../supabase')
+    const loginWithRedirect = vi.fn()
+
+    setAuth0Client({
+      getAccessTokenSilently: vi.fn().mockResolvedValue('token-1'),
+      loginWithRedirect,
+    })
+    await expect(realtimeAccessToken()).resolves.toBe('token-1')
+
+    setAuth0Client({
+      getAccessTokenSilently: vi.fn().mockRejectedValue(new Error('login_required')),
+      loginWithRedirect,
+    })
+    await expect(realtimeAccessToken()).rejects.toThrow('login_required')
+    expect(loginWithRedirect).not.toHaveBeenCalled()
+
+    setAuth0Client(null)
+    await expect(realtimeAccessToken()).rejects.toThrow('Auth0 is not configured')
+
+    const client = await getRealtimeClient()
+    expect(client.accessToken).toBe(realtimeAccessToken)
+    await client.disconnect()
+  })
 })
