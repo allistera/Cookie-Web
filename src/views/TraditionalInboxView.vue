@@ -439,6 +439,18 @@ function moveHighlight(step) {
   mailList.value?.scrollToKey(emails[next].key)
 }
 
+// Opens the email before or after the open one among the rows on show (a
+// collapsed day's emails are skipped), stopping at either end. The highlight
+// follows, so closing the reader leaves it on the email last read.
+function openAdjacentEmail(step) {
+  const emails = virtualMailRows.value.filter((row) => row.kind === 'email')
+  const index = emails.findIndex((row) => row.email.id === openEmail.value?.id)
+  const next = index === -1 ? null : emails[index + step]
+  if (!next) return
+  highlightedId.value = next.email.id
+  openReader(next.email)
+}
+
 // Separated from emailGroups so a single email's unread toggle only
 // recomputes these counts, not the entire grouping cascade (flatEmails,
 // selectedEmails, openIndex).
@@ -1851,12 +1863,11 @@ function isTypingTarget(target) {
   return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"]'))
 }
 
-// Whether anything sits over the email list: the reader, composer, command
-// palette, chat or contact drawer, one of the multi-select bar's menus, or a
-// dialog opened from elsewhere in the app.
-function isListCovered() {
+// Whether anything other than the reader sits over the email list: the
+// composer, command palette, chat or contact drawer, one of the multi-select
+// bar's menus, or a dialog opened from elsewhere in the app.
+function isListObscured() {
   return Boolean(
-    openEmail.value ||
     store.isComposerActive ||
     store.isCommandPaletteOpen ||
     store.isChatDrawerActive ||
@@ -1866,6 +1877,11 @@ function isListCovered() {
     bulkScheduleOpen.value ||
     document.querySelector('dialog[open], [aria-modal="true"]'),
   )
+}
+
+// Whether anything sits over the email list, the reader included.
+function isListCovered() {
+  return Boolean(openEmail.value) || isListObscured()
 }
 
 // Whether the email list has the screen to itself: nothing over it and no
@@ -1940,12 +1956,15 @@ function onKeydown(e) {
   }
 
   // Up/Down move a highlight through the emails without opening any; Enter
-  // opens the highlighted one and Space ticks or unticks its checkbox. Only
-  // while nothing covers the list. Enter and Space are left to a focused
+  // opens the highlighted one and Space ticks or unticks its checkbox. While
+  // an email is open, Up/Down open the one before or after it instead. Only
+  // while nothing else covers the list. Enter and Space are left to a focused
   // control (a row, a tab, a button) that acts on them itself.
-  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isListKey(e) && !isListCovered()) {
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isListKey(e) && !isListObscured()) {
     e.preventDefault()
-    moveHighlight(e.key === 'ArrowUp' ? -1 : 1)
+    const step = e.key === 'ArrowUp' ? -1 : 1
+    if (openEmail.value) openAdjacentEmail(step)
+    else moveHighlight(step)
     return
   }
   if (

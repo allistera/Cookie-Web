@@ -4202,7 +4202,7 @@ describe('TraditionalInboxView keyboard highlight', () => {
     wrapper.unmount()
   })
 
-  it('leaves the keys alone while the reader is open or while typing', async () => {
+  it('leaves the keys alone while typing', async () => {
     const wrapper = mountView()
     await press('ArrowDown')
 
@@ -4214,11 +4214,67 @@ describe('TraditionalInboxView keyboard highlight', () => {
 
     store.openReader(store.traditionalEmails[2])
     await nextTick()
-    await press('ArrowDown')
     await press('Enter')
 
     expect(highlighted(wrapper)).toEqual(['Subject one'])
     expect(store.openEmailId).toBe('three')
+    wrapper.unmount()
+  })
+
+  it('Down and Up open the next or previous email while one is open', async () => {
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await nextTick()
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true,
+    })
+    document.dispatchEvent(event)
+    await nextTick()
+    expect(event.defaultPrevented).toBe(true)
+    expect(store.openEmailId).toBe('two')
+    expect(highlighted(wrapper)).toEqual(['Subject two'])
+
+    await press('ArrowDown')
+    expect(store.openEmailId).toBe('three')
+    // The last email stays open at the end of the list.
+    await press('ArrowDown')
+    expect(store.openEmailId).toBe('three')
+
+    await press('ArrowUp')
+    await press('ArrowUp')
+    expect(store.openEmailId).toBe('one')
+    await press('ArrowUp')
+    expect(store.openEmailId).toBe('one')
+    expect(store.traditionalEmails.map((email) => email.unread)).toEqual([false, false, false])
+
+    // Closing the reader leaves the highlight on the email last read.
+    await press('Escape')
+    expect(store.openEmailId).toBe(null)
+    expect(highlighted(wrapper)).toEqual(['Subject one'])
+    wrapper.unmount()
+  })
+
+  it('keeps the open email while the command palette or a text field has the keys', async () => {
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await nextTick()
+
+    store.isCommandPaletteOpen = true
+    await press('ArrowDown')
+    expect(store.openEmailId).toBe('one')
+    store.isCommandPaletteOpen = false
+
+    const textarea = document.createElement('textarea')
+    document.body.appendChild(textarea)
+    await press('ArrowDown', textarea)
+    textarea.remove()
+    expect(store.openEmailId).toBe('one')
+
+    await press('ArrowDown', document, { shiftKey: true })
+    expect(store.openEmailId).toBe('one')
     wrapper.unmount()
   })
 })
