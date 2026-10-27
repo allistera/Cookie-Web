@@ -1436,14 +1436,14 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    async refreshSenderMail() {
+    async refreshSenderMail({ preserveReader = false } = {}) {
       this.senderQueueGeneration++
       // Strands any loadEmails/loadMoreEmails in flight, which then never
       // clear isRefreshing themselves; a first load stranded here is rerun.
       const strandedFirstLoad = this.isRefreshing && !this.isInboxLoaded && !this.activeSearchQuery
       this.listSeq++
       this.isRefreshing = false
-      this.openEmailId = null
+      if (!preserveReader) this.openEmailId = null
       this.messageBodies.clear()
       this.threadSummaries.clear()
       pendingBodyFetches.clear()

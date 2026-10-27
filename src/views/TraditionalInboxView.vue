@@ -710,29 +710,27 @@ async function decideOpenSender(action) {
   if (!email || decidingOpenSender.value || decidingSenders.value) return
   const address = normalizeSender(email.address)
   decidingOpenSender.value = action
+  const reviewing = activeFilter.value === 'screening'
+  if (reviewing) {
+    const index = openIndex.value
+    const remaining = flatEmails.value.filter((candidate) => candidate.id !== email.id)
+    const next = remaining[Math.max(index, 0)] ?? remaining[remaining.length - 1]
+    if (next) openReader(next)
+    else closeReader()
+  } else closeReader()
   try {
     if (!(await senders.update({ action, address, messageId: email.id }))) {
       store.notify(senders.error || 'Could not change this sender.', 'error')
       return
     }
     const verb = action === 'block' ? 'Blocked' : 'Accepted'
-    // A domain decision also moves other senders' held mail on that domain;
-    // say so, as those emails leave the list too.
     const related = senders.lastRelated
     const also = related.length
       ? ` Also ${verb.toLowerCase()} ${related.join(', ')} on the same domain.`
       : ''
     store.notify(`${verb} ${address}.${also}`)
-    // Opening marked it read already; approving it keeps it so even if the
-    // user flagged it unread again before deciding.
     if (action === 'accept') await store.setUnread(email, false)
-    const reviewing = activeFilter.value === 'screening'
-    const index = openIndex.value
-    await store.refreshSenderMail()
-    if (!reviewing || activeFilter.value !== 'screening') return
-    const remaining = flatEmails.value
-    const next = remaining[Math.max(index, 0)] ?? remaining[remaining.length - 1]
-    if (next) openReader(next)
+    await store.refreshSenderMail({ preserveReader: true })
   } finally {
     decidingOpenSender.value = null
   }
@@ -2392,32 +2390,20 @@ onUnmounted(() => {
                 class="ni-reader-pill ni-reader-pill--primary"
                 title="Accept sender"
                 :disabled="Boolean(decidingOpenSender || decidingSenders)"
-                :aria-busy="decidingOpenSender === 'accept'"
                 @click="decideOpenSender('accept')"
               >
-                <span
-                  v-if="decidingOpenSender === 'accept'"
-                  class="ni-bulk-spinner"
-                  aria-hidden="true"
-                ></span>
-                <span v-else class="material-symbols-outlined" aria-hidden="true">how_to_reg</span>
-                <span>{{ decidingOpenSender === 'accept' ? 'Accepting…' : 'Accept' }}</span>
+                <span class="material-symbols-outlined" aria-hidden="true">how_to_reg</span>
+                <span>Accept</span>
               </button>
               <button
                 type="button"
                 class="ni-reader-pill ni-reader-pill--danger"
                 title="Block sender"
                 :disabled="Boolean(decidingOpenSender || decidingSenders)"
-                :aria-busy="decidingOpenSender === 'block'"
                 @click="decideOpenSender('block')"
               >
-                <span
-                  v-if="decidingOpenSender === 'block'"
-                  class="ni-bulk-spinner"
-                  aria-hidden="true"
-                ></span>
-                <span v-else class="material-symbols-outlined" aria-hidden="true">block</span>
-                <span>{{ decidingOpenSender === 'block' ? 'Blocking…' : 'Block' }}</span>
+                <span class="material-symbols-outlined" aria-hidden="true">block</span>
+                <span>Block</span>
               </button>
               <span class="ni-reader-divider" role="separator" aria-orientation="vertical"></span>
             </template>

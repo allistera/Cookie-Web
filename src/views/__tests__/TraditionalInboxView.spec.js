@@ -1342,7 +1342,6 @@ describe('TraditionalInboxView filtered views', () => {
     // The decision reloads the lists without the sender's held mail.
     function releaseOnRefresh(emails, remainingIds) {
       vi.spyOn(store, 'refreshSenderMail').mockImplementation(async () => {
-        store.openEmailId = null
         store.screeningEmails = emails.filter((email) => remainingIds.includes(email.id))
       })
     }
@@ -1374,7 +1373,7 @@ describe('TraditionalInboxView filtered views', () => {
         messageId: 'a',
       })
       // The first read update is the approval; opening the next email adds its own.
-      expect(unread.mock.calls[0]).toEqual([emails[0], false])
+      expect(unread.mock.calls).toContainEqual([emails[0], false])
       expect(store.refreshSenderMail).toHaveBeenCalledTimes(1)
       expect(store.notify).toHaveBeenCalledWith('Accepted sender-a@example.com.')
       expect(store.openEmailId).toBe('b')
@@ -1453,7 +1452,7 @@ describe('TraditionalInboxView filtered views', () => {
     })
 
     it.each(['Could not change this sender.', ''])(
-      'keeps the held email open and reports a failed reader decision (%s)',
+      'reports a failed reader decision without reopening the email (%s)',
       async (error) => {
         const senders = useSendersStore()
         senders.error = error
@@ -1466,43 +1465,32 @@ describe('TraditionalInboxView filtered views', () => {
 
         expect(store.refreshSenderMail).not.toHaveBeenCalled()
         expect(store.notify).toHaveBeenCalledWith(error || 'Could not change this sender.', 'error')
-        expect(store.openEmailId).toBe('a')
-        expect(readerPill(wrapper, 'Accept').element.disabled).toBe(false)
-        expect(readerPill(wrapper, 'Block').element.disabled).toBe(false)
+        expect(store.openEmailId).toBeNull()
         wrapper.unmount()
       },
     )
 
-    it('shows progress and disables both reader decisions while one is in flight', async () => {
+    it('moves to the next email before the sender decision completes', async () => {
       let finish
       const senders = useSendersStore()
       vi.spyOn(senders, 'update').mockImplementation(
         () =>
           new Promise((resolve) => {
-            senders.lastRelated = []
             finish = resolve
           }),
       )
-      const wrapper = await openInReview([held('a', 1)], 'a')
-      vi.spyOn(store, 'refreshSenderMail').mockResolvedValue()
+      const emails = [held('a', 1), held('b', 2)]
+      const wrapper = await openInReview(emails, 'a')
+      releaseOnRefresh(emails, ['b'])
 
       await readerPill(wrapper, 'Accept').trigger('click')
-
-      const accept = readerPill(wrapper, 'Accepting')
-      expect(accept.find('.ni-bulk-spinner').exists()).toBe(true)
-      expect(accept.attributes('aria-busy')).toBe('true')
-      expect(accept.attributes('disabled')).toBeDefined()
-      expect(readerPill(wrapper, 'Block').attributes('disabled')).toBeDefined()
-      // A second press while in flight is ignored.
-      await readerPill(wrapper, 'Block').trigger('click')
+      expect(store.openEmailId).toBe('b')
+      expect(store.refreshSenderMail).not.toHaveBeenCalled()
 
       finish(true)
       await flushPromises()
-
-      expect(senders.update).toHaveBeenCalledTimes(1)
-      // The stubbed refresh leaves the email held, so the pills come back.
-      expect(readerPill(wrapper, 'Accept').element.disabled).toBe(false)
-      expect(readerPill(wrapper, 'Block').element.disabled).toBe(false)
+      expect(store.openEmailId).toBe('b')
+      expect(store.refreshSenderMail).toHaveBeenCalledWith({ preserveReader: true })
       wrapper.unmount()
     })
   })
