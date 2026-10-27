@@ -40,6 +40,7 @@ const SECTIONS = [
   {
     title: 'Open email',
     shortcuts: [
+      { keys: ['↑', '↓'], label: 'Open the previous or next email' },
       { keys: ['D'], label: 'Mark done' },
       { keys: ['Esc'], label: 'Close the email' },
     ],
