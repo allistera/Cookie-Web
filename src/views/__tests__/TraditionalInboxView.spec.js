@@ -4216,7 +4216,8 @@ describe('TraditionalInboxView keyboard highlight', () => {
     await nextTick()
     await press('Enter')
 
-    expect(highlighted(wrapper)).toEqual(['Subject one'])
+    // The highlight followed the opened email; Enter did nothing under the reader.
+    expect(highlighted(wrapper)).toEqual(['Subject three'])
     expect(store.openEmailId).toBe('three')
     wrapper.unmount()
   })
@@ -4275,6 +4276,68 @@ describe('TraditionalInboxView keyboard highlight', () => {
 
     await press('ArrowDown', document, { shiftKey: true })
     expect(store.openEmailId).toBe('one')
+    wrapper.unmount()
+  })
+
+  it('Down gives the highlighted row focus, so Enter opens it after a tab was clicked', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    const tab = wrapper.find('.ni-tab').element
+    tab.focus()
+    expect(document.activeElement).toBe(tab)
+
+    await press('ArrowDown', tab)
+    await nextTick()
+    expect(highlighted(wrapper)).toEqual(['Subject one'])
+    expect(document.activeElement).toBe(wrapper.find('.ni-row.highlighted').element)
+
+    await press('Enter', document.activeElement)
+    expect(store.openEmailId).toBe('one')
+    wrapper.unmount()
+  })
+
+  it('Space on the focused row ticks it rather than opening it', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    await press('ArrowDown')
+    await nextTick()
+    const row = wrapper.find('.ni-row.highlighted').element
+    expect(document.activeElement).toBe(row)
+
+    await press(' ', row)
+    expect(
+      wrapper.findAll('.ni-row.checked').map((r) => r.find('.ni-subject-text').text()),
+    ).toEqual(['Subject one'])
+    expect(store.openEmailId).toBe(null)
+    wrapper.unmount()
+  })
+
+  it('a row gaining focus becomes the highlighted one, so the keys continue from it', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    wrapper.findAll('.ni-row')[2].element.focus()
+    await nextTick()
+    expect(highlighted(wrapper)).toEqual(['Subject three'])
+
+    await press('ArrowUp', document.activeElement)
+    await nextTick()
+    expect(highlighted(wrapper)).toEqual(['Subject two'])
+    expect(document.activeElement).toBe(wrapper.find('.ni-row.highlighted').element)
+    wrapper.unmount()
+  })
+
+  it('opening an email moves the highlight to it, and Escape returns focus to it', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    await wrapper.findAll('.ni-row')[1].trigger('click')
+    expect(store.openEmailId).toBe('two')
+    expect(highlighted(wrapper)).toEqual(['Subject two'])
+
+    await press('Escape')
+    await nextTick()
+    expect(store.openEmailId).toBe(null)
+    expect(document.activeElement).toBe(wrapper.find('.ni-row.highlighted').element)
+
+    await press('ArrowDown', document.activeElement)
+    await nextTick()
+    expect(highlighted(wrapper)).toEqual(['Subject three'])
+    expect(document.activeElement).toBe(wrapper.find('.ni-row.highlighted').element)
     wrapper.unmount()
   })
 })

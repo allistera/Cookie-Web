@@ -2270,6 +2270,29 @@ test('Escape closes the palette but keeps the reading panel open', async ({ page
   await expect(page.locator('.ni-reader')).toBeVisible()
 })
 
+test('Up and Down focus the highlighted email, so Enter opens it after a click elsewhere', async ({
+  page,
+}) => {
+  await page.goto('/inbox')
+  // The click leaves focus on the tab, which would otherwise keep Enter.
+  await page.locator('.ni-tab').first().click()
+  await expect(page.locator('.ni-row').first()).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+
+  const highlighted = page.locator('.ni-row.highlighted')
+  await expect(highlighted).toBeFocused()
+  const subject = await highlighted.locator('.ni-subject-text').innerText()
+
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.ni-reader-subject-text')).toHaveText(subject)
+
+  // Escape returns focus to the email last read.
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.ni-reader')).toBeHidden()
+  await expect(highlighted).toBeFocused()
+  await expect(highlighted).toContainText(subject)
+})
+
 test('A top loading bar shows while the inbox is fetching and hides afterwards', async ({
   page,
 }) => {

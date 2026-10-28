@@ -32,8 +32,10 @@ function followUpTitle(followUpAt) {
 
 <template>
   <!-- The row is the only way to open a message, so it is a real keyboard
-       target: focusable, named for assistive tech, and activated by Enter or
-       Space like the checkbox inside it. -->
+       target: focusable, named for assistive tech, and opened by Enter. Space
+       ticks it instead, as it does for the highlighted row (see onKeydown in
+       TraditionalInboxView.vue), so the key means one thing however the row
+       came to be the current one. -->
   <div
     class="ni-row"
     :class="{ unread: email.unread, selected: open, checked, highlighted }"
@@ -42,7 +44,7 @@ function followUpTitle(followUpAt) {
     :aria-label="`${sender}: ${email.subject}`"
     @click="$emit('open', email)"
     @keydown.enter.self.prevent="$emit('open', email)"
-    @keydown.space.self.prevent="$emit('open', email)"
+    @keydown.space.self.prevent="$emit('toggle-select', email)"
   >
     <div class="ni-lead">
       <span
