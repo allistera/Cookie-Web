@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const emit = defineEmits(['close', 'created'])
@@ -28,6 +28,8 @@ async function submit() {
     error.value = failure.userMessage || 'Could not create your task. Please try again.'
   } finally {
     saving.value = false
+    // A disabled input cannot take focus until Vue re-enables it.
+    await nextTick()
     input.value?.focus()
   }
 }
@@ -69,7 +71,7 @@ onBeforeUnmount(() => {
             maxlength="1000"
             autocomplete="off"
             data-1p-ignore
-            :readonly="saving"
+            :disabled="saving"
             @keydown.enter="($event.isComposing || saving) && $event.preventDefault()"
           />
           <button v-if="text.trim()" type="submit" aria-label="Create AI task" :disabled="saving">
@@ -80,11 +82,12 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <p v-if="saving || showHint" id="ai-task-status" class="ai-task-status" role="status">
-          {{
-            saving
-              ? 'Creating your task and subtasks…'
-              : 'Describe a task. Press Enter to create it in Inbox.'
-          }}
+          <template v-if="saving">
+            Creating your task and subtasks<span class="ai-task-dots" aria-hidden="true"
+              ><span>.</span><span>.</span><span>.</span></span
+            >
+          </template>
+          <template v-else>Describe a task. Press Enter to create it in Inbox.</template>
         </p>
         <p v-if="error" class="ai-task-error" role="alert">{{ error }}</p>
       </form>
@@ -173,6 +176,30 @@ onBeforeUnmount(() => {
 }
 .ai-task-error {
   color: var(--color-danger, #b42318);
+}
+.ai-task-dots span {
+  animation: ai-task-dot 1.2s infinite both;
+}
+.ai-task-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.ai-task-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes ai-task-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-task-dots span {
+    animation: none;
+  }
 }
 @media (max-width: 600px) {
   .ai-task-prompt {

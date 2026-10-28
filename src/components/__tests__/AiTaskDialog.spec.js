@@ -60,4 +60,23 @@ describe('AI task hint', () => {
     expect(wrapper.find('#ai-task-status').exists()).toBe(false)
     expect(wrapper.get('[role="alert"]').text()).toContain('Could not create your task')
   })
+
+  it('disables the input and animates dots while creating, then re-enables it', async () => {
+    let resolveCreation
+    vi.spyOn(useTaskItemsStore(), 'generateItem').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreation = resolve
+        }),
+    )
+    openDialog()
+    await wrapper.get('input').setValue('Plan a trip')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('input').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#ai-task-status').text()).toContain('Creating your task and subtasks...')
+    expect(wrapper.findAll('.ai-task-dots span')).toHaveLength(3)
+    resolveCreation({ id: 1 })
+    await flushPromises()
+    expect(wrapper.get('input').attributes('disabled')).toBeUndefined()
+  })
 })
