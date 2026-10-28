@@ -43,6 +43,7 @@ const auth = useAuth()
 const userName = computed(() => shortUserName(auth?.user?.value?.name))
 
 const item = computed(() => items.itemById(props.taskId))
+const parent = computed(() => (item.value?.parentId ? items.itemById(item.value.parentId) : null))
 watch(
   () => [props.taskId, items.isLoading],
   () => {
@@ -700,6 +701,16 @@ onBeforeUnmount(() => {
       </div>
       <div v-else class="task-panel-body">
         <div class="task-panel-main">
+          <button
+            v-if="item.parentId"
+            class="task-panel-parent"
+            type="button"
+            :title="parent?.content ? `Back to ${parent.content}` : 'Back to parent task'"
+            @click="open(item.parentId)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+            <span class="task-panel-parent-name">{{ parent?.content || 'Parent task' }}</span>
+          </button>
           <div class="task-panel-heading">
             <button
               class="task-panel-check"
@@ -1254,6 +1265,35 @@ onBeforeUnmount(() => {
   background: var(--rail-bg);
   color: var(--rail-text);
   overflow-y: auto;
+}
+
+.task-panel-parent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.task-panel-parent:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.task-panel-parent .material-symbols-outlined {
+  font-size: 18px;
+}
+.task-panel-parent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-panel-heading {

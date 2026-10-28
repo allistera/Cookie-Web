@@ -116,6 +116,22 @@ describe('TaskDetailPanel', () => {
     expect(wrapper.get('.task-panel-next').attributes('disabled')).toBeDefined()
   })
 
+  it('links a sub-task back to its parent and hides the link on top-level tasks', async () => {
+    seed([...ITEMS, { id: 's1', content: 'Step one', parentId: 'b', projectId: null }])
+    const top = await mountPanel('b')
+    await flushPromises()
+    expect(top.find('.task-panel-parent').exists()).toBe(false)
+    top.unmount()
+
+    const wrapper = await mountPanel('s1')
+    await flushPromises()
+    const link = wrapper.get('.task-panel-parent')
+    expect(link.text()).toContain(ITEMS.find((row) => row.id === 'b').content)
+    await link.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.task).toBe('b')
+  })
+
   it('copies the task link from the header', async () => {
     seed()
     const writeText = stubClipboard()
