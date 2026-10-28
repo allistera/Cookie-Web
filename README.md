@@ -282,7 +282,7 @@ The main runtime variables are:
 
 `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those two now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
-The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Attachment upload authorization and registration remain on Vercel and retain their Blob storage, database, and authentication settings. Set delivery credentials and the flush token on that Worker; deploy its follow-up support before deploying this adapter. Web request IDs survive failed sends and are renewed after successful delivery. Migration `0065_task_subtree_projects.sql` repairs task descendants left in old projects and adds a parent lookup index.
+The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Composer attachments are posted by the browser straight to that Worker's `POST /send/attachments` route and removed with `DELETE /send/attachments/:id`, the same calls the iOS app makes, so Vercel no longer needs Blob storage or database settings for uploads. Set delivery credentials and the flush token on that Worker; deploy its follow-up support before deploying this adapter. Web request IDs survive failed sends and are renewed after successful delivery. Migration `0065_task_subtree_projects.sql` repairs task descendants left in old projects and adds a parent lookup index.
 
 Vercel stores browser build values. GitHub Actions stores only the secrets its migration workflow needs.
 
@@ -656,7 +656,7 @@ search, and `jsonRequest` operations across stores. The fixed `operation` label
 identifies these timings; counts include both completed and failed attempts.
 These are operation timings, not a count of every network fetch or user action.
 The API Workers independently measure their HTTP and background handler calls;
-the Vercel upload-token and proxy handlers do not have server-side Sentry clients.
+the Vercel send proxy handler does not have a server-side Sentry client.
 
 Up to 100 early timing observations are buffered while the lazy SDK loads.
 Development, E2E, and builds without a DSN do not collect metrics. The metric

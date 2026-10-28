@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { SEND_API_URL } from '../apiWorkers'
 import {
-  attachmentPathname,
+  ATTACHMENTS_URL,
   attachmentSizeError,
   MAX_ATTACHMENT_BYTES,
   uploadAttachment,
@@ -11,22 +12,23 @@ function fakeFile(name, size, type = 'application/pdf') {
   return { name, size, type }
 }
 
-describe('attachmentPathname', () => {
-  it('places the upload under the caller prefix the API expects', () => {
-    expect(attachmentPathname('user-1', 'plan.pdf')).toBe('outbound-attachments/user-1/plan.pdf')
-  })
+function realFile(name, type = 'application/pdf') {
+  return new File(['%PDF-1.4 fixture'], name, { type })
+}
 
-  it('keeps only the basename so a picked path cannot escape the prefix', () => {
-    expect(attachmentPathname('user-1', '../../secret.pdf')).toBe(
-      'outbound-attachments/user-1/secret.pdf',
-    )
-  })
+const authHeaders = vi.fn(async (extra = {}) => ({ Authorization: 'Bearer t', ...extra }))
 
-  it('reduces awkward names to a safe object key', () => {
-    expect(attachmentPathname('user-1', 'my report (final).pdf')).toBe(
-      'outbound-attachments/user-1/my_report__final_.pdf',
-    )
-    expect(attachmentPathname('user-1', '')).toBe('outbound-attachments/user-1/attachment')
+function responding(status, payload) {
+  return vi.fn(async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => payload,
+  }))
+}
+
+describe('ATTACHMENTS_URL', () => {
+  it('is the send Worker route the iOS composer also uploads to', () => {
+    expect(ATTACHMENTS_URL).toBe(`${SEND_API_URL}/send/attachments`)
   })
 })
 
@@ -39,126 +41,78 @@ describe('attachmentSizeError', () => {
     expect(attachmentSizeError(fakeFile('empty.pdf', 0))).toMatch(/empty/i)
     expect(attachmentSizeError(fakeFile('big.pdf', MAX_ATTACHMENT_BYTES + 1))).toMatch(/20MB/)
   })
+
+  it('rejects a pick whose size cannot be read', () => {
+    expect(attachmentSizeError({ name: 'odd.pdf' })).toMatch(/could not be read/i)
+    expect(attachmentSizeError(fakeFile('odd.pdf', 'NaN'))).toMatch(/could not be read/i)
+  })
 })
 
 describe('uploadAttachment', () => {
-  function harness({ ok = true } = {}) {
-    const uploader = vi.fn(async () => ({ url: 'https://store.blob.vercel-storage.com/x.pdf' }))
-    const fetchImpl = vi.fn(async () => ({
-      ok,
-      status: ok ? 201 : 500,
-      json: async () => ({ attachment: { id: 'attachment-1', filename: 'plan.pdf' } }),
-    }))
-    return { uploader, fetchImpl }
-  }
+  const stored = { id: 'attachment-1', filename: 'plan.pdf' }
 
-  const authHeaders = async (extra = {}) => ({ Authorization: 'Bearer t', ...extra })
+  it('posts the file as multipart form data with only the bearer header', async () => {
+    const fetchImpl = responding(201, { attachment: stored })
 
-  it('uploads privately, then registers the blob and returns the stored row', async () => {
-    const { uploader, fetchImpl } = harness()
+    const attachment = await uploadAttachment(realFile('plan.pdf'), { authHeaders, fetchImpl })
 
-    const attachment = await uploadAttachment(fakeFile('plan.pdf', 2048), {
-      userId: 'user-1',
-      authHeaders,
-      uploader,
-      fetchImpl,
-    })
-
-    expect(uploader).toHaveBeenCalledWith(
-      'outbound-attachments/user-1/plan.pdf',
-      expect.anything(),
-      expect.objectContaining({
-        access: 'private',
-        handleUploadUrl: '/api/send?resource=upload-token',
-      }),
-    )
-    const [, options] = fetchImpl.mock.calls[0]
-    expect(JSON.parse(options.body)).toEqual({
-      url: 'https://store.blob.vercel-storage.com/x.pdf',
-      filename: 'plan.pdf',
-    })
-    expect(attachment).toEqual({ id: 'attachment-1', filename: 'plan.pdf' })
-  })
-
-  it('refuses an oversized file before spending an upload token', async () => {
-    const { uploader, fetchImpl } = harness()
-
-    await expect(
-      uploadAttachment(fakeFile('big.pdf', MAX_ATTACHMENT_BYTES + 1), {
-        userId: 'user-1',
-        authHeaders,
-        uploader,
-        fetchImpl,
-      }),
-    ).rejects.toThrow(/20MB/)
-    expect(uploader).not.toHaveBeenCalled()
-  })
-
-  it('fails clearly when the mailbox has not resolved a user id yet', async () => {
-    const { uploader, fetchImpl } = harness()
-
-    await expect(
-      uploadAttachment(fakeFile('plan.pdf', 10), { authHeaders, uploader, fetchImpl }),
-    ).rejects.toThrow(/still loading/i)
-    expect(uploader).not.toHaveBeenCalled()
-  })
-
-  it('surfaces a failed registration rather than reporting a phantom attachment', async () => {
-    const { uploader, fetchImpl } = harness({ ok: false })
-
-    await expect(
-      uploadAttachment(fakeFile('plan.pdf', 10), {
-        userId: 'user-1',
-        authHeaders,
-        uploader,
-        fetchImpl,
-        retryDelaysMs: [0, 0],
-      }),
-    ).rejects.toThrow(/responded 500/)
-    // Bounded: the first attempt plus one retry per delay, then it gives up.
-    expect(fetchImpl).toHaveBeenCalledTimes(3)
-    expect(uploader).toHaveBeenCalledTimes(1)
-  })
-
-  // The blob is already stored, so a blip here would otherwise orphan it.
-  it('retries a transient registration failure and returns the stored row', async () => {
-    const { uploader } = harness()
-    const fetchImpl = vi
-      .fn()
-      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce({ ok: false, status: 503 })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({ attachment: { id: 'attachment-1', filename: 'plan.pdf' } }),
-      })
-
-    const attachment = await uploadAttachment(fakeFile('plan.pdf', 10), {
-      userId: 'user-1',
-      authHeaders,
-      uploader,
-      fetchImpl,
-      retryDelaysMs: [0, 0],
-    })
-
-    expect(attachment).toEqual({ id: 'attachment-1', filename: 'plan.pdf' })
-    expect(fetchImpl).toHaveBeenCalledTimes(3)
-    expect(uploader).toHaveBeenCalledTimes(1)
-  })
-
-  it.each([400, 429])('does not retry a registration the server answered %i', async (status) => {
-    const { uploader } = harness()
-    const fetchImpl = vi.fn(async () => ({ ok: false, status }))
-
-    await expect(
-      uploadAttachment(fakeFile('plan.pdf', 10), {
-        userId: 'user-1',
-        authHeaders,
-        uploader,
-        fetchImpl,
-        retryDelaysMs: [0, 0],
-      }),
-    ).rejects.toThrow(`responded ${status}`)
+    expect(attachment).toEqual(stored)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [url, options] = fetchImpl.mock.calls[0]
+    expect(url).toBe(`${SEND_API_URL}/send/attachments`)
+    expect(options.method).toBe('POST')
+    // The browser has to add the multipart boundary itself.
+    expect(options.headers).toEqual({ Authorization: 'Bearer t' })
+    expect(options.body).toBeInstanceOf(FormData)
+    const sent = options.body.get('file')
+    expect(sent).toBeInstanceOf(File)
+    expect(sent.name).toBe('plan.pdf')
+    expect(sent.type).toBe('application/pdf')
+    expect([...options.body.keys()]).toEqual(['file'])
+  })
+
+  it('refuses an oversized file before spending an upload', async () => {
+    const fetchImpl = responding(201, { attachment: stored })
+
+    await expect(
+      uploadAttachment(fakeFile('big.pdf', MAX_ATTACHMENT_BYTES + 1), { authHeaders, fetchImpl }),
+    ).rejects.toThrow(/20MB/)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the Worker error message when it sends one', async () => {
+    const fetchImpl = responding(429, { error: 'Too many attachment uploads, slow down' })
+
+    await expect(
+      uploadAttachment(realFile('plan.pdf'), { authHeaders, fetchImpl }),
+    ).rejects.toThrow('Too many attachment uploads, slow down')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to the status when a failure has no JSON body', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 502,
+      json: async () => {
+        throw new SyntaxError('not json')
+      },
+    }))
+
+    await expect(
+      uploadAttachment(realFile('plan.pdf'), { authHeaders, fetchImpl }),
+    ).rejects.toThrow('POST /send/attachments responded 502')
+    // One attempt only: the upload is also the registration, so a retry
+    // after an ambiguous failure could store the file twice.
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes a network failure through', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+
+    await expect(
+      uploadAttachment(realFile('plan.pdf'), { authHeaders, fetchImpl }),
+    ).rejects.toThrow('Failed to fetch')
   })
 })

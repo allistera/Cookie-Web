@@ -27,6 +27,7 @@ import {
   SEARCH_API_URL,
   LABELS_API_URL,
   MESSAGES_API_URL,
+  SEND_API_URL,
   TASKS_API_URL,
 } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
@@ -3983,10 +3984,7 @@ export const useInboxStore = defineStore('inbox', {
 
     // One file to storage; the stored attachment row.
     uploadAttachmentFile(file) {
-      return uploadAttachment(file, {
-        userId: this.userId,
-        authHeaders: (extra) => this.authHeaders(extra),
-      })
+      return uploadAttachment(file, { authHeaders: (extra) => this.authHeaders(extra) })
     },
 
     // Uploads that outlived the message they were picked for have no owner:
@@ -4025,12 +4023,12 @@ export const useInboxStore = defineStore('inbox', {
 
     async discardUploadedAttachment(id) {
       const headers = await this.authHeaders()
-      const response = await fetch(`/api/send?resource=attachment&id=${encodeURIComponent(id)}`, {
+      const response = await fetch(`${SEND_API_URL}/send/attachments/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers,
       })
       if (!response.ok && response.status !== 404) {
-        throw new Error(`DELETE /api/send?resource=attachment responded ${response.status}`)
+        throw new Error(`DELETE /send/attachments responded ${response.status}`)
       }
     },
 

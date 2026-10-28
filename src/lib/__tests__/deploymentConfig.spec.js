@@ -33,14 +33,15 @@ describe('content security policy', () => {
     )
   }
 
-  // @vercel/blob's client upload (lib/attachmentUpload.js) asks
-  // https://vercel.com/api/blob for its upload url before streaming the file
-  // to *.vercel-storage.com; the browser refuses the first hop unless it is
-  // listed, and an attachment then never leaves the composer.
-  it('lets the composer reach Vercel Blob for attachment uploads', () => {
-    const connect = csp()['connect-src']
-    expect(connect).toContain('https://vercel.com')
-    expect(connect).toContain('https://*.vercel-storage.com')
+  // Composer uploads post to the send Worker (lib/attachmentUpload.js) like
+  // every other Worker call, so the browser no longer needs a connect-src
+  // opening to Vercel Blob or vercel.com; only images still come from Blob.
+  it('keeps browser connections to the Workers and off Vercel Blob', () => {
+    const policy = csp()
+    expect(policy['connect-src']).toContain('https://*.infinitywave.online')
+    expect(policy['connect-src']).not.toContain('https://vercel.com')
+    expect(policy['connect-src']).not.toContain('https://*.vercel-storage.com')
+    expect(policy['img-src']).toContain('https://*.vercel-storage.com')
   })
 
   it.each([
