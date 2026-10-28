@@ -708,9 +708,7 @@ onBeforeUnmount(() => {
             :title="parent?.content ? `Back to ${parent.content}` : 'Back to parent task'"
             @click="open(item.parentId)"
           >
-            <span class="material-symbols-outlined" aria-hidden="true"
-              >subdirectory_arrow_left</span
-            >
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
             <span class="task-panel-parent-name">{{ parent?.content || 'Parent task' }}</span>
           </button>
           <div class="task-panel-heading">
