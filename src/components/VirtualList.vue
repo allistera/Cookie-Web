@@ -91,6 +91,15 @@ function scrollToKey(key) {
   onScroll()
 }
 
+// Puts keyboard focus on a row's content (the slot's root element, which the
+// caller makes focusable), scrolling the row into the window first: a row
+// outside it is not mounted until the next render.
+async function focusKey(key) {
+  scrollToKey(key)
+  await nextTick()
+  rowElements.get(key)?.firstElementChild?.focus({ preventScroll: true })
+}
+
 onMounted(() => {
   viewportHeight.value = viewport.value.clientHeight || 800
   if (globalThis.ResizeObserver) {
@@ -130,7 +139,7 @@ onBeforeUnmount(() => {
   if (measurementFrame !== undefined) cancelAnimationFrame(measurementFrame)
   pendingMeasurements.clear()
 })
-defineExpose({ scrollToKey })
+defineExpose({ focusKey, scrollToKey })
 </script>
 
 <template>

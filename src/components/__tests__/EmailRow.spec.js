@@ -43,12 +43,13 @@ describe('EmailRow', () => {
     expect(wrapper.get('[aria-label="Mark Quarterly numbers as read"]').exists()).toBe(true)
   })
 
-  it('opens on Enter and Space', async () => {
+  it('opens on Enter and ticks on Space', async () => {
     const wrapper = mountRow()
     await wrapper.get('.ni-row').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('open')).toEqual([[email]])
     await wrapper.get('.ni-row').trigger('keydown', { key: ' ' })
-    expect(wrapper.emitted('open')).toHaveLength(2)
-    expect(wrapper.emitted('open')[0]).toEqual([email])
+    expect(wrapper.emitted('open')).toHaveLength(1)
+    expect(wrapper.emitted('toggle-select')).toEqual([[email]])
   })
 
   it('does not open when Enter is used on the select checkbox', async () => {

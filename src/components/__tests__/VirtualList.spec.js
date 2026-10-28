@@ -32,6 +32,18 @@ describe('VirtualList', () => {
     expect(wrapper.find('[data-virtual-key="row-0"]').exists()).toBe(false)
     wrapper.unmount()
   })
+
+  it('focusKey mounts a distant row and focuses its content', async () => {
+    const wrapper = mount(VirtualList, { ...options, attachTo: document.body })
+    await wrapper.vm.focusKey('row-5000')
+    expect(document.activeElement).toBe(
+      wrapper.find('[data-virtual-key="row-5000"] button').element,
+    )
+    // An unknown key leaves focus where it is.
+    await wrapper.vm.focusKey('missing')
+    expect(document.activeElement.textContent).toBe('Row 5000')
+    wrapper.unmount()
+  })
 })
 
 describe('VirtualList measurements', () => {

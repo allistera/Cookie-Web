@@ -418,13 +418,30 @@ const estimateMailRow = (row) => (row.kind === 'group' ? 56 : 40)
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 
-// The row the Up/Down keys have moved to. It is only highlighted; Enter opens
-// it. Kept by id, so a row that leaves the list simply stops being
-// highlighted and the next press starts from the top (or bottom) again.
+// The current row of the list: the one the Up/Down keys have moved to, the
+// one last opened, or the one keyboard focus landed on. Enter opens it and
+// Space ticks it. Kept by id, so a row that leaves the list simply stops
+// being highlighted and the next press starts from the top (or bottom) again.
 const highlightedId = ref(null)
 
-// Moves the highlight one email up or down among the rows on show (a
-// collapsed day's emails are skipped), stopping at either end.
+// Gives the highlighted row keyboard focus (scrolled into the window first),
+// so Enter and Space reach the row itself rather than a tab, day header or
+// row clicked earlier, which would otherwise keep the keys.
+function focusHighlightedRow() {
+  if (highlightedId.value === null) return
+  mailList.value?.focusKey(`email:${highlightedId.value}`)
+}
+
+// A row gaining focus (Tab, or a click on it or a control inside it) becomes
+// the highlighted one, so Up and Down continue from it.
+function onListFocusIn(event) {
+  const key = event.target?.closest?.('[data-virtual-key]')?.dataset.virtualKey
+  const row = key ? virtualMailRows.value.find((candidate) => candidate.key === key) : null
+  if (row?.kind === 'email') highlightedId.value = row.email.id
+}
+
+// Moves the highlight, and focus with it, one email up or down among the rows
+// on show (a collapsed day's emails are skipped), stopping at either end.
 function moveHighlight(step) {
   const emails = virtualMailRows.value.filter((row) => row.kind === 'email')
   if (!emails.length) return
@@ -436,19 +453,18 @@ function moveHighlight(step) {
         : emails.length - 1
       : Math.min(Math.max(index + step, 0), emails.length - 1)
   highlightedId.value = emails[next].email.id
-  mailList.value?.scrollToKey(emails[next].key)
+  focusHighlightedRow()
 }
 
 // Opens the email before or after the open one among the rows on show (a
 // collapsed day's emails are skipped), stopping at either end. The highlight
-// follows, so closing the reader leaves it on the email last read.
+// follows the open email (see the openEmailId watcher), so closing the reader
+// leaves it on the email last read.
 function openAdjacentEmail(step) {
   const emails = virtualMailRows.value.filter((row) => row.kind === 'email')
   const index = emails.findIndex((row) => row.email.id === openEmail.value?.id)
   const next = index === -1 ? null : emails[index + step]
-  if (!next) return
-  highlightedId.value = next.email.id
-  openReader(next.email)
+  if (next) openReader(next.email)
 }
 
 // Separated from emailGroups so a single email's unread toggle only
@@ -1263,9 +1279,11 @@ watch(
     readerTagOpen.value = false
     readerMoreOpen.value = false
     contentUnsubscribe.value = null
-    // Fetch the full body on demand (cached) for any open path, including the
-    // command palette.
+    // The highlight follows the open email, so Up and Down continue from the
+    // one last read once the reader closes. Fetch the full body on demand
+    // (cached) for any open path, including the command palette.
     if (id) {
+      highlightedId.value = id
       nextTick(() => mailList.value?.scrollToKey(`email:${id}`))
       store.fetchMessageBody(id).then(() => store.ensureThreadSummary(store.openEmail))
       store.loadDrafts({ silent: true })
@@ -1918,7 +1936,10 @@ function onKeydown(e) {
     if (selectedEmails.value.length) {
       clearSelection()
     } else if (openEmail.value) {
+      // Back on the list, focus goes to the email last read, so Enter reopens
+      // it and Up and Down continue from it.
       closeReader()
+      focusHighlightedRow()
     }
   }
 
@@ -1955,11 +1976,12 @@ function onKeydown(e) {
     }
   }
 
-  // Up/Down move a highlight through the emails without opening any; Enter
-  // opens the highlighted one and Space ticks or unticks its checkbox. While
-  // an email is open, Up/Down open the one before or after it instead. Only
-  // while nothing else covers the list. Enter and Space are left to a focused
-  // control (a row, a tab, a button) that acts on them itself.
+  // Up/Down move a highlight, and keyboard focus with it, through the emails
+  // without opening any; Enter opens the highlighted one and Space ticks or
+  // unticks its checkbox. While an email is open, Up/Down open the one before
+  // or after it instead. Only while nothing else covers the list. Enter and
+  // Space are left to a focused control (a row, a tab, a button) that acts on
+  // them itself, as the highlighted row does once the keys have focused it.
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isListKey(e) && !isListObscured()) {
     e.preventDefault()
     const step = e.key === 'ArrowUp' ? -1 : 1
@@ -2138,6 +2160,7 @@ onUnmounted(() => {
       :style="swipeStyle"
       :items="virtualMailRows"
       :estimate="estimateMailRow"
+      @focusin="onListFocusIn"
     >
       <template #default="{ item: row }">
         <button
