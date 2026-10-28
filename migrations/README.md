@@ -285,7 +285,8 @@ replaced by one partial unique index per source plus a plain
 `(scheduled_send_id)` index, since neither partial index alone covers a mixed
 row set.
 
-Apply `0060` before deploying code that serves `POST /api/send?resource=attachment`.
+Apply `0060` before deploying code that records composer uploads (today
+`POST /send/attachments` on the `cookie-web-send` Worker).
 Both the send and cancel paths fall back to forwarded-attachment-only queries
 while the table is missing, so a rolling deploy keeps existing mail working.
 

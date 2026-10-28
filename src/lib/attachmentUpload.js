@@ -1,23 +1,15 @@
-// Mirrors MAX_OUTBOUND_ATTACHMENT_BYTES and MAX_OUTBOUND_ATTACHMENTS in
-// api/send.js. Checking here too keeps an oversized pick from spending the
-// user's upload allowance on a request the send would reject anyway.
+import { SEND_API_URL } from './apiWorkers'
+
+// Mirrors MAX_OUTBOUND_ATTACHMENT_BYTES on cookie-web-send (Cookie-Worker,
+// workers/cookie-web-send/src/outbound.js). Checking here too keeps an
+// oversized pick from spending the user's upload allowance on a request the
+// Worker would refuse anyway.
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 export const MAX_ATTACHMENTS = 20
 
-const UPLOAD_TOKEN_URL = '/api/send?resource=upload-token'
-const REGISTER_RETRY_DELAYS_MS = [500, 1500]
-
-// The server mints a token only for a pathname under the caller's own prefix,
-// so this has to match api/send.js's attachmentPrefix() exactly. The visible
-// filename the recipient sees is sanitised server-side from the name sent
-// alongside the registration call; this only has to be a safe object key.
-export function attachmentPathname(userId, filename) {
-  const base = String(filename ?? '')
-    .split(/[/\\]/)
-    .pop()
-  const safeName = base.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120)
-  return `outbound-attachments/${userId}/${safeName || 'attachment'}`
-}
+// The same route the iOS composer posts to, so both clients share one upload
+// contract, rate limit and ownership rule on the send Worker.
+export const ATTACHMENTS_URL = `${SEND_API_URL}/send/attachments`
 
 export function attachmentSizeError(file) {
   const reportedSize = file?.size
@@ -32,66 +24,32 @@ export function attachmentSizeError(file) {
 }
 
 /**
- * Streams one picked file straight to Blob storage under a short-lived token,
- * then registers it so the send API can resolve it by id. The blob url the
- * upload returns is handed to the server and deliberately not kept: every
- * later read of this attachment is metadata only.
+ * Posts one picked file to the send Worker as multipart form data. The Worker
+ * stores the bytes privately and records the upload in the same call, so the
+ * returned row is ready for a draft's attachmentIds or POST /send. The blob
+ * url never reaches the browser; every later read of this attachment is
+ * metadata only.
+ *
+ * Not retried: the upload is the registration, so a repeat after an ambiguous
+ * failure would store the file twice. The caller reports the failure and the
+ * user picks the file again.
  *
  * @returns the stored attachment row: { id, filename, content_type, size_bytes }
  */
-export async function uploadAttachment(
-  file,
-  {
-    userId,
-    authHeaders,
-    uploader,
-    fetchImpl = fetch,
-    onProgress,
-    retryDelaysMs = REGISTER_RETRY_DELAYS_MS,
-  } = {},
-) {
-  if (!userId) throw new Error('Mailbox is still loading; attachments are not ready yet')
+export async function uploadAttachment(file, { authHeaders, fetchImpl = fetch } = {}) {
   const sizeError = attachmentSizeError(file)
   if (sizeError) throw new Error(sizeError)
 
+  // No Content-Type here: the browser sets multipart/form-data with the
+  // boundary it chose, which a hand-written header would break.
   const headers = await authHeaders()
-  const uploadOptions = {
-    access: 'private',
-    handleUploadUrl: UPLOAD_TOKEN_URL,
-    contentType: file.type || 'application/octet-stream',
-    headers,
+  const body = new FormData()
+  body.append('file', file, file.name)
+  const response = await fetchImpl(ATTACHMENTS_URL, { method: 'POST', headers, body })
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}))
+    throw new Error(result?.error || `POST /send/attachments responded ${response.status}`)
   }
-  if (onProgress) uploadOptions.onUploadProgress = onProgress
-  const upload = uploader ?? (await import('@vercel/blob/client')).upload
-  const blob = await upload(attachmentPathname(userId, file.name), file, uploadOptions)
-
-  // The blob is already stored at this point, so a transient registration
-  // failure would orphan it. Registration is idempotent on the blob url, so
-  // a network error or 5xx is retried a couple of times before giving up. A
-  // 429 is not retried: the server's window is a minute, far longer than this
-  // backoff, so a quick retry would only spend more of an exhausted budget.
-  for (let attempt = 0; ; attempt += 1) {
-    const registerHeaders = await authHeaders({ 'Content-Type': 'application/json' })
-    let response
-    let error
-    try {
-      response = await fetchImpl('/api/send?resource=attachment', {
-        method: 'POST',
-        headers: registerHeaders,
-        body: JSON.stringify({ url: blob.url, filename: file.name }),
-      })
-    } catch (fetchError) {
-      error = fetchError
-    }
-    if (response?.ok) {
-      const { attachment } = await response.json()
-      return attachment
-    }
-    if (response) {
-      error = new Error(`POST /api/send?resource=attachment responded ${response.status}`)
-    }
-    const retryable = !response || response.status >= 500
-    if (!retryable || attempt >= retryDelaysMs.length) throw error
-    await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt]))
-  }
+  const { attachment } = await response.json()
+  return attachment
 }

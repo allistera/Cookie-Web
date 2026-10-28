@@ -35,7 +35,6 @@
     "@univerjs/preset-sheets-hyper-link": "^1.1.0",
     "@univerjs/preset-sheets-sort": "^1.1.0",
     "@univerjs/presets": "^1.1.0",
-    "@vercel/blob": "^2.8.2",
     "dompurify": "^3.4.17",
     "editorjs-drag-drop": "^1.1.16",
     "highlight.js": "^11.12.0",
@@ -92,9 +91,6 @@
     },
     "lodash-es": "4.18.1",
     "katex": "0.18.2",
-    "@vercel/blob": {
-      "undici": "6.29.1"
-    },
     "@vercel/cli-config": {
       "zod": "4.6.7"
     }

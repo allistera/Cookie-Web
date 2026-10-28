@@ -1,10 +1,10 @@
 import { SEND_API_URL } from '../src/lib/apiWorkers.js'
-import { createUploadHandler } from './_lib/outboundUploads.js'
-export { sanitizeAttachmentFilename } from './_lib/outboundUploads.js'
 import { readJsonBody } from './_lib/body.js'
 
 // Preserve the old URL contract while Cookie-Worker owns sending, retries,
 // quotas, reminders, and sent-copy persistence for both browser and iOS.
+// Attachment uploads are not proxied: the browser posts them to the Worker's
+// /send/attachments route directly, as the iOS app does.
 const SEND_URL = `${SEND_API_URL}/send`
 const METHODS = {
   send: ['POST'],
@@ -15,16 +15,11 @@ const METHODS = {
 
 export function createHandler(overrides = {}) {
   const sendRequest = overrides.fetch ?? globalThis.fetch
-  const uploadHandler = createUploadHandler(overrides)
   return async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Cache-Control', 'no-store')
     const resource =
       new URL(req.url || '/api/send', 'http://localhost').searchParams.get('resource') || 'send'
-    if (resource === 'upload-token' || resource === 'attachment') {
-      await uploadHandler(req, res)
-      return
-    }
     if (!Object.hasOwn(METHODS, resource)) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Not Found' }))

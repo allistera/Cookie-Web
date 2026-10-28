@@ -12,6 +12,7 @@ import {
   MESSAGES_API_URL,
   NOTIFICATIONS_API_URL,
   RECEIPTS_API_URL,
+  SEND_API_URL,
   TASKS_API_URL,
 } from '../../lib/apiWorkers'
 
@@ -2770,7 +2771,7 @@ describe('Inbox Store', () => {
       store.removeComposerAttachment('att-2')
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
       const [url, options] = fetchMock.mock.calls[0]
-      expect(url).toContain('/api/send?resource=attachment&id=att-2')
+      expect(url).toBe(`${SEND_API_URL}/send/attachments/att-2`)
       expect(options.method).toBe('DELETE')
       expect(store.composerAttachments).toEqual([])
     })
