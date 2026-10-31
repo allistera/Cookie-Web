@@ -26,11 +26,17 @@ export function bundleBudgetPlugin() {
         const id = (chunk.facadeModuleId ?? '').split('?')[0]
         // The entry carries the inbox store and, with it, the offline cache,
         // outbox and connectivity modules (about 8 KB) added in October 2026
-        // when main sat 2 KB under the previous 500 KB.
+        // when main sat 2 KB under the previous 500 KB. The Auth0 SPA SDK
+        // (statically imported by @auth0/auth0-vue) grew by 8.6 KB between
+        // auth0-vue 2.11 and 2.13, taking the entry from 516 KB past 520 KB
+        // with no change on the app side.
         const budget = chunk.isEntry
-          ? 520_000
-          : id.endsWith('/views/TraditionalInboxView.vue')
-            ? 650_000
+          ? 530_000
+          : // The inbox view statically imports the entry, so it carries the
+            // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
+            // Sentry debug IDs.
+            id.endsWith('/views/TraditionalInboxView.vue')
+            ? 660_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
