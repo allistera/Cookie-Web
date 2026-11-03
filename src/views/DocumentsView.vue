@@ -13,6 +13,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useDocumentsStore } from '../stores/documents'
 import NewDocumentDialog from '../components/NewDocumentDialog.vue'
 import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
+import { useCalendarRail } from '../composables/useCalendarRail'
 import DocumentIcon from '../components/DocumentIcon.vue'
 import DocumentsBrowser from '../components/DocumentsBrowser.vue'
 import FilePreview from '../components/FilePreview.vue'
@@ -26,6 +27,7 @@ import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
 const DocumentEditor = defineAsyncComponent(() => import('../components/DocumentEditor.vue'))
 
 const store = useDocumentsStore()
+const { isOpen: calendarRailOpen } = useCalendarRail()
 const route = useRoute()
 const router = useRouter()
 const editorComponent = ref(null)
@@ -424,7 +426,11 @@ function onEditorSave(payload) {
           @save="onEditorSave"
           @dirty="store.markContentDirty()"
         />
-        <DocumentCalendarSidebar v-if="store.openDocDailyDate" :date="store.openDocDailyDate" />
+        <!-- The app-wide calendar rail follows the note's day while it is open. -->
+        <DocumentCalendarSidebar
+          v-if="store.openDocDailyDate && !calendarRailOpen"
+          :date="store.openDocDailyDate"
+        />
       </div>
       <div v-else class="documents-empty">
         <p>This document is gone or never existed.</p>

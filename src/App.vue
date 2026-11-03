@@ -21,6 +21,7 @@ import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
 import { useBucketPin } from './composables/useBucketCandidate'
 import { setCalendarsOwner } from './composables/useCalendars'
+import { useCalendarRail } from './composables/useCalendarRail'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { useAppBadge } from './composables/useAppBadge'
@@ -42,6 +43,7 @@ const TasksSidebar = lazyComponent(() => import('./components/TasksSidebar.vue')
 const SavedViewsSidebar = lazyComponent(() => import('./components/SavedViewsSidebar.vue'))
 const SavedViewEditor = lazyComponent(() => import('./components/SavedViewEditor.vue'))
 const BucketPanel = lazyComponent(() => import('./components/BucketPanel.vue'))
+const CalendarRail = lazyComponent(() => import('./components/CalendarRail.vue'))
 
 const store = useInboxStore()
 const searchStore = useSearchStore()
@@ -84,6 +86,49 @@ const activeApp = computed(() => {
   if (route.name === 'tasks') return 'tasks'
   return 'email'
 })
+// The read-only day calendar docked on the right (closed by default, kept
+// per browser). Mail, Documents and Tasks only: Calendar is the full view.
+const calendarRail = useCalendarRail()
+const calendarRailAvailable = computed(() =>
+  ['email', 'documents', 'tasks'].includes(activeApp.value),
+)
+const showCalendarRail = computed(() => calendarRailAvailable.value && calendarRail.isOpen.value)
+// An open daily note pins the rail to the note's day. The documents store
+// lives in a lazy chunk, so it is only imported once Documents is visited.
+const documentsStoreRef = shallowRef(null)
+watch(
+  () => activeApp.value === 'documents',
+  async (onDocuments) => {
+    if (!onDocuments || documentsStoreRef.value) return
+    const { useDocumentsStore } = await import('./stores/documents')
+    documentsStoreRef.value = useDocumentsStore()
+  },
+  { immediate: true },
+)
+const calendarRailDate = computed(() =>
+  activeApp.value === 'documents' ? (documentsStoreRef.value?.openDocDailyDate ?? null) : null,
+)
+
+function onCalendarRailKeydown(event) {
+  const target = event.target instanceof Element ? event.target : null
+  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
+  if (
+    event.key !== ']' ||
+    event.repeat ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    isTyping ||
+    !calendarRailAvailable.value ||
+    store.isCommandPaletteOpen ||
+    store.isShortcutsHelpOpen
+  ) {
+    return
+  }
+  event.preventDefault()
+  calendarRail.toggle()
+}
+
 const otherApps = computed(() =>
   Object.entries(APPS)
     .filter(([key]) => key !== activeApp.value)
@@ -566,6 +611,7 @@ onMounted(() => {
   document.addEventListener('keydown', onCommandPaletteKeydown)
   document.addEventListener('keydown', onShortcutsHelpKeydown)
   document.addEventListener('keydown', onBucketKeydown)
+  document.addEventListener('keydown', onCalendarRailKeydown)
   document.addEventListener('click', onDocumentClick)
 })
 
@@ -576,6 +622,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onCommandPaletteKeydown)
   document.removeEventListener('keydown', onShortcutsHelpKeydown)
   document.removeEventListener('keydown', onBucketKeydown)
+  document.removeEventListener('keydown', onCalendarRailKeydown)
   document.removeEventListener('click', onDocumentClick)
 })
 </script>
@@ -706,6 +753,18 @@ onUnmounted(() => {
               }}</span>
               <span v-else>{{ bucketIcon.emoji }}</span>
             </span>
+          </button>
+          <button
+            v-if="calendarRailAvailable"
+            type="button"
+            class="calendar-rail-trigger"
+            :class="{ active: calendarRail.isOpen.value }"
+            :aria-pressed="calendarRail.isOpen.value"
+            :aria-label="calendarRail.isOpen.value ? 'Hide calendar' : 'Show calendar'"
+            title="Calendar (])"
+            @click="calendarRail.toggle()"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">calendar_month</span>
           </button>
           <div class="profile-container" :title="user?.name || 'Account'">
             <button
@@ -930,6 +989,13 @@ onUnmounted(() => {
           />
         </Transition>
 
+        <CalendarRail
+          v-if="showCalendarRail"
+          :key="user?.sub"
+          :date="calendarRailDate"
+          @close="calendarRail.setOpen(false)"
+        />
+
         <!-- Assistant chat drawer -->
         <ChatDrawer v-if="chatDrawerLoaded" />
       </div>
@@ -1053,5 +1119,44 @@ onUnmounted(() => {
 
 .bucket-trigger .material-symbols-outlined {
   font-size: 20px;
+}
+
+/* Calendar rail toggle: a plain icon button that tints while the rail shows. */
+.calendar-rail-trigger {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.calendar-rail-trigger:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.calendar-rail-trigger.active {
+  background: var(--accent-soft);
+  color: var(--text-blue);
+}
+
+.calendar-rail-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.calendar-rail-trigger .material-symbols-outlined {
+  font-size: 21px;
+}
+
+@media (max-width: 760px) {
+  .calendar-rail-trigger {
+    display: none;
+  }
 }
 </style>

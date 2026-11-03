@@ -10,6 +10,7 @@ import { useOutOfOfficeStore } from '../stores/outOfOffice'
 import { useContactInsightsStore } from '../stores/contactInsights'
 import { useSidebarWidth } from '../composables/useSidebarWidth'
 import { useBucketsStore } from '../stores/buckets'
+import { useCalendarRail } from '../composables/useCalendarRail'
 
 let wrapper
 let router
@@ -49,6 +50,7 @@ afterEach(async () => {
   await vi.dynamicImportSettled()
   document.body.innerHTML = ''
   useSidebarWidth().resetWidth()
+  useCalendarRail().setOpen(false)
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -322,5 +324,41 @@ describe('application shell', () => {
     await router.push('/documents')
     await nextTick()
     expect(close).toHaveBeenCalled()
+  })
+
+  it('toggles the calendar rail from the header and the ] key on Mail, Documents and Tasks', async () => {
+    await render('/inbox')
+    const trigger = () => wrapper.find('.calendar-rail-trigger')
+    expect(trigger().attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('calendar-rail-stub').exists()).toBe(false)
+
+    await trigger().trigger('click')
+    await flushPromises()
+    expect(useCalendarRail().isOpen.value).toBe(true)
+    expect(trigger().attributes('aria-pressed')).toBe('true')
+
+    await key(']')
+    expect(useCalendarRail().isOpen.value).toBe(false)
+
+    for (const path of ['/documents', '/tasks']) {
+      await router.push(path)
+      await flushPromises()
+      expect(trigger().exists()).toBe(true)
+    }
+
+    await router.push('/calendar')
+    await flushPromises()
+    expect(trigger().exists()).toBe(false)
+    await key(']')
+    expect(useCalendarRail().isOpen.value).toBe(false)
+  })
+
+  it('leaves the ] key alone while typing', async () => {
+    await render('/inbox')
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }))
+    await nextTick()
+    expect(useCalendarRail().isOpen.value).toBe(false)
   })
 })

@@ -17,6 +17,7 @@ import EmailBody from '../components/EmailBody.vue'
 import ContactAddress from '../components/ContactAddress.vue'
 import EmailRow from '../components/EmailRow.vue'
 import NextCalendarEvent from '../components/NextCalendarEvent.vue'
+import { useCalendarRail } from '../composables/useCalendarRail'
 import VirtualList from '../components/VirtualList.vue'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import ThreadMessage from '../components/ThreadMessage.vue'
@@ -52,6 +53,7 @@ import { lazyComponent } from '../router/chunkReload'
 const ShareAvailability = lazyComponent(() => import('../components/ShareAvailability.vue'))
 
 const store = useInboxStore()
+const { isOpen: calendarRailOpen } = useCalendarRail()
 const contactInsights = useContactInsightsStore()
 const route = useRoute()
 const router = useRouter()
@@ -2139,7 +2141,8 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <NextCalendarEvent :key="user?.sub" />
+      <!-- The calendar rail has its own Up next card while it is open. -->
+      <NextCalendarEvent v-if="!calendarRailOpen" :key="user?.sub" />
     </div>
 
     <!-- Header -->
