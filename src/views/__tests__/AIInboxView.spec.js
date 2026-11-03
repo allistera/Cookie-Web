@@ -27,16 +27,28 @@ function makeRouter() {
   })
 }
 
+// Every view is torn down after its test: the today's-events state is shared
+// at module level, so a view left mounted would keep reacting to the next
+// test's events and fetch stub (and load the calendar list on its behalf).
+let mounted = []
+afterEach(() => {
+  mounted.splice(0).forEach((wrapper) => {
+    if (!wrapper.vm.$.isUnmounted) wrapper.unmount()
+  })
+})
+
 function mountView({ user = { name: 'Allister Antosik' }, ...options } = {}) {
   // useAuth0() is inject()-based, so providing under its key feeds the view a
   // signed-in user through the real interface.
-  return mount(AIInboxView, {
+  const wrapper = mount(AIInboxView, {
     global: {
       plugins: [makeRouter()],
       provide: { [AUTH0_INJECTION_KEY]: { user: ref(user) } },
     },
     ...options,
   })
+  mounted.push(wrapper)
+  return wrapper
 }
 
 function rowsOf(wrapper) {
@@ -800,7 +812,6 @@ describe('triage rows link to their email', () => {
 
 describe("Today's Events card", () => {
   let store
-  let wrapper
   const TODAY = '2026-11-03'
   const calendars = [
     { id: 'work', name: 'Work', color: '#4f7c6b' },
@@ -844,8 +855,6 @@ describe("Today's Events card", () => {
   })
 
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = null
     vi.useRealTimers()
   })
 
@@ -856,7 +865,7 @@ describe("Today's Events card", () => {
       event('holiday', 'Company Holiday', '00:00', { duration: 1440, calendar: 'holidays' }),
       event('tomorrow', 'Tomorrow', '09:00', { date: '2026-11-04' }),
     ])
-    wrapper = mountView()
+    const wrapper = mountView()
     await flushPromises()
 
     const cards = wrapper.findAll('.ai-card')
@@ -889,7 +898,7 @@ describe("Today's Events card", () => {
 
   it('shows no card without events and never asks for the calendar list', async () => {
     respond([])
-    wrapper = mountView()
+    const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.find('[data-testid="events-card"]').exists()).toBe(false)
@@ -899,7 +908,7 @@ describe("Today's Events card", () => {
 
   it('disappears once a refresh finds no events left', async () => {
     respond([event('sync', 'Team sync', '14:00')])
-    wrapper = mountView()
+    const wrapper = mountView()
     await flushPromises()
     expect(wrapper.find('[data-testid="events-card"]').exists()).toBe(true)
 
