@@ -529,6 +529,8 @@ body {
   flex: 1;
   overflow: hidden;
   padding: 0 8px 8px;
+  /* Anchors the calendar rail when it floats over narrow windows. */
+  position: relative;
 }
 
 .tasks-navigation-toggle {
