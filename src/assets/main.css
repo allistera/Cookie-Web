@@ -1225,38 +1225,6 @@ body {
   transform: rotate(-90deg);
 }
 
-/* Today's Events rows (TraditionalInboxView.vue): email-row geometry with a
-   calendar-coloured dot in the lead column and the time where the sender
-   goes. The row is a link to the event in Calendar; events already over
-   fade back. */
-.ni-event-row {
-  color: var(--text-primary);
-  text-decoration: none;
-}
-
-.ni-event-row-past {
-  opacity: 0.55;
-}
-
-.ni-event-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--event-color, var(--text-blue));
-}
-
-.ni-event-time {
-  width: 110px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.ni-event-row .ni-subject {
-  color: var(--text-primary);
-}
-
 /* Top-of-screen indeterminate loading bar (LoadingBar.vue). */
 .loading-bar {
   position: fixed;

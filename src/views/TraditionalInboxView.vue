@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, onWatcherCleanup, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   useInboxStore,
   isInboxRow,
@@ -42,9 +42,7 @@ import {
   calendarEventsUrl,
   calendarSession,
   isCalendarSessionCurrent,
-  useCalendars,
 } from '../composables/useCalendars'
-import { useTodayCalendarEvents } from '../composables/useTodayCalendarEvents'
 import {
   emailCalendarEventRange,
   findEmailCalendarEvent,
@@ -392,75 +390,6 @@ const emailGroups = computed(() => {
   return groups
 })
 
-// Today's calendar events head the list while browsing the inbox (a filter
-// or search lists the mail that matches, nothing else), as a group in the
-// same style as the day groups. The one-day fetch is shared with the
-// next-event chip beside the tabs.
-const TODAY_EVENTS_LABEL = "Today's Events"
-const { now: calendarNow, todayEvents } = useTodayCalendarEvents()
-// Calendar names and colours for the event rows: loaded only once there is
-// an event to show, and quietly, since an inbox hint must not raise calendar
-// errors over the mail.
-const { calendars, loadCalendars } = useCalendars(
-  (init) => store.authHeaders(init),
-  () => {},
-)
-const todayEventsGroup = computed(() =>
-  showInboxTabs.value && todayEvents.value.length
-    ? { label: TODAY_EVENTS_LABEL, events: todayEvents.value }
-    : null,
-)
-watch(
-  () => Boolean(todayEventsGroup.value),
-  (shown) => {
-    if (shown) void loadCalendars()
-  },
-  { immediate: true },
-)
-const calendarById = computed(
-  () => new Map(calendars.value.map((calendar) => [calendar.id, calendar])),
-)
-const todayEventRows = computed(() => {
-  const group = todayEventsGroup.value
-  if (!group) return []
-  return [
-    { key: `group:${group.label}`, kind: 'group', group },
-    ...(isGroupOpen(group.label)
-      ? group.events.map((event) => ({ key: `event:${event.id}`, kind: 'event', event }))
-      : []),
-  ]
-})
-
-const pad2 = (value) => String(value).padStart(2, '0')
-// "09:00 – 09:30", or "All day"; a start the calendar could not parse shows as
-// it came rather than hiding the event.
-function eventTimeLabel(event) {
-  if (event.allDay) return 'All day'
-  const start = String(event.start ?? '').slice(0, 5)
-  const duration = Number(event.duration)
-  if (!/^\d{2}:\d{2}$/.test(start) || !(duration > 0)) return start
-  const [hours, minutes] = start.split(':').map(Number)
-  const end = (hours * 60 + minutes + duration) % (24 * 60)
-  return `${start} – ${pad2(Math.floor(end / 60))}:${pad2(end % 60)}`
-}
-function isPastEvent(event) {
-  if (event.allDay) return false
-  const end = new Date(`${event.date}T${event.start}`)
-  end.setMinutes(end.getMinutes() + (Number(event.duration) || 0))
-  return end <= calendarNow.value
-}
-function eventCalendarName(event) {
-  return calendarById.value.get(event.calendar)?.name ?? ''
-}
-function eventColorStyle(event) {
-  const color = calendarById.value.get(event.calendar)?.color
-  return color ? { '--event-color': color } : null
-}
-function eventRowLabel(event) {
-  const calendarName = eventCalendarName(event)
-  return `${eventTimeLabel(event)}: ${event.title}${calendarName ? `, ${calendarName}` : ''}`
-}
-
 const mailList = ref(null)
 
 // Two-finger trackpad swipes over the list move between the category tabs,
@@ -479,15 +408,14 @@ const { style: swipeStyle } = useSwipeTabs(() => mailList.value?.$el, {
     if (tab) store.setInboxTab(tab.id)
   },
 })
-const virtualMailRows = computed(() => [
-  ...todayEventRows.value,
-  ...emailGroups.value.flatMap((group) => [
+const virtualMailRows = computed(() =>
+  emailGroups.value.flatMap((group) => [
     { key: `group:${group.label}`, kind: 'group', group },
     ...(isGroupOpen(group.label)
       ? group.emails.map((email) => ({ key: `email:${email.id}`, kind: 'email', email }))
       : []),
   ]),
-])
+)
 const estimateMailRow = (row) => (row.kind === 'group' ? 56 : 40)
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
@@ -561,10 +489,7 @@ function isGroupOpen(label) {
   if (store.activeSearchQuery || activeFilter.value) return true
   return (
     groupOpenOverrides.value.get(label) ??
-    (label === emailGroups.value[0]?.label ||
-      label === TODAY_EVENTS_LABEL ||
-      label === 'Due Today' ||
-      label === 'Today')
+    (label === emailGroups.value[0]?.label || label === 'Due Today' || label === 'Today')
   )
 }
 
@@ -2267,34 +2192,7 @@ onUnmounted(() => {
               Mark Read
             </span>
           </span>
-          <span class="ni-group-count-wrap" v-else-if="row.group.events">
-            <span class="ni-group-count">{{ row.group.events.length }}</span>
-          </span>
         </button>
-        <!-- A calendar event: the same row shape as an email, opening the
-             event in Calendar the way the next-event chip does. -->
-        <RouterLink
-          v-else-if="row.kind === 'event'"
-          class="ni-row ni-event-row"
-          :class="{ 'ni-event-row-past': isPastEvent(row.event) }"
-          :to="{ name: 'calendar', query: { date: row.event.date, event: row.event.id } }"
-          :aria-label="eventRowLabel(row.event)"
-        >
-          <div class="ni-lead">
-            <span
-              class="ni-event-dot"
-              :style="eventColorStyle(row.event)"
-              aria-hidden="true"
-            ></span>
-          </div>
-          <div class="ni-event-time">{{ eventTimeLabel(row.event) }}</div>
-          <div class="ni-subject">
-            <span class="ni-subject-text">{{ row.event.title }}</span>
-          </div>
-          <div class="ni-date" v-if="eventCalendarName(row.event)">
-            {{ eventCalendarName(row.event) }}
-          </div>
-        </RouterLink>
         <!-- Handlers are stable function references on purpose: inline
              arrows would get a new identity on every parent render and
              defeat EmailRow's props-equality re-render skip. -->

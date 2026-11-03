@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
@@ -7,6 +7,12 @@ import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 
 import AIInboxView from '../AIInboxView.vue'
 import { useInboxStore } from '../../stores/inbox'
+import {
+  CALENDARS_ENDPOINT,
+  calendarEventsUrl,
+  resetCalendarsStateForTests,
+} from '../../composables/useCalendars'
+import { resetTodayCalendarEventsForTests } from '../../composables/useTodayCalendarEvents'
 
 // Triage rows link into the inbox, so the view needs a router to render.
 function makeRouter() {
@@ -16,6 +22,7 @@ function makeRouter() {
       { path: '/', name: 'ai-inbox', component: { template: '<div />' } },
       { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
       { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
+      { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
     ],
   })
 }
@@ -788,5 +795,117 @@ describe('triage rows link to their email', () => {
       .map((link) => link.attributes('href'))
     expect(new Set(hrefs).size).toBe(hrefs.length)
     expect(hrefs.every((href) => href.startsWith('/inbox?open='))).toBe(true)
+  })
+})
+
+describe("Today's Events card", () => {
+  let store
+  let wrapper
+  const TODAY = '2026-11-03'
+  const calendars = [
+    { id: 'work', name: 'Work', color: '#4f7c6b' },
+    { id: 'holidays', name: 'Holidays', color: '#d15c4e' },
+  ]
+
+  function respond(events) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        if (url === calendarEventsUrl(TODAY, TODAY))
+          return { ok: true, json: async () => ({ events }) }
+        if (url === CALENDARS_ENDPOINT) return { ok: true, json: async () => ({ calendars }) }
+        return { ok: true, json: async () => ({}) }
+      }),
+    )
+  }
+
+  const event = (id, title, start, extra = {}) => ({
+    id,
+    title,
+    start,
+    date: TODAY,
+    duration: 30,
+    calendar: 'work',
+    ...extra,
+  })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 3, 10, 0))
+    resetCalendarsStateForTests()
+    resetTodayCalendarEventsForTests()
+    setActivePinia(createPinia())
+    store = useInboxStore()
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    store.tasksLoaded = true
+    store.tasks = [{ id: 'task-1', source: 'task', content: 'Book dentist', url: null }]
+    store.digest = null
+    store.news = null
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.useRealTimers()
+  })
+
+  it('lists the day’s events above the to-dos, all-day first, with their calendars', async () => {
+    respond([
+      event('sync', 'Team sync', '14:00'),
+      event('standup', 'Standup', '09:00'),
+      event('holiday', 'Company Holiday', '00:00', { duration: 1440, calendar: 'holidays' }),
+      event('tomorrow', 'Tomorrow', '09:00', { date: '2026-11-04' }),
+    ])
+    wrapper = mountView()
+    await flushPromises()
+
+    const cards = wrapper.findAll('.ai-card')
+    expect(cards[0].classes()).toContain('events-card')
+    expect(cards[0].get('.card-header h2').text()).toBe("Today's Events")
+    expect(cards[1].classes()).toContain('todo-card')
+
+    const rows = wrapper.get('[data-testid="event-rows"]').findAll('.todo-row')
+    expect(rows.map((row) => row.get('.event-time').text())).toEqual([
+      'All day',
+      '09:00 – 09:30',
+      '14:00 – 14:30',
+    ])
+    expect(rows.map((row) => row.get('strong').text())).toEqual([
+      'Company Holiday',
+      'Standup',
+      'Team sync',
+    ])
+    expect(rows[0].text()).toContain('Calendar: Holidays')
+    expect(rows[0].get('.event-dot').attributes('style')).toContain('#d15c4e')
+    expect(rows[1].classes()).toContain('event-row-past')
+    expect(rows[2].classes()).not.toContain('event-row-past')
+    const open = rows[2].get('a.action-pill-btn')
+    expect(open.attributes('href')).toBe(`/calendar?date=${TODAY}&event=sync`)
+    expect(open.attributes('aria-label')).toBe('Open in Calendar: Team sync')
+    // The to-dos keep their own card and counter.
+    expect(rowsOf(wrapper)).toHaveLength(1)
+    expect(wrapper.get('.ai-greeting').text()).toContain('1 to-dos')
+  })
+
+  it('shows no card without events and never asks for the calendar list', async () => {
+    respond([])
+    wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="events-card"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("Today's Events")
+    expect(fetch.mock.calls.some(([url]) => url === CALENDARS_ENDPOINT)).toBe(false)
+  })
+
+  it('disappears once a refresh finds no events left', async () => {
+    respond([event('sync', 'Team sync', '14:00')])
+    wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="events-card"]').exists()).toBe(true)
+
+    respond([])
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="events-card"]').exists()).toBe(false)
   })
 })

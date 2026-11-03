@@ -1,12 +1,59 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuth } from '../composables/useAuth'
+import { useCalendars } from '../composables/useCalendars'
+import { useTodayCalendarEvents } from '../composables/useTodayCalendarEvents'
 import { useInboxStore } from '../stores/inbox'
 import ScheduleMenu from '../components/ScheduleMenu.vue'
 import { scheduleChoices } from '../utils/schedule'
 
 const store = useInboxStore()
 const { user } = useAuth()
+
+// Today's calendar events open the day as a card above the to-dos, sharing
+// the inbox's one-day fetch with the next-event chip. Calendar names and
+// colours are loaded only once there is an event to show, and quietly: a
+// summary card must not raise calendar errors over the day.
+const { now: calendarNow, todayEvents } = useTodayCalendarEvents()
+const { calendars, loadCalendars } = useCalendars(
+  (init) => store.authHeaders(init),
+  () => {},
+)
+watch(
+  () => todayEvents.value.length > 0,
+  (shown) => {
+    if (shown) void loadCalendars()
+  },
+  { immediate: true },
+)
+const calendarById = computed(
+  () => new Map(calendars.value.map((calendar) => [calendar.id, calendar])),
+)
+const pad2 = (value) => String(value).padStart(2, '0')
+// "09:00 – 09:30", or "All day"; a start the calendar could not parse shows as
+// it came rather than hiding the event.
+function eventTimeLabel(event) {
+  if (event.allDay) return 'All day'
+  const start = String(event.start ?? '').slice(0, 5)
+  const duration = Number(event.duration)
+  if (!/^\d{2}:\d{2}$/.test(start) || !(duration > 0)) return start
+  const [hours, minutes] = start.split(':').map(Number)
+  const end = (hours * 60 + minutes + duration) % (24 * 60)
+  return `${start} – ${pad2(Math.floor(end / 60))}:${pad2(end % 60)}`
+}
+function isPastEvent(event) {
+  if (event.allDay) return false
+  const end = new Date(`${event.date}T${event.start}`)
+  end.setMinutes(end.getMinutes() + (Number(event.duration) || 0))
+  return end <= calendarNow.value
+}
+function eventCalendarName(event) {
+  return calendarById.value.get(event.calendar)?.name ?? ''
+}
+function eventColorStyle(event) {
+  const color = calendarById.value.get(event.calendar)?.color
+  return color ? { '--event-color': color } : null
+}
 
 // Triage includes unfinished inbox mail. Completing or rescheduling an item
 // hides it immediately; failed updates restore the row.
@@ -266,6 +313,46 @@ onUnmounted(() => {
         </button>
       </div>
 
+      <!-- TODAY'S EVENTS -->
+      <section v-if="todayEvents.length" class="ai-card events-card" data-testid="events-card">
+        <div class="card-header">
+          <h2>Today's Events</h2>
+        </div>
+
+        <div class="todo-rows" data-testid="event-rows">
+          <div
+            v-for="event in todayEvents"
+            :key="event.id"
+            class="todo-row event-row"
+            :class="{ 'event-row-past': isPastEvent(event) }"
+          >
+            <div class="todo-checkbox-container">
+              <span class="event-dot" :style="eventColorStyle(event)" aria-hidden="true"></span>
+            </div>
+
+            <div class="todo-text">
+              <span class="event-time">{{ eventTimeLabel(event) }}</span>
+              <strong>{{ event.title }}</strong>
+              <span v-if="eventCalendarName(event)" class="from-links-container">
+                Calendar:
+                <span class="email-link">{{ eventCalendarName(event) }}</span>
+              </span>
+            </div>
+
+            <div class="todo-actions">
+              <RouterLink
+                class="action-pill-btn"
+                :to="{ name: 'calendar', query: { date: event.date, event: event.id } }"
+                :aria-label="`Open in Calendar: ${event.title}`"
+              >
+                <span class="material-symbols-outlined">open_in_new</span>
+                <span>Open</span>
+              </RouterLink>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- SUGGESTED TO-DOS -->
       <section v-if="tasks.length" class="ai-card todo-card" data-testid="todo-card">
         <div class="card-header">
@@ -506,6 +593,34 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Today's Events rows: to-do row geometry with the calendar's colour dot where
+   the checkbox goes and the time ahead of the title. Events already over read
+   like done mail. */
+.event-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 7px 6px 0;
+  border-radius: 50%;
+  background: var(--event-color, var(--text-blue));
+}
+
+.event-time {
+  margin-right: 8px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.event-row-past .todo-text,
+.event-row-past .todo-text strong {
+  color: var(--text-secondary);
+}
+
+.event-row-past .event-dot {
+  opacity: 0.55;
+}
+
 .world-today-header {
   padding: 0;
 }
