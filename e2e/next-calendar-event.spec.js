@@ -57,3 +57,66 @@ test('clicking the next event opens its entry in Calendar', async ({ page }) => 
   )
   await expect(page.locator('.new-event-dialog input[type="time"]').first()).toHaveValue('16:30')
 })
+
+test("Mail lists today's events in a group above the day groups", async ({ page }) => {
+  await page.clock.setFixedTime(new Date(2026, 9, 9, 16, 2))
+  await page.route(`${CALENDAR_API_URL}/calendar-events?*`, (route) =>
+    route.fulfill({
+      json: {
+        events: [
+          {
+            id: 'next',
+            title: 'Sprint planning',
+            date: '2026-10-09',
+            start: '16:30',
+            duration: 30,
+            calendar: 'work',
+          },
+          {
+            id: 'past',
+            title: 'Earlier meeting',
+            date: '2026-10-09',
+            start: '15:00',
+            duration: 30,
+            calendar: 'personal',
+          },
+          {
+            id: 'offsite',
+            title: 'Company offsite',
+            date: '2026-10-09',
+            start: '00:00',
+            duration: 1440,
+            allDay: true,
+            calendar: 'holidays',
+          },
+        ],
+      },
+    }),
+  )
+  await page.goto('/inbox')
+
+  const header = page.locator('.ni-group-header', { hasText: "Today's Events" })
+  await expect(page.locator('.ni-group-header').first()).toContainText("Today's Events")
+  await expect(header).toContainText('3')
+  await expect(header).toHaveAttribute('aria-expanded', 'true')
+  const rows = page.locator('.ni-event-row')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(0)).toContainText('All day')
+  await expect(rows.nth(0)).toContainText('Company offsite')
+  await expect(rows.nth(0)).toContainText('Holidays')
+  await expect(rows.nth(1)).toContainText('15:00 – 15:30')
+  await expect(rows.nth(1)).toHaveClass(/ni-event-row-past/)
+  await expect(rows.nth(2)).toContainText('16:30 – 17:00')
+  await expect(rows.nth(2)).toContainText('Work')
+
+  await header.click()
+  await expect(rows).toHaveCount(0)
+  await header.click()
+  await expect(rows).toHaveCount(3)
+
+  await page.getByRole('link', { name: '16:30 – 17:00: Sprint planning, Work' }).click()
+  await expect(page).toHaveURL(/\/calendar\?date=2026-10-09&event=next/)
+  await expect(page.getByRole('textbox', { name: 'Event title', exact: true })).toHaveValue(
+    'Sprint planning',
+  )
+})

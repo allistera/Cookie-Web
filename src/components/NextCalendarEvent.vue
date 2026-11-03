@@ -1,35 +1,20 @@
 <script setup>
-import { dateKey } from '../utils/calendarDates'
 import { RouterLink } from 'vue-router'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useInboxStore } from '../stores/inbox'
-import {
-  calendarEventsUrl,
-  calendarSession,
-  isCalendarSessionCurrent,
-} from '../composables/useCalendars'
+import { computed } from 'vue'
+import { useTodayCalendarEvents } from '../composables/useTodayCalendarEvents'
 
-const store = useInboxStore()
-const now = ref(new Date())
-const events = ref([])
-let request = 0
-let disposed = false
-let timer
-let lastRefresh = 0
+// Today's events (and the clock the countdown reads) are shared with the
+// inbox's "Today's Events" group through one polled fetch.
+const { now, todayEvents } = useTodayCalendarEvents()
 
-const nextEvent = computed(() => {
-  const today = dateKey(now.value)
-  return events.value
-    .filter(
-      (event) =>
-        event.date === today &&
-        !event.allDay &&
-        !(String(event.start).startsWith('00:00') && Number(event.duration) >= 1440),
-    )
-    .map((event) => ({ ...event, startsAt: new Date(`${event.date}T${event.start}`) }))
-    .filter((event) => event.startsAt > now.value)
-    .sort((a, b) => a.startsAt - b.startsAt)[0]
-})
+const nextEvent = computed(
+  () =>
+    todayEvents.value
+      .filter((event) => !event.allDay)
+      .map((event) => ({ ...event, startsAt: new Date(`${event.date}T${event.start}`) }))
+      .filter((event) => event.startsAt > now.value)
+      .sort((a, b) => a.startsAt - b.startsAt)[0],
+)
 const countdown = computed(() => {
   if (!nextEvent.value) return ''
   const minutes = Math.ceil((nextEvent.value.startsAt - now.value) / 60_000)
@@ -42,48 +27,6 @@ const eventLabel = computed(() =>
     ? `Next event: ${nextEvent.value.title}, ${nextEvent.value.start.slice(0, 5)}, ${countdown.value}`
     : '',
 )
-
-async function refresh() {
-  now.value = new Date()
-  const today = dateKey(now.value)
-  const seq = ++request
-  const session = calendarSession()
-  lastRefresh = now.value.getTime()
-  try {
-    const headers = await store.authHeaders()
-    if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return
-    const response = await fetch(calendarEventsUrl(today, today), { headers })
-    if (!response.ok) throw new Error('Calendar unavailable')
-    const body = await response.json()
-    if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return
-    events.value = Array.isArray(body.events) ? body.events : []
-  } catch {
-    // An optional inbox hint should disappear when unavailable, not interrupt mail.
-    if (!disposed && seq === request && isCalendarSessionCurrent(session)) events.value = []
-  }
-}
-function tick() {
-  const previousDay = dateKey(now.value)
-  now.value = new Date()
-  if (document.visibilityState === 'hidden') return
-  if (previousDay !== dateKey(now.value) || now.value.getTime() - lastRefresh >= 300_000)
-    void refresh()
-}
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') void refresh()
-}
-onMounted(() => {
-  void refresh()
-  timer = setInterval(tick, 15_000)
-  window.addEventListener('focus', refresh)
-  document.addEventListener('visibilitychange', onVisibilityChange)
-})
-onUnmounted(() => {
-  disposed = true
-  clearInterval(timer)
-  window.removeEventListener('focus', refresh)
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-})
 </script>
 
 <template>
