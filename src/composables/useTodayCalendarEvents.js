@@ -20,6 +20,10 @@ let consumers = 0
 let request = 0
 let timer
 let lastRefresh = 0
+// The refresh under way, so a consumer mounting while another already
+// started one (the chip and the inbox list mount together) shares it
+// instead of fetching the same day twice.
+let inFlight = null
 
 // Today's events only (the window asked for is one day, but the account
 // could change under a response), all-day ones first, then by start time.
@@ -43,7 +47,16 @@ watch(calendarSession, () => {
   if (consumers) void refresh()
 })
 
-async function refresh() {
+function refresh() {
+  const pending = fetchToday()
+  inFlight = pending
+  void pending.finally(() => {
+    if (inFlight === pending) inFlight = null
+  })
+  return pending
+}
+
+async function fetchToday() {
   now.value = new Date()
   const today = dateKey(now.value)
   const seq = ++request
@@ -101,6 +114,7 @@ export function useTodayCalendarEvents() {
   onMounted(() => {
     consumers += 1
     if (consumers === 1) start()
+    else if (!inFlight) void refresh()
   })
   onUnmounted(() => {
     consumers -= 1
