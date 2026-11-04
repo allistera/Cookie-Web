@@ -3,8 +3,8 @@ import { RouterLink } from 'vue-router'
 import { computed } from 'vue'
 import { useTodayCalendarEvents } from '../composables/useTodayCalendarEvents'
 
-// Today's events (and the clock the countdown reads) are shared with the
-// inbox's "Today's Events" group through one polled fetch.
+// Today's events (and the clock the countdown reads) are shared with AI
+// Today's "Today's Events" card through one polled fetch.
 const { now, todayEvents } = useTodayCalendarEvents()
 
 const nextEvent = computed(

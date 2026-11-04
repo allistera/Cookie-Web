@@ -3,9 +3,9 @@ import { useInboxStore } from '../stores/inbox'
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
 import { calendarEventsUrl, calendarSession, isCalendarSessionCurrent } from './useCalendars'
 
-// Today's calendar events for the inbox: the next-event chip beside the tabs
-// and the "Today's Events" group at the top of the list both read them, so
-// the fetch and its refresh schedule live here once rather than in each.
+// Today's calendar events: the next-event chip beside the inbox tabs and the
+// "Today's Events" card in AI Today both read them, so the fetch and its
+// refresh schedule live here once rather than in each.
 //
 // Module-level like useCalendars' list: the first mounted consumer starts the
 // polling, further consumers share it, and the last one to unmount stops it.
