@@ -7,21 +7,18 @@ const init = vi.fn()
 const loadSdk = vi.fn()
 const captureException = vi.fn()
 const browserTracingIntegration = vi.fn()
-const browserProfilingIntegration = vi.fn()
 const client = {
   start: (app) =>
     start(app, {
       init,
       captureException,
       browserTracingIntegration,
-      browserProfilingIntegration,
     }),
 }
 
 describe('browser error monitoring', () => {
   beforeEach(() => {
     browserTracingIntegration.mockReturnValue({ name: 'BrowserTracing' })
-    browserProfilingIntegration.mockReturnValue({ name: 'BrowserProfiling' })
     loadSdk.mockResolvedValue(client)
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_E2E', 'false')
@@ -55,6 +52,9 @@ describe('browser error monitoring', () => {
       router,
       beforeStartSpan: expect.any(Function),
     })
+    const options = init.mock.calls[0][0]
+    expect(options).not.toHaveProperty('profileSessionSampleRate')
+    expect(options).not.toHaveProperty('profileLifecycle')
     expect(init).toHaveBeenCalledWith(
       expect.objectContaining({
         app,
@@ -64,9 +64,7 @@ describe('browser error monitoring', () => {
         attachProps: false,
         tracesSampleRate: 0.1,
         tracePropagationTargets: [],
-        integrations: [{ name: 'BrowserTracing' }, { name: 'BrowserProfiling' }],
-        profileSessionSampleRate: 1,
-        profileLifecycle: 'trace',
+        integrations: [{ name: 'BrowserTracing' }],
         tunnel: '/monitoring',
         beforeSendSpan: expect.any(Function),
         beforeSendMetric: expect.any(Function),
