@@ -129,16 +129,6 @@ export function sanitizeSpan(span) {
   for (const key of ['sentry.segment.id', 'sentry.pageload.span_id']) {
     if (/^[0-9a-f]{16}$/iu.test(source[key])) attributes[key] = source[key]
   }
-  // Profiles are uploaded separately. These opaque IDs link spans to their
-  // profile chunks; dropping them makes accepted profiles hard to discover.
-  for (const key of ['sentry.profiler_id', 'sentry.profile_id']) {
-    const id = /^[0-9a-f]{32}$/iu.exec(source[key])?.[0]
-    if (id && id === source[key]) attributes[key] = id
-  }
-  if (source['thread.id'] === '0') attributes['thread.id'] = '0'
-  if (['main', 'worker'].includes(source['thread.name'])) {
-    attributes['thread.name'] = source['thread.name']
-  }
   for (const key of numericAttributes) {
     if (Number.isFinite(source[key])) {
       attributes[key] = source[key]
@@ -158,11 +148,7 @@ export function sanitizeSpan(span) {
 }
 
 // Keep SDK configuration in the lazy monitoring chunk, outside app startup.
-export function createSentryOptions(
-  app,
-  dsn,
-  { browserTracingIntegration, browserProfilingIntegration },
-) {
+export function createSentryOptions(app, dsn, { browserTracingIntegration }) {
   return {
     app,
     dsn,
@@ -174,13 +160,10 @@ export function createSentryOptions(
         router: app.config.globalProperties?.$router,
         beforeStartSpan: sanitizeSpanStart,
       }),
-      browserProfilingIntegration(),
     ],
     tracesSampleRate: 0.1,
-    // Every session is eligible; profiles only run while one of the 10% of
-    // sampled traces is active, so the trace rate still bounds profile volume.
-    profileSessionSampleRate: 1,
-    profileLifecycle: 'trace',
+    // Browser profiling is off: Sentry bills UI profile hours only through a
+    // pay-as-you-go budget, so every profile chunk was rejected with a 429.
     // Same-origin path that vercel.json proxies to the Sentry envelope
     // endpoint, so ad and privacy blockers do not drop telemetry.
     tunnel: SENTRY_TUNNEL_PATH,

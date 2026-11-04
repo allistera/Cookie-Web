@@ -294,8 +294,7 @@ supports the toolbar when Vercel injects it in production or preview deployments
 See [Vercel's toolbar CSP requirements](https://vercel.com/docs/vercel-toolbar/managing-toolbar#content-security-policy).
 
 The browser uses [`@sentry/vue`](https://docs.sentry.io/platforms/javascript/guides/vue/)
-for errors, page-load/navigation performance, request timings, Web Vitals, and
-browser CPU profiles where the JavaScript Self-Profiling API is supported.
+for errors, page-load/navigation performance, request timings, and Web Vitals.
 Vercel's Sentry integration variables are read at **build time**; redeploy after
 changing them. Only the public DSN, environment, and release are embedded in the
 browser bundle.
@@ -320,17 +319,16 @@ Browser tracing samples 10% of traces and uses Vue router names for navigation.
 It records numeric Web Vitals and timing data, with URLs, query strings,
 DOM selectors/text, arbitrary span attributes, and span links removed before
 sending. Only the app's known route names and standard operation names survive.
-Browser profiling is enabled for every session and runs only while one of
-the sampled traces is active (`profileLifecycle: 'trace'`), so the trace rate
-bounds profile volume. Vercel sends `Document-Policy: js-profiling` on app
-document responses. Supported browsers can then collect execution-stack
-samples; browsers without the profiling API still report errors and traces.
-Profiles include code locations and function names, not mailbox values; they
-are separate from the error/span filtering described here.
+Browser profiling is off. Sentry sells UI profile hours only through a
+pay-as-you-go budget, so with none configured every profile chunk came back as
+`429 Too Many Requests` on `/monitoring`. Turning it back on means adding that
+budget first, then restoring `browserProfilingIntegration`, the profiling
+options, the `Document-Policy: js-profiling` header, and the profiler span
+attributes removed in the same change.
 The SDK posts envelopes to the same-origin `/monitoring` path (`tunnel`), which
 `vercel.json` rewrites to the project's Sentry envelope endpoint. Browsers with
 ad or privacy blockers cancel direct requests to `*.ingest.sentry.io`, so
-without the tunnel their errors, traces, and profiles never arrive. Update the
+without the tunnel their errors and traces never arrive. Update the
 rewrite destination if the Sentry organisation or project changes.
 Request tracing headers are not propagated to APIs. This covers browser
 performance, not backend tracing or custom business metrics. Session replay
@@ -366,19 +364,9 @@ The CSP allows Sentry's default, US, and EU ingestion domains. A self-hosted or
 custom ingestion domain must also be added to `connect-src` in `vercel.json`.
 After deploying, trigger a temporary asynchronous uncaught error and check the
 Sentry project's Issues view for `service: cookie-web` and the expected release.
-Browse several routes and check performance traces/Web Vitals and the Profiling
-view in a supported browser; sampling means
-not every visit appears. Source-map upload and live ingestion require valid
+Browse several routes and check performance traces and Web Vitals; sampling
+means not every visit appears. Source-map upload and live ingestion require valid
 Sentry configuration and cannot be verified by the credential-free CI build.
-
-If profiling is empty, check the browser's Sentry envelope requests. Browser
-profiling requires a supported Chromium browser and the `Document-Policy:
-js-profiling` response header. Both trace and profiling session sampling apply.
-Profile chunks are uploaded separately; the span privacy filter preserves only
-validated profiler/profile IDs and fixed thread metadata to link them to traces.
-A `429` with `profile_duration_ui_usage_exceeded` indicates an organization
-profiling quota limit in Sentry; changing the DSN or enabling profiling again
-does not resolve that quota. Review Sentry usage and limits before changing them.
 
 ### Auth0 user provisioning
 
