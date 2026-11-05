@@ -138,6 +138,9 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   19:00 inclusive; the hourly Cloudflare trigger skips AI work outside the
   stored slots.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
+- Oversized email threads show a clear summary size-limit message. During the
+  current session, reopening or refreshing the same thread version does not
+  repeat a rejected summary request; a new latest message allows another attempt.
 - AI Document: the New document dialog's "AI document" option turns a prompt into
   a titled, block-formatted page (via `cookie-web-ai`'s `POST /document`).
 - Per-label auto-tag controls and conservative spam classification.
