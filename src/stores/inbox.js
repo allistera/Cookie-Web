@@ -1050,14 +1050,16 @@ export const useInboxStore = defineStore('inbox', {
     isOpenSummaryLoading(state) {
       return state.summaryLoadingIds.has(state.openEmailId)
     },
-    // The open email's whole conversation (oldest first, the open message
+    // The open email's whole conversation (latest first, the open message
     // included) — empty until the body fetch lands, or when the message is
     // its thread's only one. Drives the reader's threaded view.
     openEmailConversation(state) {
       if (isWithheld(this.openEmail)) return []
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       const thread = cached?.thread ?? []
-      return thread.length > 1 ? thread : []
+      return thread.length > 1
+        ? [...thread].sort((a, b) => (Date.parse(b.sent_at) || 0) - (Date.parse(a.sent_at) || 0))
+        : []
     },
     // A fetched body for any message by id: conversation messages expand from
     // the same cache the open email fills. Null until fetchMessageBody lands.

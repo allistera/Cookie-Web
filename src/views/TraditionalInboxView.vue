@@ -1057,7 +1057,7 @@ const openEmailCalendarEvent = computed(() =>
 // fetch; null until it lands (reader shows body_text meanwhile) or when the
 // message has no HTML body (permanent text fallback).
 const openEmailHtml = computed(() => store.openEmailHtml)
-// The open email's conversation, oldest first: the open message is the
+// The open email's conversation, latest first: the open message is the
 // always-expanded anchor and every other message is a collapsed card that
 // expands in place to its full body (ThreadMessage.vue). Until the body fetch
 // lands, or when the message is alone in its thread, only the open card

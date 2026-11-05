@@ -5128,7 +5128,7 @@ describe('Inbox Store', () => {
     expect(store.openEmailCalendarInvite).toEqual(calendarInvite)
   })
 
-  it('openEmailConversation exposes the whole thread, oldest first, once the body fetch lands', async () => {
+  it('openEmailConversation exposes the whole thread, latest first, once the body fetch lands', async () => {
     const thread = [
       {
         id: 'msg-1',
@@ -5154,7 +5154,8 @@ describe('Inbox Store', () => {
 
     await store.fetchMessageBody('msg-2')
 
-    expect(store.openEmailConversation).toEqual(thread)
+    expect(store.openEmailConversation).toEqual([thread[2], thread[1], thread[0]])
+    expect(store.messageBodies.get('msg-2').thread).toEqual(thread)
   })
 
   it('openEmailConversation is empty when the open message is alone in its thread', async () => {

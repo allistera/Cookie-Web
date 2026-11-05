@@ -1850,7 +1850,7 @@ describe('TraditionalInboxView reading panel', () => {
     expect(wrapper.find('.ni-reader').exists()).toBe(false)
   })
 
-  it('renders the whole conversation around the open email, oldest first and collapsed', async () => {
+  it('renders the whole conversation around the open email, latest first and collapsed', async () => {
     store.messageBodies.set('today-1', {
       html: null,
       text: 'Body',
@@ -1871,8 +1871,8 @@ describe('TraditionalInboxView reading panel', () => {
       true,
       false,
     ])
-    expect(cards[0].text()).toContain('The first message')
-    expect(cards[2].text()).toContain('A later reply')
+    expect(cards[0].text()).toContain('A later reply')
+    expect(cards[2].text()).toContain('The first message')
     expect(wrapper.findAll('.ni-thread-message-open')).toHaveLength(0)
   })
 
