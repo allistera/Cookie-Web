@@ -7,6 +7,7 @@ const init = vi.fn()
 const loadSdk = vi.fn()
 const captureException = vi.fn()
 const browserTracingIntegration = vi.fn()
+const browserProfilingIntegration = vi.fn()
 const replayIntegration = vi.fn()
 const client = {
   start: (app) =>
@@ -14,6 +15,7 @@ const client = {
       init,
       captureException,
       browserTracingIntegration,
+      browserProfilingIntegration,
       replayIntegration,
     }),
 }
@@ -21,6 +23,7 @@ const client = {
 describe('browser error monitoring', () => {
   beforeEach(() => {
     browserTracingIntegration.mockReturnValue({ name: 'BrowserTracing' })
+    browserProfilingIntegration.mockReturnValue({ name: 'BrowserProfiling' })
     replayIntegration.mockReturnValue({ name: 'Replay' })
     loadSdk.mockResolvedValue(client)
     vi.stubEnv('PROD', true)
@@ -64,8 +67,9 @@ describe('browser error monitoring', () => {
       beforeAddRecordingEvent: expect.any(Function),
     })
     const options = init.mock.calls[0][0]
-    expect(options).not.toHaveProperty('profileSessionSampleRate')
-    expect(options).not.toHaveProperty('profileLifecycle')
+    expect(options.profileSessionSampleRate).toBe(1)
+    expect(options.profileLifecycle).toBe('trace')
+    expect(browserProfilingIntegration).toHaveBeenCalledOnce()
     expect(init).toHaveBeenCalledWith(
       expect.objectContaining({
         app,
@@ -79,6 +83,7 @@ describe('browser error monitoring', () => {
         replaysOnErrorSampleRate: 1,
         integrations: [
           { name: 'BrowserTracing' },
+          { name: 'BrowserProfiling' },
           { name: 'Replay' },
           { name: 'ReplayPrivacy', processEvent: expect.any(Function) },
         ],

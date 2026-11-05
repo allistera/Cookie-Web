@@ -8,21 +8,44 @@ import {
 } from '../sentryPrivacy'
 
 describe('Sentry payload privacy', () => {
-  it('drops profiler and thread attributes now that browser profiling is off', () => {
-    const { attributes } = sanitizeSpan({
+  it('keeps the IDs and thread metadata needed to link spans to profile chunks', () => {
+    const profilerId = 'a'.repeat(32)
+    const profileId = 'b'.repeat(32)
+    const span = sanitizeSpan({
       attributes: {
-        'sentry.profiler_id': 'a'.repeat(32),
-        'sentry.profile_id': 'b'.repeat(32),
+        'sentry.profiler_id': profilerId,
+        'sentry.profile_id': profileId,
         'thread.id': '0',
         'thread.name': 'main',
         'user.email': 'private@example.com',
+        'url.full': 'https://example.com/private',
       },
     })
-    for (const key of ['sentry.profiler_id', 'sentry.profile_id', 'thread.id', 'thread.name']) {
-      expect(Object.hasOwn(attributes, key)).toBe(false)
-    }
-    expect(JSON.stringify(attributes)).not.toContain('private')
+    expect(span.attributes).toMatchObject({
+      'sentry.profiler_id': profilerId,
+      'sentry.profile_id': profileId,
+      'thread.id': '0',
+      'thread.name': 'main',
+    })
+    expect(JSON.stringify(span)).not.toContain('private')
   })
+
+  it.each(['private', '', null, 123, { private: 'mail' }])(
+    'drops malformed profiling metadata %j',
+    (value) => {
+      const { attributes } = sanitizeSpan({
+        attributes: {
+          'sentry.profiler_id': value,
+          'sentry.profile_id': value,
+          'thread.id': value,
+          'thread.name': value,
+        },
+      })
+      for (const key of ['sentry.profiler_id', 'sentry.profile_id', 'thread.id', 'thread.name']) {
+        expect(Object.hasOwn(attributes, key)).toBe(false)
+      }
+    },
+  )
 
   it('normalizes root names before sampling metadata is created', () => {
     expect(sanitizeSpanStart({ name: '/documents/private?token=secret', op: 'pageload' })).toEqual({

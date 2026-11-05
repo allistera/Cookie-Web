@@ -328,12 +328,18 @@ Browser tracing samples 10% of traces and uses Vue router names for navigation.
 It records numeric Web Vitals and timing data, with URLs, query strings,
 DOM selectors/text, arbitrary span attributes, and span links removed before
 sending. Only the app's known route names and standard operation names survive.
-Browser profiling is off. Sentry sells UI profile hours only through a
-pay-as-you-go budget, so with none configured every profile chunk came back as
-`429 Too Many Requests` on `/monitoring`. Turning it back on means adding that
-budget first, then restoring `browserProfilingIntegration`, the profiling
-options, the `Document-Policy: js-profiling` header, and the profiler span
-attributes removed in the same change.
+Browser UI profiling is enabled in supported Chromium browsers with
+`profileSessionSampleRate: 1` and `profileLifecycle: 'trace'`. It runs only
+while sampled traces are active (the trace sample rate remains 10%). Vercel
+sends `Document-Policy: js-profiling`; validated profiler IDs and fixed thread
+metadata survive span sanitization so profiles can link to traces.
+Profiles contain execution stacks and are uploaded separately from filtered spans.
+Sentry requires an available UI profiling pay-as-you-go budget. Previously,
+uploads were rejected with HTTP 429 because no budget was configured; enabling
+the SDK does not resolve that account limit. After deployment, check Explore >
+Profiling and `/monitoring` responses in a supported browser.
+See [Sentry's profiling setup](https://docs.sentry.io/platforms/javascript/profiling/).
+
 The SDK posts envelopes to the same-origin `/monitoring` path (`tunnel`), which
 `vercel.json` rewrites to the project's Sentry envelope endpoint. Browsers with
 ad or privacy blockers cancel direct requests to `*.ingest.sentry.io`, so
