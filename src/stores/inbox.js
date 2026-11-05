@@ -923,6 +923,9 @@ export const useInboxStore = defineStore('inbox', {
     // Live one-line summaries are cached by thread id. message_ai summaries
     // remain per-message enrichment and are intentionally separate.
     threadSummaries: new Map(),
+    // A 413 is permanent for this thread version. Reopening the reader or a
+    // realtime refresh must not repeat the request and its error notification.
+    summaryRejectedVersions: new Map(),
     // Ids of messages with a summary request in flight. Per message, so a
     // thread opened while another one is still summarizing gets its own.
     summaryLoadingIds: new Set(),
@@ -1447,6 +1450,7 @@ export const useInboxStore = defineStore('inbox', {
       this.openEmailId = null
       this.messageBodies.clear()
       this.threadSummaries.clear()
+      this.summaryRejectedVersions.clear()
       pendingBodyFetches.clear()
       await Promise.all([
         this.refreshInbox(),
@@ -2236,6 +2240,8 @@ export const useInboxStore = defineStore('inbox', {
       const id = email.id
       const body = this.messageBodies.get(id)
       if (!body?.threadId || !body.threadLatestMessageId) return null
+      if (this.summaryRejectedVersions.get(body.threadId) === body.threadLatestMessageId)
+        return null
       this.summaryLoadingIds.add(id)
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
@@ -2245,11 +2251,35 @@ export const useInboxStore = defineStore('inbox', {
             queueGeneration !== this.senderQueueGeneration
           )
             return null
+          const requestedBody = this.messageBodies.get(id)
           const response = await fetch(`${AI_API_URL}/summarize`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ id }),
           })
+          if (
+            generation !== this.composeGeneration ||
+            queueGeneration !== this.senderQueueGeneration
+          )
+            return null
+          if (response.status === 413) {
+            const currentBody = this.messageBodies.get(id)
+            if (
+              requestedBody?.threadId &&
+              requestedBody.threadLatestMessageId &&
+              currentBody?.threadId === requestedBody.threadId &&
+              currentBody.threadLatestMessageId === requestedBody.threadLatestMessageId
+            ) {
+              cacheSet(
+                this.summaryRejectedVersions,
+                requestedBody.threadId,
+                requestedBody.threadLatestMessageId,
+                MAX_CACHED_SUMMARIES,
+              )
+              this.notify('This email thread is too large to summarize.', 'error')
+            }
+            return null
+          }
           if (response.status === 409 && attempt === 0) {
             await this.refetchMessageBody(id)
             if (this.openEmailId !== id) return null
@@ -2947,6 +2977,7 @@ export const useInboxStore = defineStore('inbox', {
       this.bodyLoadingId = null
       this.messageBodies.clear()
       this.threadSummaries.clear()
+      this.summaryRejectedVersions.clear()
       pendingBodyFetches.clear()
       this.signatureHtml = ''
       this.snippets = []

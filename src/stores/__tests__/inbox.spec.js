@@ -2111,6 +2111,141 @@ describe('Inbox Store', () => {
     expect(store.isOpenSummaryLoading).toBe(false)
   })
 
+  it('explains an oversized thread once and skips subsequent requests for that version', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 413 })
+    vi.stubGlobal('fetch', fetchMock)
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = useInboxStore()
+    const email = { id: 'message-1' }
+    const reply = { id: 'message-2' }
+    const body = {
+      threadId: 'thread-1',
+      threadLatestMessageId: reply.id,
+      thread: [email, reply],
+    }
+    store.openEmailId = email.id
+    store.messageBodies.set(email.id, body)
+    store.messageBodies.set(reply.id, body)
+
+    await expect(store.ensureThreadSummary(email)).resolves.toBeNull()
+    await expect(store.ensureThreadSummary(email)).resolves.toBeNull()
+    await expect(store.summarizeEmail(reply)).resolves.toBeNull()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.toasts).toEqual([
+      expect.objectContaining({ message: 'This email thread is too large to summarize.' }),
+    ])
+    expect(store.isOpenSummaryLoading).toBe(false)
+    expect(store.openEmailSummary).toBeNull()
+    expect(errorLog).not.toHaveBeenCalled()
+  })
+
+  it('allows summarization again when an oversized thread gets a new latest message', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 413 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          summary: 'Delivery is now Friday.',
+          threadId: 'thread-1',
+          latestMessageId: 'message-3',
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    const email = { id: 'message-1' }
+    store.openEmailId = email.id
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: 'message-2',
+    })
+
+    await store.summarizeEmail(email)
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: 'message-3',
+    })
+    await expect(store.summarizeEmail(email)).resolves.toBe('Delivery is now Friday.')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(store.openEmailSummary).toBe('Delivery is now Friday.')
+  })
+
+  it('keeps temporary summary failures retryable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = useInboxStore()
+    const email = { id: 'message-1' }
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: 'message-2',
+    })
+
+    await store.summarizeEmail(email)
+    await store.summarizeEmail(email)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(store.summaryRejectedVersions.size).toBe(0)
+    expect(store.toasts[0].message).toBe('AI summarization failed. Please try again.')
+  })
+
+  it('does not mark a changed thread as oversized when an old request finishes', async () => {
+    let finish
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((resolve) => (finish = resolve))),
+    )
+    const store = useInboxStore()
+    const email = { id: 'message-1' }
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: 'message-2',
+    })
+    const request = store.summarizeEmail(email)
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: 'message-3',
+    })
+    finish({ ok: false, status: 413 })
+    await request
+
+    expect(store.summaryRejectedVersions.size).toBe(0)
+    expect(store.toasts).toHaveLength(0)
+  })
+
+  it('ignores an oversized summary response after the signed-in account changes', async () => {
+    let finish
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((resolve) => (finish = resolve))),
+    )
+    const store = useInboxStore()
+    const email = { id: 'message-1' }
+    store.messageBodies.set(email.id, {
+      threadId: 'thread-1',
+      threadLatestMessageId: 'message-2',
+    })
+    const request = store.summarizeEmail(email)
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    store.setComposeOwner('another-account')
+    finish({ ok: false, status: 413 })
+    await request
+
+    expect(store.summaryRejectedVersions.size).toBe(0)
+    expect(store.toasts).toHaveLength(0)
+  })
+
+  it('clears rejected thread versions when the signed-in account changes', () => {
+    const store = useInboxStore()
+    store.summaryRejectedVersions.set('thread-1', 'message-2')
+
+    store.setComposeOwner('another-account')
+
+    expect(store.summaryRejectedVersions.size).toBe(0)
+  })
+
   it('summarizes a thread opened while another one is still summarizing', async () => {
     const pending = new Map()
     vi.stubGlobal(
