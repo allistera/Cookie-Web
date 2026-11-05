@@ -54,7 +54,7 @@ describe('mail settings failures', () => {
     ['saveAutoArchive', [{}]],
     ['saveSpamRetention', [30]],
     ['loadNtfySubscription', []],
-    ['createNtfySubscription', []],
+    ['saveNtfySubscription', [{ serverUrl: 'https://ntfy.sh', topic: 'topic' }]],
     ['disableNtfySubscription', []],
   ])('%s exposes server failure for the settings UI', async (action, args) => {
     await expect(store[action](...args)).rejects.toThrow('503')

@@ -1659,8 +1659,8 @@ export const useInboxStore = defineStore('inbox', {
       return invokeMailSettings(this, 'loadNtfySubscription', args)
     },
 
-    createNtfySubscription(...args) {
-      return invokeMailSettings(this, 'createNtfySubscription', args)
+    saveNtfySubscription(...args) {
+      return invokeMailSettings(this, 'saveNtfySubscription', args)
     },
 
     disableNtfySubscription(...args) {

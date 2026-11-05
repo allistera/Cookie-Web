@@ -5921,16 +5921,18 @@ describe('ntfy subscription toggle', () => {
     expect(store.isNtfyEnabled).toBe(false)
   })
 
-  it('treats a user with no topic as not set up', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ enabled: false }) }),
-    )
+  it('keeps the deployment defaults for a user who has not set ntfy up', async () => {
+    const defaults = {
+      enabled: false,
+      defaultServerUrl: 'https://ntfy.example.com',
+      tokensSupported: true,
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => defaults }))
     const store = useInboxStore()
 
     await store.loadNtfySubscription()
 
-    expect(store.ntfySubscription).toBe(null)
+    expect(store.ntfySubscription).toEqual(defaults)
     expect(store.isNtfyEnabled).toBe(false)
   })
 
@@ -5950,20 +5952,46 @@ describe('ntfy subscription toggle', () => {
     expect(store.isNtfyEnabled).toBe(false)
   })
 
-  it('turning ntfy back on re-enables the existing topic', async () => {
+  it('saving the server and topic stores the Worker reply and turns ntfy on', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ ...subscription, enabled: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    store.ntfySubscription = { ...subscription, enabled: false }
+
+    await store.saveNtfySubscription({
+      serverUrl: 'https://ntfy.example.com',
+      topic: 'cookie-user-topic',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${NOTIFICATIONS_API_URL}/ntfy`,
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ serverUrl: 'https://ntfy.example.com', topic: 'cookie-user-topic' }),
+      }),
+    )
+    expect(store.ntfySubscription).toEqual({ ...subscription, enabled: true })
+    expect(store.isNtfyEnabled).toBe(true)
+  })
+
+  it('surfaces the Worker error code when a save is rejected', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue({ ok: true, json: async () => ({ ...subscription, enabled: true }) }),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: 'topic_taken', message: 'Taken.' }),
+      }),
     )
     const store = useInboxStore()
     store.ntfySubscription = { ...subscription, enabled: false }
 
-    await store.createNtfySubscription()
-
-    expect(store.ntfySubscription).toEqual({ ...subscription, enabled: true })
-    expect(store.isNtfyEnabled).toBe(true)
+    await expect(
+      store.saveNtfySubscription({ serverUrl: 'https://ntfy.example.com', topic: 'shared' }),
+    ).rejects.toMatchObject({ code: 'topic_taken', detail: 'Taken.' })
+    expect(store.ntfySubscription).toEqual({ ...subscription, enabled: false })
   })
 })
 

@@ -154,10 +154,15 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
 - Best-effort sent-mail read receipts using opaque tracking tokens.
 - Supabase Realtime pings for inbox refreshes.
 - Opt-in browser notifications for new mail while Cookie is open in a background tab.
-- Optional ntfy.sh notifications for new mail when Cookie is not open. Turn the switch on in
-  Settings → Notifications, then subscribe to the generated private topic in the ntfy iOS app.
-  Turning the switch off pauses alerts and keeps the topic, so turning it back on needs no
-  resubscribing.
+- Optional ntfy push notifications for new mail when Cookie is not open. In
+  Settings → Notifications, enter the ntfy server (ntfy.sh or your own, as an
+  `https://` address) and the topic you subscribe to in the ntfy app, add an
+  access token if the topic is reserved or the server requires sign-in, and save.
+  The token is stored encrypted and never shown again. Turning the switch off
+  pauses alerts and keeps the settings, so turning it back on needs no
+  resubscribing. Apply `migrations/0110_ntfy_user_servers.sql` and deploy the
+  `cookie-web-notifications` Worker (Cookie-Worker README, "ntfy notifications")
+  before deploying this form.
 - Settings → Email → Auto Archive offers independent, initially disabled categories
   for marketing, cold pitches and social noise. High-confidence, low-priority matches
   arriving after activation move to Done and are marked read, never deleted. Read,

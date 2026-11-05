@@ -28,6 +28,7 @@ import AiTodaySettings from '../components/AiTodaySettings.vue'
 import CategorySettings from '../components/CategorySettings.vue'
 import TaskLabelSettings from '../components/TaskLabelSettings.vue'
 import TodoistSettings from '../components/TodoistSettings.vue'
+import NtfySettings from '../components/NtfySettings.vue'
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -376,9 +377,6 @@ const notificationOwnerId = computed(() => store.userId)
 const browserPermission = ref(browserNotificationPermission())
 const browserNotificationsOn = ref(false)
 const isRequestingBrowserPermission = ref(false)
-const ntfyError = ref('')
-const isNtfyLoading = ref(false)
-const isNtfyTesting = ref(false)
 
 function syncBrowserNotificationPreference() {
   browserPermission.value = browserNotificationPermission()
@@ -387,21 +385,7 @@ function syncBrowserNotificationPreference() {
 }
 
 watch(notificationOwnerId, syncBrowserNotificationPreference, { immediate: true })
-watch(activeSection, (section) => {
-  syncBrowserNotificationPreference()
-  if (section === 'notifications' && notificationOwnerId.value && !store.ntfySubscription) {
-    isNtfyLoading.value = true
-    store
-      .loadNtfySubscription()
-      .catch((error) => {
-        console.error('Failed to load ntfy subscription:', error)
-        ntfyError.value = 'Could not load ntfy settings.'
-      })
-      .finally(() => {
-        isNtfyLoading.value = false
-      })
-  }
-})
+watch(activeSection, syncBrowserNotificationPreference)
 
 const browserNotificationStatus = computed(() => {
   if (!browserNotificationsSupported()) return 'Browser notifications are not supported here.'
@@ -435,54 +419,6 @@ async function toggleBrowserNotifications(event) {
   browserNotificationsOn.value = permission === 'granted'
   event.target.checked = browserNotificationsOn.value
   saveBrowserNotificationsEnabled(notificationOwnerId.value, browserNotificationsOn.value)
-}
-
-const ntfyStatus = computed(() => {
-  if (isNtfyLoading.value) return 'Loading…'
-  if (store.isNtfyEnabled) return 'Cookie will send new mail alerts to your ntfy topic.'
-  if (store.ntfySubscription) return 'Paused. Your topic is kept, so turn this back on any time.'
-  return 'Turn on to create a private topic to subscribe to in the ntfy app.'
-})
-
-// The switch is controlled by the store, so a failed request snaps it back.
-async function toggleNtfy(event) {
-  const enabled = event.target.checked
-  ntfyError.value = ''
-  isNtfyLoading.value = true
-  try {
-    if (enabled) await store.createNtfySubscription()
-    else await store.disableNtfySubscription()
-  } catch (error) {
-    console.error(`Failed to ${enabled ? 'enable' : 'disable'} ntfy notifications:`, error)
-    ntfyError.value = `Could not ${enabled ? 'enable' : 'disable'} ntfy notifications. Please try again.`
-  } finally {
-    isNtfyLoading.value = false
-    event.target.checked = store.isNtfyEnabled
-  }
-}
-
-async function copyNtfyUrl() {
-  if (!store.ntfySubscription?.subscribeUrl || !navigator.clipboard) return
-  await navigator.clipboard.writeText(store.ntfySubscription.subscribeUrl)
-}
-
-async function sendNtfyTest() {
-  ntfyError.value = ''
-  isNtfyTesting.value = true
-  try {
-    await store.sendNtfyTest()
-    store.notify('Test notification sent.')
-  } catch (error) {
-    console.error('Failed to send ntfy test notification:', error)
-    ntfyError.value =
-      error?.code === 'ntfy_rate_limited'
-        ? 'ntfy is temporarily rate-limiting notifications. Try again shortly.'
-        : error?.code === 'ntfy_unavailable'
-          ? 'The notification service is temporarily unavailable. Try again shortly.'
-          : 'Could not send the test notification. Please try again.'
-  } finally {
-    isNtfyTesting.value = false
-  }
 }
 
 // --- Labels ---
@@ -1083,46 +1019,7 @@ function toggleRuleEnabled(rule) {
                 @change="toggleBrowserNotifications"
               />
             </label>
-            <h3 class="settings-section-title settings-section-title-spaced">ntfy notifications</h3>
-            <p class="settings-section-hint">
-              Receive Cookie alerts in the ntfy iOS app. Install ntfy, subscribe to your private
-              topic, then leave this on.
-            </p>
-            <label class="settings-row">
-              <div class="settings-row-text">
-                <span>ntfy notifications</span>
-                <small>{{ ntfyStatus }}</small>
-              </div>
-              <input
-                type="checkbox"
-                class="settings-switch ntfy-switch"
-                :checked="store.isNtfyEnabled"
-                :disabled="isNtfyLoading || !notificationOwnerId"
-                @change="toggleNtfy"
-              />
-            </label>
-            <div
-              v-if="store.ntfySubscription"
-              class="ntfy-subscription"
-              data-testid="ntfy-subscription"
-            >
-              <p>Subscribe in ntfy to:</p>
-              <code>{{ store.ntfySubscription.subscribeUrl }}</code>
-              <div class="label-create-actions">
-                <button type="button" class="btn btn-secondary" @click="copyNtfyUrl">
-                  Copy topic URL
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-secondary"
-                  :disabled="isNtfyTesting || isNtfyLoading || !store.isNtfyEnabled"
-                  @click="sendNtfyTest"
-                >
-                  {{ isNtfyTesting ? 'Sending…' : 'Send test notification' }}
-                </button>
-              </div>
-            </div>
-            <p v-if="ntfyError" class="settings-error" role="alert">{{ ntfyError }}</p>
+            <NtfySettings />
           </section>
 
           <!-- Labels -->
