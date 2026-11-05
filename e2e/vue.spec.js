@@ -1141,7 +1141,9 @@ test('Reader restores a fresh saved thread summary without regenerating it', asy
   await expect(reader.locator('.ni-summarize-btn')).toHaveCount(0)
 })
 
-test('Reader shows the whole conversation with the earlier message collapsed', async ({ page }) => {
+test('Reader shows the whole conversation latest first with the earlier message collapsed', async ({
+  page,
+}) => {
   await page.goto('/inbox')
   const row = page.locator('.ni-row', { hasText: 'City Construction' })
   await row.click()
@@ -1152,15 +1154,15 @@ test('Reader shows the whole conversation with the earlier message collapsed', a
   const cards = conversation.locator('> *')
   await expect(cards).toHaveCount(2)
 
-  // Oldest first: the collapsed check-in, then the open design update.
-  const earlier = cards.nth(0)
+  // Latest first: the open design update, then the collapsed check-in.
+  const earlier = cards.nth(1)
   await expect(earlier).toHaveClass(/ni-thread-message/)
   await expect(earlier).toContainText('City Construction')
   await expect(earlier).toContainText(
     'Quick check-in before we finalize the kitchen floor plan design.',
   )
   await expect(earlier).not.toContainText('window placement')
-  await expect(cards.nth(1)).toHaveClass(/ni-email-card/)
+  await expect(cards.nth(0)).toHaveClass(/ni-email-card/)
 
   await earlier.click()
   const opened = conversation.locator('.ni-thread-message-open')
@@ -1169,7 +1171,7 @@ test('Reader shows the whole conversation with the earlier message collapsed', a
 
   await opened.getByRole('button', { name: 'Collapse message' }).click()
   await expect(conversation.locator('.ni-thread-message-open')).toHaveCount(0)
-  await expect(cards.nth(0)).toHaveClass(/ni-thread-message/)
+  await expect(cards.nth(1)).toHaveClass(/ni-thread-message/)
 
   await reader.locator('.ni-thread-toggle-all').click()
   await expect(conversation.locator('.ni-thread-message-open')).toHaveCount(1)
