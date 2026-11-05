@@ -129,6 +129,13 @@ notifications Worker changes that read `email_categories.notifications_enabled`.
 Both browser and ntfy delivery wait for pending enrichment, then suppress an
 alert when its assigned category has notifications disabled.
 
+`0110_ntfy_user_servers.sql` adds the per-user ntfy server URL, an encrypted
+access token and its display hint to `ntfy_subscriptions`, backfilling the
+default server for existing rows, and replaces the global topic uniqueness
+with uniqueness per server. Apply it before deploying the
+`cookie-web-notifications` Worker that saves the Settings form, then deploy
+Cookie-Web.
+
 ## Read receipts
 
 `0021_read_receipts.sql` stores opaque per-message tokens and best-effort open timestamps for sent mail. The tracking pixel contains no mailbox or message identifier, the receipt table is server-only, and stored sent HTML excludes the pixel so opening Cookie's own sent copy does not mark it read. Image blocking can suppress receipts and security scanners can trigger them, so the UI treats status as indicative rather than guaranteed.

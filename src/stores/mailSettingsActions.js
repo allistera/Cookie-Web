@@ -14,6 +14,15 @@ import {
 import { parseAutoArchive } from '../lib/autoArchive'
 import { parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
+// The JSON error body of a failed response, or {} when there is none.
+async function errorDetails(response) {
+  try {
+    return (await response.json()) ?? {}
+  } catch {
+    return {}
+  }
+}
+
 export const mailSettingsActions = {
   async loadReadReceipts(emails) {
     if (!emails.length) return
@@ -578,19 +587,32 @@ export const mailSettingsActions = {
     if (!response.ok) throw new Error(`GET /ntfy responded ${response.status}`)
     const subscription = await response.json()
     if (generation !== this.composeGeneration) return null
-    // A paused subscription keeps its topic so the phone stays subscribed;
-    // only a user who never set ntfy up has no topic at all.
-    this.ntfySubscription = subscription.topic ? subscription : null
+    // Always an object: a paused subscription keeps its server and topic so
+    // the phone stays subscribed, and a user who never set ntfy up still gets
+    // the deployment's default server to prefill the form with.
+    this.ntfySubscription = subscription
     return this.ntfySubscription
   },
 
-  async createNtfySubscription() {
+  // { serverUrl, topic, accessToken? }: a token left out keeps the stored
+  // one, null removes it. Saving also turns delivery on.
+  async saveNtfySubscription(input) {
     const generation = this.composeGeneration
     const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
     if (generation !== this.composeGeneration) return false
-    const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, { method: 'POST', headers })
+    const response = await fetch(`${NOTIFICATIONS_API_URL}/ntfy`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(input),
+    })
     if (generation !== this.composeGeneration) return false
-    if (!response.ok) throw new Error(`POST /ntfy responded ${response.status}`)
+    if (!response.ok) {
+      const details = await errorDetails(response)
+      const error = new Error(`PUT /ntfy responded ${response.status}`)
+      error.code = details.error
+      error.detail = details.message
+      throw error
+    }
     const subscription = await response.json()
     if (generation !== this.composeGeneration) return false
     this.ntfySubscription = subscription
@@ -619,7 +641,7 @@ export const mailSettingsActions = {
     })
     if (generation !== this.composeGeneration) return false
     if (!response.ok) {
-      const details = await response.json().catch(() => ({}))
+      const details = await errorDetails(response)
       const error = new Error(`POST /ntfy/test responded ${response.status}`)
       error.code = details.error
       error.retryAfterSeconds = details.retryAfterSeconds
