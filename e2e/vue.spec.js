@@ -1985,6 +1985,7 @@ test('Settings Categories pane lists, creates and edits categories', async ({ pa
   await expect(projectNotifications).toBeChecked()
   await projectNotifications.uncheck()
   await expect(projectNotifications).not.toBeChecked()
+  await expect(page.getByText('Category notifications disabled.', { exact: true })).toBeVisible()
   await page.reload()
   await expect(settings.getByLabel('Notifications for Projects')).not.toBeChecked()
 
