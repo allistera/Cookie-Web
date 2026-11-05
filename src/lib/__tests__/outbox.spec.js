@@ -279,6 +279,53 @@ describe('syncOutbox and installOutboxSync', () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it('preserves queued changes after preparation fails and retries on visibility', async () => {
+    const error = new TypeError('Failed to fetch dynamically imported module')
+    const handler = vi.fn()
+    const prepare = vi
+      .fn()
+      .mockRejectedValueOnce(error)
+      .mockImplementation(async () => {
+        registerOutboxHandler('message-patch', handler)
+      })
+    const onError = vi.fn()
+    const target = new EventTarget()
+    target.visibilityState = 'visible'
+    const stop = installOutboxSync({ target, prepare, onError })
+    try {
+      await enqueueOutbox({ kind: 'message-patch', key: 'm1', payload: { id: 'm1' } })
+      noteNetworkFailure()
+      noteNetworkSuccess()
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(error))
+      expect(await pendingOutboxEntries('message-patch')).toHaveLength(1)
+      expect(handler).not.toHaveBeenCalled()
+
+      target.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(outboxPending.value).toBe(0))
+    } finally {
+      stop()
+    }
+  })
+
+  it('reports a failed reconnect refresh and allows the next reconnect to refresh', async () => {
+    const error = new TypeError('Failed to fetch dynamically imported module')
+    const onSynced = vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined)
+    const onError = vi.fn()
+    const stop = installOutboxSync({ target: new EventTarget(), onSynced, onError })
+    try {
+      noteNetworkFailure()
+      noteNetworkSuccess()
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(error))
+      noteNetworkFailure()
+      noteNetworkSuccess()
+      await vi.waitFor(() => expect(onSynced).toHaveBeenCalledTimes(2))
+      expect(onError).toHaveBeenCalledOnce()
+    } finally {
+      stop()
+    }
+  })
+
   it('replays on reconnect and refreshes afterwards, and on a visible tab only when it sent something', async () => {
     const handler = vi.fn()
     registerOutboxHandler('message-patch', handler)
