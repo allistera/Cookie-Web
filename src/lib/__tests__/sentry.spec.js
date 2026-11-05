@@ -7,18 +7,21 @@ const init = vi.fn()
 const loadSdk = vi.fn()
 const captureException = vi.fn()
 const browserTracingIntegration = vi.fn()
+const replayIntegration = vi.fn()
 const client = {
   start: (app) =>
     start(app, {
       init,
       captureException,
       browserTracingIntegration,
+      replayIntegration,
     }),
 }
 
 describe('browser error monitoring', () => {
   beforeEach(() => {
     browserTracingIntegration.mockReturnValue({ name: 'BrowserTracing' })
+    replayIntegration.mockReturnValue({ name: 'Replay' })
     loadSdk.mockResolvedValue(client)
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_E2E', 'false')
@@ -52,6 +55,14 @@ describe('browser error monitoring', () => {
       router,
       beforeStartSpan: expect.any(Function),
     })
+    expect(replayIntegration).toHaveBeenCalledWith({
+      maskAllText: true,
+      maskAllInputs: true,
+      blockAllMedia: true,
+      maskAttributes: ['title', 'placeholder', 'aria-label', 'alt'],
+      block: ['.ni-email-frame'],
+      beforeAddRecordingEvent: expect.any(Function),
+    })
     const options = init.mock.calls[0][0]
     expect(options).not.toHaveProperty('profileSessionSampleRate')
     expect(options).not.toHaveProperty('profileLifecycle')
@@ -64,7 +75,13 @@ describe('browser error monitoring', () => {
         attachProps: false,
         tracesSampleRate: 0.1,
         tracePropagationTargets: [],
-        integrations: [{ name: 'BrowserTracing' }],
+        replaysSessionSampleRate: 0.1,
+        replaysOnErrorSampleRate: 1,
+        integrations: [
+          { name: 'BrowserTracing' },
+          { name: 'Replay' },
+          { name: 'ReplayPrivacy', processEvent: expect.any(Function) },
+        ],
         tunnel: '/monitoring',
         beforeSendSpan: expect.any(Function),
         beforeSendMetric: expect.any(Function),
