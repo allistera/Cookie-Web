@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeEvent, sanitizeSpan, sanitizeSpanStart } from '../sentryPrivacy'
+import {
+  sanitizeEvent,
+  sanitizeRecordingEvent,
+  sanitizeReplayEvent,
+  sanitizeSpan,
+  sanitizeSpanStart,
+} from '../sentryPrivacy'
 
 describe('Sentry payload privacy', () => {
   it('drops profiler and thread attributes now that browser profiling is off', () => {
@@ -99,6 +105,129 @@ describe('Sentry payload privacy', () => {
       { type: 'Error', value: '[Redacted]', stacktrace: { frames: [] } },
     ])
     expect(JSON.stringify(filtered)).not.toContain('private mail')
+  })
+
+  it('keeps only a well-formed replay session id among the tags', () => {
+    const replayId = 'c'.repeat(32)
+    expect(sanitizeEvent({ tags: { replayId, subject: 'private mail' } }).tags).toEqual({
+      service: 'cookie-web',
+      replayId,
+    })
+    expect(sanitizeEvent({ tags: { replayId: 'private mail' } }).tags).toEqual({
+      service: 'cookie-web',
+    })
+  })
+
+  it('removes URLs from replay recordings while keeping interactions and timings', () => {
+    const url = `${window.location.origin}/mail/private?token=secret`
+    const meta = sanitizeRecordingEvent({ type: 4, data: { href: url, width: 1, height: 2 } })
+    expect(meta).toEqual({
+      type: 4,
+      data: { href: `${window.location.origin}/`, width: 1, height: 2 },
+    })
+    const span = sanitizeRecordingEvent({
+      type: 5,
+      timestamp: 1,
+      data: {
+        tag: 'performanceSpan',
+        payload: {
+          op: 'navigation.push',
+          description: url,
+          startTimestamp: 1,
+          endTimestamp: 2,
+          data: { size: 10 },
+        },
+      },
+    })
+    expect(span.data.payload).toEqual({
+      op: 'navigation.push',
+      description: 'navigation.push',
+      startTimestamp: 1,
+      endTimestamp: 2,
+      data: { size: 10 },
+    })
+    const breadcrumb = (category, data, message) =>
+      sanitizeRecordingEvent({
+        type: 5,
+        timestamp: 3,
+        data: {
+          tag: 'breadcrumb',
+          payload: { type: 'default', timestamp: 3, category, message, data },
+        },
+      })
+    expect(breadcrumb('fetch', { method: 'GET', statusCode: 200, url })).toEqual({
+      type: 5,
+      timestamp: 3,
+      data: {
+        tag: 'breadcrumb',
+        payload: {
+          type: 'default',
+          timestamp: 3,
+          category: 'fetch',
+          message: undefined,
+          data: { method: 'GET', statusCode: 200 },
+        },
+      },
+    })
+    expect(breadcrumb('navigation', { from: url, to: url }).data.payload.data).toEqual({})
+    const slowClick = breadcrumb(
+      'ui.slowClickDetected',
+      { url, route: 'private', clickCount: 2, endReason: 'timeout', timeAfterClickMs: 3000 },
+      'button.btn',
+    )
+    expect(slowClick.data.payload).toMatchObject({
+      message: 'button.btn',
+      data: { clickCount: 2, endReason: 'timeout', timeAfterClickMs: 3000 },
+    })
+    expect(breadcrumb('console', { arguments: ['private mail'] })).toBeNull()
+    const domEvent = { type: 3, data: { source: 0, adds: [] } }
+    expect(sanitizeRecordingEvent(domEvent)).toBe(domEvent)
+    for (const filtered of [meta, span, slowClick]) {
+      expect(JSON.stringify(filtered)).not.toContain('private')
+      expect(JSON.stringify(filtered)).not.toContain('secret')
+    }
+  })
+
+  it('reduces replay segments to identifiers and route names', () => {
+    const url = `${window.location.origin}/mail/private?token=secret`
+    const event = {
+      type: 'replay_event',
+      event_id: 'a'.repeat(32),
+      replay_id: 'a'.repeat(32),
+      segment_id: 2,
+      replay_type: 'buffer',
+      replay_start_timestamp: 1,
+      timestamp: 2,
+      error_ids: ['b'.repeat(32)],
+      trace_ids: ['c'.repeat(32)],
+      segment_names: ['calendar', '/documents/private'],
+      urls: [url],
+      request: { url, headers: { 'User-Agent': 'private' } },
+      user: { email: 'private@example.com' },
+      contexts: { trace: { data: { subject: 'private' } } },
+      breadcrumbs: [{ message: 'private' }],
+      tags: { subject: 'private' },
+    }
+    const filtered = sanitizeReplayEvent(event)
+    expect(filtered).toEqual({
+      type: 'replay_event',
+      event_id: event.event_id,
+      replay_id: event.replay_id,
+      segment_id: 2,
+      replay_type: 'buffer',
+      replay_start_timestamp: 1,
+      timestamp: 2,
+      error_ids: event.error_ids,
+      trace_ids: event.trace_ids,
+      segment_names: ['calendar'],
+      urls: [],
+      platform: 'javascript',
+      environment: 'production',
+      release: undefined,
+      tags: { service: 'cookie-web' },
+    })
+    const errorEvent = { exception: { values: [] }, request: { url } }
+    expect(sanitizeReplayEvent(errorEvent)).toBe(errorEvent)
   })
 
   it('retains safe source-map debug IDs without diagnostic payloads', () => {

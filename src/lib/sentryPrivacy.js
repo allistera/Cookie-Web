@@ -13,6 +13,7 @@ const errorTypes = new Set([
   'AggregateError',
 ])
 const debugIdPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu
+const replayIdPattern = /^[0-9a-f]{32}$/iu
 
 // Only deployed app assets provide useful stack locations without exposing
 // mailbox routes, URL tokens, eval source, local variables, or source snippets.
@@ -42,7 +43,12 @@ export function sanitizeEvent(event) {
     level: 'error',
     environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || 'production',
     release: import.meta.env.VITE_SENTRY_RELEASE || undefined,
-    tags: { service: 'cookie-web' },
+    // The replay integration tags error events with its session id. Sentry
+    // links the issue to the replay through it, and the SDK only uploads an
+    // error-sampled buffer when the tag survives beforeSend.
+    tags: replayIdPattern.test(event.tags?.replayId)
+      ? { service: 'cookie-web', replayId: event.tags.replayId }
+      : { service: 'cookie-web' },
     debug_meta: {
       images: (event.debug_meta?.images ?? []).flatMap((image) => {
         const frame = sanitizeFrame({ filename: image.code_file })
@@ -147,8 +153,98 @@ export function sanitizeSpan(span) {
   }
 }
 
+// rrweb masks text, inputs and media while it records. Its Meta event and the
+// custom breadcrumb and performance payloads are not masked and carry page,
+// API and navigation URLs that would reveal which mailbox routes were opened.
+const rrwebMetaEvent = 4
+const recordingBreadcrumbs = new Set([
+  'navigation',
+  'fetch',
+  'xhr',
+  'ui.click',
+  'ui.input',
+  'ui.keyDown',
+  'ui.blur',
+  'ui.focus',
+  'ui.multiClick',
+  'ui.slowClickDetected',
+  'replay.mutations',
+  'replay.hydrate-error',
+])
+const recordingDataKeys = new Set([
+  'nodeId',
+  'node',
+  'method',
+  'statusCode',
+  'request_body_size',
+  'response_body_size',
+  'clickCount',
+  'endReason',
+  'timeAfterClickMs',
+  'count',
+  'limit',
+  'key',
+  'metaKey',
+  'ctrlKey',
+  'altKey',
+  'shiftKey',
+])
+
+export function sanitizeRecordingEvent(event) {
+  if (event.type === rrwebMetaEvent) {
+    return { ...event, data: { ...event.data, href: `${window.location.origin}/` } }
+  }
+  const { tag, payload } = event.data ?? {}
+  if (tag === 'performanceSpan') {
+    return { ...event, data: { tag, payload: { ...payload, description: payload.op } } }
+  }
+  if (tag !== 'breadcrumb') return event
+  if (!recordingBreadcrumbs.has(payload.category)) return null
+  const data = {}
+  for (const key of recordingDataKeys) {
+    if (Object.hasOwn(payload.data ?? {}, key)) data[key] = payload.data[key]
+  }
+  return {
+    ...event,
+    data: {
+      tag,
+      payload: {
+        type: 'default',
+        timestamp: payload.timestamp,
+        category: payload.category,
+        message: payload.message,
+        data,
+      },
+    },
+  }
+}
+
+// Replay segments are prepared outside beforeSend. Keep the identifiers that
+// stitch segments, errors and traces together; drop the page URLs, request
+// context and anything else the scope attached.
+export function sanitizeReplayEvent(event) {
+  if (event.type !== 'replay_event') return event
+  return {
+    type: 'replay_event',
+    event_id: event.event_id,
+    replay_id: event.replay_id,
+    segment_id: event.segment_id,
+    replay_type: event.replay_type,
+    replay_start_timestamp: event.replay_start_timestamp,
+    timestamp: event.timestamp,
+    error_ids: event.error_ids,
+    trace_ids: event.trace_ids,
+    segment_names: (event.segment_names ?? []).filter((name) => routeNames.has(name)),
+    urls: [],
+    platform: 'javascript',
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || 'production',
+    release: import.meta.env.VITE_SENTRY_RELEASE || undefined,
+    tags: { service: 'cookie-web' },
+  }
+}
+
 // Keep SDK configuration in the lazy monitoring chunk, outside app startup.
-export function createSentryOptions(app, dsn, { browserTracingIntegration }) {
+export function createSentryOptions(app, dsn, { browserTracingIntegration, replayIntegration }) {
   return {
     app,
     dsn,
@@ -160,8 +256,24 @@ export function createSentryOptions(app, dsn, { browserTracingIntegration }) {
         router: app.config.globalProperties?.$router,
         beforeStartSpan: sanitizeSpanStart,
       }),
+      // Session Replay records a masked DOM: text and inputs become asterisks,
+      // media is blocked and the sandboxed mail iframe is a blank box. Request
+      // and response bodies and headers stay off (no networkDetailAllowUrls).
+      replayIntegration({
+        maskAllText: true,
+        maskAllInputs: true,
+        blockAllMedia: true,
+        maskAttributes: ['title', 'placeholder', 'aria-label', 'alt'],
+        block: ['.ni-email-frame'],
+        beforeAddRecordingEvent: sanitizeRecordingEvent,
+      }),
+      { name: 'ReplayPrivacy', processEvent: sanitizeReplayEvent },
     ],
     tracesSampleRate: 0.1,
+    // The Developer plan includes 50 replays a month and drops the rest, so a
+    // low session rate keeps the quota for the replays attached to errors.
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
     // Browser profiling is off: Sentry bills UI profile hours only through a
     // pay-as-you-go budget, so every profile chunk was rejected with a 429.
     // Same-origin path that vercel.json proxies to the Sentry envelope

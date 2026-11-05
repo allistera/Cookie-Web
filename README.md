@@ -294,7 +294,8 @@ supports the toolbar when Vercel injects it in production or preview deployments
 See [Vercel's toolbar CSP requirements](https://vercel.com/docs/vercel-toolbar/managing-toolbar#content-security-policy).
 
 The browser uses [`@sentry/vue`](https://docs.sentry.io/platforms/javascript/guides/vue/)
-for errors, page-load/navigation performance, request timings, and Web Vitals.
+for errors, page-load/navigation performance, request timings, Web Vitals, and
+Session Replay.
 Vercel's Sentry integration variables are read at **build time**; redeploy after
 changing them. Only the public DSN, environment, and release are embedded in the
 browser bundle.
@@ -331,8 +332,21 @@ ad or privacy blockers cancel direct requests to `*.ingest.sentry.io`, so
 without the tunnel their errors and traces never arrive. Update the
 rewrite destination if the Sentry organisation or project changes.
 Request tracing headers are not propagated to APIs. This covers browser
-performance, not backend tracing or custom business metrics. Session replay
-and application log collection remain disabled.
+performance, not backend tracing or custom business metrics. Application log
+collection remains disabled.
+
+Session Replay records a masked copy of the page: every text node and input is
+replaced with asterisks, images and other media are blocked, the `alt`,
+`title`, `placeholder` and `aria-label` attributes are masked, and the
+sandboxed email iframe is recorded as a blank box. Request and response bodies
+and headers are never captured. Page, navigation and API URLs are removed from
+the recording and from each replay segment before upload; what remains is
+click targets, timings, status codes, Web Vitals and the identifiers that link
+the replay to its errors and traces. 10% of sessions are recorded, and every
+session with an error is kept from its buffered start. The Sentry Developer
+plan includes 50 replays a month and drops the rest without charge, so a busy
+month runs out of replays rather than adding cost. The recording compresses in
+an inline worker, which the CSP's `worker-src 'self' blob:` already permits.
 
 The SDK loads in the background without delaying app mount or service-worker
 registration. A temporary Vue handler buffers up to 20 errors until it is ready;
@@ -344,7 +358,8 @@ SDK loading or initialization failures do not prevent mounting.
 Error events exclude user identity, request metadata, breadcrumbs, Vue props,
 free-form messages, and arbitrary diagnostic context. They retain standard
 error types and same-origin `/assets/*.js` stack locations without query strings
-or fragments, plus validated source-map debug IDs and configured release metadata.
+or fragments, plus validated source-map debug IDs, configured release metadata
+and the replay session id that links the issue to its recording.
 This trades error-message detail for mailbox privacy. Performance spans have
 separate filtering because Sentry v11 streams them independently of errors.
 
