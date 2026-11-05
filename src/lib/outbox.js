@@ -234,10 +234,17 @@ export function installOutboxSync({
   target = globalThis.document,
   prepare,
   onSynced = async () => {},
+  onError = (error) => console.error('Outbox sync failed:', error),
 } = {}) {
   const sync = async (always) => {
-    const result = await syncOutbox({ prepare })
-    if (always || result.replayed || result.dropped) await onSynced(result)
+    try {
+      const result = await syncOutbox({ prepare })
+      if (always || result.replayed || result.dropped) await onSynced(result)
+    } catch (error) {
+      // Event listeners do not await this promise. Keep queued changes intact
+      // and report the failure; the next reconnect/visibility event can retry.
+      onError(error)
+    }
   }
   const stopReconnect = onReconnect(() => sync(true))
   const onVisible = () => {

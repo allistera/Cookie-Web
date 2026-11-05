@@ -476,7 +476,7 @@ watch(
     // Offline cache and outbox entries are keyed by account; set before the
     // loads below so their first responses are cached under the right one.
     setOfflineOwner(sub)
-    if (sub) syncOutbox({ prepare: loadOfflineStores })
+    if (sub) syncOutbox({ prepare: loadOfflineStores }).catch(onOutboxSyncError)
     setCalendarsOwner(sub)
     store.setComposeOwner(sub)
     if (savedViewsStore.ownerSub !== (sub || null)) searchStore.clear()
@@ -578,6 +578,9 @@ function onDocumentClick(e) {
 // the lazy view chunks, so they are imported here on demand rather than
 // pulled into the entry bundle.
 let stopOutboxSync = () => {}
+function onOutboxSyncError() {
+  store.notify('Offline sync could not finish. Reconnect or reload to try again.', 'error')
+}
 async function loadOfflineStores() {
   const [{ useTaskItemsStore }, { useDocumentsStore }, { useProjectsStore }] = await Promise.all([
     import('./stores/taskItems'),
@@ -606,6 +609,7 @@ onMounted(() => {
   stopOutboxSync = installOutboxSync({
     prepare: loadOfflineStores,
     onSynced: refreshAfterReconnect,
+    onError: onOutboxSyncError,
   })
   document.addEventListener('keydown', onUndoKeydown)
   document.addEventListener('keydown', onCommandPaletteKeydown)
