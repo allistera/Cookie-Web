@@ -8,7 +8,7 @@ export const settingsSectionGroups = [
       { id: 'appearance', label: 'Appearance', icon: 'palette' },
       { id: 'notifications', label: 'Notifications', icon: 'notifications' },
       { id: 'personalisation', label: 'Personalisation', icon: 'interests' },
-      { id: 'mcp-clients', label: 'MCP clients', icon: 'extension' },
+      { id: 'mcp-clients', label: 'MCP clients', icon: 'sync' },
       { id: 'ai-today', label: 'AI Today', icon: 'auto_awesome' },
     ],
   },
