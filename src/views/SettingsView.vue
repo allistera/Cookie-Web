@@ -27,6 +27,7 @@ import SpamRetentionSettings from '../components/SpamRetentionSettings.vue'
 import AiTodaySettings from '../components/AiTodaySettings.vue'
 import CategorySettings from '../components/CategorySettings.vue'
 import TaskLabelSettings from '../components/TaskLabelSettings.vue'
+import McpClientSettings from '../components/McpClientSettings.vue'
 import TodoistSettings from '../components/TodoistSettings.vue'
 import NtfySettings from '../components/NtfySettings.vue'
 
@@ -1217,6 +1218,8 @@ function toggleRuleEnabled(rule) {
               </div>
             </form>
           </section>
+
+          <McpClientSettings v-if="activeSection === 'mcp-clients'" />
 
           <CategorySettings v-if="activeSection === 'categories'" />
 
