@@ -89,18 +89,14 @@ describe('ChatDrawer message formatting', () => {
     expect(router.currentRoute.value.path).toBe('/documents/d1')
   })
 
-  it('offers a fresh conversation once there is one, and explains itself when empty', async () => {
+  it('explains itself while the conversation is empty', async () => {
     store.isChatDrawerActive = true
     const wrapper = mountDrawer()
     expect(wrapper.text()).toContain('Ask about your mail, documents and tasks')
-    expect(wrapper.get('.new-conversation-btn').attributes('disabled')).toBeDefined()
 
     store.chatHistory = [{ text: 'Hello', sender: 'user' }]
     await flushPromises()
     expect(wrapper.text()).not.toContain('Ask about your mail, documents and tasks')
-    const fresh = vi.spyOn(store, 'startNewConversation').mockImplementation(() => {})
-    await wrapper.get('[aria-label="New conversation"]').trigger('click')
-    expect(fresh).toHaveBeenCalled()
   })
 
   // The drawer is never unmounted - it collapses to width 0 - so while it is

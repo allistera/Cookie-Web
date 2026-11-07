@@ -40,7 +40,7 @@ test('the header AI button opens the assistant, which keeps the conversation goi
     route.fulfill({
       status: 200,
       headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
-      body: sse(requests.length === 2 ? SECOND_ANSWER : FIRST_ANSWER),
+      body: sse(requests.length === 1 ? FIRST_ANSWER : SECOND_ANSWER),
     })
   })
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -85,7 +85,7 @@ test('the header AI button opens the assistant, which keeps the conversation goi
   ])
 
   // The header button closes the drawer and reopens it with the exchange
-  // intact; a new conversation starts from nothing.
+  // intact.
   await page.getByRole('button', { name: 'Hide AI chat' }).click()
   // Once rendered the drawer collapses rather than unmounting, so closed
   // means inert (out of the tab order) rather than gone.
@@ -94,15 +94,9 @@ test('the header AI button opens the assistant, which keeps the conversation goi
   await toggle.click()
   await expect(drawer).not.toHaveAttribute('inert', '')
   await expect(drawer.locator('.chat-msg')).toHaveCount(4)
-  await drawer.getByRole('button', { name: 'New conversation' }).click()
-  await expect(drawer.locator('.chat-msg')).toHaveCount(0)
-  await input.fill('Where is the kitchen plan?')
-  await input.press('Enter')
-  await expect(drawer.locator('.chat-msg.ai').first()).toContainText('City Construction')
-  expect(requests[2].messages).toEqual([{ role: 'user', content: 'Where is the kitchen plan?' }])
 
   // A cited document opens in Documents.
-  await drawer.getByRole('button', { name: 'Kitchen plan' }).click()
+  await reply.getByRole('button', { name: 'Kitchen plan' }).click()
   await expect(page).toHaveURL(/\/documents\/d1$/)
   await expect(drawer).toBeVisible()
 })

@@ -4451,18 +4451,6 @@ export const useInboxStore = defineStore('inbox', {
 
     // Real RAG: /ask retrieves the most relevant stored emails via
     // hybrid search and answers with the sources it used.
-    // Drops the conversation so the next question starts fresh — the model
-    // otherwise carries every earlier turn (and its searches) into its answer.
-    startNewConversation() {
-      askAbortController?.abort()
-      askAbortController = null
-      askSeq++
-      this.chatHistory = []
-      this.chatMessages = []
-      this.chatStatus = ''
-      this.isChatLoading = false
-    },
-
     // Asks the assistant (POST /chat on the search Worker: Meilisearch's
     // conversational search over the person's mail, documents and tasks) and
     // streams the answer into the drawer. The Worker answers with its own
