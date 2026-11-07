@@ -71,25 +71,14 @@ watch(
         <span class="material-symbols-outlined gemini-color">auto_awesome</span>
         <span>Cookie Assistant</span>
       </div>
-      <div class="drawer-header-actions">
-        <button
-          class="icon-btn new-conversation-btn"
-          title="New conversation"
-          aria-label="New conversation"
-          :disabled="store.chatHistory.length === 0 && !store.isChatLoading"
-          @click="store.startNewConversation()"
-        >
-          <span class="material-symbols-outlined">edit_square</span>
-        </button>
-        <button
-          class="icon-btn close-drawer-btn"
-          title="Close"
-          aria-label="Close Cookie Assistant"
-          @click="store.isChatDrawerActive = false"
-        >
-          <span class="material-symbols-outlined">close</span>
-        </button>
-      </div>
+      <button
+        class="icon-btn close-drawer-btn"
+        title="Close"
+        aria-label="Close Cookie Assistant"
+        @click="store.isChatDrawerActive = false"
+      >
+        <span class="material-symbols-outlined">close</span>
+      </button>
     </div>
 
     <div class="drawer-content" ref="drawerContentRef">

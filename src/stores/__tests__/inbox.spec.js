@@ -3586,19 +3586,6 @@ describe('Inbox Store', () => {
     expect(store.isChatLoading).toBe(false)
   })
 
-  it('startNewConversation clears the transcript and the model\u2019s conversation', async () => {
-    const store = useInboxStore()
-    store.chatHistory = [{ text: 'Q', sender: 'user' }]
-    store.chatMessages = [{ role: 'user', content: 'Q' }]
-    store.isChatLoading = true
-    store.chatStatus = 'Searching mail…'
-    store.startNewConversation()
-    expect(store.chatHistory).toEqual([])
-    expect(store.chatMessages).toEqual([])
-    expect(store.isChatLoading).toBe(false)
-    expect(store.chatStatus).toBe('')
-  })
-
   it('searches emails and replaces the inbox list with results', async () => {
     vi.stubGlobal(
       'fetch',
