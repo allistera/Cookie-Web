@@ -3520,6 +3520,88 @@ describe('Inbox Store', () => {
     ])
   })
 
+  it('askAssistant shows an answer that lists emails as the inbox list\u2019s results', async () => {
+    const listAnswer = [
+      {
+        type: 'sources',
+        sources: [{ index: 'messages', id: 'm1', title: 'Roof', subtitle: 'Bob' }],
+      },
+      {
+        type: 'sources',
+        sources: [
+          { index: 'messages', id: 'm2', title: 'Invoice', subtitle: 'Zoom' },
+          { index: 'documents', id: 'd1', title: 'Plan', subtitle: '' },
+        ],
+      },
+      { type: 'token', text: 'Two emails:\n1. **Bob** about the roof\n2. **Zoom** invoice' },
+      { type: 'done' },
+    ]
+    const rows = [
+      { id: 'm2', from_name: 'Zoom', subject: 'Invoice', sent_at: '2026-11-07T10:00:00Z' },
+      { id: 'm1', from_name: 'Bob', subject: 'Roof', sent_at: '2026-11-06T10:00:00Z' },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, body: chatStream(listAnswer) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ emails: rows }) }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'inbox-row', subject: 'Before' }]
+    const listed = await store.askAssistant('Which emails need a reply?')
+
+    expect(listed).toBe(true)
+    expect(fetch.mock.calls[1][0]).toBe(`${SEARCH_API_URL}/search?ids=m1%2Cm2`)
+    expect(store.activeSearchQuery).toBe('Which emails need a reply?')
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['m2', 'm1'])
+    expect(store.traditionalEmails[0].sender).toBe('Zoom')
+    expect(store.isRefreshing).toBe(false)
+    // The drawer still holds the answer.
+    expect(store.chatHistory.at(-1).text).toContain('**Zoom** invoice')
+  })
+
+  it('askAssistant leaves the inbox list alone for prose, and when the rows cannot be read', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const twoMail = [
+      { index: 'messages', id: 'm1', title: 'Roof' },
+      { index: 'messages', id: 'm2', title: 'Invoice' },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          body: chatStream([
+            { type: 'sources', sources: twoMail },
+            { type: 'token', text: 'Bob and Zoom both wrote, nothing urgent.' },
+            { type: 'done' },
+          ]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          body: chatStream([
+            { type: 'sources', sources: twoMail },
+            { type: 'token', text: '1. **Bob**\n2. **Zoom**' },
+            { type: 'done' },
+          ]),
+        })
+        .mockResolvedValueOnce({ ok: false, status: 500 }),
+    )
+
+    const store = useInboxStore()
+    store.traditionalEmails = [{ id: 'inbox-row', subject: 'Before' }]
+    expect(await store.askAssistant('Anything from Bob or Zoom?')).toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(await store.askAssistant('List them')).toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(store.activeSearchQuery).toBe('')
+    expect(store.traditionalEmails.map((email) => email.id)).toEqual(['inbox-row'])
+    expect(consoleError).toHaveBeenCalledWith('Assistant results failed:', expect.any(Error))
+  })
+
   it('askAssistant records an apology message when the API fails, and keeps the turn out of the conversation', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))

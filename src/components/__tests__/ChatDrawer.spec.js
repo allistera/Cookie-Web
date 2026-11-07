@@ -12,7 +12,7 @@ function mountDrawer(options = {}) {
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/inbox', component: { template: '<div />' } },
+      { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
       { path: '/documents/:id?', component: { template: '<div />' } },
     ],
   })
@@ -168,6 +168,24 @@ describe('chat drawer actions', () => {
   afterEach(() => {
     wrapper?.unmount()
     vi.restoreAllMocks()
+  })
+
+  it('brings the inbox into view when an answer became its result list', async () => {
+    vi.spyOn(store, 'askAssistant').mockResolvedValue(true)
+    wrapper = mountDrawer()
+    await router.push('/documents/d1')
+    const input = wrapper.get('input')
+    await input.setValue('Which emails need a reply?')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/inbox')
+
+    vi.spyOn(store, 'askAssistant').mockResolvedValue(false)
+    await router.push('/documents/d1')
+    await input.setValue('And documents?')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/documents/d1')
   })
 
   it('sends trimmed prompts by button or Enter and ignores blank input', async () => {
