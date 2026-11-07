@@ -1,11 +1,12 @@
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
 import { sourceIcon } from '../lib/assistantChat'
 
 const store = useInboxStore()
 const router = useRouter()
+const route = useRoute()
 const inputVal = ref('')
 const drawerContentRef = ref(null)
 const inputRef = ref(null)
@@ -34,12 +35,14 @@ function messageLines(text) {
     )
 }
 
-function handleSend() {
+// An answer that listed emails is now the inbox list's result set, so the
+// inbox is brought into view if another app is showing.
+async function handleSend() {
   const text = inputVal.value.trim()
-  if (text) {
-    store.askAssistant(text)
-    inputVal.value = ''
-  }
+  if (!text) return
+  inputVal.value = ''
+  const listed = await store.askAssistant(text)
+  if (listed && route.name !== 'traditional-inbox') router.push('/inbox')
 }
 
 // The status bubble ("Searching mail…", or a plain thinking line before the

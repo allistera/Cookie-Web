@@ -28,6 +28,24 @@ const FIRST_ANSWER = [
   { type: 'done' },
 ]
 const SECOND_ANSWER = [{ type: 'token', text: 'Last Tuesday.' }, { type: 'done' }]
+// An answer that enumerates emails: the drawer keeps the text, and the inbox
+// list shows those emails as the result set (fixture ids from
+// scripts/localApi/fixtures/emails.js).
+const LIST_ANSWER = [
+  { type: 'searching', index: 'messages', q: 'this week' },
+  {
+    type: 'sources',
+    sources: [
+      { index: 'messages', id: 'fixture-2', title: 'Claim #99281', subtitle: 'Insurance' },
+      { index: 'messages', id: 'fixture-3', title: 'Soccer Snacks', subtitle: 'Coach Mike' },
+    ],
+  },
+  {
+    type: 'token',
+    text: 'Two emails need you:\n1. **Homeowner\u2019s Insurance**: claim update.\n2. **Coach Mike**: snacks for the scrimmage.',
+  },
+  { type: 'done' },
+]
 
 const sse = (events) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
 
@@ -40,7 +58,9 @@ test('the header AI button opens the assistant, which keeps the conversation goi
     route.fulfill({
       status: 200,
       headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
-      body: sse(requests.length === 1 ? FIRST_ANSWER : SECOND_ANSWER),
+      body: sse(
+        requests.length === 1 ? FIRST_ANSWER : requests.length === 2 ? SECOND_ANSWER : LIST_ANSWER,
+      ),
     })
   })
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -101,4 +121,19 @@ test('the header AI button opens the assistant, which keeps the conversation goi
   await reply.getByRole('button', { name: 'Kitchen plan' }).click()
   await expect(page).toHaveURL(/\/documents\/d1$/)
   await expect(drawer).toBeVisible()
+
+  // An answer that lists emails becomes the inbox list's results, with the
+  // question as the search label, and brings the inbox back into view.
+  await input.fill('Which emails need a reply?')
+  await input.press('Enter')
+  await expect(drawer.locator('.chat-msg.ai').nth(2)).toContainText('Two emails need you')
+  await expect(page).toHaveURL(/\/inbox$/)
+  const rows = page.locator('.ni-row')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText('Claim #99281')
+  await expect(rows.nth(1)).toContainText('Soccer Snacks')
+  expect(requests[2].messages.at(-1)).toEqual({
+    role: 'user',
+    content: 'Which emails need a reply?',
+  })
 })

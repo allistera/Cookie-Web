@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { SEARCH_API_URL } from '../apiWorkers'
 
 import {
+  MAX_LISTED_EMAILS,
   MAX_SOURCES,
+  isEmailList,
+  loadListedEmails,
+  mailSourcesOf,
   mergeSources,
   readAssistantEvents,
   searchingLabel,
@@ -98,5 +104,58 @@ describe('readAssistantEvents', () => {
     await expect(readAssistantEvents(undefined, () => {})).rejects.toThrow(
       'Assistant stream unavailable',
     )
+  })
+})
+
+describe('isEmailList and mailSourcesOf', () => {
+  const mail = (id) => ({ index: 'messages', id, title: id })
+  const doc = { index: 'documents', id: 'd1', title: 'Plan' }
+
+  it('recognises a numbered or bulleted answer that cites two or more emails', () => {
+    expect(
+      isEmailList('Here they are:\n1. **Vercel** failed\n2. **Supabase** approval', [
+        mail('a'),
+        mail('b'),
+      ]),
+    ).toBe(true)
+    expect(isEmailList('- one\n- two', [mail('a'), doc, mail('b')])).toBe(true)
+  })
+
+  it('leaves prose and single-email answers in the drawer', () => {
+    expect(
+      isEmailList('**Vercel** sent one email about a failed deploy.', [mail('a'), mail('b')]),
+    ).toBe(false)
+    expect(isEmailList('1. **Vercel** failed\n2. again', [mail('a')])).toBe(false)
+    expect(isEmailList('1. a\n2. b', [doc, { index: 'task_items', id: 't' }])).toBe(false)
+    expect(isEmailList('', [])).toBe(false)
+  })
+
+  it('picks the mail sources with an id', () => {
+    expect(mailSourcesOf([mail('a'), doc, { index: 'messages', id: '' }])).toEqual([mail('a')])
+    expect(mailSourcesOf(undefined)).toEqual([])
+  })
+})
+
+describe('loadListedEmails', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('asks the search Worker for the rows by id, capped, and returns them', async () => {
+    const emails = [{ id: 'b' }, { id: 'a' }]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ emails }) }))
+    const ids = Array.from({ length: MAX_LISTED_EMAILS + 2 }, (_, i) => `id-${i}`)
+    const signal = new AbortController().signal
+    await expect(loadListedEmails(ids, { Authorization: 'Bearer t' }, signal)).resolves.toEqual(
+      emails,
+    )
+    const [url, init] = fetch.mock.calls[0]
+    expect(url).toBe(
+      `${SEARCH_API_URL}/search?ids=${encodeURIComponent(ids.slice(0, MAX_LISTED_EMAILS).join(','))}`,
+    )
+    expect(init).toEqual({ headers: { Authorization: 'Bearer t' }, signal })
+  })
+
+  it('throws on a failed response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+    await expect(loadListedEmails(['a'], {}, undefined)).rejects.toThrow('responded 503')
   })
 })

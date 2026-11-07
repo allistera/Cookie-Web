@@ -816,6 +816,19 @@ export function localApiPlugin(mode) {
     if (url.searchParams.has('scope')) return handleCombinedSearch(req, res, url)
 
     const { fixtureEmails, fixtureSentEmails } = await import('./fixtures/emails.js')
+    // Rows by id, in the order asked, for the assistant's listed emails
+    // (stores/inbox.js showAssistantEmails).
+    if (url.searchParams.has('ids')) {
+      const all = new Map([...fixtureEmails(), ...fixtureSentEmails()].map((e) => [e.id, e]))
+      const emails = url.searchParams
+        .get('ids')
+        .split(',')
+        .map((id) => all.get(id))
+        .filter(Boolean)
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ emails }))
+      return
+    }
     const { parseSearchQuery } = await import('./query-parse.js')
     const rawQuery = url.searchParams.get('q') || ''
     const { text, filters } = parseSearchQuery(rawQuery)

@@ -4453,10 +4453,11 @@ export const useInboxStore = defineStore('inbox', {
     // hybrid search and answers with the sources it used.
     // Asks the assistant (POST /chat on the search Worker: Meilisearch's
     // conversational search over the person's mail, documents and tasks) and
-    // streams the answer into the drawer. The Worker answers with its own
-    // small event vocabulary: `searching` and `sources` as the model's
-    // searches run, `message` for a message to replay next turn, `token`
-    // for answer text, `error` when something upstream failed, `done`.
+    // streams the answer into the drawer. The turn itself lives in
+    // lib/assistantChat.js, loaded with the drawer's chunk; this action owns
+    // what has to be synchronous and shared: the transcript entry, the abort
+    // of the previous question and the loading flags. Resolves true when the
+    // answer listed emails and the inbox list now shows them.
     async askAssistant(query) {
       this.isChatDrawerActive = true
       pushCapped(this.chatHistory, { text: query, sender: 'user' }, MAX_CHAT_HISTORY)
@@ -4466,89 +4467,50 @@ export const useInboxStore = defineStore('inbox', {
       const seq = ++askSeq
       this.isChatLoading = true
       this.chatStatus = ''
-      const replayed = []
-      let activeReply = null
-      let failed = false
       try {
-        // The helpers ship with the drawer's lazy chunk, not the entry: the
-        // drawer is the only thing that asks.
-        const [chat, headers] = await Promise.all([
-          import('../lib/assistantChat'),
-          this.authHeaders({ 'Content-Type': 'application/json' }),
-        ])
-        if (seq !== askSeq) return
-        // The conversation the model sees for this turn. It is committed to
-        // chatMessages only once the answer has arrived, so an abandoned or
-        // failed question is not replayed under the next one.
-        const messages = chat.trimConversation([
-          ...this.chatMessages,
-          { role: 'user', content: query },
-        ])
-        const response = await fetch(`${SEARCH_API_URL}/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ messages }),
+        const { runAssistantTurn } = await import('../lib/assistantChat')
+        return await runAssistantTurn(this, query, {
           signal: controller.signal,
+          isCurrent: () => seq === askSeq,
+          push: (message) => pushCapped(this.chatHistory, message, MAX_CHAT_HISTORY),
         })
-        if (!response.ok) {
-          throw new Error(`POST /chat responded ${response.status}`, {
-            cause: { status: response.status },
-          })
-        }
-        if (seq !== askSeq) return
-        activeReply = { text: '', sender: 'ai', sources: [], typing: true }
-        pushCapped(this.chatHistory, activeReply, MAX_CHAT_HISTORY)
-        await chat.readAssistantEvents(response.body, (data) => {
-          if (seq !== askSeq) return false
-          if (data.type === 'searching') this.chatStatus = chat.searchingLabel(data.index)
-          if (data.type === 'sources') {
-            activeReply.sources = chat.mergeSources(activeReply.sources, data.sources)
-          }
-          if (data.type === 'message') replayed.push(data.message)
-          if (data.type === 'token') {
-            activeReply.text += data.text
-            this.chatStatus = ''
-          }
-          if (data.type === 'error') failed = true
-          if (data.type === 'done') activeReply.typing = false
-        })
-        if (seq !== askSeq) return
-        activeReply.typing = false
-        if (!activeReply.text) {
-          activeReply.text = failed
-            ? 'Sorry, something went wrong while answering. Please try again.'
-            : "I couldn't find anything about that."
-        }
-        if (!failed) {
-          this.chatMessages = chat.trimConversation([
-            ...messages,
-            ...replayed,
-            { role: 'assistant', content: activeReply.text },
-          ])
-        }
-      } catch (error) {
-        if (seq !== askSeq) return
-        if (error?.name === 'AbortError') return
-        if (activeReply) activeReply.typing = false
-        console.error('Ask failed:', error)
-        pushCapped(
-          this.chatHistory,
-          {
-            text:
-              error?.cause?.status === 429
-                ? 'You are asking faster than the assistant can answer. Give it a minute.'
-                : "Sorry, I couldn't reach the assistant. Please try again.",
-            sender: 'ai',
-            sources: [],
-          },
-          MAX_CHAT_HISTORY,
-        )
       } finally {
         if (askAbortController === controller) askAbortController = null
         if (seq === askSeq) {
           this.isChatLoading = false
           this.chatStatus = ''
         }
+      }
+    },
+
+    // Shows the emails an assistant answer listed as the inbox list's results
+    // (search mode, with the question as the label; clearSearch restores the
+    // inbox). Resolves true once the list shows.
+    async showAssistantEmails(question, ids) {
+      if (ids.length === 0) return false
+      searchAbortController?.abort()
+      const controller = new AbortController()
+      searchAbortController = controller
+      const seq = ++this.listSeq
+      this.isRefreshing = true
+      try {
+        const [chat, headers] = await Promise.all([
+          import('../lib/assistantChat'),
+          this.authHeaders(),
+        ])
+        if (seq !== this.listSeq) return false
+        const emails = await chat.loadListedEmails(ids, headers, controller.signal)
+        if (seq !== this.listSeq || emails.length === 0) return false
+        this.activeSearchQuery = question
+        this.traditionalEmails = emails.map(mapEmailRow)
+        return true
+      } catch (error) {
+        if (seq !== this.listSeq || error?.name === 'AbortError') return false
+        console.error('Assistant results failed:', error)
+        return false
+      } finally {
+        if (searchAbortController === controller) searchAbortController = null
+        if (seq === this.listSeq) this.isRefreshing = false
       }
     },
   },
