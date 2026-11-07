@@ -59,6 +59,7 @@ test('the header AI button opens the assistant, which keeps the conversation goi
   )
 
   const input = drawer.getByLabel('Ask Cookie Assistant')
+  await expect(input).toBeFocused()
   await input.fill('What happened with the renovation?')
   await input.press('Enter')
 
@@ -93,6 +94,7 @@ test('the header AI button opens the assistant, which keeps the conversation goi
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await toggle.click()
   await expect(drawer).not.toHaveAttribute('inert', '')
+  await expect(input).toBeFocused()
   await expect(drawer.locator('.chat-msg')).toHaveCount(4)
 
   // A cited document opens in Documents.
