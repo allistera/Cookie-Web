@@ -8,6 +8,19 @@ const store = useInboxStore()
 const router = useRouter()
 const inputVal = ref('')
 const drawerContentRef = ref(null)
+const inputRef = ref(null)
+
+// Opening the drawer is an invitation to type, so the question box takes
+// focus once the drawer has left its inert state (hence the tick). Covers
+// the header button, the search page's "Ask the assistant" and a drawer
+// that mounts already open.
+watch(
+  () => store.isChatDrawerActive,
+  (active) => {
+    if (active) nextTick(() => inputRef.value?.focus())
+  },
+  { immediate: true },
+)
 
 // Assistant replies use lightweight markdown (**bold**, newline-separated
 // lines). Parse into plain-text segments the template renders itself — never
@@ -125,6 +138,7 @@ watch(
       <label class="visually-hidden" for="chatDrawerInput">Ask Cookie Assistant</label>
       <input
         id="chatDrawerInput"
+        ref="inputRef"
         type="text"
         class="drawer-input"
         :placeholder="store.chatHistory.length ? 'Ask a follow-up...' : 'Ask about your mail...'"

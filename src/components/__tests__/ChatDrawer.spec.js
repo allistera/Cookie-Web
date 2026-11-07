@@ -8,7 +8,7 @@ import { useInboxStore } from '../../stores/inbox'
 
 // The drawer navigates to a cited document, so it mounts with a router.
 let router
-function mountDrawer() {
+function mountDrawer(options = {}) {
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -16,7 +16,7 @@ function mountDrawer() {
       { path: '/documents/:id?', component: { template: '<div />' } },
     ],
   })
-  return mount(ChatDrawer, { global: { plugins: [router] } })
+  return mount(ChatDrawer, { ...options, global: { plugins: [router] } })
 }
 
 describe('ChatDrawer message formatting', () => {
@@ -122,6 +122,32 @@ describe('ChatDrawer message formatting', () => {
     const label = wrapper.get('label.visually-hidden')
     expect(label.attributes('for')).toBe(input.attributes('id'))
     expect(label.text()).toBe('Ask Cookie Assistant')
+  })
+
+  it('focuses the question box whenever it opens', async () => {
+    store.isChatDrawerActive = false
+    const wrapper = mountDrawer({ attachTo: document.body })
+    expect(document.activeElement).not.toBe(wrapper.get('.drawer-input').element)
+
+    store.isChatDrawerActive = true
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.drawer-input').element)
+
+    store.isChatDrawerActive = false
+    await flushPromises()
+    wrapper.get('.drawer-input').element.blur()
+    store.isChatDrawerActive = true
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.drawer-input').element)
+    wrapper.unmount()
+  })
+
+  it('focuses the question box when it mounts already open', async () => {
+    store.isChatDrawerActive = true
+    const wrapper = mountDrawer({ attachTo: document.body })
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.drawer-input').element)
+    wrapper.unmount()
   })
 
   it('renders plain user messages unchanged', () => {
