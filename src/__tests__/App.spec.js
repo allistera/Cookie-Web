@@ -353,6 +353,25 @@ describe('application shell', () => {
     expect(useCalendarRail().isOpen.value).toBe(false)
   })
 
+  it('opens and closes the assistant drawer from the header AI button on every app', async () => {
+    await render('/inbox')
+    const trigger = () => wrapper.get('.ai-chat-trigger')
+    expect(trigger().attributes('aria-pressed')).toBe('false')
+    expect(trigger().attributes('aria-label')).toBe('Show AI chat')
+
+    await trigger().trigger('click')
+    await flushPromises()
+    expect(store.isChatDrawerActive).toBe(true)
+    expect(trigger().attributes('aria-pressed')).toBe('true')
+    expect(trigger().attributes('aria-label')).toBe('Hide AI chat')
+
+    await router.push('/calendar')
+    await flushPromises()
+    expect(wrapper.find('.calendar-rail-trigger').exists()).toBe(false)
+    await trigger().trigger('click')
+    expect(store.isChatDrawerActive).toBe(false)
+  })
+
   it('leaves the ] key alone while typing', async () => {
     await render('/inbox')
     const input = document.createElement('input')

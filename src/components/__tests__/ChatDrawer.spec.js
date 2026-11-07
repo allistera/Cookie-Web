@@ -1,9 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ChatDrawer from '../ChatDrawer.vue'
 import { useInboxStore } from '../../stores/inbox'
+
+// The drawer navigates to a cited document, so it mounts with a router.
+let router
+function mountDrawer() {
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/inbox', component: { template: '<div />' } },
+      { path: '/documents/:id?', component: { template: '<div />' } },
+    ],
+  })
+  return mount(ChatDrawer, { global: { plugins: [router] } })
+}
 
 describe('ChatDrawer message formatting', () => {
   let store
@@ -17,7 +31,7 @@ describe('ChatDrawer message formatting', () => {
 
   it('renders **bold** markers as <strong> without showing asterisks', () => {
     store.chatHistory = [{ text: 'Update from **City Construction**: plan revised.', sender: 'ai' }]
-    const wrapper = mount(ChatDrawer)
+    const wrapper = mountDrawer()
 
     const message = wrapper.find('.chat-msg.ai')
     expect(message.find('strong').text()).toBe('City Construction')
@@ -31,7 +45,7 @@ describe('ChatDrawer message formatting', () => {
         sender: 'ai',
       },
     ]
-    const wrapper = mount(ChatDrawer)
+    const wrapper = mountDrawer()
 
     const lines = wrapper.findAll('.chat-msg.ai .chat-line')
     expect(lines).toHaveLength(3)
@@ -40,23 +54,53 @@ describe('ChatDrawer message formatting', () => {
     expect(lines[2].text()).toBe('2. Second: another thing.')
   })
 
-  it('renders source chips for AI answers', () => {
+  it('renders source chips for AI answers, with a document chip that opens the document', async () => {
     store.chatHistory = [
       {
         text: 'The plan was revised.',
         sender: 'ai',
         sources: [
-          { id: 'm1', subject: 'Revised Floor Plan', from_name: 'City Construction' },
-          { id: 'm2', subject: 'Claim #99281', from_name: "Homeowner's Insurance" },
+          {
+            index: 'messages',
+            id: 'm1',
+            title: 'Revised Floor Plan',
+            subtitle: 'City Construction',
+          },
+          { index: 'documents', id: 'd1', title: 'Kitchen plan', subtitle: '' },
+          { index: 'task_items', id: 't1', title: 'Call the builder', subtitle: '' },
         ],
       },
     ]
-    const wrapper = mount(ChatDrawer)
+    const wrapper = mountDrawer()
 
     const chips = wrapper.findAll('.chat-source')
-    expect(chips).toHaveLength(2)
+    expect(chips).toHaveLength(3)
     expect(chips[0].text()).toContain('Revised Floor Plan')
     expect(chips[0].attributes('title')).toBe('City Construction')
+    expect(chips[0].element.tagName).toBe('SPAN')
+    expect(chips.map((chip) => chip.find('.material-symbols-outlined').text())).toEqual([
+      'mail',
+      'description',
+      'task_alt',
+    ])
+    expect(chips[1].element.tagName).toBe('BUTTON')
+    await chips[1].trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/documents/d1')
+  })
+
+  it('offers a fresh conversation once there is one, and explains itself when empty', async () => {
+    store.isChatDrawerActive = true
+    const wrapper = mountDrawer()
+    expect(wrapper.text()).toContain('Ask about your mail, documents and tasks')
+    expect(wrapper.get('.new-conversation-btn').attributes('disabled')).toBeDefined()
+
+    store.chatHistory = [{ text: 'Hello', sender: 'user' }]
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Ask about your mail, documents and tasks')
+    const fresh = vi.spyOn(store, 'startNewConversation').mockImplementation(() => {})
+    await wrapper.get('[aria-label="New conversation"]').trigger('click')
+    expect(fresh).toHaveBeenCalled()
   })
 
   // The drawer is never unmounted - it collapses to width 0 - so while it is
@@ -64,7 +108,7 @@ describe('ChatDrawer message formatting', () => {
   // tree, or Tab walks through an invisible chat.
   it('is an inert, labelled dialog while closed', () => {
     store.isChatDrawerActive = false
-    const drawer = mount(ChatDrawer).get('.gemini-chat-drawer')
+    const drawer = mountDrawer().get('.gemini-chat-drawer')
 
     expect(drawer.attributes('role')).toBe('dialog')
     expect(drawer.attributes('aria-label')).toBe('Cookie Assistant')
@@ -73,7 +117,7 @@ describe('ChatDrawer message formatting', () => {
 
   it('drops inert once open, and names its controls', () => {
     store.isChatDrawerActive = true
-    const wrapper = mount(ChatDrawer)
+    const wrapper = mountDrawer()
 
     expect(wrapper.get('.gemini-chat-drawer').attributes('inert')).toBeUndefined()
     expect(wrapper.get('.close-drawer-btn').attributes('aria-label')).toBe('Close Cookie Assistant')
@@ -86,7 +130,7 @@ describe('ChatDrawer message formatting', () => {
 
   it('renders plain user messages unchanged', () => {
     store.chatHistory = [{ text: 'Summarize my kitchen renovation updates.', sender: 'user' }]
-    const wrapper = mount(ChatDrawer)
+    const wrapper = mountDrawer()
 
     expect(wrapper.find('.chat-msg.user').text()).toBe('Summarize my kitchen renovation updates.')
   })
@@ -106,7 +150,7 @@ describe('chat drawer actions', () => {
 
   it('sends trimmed prompts by button or Enter and ignores blank input', async () => {
     const ask = vi.spyOn(store, 'askAssistant').mockImplementation(() => {})
-    wrapper = mount(ChatDrawer)
+    wrapper = mountDrawer()
     const input = wrapper.get('input')
     await input.setValue('   ')
     await wrapper.get('[aria-label="Send message"]').trigger('click')
@@ -122,12 +166,16 @@ describe('chat drawer actions', () => {
 
   it('scrolls appended and streamed replies into view and displays loading state', async () => {
     store.isChatDrawerActive = true
-    wrapper = mount(ChatDrawer)
+    wrapper = mountDrawer()
     const content = wrapper.get('.drawer-content').element
     Object.defineProperty(content, 'scrollHeight', { configurable: true, value: 500 })
     store.isChatLoading = true
     await flushPromises()
-    expect(wrapper.text()).toContain('Searching your mailbox...')
+    expect(wrapper.text()).toContain('Thinking…')
+    store.chatStatus = 'Searching mail…'
+    await flushPromises()
+    expect(wrapper.text()).toContain('Searching mail…')
+    expect(wrapper.text()).not.toContain('Thinking…')
     store.chatHistory.push({ sender: 'ai', text: 'Starting', typing: true })
     await flushPromises()
     expect(content.scrollTop).toBe(500)
@@ -143,7 +191,7 @@ describe('chat drawer actions', () => {
 
   it('renders assistant HTML as text', () => {
     store.chatHistory = [{ sender: 'ai', text: '<img src=x onerror=alert(1)> **safe**' }]
-    wrapper = mount(ChatDrawer)
+    wrapper = mountDrawer()
     expect(wrapper.find('.chat-msg img').exists()).toBe(false)
     expect(wrapper.get('.chat-line').text()).toContain('<img src=x onerror=alert(1)>')
     expect(wrapper.get('strong').text()).toBe('safe')

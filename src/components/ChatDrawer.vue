@@ -1,8 +1,11 @@
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
+import { sourceIcon } from '../lib/assistantChat'
 
 const store = useInboxStore()
+const router = useRouter()
 const inputVal = ref('')
 const drawerContentRef = ref(null)
 
@@ -26,9 +29,24 @@ function handleSend() {
   }
 }
 
+// The status bubble ("Searching mail…", or a plain thinking line before the
+// model has said what it is doing) shows until the first answer text lands.
+const showStatus = computed(() => {
+  if (!store.isChatLoading) return false
+  const last = store.chatHistory.at(-1)
+  return !(last?.sender === 'ai' && last.text)
+})
+
+// A cited document opens in place; mail and tasks have no route of their own
+// (the reader and task panel resolve items out of loaded lists), so their
+// chips only name the source.
+function openSource(source) {
+  if (source.index === 'documents' && source.id) router.push(`/documents/${source.id}`)
+}
+
 // Streaming assistant replies mutate the last message as tokens arrive.
 watch(
-  () => [store.chatHistory.length, store.chatHistory.at(-1)?.text],
+  () => [store.chatHistory.length, store.chatHistory.at(-1)?.text, store.chatStatus],
   () => {
     nextTick(() => {
       if (drawerContentRef.value) {
@@ -53,17 +71,32 @@ watch(
         <span class="material-symbols-outlined gemini-color">auto_awesome</span>
         <span>Cookie Assistant</span>
       </div>
-      <button
-        class="icon-btn close-drawer-btn"
-        title="Close"
-        aria-label="Close Cookie Assistant"
-        @click="store.isChatDrawerActive = false"
-      >
-        <span class="material-symbols-outlined">close</span>
-      </button>
+      <div class="drawer-header-actions">
+        <button
+          class="icon-btn new-conversation-btn"
+          title="New conversation"
+          aria-label="New conversation"
+          :disabled="store.chatHistory.length === 0 && !store.isChatLoading"
+          @click="store.startNewConversation()"
+        >
+          <span class="material-symbols-outlined">edit_square</span>
+        </button>
+        <button
+          class="icon-btn close-drawer-btn"
+          title="Close"
+          aria-label="Close Cookie Assistant"
+          @click="store.isChatDrawerActive = false"
+        >
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
     </div>
 
     <div class="drawer-content" ref="drawerContentRef">
+      <p v-if="store.chatHistory.length === 0 && !store.isChatLoading" class="chat-empty">
+        Ask about your mail, documents and tasks. Answers come from a search of your own data, with
+        the sources underneath.
+      </p>
       <div
         v-for="(msg, index) in store.chatHistory"
         :key="index"
@@ -77,19 +110,25 @@ watch(
           </template>
         </div>
         <div v-if="msg.sources?.length" class="citation-box">
-          <span
+          <component
+            :is="source.index === 'documents' ? 'button' : 'span'"
             v-for="source in msg.sources"
-            :key="source.id"
+            :key="`${source.index}/${source.id}`"
             class="chat-source"
-            :title="source.from_name"
+            :class="{ 'chat-source-link': source.index === 'documents' }"
+            :type="source.index === 'documents' ? 'button' : null"
+            :title="source.subtitle || source.title"
+            @click="openSource(source)"
           >
-            <span class="material-symbols-outlined" style="font-size: 14px">mail</span>
-            <span>{{ source.subject }}</span>
-          </span>
+            <span class="material-symbols-outlined" style="font-size: 14px">{{
+              sourceIcon(source)
+            }}</span>
+            <span>{{ source.title }}</span>
+          </component>
         </div>
       </div>
-      <div v-if="store.isChatLoading" class="chat-msg ai typing-cursor">
-        Searching your mailbox...
+      <div v-if="showStatus" class="chat-msg ai typing-cursor chat-status">
+        {{ store.chatStatus || 'Thinking…' }}
       </div>
     </div>
 
@@ -99,7 +138,7 @@ watch(
         id="chatDrawerInput"
         type="text"
         class="drawer-input"
-        placeholder="Ask a follow-up..."
+        :placeholder="store.chatHistory.length ? 'Ask a follow-up...' : 'Ask about your mail...'"
         v-model="inputVal"
         @keydown.enter="handleSend"
       />

@@ -772,8 +772,14 @@ export const useInboxStore = defineStore('inbox', {
     inboxTab: null,
     rules: [], // tag rules from /api/labels?resource=rules (settings Rules manager)
 
-    // Chat state
+    // Assistant drawer. chatHistory is what the drawer shows; chatMessages is
+    // the conversation the model sees, kept separately because it also holds
+    // the search tool calls and results the chat Worker hands back to be
+    // replayed next turn (lib/assistantChat.js). chatStatus is what the
+    // assistant is doing while an answer is on its way ("Searching mail…").
     chatHistory: [],
+    chatMessages: [],
+    chatStatus: '',
     isChatDrawerActive: false,
     isChatLoading: false,
 
@@ -2902,6 +2908,7 @@ export const useInboxStore = defineStore('inbox', {
         'tasks',
         'interests',
         'chatHistory',
+        'chatMessages',
         'toasts',
       ])
         this[key] = []
@@ -2962,6 +2969,7 @@ export const useInboxStore = defineStore('inbox', {
         this[key] = null
       this.donePageCursors = [null]
       this.activeSearchQuery = this.aiDraftPreview = this.composerAiInstruction = ''
+      this.chatStatus = ''
       this.categoryNotificationSavingIds.clear()
       this.summaryLoadingIds.clear()
       this.mutingThreadIds.clear()
@@ -4443,6 +4451,24 @@ export const useInboxStore = defineStore('inbox', {
 
     // Real RAG: /ask retrieves the most relevant stored emails via
     // hybrid search and answers with the sources it used.
+    // Drops the conversation so the next question starts fresh — the model
+    // otherwise carries every earlier turn (and its searches) into its answer.
+    startNewConversation() {
+      askAbortController?.abort()
+      askAbortController = null
+      askSeq++
+      this.chatHistory = []
+      this.chatMessages = []
+      this.chatStatus = ''
+      this.isChatLoading = false
+    },
+
+    // Asks the assistant (POST /chat on the search Worker: Meilisearch's
+    // conversational search over the person's mail, documents and tasks) and
+    // streams the answer into the drawer. The Worker answers with its own
+    // small event vocabulary: `searching` and `sources` as the model's
+    // searches run, `message` for a message to replay next turn, `token`
+    // for answer text, `error` when something upstream failed, `done`.
     async askAssistant(query) {
       this.isChatDrawerActive = true
       pushCapped(this.chatHistory, { text: query, sender: 'user' }, MAX_CHAT_HISTORY)
@@ -4451,53 +4477,67 @@ export const useInboxStore = defineStore('inbox', {
       askAbortController = controller
       const seq = ++askSeq
       this.isChatLoading = true
+      this.chatStatus = ''
+      const replayed = []
       let activeReply = null
+      let failed = false
       try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        // The helpers ship with the drawer's lazy chunk, not the entry: the
+        // drawer is the only thing that asks.
+        const [chat, headers] = await Promise.all([
+          import('../lib/assistantChat'),
+          this.authHeaders({ 'Content-Type': 'application/json' }),
+        ])
         if (seq !== askSeq) return
-        const response = await fetch(`${SEARCH_API_URL}/ask?stream=1`, {
+        // The conversation the model sees for this turn. It is committed to
+        // chatMessages only once the answer has arrived, so an abandoned or
+        // failed question is not replayed under the next one.
+        const messages = chat.trimConversation([
+          ...this.chatMessages,
+          { role: 'user', content: query },
+        ])
+        const response = await fetch(`${SEARCH_API_URL}/chat`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ question: query }),
+          body: JSON.stringify({ messages }),
           signal: controller.signal,
         })
         if (!response.ok) {
-          throw new Error(`POST /ask responded ${response.status}`)
+          throw new Error(`POST /chat responded ${response.status}`, {
+            cause: { status: response.status },
+          })
         }
         if (seq !== askSeq) return
-        if (response.headers.get('Content-Type')?.includes('application/json')) {
-          const { answer, sources } = await response.json()
-          if (seq !== askSeq) return
-          pushCapped(
-            this.chatHistory,
-            { text: answer, sender: 'ai', sources: sources || [] },
-            MAX_CHAT_HISTORY,
-          )
-          return
-        }
         activeReply = { text: '', sender: 'ai', sources: [], typing: true }
         pushCapped(this.chatHistory, activeReply, MAX_CHAT_HISTORY)
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error('Assistant stream unavailable')
-        const decoder = new TextDecoder()
-        let buffer = ''
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          const events = buffer.split('\n\n')
-          buffer = events.pop() ?? ''
-          for (const event of events) {
-            const line = event.split('\n').find((part) => part.startsWith('data: '))
-            if (!line) continue
-            const data = JSON.parse(line.slice(6))
-            if (data.type === 'sources') activeReply.sources = data.sources || []
-            if (data.type === 'token') activeReply.text += data.text
-            if (data.type === 'done') activeReply.typing = false
+        await chat.readAssistantEvents(response.body, (data) => {
+          if (seq !== askSeq) return false
+          if (data.type === 'searching') this.chatStatus = chat.searchingLabel(data.index)
+          if (data.type === 'sources') {
+            activeReply.sources = chat.mergeSources(activeReply.sources, data.sources)
           }
-          if (seq !== askSeq) return
-        }
+          if (data.type === 'message') replayed.push(data.message)
+          if (data.type === 'token') {
+            activeReply.text += data.text
+            this.chatStatus = ''
+          }
+          if (data.type === 'error') failed = true
+          if (data.type === 'done') activeReply.typing = false
+        })
+        if (seq !== askSeq) return
         activeReply.typing = false
+        if (!activeReply.text) {
+          activeReply.text = failed
+            ? 'Sorry, something went wrong while answering. Please try again.'
+            : "I couldn't find anything about that."
+        }
+        if (!failed) {
+          this.chatMessages = chat.trimConversation([
+            ...messages,
+            ...replayed,
+            { role: 'assistant', content: activeReply.text },
+          ])
+        }
       } catch (error) {
         if (seq !== askSeq) return
         if (error?.name === 'AbortError') return
@@ -4506,7 +4546,10 @@ export const useInboxStore = defineStore('inbox', {
         pushCapped(
           this.chatHistory,
           {
-            text: "Sorry, I couldn't reach the assistant. Please try again.",
+            text:
+              error?.cause?.status === 429
+                ? 'You are asking faster than the assistant can answer. Give it a minute.'
+                : "Sorry, I couldn't reach the assistant. Please try again.",
             sender: 'ai',
             sources: [],
           },
@@ -4514,7 +4557,10 @@ export const useInboxStore = defineStore('inbox', {
         )
       } finally {
         if (askAbortController === controller) askAbortController = null
-        if (seq === askSeq) this.isChatLoading = false
+        if (seq === askSeq) {
+          this.isChatLoading = false
+          this.chatStatus = ''
+        }
       }
     },
   },

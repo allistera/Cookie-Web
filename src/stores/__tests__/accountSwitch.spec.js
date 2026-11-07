@@ -152,6 +152,7 @@ describe('mailbox account isolation', () => {
       'tasks',
       'interests',
       'chatHistory',
+      'chatMessages',
       'toasts',
     ]
     const flags = [
