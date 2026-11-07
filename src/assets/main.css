@@ -3015,6 +3015,42 @@ button.ni-attachment:hover {
   white-space: nowrap;
 }
 
+/* A cited document is a real button; it keeps the chip's look and gains a
+   pointer. Mail and task chips stay plain spans. */
+button.chat-source {
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.chat-source:hover,
+button.chat-source:focus-visible {
+  background-color: rgba(26, 115, 232, 0.18);
+}
+
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.new-conversation-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chat-status {
+  color: var(--text-secondary);
+}
+
 .ni-load-more {
   display: block;
   margin: 12px auto 20px;

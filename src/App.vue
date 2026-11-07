@@ -758,6 +758,21 @@ onUnmounted(() => {
               <span v-else>{{ bucketIcon.emoji }}</span>
             </span>
           </button>
+          <!-- The assistant drawer (Meilisearch conversational search over the
+               person's mail, documents and tasks) opens from here on every app;
+               the drawer itself is the same one the search page's "Ask the
+               assistant" opens. -->
+          <button
+            type="button"
+            class="ai-chat-trigger"
+            :class="{ active: store.isChatDrawerActive }"
+            :aria-pressed="store.isChatDrawerActive"
+            :aria-label="store.isChatDrawerActive ? 'Hide AI chat' : 'Show AI chat'"
+            title="AI chat"
+            @click="store.isChatDrawerActive = !store.isChatDrawerActive"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+          </button>
           <button
             v-if="calendarRailAvailable"
             type="button"
@@ -1125,8 +1140,10 @@ onUnmounted(() => {
   font-size: 20px;
 }
 
-/* Calendar rail toggle: a plain icon button that tints while the rail shows. */
-.calendar-rail-trigger {
+/* Calendar rail and AI chat toggles: plain icon buttons that tint while their
+   panel shows. */
+.calendar-rail-trigger,
+.ai-chat-trigger {
   width: 36px;
   height: 36px;
   display: grid;
@@ -1139,23 +1156,35 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.calendar-rail-trigger:hover {
+.calendar-rail-trigger:hover,
+.ai-chat-trigger:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.calendar-rail-trigger.active {
+.calendar-rail-trigger.active,
+.ai-chat-trigger.active {
   background: var(--accent-soft);
   color: var(--text-blue);
 }
 
-.calendar-rail-trigger:focus-visible {
+.calendar-rail-trigger:focus-visible,
+.ai-chat-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.calendar-rail-trigger .material-symbols-outlined {
+.calendar-rail-trigger .material-symbols-outlined,
+.ai-chat-trigger .material-symbols-outlined {
   font-size: 21px;
+}
+
+/* The AI chat button tints with the assistant's own colour while the drawer
+   is open, and unlike the calendar rail stays on small screens: the drawer is
+   the only way to ask there. */
+.ai-chat-trigger.active {
+  color: #5e6ad2;
+  background: rgba(94, 106, 210, 0.12);
 }
 
 @media (max-width: 760px) {

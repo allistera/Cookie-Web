@@ -3439,29 +3439,61 @@ describe('Inbox Store', () => {
     expect(store.openEmail).toEqual(store.sentEmails[0])
   })
 
-  it('askAssistant posts to /ask and records the answer with sources', async () => {
+  // The chat Worker streams its own small event vocabulary (see askAssistant).
+  function chatStream(events) {
+    const encoder = new TextEncoder()
+    return new ReadableStream({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        }
+        controller.close()
+      },
+    })
+  }
+  const REPLAYED = [
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'c1', type: 'function', function: { name: 's', arguments: '{}' } }],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: 'Email from City Construction: plan revised' },
+  ]
+
+  it('askAssistant posts the conversation to /chat and streams the answer with sources', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        headers: { get: () => 'application/json' },
-        json: async () => ({
-          answer: '**City Construction** sent a revised plan.',
-          sources: [{ id: 'm1', subject: 'Revised Floor Plan', from_name: 'City Construction' }],
-        }),
+        body: chatStream([
+          { type: 'searching', index: 'messages', q: 'renovation' },
+          { type: 'message', message: REPLAYED[0] },
+          {
+            type: 'sources',
+            sources: [
+              { index: 'messages', id: 'm1', title: 'Revised Floor Plan', subtitle: 'City' },
+            ],
+          },
+          { type: 'message', message: REPLAYED[1] },
+          { type: 'token', text: '**City Construction** sent ' },
+          { type: 'token', text: 'a revised plan.' },
+          { type: 'done' },
+        ]),
       }),
     )
 
     const store = useInboxStore()
     await store.askAssistant('What happened with the renovation?')
 
-    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/ask?stream=1`, {
+    expect(fetch).toHaveBeenCalledWith(`${SEARCH_API_URL}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-access-token',
       },
-      body: JSON.stringify({ question: 'What happened with the renovation?' }),
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'What happened with the renovation?' }],
+      }),
       signal: expect.any(AbortSignal),
     })
     expect(store.isChatDrawerActive).toBe(true)
@@ -3469,12 +3501,26 @@ describe('Inbox Store', () => {
     expect(store.chatHistory[1]).toMatchObject({
       sender: 'ai',
       text: '**City Construction** sent a revised plan.',
+      typing: false,
+      sources: [{ index: 'messages', id: 'm1', title: 'Revised Floor Plan' }],
     })
-    expect(store.chatHistory[1].sources).toHaveLength(1)
     expect(store.isChatLoading).toBe(false)
+    expect(store.chatStatus).toBe('')
+    // The next turn replays the whole exchange, searches included.
+    expect(store.chatMessages).toEqual([
+      { role: 'user', content: 'What happened with the renovation?' },
+      ...REPLAYED,
+      { role: 'assistant', content: '**City Construction** sent a revised plan.' },
+    ])
+
+    await store.askAssistant('When?')
+    expect(JSON.parse(fetch.mock.calls[1][1].body).messages).toEqual([
+      ...store.chatMessages.slice(0, 4),
+      { role: 'user', content: 'When?' },
+    ])
   })
 
-  it('askAssistant records an apology message when the API fails', async () => {
+  it('askAssistant records an apology message when the API fails, and keeps the turn out of the conversation', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
 
@@ -3482,8 +3528,30 @@ describe('Inbox Store', () => {
     await store.askAssistant('Anything?')
 
     expect(store.chatHistory[1].text).toContain("couldn't reach the assistant")
+    expect(store.chatMessages).toEqual([])
     expect(store.isChatLoading).toBe(false)
     expect(consoleError).toHaveBeenCalledWith('Ask failed:', expect.any(Error))
+  })
+
+  it('askAssistant explains a rate limit and an upstream error in its own words', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 429 })
+        .mockResolvedValueOnce({
+          ok: true,
+          body: chatStream([{ type: 'error' }, { type: 'done' }]),
+        }),
+    )
+
+    const store = useInboxStore()
+    await store.askAssistant('Anything?')
+    expect(store.chatHistory.at(-1).text).toContain('faster than the assistant can answer')
+    await store.askAssistant('Anything?')
+    expect(store.chatHistory.at(-1).text).toContain('something went wrong')
+    expect(store.chatMessages).toEqual([])
   })
 
   it('askAssistant aborts the previous request and ignores a stale answer', async () => {
@@ -3496,8 +3564,7 @@ describe('Inbox Store', () => {
       .mockImplementationOnce(() => firstResponse)
       .mockResolvedValueOnce({
         ok: true,
-        headers: { get: () => 'application/json' },
-        json: async () => ({ answer: 'new answer', sources: [] }),
+        body: chatStream([{ type: 'token', text: 'new answer' }, { type: 'done' }]),
       })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -3509,8 +3576,7 @@ describe('Inbox Store', () => {
     expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
     resolveFirst({
       ok: true,
-      headers: { get: () => 'application/json' },
-      json: async () => ({ answer: 'stale answer', sources: [] }),
+      body: chatStream([{ type: 'token', text: 'stale answer' }, { type: 'done' }]),
     })
     await first
 
@@ -3518,6 +3584,19 @@ describe('Inbox Store', () => {
       store.chatHistory.filter((message) => message.sender === 'ai').map((message) => message.text),
     ).toEqual(['new answer'])
     expect(store.isChatLoading).toBe(false)
+  })
+
+  it('startNewConversation clears the transcript and the model\u2019s conversation', async () => {
+    const store = useInboxStore()
+    store.chatHistory = [{ text: 'Q', sender: 'user' }]
+    store.chatMessages = [{ role: 'user', content: 'Q' }]
+    store.isChatLoading = true
+    store.chatStatus = 'Searching mail…'
+    store.startNewConversation()
+    expect(store.chatHistory).toEqual([])
+    expect(store.chatMessages).toEqual([])
+    expect(store.isChatLoading).toBe(false)
+    expect(store.chatStatus).toBe('')
   })
 
   it('searches emails and replaces the inbox list with results', async () => {
