@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_SOURCES,
   mergeSources,
+  readAssistantEvents,
   searchingLabel,
   sourceIcon,
   trimConversation,
@@ -55,5 +56,47 @@ describe('mergeSources', () => {
     }))
     expect(mergeSources([], many)).toHaveLength(MAX_SOURCES)
     expect(mergeSources([], undefined)).toEqual([])
+  })
+})
+
+describe('readAssistantEvents', () => {
+  function body(parts) {
+    const encoder = new TextEncoder()
+    return new ReadableStream({
+      start(controller) {
+        for (const part of parts) controller.enqueue(encoder.encode(part))
+        controller.close()
+      },
+    })
+  }
+
+  it('parses events however the bytes were chunked and stops when asked', async () => {
+    const seen = []
+    await readAssistantEvents(
+      body(['data: {"type":"token","text":"a"}\n\ndata: {"type":"tok', 'en","text":"b"}\n\n']),
+      (event) => {
+        seen.push(event)
+      },
+    )
+    expect(seen).toEqual([
+      { type: 'token', text: 'a' },
+      { type: 'token', text: 'b' },
+    ])
+
+    const stopped = []
+    await readAssistantEvents(
+      body(['data: {"type":"token","text":"a"}\n\ndata: {"type":"done"}\n\n']),
+      (event) => {
+        stopped.push(event)
+        return false
+      },
+    )
+    expect(stopped).toEqual([{ type: 'token', text: 'a' }])
+  })
+
+  it('rejects a response without a body', async () => {
+    await expect(readAssistantEvents(undefined, () => {})).rejects.toThrow(
+      'Assistant stream unavailable',
+    )
   })
 })

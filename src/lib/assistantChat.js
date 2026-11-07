@@ -52,3 +52,24 @@ export function mergeSources(existing, incoming) {
   }
   return merged
 }
+
+// Reads the chat Worker's server-sent events (`data: <json>` blocks) from a
+// response body and hands each parsed event to `onEvent`, which returns
+// false to stop reading early (the caller moved on to a newer question).
+export async function readAssistantEvents(body, onEvent) {
+  const reader = body?.getReader()
+  if (!reader) throw new Error('Assistant stream unavailable')
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) return
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const event of events) {
+      const line = event.split('\n').find((part) => part.startsWith('data: '))
+      if (line && onEvent(JSON.parse(line.slice(6))) === false) return
+    }
+  }
+}

@@ -854,12 +854,57 @@ export function localApiPlugin(mode) {
       }),
     )
   }
+  // The assistant drawer's POST /chat (Meilisearch conversational search in
+  // the real Worker): the same canned answer as /ask, in the Worker's event
+  // stream — the model searches mail, cites the floor-plan email, answers.
+  const handleChat = (req, res) => {
+    if (req.method !== 'POST') {
+      res.statusCode = 405
+      res.end()
+      return
+    }
+    const events = [
+      { type: 'searching', index: 'messages', q: 'kitchen renovation' },
+      {
+        type: 'message',
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            { id: 'call-1', type: 'function', function: { name: 'search', arguments: '{}' } },
+          ],
+        },
+      },
+      {
+        type: 'sources',
+        sources: [
+          {
+            index: 'messages',
+            id: 'msg-1',
+            title: 'Revised Floor Plan - Natural Light adjustments',
+            subtitle: 'City Construction',
+          },
+        ],
+      },
+      { type: 'message', message: { role: 'tool', tool_call_id: 'call-1', content: 'one email' } },
+      {
+        type: 'token',
+        text: 'Update from **City Construction**: the floor plan was revised for natural light.',
+      },
+      { type: 'done' },
+    ]
+    res.statusCode = 200
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
+  }
   // Worker-origin dispatcher for cookie-web-search (e2e/workerFixtures.js
   // routes search-api.infinitywave.online back here).
   const handleWorkerSearchApi = (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     if (url.pathname === '/search') return handleSearch(req, res)
     if (url.pathname === '/ask') return handleAsk(req, res)
+    if (url.pathname === '/chat') return handleChat(req, res)
     if (url.pathname === '/saved-views') return handleSavedViews(req, res)
     res.statusCode = 404
     res.setHeader('Content-Type', 'application/json')

@@ -1180,15 +1180,17 @@ onUnmounted(() => {
 }
 
 /* The AI chat button tints with the assistant's own colour while the drawer
-   is open, and unlike the calendar rail stays on small screens: the drawer is
-   the only way to ask there. */
+   is open. Both buttons leave the header on narrow screens, where it has no
+   room to spare; the search page's "Ask the assistant" still opens the
+   drawer there. */
 .ai-chat-trigger.active {
   color: #5e6ad2;
   background: rgba(94, 106, 210, 0.12);
 }
 
 @media (max-width: 760px) {
-  .calendar-rail-trigger {
+  .calendar-rail-trigger,
+  .ai-chat-trigger {
     display: none;
   }
 }

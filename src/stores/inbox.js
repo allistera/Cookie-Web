@@ -31,7 +31,6 @@ import {
   TASKS_API_URL,
 } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
-import { mergeSources, searchingLabel, trimConversation } from '../lib/assistantChat'
 import { recipientsValid } from '../lib/recipients'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
@@ -4479,16 +4478,24 @@ export const useInboxStore = defineStore('inbox', {
       const seq = ++askSeq
       this.isChatLoading = true
       this.chatStatus = ''
-      // The conversation the model sees for this turn. It is committed to
-      // chatMessages only once the answer has arrived, so an abandoned or
-      // failed question is not replayed under the next one.
-      const messages = trimConversation([...this.chatMessages, { role: 'user', content: query }])
       const replayed = []
       let activeReply = null
       let failed = false
       try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        // The helpers ship with the drawer's lazy chunk, not the entry: the
+        // drawer is the only thing that asks.
+        const [chat, headers] = await Promise.all([
+          import('../lib/assistantChat'),
+          this.authHeaders({ 'Content-Type': 'application/json' }),
+        ])
         if (seq !== askSeq) return
+        // The conversation the model sees for this turn. It is committed to
+        // chatMessages only once the answer has arrived, so an abandoned or
+        // failed question is not replayed under the next one.
+        const messages = chat.trimConversation([
+          ...this.chatMessages,
+          { role: 'user', content: query },
+        ])
         const response = await fetch(`${SEARCH_API_URL}/chat`, {
           method: 'POST',
           headers,
@@ -4503,34 +4510,21 @@ export const useInboxStore = defineStore('inbox', {
         if (seq !== askSeq) return
         activeReply = { text: '', sender: 'ai', sources: [], typing: true }
         pushCapped(this.chatHistory, activeReply, MAX_CHAT_HISTORY)
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error('Assistant stream unavailable')
-        const decoder = new TextDecoder()
-        let buffer = ''
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          const events = buffer.split('\n\n')
-          buffer = events.pop() ?? ''
-          for (const event of events) {
-            const line = event.split('\n').find((part) => part.startsWith('data: '))
-            if (!line) continue
-            const data = JSON.parse(line.slice(6))
-            if (data.type === 'searching') this.chatStatus = searchingLabel(data.index)
-            if (data.type === 'sources') {
-              activeReply.sources = mergeSources(activeReply.sources, data.sources)
-            }
-            if (data.type === 'message') replayed.push(data.message)
-            if (data.type === 'token') {
-              activeReply.text += data.text
-              this.chatStatus = ''
-            }
-            if (data.type === 'error') failed = true
-            if (data.type === 'done') activeReply.typing = false
+        await chat.readAssistantEvents(response.body, (data) => {
+          if (seq !== askSeq) return false
+          if (data.type === 'searching') this.chatStatus = chat.searchingLabel(data.index)
+          if (data.type === 'sources') {
+            activeReply.sources = chat.mergeSources(activeReply.sources, data.sources)
           }
-          if (seq !== askSeq) return
-        }
+          if (data.type === 'message') replayed.push(data.message)
+          if (data.type === 'token') {
+            activeReply.text += data.text
+            this.chatStatus = ''
+          }
+          if (data.type === 'error') failed = true
+          if (data.type === 'done') activeReply.typing = false
+        })
+        if (seq !== askSeq) return
         activeReply.typing = false
         if (!activeReply.text) {
           activeReply.text = failed
@@ -4538,7 +4532,7 @@ export const useInboxStore = defineStore('inbox', {
             : "I couldn't find anything about that."
         }
         if (!failed) {
-          this.chatMessages = trimConversation([
+          this.chatMessages = chat.trimConversation([
             ...messages,
             ...replayed,
             { role: 'assistant', content: activeReply.text },
