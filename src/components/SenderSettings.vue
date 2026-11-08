@@ -18,6 +18,7 @@ const isDomain = (entry) => entry.address.startsWith('@')
 const addressOf = (entry) => (isDomain(entry) ? entry.address.slice(1) : entry.address)
 const scopeOf = (entry) => (isDomain(entry) ? 'Domain and its subdomains' : 'Exact address')
 const decisionLabel = (entry) => (entry.decision === 'blocked' ? 'Blocked' : 'Accepted')
+const iconOf = (entry) => (entry.decision === 'blocked' ? 'block' : 'check')
 
 const needle = computed(() => normalizeSender(search.value))
 // The Worker returns the page that matches the search. Filtering again here
@@ -198,9 +199,7 @@ watch(
     <ul v-else class="sender-list">
       <li v-for="entry in visible" :key="entry.address" class="sender-row" :class="entry.decision">
         <span class="sender-row-icon" aria-hidden="true">
-          <span class="material-symbols-outlined">{{
-            entry.decision === 'blocked' ? 'block' : 'check'
-          }}</span>
+          <span class="material-symbols-outlined">{{ iconOf(entry) }}</span>
         </span>
         <div class="sender-row-text">
           <span class="sender-row-address">{{ addressOf(entry) }}</span>
