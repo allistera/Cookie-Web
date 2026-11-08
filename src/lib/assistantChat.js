@@ -127,6 +127,7 @@ export async function runAssistantTurn(store, query, { signal, isCurrent, push }
   let activeReply = null
   let failed = false
   let listed = false
+  let answer = ''
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (!isCurrent()) return false
@@ -152,23 +153,31 @@ export async function runAssistantTurn(store, query, { signal, isCurrent, push }
       }
       if (data.type === 'message') replayed.push(data.message)
       if (data.type === 'token') {
-        activeReply.text += data.text
+        answer += data.text
         store.chatStatus = ''
       }
       if (data.type === 'error') failed = true
-      if (data.type === 'done') activeReply.typing = false
+      // Keep the reply pending until its inbox results have loaded.
     })
     if (!isCurrent()) return false
-    activeReply.typing = false
     // An answer that enumerates emails becomes the inbox list's result set,
     // like a search would, with the question as the search label.
-    if (isEmailList(activeReply.text, activeReply.sources)) {
+    if (isEmailList(answer, activeReply.sources)) {
       listed = await store.showAssistantEmails(
         query,
         mailSourcesOf(activeReply.sources).map((source) => source.id),
       )
       if (!isCurrent()) return false
     }
+    activeReply.text = answer
+    if (listed) {
+      // Keep the model's full answer for follow-up questions, but show only
+      // the introduction beside the inbox results.
+      const introduction = answer.split(/\n\s*(?:\d+[.)]|[-•*])\s+/)[0].trim()
+      activeReply.text = introduction.endsWith(':') ? introduction : 'Here are the matching emails:'
+      activeReply.sources = activeReply.sources.filter((source) => source.index !== 'messages')
+    }
+    activeReply.typing = false
     if (!activeReply.text) {
       activeReply.text = failed
         ? 'Sorry, something went wrong while answering. Please try again.'
@@ -178,7 +187,7 @@ export async function runAssistantTurn(store, query, { signal, isCurrent, push }
       store.chatMessages = trimConversation([
         ...messages,
         ...replayed,
-        { role: 'assistant', content: activeReply.text },
+        { role: 'assistant', content: answer || activeReply.text },
       ])
     }
   } catch (error) {
