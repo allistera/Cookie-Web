@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   sanitizeEvent,
   sanitizeRecordingEvent,
@@ -6,6 +6,7 @@ import {
   sanitizeSpan,
   sanitizeSpanStart,
 } from '../sentryPrivacy'
+import { RELOAD_KEY } from '../staleChunkReload'
 
 describe('Sentry payload privacy', () => {
   it('keeps the IDs and thread metadata needed to link spans to profile chunks', () => {
@@ -120,6 +121,27 @@ describe('Sentry payload privacy', () => {
     expect(filtered.tags).toEqual({ service: 'cookie-web' })
     expect(JSON.stringify(filtered)).not.toContain(privateText)
     expect(JSON.stringify(filtered)).not.toContain('secret')
+  })
+
+  describe('while a stale-chunk reload is pending', () => {
+    afterEach(() => sessionStorage.removeItem(RELOAD_KEY))
+
+    const unresolved = () => new Error('Couldn\'t resolve component "default" at "/tasks"')
+    const event = (error) => ({ exception: { values: [{ type: 'Error', value: error.message }] } })
+
+    // COOKIE-WEB-1K: the import that triggered the reload is not a defect.
+    it('drops the chunk-load error that started it', () => {
+      sessionStorage.setItem(RELOAD_KEY, String(Date.now()))
+      expect(sanitizeEvent(event(unresolved()), { originalException: unresolved() })).toBeNull()
+      expect(sanitizeEvent(event(unresolved()))).toBeNull()
+    })
+
+    it('keeps other errors, and chunk-load errors with no reload pending', () => {
+      sessionStorage.setItem(RELOAD_KEY, String(Date.now()))
+      expect(sanitizeEvent(event(new Error('private mail')))).not.toBeNull()
+      sessionStorage.removeItem(RELOAD_KEY)
+      expect(sanitizeEvent(event(unresolved()), { originalException: unresolved() })).not.toBeNull()
+    })
   })
 
   it('redacts events without an exception, including non-Error throws', () => {

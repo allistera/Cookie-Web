@@ -14,15 +14,30 @@
 export const RELOAD_KEY = 'cookie-chunk-reload'
 const RELOAD_COOLDOWN_MS = 30_000
 
-function readLastReload(storage) {
+// Chrome, Firefox and Safari word a failed dynamic import differently; Vite's
+// CSS preload adds its own. When a `vite:preloadError` handler prevents the
+// default, Vite's helper resolves the import with nothing instead, and
+// vue-router then reports the route's component as unresolved
+// (COOKIE-WEB-1K): the same stale chunk, one step later.
+const CHUNK_ERROR =
+  /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Unable to preload CSS|Couldn't resolve component/i
+
+export function isChunkLoadError(error) {
+  return CHUNK_ERROR.test(String(error?.message ?? error ?? ''))
+}
+
+// Whether a stale-chunk reload was started within the cooldown, here or in
+// router/chunkReload. The error that triggered it is already being dealt with.
+// Blocked storage reads as "no reload yet".
+export function isReloadingForStaleChunk(storage = globalThis.sessionStorage, now = Date.now()) {
   try {
-    return Number(storage.getItem(RELOAD_KEY)) || 0
+    return now - (Number(storage.getItem(RELOAD_KEY)) || 0) < RELOAD_COOLDOWN_MS
   } catch {
-    return 0
+    return false
   }
 }
 
-function writeLastReload(storage, now) {
+export function recordStaleChunkReload(storage, now) {
   try {
     storage.setItem(RELOAD_KEY, String(now))
   } catch {
@@ -41,8 +56,8 @@ export function installStaleChunkReload({
   const onPreloadError = (event) => {
     if (!isOnline()) return
     const now = Date.now()
-    if (now - readLastReload(storage) < RELOAD_COOLDOWN_MS) return
-    writeLastReload(storage, now)
+    if (isReloadingForStaleChunk(storage, now)) return
+    recordStaleChunkReload(storage, now)
     event.preventDefault()
     reload()
   }

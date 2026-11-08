@@ -31,6 +31,12 @@ describe('isChunkLoadError', () => {
     expect(isChunkLoadError(new Error('Unable to preload CSS for /a.css'))).toBe(true)
   })
 
+  it('recognises vue-router’s report of the import Vite swallowed after a preload error', () => {
+    expect(isChunkLoadError(new Error('Couldn\'t resolve component "default" at "/tasks"'))).toBe(
+      true,
+    )
+  })
+
   it('ignores other errors', () => {
     expect(isChunkLoadError(new Error('Network down'))).toBe(false)
     expect(isChunkLoadError(undefined)).toBe(false)

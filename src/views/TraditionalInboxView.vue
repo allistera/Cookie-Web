@@ -2053,8 +2053,12 @@ function onKeydown(e) {
 // Re-enter the normal document-level shortcut pipeline for key presses that
 // originated inside the isolated HTML-email frame. This lets the reader and
 // other global shortcut owners apply their existing guards in one place.
+// Dispatched from the focused element (the frame itself) rather than the
+// document: the guards read target.closest(), which the document does not
+// have (Sentry COOKIE-WEB-1M).
 function forwardEmailKeydown(event) {
-  document.dispatchEvent(event)
+  const origin = document.activeElement instanceof Element ? document.activeElement : document.body
+  origin.dispatchEvent(event)
 }
 
 function onDocumentClick(e) {

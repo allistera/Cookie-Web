@@ -3546,15 +3546,14 @@ describe("TraditionalInboxView 'd' archive shortcut", () => {
     })
     await wrapper.vm.$nextTick()
 
-    wrapper
-      .findComponent(EmailBody)
-      .vm.$emit(
-        'keydown',
-        new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }),
-      )
+    const forwarded = new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true })
+    wrapper.findComponent(EmailBody).vm.$emit('keydown', forwarded)
 
     expect(store.archiveEmail).toHaveBeenCalledTimes(1)
     expect(store.archiveEmail.mock.calls[0][0].id).toBe('today-1')
+    // COOKIE-WEB-1M: shortcut guards call target.closest(), which only an
+    // element has.
+    expect(forwarded.target).toBeInstanceOf(Element)
   })
 
   it('advances to the next email in the list after archiving', async () => {
