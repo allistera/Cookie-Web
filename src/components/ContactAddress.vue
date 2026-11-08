@@ -54,9 +54,7 @@ onBeforeUnmount(() => window.clearTimeout(closeTimer))
     @focusin="show"
     @focusout="hideSoon"
   >
-    <span class="contact-address-text"
-      ><slot>{{ address }}</slot></span
-    >
+    <span class="contact-address-text"><slot>{{ address }}</slot></span>
     <span
       v-if="showing"
       class="contact-address-popover"
