@@ -139,11 +139,12 @@ describe('CalendarRail', () => {
 
     expect(standup.classes()).toContain('past')
     expect(call.classes()).not.toContain('past')
-    // jsdom normalises calc(): half the lane width each, in different lanes.
-    expect(review.attributes('style')).toContain('0.5 * (100% - 44px)')
-    expect(call.attributes('style')).toContain('0.5 * (100% - 44px)')
+    // jsdom simplifies calc(): half the lane width each (minus the 2px gap),
+    // in different lanes; the standup has the whole lane to itself.
+    expect(review.element.style.width).toBe('calc(50% - 24px)')
+    expect(call.element.style.width).toBe('calc(50% - 24px)')
     expect(review.element.style.left).not.toEqual(call.element.style.left)
-    expect(standup.attributes('style')).toContain('1 * (100% - 44px)')
+    expect(standup.element.style.width).toBe('calc(100% - 46px)')
   })
 
   it('shows the next event with a countdown and a safe Join link', async () => {

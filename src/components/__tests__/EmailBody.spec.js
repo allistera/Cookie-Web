@@ -264,7 +264,7 @@ describe('EmailBody', () => {
       },
     })
 
-    expect(getComputedStyle(wrapper.find('.ni-email-body p').element).whiteSpace).toBe('pre-wrap')
+    expect(wrapper.find('.ni-email-body p').element.style.whiteSpace).toBe('pre-wrap')
   })
 
   it('falls back to text when the HTML sanitizes down to nothing', () => {
