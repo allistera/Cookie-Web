@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { RELOAD_KEY, installStaleChunkReload } from '../staleChunkReload'
+import { RELOAD_KEY, installStaleChunkReload, isReloadingForStaleChunk } from '../staleChunkReload'
 
 function makeStorage(initial = {}) {
   const data = { ...initial }
@@ -105,5 +105,24 @@ describe('installStaleChunkReload while offline', () => {
     expect(reload).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
     expect(storage.setItem).not.toHaveBeenCalled()
+  })
+})
+
+describe('isReloadingForStaleChunk', () => {
+  it('is true only within the cooldown after a reload was started', () => {
+    expect(isReloadingForStaleChunk({ storage: makeStorage(), now: 1_000_000 })).toBe(false)
+    const storage = makeStorage({ [RELOAD_KEY]: '1000000' })
+    expect(isReloadingForStaleChunk({ storage, now: 1_005_000 })).toBe(true)
+    expect(isReloadingForStaleChunk({ storage, now: 1_040_000 })).toBe(false)
+  })
+
+  it('is false when storage is unavailable', () => {
+    const storage = {
+      getItem: vi.fn(() => {
+        throw new Error('blocked')
+      }),
+    }
+    expect(isReloadingForStaleChunk({ storage })).toBe(false)
+    expect(isReloadingForStaleChunk({ storage: undefined })).toBe(false)
   })
 })

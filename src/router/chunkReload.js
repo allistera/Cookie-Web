@@ -9,18 +9,11 @@
 
 import { defineAsyncComponent } from 'vue'
 
-import { RELOAD_KEY } from '../lib/staleChunkReload'
+import { RELOAD_KEY, isChunkLoadError } from '../lib/staleChunkReload'
+
+export { isChunkLoadError }
 
 const RELOAD_COOLDOWN_MS = 30_000
-
-// Chrome, Firefox and Safari word a failed dynamic import differently; Vite's
-// CSS preload adds its own.
-const CHUNK_ERROR =
-  /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Unable to preload CSS/i
-
-export function isChunkLoadError(error) {
-  return CHUNK_ERROR.test(String(error?.message ?? error ?? ''))
-}
 
 // Reloads to `href` unless a stale-chunk reload already happened within the
 // cooldown. Returns whether it reloaded.

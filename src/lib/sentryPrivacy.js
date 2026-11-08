@@ -1,4 +1,5 @@
 import { sanitizeMetric } from './sentryMetrics'
+import { isChunkLoadError, isReloadingForStaleChunk } from './staleChunkReload'
 
 export const SENTRY_TUNNEL_PATH = '/monitoring'
 
@@ -35,7 +36,14 @@ function sanitizeFrame(frame) {
 
 // Allowlist the outgoing shape: arbitrary exception messages, contexts, extras,
 // tags, fingerprints and nested exception/frame fields can all contain mail.
-export function sanitizeEvent(event) {
+export function sanitizeEvent(event, hint) {
+  // A deploy left this tab with stale chunk URLs and a reload is already on
+  // its way (staleChunkReload, router/chunkReload). The failed import, and
+  // the unresolved route component vue-router raises from it, are not
+  // defects (COOKIE-WEB-1K). A chunk missing for any other reason, with no
+  // reload pending, still reports.
+  const error = hint?.originalException ?? event.exception?.values?.[0]?.value
+  if (isChunkLoadError(error) && isReloadingForStaleChunk()) return null
   return {
     event_id: event.event_id,
     timestamp: event.timestamp,
