@@ -12,7 +12,10 @@ beforeEach(() => {
   vi.spyOn(store, 'load').mockResolvedValue(true)
   vi.spyOn(useInboxStore(), 'refreshSenderMail').mockResolvedValue()
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
 describe('sender settings', () => {
   it('explains explicit trust and defaults screening off in Settings', async () => {
     const store = useSendersStore()
@@ -37,11 +40,18 @@ describe('sender settings', () => {
     ]
     const update = vi.spyOn(store, 'update').mockResolvedValue(true)
     const wrapper = mount(SenderSettings, { global: { stubs: { RouterLink: true } } })
-    const rows = wrapper.findAll('li').map((row) => row.get('span').text())
+    const rows = wrapper
+      .findAll('.sender-row')
+      .map((row) => [
+        row.get('.sender-row-address').text(),
+        row.get('.sender-row-text small').text(),
+        row.get('.sender-pill').text(),
+      ])
     expect(rows).toEqual([
-      'shop.example and its subdomains — accepted',
-      'friend@gmail.com — blocked',
+      ['shop.example', 'Domain and its subdomains', 'Accepted'],
+      ['friend@gmail.com', 'Exact address', 'Blocked'],
     ])
+    expect(wrapper.get('[data-testid="sender-count"]').text()).toBe('2')
     await wrapper.get('input[type="text"]').setValue('badco.example')
     await wrapper.get('select').setValue('block')
     await wrapper.get('form').trigger('submit')
@@ -89,15 +99,38 @@ describe('sender settings', () => {
     ])
     expect(refreshSenderMail).toHaveBeenCalledTimes(4)
 
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Reload senders')
-      .trigger('click')
+    await wrapper.get('[aria-label="Reload senders"]').trigger('click')
     await wrapper
       .findAll('button')
       .find((button) => button.text() === 'Load more senders')
       .trigger('click')
     expect(store.load).toHaveBeenLastCalledWith({ more: true })
+    wrapper.unmount()
+  })
+  it('narrows the list as you type and asks the server for the matching page', async () => {
+    vi.useFakeTimers()
+    const store = useSendersStore()
+    store.loaded = true
+    store.decisions = [
+      { address: '@shop.example', decision: 'accepted' },
+      { address: 'friend@gmail.com', decision: 'blocked' },
+    ]
+    const wrapper = mount(SenderSettings, { global: { stubs: { RouterLink: true } } })
+    store.load.mockClear()
+    const search = wrapper.get('input[type="search"]')
+    await search.setValue(' SHOP ')
+    expect(wrapper.findAll('.sender-row')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="sender-count"]').text()).toBe('1')
+    expect(store.load).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(250)
+    expect(store.load).toHaveBeenCalledWith({ query: 'shop' })
+    store.query = 'shop'
+    await search.setValue('nobody')
+    expect(wrapper.get('.sender-empty').text()).toBe('No senders match “nobody”.')
+    await wrapper.get('[aria-label="Clear search"]').trigger('click')
+    expect(store.load).toHaveBeenLastCalledWith({ query: '' })
+    expect(search.element.value).toBe('')
+    expect(wrapper.findAll('.sender-row')).toHaveLength(2)
     wrapper.unmount()
   })
 })

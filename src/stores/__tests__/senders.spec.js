@@ -32,6 +32,35 @@ describe('account-scoped sender state', () => {
     expect(fetcher.mock.calls[1][0]).toContain('after=a%40example.com')
     expect(fetcher.mock.calls[0][1].cache).toBe('no-store')
   })
+  it('searches on the server, lets a newer search supersede an older one, and pages within it', async () => {
+    const match = { address: '@shop.example', decision: 'accepted' }
+    let resolveFirst
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValueOnce(response({ ...empty, decisions: [match], nextCursor: match.address }))
+      .mockResolvedValueOnce(response(empty))
+    vi.stubGlobal('fetch', fetcher)
+    const first = store.load({ query: ' Sho ' })
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+    const second = store.load({ query: 'Shop' })
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+    resolveFirst(
+      response({ ...empty, decisions: [{ address: 'old@shop.example', decision: 'blocked' }] }),
+    )
+    expect(await first).toBe(false)
+    expect(await second).toBe(true)
+    expect(fetcher.mock.calls.map(([url]) => url.slice(url.indexOf('?')))).toEqual([
+      '?q=sho',
+      '?q=shop',
+    ])
+    expect(store.query).toBe('shop')
+    expect(store.decisions).toEqual([match])
+    expect(store.loading).toBe(false)
+    await store.load({ more: true })
+    expect(fetcher.mock.calls[2][0]).toContain('?after=%40shop.example&q=shop')
+    expect(store.decisions).toEqual([match])
+  })
   it('drops old account reads and writes, and clears private addresses on logout', async () => {
     let finish
     vi.stubGlobal(
