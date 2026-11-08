@@ -100,7 +100,6 @@ export function localApiPlugin(mode) {
     const segments = url.pathname.split('/').filter(Boolean)
     const isState = segments.length === 2 && segments[1] === 'state'
     const isSpamRetention = segments.length === 2 && segments[1] === 'spam-retention'
-    const isAutoArchive = segments.length === 2 && segments[1] === 'auto-archive'
     const isComposePreferences = segments.length === 2 && segments[1] === 'compose-preferences'
     const isOutOfOffice = segments.length === 2 && segments[1] === 'out-of-office'
     const isSenders = segments.length === 2 && segments[1] === 'senders'
@@ -109,7 +108,6 @@ export function localApiPlugin(mode) {
       (segments.length > 1 &&
         !isState &&
         !isSpamRetention &&
-        !isAutoArchive &&
         !isComposePreferences &&
         !isOutOfOffice &&
         !isSenders)
@@ -290,38 +288,6 @@ export function localApiPlugin(mode) {
         return
       }
       res.end(JSON.stringify(state.composePreferences))
-      return
-    }
-    if (isAutoArchive) {
-      res.setHeader('Content-Type', 'application/json')
-      if (req.method === 'PUT') {
-        const body = await readBody(req)
-        const flags = body?.autoArchive
-        if (
-          !flags ||
-          !['marketing', 'coldPitches', 'socialNoise'].every((key) =>
-            [true, false].includes(flags[key]),
-          )
-        ) {
-          res.statusCode = 400
-          res.end(JSON.stringify({ error: 'Invalid auto archive settings' }))
-          return
-        }
-        state.autoArchive = flags
-      } else if (req.method !== 'GET') {
-        res.statusCode = 405
-        res.end(JSON.stringify({ error: 'Method not allowed' }))
-        return
-      }
-      res.end(
-        JSON.stringify({
-          autoArchive: state.autoArchive ?? {
-            marketing: false,
-            coldPitches: false,
-            socialNoise: false,
-          },
-        }),
-      )
       return
     }
     // GET/PUT /emails/spam-retention: how long spam is kept, stored per
