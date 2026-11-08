@@ -11,7 +11,6 @@ import {
   MESSAGES_API_URL,
   NOTIFICATIONS_API_URL,
 } from '../lib/apiWorkers'
-import { parseAutoArchive } from '../lib/autoArchive'
 import { parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
 // The JSON error body of a failed response, or {} when there is none.
@@ -507,37 +506,6 @@ export const mailSettingsActions = {
     this.enrichmentSettings = saved
     this.enrichmentSettingsLoaded = true
     return this.enrichmentSettings
-  },
-
-  async loadAutoArchive() {
-    if (this.autoArchiveLoaded) return
-    const generation = this.composeGeneration
-    const headers = await this.authHeaders()
-    if (generation !== this.composeGeneration) return
-    const response = await fetch(`${EMAILS_API_URL}/emails/auto-archive`, { headers })
-    if (!response.ok) throw new Error(`GET auto archive responded ${response.status}`)
-    const saved = parseAutoArchive(await response.json())
-    if (generation !== this.composeGeneration) return
-    if (this.autoArchiveLoaded) return
-    this.autoArchive = saved
-    this.autoArchiveLoaded = true
-  },
-
-  async saveAutoArchive(autoArchive) {
-    const generation = this.composeGeneration
-    const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
-    if (generation !== this.composeGeneration) return false
-    const response = await fetch(`${EMAILS_API_URL}/emails/auto-archive`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify({ autoArchive }),
-    })
-    if (generation !== this.composeGeneration) return false
-    if (!response.ok) throw new Error(`PUT auto archive responded ${response.status}`)
-    const saved = parseAutoArchive(await response.json())
-    if (generation !== this.composeGeneration) return false
-    this.autoArchive = saved
-    this.autoArchiveLoaded = true
   },
 
   async loadSpamRetention() {

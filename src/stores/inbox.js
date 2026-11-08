@@ -902,8 +902,6 @@ export const useInboxStore = defineStore('inbox', {
     spamRetentionDays: 30,
     spamRetentionBounds: { defaultDays: 30, minDays: 1, maxDays: 365 },
     spamRetentionLoaded: false,
-    autoArchive: { marketing: false, coldPitches: false, socialNoise: false },
-    autoArchiveLoaded: false,
 
     // Toast notifications
     toasts: [],
@@ -2930,7 +2928,6 @@ export const useInboxStore = defineStore('inbox', {
         'interestsLoaded',
         'personaliseGithub',
         'enrichmentSettingsLoaded',
-        'autoArchiveLoaded',
         'spamRetentionLoaded',
         'isChatDrawerActive',
         'isChatLoading',
@@ -2974,7 +2971,6 @@ export const useInboxStore = defineStore('inbox', {
       this.summaryLoadingIds.clear()
       this.mutingThreadIds.clear()
       this.enrichmentSettings = parseEnrichmentSettings(defaultEnrichmentSettings)
-      this.autoArchive = { marketing: false, coldPitches: false, socialNoise: false }
       this.spamRetentionDays = 30
       this.spamRetentionBounds = { defaultDays: 30, minDays: 1, maxDays: 365 }
       searchAbortController?.abort()
@@ -3145,14 +3141,6 @@ export const useInboxStore = defineStore('inbox', {
 
     saveEnrichmentSettings(...args) {
       return invokeMailSettings(this, 'saveEnrichmentSettings', args)
-    },
-
-    loadAutoArchive(...args) {
-      return invokeMailSettings(this, 'loadAutoArchive', args)
-    },
-
-    saveAutoArchive(...args) {
-      return invokeMailSettings(this, 'saveAutoArchive', args)
     },
 
     loadSpamRetention(...args) {

@@ -50,8 +50,6 @@ describe('mail settings failures', () => {
     ['saveInterests', ['testing']],
     ['loadEnrichmentSettings', []],
     ['saveEnrichmentSettings', [{}]],
-    ['loadAutoArchive', []],
-    ['saveAutoArchive', [{}]],
     ['saveSpamRetention', [30]],
     ['loadNtfySubscription', []],
     ['saveNtfySubscription', [{ serverUrl: 'https://ntfy.sh', topic: 'topic' }]],

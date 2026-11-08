@@ -20,7 +20,6 @@ import CalendarSettings from '../components/CalendarSettings.vue'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
 import DailyNoteSettings from '../components/DailyNoteSettings.vue'
-import AutoArchiveSettings from '../components/AutoArchiveSettings.vue'
 import OutOfOfficeSettings from '../components/OutOfOfficeSettings.vue'
 import SenderSettings from '../components/SenderSettings.vue'
 import SpamRetentionSettings from '../components/SpamRetentionSettings.vue'
@@ -1024,7 +1023,6 @@ function toggleRuleEnabled(rule) {
           </section>
 
           <!-- Labels -->
-          <AutoArchiveSettings v-if="activeSection === 'auto-archive'" />
           <AiTodaySettings v-if="activeSection === 'ai-today'" />
 
           <SpamRetentionSettings v-if="activeSection === 'spam'" />

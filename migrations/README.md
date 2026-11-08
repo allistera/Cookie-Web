@@ -414,9 +414,16 @@ before deploying `cookie-web-ai`, `cookie-web-emails`, `cookie-web-messages`,
 `0073_email_categories.sql` adds user-defined Category records and a nullable
 `messages.category_id` foreign key. A message can therefore belong to at most
 one Category; deleting a Category clears it from affected messages. Categories
-remain separate from many-to-many Labels and from Auto Archive's built-in AI
-classifications. Apply this migration before deploying `cookie-web-labels`,
+remain separate from many-to-many Labels. Apply this migration before
+deploying `cookie-web-labels`,
 `cookie-web-emails`, `cookie-web-messages`, `cookie-web-search`, and Cookie-Web.
+
+## Auto Archive removal
+
+`0111_drop_auto_archive_prefs.sql` removes the `autoArchive` key from
+`users.prefs`. The opt-in Auto Archive categories were replaced by Rules with
+the "Mark done" action, and no Worker or Cookie-Web code reads the key any
+more, so the migration can be applied before or after those deploys.
 
 ## Outbound attachment uniqueness
 

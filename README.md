@@ -166,11 +166,6 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   resubscribing. Apply `migrations/0110_ntfy_user_servers.sql` and deploy the
   `cookie-web-notifications` Worker (Cookie-Worker README, "ntfy notifications")
   before deploying this form.
-- Settings → Email → Auto Archive offers independent, initially disabled categories
-  for marketing, cold pitches and social noise. High-confidence, low-priority matches
-  arriving after activation move to Done and are marked read, never deleted. Read,
-  starred and scheduled messages are left alone. AI filing is asynchronous and can
-  make mistakes; archived messages remain available in Done.
 - Mute or unmute a conversation from the reader's notification button. Muted
   replies still arrive and update the inbox, but do not raise browser notifications;
   muting persists across sessions and clears queued alerts for that thread.
