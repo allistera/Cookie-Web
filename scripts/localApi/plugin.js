@@ -194,8 +194,11 @@ export function localApiPlugin(mode) {
         )
         return
       }
+      const needle = String(url.searchParams.get('q') ?? '')
+        .trim()
+        .toLowerCase()
       const page = decisions
-        .filter((entry) => entry.address > after)
+        .filter((entry) => entry.address > after && entry.address.includes(needle))
         .sort((a, b) => a.address.localeCompare(b.address))
       res.end(
         JSON.stringify({

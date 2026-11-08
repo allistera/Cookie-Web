@@ -3187,9 +3187,9 @@ test('Contact insights says when the sender’s domain is blocked', async ({ pag
   await expect(notice).toContainText('Domain blocked: cityconstruction.com and its subdomains')
   await notice.getByRole('link', { name: 'Manage' }).click()
   await expect(page).toHaveURL(/\/settings\/senders$/)
-  await expect(page.locator('.sender-settings')).toContainText(
-    'cityconstruction.com and its subdomains — blocked',
-  )
+  const row = page.locator('.sender-settings .sender-row', { hasText: 'cityconstruction.com' })
+  await expect(row).toContainText('Domain and its subdomains')
+  await expect(row).toContainText('Blocked')
 })
 
 test('two-finger swipes over the inbox list move between category tabs, and only there', async ({

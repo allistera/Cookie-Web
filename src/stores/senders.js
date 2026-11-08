@@ -15,6 +15,9 @@ export const useSendersStore = defineStore('senders', {
     decisions: [],
     known: {},
     nextCursor: null,
+    // Normalized text the list is narrowed to; '' lists every decision.
+    query: '',
+    loadRequest: 0,
     loaded: false,
     loading: false,
     saving: false,
@@ -32,21 +35,31 @@ export const useSendersStore = defineStore('senders', {
       this.ownerSub = owner
       this.generation = generation
     },
-    async load({ more = false } = {}) {
-      if (!this.ownerSub || this.loading || this.saving || (more && !this.nextCursor)) return false
+    // A fresh load (reload or a new search) supersedes one still in flight;
+    // only a `more` page waits for the previous request.
+    async load({ more = false, query = this.query } = {}) {
+      if (!this.ownerSub || this.saving || (more && (!this.nextCursor || this.loading)))
+        return false
       const generation = this.generation
+      const request = ++this.loadRequest
+      const current = () => generation === this.generation && request === this.loadRequest
+      const text = normalizeSender(query)
+      this.query = text
       this.loading = true
       try {
         const headers = await authHeaders()
-        if (generation !== this.generation) return false
-        const suffix = more ? `?after=${encodeURIComponent(this.nextCursor)}` : ''
-        const response = await fetch(`${EMAILS_API_URL}/emails/senders${suffix}`, {
+        if (!current()) return false
+        const params = new URLSearchParams()
+        if (more) params.set('after', this.nextCursor)
+        if (text) params.set('q', text)
+        const search = params.toString()
+        const response = await fetch(`${EMAILS_API_URL}/emails/senders${search && `?${search}`}`, {
           headers,
           cache: 'no-store',
         })
         if (!response.ok) throw new Error()
         const data = await response.json()
-        if (generation !== this.generation) return false
+        if (!current()) return false
         this.enabled = data.enabled
         this.decisions = more
           ? [
@@ -61,11 +74,11 @@ export const useSendersStore = defineStore('senders', {
         this.error = ''
         return true
       } catch {
-        if (generation === this.generation)
+        if (current())
           this.error = 'Could not load sender settings. Retry to see the current state.'
         return false
       } finally {
-        if (generation === this.generation) this.loading = false
+        if (current()) this.loading = false
       }
     },
     async lookup(address) {
