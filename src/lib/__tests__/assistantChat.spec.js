@@ -10,6 +10,7 @@ import {
   mailSourcesOf,
   mergeSources,
   readAssistantEvents,
+  runAssistantTurn,
   searchingLabel,
   sourceIcon,
   trimConversation,
@@ -158,4 +159,59 @@ describe('loadListedEmails', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
     await expect(loadListedEmails(['a'], {}, undefined)).rejects.toThrow('responded 503')
   })
+})
+
+describe('runAssistantTurn email results', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each([true, false])(
+    'shortens the reply only when inbox loading succeeds (%s)',
+    async (loaded) => {
+      const answer =
+        'Here are the emails from GitHub received in the past 24 hours:\n1. First email\n2. Second email'
+      const sources = [
+        { index: 'messages', id: 'a' },
+        { index: 'messages', id: 'b' },
+      ]
+      const replies = []
+      const store = {
+        chatMessages: [],
+        authHeaders: async () => ({}),
+        showAssistantEmails: vi.fn(async () => {
+          expect(replies[0].text).toBe('')
+          return loaded
+        }),
+      }
+      const events = [
+        { type: 'sources', sources },
+        { type: 'token', text: answer },
+        { type: 'done' },
+      ]
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              for (const event of events) {
+                controller.enqueue(
+                  new TextEncoder().encode('data: ' + JSON.stringify(event) + '\n\n'),
+                )
+              }
+              controller.close()
+            },
+          }),
+        })),
+      )
+      expect(
+        await runAssistantTurn(store, 'GitHub emails', {
+          isCurrent: () => true,
+          push: (reply) => replies.push(reply),
+        }),
+      ).toBe(loaded)
+      expect(replies[0].text).toBe(loaded ? answer.split('\n')[0] : answer)
+      expect(replies[0].sources).toEqual(loaded ? [] : sources)
+      expect(store.chatMessages.at(-1).content).toBe(answer)
+    },
+  )
 })

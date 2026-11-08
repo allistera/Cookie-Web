@@ -3558,8 +3558,12 @@ describe('Inbox Store', () => {
     expect(store.traditionalEmails.map((email) => email.id)).toEqual(['m2', 'm1'])
     expect(store.traditionalEmails[0].sender).toBe('Zoom')
     expect(store.isRefreshing).toBe(false)
-    // The drawer still holds the answer.
-    expect(store.chatHistory.at(-1).text).toContain('**Zoom** invoice')
+    // The drawer introduces the inbox results without duplicating the emails.
+    expect(store.chatHistory.at(-1).text).toBe('Two emails:')
+    expect(store.chatHistory.at(-1).sources).toEqual([
+      { index: 'documents', id: 'd1', title: 'Plan', subtitle: '' },
+    ])
+    expect(store.chatMessages.at(-1).content).toContain('**Zoom** invoice')
   })
 
   it('askAssistant leaves the inbox list alone for prose, and when the rows cannot be read', async () => {
