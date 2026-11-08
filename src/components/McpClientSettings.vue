@@ -17,9 +17,7 @@ const codexCommand = `codex mcp add cookie --url ${endpoint} --oauth-client-id $
       through your browser with the account that owns your Cookie mailbox. No API key or token is
       needed.
     </p>
-    <p>
-      Server URL (Streamable HTTP): <code>{{ endpoint }}</code>
-    </p>
+    <p>Server URL (Streamable HTTP): <code>{{ endpoint }}</code></p>
 
     <h4>Claude Code</h4>
     <ol>
@@ -56,9 +54,8 @@ const codexCommand = `codex mcp add cookie --url ${endpoint} --oauth-client-id $
     <h4>Other MCP clients</h4>
     <p>
       Choose a remote HTTP server with OAuth, use the server URL above and, if requested, enter the
-      public client ID <code>{{ clientId }}</code
-      >. No client secret is needed. Additional clients may need their callback URL registered by
-      the Cookie administrator.
+      public client ID <code>{{ clientId }}</code>. No client secret is needed. Additional clients
+      may need their callback URL registered by the Cookie administrator.
     </p>
 
     <h4>Check your connection</h4>

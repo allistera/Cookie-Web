@@ -67,9 +67,7 @@ onMounted(async () => {
   <section class="out-of-office-settings" data-testid="out-of-office-settings">
     <h3>Out of office</h3>
     <p>Send a reviewed automatic reply to eligible new mail while you are away. Off by default.</p>
-    <p role="status" class="ooo-status">
-      Current status: <strong>{{ status }}</strong>
-    </p>
+    <p role="status" class="ooo-status">Current status: <strong>{{ status }}</strong></p>
     <button
       v-if="store.document.enabled"
       class="btn btn-secondary"
