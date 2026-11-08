@@ -9,11 +9,13 @@
 
 import { defineAsyncComponent } from 'vue'
 
-import { RELOAD_KEY, isChunkLoadError } from '../lib/staleChunkReload'
+import {
+  isChunkLoadError,
+  isReloadingForStaleChunk,
+  recordStaleChunkReload,
+} from '../lib/staleChunkReload'
 
 export { isChunkLoadError }
-
-const RELOAD_COOLDOWN_MS = 30_000
 
 // Reloads to `href` unless a stale-chunk reload already happened within the
 // cooldown. Returns whether it reloaded.
@@ -28,13 +30,8 @@ export function reloadForStaleChunk(
 ) {
   // Offline the chunk is missing because it was never cached; reloading
   // would only lose the page the person is on.
-  if (!isOnline()) return false
-  try {
-    if (now - (Number(storage.getItem(RELOAD_KEY)) || 0) < RELOAD_COOLDOWN_MS) return false
-    storage.setItem(RELOAD_KEY, String(now))
-  } catch {
-    // Blocked storage: reload anyway; the cooldown is best-effort.
-  }
+  if (!isOnline() || isReloadingForStaleChunk(storage, now)) return false
+  recordStaleChunkReload(storage, now)
   navigate(href)
   return true
 }

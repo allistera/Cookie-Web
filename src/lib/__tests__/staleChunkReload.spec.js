@@ -110,10 +110,10 @@ describe('installStaleChunkReload while offline', () => {
 
 describe('isReloadingForStaleChunk', () => {
   it('is true only within the cooldown after a reload was started', () => {
-    expect(isReloadingForStaleChunk({ storage: makeStorage(), now: 1_000_000 })).toBe(false)
+    expect(isReloadingForStaleChunk(makeStorage(), 1_000_000)).toBe(false)
     const storage = makeStorage({ [RELOAD_KEY]: '1000000' })
-    expect(isReloadingForStaleChunk({ storage, now: 1_005_000 })).toBe(true)
-    expect(isReloadingForStaleChunk({ storage, now: 1_040_000 })).toBe(false)
+    expect(isReloadingForStaleChunk(storage, 1_005_000)).toBe(true)
+    expect(isReloadingForStaleChunk(storage, 1_040_000)).toBe(false)
   })
 
   it('is false when storage is unavailable', () => {
@@ -122,7 +122,7 @@ describe('isReloadingForStaleChunk', () => {
         throw new Error('blocked')
       }),
     }
-    expect(isReloadingForStaleChunk({ storage })).toBe(false)
-    expect(isReloadingForStaleChunk({ storage: undefined })).toBe(false)
+    expect(isReloadingForStaleChunk(storage)).toBe(false)
+    expect(isReloadingForStaleChunk(undefined)).toBe(false)
   })
 })

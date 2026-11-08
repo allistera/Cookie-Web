@@ -26,25 +26,18 @@ export function isChunkLoadError(error) {
   return CHUNK_ERROR.test(String(error?.message ?? error ?? ''))
 }
 
-function readLastReload(storage) {
+// Whether a stale-chunk reload was started within the cooldown, here or in
+// router/chunkReload. The error that triggered it is already being dealt with.
+// Blocked storage reads as "no reload yet".
+export function isReloadingForStaleChunk(storage = globalThis.sessionStorage, now = Date.now()) {
   try {
-    return Number(storage.getItem(RELOAD_KEY)) || 0
+    return now - (Number(storage.getItem(RELOAD_KEY)) || 0) < RELOAD_COOLDOWN_MS
   } catch {
-    return 0
+    return false
   }
 }
 
-// Whether a stale-chunk reload was started within the cooldown, here or in
-// router/chunkReload. The error that triggered it is already being dealt with.
-export function isReloadingForStaleChunk({
-  storage = globalThis.sessionStorage,
-  now = Date.now(),
-} = {}) {
-  if (!storage) return false
-  return now - readLastReload(storage) < RELOAD_COOLDOWN_MS
-}
-
-function writeLastReload(storage, now) {
+export function recordStaleChunkReload(storage, now) {
   try {
     storage.setItem(RELOAD_KEY, String(now))
   } catch {
@@ -63,8 +56,8 @@ export function installStaleChunkReload({
   const onPreloadError = (event) => {
     if (!isOnline()) return
     const now = Date.now()
-    if (now - readLastReload(storage) < RELOAD_COOLDOWN_MS) return
-    writeLastReload(storage, now)
+    if (isReloadingForStaleChunk(storage, now)) return
+    recordStaleChunkReload(storage, now)
     event.preventDefault()
     reload()
   }
