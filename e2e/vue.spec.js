@@ -2175,7 +2175,12 @@ test('Drafts folder sits under Sent only while a draft exists', async ({ page })
   await expect(draftsItem).toBeVisible()
 
   await draftsItem.click()
-  await expect(page.locator('.drafts-row', { hasText: 'Half-written' })).toBeVisible()
+  // Drafts is a mail list like Sent: the same rows, with Discard among the
+  // actions a row shows on hover.
+  const draftRow = page.locator('.ni-row.drafts-row', { hasText: 'Half-written' })
+  await expect(draftRow).toBeVisible()
+  await expect(page.locator('.ni-title h1')).toHaveText('Drafts')
+  await draftRow.hover()
   await page.getByRole('button', { name: 'Discard Half-written', exact: true }).click()
   await expect(page.locator('.drafts-row')).toHaveCount(0)
   await expect(draftsItem).toHaveCount(0)
@@ -2208,6 +2213,7 @@ test('A local recovery survives a failed draft save and reload until explicitly 
   await expect(localDrafts).toContainText('Keep these unsynced edits.')
 
   page.once('dialog', (dialog) => dialog.accept())
+  await localDrafts.locator('.drafts-row', { hasText: 'Recover after reload' }).hover()
   await localDrafts
     .getByRole('button', { name: 'Discard local copy of Recover after reload', exact: true })
     .click()

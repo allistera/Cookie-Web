@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted } from 'vue'
-import { useInboxStore } from '../stores/inbox'
+import { formatEmailDate, useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
 
@@ -9,21 +9,14 @@ onMounted(() => {
   store.loadDraftRecoveries()
 })
 
-// Drafts are edited constantly, so "when" is more usefully relative than
-// absolute: an exact timestamp on something saved 20 seconds ago reads as
-// noise.
+// The date column reads the way it does in every other mail list. A draft
+// with a missing or unreadable save time shows nothing rather than throwing.
 function formatUpdatedAt(updatedAt) {
-  const saved = new Date(updatedAt)
-  if (Number.isNaN(saved.getTime())) return ''
-  const minutes = Math.round((Date.now() - saved.getTime()) / 60_000)
-  if (minutes < 1) return 'Saved just now'
-  if (minutes < 60) return `Saved ${minutes}m ago`
-  if (minutes < 60 * 24) return `Saved ${Math.round(minutes / 60)}h ago`
-  return `Saved ${saved.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+  return Number.isNaN(new Date(updatedAt).getTime()) ? '' : formatEmailDate(updatedAt)
 }
 
-// A draft's first line stands in for a subject when there isn't one, the way
-// the mail list falls back to a snippet.
+// The opening words follow the subject on the row, so a draft with no subject
+// yet can still be told apart from the others.
 function draftPreview(draft) {
   const text = String(draft.preview ?? draft.text ?? '')
     .replace(/\s+/g, ' ')
@@ -31,8 +24,19 @@ function draftPreview(draft) {
   return text.length > 140 ? `${text.slice(0, 140)}…` : text
 }
 
-async function openDraft(draft) {
-  await store.openDraft(draft)
+// Sent rows put "To: …" in the sender column; a draft does the same once it
+// has someone to go to.
+function recipient(draft) {
+  return draft.to ? `To: ${draft.to}` : 'No recipient yet'
+}
+
+function attachmentCount(draft) {
+  return draft.attachmentCount ?? draft.attachments?.length ?? 0
+}
+
+function attachmentTitle(draft) {
+  const count = attachmentCount(draft)
+  return count === 1 ? '1 attachment' : `${count} attachments`
 }
 
 async function discard(draft) {
@@ -51,200 +55,152 @@ function discardRecovery(record) {
 </script>
 
 <template>
-  <div class="drafts-view">
-    <header class="drafts-header">
-      <h1>Drafts</h1>
-      <p class="drafts-subtitle">
-        Unsent messages, saved as you type. Open one to pick up where you left off.
-      </p>
-    </header>
-
-    <section v-if="store.draftRecoveries.length" aria-labelledby="recovered-drafts-title">
-      <h2 id="recovered-drafts-title">Recoverable local drafts</h2>
-      <p class="drafts-subtitle">
-        These edits have not been saved to your account. Open a copy to review and retry. Local
-        copies are removed when you log out.
-      </p>
-      <ul class="drafts-list">
-        <li v-for="record in store.draftRecoveries" :key="record.id" class="drafts-row">
-          <button type="button" class="drafts-open" @click="store.openRecoveredDraft(record)">
-            <span class="drafts-subject">{{ record.snapshot.subject || '(no subject)' }}</span>
-            <span class="drafts-to">{{ record.snapshot.to || 'No recipient yet' }}</span>
-            <span class="drafts-preview">{{ draftPreview(record.snapshot) }}</span>
-            <span class="drafts-to">
-              {{
-                record.durable ? 'Saved on this device' : 'Storage unavailable — keep this tab open'
-              }}
-            </span>
-          </button>
-          <button
-            type="button"
-            class="drafts-discard"
-            :aria-label="`Discard local copy of ${record.snapshot.subject || 'draft'}`"
-            @click="discardRecovery(record)"
-          >
-            Discard
-          </button>
-        </li>
-      </ul>
-    </section>
-
-    <div v-if="store.isDraftsLoading && !store.draftCount" class="drafts-empty">
-      Loading your drafts…
+  <!-- The same panel, header and rows as the Sent and label folders (the
+       global .ni-* classes in main.css), so Drafts reads as one more mail
+       list rather than a page of its own. -->
+  <div class="view-panel active drafts-view">
+    <div class="ni-header">
+      <div class="ni-title">
+        <span class="material-symbols-outlined ni-title-icon" aria-hidden="true">draft</span>
+        <h1>Drafts</h1>
+      </div>
     </div>
 
-    <div v-else-if="!store.draftCount" class="drafts-empty">
-      Nothing saved. Anything you start writing shows up here.
-    </div>
-
-    <ul v-else-if="store.drafts.length" class="drafts-list">
-      <li v-for="draft in store.drafts" :key="draft.id" class="drafts-row">
-        <button type="button" class="drafts-open" @click="openDraft(draft)">
-          <span class="drafts-line">
-            <span class="drafts-subject">{{ draft.subject || '(no subject)' }}</span>
-            <span
-              v-if="draft.attachmentCount ?? draft.attachments?.length"
-              class="drafts-attachments"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">attach_file</span>
-              {{ draft.attachmentCount ?? draft.attachments.length }}
-            </span>
-          </span>
-          <span class="drafts-to">{{ draft.to || 'No recipient yet' }}</span>
-          <span v-if="draftPreview(draft)" class="drafts-preview">{{ draftPreview(draft) }}</span>
-        </button>
-        <span class="drafts-time">{{ formatUpdatedAt(draft.updatedAt) }}</span>
-        <button
-          type="button"
-          class="drafts-discard"
-          :aria-label="`Discard ${draft.subject || 'draft'}`"
-          @click="discard(draft)"
+    <div class="ni-list">
+      <section v-if="store.draftRecoveries.length" aria-labelledby="recovered-drafts-title">
+        <h2 id="recovered-drafts-title" class="ni-group-header drafts-group">
+          Recoverable local drafts
+        </h2>
+        <p class="drafts-note">
+          These edits have not been saved to your account. Open a copy to review and retry. Local
+          copies are removed when you log out.
+        </p>
+        <div
+          v-for="record in store.draftRecoveries"
+          :key="record.id"
+          class="ni-row drafts-row"
+          role="button"
+          tabindex="0"
+          :aria-label="`${recipient(record.snapshot)}: ${record.snapshot.subject || '(no subject)'}`"
+          @click="store.openRecoveredDraft(record)"
+          @keydown.enter.self.prevent="store.openRecoveredDraft(record)"
         >
-          Discard
-        </button>
-      </li>
-    </ul>
+          <div class="ni-lead"></div>
+          <div class="ni-sender">{{ recipient(record.snapshot) }}</div>
+          <div class="ni-subject">
+            <span class="ni-subject-text">
+              {{ record.snapshot.subject || '(no subject)' }}
+              <span v-if="draftPreview(record.snapshot)" class="drafts-preview">{{
+                draftPreview(record.snapshot)
+              }}</span>
+            </span>
+          </div>
+          <div class="ni-date">
+            {{
+              record.durable ? 'Saved on this device' : 'Storage unavailable — keep this tab open'
+            }}
+          </div>
+          <div class="ni-actions" @click.stop>
+            <button
+              type="button"
+              class="ni-action-btn"
+              title="Discard"
+              :aria-label="`Discard local copy of ${record.snapshot.subject || 'draft'}`"
+              @click="discardRecovery(record)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div v-if="store.isDraftsLoading && !store.draftCount" class="ni-empty" role="status">
+        Loading your drafts…
+      </div>
+
+      <div v-else-if="!store.draftCount" class="ni-empty">
+        Nothing saved. Anything you start writing shows up here.
+      </div>
+
+      <template v-else-if="store.drafts.length">
+        <!-- Only needed to part the two kinds of draft; alone, the page
+             heading already says what the rows are. -->
+        <h2 v-if="store.draftRecoveries.length" class="ni-group-header drafts-group">
+          Saved to your account
+        </h2>
+        <div
+          v-for="draft in store.drafts"
+          :key="draft.id"
+          class="ni-row drafts-row"
+          role="button"
+          tabindex="0"
+          :aria-label="`${recipient(draft)}: ${draft.subject || '(no subject)'}`"
+          @click="store.openDraft(draft)"
+          @keydown.enter.self.prevent="store.openDraft(draft)"
+        >
+          <div class="ni-lead"></div>
+          <div class="ni-sender">{{ recipient(draft) }}</div>
+          <div class="ni-subject">
+            <span class="ni-subject-text">
+              {{ draft.subject || '(no subject)' }}
+              <span v-if="draftPreview(draft)" class="drafts-preview">{{
+                draftPreview(draft)
+              }}</span>
+            </span>
+          </div>
+          <div class="ni-date">
+            <span
+              v-if="attachmentCount(draft)"
+              class="material-symbols-outlined ni-row-attachment-icon"
+              :title="attachmentTitle(draft)"
+              :aria-label="attachmentTitle(draft)"
+              >attach_file</span
+            >
+            <span class="drafts-time">{{ formatUpdatedAt(draft.updatedAt) }}</span>
+          </div>
+          <div class="ni-actions" @click.stop>
+            <button
+              type="button"
+              class="ni-action-btn"
+              title="Discard"
+              :aria-label="`Discard ${draft.subject || 'draft'}`"
+              @click="discard(draft)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            </button>
+          </div>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.drafts-view {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 32px 24px;
+/* The band that names a group of drafts. It borrows the inbox's day-group
+   look but is a plain heading: there is nothing to collapse. */
+.drafts-group {
+  cursor: default;
 }
 
-.drafts-header h1 {
-  margin: 0 0 4px;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.drafts-subtitle {
-  margin: 0 0 24px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.drafts-empty {
-  padding: 32px 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-  text-align: center;
-}
-
-.drafts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.drafts-note {
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.drafts-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-card);
-}
-
-.drafts-open {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.drafts-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.drafts-subject {
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.drafts-attachments {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
+  padding: 4px 16px 8px;
   color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.drafts-attachments > .material-symbols-outlined {
-  font-size: 15px;
-}
-
-.drafts-to,
-.drafts-preview {
   font-size: 12.5px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.drafts-time {
-  flex: 0 0 auto;
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
+.drafts-preview {
+  margin-left: 6px;
+  opacity: 0.7;
 }
 
-.drafts-discard {
-  flex: 0 0 auto;
-  padding: 6px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 100px;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+/* The inbox has keyboard shortcuts for its row actions; here Discard is the
+   only one, so tabbing onto a row brings it within reach as hovering does. */
+.drafts-row:focus-within .ni-actions {
+  display: flex;
 }
 
-.drafts-discard:hover {
-  background: var(--bg-hover);
+.drafts-row:focus-within .ni-date {
+  display: none;
 }
 </style>
