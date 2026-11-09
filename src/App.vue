@@ -869,7 +869,7 @@ onUnmounted(() => {
             </router-link>
           </nav>
 
-          <div class="sb-section-label">Views</div>
+          <div class="sb-section-label">Boxes</div>
 
           <nav class="sidebar-nav">
             <router-link

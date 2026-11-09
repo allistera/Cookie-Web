@@ -282,17 +282,17 @@ describe('application shell', () => {
     expect(wrapper.get('.header-notification-count').text()).toBe('1')
   })
 
-  it('groups AI Today and New senders under Areas, apart from the mail views', async () => {
+  it('groups AI Today and New senders under Areas, apart from the mail boxes', async () => {
     await render()
     store.screeningCount = 2
     await nextTick()
     const sections = wrapper.findAll('.left-sidebar .sb-section-label').map((node) => node.text())
-    expect(sections.slice(0, 2)).toEqual(['Areas', 'Views'])
-    const [areas, views] = wrapper
+    expect(sections.slice(0, 2)).toEqual(['Areas', 'Boxes'])
+    const [areas, boxes] = wrapper
       .findAll('.left-sidebar .sidebar-nav')
       .map((nav) => nav.findAll('.nav-text').map((node) => node.text()))
     expect(areas).toEqual(['AI Today', 'New senders'])
-    expect(views).toEqual(['Inbox', 'More'])
+    expect(boxes).toEqual(['Inbox', 'More'])
     store.screeningCount = 0
     await nextTick()
     expect(wrapper.findAll('.left-sidebar .sidebar-nav .nav-text')[1].text()).toBe('Inbox')
