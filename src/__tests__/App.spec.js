@@ -282,6 +282,22 @@ describe('application shell', () => {
     expect(wrapper.get('.header-notification-count').text()).toBe('1')
   })
 
+  it('groups AI Today and New senders under Areas, apart from the mail views', async () => {
+    await render()
+    store.screeningCount = 2
+    await nextTick()
+    const sections = wrapper.findAll('.left-sidebar .sb-section-label').map((node) => node.text())
+    expect(sections.slice(0, 2)).toEqual(['Areas', 'Views'])
+    const [areas, views] = wrapper
+      .findAll('.left-sidebar .sidebar-nav')
+      .map((nav) => nav.findAll('.nav-text').map((node) => node.text()))
+    expect(areas).toEqual(['AI Today', 'New senders'])
+    expect(views).toEqual(['Inbox', 'More'])
+    store.screeningCount = 0
+    await nextTick()
+    expect(wrapper.findAll('.left-sidebar .sidebar-nav .nav-text')[1].text()).toBe('Inbox')
+  })
+
   it('pauses, resumes and undoes pending sends from the toast', async () => {
     await render()
     store.pendingSend = { secondsLeft: 5 }

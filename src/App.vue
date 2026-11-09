@@ -849,13 +849,29 @@ onUnmounted(() => {
             <span>Compose</span>
           </button>
 
-          <div class="sb-section-label">Views</div>
+          <div class="sb-section-label">Areas</div>
 
           <nav class="sidebar-nav">
             <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
               <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
               <span class="nav-text">AI Today</span>
             </router-link>
+            <!-- New senders only shows while it holds mail (the count arrives
+                 with the inbox state), or while it is open. -->
+            <router-link
+              v-if="store.screeningCount || route.query.filter === 'screening'"
+              :to="{ path: '/inbox', query: { filter: 'screening' } }"
+              class="nav-item"
+              :class="{ active: route.query.filter === 'screening' }"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">person</span
+              ><span class="nav-text">New senders</span>
+            </router-link>
+          </nav>
+
+          <div class="sb-section-label">Views</div>
+
+          <nav class="sidebar-nav">
             <router-link
               to="/inbox"
               class="nav-item"
@@ -867,8 +883,8 @@ onUnmounted(() => {
                 store.unreadInboxCount
               }}</span>
             </router-link>
-            <!-- Starred and New senders only show while they hold mail (the
-                 counts arrive with the inbox state), or while they are open. -->
+            <!-- Starred only shows while it holds mail (the count arrives with
+                 the inbox state), or while it is open. -->
             <router-link
               v-if="store.starredCount || route.query.filter === 'starred'"
               :to="{ path: '/inbox', query: { filter: 'starred' } }"
@@ -877,15 +893,6 @@ onUnmounted(() => {
             >
               <span class="material-symbols-outlined">star</span>
               <span class="nav-text">Starred</span>
-            </router-link>
-            <router-link
-              v-if="store.screeningCount || route.query.filter === 'screening'"
-              :to="{ path: '/inbox', query: { filter: 'screening' } }"
-              class="nav-item"
-              :class="{ active: route.query.filter === 'screening' }"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">person</span
-              ><span class="nav-text">New senders</span>
             </router-link>
             <a href="#" class="nav-item" @click.prevent="showMoreNav = !showMoreNav">
               <span class="material-symbols-outlined">{{
