@@ -1,5 +1,6 @@
 <script setup>
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
+import { assignLanes } from '../utils/calendarLanes'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
@@ -50,7 +51,6 @@ const todayStart = computed(() =>
   new Date(now.value.getFullYear(), now.value.getMonth(), now.value.getDate()).getTime(),
 )
 const referenceDate = computed(() => new Date(todayStart.value))
-const DAY_HOUR_HEIGHT = 96
 const WEEK_HOUR_HEIGHT = 72
 const START_HOUR = 8
 const END_HOUR = 19
@@ -449,7 +449,6 @@ const monthDays = computed(() => {
 
 const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => START_HOUR + index)
 const weekBodyHeight = (END_HOUR - START_HOUR) * WEEK_HOUR_HEIGHT
-const dayBodyHeight = (END_HOUR - START_HOUR) * DAY_HOUR_HEIGHT
 
 const eventsForDay = computed(() =>
   timedVisibleEvents.value.filter((event) => event.date === dateKey(selectedDate.value)),
@@ -492,6 +491,39 @@ const eventPosition = (event, hourHeight) => {
   }
 }
 
+// Day view runs time left to right across the full width of its lane, so its
+// positions are shares of the visible hours rather than pixels.
+const VISIBLE_MINUTES = (END_HOUR - START_HOUR) * 60
+const dayShare = (minutes) => `${(minutes / VISIBLE_MINUTES) * 100}%`
+const dayOffset = (minutes) => dayShare(minutes - START_HOUR * 60)
+
+// The day's timed events, clipped to the visible hours. Events that overlap
+// share the lane's height in stacked rows instead of covering each other.
+const dayEventItems = computed(() => {
+  const items = eventsForDay.value.map((event) => {
+    const { hour, minute } = parseStart(event.start)
+    const start = hour * 60 + minute
+    return {
+      event,
+      start: Math.max(start, START_HOUR * 60),
+      end: Math.min(start + Number(event.duration), END_HOUR * 60),
+    }
+  })
+  assignLanes(items.filter((item) => item.end > item.start))
+  return items
+})
+
+const dayEventStyle = ({ event, start, end, lane, lanes }) => {
+  if (end <= start) return { display: 'none' }
+  return {
+    left: dayOffset(start),
+    width: dayShare(end - start),
+    top: `${(lane / lanes) * 100}%`,
+    height: `${100 / lanes}%`,
+    ...eventColorVars(event),
+  }
+}
+
 const weekEventStyle = (event) => {
   const dayIndex = weekDays.value.findIndex((date) => dateKey(date) === event.date)
   return {
@@ -504,8 +536,8 @@ const weekEventStyle = (event) => {
 const snapMinutes = (minutes) => Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES
 const clampMinutes = (minutes) => Math.min(Math.max(minutes, START_HOUR * 60), END_HOUR * 60)
 
-const minutesFromOffset = (offsetY, hourHeight) =>
-  clampMinutes(snapMinutes(START_HOUR * 60 + (offsetY / hourHeight) * 60))
+const minutesFromOffset = (offset, hourSize) =>
+  clampMinutes(snapMinutes(START_HOUR * 60 + (offset / hourSize) * 60))
 
 const minutesToTimeString = (minutes) =>
   `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
@@ -515,18 +547,22 @@ const timeStringToMinutes = (value) => {
   return hour * 60 + minute
 }
 
-const dragRangeStyle = ({ hourHeight, anchorMinutes, currentMinutes }) => {
+const dragRangeStyle = ({ anchorMinutes, currentMinutes }) => {
   const start = Math.min(anchorMinutes, currentMinutes)
   const end = Math.max(anchorMinutes, currentMinutes)
   return {
-    top: `${(start - START_HOUR * 60) * (hourHeight / 60)}px`,
-    height: `${Math.max((end - start) * (hourHeight / 60), 6)}px`,
+    top: `${(start - START_HOUR * 60) * (WEEK_HOUR_HEIGHT / 60)}px`,
+    height: `${Math.max((end - start) * (WEEK_HOUR_HEIGHT / 60), 6)}px`,
   }
 }
 
 const dayDragPreviewStyle = computed(() => {
   if (!dragDraft.value || dragDraft.value.view !== 'day') return null
-  return dragRangeStyle(dragDraft.value)
+  const { anchorMinutes, currentMinutes } = dragDraft.value
+  return {
+    left: dayOffset(Math.min(anchorMinutes, currentMinutes)),
+    width: dayShare(Math.abs(currentMinutes - anchorMinutes)),
+  }
 })
 
 const weekDragPreviewStyle = computed(() => {
@@ -546,6 +582,14 @@ const eventTime = (event) => {
   const suffix = hour >= 12 ? 'PM' : 'AM'
   const displayHour = hour % 12 || 12
   return `${displayHour}:${String(minute).padStart(2, '0')} ${suffix}`
+}
+
+// "9:00 AM – 9:30 AM", from the event's own times rather than the part of it
+// the visible hours show.
+const eventTimeRange = (event) => {
+  const { hour, minute } = parseStart(event.start)
+  const endMinutes = (hour * 60 + minute + Number(event.duration)) % (24 * 60)
+  return `${eventTime(event)} – ${eventTime({ start: minutesToTimeString(endMinutes) })}`
 }
 
 const isToday = (date) => dateKey(date) === dateKey(referenceDate.value)
@@ -579,9 +623,7 @@ const nowVisible = computed(
   () => nowMinutes.value >= START_HOUR * 60 && nowMinutes.value <= END_HOUR * 60,
 )
 const nowLabel = computed(() => TIME_FMT.format(now.value))
-const dayCurrentTimeStyle = computed(() => ({
-  top: `${(nowMinutes.value - START_HOUR * 60) * (DAY_HOUR_HEIGHT / 60)}px`,
-}))
+const dayCurrentTimeStyle = computed(() => ({ left: dayOffset(nowMinutes.value) }))
 const todayWeekIndex = computed(() => weekDays.value.findIndex((date) => isToday(date)))
 const weekCurrentTimeStyle = computed(() => ({
   top: `${(nowMinutes.value - START_HOUR * 60) * (WEEK_HOUR_HEIGHT / 60)}px`,
@@ -1046,18 +1088,28 @@ function consumeNewEventRequest() {
   openNewEvent(draft)
 }
 
-function beginDrag(event, date, hourHeight, view) {
+// Where a pointer sits on the dragged surface's time axis: across the day
+// lane, whose hours share its width, or down a week column at a fixed height
+// per hour.
+function dragMinutes(event, { view, origin, hourSize }) {
+  const pointer = view === 'day' ? event.clientX : event.clientY
+  return minutesFromOffset(pointer - origin, hourSize)
+}
+
+function beginDrag(event, date, view) {
   if (event.button !== 0) return
   event.preventDefault()
   const rect = event.currentTarget.getBoundingClientRect()
-  const minutes = minutesFromOffset(event.clientY - rect.top, hourHeight)
+  const axis =
+    view === 'day'
+      ? { view, origin: rect.left, hourSize: rect.width / (END_HOUR - START_HOUR) }
+      : { view, origin: rect.top, hourSize: WEEK_HOUR_HEIGHT }
+  const minutes = dragMinutes(event, axis)
   dragDraft.value = {
+    ...axis,
     date: new Date(date),
-    hourHeight,
-    rectTop: rect.top,
     anchorMinutes: minutes,
     currentMinutes: minutes,
-    view,
   }
   window.addEventListener('mousemove', onDragMove)
   window.addEventListener('mouseup', onDragEnd)
@@ -1065,8 +1117,8 @@ function beginDrag(event, date, hourHeight, view) {
 
 function onDragMove(event) {
   if (!dragDraft.value) return
-  const { hourHeight, rectTop, currentMinutes } = dragDraft.value
-  const minutes = minutesFromOffset(event.clientY - rectTop, hourHeight)
+  const { currentMinutes } = dragDraft.value
+  const minutes = dragMinutes(event, dragDraft.value)
   // Minutes snap to 15-minute steps, so most mousemoves resolve to the same
   // value — skip them instead of re-rendering the whole grid per pixel.
   if (minutes === currentMinutes) return
@@ -1283,38 +1335,51 @@ onUnmounted(() => {
               {{ event.title }}
             </button>
           </div>
-          <div class="day-timeline" :style="{ height: `${dayBodyHeight}px` }">
-            <div
-              v-for="(hour, index) in hours"
-              :key="hour"
-              class="day-hour-line"
-              :style="{ top: `${index * DAY_HOUR_HEIGHT}px` }"
-            >
-              <span>{{ timeLabel(hour) }}</span>
+          <div class="day-timeline">
+            <div class="day-hour-axis">
+              <span
+                v-for="hour in hours"
+                :key="hour"
+                class="day-hour-label"
+                :style="{ left: dayOffset(hour * 60) }"
+              >
+                {{ timeLabel(hour) }}
+              </span>
             </div>
             <div
               class="day-event-lane"
-              @mousedown.self="(event) => beginDrag(event, selectedDate, DAY_HOUR_HEIGHT, 'day')"
+              @mousedown.self="(event) => beginDrag(event, selectedDate, 'day')"
             >
+              <div
+                v-for="hour in hours"
+                :key="hour"
+                class="day-hour-line"
+                :style="{ left: dayOffset(hour * 60) }"
+              ></div>
               <button
-                v-for="event in eventsForDay"
-                :key="event.id"
+                v-for="item in dayEventItems"
+                :key="item.event.id"
                 type="button"
                 class="calendar-event day-event"
                 :class="[
-                  `tone-${event.tone || 'default'}`,
-                  { 'task-event': event.kind === 'task' },
+                  `tone-${item.event.tone || 'default'}`,
+                  { 'task-event': item.event.kind === 'task' },
                 ]"
-                :style="eventPosition(event, DAY_HOUR_HEIGHT)"
-                @click="editEvent(event)"
+                :style="dayEventStyle(item)"
+                @click="editEvent(item.event)"
               >
-                <span
-                  v-if="event.kind === 'task'"
-                  class="material-symbols-outlined task-event-icon"
-                  aria-hidden="true"
-                  >check_box_outline_blank</span
-                >
-                <strong>{{ event.title }}</strong>
+                <span class="day-event-label">
+                  <span class="day-event-time">{{ eventTimeRange(item.event) }}</span>
+                  <span class="day-event-title">
+                    <span
+                      v-if="item.event.kind === 'task'"
+                      class="material-symbols-outlined task-event-icon"
+                      aria-hidden="true"
+                      >check_box_outline_blank</span
+                    >
+                    <strong>{{ item.event.title }}</strong>
+                  </span>
+                </span>
               </button>
               <div
                 v-if="dayDragPreviewStyle"
@@ -1395,7 +1460,7 @@ onUnmounted(() => {
                 v-for="date in weekDays"
                 :key="dateKey(date)"
                 class="week-day-column"
-                @mousedown="(event) => beginDrag(event, date, WEEK_HOUR_HEIGHT, 'week')"
+                @mousedown="(event) => beginDrag(event, date, 'week')"
               ></div>
               <div
                 v-for="(_, index) in hours"
@@ -2196,36 +2261,40 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+/* Day view reads left to right: the hours run along the top and each event
+   is a column as wide as it is long, with its label turned to run up it. */
 .day-timeline {
-  position: relative;
   min-width: 720px;
-  margin: 0 36px 0 0;
+  padding: 0 36px 28px;
+}
+
+.day-hour-axis {
+  position: relative;
+  height: 44px;
+}
+
+.day-hour-label {
+  position: absolute;
+  bottom: 10px;
+  transform: translateX(-50%);
+  color: var(--calendar-label);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.day-event-lane {
+  position: relative;
+  height: clamp(340px, calc(100vh - 480px), 620px);
+  cursor: crosshair;
 }
 
 .day-hour-line {
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 1px;
-  border-top: 1px solid var(--calendar-line);
-}
-
-.day-hour-line span {
-  position: absolute;
-  top: -12px;
-  left: 28px;
-  width: 66px;
-  color: var(--calendar-label);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  text-align: right;
-}
-
-.day-event-lane {
-  position: absolute;
-  inset: 0 0 0 112px;
+  top: 0;
+  bottom: 0;
   border-left: 1px solid var(--calendar-line);
-  cursor: crosshair;
+  pointer-events: none;
 }
 
 .calendar-event {
@@ -2269,10 +2338,56 @@ onUnmounted(() => {
 
 .day-event {
   position: absolute;
-  left: 0;
-  right: 0;
-  padding: 8px 12px;
+  min-width: 22px;
+  padding: 10px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 14px;
+  container-type: inline-size;
+}
+
+/* Vertical text reads top to bottom; the half turn makes it read upwards,
+   with the time to the left of the title. */
+.day-event-label {
+  max-height: 100%;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+}
+
+.day-event-time {
+  display: block;
+  margin-left: 3px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 0.8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-event-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.day-event-title strong {
+  min-height: 0;
+}
+
+/* A column too narrow for two lines keeps its title. */
+@container (max-width: 34px) {
+  .day-event-time {
+    display: none;
+  }
+}
+
+.day-event.drag-preview {
+  top: 0;
+  bottom: 0;
+  min-width: 6px;
 }
 
 .all-day-row {
@@ -2283,7 +2398,7 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 36px 10px 112px;
+  padding: 10px 36px;
 }
 
 .day-calendar .all-day-event {
@@ -2366,8 +2481,16 @@ onUnmounted(() => {
 }
 
 .day-current-time {
-  left: 0;
-  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  height: auto;
+  margin-left: -1px;
+}
+
+.day-current-time span {
+  left: -6px;
+  top: -7px;
 }
 
 .week-calendar {
@@ -3215,7 +3338,10 @@ onUnmounted(() => {
   margin-right: 4px;
 }
 
-.day-event.task-event .task-event-icon,
+.day-event.task-event .task-event-icon {
+  margin: 0 0 4px;
+}
+
 .week-event.task-event .task-event-icon {
   float: left;
   margin-top: 1px;

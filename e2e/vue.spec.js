@@ -296,21 +296,18 @@ test('Dragging on the day timeline opens New event with the date, start, and end
   await page.goto('/calendar')
   await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')
 
-  // The page header and insight cards push the hourly grid below the fold at the default
-  // viewport size, so scroll the 11 AM-12 PM slot into view before computing coordinates.
-  await page.evaluate(() => {
-    document.querySelector('.calendar-content').scrollTop = 400
-  })
-
+  // The page header and insight cards can push the day timeline below the fold at the
+  // default viewport size, so bring it into view before computing coordinates.
   const lane = page.locator('.day-event-lane')
+  await lane.scrollIntoViewIfNeeded()
   const box = await lane.boundingBox()
-  const x = box.x + box.width / 2
+  const y = box.y + 40
 
-  // DAY_HOUR_HEIGHT is 96px/hour starting at 8 AM: +288 -> 11:00 AM, +384 -> 12:00 PM.
-  // (11 AM-12 PM is clear of the seeded Standup and Coffee with Sam events.)
-  await page.mouse.move(x, box.y + 288)
+  // The lane's width holds the 11 visible hours from 8 AM, left to right: 3/11 -> 11:00 AM,
+  // 4/11 -> 12:00 PM. (11 AM-12 PM is clear of the seeded Standup and Coffee with Sam events.)
+  await page.mouse.move(box.x + (box.width * 3) / 11, y)
   await page.mouse.down()
-  await page.mouse.move(x, box.y + 384)
+  await page.mouse.move(box.x + (box.width * 4) / 11, y)
   await page.mouse.up()
 
   const dialog = page.getByRole('dialog', { name: 'New event' })

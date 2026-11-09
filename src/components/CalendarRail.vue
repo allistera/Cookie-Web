@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { dateKey, meetingLink, monthGrid, normalizeCalendarEvent } from '../utils/calendarDates'
+import { assignLanes } from '../utils/calendarLanes'
 import { useInboxStore } from '../stores/inbox'
 import {
   calendarEventsUrl,
@@ -112,35 +113,17 @@ const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinut
 const allDayEvents = computed(() => events.value.filter((event) => event.allDay))
 
 // Timed events laid out in side-by-side lanes where they overlap.
-const timedEvents = computed(() => {
-  const items = events.value
-    .filter((event) => !event.allDay)
-    .map((event) => {
-      const start = minutesOf(event.start)
-      const end = Math.min(start + Math.max(Number(event.duration) || 0, 15), 24 * 60)
-      return { event, start, end, lane: 0, lanes: 1 }
-    })
-    .sort((a, b) => a.start - b.start || b.end - a.end)
-  let cluster = []
-  let clusterEnd = -1
-  const close = () => {
-    const lanes = Math.max(1, ...cluster.map((item) => item.lane + 1))
-    for (const item of cluster) item.lanes = lanes
-    cluster = []
-  }
-  for (const item of items) {
-    if (item.start >= clusterEnd) {
-      close()
-      clusterEnd = -1
-    }
-    const used = new Set(cluster.filter((other) => other.end > item.start).map((o) => o.lane))
-    while (used.has(item.lane)) item.lane += 1
-    cluster.push(item)
-    clusterEnd = Math.max(clusterEnd, item.end)
-  }
-  close()
-  return items
-})
+const timedEvents = computed(() =>
+  assignLanes(
+    events.value
+      .filter((event) => !event.allDay)
+      .map((event) => {
+        const start = minutesOf(event.start)
+        const end = Math.min(start + Math.max(Number(event.duration) || 0, 15), 24 * 60)
+        return { event, start, end }
+      }),
+  ),
+)
 
 function eventColor(event) {
   return calendarById.value.get(event.calendar)?.color || null

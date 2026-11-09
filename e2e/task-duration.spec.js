@@ -1,6 +1,6 @@
 import { expect, test } from './workerFixtures.js'
 
-test('a task estimate survives reload and controls its calendar height', async ({ page }) => {
+test('a task estimate survives reload and controls its calendar width', async ({ page }) => {
   const today = new Date()
   const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const { item } = await (
@@ -24,7 +24,14 @@ test('a task estimate survives reload and controls its calendar height', async (
   await page.getByRole('button', { name: 'Day', exact: true }).click()
   const event = page.locator('.day-event.task-event', { hasText: 'Plan the release' })
   await expect(event).toBeVisible()
-  await expect(event).toHaveCSS('height', '144px')
+  // The day view runs left to right, so an event is as wide as its share of
+  // the 11 visible hours (660 minutes).
+  const laneShare = async () => {
+    const eventBox = await event.boundingBox()
+    const laneBox = await page.locator('.day-event-lane').boundingBox()
+    return eventBox.width / laneBox.width
+  }
+  await expect.poll(laneShare).toBeCloseTo(90 / 660, 2)
 
   await page.goto(`/tasks?project=inbox&task=${item.id}`)
   await input.fill('')
@@ -38,5 +45,5 @@ test('a task estimate survives reload and controls its calendar height', async (
   await expect(page.locator('.task-panel-field-summary').first()).toHaveText('Not set')
   await page.goto('/calendar')
   await page.getByRole('button', { name: 'Day', exact: true }).click()
-  await expect(event).toHaveCSS('height', '48px')
+  await expect.poll(laneShare).toBeCloseTo(30 / 660, 2)
 })
