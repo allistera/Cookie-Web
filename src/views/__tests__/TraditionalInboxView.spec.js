@@ -359,13 +359,17 @@ describe('automatic priority reply drafts', () => {
     wrapper.unmount()
   })
 
-  it('shows the saved AI reply beneath the email with Send enabled, without sending it', async () => {
+  it('shows the saved AI reply above the email with Send enabled, without sending it', async () => {
     store.drafts = [{ ...draft }]
     const send = vi.spyOn(store, 'sendMail').mockResolvedValue({})
     const wrapper = mountView()
     store.openReader(store.traditionalEmails[0])
     await flushPromises()
-    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+    // Test utils wrap the box in a transition stub, so compare document order
+    // rather than siblings.
+    const replyBox = wrapper.get('.ni-reply-box').element
+    const conversation = wrapper.get('.ni-conversation').element
+    expect(replyBox.compareDocumentPosition(conversation)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(wrapper.get('.ni-reply-box').text()).toContain('AI draft')
     expect(wrapper.get('.ni-reply-box .composer-editor').text()).toBe(draft.text)
     expect(wrapper.get('.ni-reply-footer .btn-primary').attributes('disabled')).toBeUndefined()

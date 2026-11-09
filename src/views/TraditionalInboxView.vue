@@ -2801,144 +2801,9 @@ onUnmounted(() => {
           </button>
         </section>
 
-        <div v-if="conversation.length" class="ni-thread-toolbar">
-          <span>{{ conversation.length }} messages</span>
-          <button type="button" class="ni-thread-toggle-all" @click="toggleAllThreadMessages">
-            {{ allThreadExpanded ? 'Collapse all' : 'Expand all' }}
-          </button>
-        </div>
-
-        <div class="ni-conversation" aria-label="Conversation">
-          <template v-for="message in conversationItems" :key="message.id">
-            <div v-if="message.id === openEmail.id" class="ni-email-card">
-              <div class="ni-email-card-header">
-                <div class="ni-email-meta">
-                  <div>
-                    <span class="ni-email-sender">{{ openEmail.sender }}</span>
-                    <ContactAddress
-                      class="ni-email-address"
-                      :address="openEmail.address"
-                      :name="openEmail.sender"
-                    />
-                  </div>
-                  <div class="ni-email-to" :title="openEmailRecipientAddresses">
-                    <template v-if="openEmail.isSent && openEmail.recipients?.to?.[0]">
-                      <span>To&nbsp;</span>
-                      <ContactAddress
-                        :address="openEmail.recipients.to[0].address"
-                        :name="openEmail.recipients.to[0].name || ''"
-                      />
-                      <span v-if="openEmail.recipients.to.length > 1">
-                        &nbsp;+{{ openEmail.recipients.to.length - 1 }}
-                      </span>
-                    </template>
-                    <template v-else>To me</template>
-                    <span class="material-symbols-outlined">unfold_more</span>
-                  </div>
-                </div>
-                <div class="ni-email-header-right">
-                  <button
-                    class="ni-reader-btn"
-                    title="Reply"
-                    aria-label="Reply"
-                    @click="replyToOpenEmail"
-                  >
-                    <span class="material-symbols-outlined">reply</span>
-                  </button>
-                  <button
-                    v-if="canReplyAll"
-                    class="ni-reader-btn"
-                    title="Reply all"
-                    aria-label="Reply all"
-                    @click="replyAllToOpenEmail"
-                  >
-                    <span class="material-symbols-outlined">reply_all</span>
-                  </button>
-                  <button
-                    class="ni-reader-btn"
-                    title="Forward"
-                    aria-label="Forward"
-                    @click="forwardOpenEmail"
-                  >
-                    <span class="material-symbols-outlined">forward</span>
-                  </button>
-                  <button
-                    class="ni-reader-btn"
-                    :title="askChatGptTitle"
-                    aria-label="Ask ChatGPT"
-                    :disabled="!store.isOpenBodyResolved"
-                    @click="askChatGptAboutOpenEmail"
-                  >
-                    <span class="material-symbols-outlined">smart_toy</span>
-                  </button>
-                  <span class="ni-email-time">{{ openEmail.date }}</span>
-                  <span
-                    v-if="openEmail.isSent"
-                    class="ni-read-status ni-read-status-reader"
-                    :class="{ opened: openEmail.readAt }"
-                    :title="readReceiptTitle(openEmail)"
-                  >
-                    <span class="material-symbols-outlined" aria-hidden="true">{{
-                      openEmail.readAt ? 'done_all' : 'check'
-                    }}</span>
-                    {{ openEmail.readAt ? readReceiptTitle(openEmail) : 'Not opened' }}
-                  </span>
-                </div>
-              </div>
-              <EmailBody
-                :key="openEmail.id"
-                :html="openEmailHtml"
-                :text="store.openEmailText"
-                :sender="openEmail.sender"
-                :has-html-body="openEmail.hasHtml"
-                :loading="store.isOpenBodyLoading"
-                :body-resolved="store.isOpenBodyResolved"
-                :show-images="
-                  !['held', 'blocked'].includes(openEmail.screeningStatus) &&
-                  (isImportantEmail(openEmail) || senderAccepted(openEmail))
-                "
-                @keydown="forwardEmailKeydown"
-                @unsubscribe-link="setContentUnsubscribe"
-              />
-
-              <div
-                v-if="openEmailAttachments.length"
-                class="ni-attachments"
-                aria-label="Attachments"
-              >
-                <component
-                  :is="attachment.downloadable ? 'button' : 'div'"
-                  v-for="attachment in openEmailAttachments"
-                  :key="attachment.id"
-                  class="ni-attachment"
-                  :type="attachment.downloadable ? 'button' : undefined"
-                  :title="
-                    attachment.downloadable
-                      ? `Download ${attachment.filename}`
-                      : `${attachment.filename} (download not yet available)`
-                  "
-                  @click="attachment.downloadable && store.downloadAttachment(attachment)"
-                >
-                  <span class="material-symbols-outlined ni-attachment-icon" aria-hidden="true">
-                    {{ attachmentIcon(attachment.content_type) }}
-                  </span>
-                  <span class="ni-attachment-name">{{ attachment.filename || 'Attachment' }}</span>
-                  <span v-if="attachment.size_bytes != null" class="ni-attachment-size">{{
-                    formatFileSize(attachment.size_bytes)
-                  }}</span>
-                </component>
-              </div>
-            </div>
-            <ThreadMessage
-              v-else
-              :message="message"
-              :expanded="expandedThreadIds.has(message.id)"
-              @toggle="toggleThreadMessage(message.id)"
-            />
-          </template>
-        </div>
-
-        <!-- Inline reply box -->
+        <!-- Inline reply box: above the conversation, which runs latest first,
+             so the reply sits next to the newest message rather than under the
+             oldest. -->
         <Transition name="ni-reply">
           <div class="ni-reply-box" v-if="isReplyOpen">
             <div class="ni-reply-header">
@@ -3080,6 +2945,143 @@ onUnmounted(() => {
             </div>
           </div>
         </Transition>
+
+        <div v-if="conversation.length" class="ni-thread-toolbar">
+          <span>{{ conversation.length }} messages</span>
+          <button type="button" class="ni-thread-toggle-all" @click="toggleAllThreadMessages">
+            {{ allThreadExpanded ? 'Collapse all' : 'Expand all' }}
+          </button>
+        </div>
+
+        <div class="ni-conversation" aria-label="Conversation">
+          <template v-for="message in conversationItems" :key="message.id">
+            <div v-if="message.id === openEmail.id" class="ni-email-card">
+              <div class="ni-email-card-header">
+                <div class="ni-email-meta">
+                  <div>
+                    <span class="ni-email-sender">{{ openEmail.sender }}</span>
+                    <ContactAddress
+                      class="ni-email-address"
+                      :address="openEmail.address"
+                      :name="openEmail.sender"
+                    />
+                  </div>
+                  <div class="ni-email-to" :title="openEmailRecipientAddresses">
+                    <template v-if="openEmail.isSent && openEmail.recipients?.to?.[0]">
+                      <span>To&nbsp;</span>
+                      <ContactAddress
+                        :address="openEmail.recipients.to[0].address"
+                        :name="openEmail.recipients.to[0].name || ''"
+                      />
+                      <span v-if="openEmail.recipients.to.length > 1">
+                        &nbsp;+{{ openEmail.recipients.to.length - 1 }}
+                      </span>
+                    </template>
+                    <template v-else>To me</template>
+                    <span class="material-symbols-outlined">unfold_more</span>
+                  </div>
+                </div>
+                <div class="ni-email-header-right">
+                  <button
+                    class="ni-reader-btn"
+                    title="Reply"
+                    aria-label="Reply"
+                    @click="replyToOpenEmail"
+                  >
+                    <span class="material-symbols-outlined">reply</span>
+                  </button>
+                  <button
+                    v-if="canReplyAll"
+                    class="ni-reader-btn"
+                    title="Reply all"
+                    aria-label="Reply all"
+                    @click="replyAllToOpenEmail"
+                  >
+                    <span class="material-symbols-outlined">reply_all</span>
+                  </button>
+                  <button
+                    class="ni-reader-btn"
+                    title="Forward"
+                    aria-label="Forward"
+                    @click="forwardOpenEmail"
+                  >
+                    <span class="material-symbols-outlined">forward</span>
+                  </button>
+                  <button
+                    class="ni-reader-btn"
+                    :title="askChatGptTitle"
+                    aria-label="Ask ChatGPT"
+                    :disabled="!store.isOpenBodyResolved"
+                    @click="askChatGptAboutOpenEmail"
+                  >
+                    <span class="material-symbols-outlined">smart_toy</span>
+                  </button>
+                  <span class="ni-email-time">{{ openEmail.date }}</span>
+                  <span
+                    v-if="openEmail.isSent"
+                    class="ni-read-status ni-read-status-reader"
+                    :class="{ opened: openEmail.readAt }"
+                    :title="readReceiptTitle(openEmail)"
+                  >
+                    <span class="material-symbols-outlined" aria-hidden="true">{{
+                      openEmail.readAt ? 'done_all' : 'check'
+                    }}</span>
+                    {{ openEmail.readAt ? readReceiptTitle(openEmail) : 'Not opened' }}
+                  </span>
+                </div>
+              </div>
+              <EmailBody
+                :key="openEmail.id"
+                :html="openEmailHtml"
+                :text="store.openEmailText"
+                :sender="openEmail.sender"
+                :has-html-body="openEmail.hasHtml"
+                :loading="store.isOpenBodyLoading"
+                :body-resolved="store.isOpenBodyResolved"
+                :show-images="
+                  !['held', 'blocked'].includes(openEmail.screeningStatus) &&
+                  (isImportantEmail(openEmail) || senderAccepted(openEmail))
+                "
+                @keydown="forwardEmailKeydown"
+                @unsubscribe-link="setContentUnsubscribe"
+              />
+
+              <div
+                v-if="openEmailAttachments.length"
+                class="ni-attachments"
+                aria-label="Attachments"
+              >
+                <component
+                  :is="attachment.downloadable ? 'button' : 'div'"
+                  v-for="attachment in openEmailAttachments"
+                  :key="attachment.id"
+                  class="ni-attachment"
+                  :type="attachment.downloadable ? 'button' : undefined"
+                  :title="
+                    attachment.downloadable
+                      ? `Download ${attachment.filename}`
+                      : `${attachment.filename} (download not yet available)`
+                  "
+                  @click="attachment.downloadable && store.downloadAttachment(attachment)"
+                >
+                  <span class="material-symbols-outlined ni-attachment-icon" aria-hidden="true">
+                    {{ attachmentIcon(attachment.content_type) }}
+                  </span>
+                  <span class="ni-attachment-name">{{ attachment.filename || 'Attachment' }}</span>
+                  <span v-if="attachment.size_bytes != null" class="ni-attachment-size">{{
+                    formatFileSize(attachment.size_bytes)
+                  }}</span>
+                </component>
+              </div>
+            </div>
+            <ThreadMessage
+              v-else
+              :message="message"
+              :expanded="expandedThreadIds.has(message.id)"
+              @toggle="toggleThreadMessage(message.id)"
+            />
+          </template>
+        </div>
 
         <div class="ni-reader-footer">
           <button class="ni-pill-btn" @click="replyToOpenEmail">
