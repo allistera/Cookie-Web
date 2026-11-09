@@ -94,6 +94,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'person',
   'picture_as_pdf',
   'push_pin',
+  'receipt_long',
   'refresh',
   'repeat',
   'reply',

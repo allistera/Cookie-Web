@@ -291,11 +291,33 @@ describe('application shell', () => {
     const [areas, boxes] = wrapper
       .findAll('.left-sidebar .sidebar-nav')
       .map((nav) => nav.findAll('.nav-text').map((node) => node.text()))
-    expect(areas).toEqual(['AI Today', 'New senders'])
+    expect(areas).toEqual(['AI Today', 'Paper Trail', 'New senders'])
     expect(boxes).toEqual(['Inbox', 'More'])
     store.screeningCount = 0
     await nextTick()
-    expect(wrapper.findAll('.left-sidebar .sidebar-nav .nav-text')[1].text()).toBe('Inbox')
+    expect(
+      wrapper
+        .findAll('.left-sidebar .sidebar-nav .nav-text')
+        .slice(0, 3)
+        .map((node) => node.text()),
+    ).toEqual(['AI Today', 'Paper Trail', 'Inbox'])
+  })
+
+  it('opens Paper Trail as the Paper Trail label list', async () => {
+    await render()
+    const item = () =>
+      wrapper.findAll('.left-sidebar .nav-item').find((node) => node.text().includes('Paper Trail'))
+    expect(item().classes()).not.toContain('active')
+    await item().trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/inbox')
+    expect(router.currentRoute.value.query).toEqual({ filter: 'label', label: 'Paper Trail' })
+    expect(item().classes()).toContain('active')
+    // The plain Inbox item is not also marked: the route carries a filter.
+    const inbox = wrapper
+      .findAll('.left-sidebar .nav-item')
+      .find((node) => node.find('.nav-text').text() === 'Inbox')
+    expect(inbox.classes()).not.toContain('active')
   })
 
   it('pauses, resumes and undoes pending sends from the toast', async () => {

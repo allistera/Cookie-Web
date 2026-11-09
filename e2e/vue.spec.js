@@ -1229,6 +1229,51 @@ test('Reader scheduling offers Tomorrow and Next Week, then removes the email un
   await expect(page.locator('.ni-row', { hasText: 'guided tour' })).toBeVisible()
 })
 
+test('Paper Trail sits under AI Today and lists mail the classifier flagged', async ({ page }) => {
+  // The ingest classifier marks receipts with the system Paper Trail label,
+  // so the list is that label's folder. No fixture mail carries it.
+  await page.route(
+    (url) =>
+      url.pathname.endsWith('/emails') &&
+      url.searchParams.get('folder') === 'label' &&
+      url.searchParams.get('label') === 'Paper Trail',
+    (route) =>
+      route.fulfill({
+        json: {
+          emails: [
+            {
+              id: 'receipt-fixture',
+              from_name: 'Corner Shop',
+              from_address: 'orders@example.com',
+              subject: 'Your receipt for order 1042',
+              snippet: 'Thanks for your order.',
+              sent_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+              is_unread: false,
+              is_starred: false,
+              is_sent: false,
+              has_html: false,
+              labels: [{ name: 'Paper Trail', color: '#0f766e', kind: 'system' }],
+            },
+          ],
+          nextCursor: null,
+          readReceiptsAvailable: false,
+        },
+      }),
+  )
+  await page.goto('/inbox')
+  const labels = await page.locator('.sidebar-nav .nav-item .nav-text').allTextContents()
+  expect(labels.indexOf('Paper Trail')).toBe(labels.indexOf('AI Today') + 1)
+  // A system label: the sidebar's Labels section does not list it as well.
+  expect(labels.filter((label) => label === 'Paper Trail')).toHaveLength(1)
+
+  const item = page.locator('.nav-item', { hasText: 'Paper Trail' })
+  await item.click()
+  await expect(page).toHaveURL(/filter=label/)
+  await expect(item).toHaveClass(/active/)
+  await expect(page.locator('.ni-header h1')).toHaveText('Paper Trail')
+  await expect(page.locator('.ni-row', { hasText: 'Your receipt for order 1042' })).toBeVisible()
+})
+
 test('A due scheduled email appears at the top in the conditional Due Today group', async ({
   page,
 }) => {

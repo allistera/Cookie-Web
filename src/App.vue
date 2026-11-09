@@ -16,6 +16,7 @@ import { installOutboxSync, outboxPending, syncOutbox } from './lib/outbox'
 import { isOnline } from './lib/connectivity'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
+import { PAPER_TRAIL_LABEL, PAPER_TRAIL_ROUTE } from './lib/paperTrail'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
 import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
@@ -855,6 +856,16 @@ onUnmounted(() => {
             <router-link to="/" class="nav-item" :class="{ active: route.name === 'ai-inbox' }">
               <span class="material-symbols-outlined fill-icon gemini-color">auto_awesome</span>
               <span class="nav-text">AI Today</span>
+            </router-link>
+            <!-- Receipts, confirmations and transactional mail, as flagged by
+                 the ingest classifier. The same mail is still in the inbox. -->
+            <router-link
+              :to="PAPER_TRAIL_ROUTE"
+              class="nav-item"
+              :class="{ active: route.query.label === PAPER_TRAIL_LABEL }"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">receipt_long</span>
+              <span class="nav-text">Paper Trail</span>
             </router-link>
             <!-- New senders only shows while it holds mail (the count arrives
                  with the inbox state), or while it is open. -->

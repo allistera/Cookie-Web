@@ -35,6 +35,7 @@ import {
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
 import { emailBucketItem } from '../lib/bucketItems'
+import { PAPER_TRAIL_LABEL } from '../lib/paperTrail'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
@@ -237,7 +238,14 @@ const headerTitle = computed(() => {
   return FILTER_META[activeFilter.value]?.title
 })
 
-const headerIcon = computed(() => FILTER_META[activeFilter.value]?.icon)
+// Paper Trail is a label folder with its own icon and empty state.
+const isPaperTrail = computed(
+  () => activeFilter.value === 'label' && route.query.label === PAPER_TRAIL_LABEL,
+)
+
+const headerIcon = computed(() =>
+  isPaperTrail.value ? 'receipt_long' : FILTER_META[activeFilter.value]?.icon,
+)
 
 const headerIconStyle = computed(() => {
   if (activeFilter.value !== 'label') return undefined
@@ -245,7 +253,11 @@ const headerIconStyle = computed(() => {
   return label ? { color: label.color } : undefined
 })
 
-const emptyText = computed(() => FILTER_META[activeFilter.value]?.emptyText ?? '')
+const emptyText = computed(() =>
+  isPaperTrail.value
+    ? 'No receipts or confirmations yet.'
+    : (FILTER_META[activeFilter.value]?.emptyText ?? ''),
+)
 
 const emailHasAiSummary = (email) => {
   const threadId = store.messageBodies.get(email.id)?.threadId

@@ -29,14 +29,17 @@ export function bundleBudgetPlugin() {
         // when main sat 2 KB under the previous 500 KB. The Auth0 SPA SDK
         // (statically imported by @auth0/auth0-vue) grew by 8.6 KB between
         // auth0-vue 2.11 and 2.13, taking the entry from 516 KB past 520 KB
-        // with no change on the app side.
+        // with no change on the app side. By November 2026 Vercel's build of
+        // main sat about 190 bytes under 530 KB, and the Paper Trail sidebar
+        // item (about 340 bytes of always-visible chrome) took it 146 over,
+        // so both budgets that carry the entry moved up by 1 KB.
         const budget = chunk.isEntry
-          ? 530_000
+          ? 531_000
           : // The inbox view statically imports the entry, so it carries the
             // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
             // Sentry debug IDs.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 660_000
+            ? 661_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
