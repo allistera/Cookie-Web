@@ -367,9 +367,9 @@ function mockRect(element) {
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
     top: 0,
     left: 0,
-    width: 700,
+    width: 1100,
     height: 1056,
-    right: 700,
+    right: 1100,
     bottom: 1056,
     x: 0,
     y: 0,
@@ -483,9 +483,9 @@ describe('CalendarView', () => {
     expect(allDayTask.text()).toContain('Renew car insurance')
     const timedTask = wrapper.get('.day-event.task-event')
     expect(timedTask.text()).toContain('Call the bank')
-    expect(timedTask.attributes('style')).toContain('top:')
-    // Ninety minutes at the day view's 96 pixels per hour.
-    expect(timedTask.element.style.height).toBe('144px')
+    expect(timedTask.attributes('style')).toContain('left:')
+    // Ninety of the day view's 660 visible minutes (8 AM to 7 PM).
+    expect(Number.parseFloat(timedTask.element.style.width)).toBeCloseTo((90 / 660) * 100, 3)
 
     const tasksToggle = wrapper
       .findAll('.calendar-list-item')
@@ -499,6 +499,49 @@ describe('CalendarView', () => {
     expect(wrapper.find('.task-event').exists()).toBe(true)
   })
 
+  it('lays the day out left to right, with each event a column labelled with its times', async () => {
+    const wrapper = await mountCalendar()
+
+    expect(wrapper.findAll('.day-hour-label').map((label) => label.text())).toEqual([
+      '8 AM',
+      '9 AM',
+      '10 AM',
+      '11 AM',
+      '12 PM',
+      '1 PM',
+      '2 PM',
+      '3 PM',
+      '4 PM',
+      '5 PM',
+      '6 PM',
+      '7 PM',
+    ])
+
+    // 9:00 to 9:30 AM: one hour into the 11 visible hours, half an hour wide,
+    // and the lane's full height as nothing overlaps it.
+    const standup = wrapper
+      .findAll('.day-event')
+      .find((event) => event.get('strong').text() === 'Standup')
+    expect(Number.parseFloat(standup.element.style.left)).toBeCloseTo((1 / 11) * 100, 3)
+    expect(Number.parseFloat(standup.element.style.width)).toBeCloseTo((0.5 / 11) * 100, 3)
+    expect(standup.element.style.top).toBe('0%')
+    expect(standup.element.style.height).toBe('100%')
+    expect(standup.get('.day-event-time').text()).toBe('9:00 AM – 9:30 AM')
+  })
+
+  it('stacks overlapping day events in rows instead of covering one with another', async () => {
+    const wrapper = await mountCalendar()
+    const byTitle = (title) =>
+      wrapper.findAll('.day-event').find((event) => event.get('strong').text() === title).element
+        .style
+
+    // The 3:00 to 4:30 PM task overlaps the 4:00 PM review.
+    const task = byTitle('Call the bank')
+    const review = byTitle('Recurring review')
+    expect([task.top, task.height]).toEqual(['0%', '50%'])
+    expect([review.top, review.height]).toEqual(['50%', '50%'])
+  })
+
   it('shows the next-day portion of an overnight estimate in timed lanes', async () => {
     mockCalendarApi({ tasks: [{ ...SEED_TASKS[1], dueTime: '10:00', durationMinutes: 1440 }] })
     const wrapper = await mountCalendar()
@@ -506,8 +549,9 @@ describe('CalendarView', () => {
     await flushPromises()
     const task = wrapper.get('.day-event.task-event')
     expect(task.text()).toContain('Call the bank')
-    expect(task.element.style.top).toBe('0px')
-    expect(task.element.style.height).toBe('192px')
+    // Midnight to 10 AM, of which the visible hours show 8 AM to 10 AM.
+    expect(task.element.style.left).toBe('0%')
+    expect(Number.parseFloat(task.element.style.width)).toBeCloseTo((120 / 660) * 100, 3)
     expect(wrapper.find('.all-day-event.task-event').exists()).toBe(false)
   })
 
@@ -684,9 +728,10 @@ describe('CalendarView', () => {
     try {
       const wrapper = await mountCalendar()
 
-      // 10:30 AM is 2.5 hours past the 8 AM grid start, at 96px per hour.
+      // 10:30 AM is 2.5 hours into the day view's 11 visible hours, which run
+      // left to right.
       const dayLine = wrapper.get('.day-current-time')
-      expect(dayLine.element.style.top).toBe('240px')
+      expect(Number.parseFloat(dayLine.element.style.left)).toBeCloseTo((2.5 / 11) * 100, 3)
       expect(dayLine.attributes('aria-label')).toBe('Current time 10:30 AM')
 
       await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
@@ -1196,10 +1241,14 @@ describe('CalendarView', () => {
     const lane = wrapper.get('.day-event-lane')
     mockRect(lane.element)
 
-    // DAY_HOUR_HEIGHT is 96px/hour starting at 8 AM: clientY 96 -> 9:00, clientY 192 -> 10:00.
-    await lane.trigger('mousedown', { clientY: 96, button: 0 })
-    await lane.trigger('mousemove', { clientY: 192, button: 0 })
-    await lane.trigger('mouseup', { clientY: 192, button: 0 })
+    // The lane's 1100px hold the 11 visible hours from 8 AM, left to right:
+    // clientX 100 -> 9:00, clientX 200 -> 10:00.
+    await lane.trigger('mousedown', { clientX: 100, button: 0 })
+    await lane.trigger('mousemove', { clientX: 200, button: 0 })
+    const preview = wrapper.get('.day-event.drag-preview').element.style
+    expect(Number.parseFloat(preview.left)).toBeCloseTo((1 / 11) * 100, 3)
+    expect(Number.parseFloat(preview.width)).toBeCloseTo((1 / 11) * 100, 3)
+    await lane.trigger('mouseup', { clientX: 200, button: 0 })
 
     expect(wrapper.find('.new-event-datetime').exists()).toBe(true)
     const timeInputs = wrapper.findAll('input[type="time"]')
@@ -1240,8 +1289,8 @@ describe('CalendarView', () => {
     const lane = wrapper.get('.day-event-lane')
     mockRect(lane.element)
 
-    await lane.trigger('mousedown', { clientY: 288, button: 0 })
-    await lane.trigger('mouseup', { clientY: 288, button: 0 })
+    await lane.trigger('mousedown', { clientX: 300, button: 0 })
+    await lane.trigger('mouseup', { clientX: 300, button: 0 })
 
     const timeInputs = wrapper.findAll('input[type="time"]')
     expect(timeInputs[0].element.value).toBe('11:00')
@@ -1403,7 +1452,9 @@ describe('CalendarView', () => {
     expect(reloaded.text()).toContain('Board game night')
     expect(reloaded.text()).toContain('Standup')
 
-    const standup = reloaded.findAll('.day-event').find((event) => event.text() === 'Standup')
+    const standup = reloaded
+      .findAll('.day-event')
+      .find((event) => event.get('strong').text() === 'Standup')
     await standup.trigger('click')
     await reloaded.get('.new-event-delete').trigger('click')
     await flushPromises()
