@@ -89,9 +89,10 @@ watch(
     <p class="settings-section-hint sender-hint">
       Only senders you explicitly Accept are known. Past incoming mail, contacts and sent mail do
       not automatically grant trust. Held mail waits in
-      <router-link to="/inbox?filter=screening">New senders</router-link>, and
-      <router-link to="/inbox?filter=blocked">Blocked mail</router-link> is kept until you delete
-      it. Turning screening off only changes future arrivals.
+      <router-link to="/inbox?filter=screening">New senders</router-link> until you decide, and
+      <router-link to="/inbox?filter=blocked">Blocked mail</router-link> is deleted after the number
+      of days set under <router-link to="/settings/spam">Spam</router-link>. Turning screening off
+      only changes future arrivals.
     </p>
     <details class="sender-details">
       <summary>How decisions are applied</summary>

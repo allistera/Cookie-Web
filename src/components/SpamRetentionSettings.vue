@@ -33,7 +33,9 @@ async function saveSpamRetention() {
   isSavingSpamRetention.value = true
   try {
     await store.saveSpamRetention(days)
-    store.notify(`Spam will be deleted after ${days} ${days === 1 ? 'day' : 'days'}.`)
+    store.notify(
+      `Spam and blocked mail will be deleted after ${days} ${days === 1 ? 'day' : 'days'}.`,
+    )
   } catch (error) {
     console.error('Failed to save spam retention:', error)
     spamRetentionError.value = 'Could not save. Please try again.'
@@ -45,16 +47,16 @@ async function saveSpamRetention() {
 
 <template>
   <section class="settings-section" data-testid="spam-section">
-    <h3 class="settings-section-title">Delete spam automatically</h3>
+    <h3 class="settings-section-title">Delete spam and blocked mail automatically</h3>
     <p class="settings-section-hint">
-      Mail in Spam is deleted once it has been there this many days. The default is
-      {{ store.spamRetentionBounds.defaultDays }} days. Anything you mark Not spam before then is
-      kept.
+      Mail in Spam or Blocked is deleted once it has been there this many days. The default is
+      {{ store.spamRetentionBounds.defaultDays }} days. Anything you mark Not spam, or whose sender
+      you unblock, before then is kept.
     </p>
 
     <form class="spam-retention" @submit.prevent="saveSpamRetention">
       <label class="spam-retention-field">
-        <span>Delete spam after</span>
+        <span>Delete after</span>
         <input
           v-model="spamRetentionDraft"
           class="label-input spam-retention-input"
@@ -64,7 +66,7 @@ async function saveSpamRetention() {
           :max="store.spamRetentionBounds.maxDays"
           step="1"
           :disabled="isSavingSpamRetention"
-          aria-label="Days to keep spam before deleting it"
+          aria-label="Days to keep spam and blocked mail before deleting it"
         />
         <span>days</span>
       </label>

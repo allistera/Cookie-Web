@@ -478,7 +478,7 @@ test('Settings AI Today pane changes the enrichment model and schedule', async (
   await expect(pane.getByLabel('Schedule interval')).toHaveValue('3')
 })
 
-test('Settings Spam pane changes how long spam is kept, and the change survives a reload', async ({
+test('Settings Spam pane changes how long spam and blocked mail are kept, and the change survives a reload', async ({
   page,
 }) => {
   const saved = []
@@ -500,7 +500,7 @@ test('Settings Spam pane changes how long spam is kept, and the change survives 
   await save.click()
 
   await expect(
-    page.locator('.toast', { hasText: 'Spam will be deleted after 14 days.' }),
+    page.locator('.toast', { hasText: 'Spam and blocked mail will be deleted after 14 days.' }),
   ).toBeVisible()
   expect(saved).toEqual([{ spamRetentionDays: 14 }])
 
