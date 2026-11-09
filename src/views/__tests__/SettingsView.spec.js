@@ -893,7 +893,7 @@ describe('SettingsView', () => {
       await openPane(wrapper, 'spam')
       const pane = wrapper.find('[data-testid="spam-section"]')
       expect(pane.exists()).toBe(true)
-      expect(pane.text()).toContain('Delete spam automatically')
+      expect(pane.text()).toContain('Delete spam and blocked mail automatically')
       expect(pane.find('input[type="number"]').element.value).toBe('30')
       expect(pane.find('button[type="submit"]').attributes('disabled')).toBeDefined()
     })
@@ -921,7 +921,9 @@ describe('SettingsView', () => {
         }),
       )
       expect(store.spamRetentionDays).toBe(14)
-      expect(store.toasts.at(-1).message).toBe('Spam will be deleted after 14 days.')
+      expect(store.toasts.at(-1).message).toBe(
+        'Spam and blocked mail will be deleted after 14 days.',
+      )
     })
 
     it('refuses an out-of-range value without calling the server', async () => {

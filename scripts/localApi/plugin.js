@@ -290,7 +290,7 @@ export function localApiPlugin(mode) {
       res.end(JSON.stringify(state.composePreferences))
       return
     }
-    // GET/PUT /emails/spam-retention: how long spam is kept, stored per
+    // GET/PUT /emails/spam-retention: how long spam and blocked mail are kept, stored per
     // fixture session like the Worker stores it in users.prefs.
     if (isSpamRetention) {
       if (req.method === 'PUT') {
