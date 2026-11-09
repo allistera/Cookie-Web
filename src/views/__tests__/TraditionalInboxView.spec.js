@@ -4686,6 +4686,31 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     expect(wrapper.get('.ni-title-icon').attributes('style')).toContain('rgb(18, 52, 86)')
   })
 
+  it('gives the Paper Trail label list its own icon and empty state', async () => {
+    const load = vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
+    await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Paper Trail' } })
+    wrapper = mountView()
+    expect(load).toHaveBeenCalledWith('Paper Trail')
+    expect(wrapper.get('.ni-title-icon').text()).toBe('receipt_long')
+    expect(wrapper.get('h1').text()).toBe('Paper Trail')
+    expect(wrapper.text()).toContain('No receipts or confirmations yet.')
+
+    store.labelEmails = [
+      {
+        id: 'receipt-1',
+        sender: 'Shop',
+        address: 'shop@example.com',
+        subject: 'Your receipt',
+        snippet: 'Thanks for your order',
+        sentAt: new Date().toISOString(),
+        labels: [{ name: 'Paper Trail', color: '#0f766e', kind: 'system' }],
+      },
+    ]
+    await nextTick()
+    expect(wrapper.findAll('.ni-row')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('No receipts or confirmations yet.')
+  })
+
   it('marks a day read from the keyboard without collapsing it', async () => {
     const unread = vi.spyOn(store, 'setUnread')
     wrapper = mountView()
