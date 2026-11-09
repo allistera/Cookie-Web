@@ -1373,17 +1373,24 @@ test('Snoozed groups emails by their snooze target with both groups expanded', a
   await expect(page.locator('.ni-row', { hasText: 'Next-week reminder' })).toBeVisible()
 })
 
-test('Reply slides an inline reply box under the email instead of opening the composer', async ({
+test('Reply slides an inline reply box above the conversation instead of opening the composer', async ({
   page,
 }) => {
   await page.goto('/inbox')
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
 
   const reader = page.locator('.ni-reader')
+  await expect(reader.locator('.ni-thread-toolbar')).toContainText('2 messages')
   await reader.locator('.ni-reader-footer .ni-pill-btn', { hasText: 'Reply' }).click()
 
+  // The conversation runs latest first, so the box opens above it, next to the
+  // newest message, and the reader scrolls back up to it from the footer.
   const replyBox = reader.locator('.ni-reply-box')
-  await expect(replyBox).toBeVisible()
+  await expect(replyBox).toBeInViewport()
+  await expect(replyBox.locator('.composer-editor')).toBeFocused()
+  const replyBounds = await replyBox.boundingBox()
+  const conversationBounds = await reader.locator('.ni-conversation').boundingBox()
+  expect(replyBounds.y + replyBounds.height).toBeLessThanOrEqual(conversationBounds.y)
   // The old composer toast must NOT open
   await expect(page.locator('#composerToast.active')).toHaveCount(0)
 
@@ -1464,7 +1471,7 @@ for (const width of [1280, 390]) {
   })
 }
 
-test('Important reply draft is ready beneath the email, keeps edits on reload, and sends only on click', async ({
+test('Important reply draft is ready above the email, keeps edits on reload, and sends only on click', async ({
   page,
 }) => {
   let draft = {

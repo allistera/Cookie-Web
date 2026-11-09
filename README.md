@@ -528,7 +528,7 @@ also lands in your browser history.
 
 When Cookie classifies an incoming email as high priority, it prepares a reply
 using the existing AI key and saves it in Drafts. Open the email to see the
-editable **AI draft** beneath the conversation, with **Send** and **Discard**.
+editable **AI draft** above the conversation, with **Send** and **Discard**.
 Only clicking Send sends the reply. Edits are saved when switching emails and
 can be resumed after reloading.
 
