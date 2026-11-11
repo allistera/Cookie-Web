@@ -2449,7 +2449,11 @@ export function localApiPlugin(mode) {
           description: body.description ?? null,
           dueDate: hasDue ? String(body.dueDate) : null,
           dueTime: body.dueTime ?? null,
-          durationMinutes: body.durationMinutes ?? null,
+          // As the real handler: 30 minutes unless the body mentions an estimate.
+          durationMinutes:
+            kind === 'task' && !Object.hasOwn(body, 'durationMinutes')
+              ? 30
+              : (body.durationMinutes ?? null),
           timeZone: body.dueTime ? (body.timeZone ?? null) : null,
           labels: Array.isArray(body.labels) ? [...new Set(body.labels)] : [],
           priority: body.priority ?? 4,

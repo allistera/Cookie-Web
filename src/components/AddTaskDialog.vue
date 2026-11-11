@@ -11,6 +11,8 @@ import { PRIORITIES } from '../lib/taskPriority'
 import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useModalFocus } from '../composables/useModalFocus'
 
+// Matches DEFAULT_DURATION_MINUTES in the task Worker.
+const DEFAULT_DURATION_MINUTES = 30
 const emit = defineEmits(['close'])
 const items = useTaskItemsStore()
 const projects = useProjectsStore()
@@ -28,7 +30,7 @@ const draft = ref({
   projectId: null,
   dueDate: '',
   dueTime: '',
-  durationMinutes: null,
+  durationMinutes: DEFAULT_DURATION_MINUTES,
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   priority: 4,
   recurrence: '',
@@ -102,7 +104,10 @@ async function submit() {
       task.timeZone =
         draft.value.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     }
-    if (draft.value.durationMinutes != null) task.durationMinutes = draft.value.durationMinutes
+    // Sent only when changed: the task Worker applies the same default, and a
+    // cleared field goes as null so the task is created with no estimate.
+    if (draft.value.durationMinutes !== DEFAULT_DURATION_MINUTES)
+      task.durationMinutes = draft.value.durationMinutes
     if (draft.value.priority !== 4) task.priority = draft.value.priority
     if (draft.value.recurrence?.trim()) task.recurrence = draft.value.recurrence.trim()
     if (draft.value.labels?.length) task.labels = draft.value.labels

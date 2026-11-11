@@ -623,7 +623,9 @@ Document blocks become interactive only after Editor.js has installed its change
 Use **Estimated time** in the task detail sidebar to choose 15, 30 or 45 minutes,
 1 hour or 2 hours. Select the active preset again to clear it, or choose **Custom**
 to enter 1–1440 minutes and clear that input to remove the estimate. The
-**Advanced** Add Task form also accepts an estimated duration. Estimates can
+**Advanced** Add Task form also accepts an estimated duration. A new task is
+estimated at 30 minutes unless another value is given; clear the field in the
+Advanced form to create a task with no estimate. Estimates can
 be saved before scheduling a task and are preserved when duplicating a task or
 completing a recurring occurrence. In Calendar, a task with a due time occupies
 its estimated duration, defaulting to 30 minutes when no estimate is set. Tasks
