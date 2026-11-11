@@ -545,3 +545,29 @@ Apply the migration before deploying `cookie-web-tasks`, then deploy Cookie-Web.
 schema-derived metadata row comparisons and separate body comparisons. Index
 stamp-only updates still skip realtime pings. Future migrations adding message
 columns should regenerate this function so those fields participate too.
+
+## Database health snapshot and slow-statement logging (0112)
+
+`0112_db_query_stats.sql` creates `db_query_stats`, the previous reading of
+`pg_stat_statements`: one row per statement with its call count and total
+execution time. Cookie-Worker's `mail-app-ingest` cron compares the live
+counters with it every 15 minutes to find statements that have become slower
+than their own history, then replaces it. The table holds counters only, never
+query text, and no API role can read it. Until the migration is applied the
+Worker skips that comparison and logs `db_query_stats_unavailable`, so the two
+can be deployed in either order.
+
+The migration also sets four logging parameters on the role it runs as, which
+is the role the Workers connect with:
+
+| Setting                                 | Value     | Effect                                                    |
+| --------------------------------------- | --------- | --------------------------------------------------------- |
+| `log_min_duration_statement`            | `1000` ms | Statements that take a second or longer are logged        |
+| `auto_explain.log_min_duration`         | `1000` ms | Their execution plan is logged too (the default was 10 s) |
+| `log_parameter_max_length`              | `0`       | Bound parameter values are left out of those log lines    |
+| `auto_explain.log_parameter_max_length` | `0`       | Bound parameter values are left out of the logged plans   |
+
+The lines go to the project's own Postgres logs in Supabase. Both parameter
+settings are zero so mail content and addresses bound to a slow statement are
+never written there. They apply to new sessions. To undo one, run
+`ALTER ROLE postgres RESET <setting>;`.
