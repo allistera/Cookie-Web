@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TaskSchedulePicker from '../TaskSchedulePicker.vue'
+import { SOMEDAY } from '../../lib/taskSomeday'
 
 // A Friday, so the shortcuts have known answers.
 const TODAY = new Date(2026, 9, 16, 10, 0, 0)
@@ -105,6 +106,28 @@ describe('TaskSchedulePicker', () => {
     await open(wrapper)
     await wrapper.get('.task-schedule-nodate').trigger('click')
     expect(wrapper.emitted('update:dueDate').at(-1)).toEqual([null])
+  })
+
+  it('offers Someday, and gives a someday task no calendar day, time or repeat', async () => {
+    const wrapper = mountPicker()
+    await open(wrapper)
+    expect(wrapper.find('.task-schedule-foot').exists()).toBe(true)
+    await shortcut(wrapper, 'someday').trigger('click')
+    expect(wrapper.emitted('update:dueDate')).toEqual([[SOMEDAY]])
+
+    await wrapper.setProps({ dueDate: SOMEDAY })
+    expect(wrapper.get('.task-panel-schedule').text()).toContain('Someday')
+    await open(wrapper)
+    expect(wrapper.get('.task-panel-date-input').element.value).toBe('Someday')
+    // The calendar stays on the year ahead rather than running to the stored date.
+    expect(wrapper.get('.task-schedule-calendar-head strong').text()).toBe('Oct 2026')
+    expect(wrapper.findAll('.task-schedule-month')).toHaveLength(12)
+    expect(wrapper.find('.task-schedule-day.selected').exists()).toBe(false)
+    expect(wrapper.find('.task-schedule-foot').exists()).toBe(false)
+
+    await wrapper.get('.task-panel-date-input').setValue('someday')
+    await wrapper.get('.task-panel-date-input').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:dueDate')).toHaveLength(1)
   })
 
   it('does not re-emit the date the task already has', async () => {

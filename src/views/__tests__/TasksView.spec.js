@@ -7,6 +7,7 @@ import TasksView from '../TasksView.vue'
 import { useProjectsStore } from '../../stores/projects'
 import { localToday } from '../../lib/localDate'
 import { addDays } from '../../lib/taskFilters'
+import { SOMEDAY } from '../../lib/taskSomeday'
 import { useTaskFiltersStore } from '../../stores/taskFilters'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
@@ -323,6 +324,19 @@ describe('TasksView', () => {
     await flushPromises()
 
     expect(wrapper.get('.task-due').text()).toBe('1 Sep')
+  })
+
+  it('reads a someday task as Someday on the row', async () => {
+    const items = useTaskItemsStore()
+    items.items = [
+      { id: 'a', content: 'First', description: null, dueDate: SOMEDAY, projectId: 'p2' },
+    ]
+    items.loadedProject = 'p2'
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.task-due').text()).toBe('Someday')
+    expect(wrapper.get('.task-due').classes()).not.toContain('overdue')
   })
 
   it('shows a due time and labels on the task row', async () => {
@@ -1258,6 +1272,10 @@ describe('selecting several tasks', () => {
     await pill('Reschedule').trigger('click')
     await menuItem('Tomorrow').trigger('click')
     expect(reschedule).toHaveBeenCalledWith(['t1', 't3'], addDays(localToday(), 1))
+
+    await pill('Reschedule').trigger('click')
+    await menuItem('Someday').trigger('click')
+    expect(reschedule).toHaveBeenLastCalledWith(['t1', 't3'], SOMEDAY)
 
     await pill('Priority').trigger('click')
     await menuItem('Priority 1').trigger('click')

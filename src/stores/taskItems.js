@@ -9,6 +9,7 @@ import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlin
 import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import { filterIdOf, isFilterProject, taskMatchesFilter } from '../lib/taskFilters'
 import { dealPositions, sortForList } from '../lib/taskOrder'
+import { isSomeday } from '../lib/taskSomeday'
 import { useInboxStore } from './inbox'
 import { useProjectsStore } from './projects'
 import { useTaskFiltersStore } from './taskFilters'
@@ -512,8 +513,12 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // `dueDate` is 'YYYY-MM-DD', or null to clear it. The server refuses
     // anything else rather than clearing the date, so a rejection here is a
     // real error worth surfacing.
+    // Someday is no real day, so it drops the time and the repeat with it.
     setDueDate(id, dueDate) {
-      return this.patchItem(id, { dueDate }, { dueDate }, 'Failed to set the date.')
+      const patch = isSomeday(dueDate)
+        ? { dueDate, dueTime: null, timeZone: null, recurrence: null }
+        : { dueDate }
+      return this.patchItem(id, patch, patch, 'Failed to set the date.')
     },
 
     setRecurrence(id, recurrence) {

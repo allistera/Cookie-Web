@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AddTaskDialog from '../AddTaskDialog.vue'
+import { SOMEDAY } from '../../lib/taskSomeday'
 import { useProjectsStore } from '../../stores/projects'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { useTaskLabelsStore } from '../../stores/taskLabels'
@@ -155,6 +156,31 @@ describe('AddTaskDialog natural-language quick add', () => {
     expect(wrapper.get('[aria-label="Priority"]').element.value).toBe('1')
     expect(wrapper.findAll('.task-label-chip-text').map((chip) => chip.text())).toEqual(['@home'])
     expect(wrapper.get('.task-repeat input').element.value).toBe('every friday')
+    wrapper.unmount()
+  })
+
+  it('adds a someday task without a day, time or repeat', async () => {
+    vi.spyOn(items, 'interpretItem').mockResolvedValue(parsedTask({ recurrence: 'every friday' }))
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+    const wrapper = mountDialog()
+
+    await wrapper.get('[aria-label="Describe your task"]').setValue('Call plumber Friday 3pm')
+    await wrapper.get('button.add-task-advanced').trigger('click')
+    await flushPromises()
+    await wrapper.get('.add-task-someday input').setValue(true)
+
+    expect(wrapper.get('[aria-label="Due date"]').element.value).toBe('')
+    expect(wrapper.get('[aria-label="Due date"]').element.disabled).toBe(true)
+    expect(wrapper.get('[aria-label="Due time"]').element.disabled).toBe(true)
+    expect(wrapper.get('.task-repeat input').element.disabled).toBe(true)
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const task = create.mock.calls[0][0]
+    expect(task.dueDate).toBe(SOMEDAY)
+    expect(task).not.toHaveProperty('dueTime')
+    expect(task).not.toHaveProperty('recurrence')
     wrapper.unmount()
   })
 
