@@ -1,5 +1,6 @@
 <script setup>
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
+import { gapLabel, gapsBetween } from '../utils/calendarGaps'
 import { assignLanes } from '../utils/calendarLanes'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -23,6 +24,7 @@ import {
   taskToCalendarItems,
   taskCalendarWindows,
 } from '../lib/taskCalendarItems'
+import { SOMEDAY } from '../lib/taskSomeday'
 
 const store = useInboxStore()
 const buckets = useBucketsStore()
@@ -206,6 +208,102 @@ async function loadCalendarTasks(from, to) {
     // Tasks are an overlay on the calendar: a failure keeps the events
     // readable rather than blocking them.
     console.error('Failed to load tasks for the calendar:', error)
+  }
+}
+
+// Tasks put off to Someday have no day to sit on, so they line the foot of
+// the calendar in every view, under the same Tasks toggle as dated tasks.
+// They are read once, when the calendar opens: a task ticked here stays in
+// the row, ticked, so a slip can be undone, and is gone the next time.
+const somedayTasks = ref([])
+// The text of a Someday task being typed into the row, or null when the row
+// shows its add button instead.
+const somedayDraft = ref(null)
+const somedayInput = ref(null)
+const somedaySaving = ref(false)
+
+const somedayTask = ({ id, projectId, content }) => ({
+  id,
+  // The Tasks app addresses the Inbox by name rather than a null project.
+  projectId: projectId ?? 'inbox',
+  content,
+  done: false,
+  saving: false,
+})
+
+async function loadSomedayTasks() {
+  try {
+    const headers = await store.authHeaders()
+    const response = await fetch(
+      `${TASKS_API_URL}/task-items?view=calendar&from=${SOMEDAY}&to=${SOMEDAY}`,
+      { headers },
+    )
+    if (!response.ok) throw new Error(`GET /task-items?view=calendar responded ${response.status}`)
+    const { items } = await response.json()
+    somedayTasks.value = (Array.isArray(items) ? items : []).map(somedayTask)
+  } catch (error) {
+    // Like dated tasks, an overlay: the calendar stays readable without it.
+    console.error('Failed to load Someday tasks for the calendar:', error)
+  }
+}
+
+async function writeTask(method, body) {
+  const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+  const response = await fetch(`${TASKS_API_URL}/task-items`, {
+    method,
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`${method} /task-items responded ${response.status}`)
+  return response.json()
+}
+
+async function toggleSomedayTask(task) {
+  if (task.saving) return
+  const done = !task.done
+  task.done = done
+  task.saving = true
+  try {
+    await writeTask('PATCH', { id: task.id, completed: done })
+  } catch (error) {
+    task.done = !done
+    console.error('Failed to update a Someday task:', error)
+    store.notify('Failed to update the task.', 'error')
+  } finally {
+    task.saving = false
+  }
+}
+
+function openSomedayTask(task) {
+  router?.push({ path: '/tasks', query: { project: task.projectId, task: task.id } })
+}
+
+async function startSomedayTask() {
+  somedayDraft.value = ''
+  await nextTick()
+  somedayInput.value?.focus()
+}
+
+// Leaving the field empty puts the add button back; text typed into it is
+// kept until it is saved or Escape drops it.
+function leaveSomedayTask() {
+  if (!somedaySaving.value && !somedayDraft.value?.trim()) somedayDraft.value = null
+}
+
+async function addSomedayTask() {
+  const content = somedayDraft.value?.trim()
+  if (!content || somedaySaving.value) return
+  somedaySaving.value = true
+  try {
+    const { item } = await writeTask('POST', { content, dueDate: SOMEDAY })
+    somedayTasks.value.push(somedayTask(item))
+    // The field stays open, empty, for the next one.
+    somedayDraft.value = ''
+  } catch (error) {
+    console.error('Failed to create a Someday task:', error)
+    store.notify('Failed to create the task.', 'error')
+  } finally {
+    somedaySaving.value = false
   }
 }
 
@@ -512,6 +610,19 @@ const dayEventItems = computed(() => {
   assignLanes(items.filter((item) => item.end > item.start))
   return items
 })
+
+// How long the breaks between the day's events are, named in the lane where
+// each one falls. A break under an hour is too narrow to carry its label.
+const LABELLED_GAP_MINUTES = 60
+const dayGaps = computed(() =>
+  gapsBetween(dayEventItems.value.filter((item) => item.end > item.start))
+    .filter((gap) => gap.end - gap.start >= LABELLED_GAP_MINUTES)
+    .map((gap) => ({
+      start: gap.start,
+      label: gapLabel(gap.end - gap.start),
+      style: { left: dayOffset(gap.start), width: dayShare(gap.end - gap.start) },
+    })),
+)
 
 const dayEventStyle = ({ event, start, end, lane, lanes }) => {
   if (end <= start) return { display: 'none' }
@@ -1150,6 +1261,7 @@ onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
   document.addEventListener('visibilitychange', onVisibilityChange)
   nowTimer = setInterval(onMinuteTick, 60_000)
+  void loadSomedayTasks()
   await Promise.all([loadVisibleCalendars(), loadEvents()])
   if (!unmounted) {
     calendarReady.value = true
@@ -1213,217 +1325,116 @@ onUnmounted(() => {
     </aside>
     <SidebarResizer />
 
-    <div class="calendar-content">
-      <div class="calendar-page">
-        <header class="calendar-page-header" :class="{ 'is-month': viewMode === 'month' }">
-          <span class="calendar-eyebrow">Calendar</span>
+    <div class="calendar-main">
+      <div class="calendar-content">
+        <div class="calendar-page">
+          <header class="calendar-page-header" :class="{ 'is-month': viewMode === 'month' }">
+            <span class="calendar-eyebrow">Calendar</span>
 
-          <div class="calendar-toolbar">
-            <div class="calendar-date-controls">
-              <h1>{{ headerTitle }}</h1>
-              <div class="calendar-navigation" aria-label="Calendar navigation">
-                <button type="button" aria-label="Previous period" @click="navigate(-1)">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m14.5 5-7 7 7 7" />
-                  </svg>
-                </button>
-                <button type="button" aria-label="Next period" @click="navigate(1)">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m9.5 5 7 7-7 7" />
-                  </svg>
-                </button>
-                <button type="button" class="today-button" @click="goToday">Today</button>
+            <div class="calendar-toolbar">
+              <div class="calendar-date-controls">
+                <h1>{{ headerTitle }}</h1>
+                <div class="calendar-navigation" aria-label="Calendar navigation">
+                  <button type="button" aria-label="Previous period" @click="navigate(-1)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m14.5 5-7 7 7 7" />
+                    </svg>
+                  </button>
+                  <button type="button" aria-label="Next period" @click="navigate(1)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m9.5 5 7 7-7 7" />
+                    </svg>
+                  </button>
+                  <button type="button" class="today-button" @click="goToday">Today</button>
+                </div>
               </div>
-            </div>
 
-            <div class="calendar-header-actions">
-              <div class="calendar-view-tabs" aria-label="Calendar view">
+              <div class="calendar-header-actions">
+                <div class="calendar-view-tabs" aria-label="Calendar view">
+                  <button
+                    v-for="mode in ['day', 'week', 'month']"
+                    :key="mode"
+                    type="button"
+                    :class="{ active: viewMode === mode }"
+                    :aria-pressed="viewMode === mode"
+                    @click="setView(mode)"
+                  >
+                    {{ mode.charAt(0).toUpperCase() + mode.slice(1) }}
+                  </button>
+                </div>
+
                 <button
-                  v-for="mode in ['day', 'week', 'month']"
-                  :key="mode"
+                  v-if="viewMode === 'month'"
                   type="button"
-                  :class="{ active: viewMode === mode }"
-                  :aria-pressed="viewMode === mode"
-                  @click="setView(mode)"
+                  class="new-event-button month-new-event-button"
+                  @click="openNewEvent()"
                 >
-                  {{ mode.charAt(0).toUpperCase() + mode.slice(1) }}
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  New event
                 </button>
               </div>
-
-              <button
-                v-if="viewMode === 'month'"
-                type="button"
-                class="new-event-button month-new-event-button"
-                @click="openNewEvent()"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                New event
-              </button>
             </div>
-          </div>
-        </header>
+          </header>
 
-        <p v-if="eventsTruncated" role="status" class="calendar-truncation-notice">
-          Some events could not be shown. View a shorter date range or select fewer calendars.
-        </p>
+          <p v-if="eventsTruncated" role="status" class="calendar-truncation-notice">
+            Some events could not be shown. View a shorter date range or select fewer calendars.
+          </p>
 
-        <section
-          v-if="viewMode !== 'week'"
-          class="calendar-insights"
-          aria-label="Calendar insights"
-        >
-          <article v-if="conflictVisible && detectedConflict" class="calendar-insight-card">
-            <span class="insight-icon conflict-icon material-symbols-outlined" aria-hidden="true">
-              warning_amber
-            </span>
-            <div class="insight-copy">
-              <h2>Scheduling conflict</h2>
-              <p>
-                "{{ detectedConflict.laterTitle }}" overlaps "{{ detectedConflict.earlierTitle }}"
-                by {{ detectedConflict.overlapMinutes }} min on {{ detectedConflict.dayLabel }}.
-              </p>
-              <button type="button" class="primary-small-button" @click="conflictVisible = false">
-                Resolve
-              </button>
-            </div>
-          </article>
-
-          <article v-if="autoScheduledCount > 0" class="calendar-insight-card auto-scheduled-card">
-            <span class="insight-icon auto-icon material-symbols-outlined" aria-hidden="true"
-              >bolt</span
-            >
-            <div class="insight-copy">
-              <h2>Auto-scheduled</h2>
-              <p>
-                Cookie booked {{ autoScheduledCount }}
-                {{ autoScheduledCount === 1 ? 'event' : 'events' }} this week around your
-                availability.
-              </p>
-            </div>
-          </article>
-        </section>
-
-        <section
-          v-if="viewMode === 'day'"
-          class="day-calendar calendar-surface"
-          aria-label="Day view"
-        >
-          <h2>{{ formatLongDate(selectedDate) }}</h2>
-          <div
-            v-if="allDayEventsForDay.length"
-            class="all-day-row"
-            role="group"
-            aria-label="All-day events"
+          <section
+            v-if="viewMode !== 'week'"
+            class="calendar-insights"
+            aria-label="Calendar insights"
           >
-            <button
-              v-for="event in allDayEventsForDay"
-              :key="event.id"
-              type="button"
-              class="calendar-event all-day-event"
-              :class="[`tone-${event.tone || 'default'}`, { 'task-event': event.kind === 'task' }]"
-              :style="eventColorVars(event)"
-              @click="editEvent(event)"
-            >
-              <span
-                v-if="event.kind === 'task'"
-                class="material-symbols-outlined task-event-icon"
-                aria-hidden="true"
-                >check_box_outline_blank</span
-              >
-              {{ event.title }}
-            </button>
-          </div>
-          <div class="day-timeline">
-            <div class="day-hour-axis">
-              <span
-                v-for="hour in hours"
-                :key="hour"
-                class="day-hour-label"
-                :style="{ left: dayOffset(hour * 60) }"
-              >
-                {{ timeLabel(hour) }}
+            <article v-if="conflictVisible && detectedConflict" class="calendar-insight-card">
+              <span class="insight-icon conflict-icon material-symbols-outlined" aria-hidden="true">
+                warning_amber
               </span>
-            </div>
-            <div
-              class="day-event-lane"
-              @mousedown.self="(event) => beginDrag(event, selectedDate, 'day')"
-            >
-              <div
-                v-for="hour in hours"
-                :key="hour"
-                class="day-hour-line"
-                :style="{ left: dayOffset(hour * 60) }"
-              ></div>
-              <button
-                v-for="item in dayEventItems"
-                :key="item.event.id"
-                type="button"
-                class="calendar-event day-event"
-                :class="[
-                  `tone-${item.event.tone || 'default'}`,
-                  { 'task-event': item.event.kind === 'task' },
-                ]"
-                :style="dayEventStyle(item)"
-                @click="editEvent(item.event)"
-              >
-                <span class="day-event-label">
-                  <span class="day-event-time">{{ eventTimeRange(item.event) }}</span>
-                  <span class="day-event-title">
-                    <span
-                      v-if="item.event.kind === 'task'"
-                      class="material-symbols-outlined task-event-icon"
-                      aria-hidden="true"
-                      >check_box_outline_blank</span
-                    >
-                    <strong>{{ item.event.title }}</strong>
-                  </span>
-                </span>
-              </button>
-              <div
-                v-if="dayDragPreviewStyle"
-                class="calendar-event day-event drag-preview"
-                :style="dayDragPreviewStyle"
-              ></div>
-              <div
-                v-if="isToday(selectedDate) && nowVisible"
-                class="current-time-line day-current-time"
-                :style="dayCurrentTimeStyle"
-                :aria-label="`Current time ${nowLabel}`"
-              >
-                <span></span>
+              <div class="insight-copy">
+                <h2>Scheduling conflict</h2>
+                <p>
+                  "{{ detectedConflict.laterTitle }}" overlaps "{{ detectedConflict.earlierTitle }}"
+                  by {{ detectedConflict.overlapMinutes }} min on {{ detectedConflict.dayLabel }}.
+                </p>
+                <button type="button" class="primary-small-button" @click="conflictVisible = false">
+                  Resolve
+                </button>
               </div>
-            </div>
-          </div>
-        </section>
+            </article>
 
-        <section
-          v-else-if="viewMode === 'week'"
-          class="week-calendar calendar-surface"
-          aria-label="Week view"
-        >
-          <div class="week-day-header">
-            <div class="week-time-spacer"></div>
-            <div v-for="date in weekDays" :key="dateKey(date)" class="week-day-heading">
-              <span>{{ formatWeekdayShort(date) }}</span>
-              <strong :class="{ today: isToday(date) }">{{ date.getDate() }}</strong>
-            </div>
-          </div>
-          <div
-            v-if="allDayEventsForWeek.some((dayEvents) => dayEvents.length)"
-            class="all-day-row week-all-day-row"
-            role="group"
-            aria-label="All-day events"
+            <article
+              v-if="autoScheduledCount > 0"
+              class="calendar-insight-card auto-scheduled-card"
+            >
+              <span class="insight-icon auto-icon material-symbols-outlined" aria-hidden="true"
+                >bolt</span
+              >
+              <div class="insight-copy">
+                <h2>Auto-scheduled</h2>
+                <p>
+                  Cookie booked {{ autoScheduledCount }}
+                  {{ autoScheduledCount === 1 ? 'event' : 'events' }} this week around your
+                  availability.
+                </p>
+              </div>
+            </article>
+          </section>
+
+          <section
+            v-if="viewMode === 'day'"
+            class="day-calendar calendar-surface"
+            aria-label="Day view"
           >
-            <div class="week-time-spacer"></div>
+            <h2>{{ formatLongDate(selectedDate) }}</h2>
             <div
-              v-for="(dayEvents, index) in allDayEventsForWeek"
-              :key="dateKey(weekDays[index])"
-              class="week-all-day-cell"
+              v-if="allDayEventsForDay.length"
+              class="all-day-row"
+              role="group"
+              aria-label="All-day events"
             >
               <button
-                v-for="event in dayEvents"
+                v-for="event in allDayEventsForDay"
                 :key="event.id"
                 type="button"
                 class="calendar-event all-day-event"
@@ -1443,91 +1454,101 @@ onUnmounted(() => {
                 {{ event.title }}
               </button>
             </div>
-          </div>
-          <div class="week-timeline" :style="{ height: `${weekBodyHeight}px` }">
-            <div class="week-time-axis">
-              <div
-                v-for="(hour, index) in hours"
-                :key="hour"
-                class="week-hour-label"
-                :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
-              >
-                {{ timeLabel(hour) }}
-              </div>
-            </div>
-            <div class="week-grid">
-              <div
-                v-for="date in weekDays"
-                :key="dateKey(date)"
-                class="week-day-column"
-                @mousedown="(event) => beginDrag(event, date, 'week')"
-              ></div>
-              <div
-                v-for="(_, index) in hours"
-                :key="index"
-                class="week-hour-line"
-                :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
-              ></div>
-              <button
-                v-for="event in weekTimedEvents"
-                :key="event.id"
-                type="button"
-                class="calendar-event week-event"
-                :class="[
-                  `tone-${event.tone || 'default'}`,
-                  { 'task-event': event.kind === 'task' },
-                ]"
-                :style="weekEventStyle(event)"
-                @click="editEvent(event)"
-              >
+            <div class="day-timeline">
+              <div class="day-hour-axis">
                 <span
-                  v-if="event.kind === 'task'"
-                  class="material-symbols-outlined task-event-icon"
-                  aria-hidden="true"
-                  >check_box_outline_blank</span
+                  v-for="hour in hours"
+                  :key="hour"
+                  class="day-hour-label"
+                  :style="{ left: dayOffset(hour * 60) }"
                 >
-                <strong>{{ event.title }}</strong>
-                <span v-if="event.duration >= 60"
-                  >{{ eventTime(event) }} · {{ event.duration }} min</span
-                >
-              </button>
+                  {{ timeLabel(hour) }}
+                </span>
+              </div>
               <div
-                v-if="weekDragPreviewStyle"
-                class="calendar-event week-event drag-preview"
-                :style="weekDragPreviewStyle"
-              ></div>
-              <div
-                v-if="todayWeekIndex !== -1 && nowVisible"
-                class="current-time-line week-current-time"
-                :style="weekCurrentTimeStyle"
-                :aria-label="`Current time ${nowLabel}`"
+                class="day-event-lane"
+                @mousedown.self="(event) => beginDrag(event, selectedDate, 'day')"
               >
-                <span></span>
+                <div
+                  v-for="hour in hours"
+                  :key="hour"
+                  class="day-hour-line"
+                  :style="{ left: dayOffset(hour * 60) }"
+                ></div>
+                <span v-for="gap in dayGaps" :key="gap.start" class="day-gap" :style="gap.style">
+                  {{ gap.label }}
+                </span>
+                <button
+                  v-for="item in dayEventItems"
+                  :key="item.event.id"
+                  type="button"
+                  class="calendar-event day-event"
+                  :class="[
+                    `tone-${item.event.tone || 'default'}`,
+                    { 'task-event': item.event.kind === 'task' },
+                  ]"
+                  :style="dayEventStyle(item)"
+                  @click="editEvent(item.event)"
+                >
+                  <span class="day-event-label">
+                    <span class="day-event-time">{{ eventTimeRange(item.event) }}</span>
+                    <span class="day-event-title">
+                      <span
+                        v-if="item.event.kind === 'task'"
+                        class="material-symbols-outlined task-event-icon"
+                        aria-hidden="true"
+                        >check_box_outline_blank</span
+                      >
+                      <strong>{{ item.event.title }}</strong>
+                    </span>
+                  </span>
+                </button>
+                <div
+                  v-if="dayDragPreviewStyle"
+                  class="calendar-event day-event drag-preview"
+                  :style="dayDragPreviewStyle"
+                ></div>
+                <div
+                  v-if="isToday(selectedDate) && nowVisible"
+                  class="current-time-line day-current-time"
+                  :style="dayCurrentTimeStyle"
+                  :aria-label="`Current time ${nowLabel}`"
+                >
+                  <span></span>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section v-else class="month-calendar calendar-surface" aria-label="Month view">
-          <div class="month-weekdays" aria-hidden="true">
-            <span v-for="day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="day">
-              {{ day }}
-            </span>
-          </div>
-          <div class="month-grid">
-            <article
-              v-for="date in monthDays"
-              :key="dateKey(date)"
-              class="month-day"
-              :class="{ muted: !isCurrentMonth(date) }"
+          <section
+            v-else-if="viewMode === 'week'"
+            class="week-calendar calendar-surface"
+            aria-label="Week view"
+          >
+            <div class="week-day-header">
+              <div class="week-time-spacer"></div>
+              <div v-for="date in weekDays" :key="dateKey(date)" class="week-day-heading">
+                <span>{{ formatWeekdayShort(date) }}</span>
+                <strong :class="{ today: isToday(date) }">{{ date.getDate() }}</strong>
+              </div>
+            </div>
+            <div
+              v-if="allDayEventsForWeek.some((dayEvents) => dayEvents.length)"
+              class="all-day-row week-all-day-row"
+              role="group"
+              aria-label="All-day events"
             >
-              <span class="month-date" :class="{ today: isToday(date) }">{{ date.getDate() }}</span>
-              <div class="month-events">
+              <div class="week-time-spacer"></div>
+              <div
+                v-for="(dayEvents, index) in allDayEventsForWeek"
+                :key="dateKey(weekDays[index])"
+                class="week-all-day-cell"
+              >
                 <button
-                  v-for="event in eventsForDate(date)"
+                  v-for="event in dayEvents"
                   :key="event.id"
                   type="button"
-                  class="month-event"
+                  class="calendar-event all-day-event"
                   :class="[
                     `tone-${event.tone || 'default'}`,
                     { 'task-event': event.kind === 'task' },
@@ -1544,10 +1565,171 @@ onUnmounted(() => {
                   {{ event.title }}
                 </button>
               </div>
-            </article>
-          </div>
-        </section>
+            </div>
+            <div class="week-timeline" :style="{ height: `${weekBodyHeight}px` }">
+              <div class="week-time-axis">
+                <div
+                  v-for="(hour, index) in hours"
+                  :key="hour"
+                  class="week-hour-label"
+                  :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
+                >
+                  {{ timeLabel(hour) }}
+                </div>
+              </div>
+              <div class="week-grid">
+                <div
+                  v-for="date in weekDays"
+                  :key="dateKey(date)"
+                  class="week-day-column"
+                  @mousedown="(event) => beginDrag(event, date, 'week')"
+                ></div>
+                <div
+                  v-for="(_, index) in hours"
+                  :key="index"
+                  class="week-hour-line"
+                  :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
+                ></div>
+                <button
+                  v-for="event in weekTimedEvents"
+                  :key="event.id"
+                  type="button"
+                  class="calendar-event week-event"
+                  :class="[
+                    `tone-${event.tone || 'default'}`,
+                    { 'task-event': event.kind === 'task' },
+                  ]"
+                  :style="weekEventStyle(event)"
+                  @click="editEvent(event)"
+                >
+                  <span
+                    v-if="event.kind === 'task'"
+                    class="material-symbols-outlined task-event-icon"
+                    aria-hidden="true"
+                    >check_box_outline_blank</span
+                  >
+                  <strong>{{ event.title }}</strong>
+                  <span v-if="event.duration >= 60"
+                    >{{ eventTime(event) }} · {{ event.duration }} min</span
+                  >
+                </button>
+                <div
+                  v-if="weekDragPreviewStyle"
+                  class="calendar-event week-event drag-preview"
+                  :style="weekDragPreviewStyle"
+                ></div>
+                <div
+                  v-if="todayWeekIndex !== -1 && nowVisible"
+                  class="current-time-line week-current-time"
+                  :style="weekCurrentTimeStyle"
+                  :aria-label="`Current time ${nowLabel}`"
+                >
+                  <span></span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section v-else class="month-calendar calendar-surface" aria-label="Month view">
+            <div class="month-weekdays" aria-hidden="true">
+              <span v-for="day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="day">
+                {{ day }}
+              </span>
+            </div>
+            <div class="month-grid">
+              <article
+                v-for="date in monthDays"
+                :key="dateKey(date)"
+                class="month-day"
+                :class="{ muted: !isCurrentMonth(date) }"
+              >
+                <span class="month-date" :class="{ today: isToday(date) }">{{
+                  date.getDate()
+                }}</span>
+                <div class="month-events">
+                  <button
+                    v-for="event in eventsForDate(date)"
+                    :key="event.id"
+                    type="button"
+                    class="month-event"
+                    :class="[
+                      `tone-${event.tone || 'default'}`,
+                      { 'task-event': event.kind === 'task' },
+                    ]"
+                    :style="eventColorVars(event)"
+                    @click="editEvent(event)"
+                  >
+                    <span
+                      v-if="event.kind === 'task'"
+                      class="material-symbols-outlined task-event-icon"
+                      aria-hidden="true"
+                      >check_box_outline_blank</span
+                    >
+                    {{ event.title }}
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
       </div>
+
+      <section
+        v-if="visibleCalendars.has(TASKS_CALENDAR_ID)"
+        class="someday-strip"
+        aria-label="Someday tasks"
+      >
+        <span class="someday-label">Someday:</span>
+        <ul v-if="somedayTasks.length" class="someday-list">
+          <li
+            v-for="task in somedayTasks"
+            :key="task.id"
+            class="someday-task"
+            :class="{ done: task.done }"
+          >
+            <button
+              type="button"
+              class="someday-check"
+              role="checkbox"
+              :aria-checked="task.done"
+              :aria-label="`Complete ${task.content}`"
+              @click="toggleSomedayTask(task)"
+            >
+              <svg v-if="task.done" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="m3.5 8 2.7 2.7 6.3-6.2" />
+              </svg>
+            </button>
+            <button type="button" class="someday-title" @click="openSomedayTask(task)">
+              {{ task.content }}
+            </button>
+          </li>
+        </ul>
+        <form v-if="somedayDraft !== null" class="someday-form" @submit.prevent="addSomedayTask">
+          <input
+            ref="somedayInput"
+            v-model="somedayDraft"
+            type="text"
+            class="someday-input"
+            aria-label="New Someday task"
+            placeholder="Add a task for someday"
+            maxlength="500"
+            :readonly="somedaySaving"
+            @keydown.esc.stop="somedayDraft = null"
+            @blur="leaveSomedayTask"
+          />
+        </form>
+        <button
+          v-else
+          type="button"
+          class="someday-add"
+          aria-label="Add a Someday task"
+          @click="startSomedayTask"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      </section>
     </div>
 
     <Transition name="calendar-modal">
@@ -1963,11 +2145,172 @@ onUnmounted(() => {
   font-size: 19px;
 }
 
+/* The scrolling calendar with the Someday row held under it. */
+.calendar-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .calendar-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
   background: var(--calendar-canvas);
+}
+
+.someday-strip {
+  flex: 0 0 auto;
+  min-height: 52px;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--calendar-line);
+  background: var(--calendar-surface);
+}
+
+.someday-label {
+  flex: 0 0 auto;
+  color: var(--calendar-label);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* One row however many tasks there are: it scrolls sideways rather than
+   growing up over the calendar. */
+.someday-list {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 0;
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.someday-task {
+  flex: 0 0 auto;
+  max-width: 320px;
+  height: 34px;
+  padding: 0 14px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 17px;
+  background: var(--calendar-soft);
+}
+
+.someday-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--calendar-muted-date);
+  border-radius: 50%;
+  background: var(--calendar-surface);
+  color: var(--calendar-ink);
+  cursor: pointer;
+}
+
+.someday-check:hover,
+.someday-check:focus-visible {
+  border-color: var(--calendar-emphasis);
+  outline: none;
+}
+
+.someday-check svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
+.someday-title {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--calendar-ink);
+  font: inherit;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.someday-title:hover,
+.someday-title:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.someday-task.done .someday-title {
+  color: var(--calendar-muted);
+  text-decoration: line-through;
+}
+
+.someday-form {
+  flex: 0 0 auto;
+}
+
+.someday-input {
+  width: 240px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--calendar-line);
+  border-radius: 17px;
+  background: var(--calendar-input);
+  color: var(--calendar-ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.someday-input:focus {
+  border-color: var(--calendar-emphasis);
+  outline: none;
+}
+
+.someday-add {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--calendar-muted);
+  cursor: pointer;
+}
+
+.someday-add:hover,
+.someday-add:focus-visible {
+  background: var(--calendar-soft);
+  color: var(--calendar-ink);
+  outline: none;
+}
+
+.someday-add svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
 }
 
 .calendar-page {
@@ -2285,7 +2628,7 @@ onUnmounted(() => {
 
 .day-event-lane {
   position: relative;
-  height: clamp(340px, calc(100vh - 480px), 620px);
+  height: clamp(340px, calc(100vh - 532px), 620px);
   cursor: crosshair;
 }
 
@@ -2294,6 +2637,20 @@ onUnmounted(() => {
   top: 0;
   bottom: 0;
   border-left: 1px solid var(--calendar-line);
+  pointer-events: none;
+}
+
+/* How long a break between two events is, in the foot of the lane where the
+   break falls. It is a caption on the lane, so clicks and drags pass through. */
+.day-gap {
+  position: absolute;
+  bottom: 0;
+  padding: 0 0 8px 8px;
+  overflow: hidden;
+  color: var(--calendar-muted-date);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
   pointer-events: none;
 }
 
