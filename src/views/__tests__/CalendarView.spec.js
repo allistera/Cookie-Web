@@ -192,6 +192,29 @@ const SEED_TASKS = [
   },
 ]
 
+// Put off to Someday: no day to show on, so not in SEED_TASKS. Tests that
+// look at the Someday row pass these to mockCalendarApi.
+const SOMEDAY_TASKS = [
+  {
+    id: 'task-someday-1',
+    projectId: 'project-1',
+    parentId: null,
+    content: 'Learn to juggle',
+    dueDate: '9999-12-31',
+    dueTime: null,
+    priority: null,
+  },
+  {
+    id: 'task-someday-2',
+    projectId: null,
+    parentId: null,
+    content: 'Sort the garage',
+    dueDate: '9999-12-31',
+    dueTime: null,
+    priority: null,
+  },
+]
+
 const TASKS_ENDPOINT = `${TASKS_API_URL}/task-items`
 const EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
 const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
@@ -211,6 +234,7 @@ function mockCalendarApi({
     ...calendar,
   }))
   let nextId = 1
+  let taskRows = tasks.map((task) => ({ ...task, completedAt: null }))
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, options = {}) => {
@@ -275,8 +299,30 @@ function mockCalendarApi({
         const from = params.get('from')
         const to = params.get('to')
         if ((Date.parse(to) - Date.parse(from)) / 86400000 > 100) return { ok: false, status: 400 }
-        const items = tasks.filter((task) => task.dueDate >= from && task.dueDate <= to)
+        // Only open tasks, as the real calendar view answers.
+        const items = taskRows.filter(
+          (task) => task.completedAt === null && task.dueDate >= from && task.dueDate <= to,
+        )
         return { ok: true, json: async () => clone({ items }) }
+      }
+
+      if (url === TASKS_ENDPOINT && method === 'PATCH') {
+        const task = taskRows.find((row) => row.id === body.id)
+        if (!task) return { ok: false, status: 404 }
+        task.completedAt = body.completed ? '2026-07-24T10:30:00.000Z' : null
+        return { ok: true, json: async () => clone({ item: task }) }
+      }
+
+      if (url === TASKS_ENDPOINT && method === 'POST') {
+        const task = {
+          id: `generated-task-${nextId++}`,
+          projectId: null,
+          parentId: null,
+          completedAt: null,
+          ...body,
+        }
+        taskRows = [...taskRows, task]
+        return { ok: true, json: async () => clone({ item: task }) }
       }
 
       if (url === CALENDARS_ENDPOINT) {
@@ -560,8 +606,9 @@ describe('CalendarView', () => {
     const urls = fetch.mock.calls.map(([url]) => String(url))
     const eventsUrl = urls.find((url) => url.startsWith(`${EVENTS_ENDPOINT}?`))
     const eventParams = new URLSearchParams(eventsUrl.split('?')[1])
+    // The Someday row asks for its own single date, apart from these windows.
     const windows = urls
-      .filter((url) => url.startsWith(`${TASKS_ENDPOINT}?`))
+      .filter((url) => url.startsWith(`${TASKS_ENDPOINT}?`) && !url.includes('9999-12-31'))
       .map((url) => new URLSearchParams(url.split('?')[1]))
     expect(windows.length).toBeGreaterThan(1)
     expect(windows[0].get('from')).toBe(eventParams.get('from'))
@@ -605,6 +652,141 @@ describe('CalendarView', () => {
 
     expect(router.currentRoute.value.fullPath).toBe('/tasks?project=project-1&task=task-1')
     expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+  })
+
+  it("names how long the breaks between the day's events are", async () => {
+    const wrapper = await mountCalendar()
+
+    // Standup ends at 9:30 AM and Coffee starts at 2:30 PM. Coffee, the task
+    // and the review after it run into each other, and the time before the
+    // first event and after the last is not between anything.
+    const gaps = wrapper.findAll('.day-gap')
+    expect(gaps.map((gap) => gap.text())).toEqual(['5hrs'])
+    expect(Number.parseFloat(gaps[0].element.style.left)).toBeCloseTo((1.5 / 11) * 100, 3)
+    expect(Number.parseFloat(gaps[0].element.style.width)).toBeCloseTo((5 / 11) * 100, 3)
+  })
+
+  it('leaves a break of under an hour unlabelled', async () => {
+    mockCalendarApi({
+      tasks: [
+        { ...SEED_TASKS[1], id: 'task-early', dueTime: '10:00', durationMinutes: 30 },
+        { ...SEED_TASKS[1], id: 'task-late', dueTime: '12:15', durationMinutes: 135 },
+      ],
+    })
+    const wrapper = await mountCalendar()
+
+    // 9:30 to 10:00 is too short to name; 10:30 to 12:15 is not. The later
+    // task runs straight into Coffee, which ends an hour before the review.
+    expect(wrapper.findAll('.day-gap').map((gap) => gap.text())).toEqual(['1hr 45m', '1hr'])
+  })
+
+  it('lines Someday tasks along the foot of every view, under the Tasks toggle', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar()
+    const titles = () => wrapper.findAll('.someday-title').map((title) => title.text())
+
+    expect(wrapper.get('.someday-strip').text()).toContain('Someday:')
+    expect(titles()).toEqual(['Learn to juggle', 'Sort the garage'])
+    // They sit in the row only, never on a day.
+    expect(wrapper.findAll('.task-event').map((task) => task.text())).not.toContain(
+      'Learn to juggle',
+    )
+
+    for (const tab of [2, 3]) {
+      await wrapper.get(`.calendar-view-tabs button:nth-child(${tab})`).trigger('click')
+      expect(titles()).toEqual(['Learn to juggle', 'Sort the garage'])
+    }
+
+    const tasksToggle = wrapper
+      .findAll('.calendar-list-item')
+      .find((button) => button.text() === 'Tasks')
+    await tasksToggle.trigger('click')
+    expect(wrapper.find('.someday-strip').exists()).toBe(false)
+    await tasksToggle.trigger('click')
+    expect(titles()).toEqual(['Learn to juggle', 'Sort the garage'])
+  })
+
+  it('completes a Someday task from its tick, and reopens it when unticked', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar()
+    const writes = () =>
+      fetch.mock.calls
+        .filter(([url, options]) => url === TASKS_ENDPOINT && options?.method === 'PATCH')
+        .map(([, options]) => JSON.parse(options.body))
+
+    const tick = wrapper.get('[aria-label="Complete Learn to juggle"]')
+    expect(tick.attributes('aria-checked')).toBe('false')
+    await tick.trigger('click')
+    await flushPromises()
+
+    expect(writes()).toEqual([{ id: 'task-someday-1', completed: true }])
+    // It stays in the row, ticked, so the tick can be taken back.
+    expect(tick.attributes('aria-checked')).toBe('true')
+    expect(wrapper.findAll('.someday-task')[0].classes()).toContain('done')
+
+    await tick.trigger('click')
+    await flushPromises()
+    expect(writes().at(-1)).toEqual({ id: 'task-someday-1', completed: false })
+    expect(tick.attributes('aria-checked')).toBe('false')
+  })
+
+  it('unticks a Someday task again when completing it fails', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar()
+    const respond = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options = {}) =>
+      options.method === 'PATCH' ? { ok: false, status: 500 } : respond(url, options),
+    )
+
+    const tick = wrapper.get('[aria-label="Complete Learn to juggle"]')
+    await tick.trigger('click')
+    await flushPromises()
+
+    expect(tick.attributes('aria-checked')).toBe('false')
+    expect(useInboxStore().notify).toHaveBeenCalledWith('Failed to update the task.', 'error')
+  })
+
+  it('adds a task to Someday from the row', async () => {
+    const wrapper = await mountCalendar()
+    expect(wrapper.find('.someday-task').exists()).toBe(false)
+
+    await wrapper.get('[aria-label="Add a Someday task"]').trigger('click')
+    const input = wrapper.get('[aria-label="New Someday task"]')
+    await input.setValue('  Plant a tree  ')
+    await wrapper.get('.someday-form').trigger('submit')
+    await flushPromises()
+
+    const [, options] = fetch.mock.calls.find(
+      ([url, init]) => url === TASKS_ENDPOINT && init?.method === 'POST',
+    )
+    expect(JSON.parse(options.body)).toEqual({ content: 'Plant a tree', dueDate: '9999-12-31' })
+    expect(wrapper.findAll('.someday-title').map((title) => title.text())).toEqual(['Plant a tree'])
+    // The field stays for the next one; left empty, it gives way to the button.
+    expect(input.element.value).toBe('')
+    await input.trigger('blur')
+    expect(wrapper.find('[aria-label="New Someday task"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Add a Someday task"]').exists()).toBe(true)
+  })
+
+  it('opens a Someday task in the Tasks app when its title is clicked', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/calendar', component: { template: '<div />' } },
+        { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
+        { path: '/settings/:section?', name: 'settings', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/calendar')
+    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+
+    await wrapper.findAll('.someday-title')[1].trigger('click')
+    await flushPromises()
+
+    // A task with no project lives in the Inbox.
+    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox&task=task-someday-2')
   })
 
   it('colors an event chip to match its owning calendar', async () => {

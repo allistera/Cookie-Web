@@ -186,6 +186,41 @@ test('Calendar shows a task on its due date and opens it in Tasks', async ({ pag
   await expect(page).toHaveURL(new RegExp(`/tasks\\?project=inbox&task=${taskId}$`))
 })
 
+test('Calendar lines Someday tasks along its foot, where they can be ticked off', async ({
+  page,
+}) => {
+  await freezeCalendarClock(page)
+  await page.goto('/tasks')
+  await page.evaluate(async (base) => {
+    await fetch(`${base}/task-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Learn to juggle', dueDate: '9999-12-31' }),
+    })
+  }, TASKS_API_URL)
+
+  await page.goto('/calendar')
+  const someday = page.getByRole('region', { name: 'Someday tasks' })
+  await expect(someday.getByRole('button', { name: 'Learn to juggle', exact: true })).toBeVisible()
+  // Someday is not a day: the task is in the row, not on the calendar.
+  await expect(page.locator('.task-event', { hasText: 'Learn to juggle' })).toHaveCount(0)
+
+  await someday.getByRole('button', { name: 'Add a Someday task' }).click()
+  await someday.getByRole('textbox', { name: 'New Someday task' }).fill('Sort the garage')
+  await someday.getByRole('textbox', { name: 'New Someday task' }).press('Enter')
+  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toBeVisible()
+
+  const tick = someday.getByRole('checkbox', { name: 'Complete Learn to juggle' })
+  await tick.click()
+  await expect(tick).toBeChecked()
+
+  // A completed task is gone the next time the calendar opens; the one added
+  // from the row was saved to Someday.
+  await page.reload()
+  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toBeVisible()
+  await expect(someday.getByRole('button', { name: 'Learn to juggle', exact: true })).toHaveCount(0)
+})
+
 test('Calendar settings manages subscriptions that appear in the Calendar view', async ({
   page,
 }) => {
