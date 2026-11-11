@@ -80,6 +80,24 @@ describe('AddTaskDialog natural-language quick add', () => {
     wrapper.unmount()
   })
 
+  it('starts the estimate at 30 minutes and sends null when it is cleared', async () => {
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+    const wrapper = mountDialog()
+    await wrapper.get('button.add-task-advanced').trigger('click')
+    await wrapper.get('[aria-label="Task name"]').setValue('Write notes')
+    const estimate = wrapper.get('[aria-label="Estimated duration in minutes"]')
+    expect(estimate.element.value).toBe('30')
+    await estimate.setValue('')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(create).toHaveBeenCalledWith({
+      content: 'Write notes',
+      projectId: null,
+      durationMinutes: null,
+    })
+    wrapper.unmount()
+  })
+
   it('opens on the focused AI textbox and shows the default Inbox destination', async () => {
     const wrapper = mountDialog()
     await flushPromises()
