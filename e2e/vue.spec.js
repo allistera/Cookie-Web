@@ -214,10 +214,20 @@ test('Calendar lines Someday tasks along its foot, where they can be ticked off'
   await tick.click()
   await expect(tick).toBeChecked()
 
-  // A completed task is gone the next time the calendar opens; the one added
-  // from the row was saved to Someday.
+  // Dragged onto the day, a Someday task is due there at that time.
+  const lane = page.locator('.day-event-lane')
+  await someday
+    .getByRole('button', { name: 'Sort the garage', exact: true })
+    .dragTo(lane, { targetPosition: { x: 200, y: 20 } })
+  const placed = page.locator('.day-event.task-event', { hasText: 'Sort the garage' })
+  await expect(placed).toBeVisible()
+  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toHaveCount(0)
+
+  // A completed task is gone the next time the calendar opens; the dropped
+  // one was saved to the day.
   await page.reload()
-  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toBeVisible()
+  await expect(placed).toBeVisible()
+  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toHaveCount(0)
   await expect(someday.getByRole('button', { name: 'Learn to juggle', exact: true })).toHaveCount(0)
 })
 

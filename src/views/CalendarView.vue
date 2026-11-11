@@ -21,6 +21,7 @@ import {
   TASKS_CALENDAR_COLOR,
   TASKS_CALENDAR_ID,
   TASKS_CALENDAR_NAME,
+  TIMED_TASK_MINUTES,
   taskToCalendarItems,
   taskCalendarWindows,
 } from '../lib/taskCalendarItems'
@@ -222,11 +223,13 @@ const somedayDraft = ref(null)
 const somedayInput = ref(null)
 const somedaySaving = ref(false)
 
-const somedayTask = ({ id, projectId, content }) => ({
+const somedayTask = ({ id, projectId, content, durationMinutes, priority }) => ({
   id,
   // The Tasks app addresses the Inbox by name rather than a null project.
   projectId: projectId ?? 'inbox',
   content,
+  durationMinutes: durationMinutes ?? null,
+  priority: priority ?? null,
   done: false,
   saving: false,
 })
@@ -304,6 +307,119 @@ async function addSomedayTask() {
     store.notify('Failed to create the task.', 'error')
   } finally {
     somedaySaving.value = false
+  }
+}
+
+// A Someday task dragged from the row, and the slot it hangs over on the day
+// lane or the week grid, drawn like the range dragged out for a new event.
+// The month view has no time axis, so it takes no drops.
+const draggedSomedayTask = ref(null)
+const somedayDrop = ref(null)
+
+const somedayTaskMinutes = (task) => task.durationMinutes ?? TIMED_TASK_MINUTES
+
+function beginSomedayDrag(event, task) {
+  draggedSomedayTask.value = task
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', task.content)
+}
+
+function endSomedayDrag() {
+  draggedSomedayTask.value = null
+  somedayDrop.value = null
+}
+
+// The slot under the pointer on a drop surface. The day lane runs its hours
+// across; the week grid is one surface for all seven columns, so the column
+// under the pointer names the date and the height the time. The task starts
+// at the pointer, no later than the last visible quarter hour.
+function somedaySlot(event, view) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const lastStart = END_HOUR * 60 - SNAP_MINUTES
+  if (view === 'day') {
+    const hourSize = rect.width / (END_HOUR - START_HOUR)
+    return {
+      date: selectedDate.value,
+      startMinutes: Math.min(minutesFromOffset(event.clientX - rect.left, hourSize), lastStart),
+    }
+  }
+  const column = Math.floor(((event.clientX - rect.left) / rect.width) * 7)
+  return {
+    date: weekDays.value[Math.min(Math.max(column, 0), 6)],
+    startMinutes: Math.min(
+      minutesFromOffset(event.clientY - rect.top, WEEK_HOUR_HEIGHT),
+      lastStart,
+    ),
+  }
+}
+
+function overSomedayDrop(event, view) {
+  const task = draggedSomedayTask.value
+  if (!task) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  const slot = somedaySlot(event, view)
+  const current = somedayDrop.value
+  // dragover fires every few milliseconds; most land in the same quarter hour.
+  if (
+    current &&
+    current.startMinutes === slot.startMinutes &&
+    dateKey(current.date) === dateKey(slot.date)
+  )
+    return
+  somedayDrop.value = { view, ...slot, duration: somedayTaskMinutes(task) }
+}
+
+// dragleave also fires on the way onto a child of the surface (an event
+// chip, an hour line); the pointer is still inside then, so the preview stays.
+function leaveSomedayDrop(event) {
+  if (!somedayDrop.value) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  const inside =
+    event.clientX > rect.left &&
+    event.clientX < rect.right &&
+    event.clientY > rect.top &&
+    event.clientY < rect.bottom
+  if (!inside) somedayDrop.value = null
+}
+
+function dropSomedayTask(event, view) {
+  const task = draggedSomedayTask.value
+  if (!task) return
+  event.preventDefault()
+  const { date, startMinutes } = somedaySlot(event, view)
+  endSomedayDrag()
+  void scheduleSomedayTask(task, dateKey(date), minutesToTimeString(startMinutes))
+}
+
+// Dropped on a day, a Someday task is due there at that time and runs for its
+// estimate, or the calendar's usual thirty minutes without one. It moves to
+// the day at once and comes back to its place in the row if the save fails.
+async function scheduleSomedayTask(task, dueDate, dueTime) {
+  const index = somedayTasks.value.indexOf(task)
+  if (index === -1 || task.saving) return
+  task.saving = true
+  somedayTasks.value.splice(index, 1)
+  const placed = (row) => [
+    ...calendarTasks.value.filter((item) => item.taskId !== task.id),
+    ...taskToCalendarItems(row),
+  ]
+  calendarTasks.value = placed({ ...task, dueDate, dueTime })
+  try {
+    const { item } = await writeTask('PATCH', {
+      id: task.id,
+      dueDate,
+      dueTime,
+      timeZone: browserTimeZone(),
+    })
+    calendarTasks.value = placed(item)
+  } catch (error) {
+    calendarTasks.value = calendarTasks.value.filter((item) => item.taskId !== task.id)
+    somedayTasks.value.splice(Math.min(index, somedayTasks.value.length), 0, task)
+    console.error('Failed to schedule a Someday task:', error)
+    store.notify('Failed to schedule the task.', 'error')
+  } finally {
+    task.saving = false
   }
 }
 
@@ -658,31 +774,38 @@ const timeStringToMinutes = (value) => {
   return hour * 60 + minute
 }
 
-const dragRangeStyle = ({ anchorMinutes, currentMinutes }) => {
-  const start = Math.min(anchorMinutes, currentMinutes)
-  const end = Math.max(anchorMinutes, currentMinutes)
-  return {
-    top: `${(start - START_HOUR * 60) * (WEEK_HOUR_HEIGHT / 60)}px`,
-    height: `${Math.max((end - start) * (WEEK_HOUR_HEIGHT / 60), 6)}px`,
+// The slot drawn on a surface while something is dragged over it: the range
+// dragged out for a new event, or the time a Someday task from the row hangs
+// over.
+function previewRange(view) {
+  const draft = dragDraft.value
+  if (draft?.view === view) {
+    return {
+      date: draft.date,
+      start: Math.min(draft.anchorMinutes, draft.currentMinutes),
+      end: Math.max(draft.anchorMinutes, draft.currentMinutes),
+    }
   }
+  const drop = somedayDrop.value
+  if (drop?.view === view) {
+    return { date: drop.date, start: drop.startMinutes, end: drop.startMinutes + drop.duration }
+  }
+  return null
 }
 
 const dayDragPreviewStyle = computed(() => {
-  if (!dragDraft.value || dragDraft.value.view !== 'day') return null
-  const { anchorMinutes, currentMinutes } = dragDraft.value
-  return {
-    left: dayOffset(Math.min(anchorMinutes, currentMinutes)),
-    width: dayShare(Math.abs(currentMinutes - anchorMinutes)),
-  }
+  const range = previewRange('day')
+  if (!range) return null
+  return { left: dayOffset(range.start), width: dayShare(range.end - range.start) }
 })
 
 const weekDragPreviewStyle = computed(() => {
-  if (!dragDraft.value || dragDraft.value.view !== 'week') return null
-  const dayIndex = weekDays.value.findIndex(
-    (date) => dateKey(date) === dateKey(dragDraft.value.date),
-  )
+  const range = previewRange('week')
+  if (!range) return null
+  const dayIndex = weekDays.value.findIndex((date) => dateKey(date) === dateKey(range.date))
   return {
-    ...dragRangeStyle(dragDraft.value),
+    top: `${(range.start - START_HOUR * 60) * (WEEK_HOUR_HEIGHT / 60)}px`,
+    height: `${Math.max((range.end - range.start) * (WEEK_HOUR_HEIGHT / 60), 6)}px`,
     left: `calc(${dayIndex} * (100% / 7) + 8px)`,
     width: 'calc(100% / 7 - 16px)',
   }
@@ -1468,6 +1591,9 @@ onUnmounted(() => {
               <div
                 class="day-event-lane"
                 @mousedown.self="(event) => beginDrag(event, selectedDate, 'day')"
+                @dragover="(event) => overSomedayDrop(event, 'day')"
+                @dragleave="leaveSomedayDrop"
+                @drop="(event) => dropSomedayTask(event, 'day')"
               >
                 <div
                   v-for="hour in hours"
@@ -1577,7 +1703,12 @@ onUnmounted(() => {
                   {{ timeLabel(hour) }}
                 </div>
               </div>
-              <div class="week-grid">
+              <div
+                class="week-grid"
+                @dragover="(event) => overSomedayDrop(event, 'week')"
+                @dragleave="leaveSomedayDrop"
+                @drop="(event) => dropSomedayTask(event, 'week')"
+              >
                 <div
                   v-for="date in weekDays"
                   :key="dateKey(date)"
@@ -1699,7 +1830,14 @@ onUnmounted(() => {
                 <path d="m3.5 8 2.7 2.7 6.3-6.2" />
               </svg>
             </button>
-            <button type="button" class="someday-title" @click="openSomedayTask(task)">
+            <button
+              type="button"
+              class="someday-title"
+              :draggable="!task.done"
+              @click="openSomedayTask(task)"
+              @dragstart="beginSomedayDrag($event, task)"
+              @dragend="endSomedayDrag"
+            >
               {{ task.content }}
             </button>
           </li>
