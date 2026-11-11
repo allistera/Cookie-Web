@@ -7,6 +7,8 @@
 // a browser keep their own; it clears itself three days after it was made
 // unless the panel's "Clears in" control says otherwise.
 
+import { isSomeday } from './taskSomeday.js'
+
 const STORAGE_PREFIX = 'cookie.bucket.'
 
 export function bucketStorageKey(owner) {
@@ -195,7 +197,7 @@ export function bucketItemSubtitle(item, now = new Date()) {
       return edited ? `Documents · edited ${edited}` : 'Documents'
     }
     case 'task': {
-      const due = formatDay(meta.dueDate, now)
+      const due = isSomeday(meta.dueDate) ? 'someday' : formatDay(meta.dueDate, now)
       return [meta.projectName, due && `due ${due}`].filter(Boolean).join(' · ')
     }
     case 'event': {

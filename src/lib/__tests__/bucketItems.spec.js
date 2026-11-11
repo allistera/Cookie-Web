@@ -189,6 +189,7 @@ describe('second lines', () => {
     expect(subtitle('2026-10-14')).toBe('Work · due tomorrow')
     expect(subtitle('2026-10-16')).toBe('Work · due Fri')
     expect(subtitle('2026-11-02')).toMatch(/^Work · due 2 Nov$/)
+    expect(subtitle('9999-12-31')).toBe('Work · due someday')
     expect(subtitle(null)).toBe('Work')
   })
 

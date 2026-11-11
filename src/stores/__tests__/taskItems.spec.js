@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { localToday } from '../../lib/localDate'
+import { SOMEDAY } from '../../lib/taskSomeday'
 import { useTaskItemsStore } from '../taskItems'
 import { useInboxStore } from '../inbox'
 import { useProjectsStore } from '../projects'
@@ -366,6 +367,19 @@ describe('detail panel support', () => {
     const [, options] = fetch.mock.calls[0]
     expect(JSON.parse(options.body)).toEqual({ id: 't1', dueDate: '2026-09-01' })
     expect(store.items[0].dueDate).toBe('2026-09-01')
+  })
+
+  it('sets Someday as the date and drops the time and repeat with it', async () => {
+    const timed = { ...ITEM, dueDate: '2026-09-01', dueTime: '09:00', recurrence: 'every day' }
+    const someday = { dueDate: SOMEDAY, dueTime: null, timeZone: null, recurrence: null }
+    store.items = [{ ...timed, timeZone: 'Europe/London' }]
+    stubFetch(async () => ({ ok: true, json: async () => ({ item: { ...ITEM, ...someday } }) }))
+
+    await store.setDueDate('t1', SOMEDAY)
+
+    const [, options] = fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toEqual({ id: 't1', ...someday })
+    expect(store.items[0]).toMatchObject(someday)
   })
 
   it('sends null to clear a due date', async () => {

@@ -12,6 +12,7 @@ import {
   scheduleSummary,
   toIso,
 } from '../taskSchedule'
+import { SOMEDAY } from '../taskSomeday'
 
 const TODAY = '2026-10-16' // a Friday
 
@@ -37,13 +38,14 @@ describe('dates', () => {
     expect(describeDueDate('2026-10-17', TODAY)).toBe('Tomorrow')
     expect(describeDueDate('2026-10-15', TODAY)).toBe('Yesterday')
     expect(describeDueDate('2026-10-24', TODAY)).toBe('Sat 24 Oct')
+    expect(describeDueDate(SOMEDAY, TODAY)).toBe('Someday')
     expect(scheduleSummary({ dueDate: TODAY, dueTime: '15:00' }, TODAY)).toBe('Today · 15:00')
     expect(scheduleSummary({ dueDate: null, dueTime: '15:00' }, TODAY)).toBe('No date')
   })
 })
 
 describe('scheduleShortcuts', () => {
-  it('offers today, tomorrow, next Monday and next Saturday', () => {
+  it('offers today, tomorrow, next Monday, next Saturday and someday', () => {
     expect(scheduleShortcuts(TODAY)).toEqual([
       { id: 'today', label: 'Today', iso: TODAY, hint: 'Fri', icon: 'today' },
       { id: 'tomorrow', label: 'Tomorrow', iso: '2026-10-17', hint: 'Sat', icon: 'light_mode' },
@@ -61,6 +63,7 @@ describe('scheduleShortcuts', () => {
         hint: 'Sat 24 Oct',
         icon: 'event_available',
       },
+      { id: 'someday', label: 'Someday', iso: SOMEDAY, hint: '', icon: 'hourglass_top' },
     ])
   })
 
@@ -107,6 +110,7 @@ describe('parseDateInput', () => {
     expect(parseDateInput(' Today ', TODAY)).toEqual({ iso: TODAY })
     expect(parseDateInput('tomorrow', TODAY)).toEqual({ iso: '2026-10-17' })
     expect(parseDateInput('next week', TODAY)).toEqual({ iso: '2026-10-19' })
+    expect(parseDateInput('Someday', TODAY)).toEqual({ iso: SOMEDAY })
     expect(parseDateInput('2026-09-01', TODAY)).toEqual({ iso: '2026-09-01' })
     expect(parseDateInput('24 Oct', TODAY)).toEqual({ iso: '2026-10-24' })
     expect(parseDateInput('Oct 24', TODAY)).toEqual({ iso: '2026-10-24' })

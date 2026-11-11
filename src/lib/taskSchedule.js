@@ -5,6 +5,8 @@
 // Fixed en-GB formatters: the test box runs en-US, and the panel reads the
 // same way everywhere ("Sat 24 Oct").
 
+import { SOMEDAY, isSomeday } from './taskSomeday.js'
+
 const WEEKDAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short' })
 const DAY_MONTH = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' })
 const MONTH_YEAR = new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' })
@@ -44,9 +46,11 @@ export function formatDay(iso, today) {
   return `${WEEKDAY.format(date)} ${DAY_MONTH.format(date)}${sameYear ? '' : ` ${date.getFullYear()}`}`
 }
 
-// What a due date reads as on the chip: Today, Tomorrow, Yesterday, or the day.
+// What a due date reads as on the chip: Today, Tomorrow, Yesterday, Someday,
+// or the day.
 export function describeDueDate(iso, today) {
   if (!iso) return 'No date'
+  if (isSomeday(iso)) return 'Someday'
   if (iso === today) return 'Today'
   if (iso === addDays(today, 1)) return 'Tomorrow'
   if (iso === addDays(today, -1)) return 'Yesterday'
@@ -67,7 +71,7 @@ function nextMonday(today) {
 }
 
 // The quick choices above the calendar, as Todoist offers them: tomorrow,
-// the start of next week, and next week's Saturday.
+// the start of next week, and next week's Saturday; then Someday.
 export function scheduleShortcuts(today) {
   const tomorrow = addDays(today, 1)
   const monday = nextMonday(today)
@@ -101,6 +105,7 @@ export function scheduleShortcuts(today) {
       hint: formatDay(saturday, today),
       icon: 'event_available',
     },
+    { id: 'someday', label: 'Someday', iso: SOMEDAY, hint: '', icon: 'hourglass_top' },
   ]
 }
 
@@ -129,7 +134,7 @@ export function monthsFrom(iso, count) {
   return months
 }
 
-// A typed date: empty clears, then today / tomorrow / next week, YYYY-MM-DD,
+// A typed date: empty clears, then today / tomorrow / next week / someday, YYYY-MM-DD,
 // "24 Oct", "Oct 24" or "24 Oct 2027". A day without a year is the next one
 // on or after today. Returns { iso } (null iso for a clear) or null when the
 // text cannot be read.
@@ -141,6 +146,7 @@ export function parseDateInput(text, today) {
   if (value === 'today') return { iso: today }
   if (value === 'tomorrow') return { iso: addDays(today, 1) }
   if (value === 'next week') return { iso: nextMonday(today) }
+  if (value === 'someday') return { iso: SOMEDAY }
   if (dateFromIso(value)) return { iso: value }
   const parts = value.replace(/,/g, ' ').split(/\s+/)
   const dayAt = parts.findIndex((part) => /^\d{1,2}$/.test(part))

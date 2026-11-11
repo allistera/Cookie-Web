@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSearchStore, DEFAULT_SEARCH_LIMIT } from '../stores/search'
 import { useInboxStore, mapEmailRow } from '../stores/inbox'
 import { useSavedViewsStore } from '../stores/savedViews'
+import { isSomeday } from '../lib/taskSomeday'
 import {
   SAVED_VIEW_FOLDERS,
   savedViewDraftFromQuery,
@@ -162,10 +163,14 @@ function openTaskResult(row) {
 }
 
 function formatDue(dueDate) {
-  return new Date(`${dueDate}T00:00:00`).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-  })
+  if (isSomeday(dueDate)) return 'Someday'
+  return (
+    'Due ' +
+    new Date(`${dueDate}T00:00:00`).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+    })
+  )
 }
 
 const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
@@ -286,7 +291,7 @@ const errorMessage = computed(() => {
             <span class="search-result-task-title">{{ row.content }}</span>
             <span v-if="row.description || row.dueDate" class="search-result-task-meta">
               <span v-if="row.dueDate" class="search-result-task-due">
-                Due {{ formatDue(row.dueDate) }}
+                {{ formatDue(row.dueDate) }}
               </span>
               <span v-if="row.description" class="search-result-task-description">
                 {{ row.description }}

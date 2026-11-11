@@ -9,6 +9,7 @@ import { localToday } from '../lib/localDate'
 import { addDays, describeRule, filterIdOf, isFilterProject } from '../lib/taskFilters'
 import { orderAfterDrop } from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
+import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useInlineEdit } from '../composables/useInlineEdit'
 import { labelChipStyle } from '../lib/taskLabels'
 import { useProjectsStore } from '../stores/projects'
@@ -216,6 +217,7 @@ function showsDue(item) {
 }
 
 function formatDue(dueDate) {
+  if (isSomeday(dueDate)) return 'Someday'
   const [, month, day] = dueDate.split('-')
   return `${Number(day)} ${DUE_MONTHS[Number(month) - 1]}`
 }
@@ -486,6 +488,7 @@ const dueChoices = computed(() => {
     { id: 'today', label: 'Today', dueDate: today },
     { id: 'tomorrow', label: 'Tomorrow', dueDate: addDays(today, 1) },
     { id: 'next-week', label: 'Next week', dueDate: addDays(today, 7) },
+    { id: 'someday', label: 'Someday', dueDate: SOMEDAY },
     { id: 'none', label: 'No date', dueDate: null },
   ]
 })
@@ -806,7 +809,9 @@ async function submitDraft() {
               @click="rescheduleSelected(choice)"
             >
               <span>{{ choice.label }}</span>
-              <span>{{ choice.dueDate ? formatDue(choice.dueDate) : '' }}</span>
+              <span>{{
+                choice.dueDate && !isSomeday(choice.dueDate) ? formatDue(choice.dueDate) : ''
+              }}</span>
             </button>
           </div>
         </div>

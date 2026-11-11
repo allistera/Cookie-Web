@@ -8,6 +8,7 @@ import { useTaskItemsStore } from '../stores/taskItems'
 import { useProjectsStore } from '../stores/projects'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { PRIORITIES } from '../lib/taskPriority'
+import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useModalFocus } from '../composables/useModalFocus'
 
 const emit = defineEmits(['close'])
@@ -36,6 +37,15 @@ const draft = ref({
 const projectOptions = computed(() =>
   flattenProjectTree(projects.projects, new Set(projects.projects.map((row) => row.id))),
 )
+// Someday stands in for the date, and takes neither a time nor a repeat.
+const someday = computed({
+  get: () => isSomeday(draft.value.dueDate),
+  set: (on) => {
+    draft.value.dueDate = on ? SOMEDAY : ''
+    draft.value.dueTime = ''
+    if (on) draft.value.recurrence = ''
+  },
+})
 const canSubmit = computed(
   () =>
     Boolean(mode.value === 'ai' ? text.value.trim() : draft.value.content.trim()) &&
@@ -192,10 +202,11 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <div class="add-task-schedule">
             <label
               >Due date<input
-                v-model="draft.dueDate"
                 type="date"
                 aria-label="Due date"
-                :disabled="isSaving"
+                :value="someday ? '' : draft.dueDate"
+                :disabled="isSaving || someday"
+                @input="draft.dueDate = $event.target.value"
                 @change="!draft.dueDate && (draft.dueTime = '')"
             /></label>
             <label
@@ -203,9 +214,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 v-model="draft.dueTime"
                 type="time"
                 aria-label="Due time"
-                :disabled="isSaving || !draft.dueDate"
+                :disabled="isSaving || !draft.dueDate || someday"
             /></label>
           </div>
+          <label class="add-task-someday"
+            ><input v-model="someday" type="checkbox" :disabled="isSaving" />Someday</label
+          >
           <p v-if="draft.dueTime" class="add-task-time-zone">
             {{ draft.timeZone || 'Local time' }}
           </p>
@@ -225,7 +239,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             <span class="add-task-labels-title">Estimated duration</span>
             <TaskDurationInput v-model="draft.durationMinutes" :disabled="isSaving" />
           </div>
-          <TaskRepeatInput v-model="draft.recurrence" :disabled="isSaving" />
+          <TaskRepeatInput v-model="draft.recurrence" :disabled="isSaving || someday" />
         </div>
         <p v-if="error" class="add-task-error" role="alert">{{ error }}</p>
         <footer class="add-task-dialog-footer">
@@ -447,6 +461,18 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 .add-task-schedule label {
   min-width: 0;
+}
+
+.add-task-fields .add-task-someday {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.add-task-fields .add-task-someday input {
+  width: auto;
+  margin: 0;
 }
 
 .add-task-time-zone {

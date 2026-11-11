@@ -5,6 +5,7 @@ import TaskRepeatInput from './TaskRepeatInput.vue'
 import { useLocalToday } from '../composables/useLocalToday'
 import { localToday } from '../lib/localDate'
 import { monthsFrom, parseDateInput, scheduleShortcuts, scheduleSummary } from '../lib/taskSchedule'
+import { isSomeday } from '../lib/taskSomeday'
 
 // The panel's whole schedule behind one chip: the date (typed, a quick
 // choice, or a day on the calendar), the time with its zone, and the
@@ -41,6 +42,9 @@ let prefilledText = ''
 
 const summary = computed(() => scheduleSummary(props, today.value))
 const shortcuts = computed(() => scheduleShortcuts(today.value))
+// Someday is no day on the calendar, and takes neither a time nor a repeat.
+const someday = computed(() => isSomeday(props.dueDate))
+const calendarDate = computed(() => (someday.value ? null : props.dueDate))
 
 // The calendar starts at the earlier of this month and the due date's
 // month, so a date already in the past is on screen, and runs to a year past
@@ -50,7 +54,7 @@ function monthNumber(iso) {
   return Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7)) - 1
 }
 const months = computed(() => {
-  const due = props.dueDate || today.value
+  const due = calendarDate.value || today.value
   const start = due < today.value ? due : today.value
   const end = Math.max(monthNumber(today.value) + MONTHS_SHOWN - 1, monthNumber(due))
   return monthsFrom(`${start.slice(0, 8)}01`, end - monthNumber(start) + 1)
@@ -134,7 +138,7 @@ async function openPicker() {
   open.value = true
   await nextTick()
   place()
-  scrollToMonth(monthIndexOf(props.dueDate || today.value))
+  scrollToMonth(monthIndexOf(calendarDate.value || today.value))
   input.value?.focus()
   input.value?.select?.()
   document.addEventListener('pointerdown', onPointerDown, true)
@@ -143,6 +147,7 @@ async function openPicker() {
 
 // "16 Oct" in the box, as the chip reads it without the weekday.
 function formatInput(iso) {
+  if (isSomeday(iso)) return 'Someday'
   const date = new Date(`${iso}T00:00:00`)
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(date)
 }
@@ -369,7 +374,7 @@ defineExpose({ open: openPicker })
         </section>
       </div>
 
-      <div class="task-schedule-foot">
+      <div v-if="!someday" class="task-schedule-foot">
         <button
           type="button"
           class="task-schedule-toggle task-schedule-time-toggle"
