@@ -143,16 +143,6 @@ export function sanitizeSpan(span) {
   for (const key of ['sentry.segment.id', 'sentry.pageload.span_id']) {
     if (/^[0-9a-f]{16}$/iu.test(source[key])) attributes[key] = source[key]
   }
-  // Profiles are uploaded separately. These opaque IDs link spans to their
-  // profile chunks; dropping them makes accepted profiles hard to discover.
-  for (const key of ['sentry.profiler_id', 'sentry.profile_id']) {
-    const id = /^[0-9a-f]{32}$/iu.exec(source[key])?.[0]
-    if (id && id === source[key]) attributes[key] = id
-  }
-  if (source['thread.id'] === '0') attributes['thread.id'] = '0'
-  if (['main', 'worker'].includes(source['thread.name'])) {
-    attributes['thread.name'] = source['thread.name']
-  }
   for (const key of numericAttributes) {
     if (Number.isFinite(source[key])) {
       attributes[key] = source[key]
@@ -262,11 +252,7 @@ export function sanitizeReplayEvent(event) {
 }
 
 // Keep SDK configuration in the lazy monitoring chunk, outside app startup.
-export function createSentryOptions(
-  app,
-  dsn,
-  { browserTracingIntegration, browserProfilingIntegration, replayIntegration },
-) {
+export function createSentryOptions(app, dsn, { browserTracingIntegration, replayIntegration }) {
   return {
     app,
     dsn,
@@ -278,7 +264,6 @@ export function createSentryOptions(
         router: app.config.globalProperties?.$router,
         beforeStartSpan: sanitizeSpanStart,
       }),
-      browserProfilingIntegration(),
       // Session Replay records a masked DOM: text and inputs become asterisks,
       // media is blocked and the sandboxed mail iframe is a blank box. Request
       // and response bodies and headers stay off (no networkDetailAllowUrls).
@@ -297,9 +282,8 @@ export function createSentryOptions(
     // low session rate keeps the quota for the replays attached to errors.
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1,
-    // Profile only while a sampled trace is active.
-    profileSessionSampleRate: 1,
-    profileLifecycle: 'trace',
+    // Browser profiling is off: Sentry bills UI profile hours only through a
+    // pay-as-you-go budget, so every profile chunk was rejected with a 429.
     // Same-origin path that vercel.json proxies to the Sentry envelope
     // endpoint, so ad and privacy blockers do not drop telemetry.
     tunnel: SENTRY_TUNNEL_PATH,
