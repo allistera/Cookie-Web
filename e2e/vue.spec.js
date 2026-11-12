@@ -1079,6 +1079,43 @@ test('Reader offers to add a detected email event to Calendar with details prefi
   await expect(suggestion.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
 })
 
+test('Dark theme keeps hard-coded dark email text readable', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('cookie-theme', 'dark'))
+  await page.goto('/inbox')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+
+  await page
+    .locator('.ni-row', { hasText: 'Revised Floor Plan - Natural Light adjustments' })
+    .click()
+  const body = page.locator('.ni-reader').frameLocator('iframe[title="Email content"]')
+
+  // Black text with no background of its own sits on the dark reader panel,
+  // so it takes the reader's text colour.
+  await expect(body.getByText('Hard-coded black text on no background.')).toHaveCSS(
+    'color',
+    'rgb(247, 248, 248)',
+  )
+  // Text on a background the email painted itself is left as authored.
+  await expect(body.getByText('Black text on its own white background.')).toHaveCSS(
+    'color',
+    'rgb(0, 0, 0)',
+  )
+})
+
+test('Light theme leaves hard-coded dark email text as authored', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('cookie-theme', 'light'))
+  await page.goto('/inbox')
+
+  await page
+    .locator('.ni-row', { hasText: 'Revised Floor Plan - Natural Light adjustments' })
+    .click()
+  const body = page.locator('.ni-reader').frameLocator('iframe[title="Email content"]')
+  await expect(body.getByText('Hard-coded black text on no background.')).toHaveCSS(
+    'color',
+    'rgb(0, 0, 0)',
+  )
+})
+
 test("Pressing 'd' after opening an email link marks it Done", async ({ page }) => {
   await page.goto('/inbox')
 

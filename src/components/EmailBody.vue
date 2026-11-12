@@ -151,6 +151,12 @@ const srcdoc = computed(() => {
   const dark = theme.value === 'dark'
   const fg = dark ? '#f7f8f8' : '#282a30'
   const link = dark ? '#858df8' : '#5e6ad2'
+  // Dark theme only: the reader panel's colour (--bg-card), in the rgb() form
+  // computed styles use, so the bridge can recolour text an email hard-coded
+  // too dark to read on it.
+  const contrast = dark
+    ? ` data-bridge-surface="rgb(16, 17, 19)" data-bridge-text="${fg}" data-bridge-link="${link}"`
+    : ''
   // Widened only once the reader clicks "Show images" for this message.
   const imgSrc = imagesAllowed.value ? 'data: cid: https: http:' : 'data: cid:'
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -166,7 +172,7 @@ body {
 img { max-width: 100%; height: auto; }
 table { max-width: 100%; border-collapse: collapse; }
 a { color: ${link}; }
-</style></head><body data-bridge-source="${BRIDGE_SOURCE}" data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}" data-bridge-hint-source="${BRIDGE_HINT_SOURCE}" data-bridge-resize-interval="${RESIZE_INTERVAL_MS}">${safeHtml.value}
+</style></head><body data-bridge-source="${BRIDGE_SOURCE}" data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}" data-bridge-hint-source="${BRIDGE_HINT_SOURCE}" data-bridge-resize-interval="${RESIZE_INTERVAL_MS}"${contrast}>${safeHtml.value}
 <script nonce="${scriptNonce}" src="${emailBodyBridgeUrl}">${SCRIPT_CLOSE}</body></html>`
 })
 
