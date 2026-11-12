@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarView from '../CalendarView.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { useProjectsStore } from '../../stores/projects'
+import { useTaskItemsStore } from '../../stores/taskItems'
 import { resetCalendarsStateForTests } from '../../composables/useCalendars'
 import {
   rememberEmailCalendarEvent,
@@ -431,6 +433,13 @@ function mockRect(element) {
 
 // Mounts and waits for the initial GET /api/calendar-events to resolve, so
 // the seed events are already rendered before the test interacts with them.
+// Opening a task has the Tasks stores read it and the project names; those
+// requests are the stores' own business, so they are stood in for here.
+function stubTaskStores() {
+  vi.spyOn(useProjectsStore(), 'loadProjects').mockResolvedValue(true)
+  return vi.spyOn(useTaskItemsStore(), 'loadDetail').mockResolvedValue()
+}
+
 async function mountCalendar(options) {
   const wrapper = mount(CalendarView, options)
   await flushPromises()
@@ -640,7 +649,7 @@ describe('CalendarView', () => {
     expect(banner.text()).toContain('Design review')
   })
 
-  it('opens a task in the Tasks app when clicked instead of the event dialog', async () => {
+  it('opens a task in its panel on the calendar when clicked, not the event dialog', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -651,13 +660,43 @@ describe('CalendarView', () => {
       ],
     })
     await router.push('/calendar')
-    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+    const loadDetail = stubTaskStores()
+    const wrapper = await mountCalendar({
+      global: { plugins: [router], stubs: { TaskDetailPanel: true } },
+    })
 
     await wrapper.get('.all-day-event.task-event').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=project-1&task=task-1')
+    const panel = wrapper.findComponent({ name: 'TaskDetailPanel' })
+    expect(panel.props('taskId')).toBe('task-1')
+    // The calendar never loaded the Tasks list, so the task is read for it.
+    expect(loadDetail).toHaveBeenCalledWith('task-1')
+    expect(router.currentRoute.value.fullPath).toBe('/calendar')
     expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+
+    // Stepping to another task from the panel swaps it; closing leaves the
+    // calendar as it was.
+    await panel.vm.$emit('open', 'task-2')
+    expect(wrapper.findComponent({ name: 'TaskDetailPanel' }).props('taskId')).toBe('task-2')
+    await wrapper.findComponent({ name: 'TaskDetailPanel' }).vm.$emit('close')
+    expect(wrapper.findComponent({ name: 'TaskDetailPanel' }).exists()).toBe(false)
+    expect(router.currentRoute.value.fullPath).toBe('/calendar')
+  })
+
+  it('reads tasks back onto the calendar after the Tasks store saves a change', async () => {
+    const wrapper = await mountCalendar()
+    const reads = () =>
+      fetch.mock.calls.filter(([url]) => String(url).startsWith(`${TASKS_ENDPOINT}?view=calendar`))
+        .length
+    const before = reads()
+
+    vi.spyOn(useTaskItemsStore(), 'authHeaders').mockResolvedValue({})
+    await useTaskItemsStore().request('PATCH', { body: { id: 'task-1', content: 'Renamed' } })
+    await flushPromises()
+
+    expect(reads()).toBeGreaterThan(before)
+    expect(wrapper.get('.all-day-event.task-event').text()).toContain('Renamed')
   })
 
   it("names how long the breaks between the day's events are", async () => {
@@ -774,7 +813,7 @@ describe('CalendarView', () => {
     expect(wrapper.find('[aria-label="Add a Someday task"]').exists()).toBe(true)
   })
 
-  it('opens a Someday task in the Tasks app when its title is clicked', async () => {
+  it('opens a Someday task in its panel on the calendar when its title is clicked', async () => {
     mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
     const router = createRouter({
       history: createMemoryHistory(),
@@ -786,13 +825,18 @@ describe('CalendarView', () => {
       ],
     })
     await router.push('/calendar')
-    const wrapper = await mountCalendar({ global: { plugins: [router] } })
+    stubTaskStores()
+    const wrapper = await mountCalendar({
+      global: { plugins: [router], stubs: { TaskDetailPanel: true } },
+    })
 
     await wrapper.findAll('.someday-title')[1].trigger('click')
     await flushPromises()
 
-    // A task with no project lives in the Inbox.
-    expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox&task=task-someday-2')
+    expect(wrapper.findComponent({ name: 'TaskDetailPanel' }).props('taskId')).toBe(
+      'task-someday-2',
+    )
+    expect(router.currentRoute.value.fullPath).toBe('/calendar')
   })
 
   // Drags carry a dataTransfer the way browsers build one; jsdom's events do

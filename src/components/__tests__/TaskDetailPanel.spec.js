@@ -27,9 +27,19 @@ const ITEMS = [
 const TasksHost = {
   setup() {
     const route = useRoute()
+    const show = (task) => {
+      const query = { ...route.query, task }
+      if (!task) delete query.task
+      router.push({ path: '/tasks', query })
+    }
     return () =>
       route.query.task
-        ? h(TaskDetailPanel, { key: route.query.task, taskId: route.query.task })
+        ? h(TaskDetailPanel, {
+            key: route.query.task,
+            taskId: route.query.task,
+            onOpen: show,
+            onClose: () => show(),
+          })
         : null
   },
 }

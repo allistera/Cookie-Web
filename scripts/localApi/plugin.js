@@ -2201,6 +2201,26 @@ export function localApiPlugin(mode) {
           ).length,
         })
       }
+      if (req.method === 'GET' && url.searchParams.get('view') === 'detail') {
+        // Mirrors getTaskDetail: one task, whichever list it is in, with its
+        // sub-tasks. The fixture never holds enough of them to page.
+        const id = url.searchParams.get('id')
+        if (!isTaskUuid(id)) return json(res, { error: 'Invalid task id' }, 400)
+        const item = state.taskItems.find((row) => row.id === id)
+        if (!item) return json(res, { error: 'Task not found' }, 404)
+        const subtasks = state.taskItems
+          .filter((row) => row.parentId === id)
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        return json(res, {
+          item: { ...item, summary: false },
+          subtasks,
+          counts: {
+            total: subtasks.length,
+            done: subtasks.filter((row) => row.completedAt !== null).length,
+          },
+          nextCursor: null,
+        })
+      }
       if (req.method === 'GET' && url.searchParams.get('view') === 'calendar') {
         // Mirrors getCalendarTaskItems: every open task due inside the
         // window, across every project, for Cookie Calendar.

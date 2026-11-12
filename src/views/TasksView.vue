@@ -177,6 +177,12 @@ function open(id) {
   router.push({ path: '/tasks', query: { ...route.query, task: id } })
 }
 
+function closeTask() {
+  const query = { ...route.query }
+  delete query.task
+  router.push({ path: '/tasks', query })
+}
+
 function labelOf(item) {
   return isDivider(item) ? item.content || 'divider' : item.content
 }
@@ -1096,7 +1102,13 @@ async function submitDraft() {
         More tasks
       </button>
     </div>
-    <TaskDetailPanel v-if="openTaskId" :key="openTaskId" :task-id="openTaskId" />
+    <TaskDetailPanel
+      v-if="openTaskId"
+      :key="openTaskId"
+      :task-id="openTaskId"
+      @open="open"
+      @close="closeTask"
+    />
   </div>
 </template>
 

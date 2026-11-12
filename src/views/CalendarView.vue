@@ -12,6 +12,7 @@ import {
   useCalendars,
 } from '../composables/useCalendars'
 import SidebarResizer from '../components/SidebarResizer.vue'
+import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import { useBucketCandidate, useBucketPin } from '../composables/useBucketCandidate'
 import { eventBucketItem } from '../lib/bucketItems'
 import { useBucketsStore } from '../stores/buckets'
@@ -25,11 +26,14 @@ import {
   taskToCalendarItems,
   taskCalendarWindows,
 } from '../lib/taskCalendarItems'
+import { subscribeTaskMutations } from '../lib/taskMutationRefresh'
 import { SOMEDAY } from '../lib/taskSomeday'
+import { useProjectsStore } from '../stores/projects'
+import { useTaskItemsStore } from '../stores/taskItems'
 
 const store = useInboxStore()
 const buckets = useBucketsStore()
-// Optional in standalone view tests; used for task navigation and event links.
+// Optional in standalone view tests; used for event links.
 const router = useRouter()
 const {
   calendars,
@@ -186,9 +190,11 @@ const eventsTruncated = ref(false)
 // saves events ever sees a task; they only meet in visibleEvents.
 const calendarTasks = ref([])
 let tasksRequestSeq = 0
+let tasksWindow = null
 
 async function loadCalendarTasks(from, to) {
   const seq = ++tasksRequestSeq
+  tasksWindow = { from, to }
   try {
     const headers = await store.authHeaders()
     const pages = await Promise.all(
@@ -223,10 +229,8 @@ const somedayDraft = ref(null)
 const somedayInput = ref(null)
 const somedaySaving = ref(false)
 
-const somedayTask = ({ id, projectId, content, durationMinutes, priority }) => ({
+const somedayTask = ({ id, content, durationMinutes, priority }) => ({
   id,
-  // The Tasks app addresses the Inbox by name rather than a null project.
-  projectId: projectId ?? 'inbox',
   content,
   durationMinutes: durationMinutes ?? null,
   priority: priority ?? null,
@@ -243,7 +247,14 @@ async function loadSomedayTasks() {
     )
     if (!response.ok) throw new Error(`GET /task-items?view=calendar responded ${response.status}`)
     const { items } = await response.json()
-    somedayTasks.value = (Array.isArray(items) ? items : []).map(somedayTask)
+    // A reload after an edit in the task panel keeps the rows ticked here.
+    const ticked = somedayTasks.value.filter((task) => task.done)
+    somedayTasks.value = [
+      ...(Array.isArray(items) ? items : [])
+        .filter((item) => !ticked.some((task) => task.id === item.id))
+        .map(somedayTask),
+      ...ticked,
+    ]
   } catch (error) {
     // Like dated tasks, an overlay: the calendar stays readable without it.
     console.error('Failed to load Someday tasks for the calendar:', error)
@@ -277,9 +288,28 @@ async function toggleSomedayTask(task) {
   }
 }
 
-function openSomedayTask(task) {
-  router?.push({ path: '/tasks', query: { project: task.projectId, task: task.id } })
+// A task opens here, in the same panel the Tasks app shows, rather than
+// leaving the calendar. The panel reads the task and the project names from
+// the Tasks stores, which the calendar has not loaded, and the task is read
+// afresh each time: a copy already in the store predates anything the
+// calendar itself has since changed (a drag to another time, say).
+const taskItems = useTaskItemsStore()
+const taskProjects = useProjectsStore()
+const openTaskId = ref('')
+
+function openTask(id) {
+  openTaskId.value = id
+  void taskProjects.loadProjects()
+  void taskItems.loadDetail(id)
 }
+
+// Whatever the panel changes (a new date, a rename, completion, a delete) is
+// read back onto the calendar as it is saved.
+function reloadTasks() {
+  if (tasksWindow) void loadCalendarTasks(tasksWindow.from, tasksWindow.to)
+  void loadSomedayTasks()
+}
+const stopTaskMutations = subscribeTaskMutations(taskItems, reloadTasks)
 
 async function startSomedayTask() {
   somedayDraft.value = ''
@@ -957,9 +987,9 @@ function toggleRepeatDay(code) {
 
 function editEvent(event) {
   if (eventSaving.value) return
-  // A task is edited where it lives: open it in the Tasks app on its project.
+  // A task has its own panel rather than the event dialog.
   if (event.kind === 'task') {
-    router?.push({ path: '/tasks', query: { project: event.projectId, task: event.taskId } })
+    openTask(event.taskId)
     return
   }
   editingEventId.value = event.seriesId ?? event.id
@@ -1555,6 +1585,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   unmounted = true
+  stopTaskMutations()
   clearInterval(nowTimer)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -2013,7 +2044,7 @@ onUnmounted(() => {
               type="button"
               class="someday-title"
               :draggable="!task.done"
-              @click="openSomedayTask(task)"
+              @click="openTask(task.id)"
               @dragstart="beginSomedayDrag($event, task)"
               @dragend="endSomedayDrag"
             >
@@ -2048,6 +2079,14 @@ onUnmounted(() => {
         </button>
       </section>
     </div>
+
+    <TaskDetailPanel
+      v-if="openTaskId"
+      :key="openTaskId"
+      :task-id="openTaskId"
+      @open="openTask"
+      @close="openTaskId = ''"
+    />
 
     <Transition name="calendar-modal">
       <div v-if="showNewEvent" class="new-event-overlay" @mousedown.self="dismissEventDialog">

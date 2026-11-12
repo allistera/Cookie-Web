@@ -155,20 +155,18 @@ test('The header notification shows New senders awaiting approval and opens that
   await expect(page).toHaveURL(/\/inbox\?filter=screening$/)
 })
 
-test('Calendar shows a task on its due date and opens it in Tasks', async ({ page }) => {
+test('Calendar shows a task on its due date and opens it in a panel there', async ({ page }) => {
   await freezeCalendarClock(page)
   // The calendar's frozen clock sits on 2026-07-24; a task due that day lands
   // in Day view straight away.
   await page.goto('/tasks')
-  const created = await page.evaluate(async (base) => {
-    const response = await fetch(`${base}/task-items`, {
+  await page.evaluate(async (base) => {
+    await fetch(`${base}/task-items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: 'Renew car insurance', dueDate: '2026-07-24' }),
     })
-    return response.json()
   }, TASKS_API_URL)
-  const taskId = created.item?.id ?? created.id
 
   await page.goto('/calendar')
   const task = page.locator('.task-event', { hasText: 'Renew car insurance' })
@@ -182,8 +180,21 @@ test('Calendar shows a task on its due date and opens it in Tasks', async ({ pag
   await tasksToggle.click()
   await expect(task).toBeVisible()
 
+  // A click opens the task's panel over the calendar instead of leaving it.
   await task.click()
-  await expect(page).toHaveURL(new RegExp(`/tasks\\?project=inbox&task=${taskId}$`))
+  const panel = page.getByRole('dialog', { name: 'Renew car insurance' })
+  await expect(panel).toBeVisible()
+  await expect(page).toHaveURL(/\/calendar$/)
+  await panel.getByRole('button', { name: 'Close task' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(page).toHaveURL(/\/calendar$/)
+
+  // What the panel changes shows on the calendar: a completed task leaves it.
+  await task.click()
+  await panel.getByRole('button', { name: 'Complete Renew car insurance' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(task).toHaveCount(0)
+  await expect(page).toHaveURL(/\/calendar$/)
 })
 
 test('Calendar lines Someday tasks along its foot, where they can be ticked off', async ({
