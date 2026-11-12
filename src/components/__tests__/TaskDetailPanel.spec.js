@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { h, ref } from 'vue'
-import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-router'
+import { createMemoryHistory, createRouter, RouterView, useRoute, useRouter } from 'vue-router'
 
 import TaskDetailPanel from '../TaskDetailPanel.vue'
 import { localToday } from '../../lib/localDate'
@@ -27,9 +27,22 @@ const ITEMS = [
 const TasksHost = {
   setup() {
     const route = useRoute()
+    // The host's own router, not the file's current one: a panel left
+    // mounted by an earlier test must not steer a later test's route.
+    const router = useRouter()
+    const show = (task) => {
+      const query = { ...route.query, task }
+      if (!task) delete query.task
+      router.push({ path: '/tasks', query })
+    }
     return () =>
       route.query.task
-        ? h(TaskDetailPanel, { key: route.query.task, taskId: route.query.task })
+        ? h(TaskDetailPanel, {
+            key: route.query.task,
+            taskId: route.query.task,
+            onOpen: show,
+            onClose: () => show(),
+          })
         : null
   },
 }

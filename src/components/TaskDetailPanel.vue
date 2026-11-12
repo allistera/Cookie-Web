@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 
 import TaskComments from './TaskComments.vue'
 import TaskHistory from './TaskHistory.vue'
@@ -29,8 +29,11 @@ import { useTaskCommentsStore } from '../stores/taskComments'
 import { useTaskItemsStore } from '../stores/taskItems'
 
 const props = defineProps({ taskId: { type: String, required: true } })
+// The panel does not decide where it lives. Whatever shows it (the Tasks
+// list, the calendar) owns which task is open, so stepping to another task
+// and closing are asked of it rather than written to the URL from here.
+const emit = defineEmits(['open', 'close'])
 
-const route = useRoute()
 const router = useRouter()
 const items = useTaskItemsStore()
 const projects = useProjectsStore()
@@ -96,7 +99,7 @@ const nextId = computed(() =>
 )
 
 function open(id) {
-  if (id) router.push({ path: '/tasks', query: { ...route.query, task: id } })
+  if (id) emit('open', id)
 }
 
 // The task's own address, as the list links it: /tasks?task=<id>.
@@ -442,17 +445,15 @@ async function remove() {
 }
 
 function close() {
-  const query = { ...route.query }
-  delete query.task
-  router.push({ path: '/tasks', query })
+  emit('close')
 }
 
 // The panel is keyed by task id, so by the time a slow request settles the
-// person may have opened another task (or left Tasks). Closing then would
+// person may have opened another task (or left the view). Closing then would
 // shut that other panel, so only close while this one is still the one shown.
 let unmounted = false
 function closeIfStillOpen() {
-  if (!unmounted && route.query.task === props.taskId) close()
+  if (!unmounted) close()
 }
 
 // A task id naming nothing in the loaded list is a stale link, a deleted task,
