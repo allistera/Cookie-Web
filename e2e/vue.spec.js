@@ -197,6 +197,17 @@ test('Calendar shows a task on its due date and opens it in a panel there', asyn
   await expect(task).toHaveClass(/task-done/)
   await expect(task.locator('.task-event-icon')).toHaveText('check_box')
   await expect(page).toHaveURL(/\/calendar$/)
+
+  // The checkbox itself ticks and unticks the task in place; only the text
+  // opens the panel.
+  const tick = task.getByRole('checkbox', { name: 'Complete Renew car insurance' })
+  await tick.click()
+  await expect(task).not.toHaveClass(/task-done/)
+  await expect(tick).toHaveAttribute('aria-checked', 'false')
+  await expect(panel).toHaveCount(0)
+  await tick.click()
+  await expect(task).toHaveClass(/task-done/)
+  await expect(panel).toHaveCount(0)
 })
 
 test('Calendar lines Someday tasks along its foot, where they can be ticked off', async ({

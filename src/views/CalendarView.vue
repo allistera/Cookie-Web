@@ -296,6 +296,34 @@ async function toggleSomedayTask(task) {
   }
 }
 
+// In the day view a task's checkbox ticks it off where it sits; only the
+// rest of the chip opens the panel. The tick shows at once and is undone if
+// the save fails. The reload afterwards picks up what completion changes
+// beyond the tick, such as a repeating task moving to its next date.
+const savingTaskIds = new Set()
+
+async function toggleCalendarTask(event) {
+  const id = event.taskId
+  if (savingTaskIds.has(id)) return
+  const done = !event.done
+  // An overnight task is two chips for one task, so both follow the tick.
+  const setDone = (value) => {
+    for (const item of calendarTasks.value) if (item.taskId === id) item.done = value
+  }
+  savingTaskIds.add(id)
+  setDone(done)
+  try {
+    await writeTask('PATCH', { id, completed: done })
+    if (tasksWindow) void loadCalendarTasks(tasksWindow.from, tasksWindow.to)
+  } catch (error) {
+    setDone(!done)
+    console.error('Failed to update a task from the calendar:', error)
+    store.notify('Failed to update the task.', 'error')
+  } finally {
+    savingTaskIds.delete(id)
+  }
+}
+
 // A task opens here, in the same panel the Tasks app shows, rather than
 // leaving the calendar. The panel reads the task and the project names from
 // the Tasks stores, which the calendar has not loaded, and the task is read
@@ -1772,8 +1800,15 @@ onUnmounted(() => {
               >
                 <span
                   v-if="event.kind === 'task'"
-                  class="material-symbols-outlined task-event-icon"
-                  aria-hidden="true"
+                  class="material-symbols-outlined task-event-icon task-event-check"
+                  role="checkbox"
+                  tabindex="0"
+                  :aria-checked="event.done"
+                  :aria-label="`Complete ${event.title}`"
+                  @mousedown.stop
+                  @click.stop="toggleCalendarTask(event)"
+                  @keydown.enter.stop.prevent="toggleCalendarTask(event)"
+                  @keydown.space.stop.prevent="toggleCalendarTask(event)"
                   >{{ taskEventIcon(event) }}</span
                 >
                 {{ event.title }}
@@ -1828,8 +1863,15 @@ onUnmounted(() => {
                     <span class="day-event-title">
                       <span
                         v-if="item.event.kind === 'task'"
-                        class="material-symbols-outlined task-event-icon"
-                        aria-hidden="true"
+                        class="material-symbols-outlined task-event-icon task-event-check"
+                        role="checkbox"
+                        tabindex="0"
+                        :aria-checked="item.event.done"
+                        :aria-label="`Complete ${item.event.title}`"
+                        @mousedown.stop
+                        @click.stop="toggleCalendarTask(item.event)"
+                        @keydown.enter.stop.prevent="toggleCalendarTask(item.event)"
+                        @keydown.space.stop.prevent="toggleCalendarTask(item.event)"
                         >{{ taskEventIcon(item.event) }}</span
                       >
                       <strong>{{ item.event.title }}</strong>
@@ -4087,6 +4129,16 @@ onUnmounted(() => {
   font-size: 15px;
   vertical-align: -3px;
   margin-right: 4px;
+}
+
+.task-event-check {
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.task-event-check:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
 }
 
 .day-event.task-event .task-event-icon {
