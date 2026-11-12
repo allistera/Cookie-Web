@@ -35,7 +35,13 @@ describe('taskToCalendarItem', () => {
       allDay: true,
       calendar: TASKS_CALENDAR_ID,
       priority: 2,
+      done: false,
     })
+  })
+
+  it('marks a completed task done so the calendar can strike it through', () => {
+    expect(taskToCalendarItem({ ...task, completedAt: '2026-09-22T09:00:00.000Z' }).done).toBe(true)
+    expect(taskToCalendarItem({ ...task, completedAt: null }).done).toBe(false)
   })
 
   it('maps a task with a due time to a thirty-minute slot at that time', () => {

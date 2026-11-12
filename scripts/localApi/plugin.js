@@ -2223,17 +2223,19 @@ export function localApiPlugin(mode) {
       }
       if (req.method === 'GET' && url.searchParams.get('view') === 'calendar') {
         // Mirrors getCalendarTaskItems: every open task due inside the
-        // window, across every project, for Cookie Calendar.
+        // window, across every project, for Cookie Calendar, and with
+        // completed=1 the done ones too.
         const from = url.searchParams.get('from')
         const to = url.searchParams.get('to')
         if (!isTaskCalendarDate(from) || !isTaskCalendarDate(to)) {
           return json(res, { error: 'calendar requires from=YYYY-MM-DD and to=YYYY-MM-DD' }, 400)
         }
+        const includeCompleted = url.searchParams.get('completed') === '1'
         const items = state.taskItems
           .filter(
             (item) =>
               item.kind !== 'divider' &&
-              item.completedAt === null &&
+              (includeCompleted || item.completedAt === null) &&
               Boolean(item.dueDate) &&
               item.dueDate >= from &&
               item.dueDate <= to,
@@ -2254,6 +2256,7 @@ export function localApiPlugin(mode) {
               timeZone,
               durationMinutes,
               priority,
+              completedAt,
             }) => ({
               id,
               projectId,
@@ -2264,6 +2267,7 @@ export function localApiPlugin(mode) {
               durationMinutes: durationMinutes ?? null,
               timeZone,
               priority,
+              completedAt: completedAt ?? null,
             }),
           )
         return json(res, { items })

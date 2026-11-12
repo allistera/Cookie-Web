@@ -15,7 +15,7 @@ export const TIMED_TASK_MINUTES = 30
 const WHOLE_DAY_MINUTES = 24 * 60
 
 /**
- * @param {{ id: string, projectId?: string | null, content: string, dueDate: string, dueTime?: string | null, durationMinutes?: number | null, priority?: number | null }} task
+ * @param {{ id: string, projectId?: string | null, content: string, dueDate: string, dueTime?: string | null, durationMinutes?: number | null, priority?: number | null, completedAt?: string | null }} task
  */
 export function taskToCalendarItem(task) {
   const timed = Boolean(task.dueTime)
@@ -32,6 +32,9 @@ export function taskToCalendarItem(task) {
     allDay: !timed,
     calendar: TASKS_CALENDAR_ID,
     priority: task.priority ?? null,
+    // A completed task keeps its place on the day, struck through, rather
+    // than vanishing from the calendar.
+    done: Boolean(task.completedAt),
   }
 }
 

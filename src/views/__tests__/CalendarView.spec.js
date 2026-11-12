@@ -238,7 +238,7 @@ function mockCalendarApi({
     ...calendar,
   }))
   let nextId = 1
-  let taskRows = tasks.map((task) => ({ ...task, completedAt: null }))
+  let taskRows = tasks.map((task) => ({ completedAt: null, ...task }))
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, options = {}) => {
@@ -303,9 +303,14 @@ function mockCalendarApi({
         const from = params.get('from')
         const to = params.get('to')
         if ((Date.parse(to) - Date.parse(from)) / 86400000 > 100) return { ok: false, status: 400 }
-        // Only open tasks, as the real calendar view answers.
+        // Open tasks, and done ones only when asked for, as the real
+        // calendar view answers.
+        const includeCompleted = params.get('completed') === '1'
         const items = taskRows.filter(
-          (task) => task.completedAt === null && task.dueDate >= from && task.dueDate <= to,
+          (task) =>
+            (includeCompleted || task.completedAt === null) &&
+            task.dueDate >= from &&
+            task.dueDate <= to,
         )
         return { ok: true, json: async () => clone({ items }) }
       }
@@ -560,6 +565,42 @@ describe('CalendarView', () => {
     expect(wrapper.find('.task-event').exists()).toBe(true)
   })
 
+  it('keeps a completed task on its day, ticked and struck through', async () => {
+    mockCalendarApi({
+      tasks: [
+        ...SEED_TASKS,
+        {
+          ...SEED_TASKS[0],
+          id: 'task-done',
+          content: 'Pay the bill',
+          completedAt: '2026-07-24T08:00:00.000Z',
+        },
+      ],
+    })
+    const wrapper = await mountCalendar()
+
+    const chips = wrapper.findAll('.all-day-event.task-event')
+    const open = chips.find((chip) => chip.text().includes('Renew car insurance'))
+    const done = chips.find((chip) => chip.text().includes('Pay the bill'))
+    expect(open.classes()).not.toContain('task-done')
+    expect(open.get('.task-event-icon').text()).toBe('check_box_outline_blank')
+    expect(done.classes()).toContain('task-done')
+    expect(done.get('.task-event-icon').text()).toBe('check_box')
+  })
+
+  it('leaves a task struck through on its day when the panel completes it', async () => {
+    const wrapper = await mountCalendar()
+    expect(wrapper.get('.all-day-event.task-event').classes()).not.toContain('task-done')
+
+    vi.spyOn(useTaskItemsStore(), 'authHeaders').mockResolvedValue({})
+    await useTaskItemsStore().request('PATCH', { body: { id: 'task-1', completed: true } })
+    await flushPromises()
+
+    const chip = wrapper.get('.all-day-event.task-event')
+    expect(chip.text()).toContain('Renew car insurance')
+    expect(chip.classes()).toContain('task-done')
+  })
+
   it('lays the day out left to right, with each event a column labelled with its times', async () => {
     const wrapper = await mountCalendar()
 
@@ -630,10 +671,15 @@ describe('CalendarView', () => {
     expect(windows.at(-1).get('to')).toBe(eventParams.get('to'))
     windows.forEach((params) => {
       expect(params.get('view')).toBe('calendar')
+      // Done tasks stay on their day, so the windows ask for them.
+      expect(params.get('completed')).toBe('1')
       expect(Date.parse(params.get('to')) - Date.parse(params.get('from'))).toBeLessThanOrEqual(
         100 * 86400000,
       )
     })
+    // The Someday row keeps to open tasks: a done one leaves it on reload.
+    const someday = urls.find((url) => url.includes('9999-12-31'))
+    expect(new URLSearchParams(someday.split('?')[1]).get('completed')).toBeNull()
     windows.slice(1).forEach((params, index) => {
       expect(Date.parse(params.get('from')) - Date.parse(windows[index].get('to'))).toBe(86400000)
     })
