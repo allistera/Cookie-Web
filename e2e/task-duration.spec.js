@@ -45,5 +45,5 @@ test('a task estimate survives reload and controls its calendar width', async ({
   await expect(page.locator('.task-panel-field-summary').first()).toHaveText('Not set')
   await page.goto('/calendar')
   await page.getByRole('button', { name: 'Day', exact: true }).click()
-  await expect.poll(laneShare).toBeCloseTo(30 / 660, 2)
+  await expect.poll(laneShare).toBeCloseTo(30 / 1440, 2)
 })
