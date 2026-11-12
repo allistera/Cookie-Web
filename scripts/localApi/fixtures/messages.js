@@ -17,6 +17,8 @@ const HOSTILE_HTML = `
       <tr><td>Kitchen</td><td>18 x 14</td></tr>
       <tr><td>Breakfast nook</td><td>10 x 9</td></tr>
     </table>
+    <p style="color: #000000">Hard-coded black text on no background.</p>
+    <p style="color: #000000; background-color: #ffffff">Black text on its own white background.</p>
     <p><a href="https://cityconstruction.com/plan">View the full plan</a></p>
     <p><a href="javascript:alert('xss')">Do not click</a></p>
   </div>`

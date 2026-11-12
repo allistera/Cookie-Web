@@ -234,11 +234,17 @@ describe('EmailBody', () => {
     const wrapper = mount(EmailBody, { props: { html: '<p>Hi</p>' } })
 
     expect(wrapper.find('iframe').attributes('srcdoc')).toContain('color-scheme: light')
+    // The bridge only recolours unreadable text when given the dark panel colour.
+    expect(wrapper.find('iframe').attributes('srcdoc')).not.toContain('data-bridge-surface')
 
     document.documentElement.setAttribute('data-theme', 'dark')
     await vi.waitFor(() => {
       expect(wrapper.find('iframe').attributes('srcdoc')).toContain('color-scheme: dark')
     })
+    const darkSrcdoc = wrapper.find('iframe').attributes('srcdoc')
+    expect(darkSrcdoc).toContain('data-bridge-surface="rgb(16, 17, 19)"')
+    expect(darkSrcdoc).toContain('data-bridge-text="#f7f8f8"')
+    expect(darkSrcdoc).toContain('data-bridge-link="#858df8"')
 
     wrapper.unmount()
     document.documentElement.removeAttribute('data-theme')

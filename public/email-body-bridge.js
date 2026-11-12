@@ -88,6 +88,71 @@ const collectLinkSnapshot = () => {
 
 const scheduleLinkSnapshot = () => requestAnimationFrame(collectLinkSnapshot)
 
+// Dark theme only (the reader passes its panel colour as data-bridge-surface).
+// The frame is transparent, so an email that hard-codes dark text without
+// painting a background of its own would render dark-on-dark. Text that sits
+// directly on the reader's panel and lacks contrast against it is recoloured;
+// anything on a background the email painted itself is left as authored.
+const MIN_TEXT_CONTRAST = 4.5
+const SOLID_ALPHA = 0.5
+
+const parseColor = (value) => {
+  const parts = /^rgba?\(([^)]+)\)$/
+    .exec(value || '')?.[1]
+    .split(/[\s,/]+/)
+    .map(Number)
+  if (!parts || parts.length < 3 || parts.some(Number.isNaN)) return null
+  return { rgb: parts.slice(0, 3), alpha: parts[3] ?? 1 }
+}
+
+const luminance = (rgb) => {
+  const [r, g, b] = rgb.map((channel) => {
+    const value = channel / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+const fixTextContrast = () => {
+  const surface = parseColor(document.body.dataset.bridgeSurface)
+  if (!surface) return
+  const surfaceLuminance = luminance(surface.rgb)
+  const { bridgeText, bridgeLink } = document.body.dataset
+
+  const paintsBackground = new Map()
+  const sitsOnSurface = (element) => {
+    if (!element) return true
+    const known = paintsBackground.get(element)
+    if (known !== undefined) return known
+    const style = getComputedStyle(element)
+    const background = parseColor(style.backgroundColor)
+    const painted =
+      style.backgroundImage !== 'none' || !background || background.alpha >= SOLID_ALPHA
+    const result = !painted && sitsOnSurface(element.parentElement)
+    paintsBackground.set(element, result)
+    return result
+  }
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  const elements = new Set()
+  while (walker.nextNode()) {
+    const parent = walker.currentNode.parentElement
+    if (parent && walker.currentNode.nodeValue.trim() && !parent.closest('style, script')) {
+      elements.add(parent)
+    }
+  }
+  for (const element of elements) {
+    const color = parseColor(getComputedStyle(element).color)
+    if (!color || !sitsOnSurface(element)) continue
+    const textLuminance = luminance(color.rgb)
+    const contrast =
+      (Math.max(textLuminance, surfaceLuminance) + 0.05) /
+      (Math.min(textLuminance, surfaceLuminance) + 0.05)
+    if (contrast >= MIN_TEXT_CONTRAST) continue
+    element.style.setProperty('color', element.closest('a') ? bridgeLink : bridgeText, 'important')
+  }
+}
+
 addEventListener('keydown', (event) => {
   const target = event.target instanceof Element ? event.target : null
   if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
@@ -111,10 +176,12 @@ addEventListener('keydown', (event) => {
 })
 
 addEventListener('load', () => {
+  fixTextContrast()
   sendResize()
   scheduleLinkSnapshot()
 })
 
 new ResizeObserver(scheduleResize).observe(document.documentElement)
+fixTextContrast()
 sendResize()
 scheduleLinkSnapshot()
