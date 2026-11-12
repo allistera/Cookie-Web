@@ -89,7 +89,6 @@ const eventCreationMode = ref('ai')
 const eventAiInput = ref('')
 const eventAiError = ref('')
 const dragDraft = ref(null)
-const conflictVisible = ref(true)
 
 const visibleCalendars = ref(new Set())
 
@@ -648,8 +647,8 @@ const eventInterval = (event) => {
 // The first (earliest-starting) pair of timed events whose intervals overlap
 // within the next CONFLICT_WINDOW_DAYS, or null if there isn't one. All-day
 // events (holidays, etc.) are excluded — they aren't "conflicts" in the
-// scheduling sense. Exported shape mirrors the card's original hardcoded
-// copy: "<later event>" overlaps "<earlier event>" by N min on <day>.
+// scheduling sense. The card reads "<later event>" overlaps "<earlier event>"
+// by N min on <day>, and its action opens `date` in the day view.
 const detectedConflict = computed(() => {
   const windowStart = referenceDate.value
   const windowEnd = addDays(referenceDate.value, CONFLICT_WINDOW_DAYS)
@@ -677,12 +676,22 @@ const detectedConflict = computed(() => {
           laterTitle: later.event.title,
           overlapMinutes: Math.round(overlapMs / 60_000),
           dayLabel: formatWeekdayShort(earlier.start),
+          date: new Date(`${earlier.event.date}T00:00:00`),
         }
       }
     }
   }
   return null
 })
+
+// The conflict card has no dismiss: it stays until the overlap itself is
+// gone (an event moved, shortened or deleted), so its only action is to take
+// the user to the day where the two events collide.
+function showConflict() {
+  if (!detectedConflict.value) return
+  selectedDate.value = new Date(detectedConflict.value.date)
+  viewMode.value = 'day'
+}
 
 // One formatter instance per shape, not per call — Intl.DateTimeFormat
 // construction is expensive and several of these run inside render paths
@@ -1740,7 +1749,7 @@ onUnmounted(() => {
             class="calendar-insights"
             aria-label="Calendar insights"
           >
-            <article v-if="conflictVisible && detectedConflict" class="calendar-insight-card">
+            <article v-if="detectedConflict" class="calendar-insight-card">
               <span class="insight-icon conflict-icon material-symbols-outlined" aria-hidden="true">
                 warning_amber
               </span>
@@ -1750,8 +1759,8 @@ onUnmounted(() => {
                   "{{ detectedConflict.laterTitle }}" overlaps "{{ detectedConflict.earlierTitle }}"
                   by {{ detectedConflict.overlapMinutes }} min on {{ detectedConflict.dayLabel }}.
                 </p>
-                <button type="button" class="primary-small-button" @click="conflictVisible = false">
-                  Resolve
+                <button type="button" class="primary-small-button" @click="showConflict">
+                  Show
                 </button>
               </div>
             </article>
