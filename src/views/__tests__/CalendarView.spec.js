@@ -601,6 +601,48 @@ describe('CalendarView', () => {
     expect(chip.classes()).toContain('task-done')
   })
 
+  it('ticks a task off from its Day view checkbox without opening the panel', async () => {
+    stubTaskStores()
+    const wrapper = await mountCalendar({ global: { stubs: { TaskDetailPanel: true } } })
+
+    // Both an all-day task and a timed one carry the checkbox.
+    for (const [chipClass, title] of [
+      ['.all-day-event', 'Renew car insurance'],
+      ['.day-event', 'Call the bank'],
+    ]) {
+      const tick = wrapper.get(`${chipClass}.task-event [aria-label="Complete ${title}"]`)
+      expect(tick.attributes('aria-checked')).toBe('false')
+      await tick.trigger('click')
+      await flushPromises()
+
+      const chip = wrapper.get(`${chipClass}.task-event`)
+      expect(chip.classes()).toContain('task-done')
+      expect(chip.get('[role="checkbox"]').attributes('aria-checked')).toBe('true')
+    }
+    expect(wrapper.findComponent({ name: 'TaskDetailPanel' }).exists()).toBe(false)
+
+    // The text still opens the panel, and a second click unticks the task.
+    await wrapper.get('.all-day-event.task-event').trigger('click')
+    expect(wrapper.findComponent({ name: 'TaskDetailPanel' }).props('taskId')).toBe('task-1')
+    await wrapper.get('.all-day-event.task-event [role="checkbox"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.all-day-event.task-event').classes()).not.toContain('task-done')
+  })
+
+  it('unticks a Day view task again when completing it fails', async () => {
+    const wrapper = await mountCalendar()
+    const respond = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options = {}) =>
+      options.method === 'PATCH' ? { ok: false, status: 500 } : respond(url, options),
+    )
+
+    await wrapper.get('.all-day-event.task-event [role="checkbox"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.all-day-event.task-event').classes()).not.toContain('task-done')
+    expect(useInboxStore().notify).toHaveBeenCalledWith('Failed to update the task.', 'error')
+  })
+
   it('lays the day out left to right, with each event a column labelled with its times', async () => {
     const wrapper = await mountCalendar()
 
