@@ -879,26 +879,19 @@ describe('CalendarView', () => {
     expect(useInboxStore().notify).toHaveBeenCalledWith('Failed to update the task.', 'error')
   })
 
-  it('adds a task to Someday from the row', async () => {
+  it('leaves the Someday row out when no task is put off to Someday', async () => {
     const wrapper = await mountCalendar()
-    expect(wrapper.find('.someday-task').exists()).toBe(false)
 
-    await wrapper.get('[aria-label="Add a Someday task"]').trigger('click')
-    const input = wrapper.get('[aria-label="New Someday task"]')
-    await input.setValue('  Plant a tree  ')
-    await wrapper.get('.someday-form').trigger('submit')
-    await flushPromises()
+    expect(wrapper.find('.someday-strip').exists()).toBe(false)
+  })
 
-    const [, options] = fetch.mock.calls.find(
-      ([url, init]) => url === TASKS_ENDPOINT && init?.method === 'POST',
-    )
-    expect(JSON.parse(options.body)).toEqual({ content: 'Plant a tree', dueDate: '9999-12-31' })
-    expect(wrapper.findAll('.someday-title').map((title) => title.text())).toEqual(['Plant a tree'])
-    // The field stays for the next one; left empty, it gives way to the button.
-    expect(input.element.value).toBe('')
-    await input.trigger('blur')
-    expect(wrapper.find('[aria-label="New Someday task"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="Add a Someday task"]').exists()).toBe(true)
+  it('offers no way to add a task from the Someday row', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar()
+
+    const strip = wrapper.get('.someday-strip')
+    expect(strip.find('input').exists()).toBe(false)
+    expect(strip.findAll('button')).toHaveLength(SOMEDAY_TASKS.length * 2)
   })
 
   it('opens a Someday task in its panel on the calendar when its title is clicked', async () => {
