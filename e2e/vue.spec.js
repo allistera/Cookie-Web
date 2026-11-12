@@ -189,11 +189,13 @@ test('Calendar shows a task on its due date and opens it in a panel there', asyn
   await expect(panel).toHaveCount(0)
   await expect(page).toHaveURL(/\/calendar$/)
 
-  // What the panel changes shows on the calendar: a completed task leaves it.
+  // What the panel changes shows on the calendar: a completed task stays on
+  // its day, ticked and struck through.
   await task.click()
   await panel.getByRole('button', { name: 'Complete Renew car insurance' }).click()
   await expect(panel).toHaveCount(0)
-  await expect(task).toHaveCount(0)
+  await expect(task).toHaveClass(/task-done/)
+  await expect(task.locator('.task-event-icon')).toHaveText('check_box')
   await expect(page).toHaveURL(/\/calendar$/)
 })
 
