@@ -2102,12 +2102,32 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
-  it('dismisses the conflict insight card through its action', async () => {
+  it('opens the day of the conflict from the insight card and keeps the card', async () => {
     const wrapper = await mountCalendar()
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    expect(wrapper.get('h1').text()).toBe('July 2026')
 
-    await wrapper.get('.primary-small-button').trigger('click')
+    await wrapper.get('.calendar-insight-card .primary-small-button').trigger('click')
+    expect(wrapper.get('h1').text()).toBe('Saturday, July 25, 2026')
+    expect(wrapper.find('.day-calendar').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Scheduling conflict')
+  })
+
+  it('hides the conflict card only once the overlap is gone', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    await wrapper.get('.calendar-insight-card .primary-small-button').trigger('click')
+    expect(wrapper.text()).toContain('Scheduling conflict')
+
+    const clientCall = wrapper
+      .findAll('.day-event')
+      .find((event) => event.text().includes('Client call'))
+    await clientCall.trigger('click')
+    await wrapper.get('.new-event-delete').trigger('click')
+    await flushPromises()
+
     expect(wrapper.text()).not.toContain('Scheduling conflict')
     expect(wrapper.text()).toContain('Auto-scheduled')
+    wrapper.unmount()
   })
 
   it('reports a real auto-scheduled count for this week, and hides the card when there are none', async () => {
