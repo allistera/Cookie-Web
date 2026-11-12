@@ -61,6 +61,14 @@ const referenceDate = computed(() => new Date(todayStart.value))
 const WEEK_HOUR_HEIGHT = 72
 const START_HOUR = 8
 const END_HOUR = 19
+const DAY_MINUTES = 24 * 60
+// The minutes each surface lays out. The week grid shows the working hours;
+// the day strip holds the whole day and is swiped through, opening on the
+// same working hours.
+const AXES = {
+  day: { first: 0, last: DAY_MINUTES },
+  week: { first: START_HOUR * 60, last: END_HOUR * 60 },
+}
 
 const SNAP_MINUTES = 15
 
@@ -397,22 +405,24 @@ function endSomedayDrag() {
 // The slot under the pointer on a drop surface. The day lane runs its hours
 // across; the week grid is one surface for all seven columns, so the column
 // under the pointer names the date and the height the time. The task starts
-// at the pointer, no later than the last visible quarter hour.
+// at the pointer, no later than the surface's last quarter hour.
 function somedaySlot(event, view) {
   const rect = event.currentTarget.getBoundingClientRect()
-  const lastStart = END_HOUR * 60 - SNAP_MINUTES
+  const lastStart = AXES[view].last - SNAP_MINUTES
   if (view === 'day') {
-    const hourSize = rect.width / (END_HOUR - START_HOUR)
     return {
       date: selectedDate.value,
-      startMinutes: Math.min(minutesFromOffset(event.clientX - rect.left, hourSize), lastStart),
+      startMinutes: Math.min(
+        minutesFromOffset(event.clientX - rect.left, rect.width / 24, view),
+        lastStart,
+      ),
     }
   }
   const column = Math.floor(((event.clientX - rect.left) / rect.width) * 7)
   return {
     date: weekDays.value[Math.min(Math.max(column, 0), 6)],
     startMinutes: Math.min(
-      minutesFromOffset(event.clientY - rect.top, WEEK_HOUR_HEIGHT),
+      minutesFromOffset(event.clientY - rect.top, WEEK_HOUR_HEIGHT, view),
       lastStart,
     ),
   }
@@ -677,6 +687,7 @@ const detectedConflict = computed(() => {
           overlapMinutes: Math.round(overlapMs / 60_000),
           dayLabel: formatWeekdayShort(earlier.start),
           date: new Date(`${earlier.event.date}T00:00:00`),
+          startMinutes: timeStringToMinutes(earlier.event.start),
         }
       }
     }
@@ -689,9 +700,35 @@ const detectedConflict = computed(() => {
 // the user to the day where the two events collide.
 function showConflict() {
   if (!detectedConflict.value) return
-  selectedDate.value = new Date(detectedConflict.value.date)
+  const { date, startMinutes } = detectedConflict.value
+  selectedDate.value = new Date(date)
   viewMode.value = 'day'
+  void nextTick(() => revealDayTime(startMinutes))
 }
+
+// The day strip is wider than its frame and scrolls sideways, so a swipe (or
+// a sideways wheel) carries it through the hours either side of the working
+// day it opens on.
+const dayTimeline = ref(null)
+
+function scrollDayTo(minutes) {
+  const lane = dayTimeline.value?.querySelector('.day-event-lane')
+  if (!lane) return
+  // The lane sits one side padding into the strip, so this share of its width
+  // leaves `minutes` that padding in from the frame's left edge.
+  dayTimeline.value.scrollLeft = (minutes / DAY_MINUTES) * lane.offsetWidth
+}
+
+// Brings a time into view: the working hours when it falls well inside them,
+// otherwise the strip starting an hour before it.
+function revealDayTime(minutes) {
+  const working = minutes >= START_HOUR * 60 && minutes <= (END_HOUR - 2) * 60
+  scrollDayTo(working ? START_HOUR * 60 : Math.max(minutes - 60, 0))
+}
+
+// The strip is built afresh each time the day view opens, and starts at the
+// working hours; moving between days leaves it where it was swiped to.
+watch(dayTimeline, () => scrollDayTo(START_HOUR * 60), { flush: 'post' })
 
 // One formatter instance per shape, not per call — Intl.DateTimeFormat
 // construction is expensive and several of these run inside render paths
@@ -737,6 +774,10 @@ const monthDays = computed(() => {
 })
 
 const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => START_HOUR + index)
+const dayHours = Array.from({ length: 25 }, (_, hour) => hour)
+// How many times wider than its frame the day strip is, so the frame shows
+// the working hours' worth of it at a time.
+const DAY_ZOOM = 24 / (END_HOUR - START_HOUR)
 const weekBodyHeight = (END_HOUR - START_HOUR) * WEEK_HOUR_HEIGHT
 
 const eventsForDay = computed(() =>
@@ -751,11 +792,7 @@ const allDayEventsForWeek = computed(() =>
   ),
 )
 
-const timeLabel = (hour) => {
-  if (hour === 12) return '12 PM'
-  if (hour > 12) return `${hour - 12} PM`
-  return `${hour} AM`
-}
+const timeLabel = (hour) => `${hour % 12 || 12} ${hour % 24 >= 12 ? 'PM' : 'AM'}`
 
 const parseStart = (start) => {
   const [hour, minute] = start.split(':').map(Number)
@@ -781,12 +818,11 @@ const eventPosition = (event, hourHeight) => {
 }
 
 // Day view runs time left to right across the full width of its lane, so its
-// positions are shares of the visible hours rather than pixels.
-const VISIBLE_MINUTES = (END_HOUR - START_HOUR) * 60
-const dayShare = (minutes) => `${(minutes / VISIBLE_MINUTES) * 100}%`
-const dayOffset = (minutes) => dayShare(minutes - START_HOUR * 60)
+// positions are shares of the day rather than pixels.
+const dayShare = (minutes) => `${(minutes / DAY_MINUTES) * 100}%`
+const dayOffset = dayShare
 
-// The day's timed events, clipped to the visible hours. Events that overlap
+// The day's timed events, clipped to the day. Events that overlap
 // share the lane's height in stacked rows instead of covering each other.
 const dayEventItems = computed(() => {
   const items = eventsForDay.value.map((event) => {
@@ -794,8 +830,8 @@ const dayEventItems = computed(() => {
     const start = hour * 60 + minute
     return {
       event,
-      start: Math.max(start, START_HOUR * 60),
-      end: Math.min(start + Number(event.duration), END_HOUR * 60),
+      start,
+      end: Math.min(start + Number(event.duration), DAY_MINUTES),
     }
   })
   assignLanes(items.filter((item) => item.end > item.start))
@@ -836,10 +872,11 @@ const weekEventStyle = (event) => {
 }
 
 const snapMinutes = (minutes) => Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES
-const clampMinutes = (minutes) => Math.min(Math.max(minutes, START_HOUR * 60), END_HOUR * 60)
+const clampMinutes = (minutes, view) =>
+  Math.min(Math.max(minutes, AXES[view].first), AXES[view].last)
 
-const minutesFromOffset = (offset, hourSize) =>
-  clampMinutes(snapMinutes(START_HOUR * 60 + (offset / hourSize) * 60))
+const minutesFromOffset = (offset, hourSize, view) =>
+  clampMinutes(snapMinutes(AXES[view].first + (offset / hourSize) * 60), view)
 
 const minutesToTimeString = (minutes) =>
   `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
@@ -926,8 +963,9 @@ const weekTimedEvents = computed(() =>
 )
 
 const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
-// Hide the line entirely when the wall clock falls outside the rendered
-// 8 AM–7 PM grid, rather than clamping it to the edges.
+// Hide the week's line entirely when the wall clock falls outside its
+// 8 AM–7 PM grid, rather than clamping it to the edges. The day strip holds
+// every hour, so its line always has a place.
 const nowVisible = computed(
   () => nowMinutes.value >= START_HOUR * 60 && nowMinutes.value <= END_HOUR * 60,
 )
@@ -1399,20 +1437,19 @@ function consumeNewEventRequest() {
 
 // Where a pointer sits on the dragged surface's time axis: across the day
 // lane, whose hours share its width, or down a week column at a fixed height
-// per hour.
-function dragMinutes(event, { view, origin, hourSize }) {
-  const pointer = view === 'day' ? event.clientX : event.clientY
-  return minutesFromOffset(pointer - origin, hourSize)
+// per hour. The surface is measured afresh each time, since it may have been
+// scrolled under the pointer since the drag began.
+function dragMinutes(event, { view, surface }) {
+  const rect = surface.getBoundingClientRect()
+  return view === 'day'
+    ? minutesFromOffset(event.clientX - rect.left, rect.width / 24, view)
+    : minutesFromOffset(event.clientY - rect.top, WEEK_HOUR_HEIGHT, view)
 }
 
 function beginDrag(event, date, view) {
   if (event.button !== 0) return
   event.preventDefault()
-  const rect = event.currentTarget.getBoundingClientRect()
-  const axis =
-    view === 'day'
-      ? { view, origin: rect.left, hourSize: rect.width / (END_HOUR - START_HOUR) }
-      : { view, origin: rect.top, hourSize: WEEK_HOUR_HEIGHT }
+  const axis = { view, surface: event.currentTarget }
   const minutes = dragMinutes(event, axis)
   dragDraft.value = {
     ...axis,
@@ -1438,12 +1475,15 @@ function onDragEnd() {
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
   if (!dragDraft.value) return
-  const { date, anchorMinutes, currentMinutes } = dragDraft.value
-  const startMinutes = Math.min(anchorMinutes, currentMinutes)
-  const endMinutes =
+  const { view, date, anchorMinutes, currentMinutes } = dragDraft.value
+  // The dialog's times are clock times, which stop a minute short of midnight.
+  const startMinutes = Math.min(anchorMinutes, currentMinutes, DAY_MINUTES - SNAP_MINUTES)
+  const endMinutes = Math.min(
     currentMinutes === anchorMinutes
-      ? clampMinutes(startMinutes + 30)
-      : Math.max(anchorMinutes, currentMinutes)
+      ? clampMinutes(startMinutes + 30, view)
+      : Math.max(anchorMinutes, currentMinutes),
+    DAY_MINUTES - 1,
+  )
   dragDraft.value = null
   openNewEvent({ date, startMinutes, endMinutes })
 }
@@ -1471,20 +1511,22 @@ function canMoveEvent(event) {
 
 function beginEventMove(event, item) {
   if (event.button !== 0 || !canMoveEvent(item.event)) return
-  const lane = event.currentTarget.parentElement.getBoundingClientRect()
+  const lane = event.currentTarget.parentElement
+  const rect = lane.getBoundingClientRect()
   const start = timeStringToMinutes(item.event.start)
-  const firstStart = START_HOUR * 60
-  const lastStart = Math.max(END_HOUR * 60 - Number(item.event.duration), firstStart)
   moveDraft.value = {
     event: item.event,
-    originX: event.clientX,
-    hourSize: lane.width / (END_HOUR - START_HOUR),
+    lane,
+    // Where on the lane the event was picked up; the lane may be scrolled
+    // under the pointer before it is put down.
+    grabOffset: event.clientX - rect.left,
+    hourSize: rect.width / 24,
     start,
     startMinutes: start,
-    // The event stays inside the visible hours; one already reaching past
-    // them can stay where it is or come in.
-    earliest: Math.min(firstStart, start),
-    latest: Math.max(lastStart, start),
+    // The event stays inside the day; one already running past midnight can
+    // stay where it is or come in.
+    earliest: 0,
+    latest: Math.max(DAY_MINUTES - Number(item.event.duration), start),
     dragging: false,
   }
   window.addEventListener('mousemove', onEventMove)
@@ -1494,7 +1536,7 @@ function beginEventMove(event, item) {
 function onEventMove(event) {
   const draft = moveDraft.value
   if (!draft) return
-  const travelled = event.clientX - draft.originX
+  const travelled = event.clientX - draft.lane.getBoundingClientRect().left - draft.grabOffset
   if (!draft.dragging && Math.abs(travelled) < MOVE_THRESHOLD_PX) return
   // The start moves in quarter-hour steps from where it was, so an event at
   // 9:05 keeps its five past.
@@ -1535,7 +1577,7 @@ const dayMovePreview = computed(() => {
   const draft = moveDraft.value
   if (!draft?.dragging) return null
   const { event, startMinutes } = draft
-  const end = Math.min(startMinutes + Number(event.duration), END_HOUR * 60)
+  const end = Math.min(startMinutes + Number(event.duration), DAY_MINUTES)
   return {
     event,
     time: eventTimeRange({ ...event, start: minutesToTimeString(startMinutes) }),
@@ -1823,10 +1865,10 @@ onUnmounted(() => {
                 {{ event.title }}
               </button>
             </div>
-            <div class="day-timeline">
+            <div ref="dayTimeline" class="day-timeline" :style="{ '--day-zoom': DAY_ZOOM }">
               <div class="day-hour-axis">
                 <span
-                  v-for="hour in hours"
+                  v-for="hour in dayHours"
                   :key="hour"
                   class="day-hour-label"
                   :style="{ left: dayOffset(hour * 60) }"
@@ -1842,7 +1884,7 @@ onUnmounted(() => {
                 @drop="(event) => dropSomedayTask(event, 'day')"
               >
                 <div
-                  v-for="hour in hours"
+                  v-for="hour in dayHours"
                   :key="hour"
                   class="day-hour-line"
                   :style="{ left: dayOffset(hour * 60) }"
@@ -1905,7 +1947,7 @@ onUnmounted(() => {
                   </span>
                 </div>
                 <div
-                  v-if="isToday(selectedDate) && nowVisible"
+                  v-if="isToday(selectedDate)"
                   class="current-time-line day-current-time"
                   :style="dayCurrentTimeStyle"
                   :aria-label="`Current time ${nowLabel}`"
@@ -3021,14 +3063,20 @@ onUnmounted(() => {
 }
 
 /* Day view reads left to right: the hours run along the top and each event
-   is a column as wide as it is long, with its label turned to run up it. */
+   is a column as wide as it is long, with its label turned to run up it. The
+   strip holds the whole day, wider than its frame, and is swiped or scrolled
+   sideways through the hours; an hour never gets narrower than a label. */
 .day-timeline {
-  min-width: 720px;
+  --day-strip-width: max(calc(100% * var(--day-zoom)), 1440px);
   padding: 0 36px 28px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .day-hour-axis {
   position: relative;
+  width: var(--day-strip-width);
   height: 44px;
 }
 
@@ -3044,6 +3092,7 @@ onUnmounted(() => {
 
 .day-event-lane {
   position: relative;
+  width: var(--day-strip-width);
   height: clamp(340px, calc(100vh - 532px), 620px);
   cursor: crosshair;
 }
@@ -4032,13 +4081,8 @@ onUnmounted(() => {
   }
 
   .calendar-content:has(.week-calendar),
-  .calendar-content:has(.month-calendar),
-  .calendar-content:has(.day-calendar) {
+  .calendar-content:has(.month-calendar) {
     overflow-x: auto;
-  }
-
-  .day-calendar {
-    min-width: 760px;
   }
 
   .day-calendar > h2 {

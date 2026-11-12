@@ -25,13 +25,13 @@ test('a task estimate survives reload and controls its calendar width', async ({
   const event = page.locator('.day-event.task-event', { hasText: 'Plan the release' })
   await expect(event).toBeVisible()
   // The day view runs left to right, so an event is as wide as its share of
-  // the 11 visible hours (660 minutes).
+  // the day's 24 hours (1440 minutes).
   const laneShare = async () => {
     const eventBox = await event.boundingBox()
     const laneBox = await page.locator('.day-event-lane').boundingBox()
     return eventBox.width / laneBox.width
   }
-  await expect.poll(laneShare).toBeCloseTo(90 / 660, 2)
+  await expect.poll(laneShare).toBeCloseTo(90 / 1440, 2)
 
   await page.goto(`/tasks?project=inbox&task=${item.id}`)
   await input.fill('')
