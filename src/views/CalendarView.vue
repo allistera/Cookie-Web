@@ -163,6 +163,11 @@ function eventColorVars(event) {
   return color ? { '--event-color': color } : {}
 }
 
+// A task's chip carries a checkbox glyph, ticked once the task is done.
+function taskEventIcon(event) {
+  return event.done ? 'check_box' : 'check_box_outline_blank'
+}
+
 async function loadVisibleCalendars() {
   await loadCalendars()
   visibleCalendars.value = new Set([
@@ -185,9 +190,10 @@ function defaultCalendarId() {
 
 const events = ref([])
 const eventsTruncated = ref(false)
-// Open tasks due inside the loaded window, already shaped as calendar items
-// (lib/taskCalendarItems). Kept apart from events so nothing that edits or
-// saves events ever sees a task; they only meet in visibleEvents.
+// Tasks due inside the loaded window, done ones included, already shaped as
+// calendar items (lib/taskCalendarItems). Kept apart from events so nothing
+// that edits or saves events ever sees a task; they only meet in
+// visibleEvents.
 const calendarTasks = ref([])
 let tasksRequestSeq = 0
 let tasksWindow = null
@@ -200,7 +206,9 @@ async function loadCalendarTasks(from, to) {
     const pages = await Promise.all(
       taskCalendarWindows(from, to).map(async (window) => {
         const response = await fetch(
-          `${TASKS_API_URL}/task-items?view=calendar&from=${window.from}&to=${window.to}`,
+          // Done tasks stay on their day, struck through, so the window asks
+          // for them too.
+          `${TASKS_API_URL}/task-items?view=calendar&from=${window.from}&to=${window.to}&completed=1`,
           { headers },
         )
         if (!response.ok)
@@ -1757,7 +1765,7 @@ onUnmounted(() => {
                 class="calendar-event all-day-event"
                 :class="[
                   `tone-${event.tone || 'default'}`,
-                  { 'task-event': event.kind === 'task' },
+                  { 'task-event': event.kind === 'task', 'task-done': event.done },
                 ]"
                 :style="eventColorVars(event)"
                 @click="editEvent(event)"
@@ -1766,7 +1774,7 @@ onUnmounted(() => {
                   v-if="event.kind === 'task'"
                   class="material-symbols-outlined task-event-icon"
                   aria-hidden="true"
-                  >check_box_outline_blank</span
+                  >{{ taskEventIcon(event) }}</span
                 >
                 {{ event.title }}
               </button>
@@ -1807,6 +1815,7 @@ onUnmounted(() => {
                     `tone-${item.event.tone || 'default'}`,
                     {
                       'task-event': item.event.kind === 'task',
+                      'task-done': item.event.done,
                       moving: dayMovePreview?.event.id === item.event.id,
                     },
                   ]"
@@ -1821,7 +1830,7 @@ onUnmounted(() => {
                         v-if="item.event.kind === 'task'"
                         class="material-symbols-outlined task-event-icon"
                         aria-hidden="true"
-                        >check_box_outline_blank</span
+                        >{{ taskEventIcon(item.event) }}</span
                       >
                       <strong>{{ item.event.title }}</strong>
                     </span>
@@ -1887,7 +1896,7 @@ onUnmounted(() => {
                   class="calendar-event all-day-event"
                   :class="[
                     `tone-${event.tone || 'default'}`,
-                    { 'task-event': event.kind === 'task' },
+                    { 'task-event': event.kind === 'task', 'task-done': event.done },
                   ]"
                   :style="eventColorVars(event)"
                   @click="editEvent(event)"
@@ -1896,7 +1905,7 @@ onUnmounted(() => {
                     v-if="event.kind === 'task'"
                     class="material-symbols-outlined task-event-icon"
                     aria-hidden="true"
-                    >check_box_outline_blank</span
+                    >{{ taskEventIcon(event) }}</span
                   >
                   {{ event.title }}
                 </button>
@@ -1938,7 +1947,7 @@ onUnmounted(() => {
                   class="calendar-event week-event"
                   :class="[
                     `tone-${event.tone || 'default'}`,
-                    { 'task-event': event.kind === 'task' },
+                    { 'task-event': event.kind === 'task', 'task-done': event.done },
                   ]"
                   :style="weekEventStyle(event)"
                   @click="editEvent(event)"
@@ -1947,7 +1956,7 @@ onUnmounted(() => {
                     v-if="event.kind === 'task'"
                     class="material-symbols-outlined task-event-icon"
                     aria-hidden="true"
-                    >check_box_outline_blank</span
+                    >{{ taskEventIcon(event) }}</span
                   >
                   <strong>{{ event.title }}</strong>
                   <span v-if="event.duration >= 60"
@@ -1995,7 +2004,7 @@ onUnmounted(() => {
                     class="month-event"
                     :class="[
                       `tone-${event.tone || 'default'}`,
-                      { 'task-event': event.kind === 'task' },
+                      { 'task-event': event.kind === 'task', 'task-done': event.done },
                     ]"
                     :style="eventColorVars(event)"
                     @click="editEvent(event)"
@@ -2004,7 +2013,7 @@ onUnmounted(() => {
                       v-if="event.kind === 'task'"
                       class="material-symbols-outlined task-event-icon"
                       aria-hidden="true"
-                      >check_box_outline_blank</span
+                      >{{ taskEventIcon(event) }}</span
                     >
                     {{ event.title }}
                   </button>
@@ -4060,7 +4069,21 @@ onUnmounted(() => {
   border-style: dashed;
 }
 
+/* A task completed on its day stays put, ticked, faded and struck through.
+   The glyph is an inline block so the line runs through the title alone. */
+.task-event.task-done {
+  opacity: 0.7;
+}
+
+.all-day-event.task-done,
+.month-event.task-done,
+.day-event.task-done strong,
+.week-event.task-done strong {
+  text-decoration: line-through;
+}
+
 .task-event-icon {
+  display: inline-block;
   font-size: 15px;
   vertical-align: -3px;
   margin-right: 4px;
