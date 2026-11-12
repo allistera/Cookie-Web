@@ -368,6 +368,38 @@ test('Dragging on the day timeline opens New event with the date, start, and end
   await expect(page.locator('.day-event', { hasText: 'Dentist appointment' })).toBeVisible()
 })
 
+test('Calendar moves an event dragged along the day timeline to its new time', async ({ page }) => {
+  await freezeCalendarClock(page)
+  await page.goto('/calendar')
+  await expect(page.locator('h1')).toHaveText('Friday, July 24, 2026')
+
+  const lane = page.locator('.day-event-lane')
+  await lane.scrollIntoViewIfNeeded()
+  const standup = page.locator('.day-event', { hasText: 'Standup' })
+  await expect(standup.locator('.day-event-time')).toHaveText('9:00 AM – 9:30 AM')
+  const laneBox = await lane.boundingBox()
+  const chipBox = await standup.boundingBox()
+  const x = chipBox.x + chipBox.width / 2
+  const y = chipBox.y + chipBox.height / 2
+
+  // The lane's width holds the 11 visible hours, so 2/11 of it is two hours.
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + (laneBox.width * 2) / 11, y, { steps: 5 })
+  await expect(page.locator('.day-event.move-preview .day-event-time')).toHaveText(
+    '11:00 AM – 11:30 AM',
+  )
+  await page.mouse.up()
+
+  // Letting go moves the event; it does not open it.
+  await expect(standup.locator('.day-event-time')).toHaveText('11:00 AM – 11:30 AM')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // The new time was saved.
+  await page.reload()
+  await expect(standup.locator('.day-event-time')).toHaveText('11:00 AM – 11:30 AM')
+})
+
 test('Calendar uses the saved dark theme across the canvas, sidebar, and dialog', async ({
   page,
 }) => {

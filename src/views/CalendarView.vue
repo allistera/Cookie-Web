@@ -1373,6 +1373,168 @@ function onDragEnd() {
   openNewEvent({ date, startMinutes, endMinutes })
 }
 
+// A timed event or task picked up on the day lane and carried along it to
+// another time the same day. The chip stays where it was, dimmed, while a
+// preview shows the slot it would take; letting go saves the new start. A
+// press that never travels is still the click that opens the event.
+const MOVE_THRESHOLD_PX = 4
+const moveDraft = ref(null)
+// Events with a move being saved; one cannot be picked up again until the
+// save settles, so a failed save always has one place to put it back.
+const movingIds = new Set()
+// The click that follows the mouseup of a drag must not open the event.
+let moveClickSuppressed = false
+
+// A repeating Cookie event is one series, so dragging one occurrence would
+// move them all; that stays a deliberate edit in the dialog. A task running
+// past midnight shows its remainder on the next day, which is not a start.
+function canMoveEvent(event) {
+  if (movingIds.has(event.id)) return false
+  if (event.kind === 'task') return !event.id.endsWith(':continuation')
+  return !event.recurrenceRule && writableCalendars.value.some(({ id }) => id === event.calendar)
+}
+
+function beginEventMove(event, item) {
+  if (event.button !== 0 || !canMoveEvent(item.event)) return
+  const lane = event.currentTarget.parentElement.getBoundingClientRect()
+  const start = timeStringToMinutes(item.event.start)
+  const firstStart = START_HOUR * 60
+  const lastStart = Math.max(END_HOUR * 60 - Number(item.event.duration), firstStart)
+  moveDraft.value = {
+    event: item.event,
+    originX: event.clientX,
+    hourSize: lane.width / (END_HOUR - START_HOUR),
+    start,
+    startMinutes: start,
+    // The event stays inside the visible hours; one already reaching past
+    // them can stay where it is or come in.
+    earliest: Math.min(firstStart, start),
+    latest: Math.max(lastStart, start),
+    dragging: false,
+  }
+  window.addEventListener('mousemove', onEventMove)
+  window.addEventListener('mouseup', onEventMoveEnd)
+}
+
+function onEventMove(event) {
+  const draft = moveDraft.value
+  if (!draft) return
+  const travelled = event.clientX - draft.originX
+  if (!draft.dragging && Math.abs(travelled) < MOVE_THRESHOLD_PX) return
+  // The start moves in quarter-hour steps from where it was, so an event at
+  // 9:05 keeps its five past.
+  const startMinutes = Math.min(
+    Math.max(draft.start + snapMinutes((travelled / draft.hourSize) * 60), draft.earliest),
+    draft.latest,
+  )
+  if (draft.dragging && startMinutes === draft.startMinutes) return
+  moveDraft.value = { ...draft, startMinutes, dragging: true }
+}
+
+function endEventMove() {
+  window.removeEventListener('mousemove', onEventMove)
+  window.removeEventListener('mouseup', onEventMoveEnd)
+  const draft = moveDraft.value
+  moveDraft.value = null
+  return draft
+}
+
+function onEventMoveEnd() {
+  const draft = endEventMove()
+  if (!draft?.dragging) return
+  moveClickSuppressed = true
+  setTimeout(() => {
+    moveClickSuppressed = false
+  })
+  if (draft.startMinutes !== draft.start) {
+    void moveEvent(draft.event, minutesToTimeString(draft.startMinutes))
+  }
+}
+
+function openDayEvent(event) {
+  if (moveClickSuppressed) return
+  editEvent(event)
+}
+
+const dayMovePreview = computed(() => {
+  const draft = moveDraft.value
+  if (!draft?.dragging) return null
+  const { event, startMinutes } = draft
+  const end = Math.min(startMinutes + Number(event.duration), END_HOUR * 60)
+  return {
+    event,
+    time: eventTimeRange({ ...event, start: minutesToTimeString(startMinutes) }),
+    style: {
+      left: dayOffset(startMinutes),
+      width: dayShare(end - startMinutes),
+      ...eventColorVars(event),
+    },
+  }
+})
+
+async function saveEventStart(event, start) {
+  const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+  const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({
+      id: event.seriesId ?? event.id,
+      title: event.title,
+      date: event.seriesDate ?? event.date,
+      start,
+      duration: event.duration,
+      location: event.location ?? null,
+      description: event.description ?? null,
+      calendar: event.calendar,
+      repeat: 'none',
+      repeatUntil: null,
+      repeatDays: null,
+      tone: event.tone ?? null,
+      timeZone: browserTimeZone(),
+    }),
+  })
+  if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
+  const { event: saved } = await response.json()
+  events.value = events.value.map((row) =>
+    row.id === event.id ? { ...saved, seriesId: saved.id } : row,
+  )
+}
+
+async function saveTaskStart(item, start) {
+  const { item: saved } = await writeTask('PATCH', {
+    id: item.taskId,
+    dueTime: start,
+    timeZone: browserTimeZone(),
+  })
+  calendarTasks.value = [
+    ...calendarTasks.value.filter((row) => row.taskId !== item.taskId),
+    ...taskToCalendarItems(saved),
+  ]
+}
+
+// The event sits at its new time at once and goes back if the save fails.
+async function moveEvent(event, start) {
+  const rows = event.kind === 'task' ? calendarTasks : events
+  const place = (value) => {
+    rows.value = rows.value.map((row) => (row.id === event.id ? { ...row, start: value } : row))
+  }
+  movingIds.add(event.id)
+  place(start)
+  try {
+    if (event.kind === 'task') await saveTaskStart(event, start)
+    else await saveEventStart(event, start)
+  } catch (error) {
+    place(event.start)
+    console.error('Failed to move a calendar event:', error)
+    store.notify(
+      event.kind === 'task' ? 'Failed to move the task.' : 'Failed to move the event.',
+      'error',
+    )
+  } finally {
+    movingIds.delete(event.id)
+  }
+}
+
 function onKeydown(event) {
   if (event.key === 'Escape' && showNewEvent.value) dismissEventDialog()
 }
@@ -1398,6 +1560,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
+  endEventMove()
 })
 </script>
 
@@ -1611,10 +1774,14 @@ onUnmounted(() => {
                   class="calendar-event day-event"
                   :class="[
                     `tone-${item.event.tone || 'default'}`,
-                    { 'task-event': item.event.kind === 'task' },
+                    {
+                      'task-event': item.event.kind === 'task',
+                      moving: dayMovePreview?.event.id === item.event.id,
+                    },
                   ]"
                   :style="dayEventStyle(item)"
-                  @click="editEvent(item.event)"
+                  @mousedown="(event) => beginEventMove(event, item)"
+                  @click="openDayEvent(item.event)"
                 >
                   <span class="day-event-label">
                     <span class="day-event-time">{{ eventTimeRange(item.event) }}</span>
@@ -1634,6 +1801,18 @@ onUnmounted(() => {
                   class="calendar-event day-event drag-preview"
                   :style="dayDragPreviewStyle"
                 ></div>
+                <div
+                  v-if="dayMovePreview"
+                  class="calendar-event day-event drag-preview move-preview"
+                  :style="dayMovePreview.style"
+                >
+                  <span class="day-event-label">
+                    <span class="day-event-time">{{ dayMovePreview.time }}</span>
+                    <span class="day-event-title">
+                      <strong>{{ dayMovePreview.event.title }}</strong>
+                    </span>
+                  </span>
+                </div>
                 <div
                   v-if="isToday(selectedDate) && nowVisible"
                   class="current-time-line day-current-time"
@@ -2883,6 +3062,21 @@ onUnmounted(() => {
   top: 0;
   bottom: 0;
   min-width: 6px;
+}
+
+/* An event being carried along the lane: the chip it left is dimmed, and the
+   slot it would take keeps the event's own colour. */
+.day-event.moving {
+  opacity: 0.45;
+}
+
+.day-event.move-preview {
+  border-color: var(--event-color, var(--calendar-emphasis));
+  background: color-mix(
+    in srgb,
+    var(--event-color, var(--calendar-emphasis)) 22%,
+    var(--calendar-surface)
+  );
 }
 
 .all-day-row {

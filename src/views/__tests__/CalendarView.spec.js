@@ -1628,6 +1628,149 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
+  const dayChip = (wrapper, title) =>
+    wrapper
+      .findAll('.day-event:not(.drag-preview)')
+      .find((chip) => chip.get('strong').text() === title)
+  const eventWrites = () =>
+    fetch.mock.calls
+      .filter(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'PATCH')
+      .map(([, options]) => JSON.parse(options.body))
+  // Mouse moves and the release are heard on the window, wherever they land.
+  async function dragChip(chip, from, to) {
+    await chip.trigger('mousedown', { clientX: from, button: 0 })
+    await chip.trigger('mousemove', { clientX: to, button: 0 })
+  }
+
+  it('moves an event to the time it is dragged to on the day timeline', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    mockRect(wrapper.get('.day-event-lane').element)
+
+    // The lane's 1100px hold the 11 visible hours from 8 AM: 200px to the
+    // right is two hours later, so the 9:00 Standup lands on 11:00.
+    await dragChip(dayChip(wrapper, 'Standup'), 120, 320)
+    expect(dayChip(wrapper, 'Standup').classes()).toContain('moving')
+    const preview = wrapper.get('.day-event.move-preview')
+    expect(preview.get('.day-event-time').text()).toBe('11:00 AM – 11:30 AM')
+    expect(Number.parseFloat(preview.element.style.left)).toBeCloseTo((3 / 11) * 100, 3)
+    expect(Number.parseFloat(preview.element.style.width)).toBeCloseTo((0.5 / 11) * 100, 3)
+
+    await dayChip(wrapper, 'Standup').trigger('mouseup', { clientX: 320, button: 0 })
+    // The click that ends the drag does not open the event.
+    await dayChip(wrapper, 'Standup').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    expect(wrapper.find('.day-event.move-preview').exists()).toBe(false)
+    expect(eventWrites()).toEqual([
+      {
+        id: 'standup',
+        title: 'Standup',
+        date: '2026-07-24',
+        start: '11:00',
+        duration: 30,
+        location: null,
+        description: null,
+        calendar: 'work',
+        repeat: 'none',
+        repeatUntil: null,
+        repeatDays: null,
+        tone: null,
+        timeZone: browserTimeZone(),
+      },
+    ])
+    const moved = dayChip(wrapper, 'Standup')
+    expect(moved.classes()).not.toContain('moving')
+    expect(moved.get('.day-event-time').text()).toBe('11:00 AM – 11:30 AM')
+
+    // Once the drag is over, a click opens the event as before.
+    await new Promise((resolve) => setTimeout(resolve))
+    await moved.trigger('click')
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps a dragged event inside the visible hours', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    mockRect(wrapper.get('.day-event-lane').element)
+
+    await dragChip(dayChip(wrapper, 'Standup'), 120, 5000)
+    expect(wrapper.get('.day-event.move-preview .day-event-time').text()).toBe('6:30 PM – 7:00 PM')
+    await dayChip(wrapper, 'Standup').trigger('mousemove', { clientX: -5000, button: 0 })
+    expect(wrapper.get('.day-event.move-preview .day-event-time').text()).toBe('8:00 AM – 8:30 AM')
+    await dayChip(wrapper, 'Standup').trigger('mouseup', { clientX: -5000, button: 0 })
+    await flushPromises()
+
+    expect(eventWrites().map(({ start }) => start)).toEqual(['08:00'])
+    wrapper.unmount()
+  })
+
+  it('opens an event that is pressed without being dragged, and saves nothing', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    mockRect(wrapper.get('.day-event-lane').element)
+
+    const standup = dayChip(wrapper, 'Standup')
+    await dragChip(standup, 120, 122)
+    expect(wrapper.find('.day-event.move-preview').exists()).toBe(false)
+    await standup.trigger('mouseup', { clientX: 122, button: 0 })
+    await standup.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(true)
+    expect(eventWrites()).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('puts a dragged event back at its time when the save fails', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    mockRect(wrapper.get('.day-event-lane').element)
+    const respond = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options = {}) =>
+      options.method === 'PATCH' ? { ok: false, status: 500 } : respond(url, options),
+    )
+
+    await dragChip(dayChip(wrapper, 'Standup'), 120, 320)
+    await dayChip(wrapper, 'Standup').trigger('mouseup', { clientX: 320, button: 0 })
+    await flushPromises()
+
+    expect(dayChip(wrapper, 'Standup').get('.day-event-time').text()).toBe('9:00 AM – 9:30 AM')
+    expect(useInboxStore().notify).toHaveBeenCalledWith('Failed to move the event.', 'error')
+    wrapper.unmount()
+  })
+
+  it('moves a timed task along the day timeline by changing its due time', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    mockRect(wrapper.get('.day-event-lane').element)
+
+    // An hour and a half earlier: 150px to the left of where it was pressed.
+    await dragChip(dayChip(wrapper, 'Call the bank'), 800, 650)
+    await dayChip(wrapper, 'Call the bank').trigger('mouseup', { clientX: 650, button: 0 })
+    await flushPromises()
+
+    const writes = fetch.mock.calls
+      .filter(([url, options]) => url === TASKS_ENDPOINT && options?.method === 'PATCH')
+      .map(([, options]) => JSON.parse(options.body))
+    expect(writes).toEqual([{ id: 'task-2', dueTime: '13:30', timeZone: browserTimeZone() }])
+    expect(eventWrites()).toEqual([])
+    expect(dayChip(wrapper, 'Call the bank').get('.day-event-time').text()).toBe(
+      '1:30 PM – 3:00 PM',
+    )
+    wrapper.unmount()
+  })
+
+  it('leaves a repeating event where it is when dragged, since that would move the series', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    mockRect(wrapper.get('.day-event-lane').element)
+
+    await dragChip(dayChip(wrapper, 'Recurring review'), 900, 700)
+    expect(wrapper.find('.day-event.move-preview').exists()).toBe(false)
+    await dayChip(wrapper, 'Recurring review').trigger('mouseup', { clientX: 700, button: 0 })
+    await flushPromises()
+
+    expect(eventWrites()).toEqual([])
+    wrapper.unmount()
+  })
+
   it('clicking an event opens it prefilled and saves edits', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
 
