@@ -227,14 +227,10 @@ async function loadCalendarTasks(from, to) {
 
 // Tasks put off to Someday have no day to sit on, so they line the foot of
 // the calendar in every view, under the same Tasks toggle as dated tasks.
+// With none, the row is not shown at all.
 // They are read once, when the calendar opens: a task ticked here stays in
 // the row, ticked, so a slip can be undone, and is gone the next time.
 const somedayTasks = ref([])
-// The text of a Someday task being typed into the row, or null when the row
-// shows its add button instead.
-const somedayDraft = ref(null)
-const somedayInput = ref(null)
-const somedaySaving = ref(false)
 
 const somedayTask = ({ id, content, durationMinutes, priority }) => ({
   id,
@@ -345,35 +341,6 @@ function reloadTasks() {
   void loadSomedayTasks()
 }
 const stopTaskMutations = subscribeTaskMutations(taskItems, reloadTasks)
-
-async function startSomedayTask() {
-  somedayDraft.value = ''
-  await nextTick()
-  somedayInput.value?.focus()
-}
-
-// Leaving the field empty puts the add button back; text typed into it is
-// kept until it is saved or Escape drops it.
-function leaveSomedayTask() {
-  if (!somedaySaving.value && !somedayDraft.value?.trim()) somedayDraft.value = null
-}
-
-async function addSomedayTask() {
-  const content = somedayDraft.value?.trim()
-  if (!content || somedaySaving.value) return
-  somedaySaving.value = true
-  try {
-    const { item } = await writeTask('POST', { content, dueDate: SOMEDAY })
-    somedayTasks.value.push(somedayTask(item))
-    // The field stays open, empty, for the next one.
-    somedayDraft.value = ''
-  } catch (error) {
-    console.error('Failed to create a Someday task:', error)
-    store.notify('Failed to create the task.', 'error')
-  } finally {
-    somedaySaving.value = false
-  }
-}
 
 // A Someday task dragged from the row, and the slot it hangs over on the day
 // lane or the week grid, drawn like the range dragged out for a new event.
@@ -2076,12 +2043,12 @@ onUnmounted(() => {
       </div>
 
       <section
-        v-if="visibleCalendars.has(TASKS_CALENDAR_ID)"
+        v-if="visibleCalendars.has(TASKS_CALENDAR_ID) && somedayTasks.length"
         class="someday-strip"
         aria-label="Someday tasks"
       >
         <span class="someday-label">Someday:</span>
-        <ul v-if="somedayTasks.length" class="someday-list">
+        <ul class="someday-list">
           <li
             v-for="task in somedayTasks"
             :key="task.id"
@@ -2112,31 +2079,6 @@ onUnmounted(() => {
             </button>
           </li>
         </ul>
-        <form v-if="somedayDraft !== null" class="someday-form" @submit.prevent="addSomedayTask">
-          <input
-            ref="somedayInput"
-            v-model="somedayDraft"
-            type="text"
-            class="someday-input"
-            aria-label="New Someday task"
-            placeholder="Add a task for someday"
-            maxlength="500"
-            :readonly="somedaySaving"
-            @keydown.esc.stop="somedayDraft = null"
-            @blur="leaveSomedayTask"
-          />
-        </form>
-        <button
-          v-else
-          type="button"
-          class="someday-add"
-          aria-label="Add a Someday task"
-          @click="startSomedayTask"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
       </section>
     </div>
 
@@ -2676,57 +2618,6 @@ onUnmounted(() => {
 .someday-task.done .someday-title {
   color: var(--calendar-muted);
   text-decoration: line-through;
-}
-
-.someday-form {
-  flex: 0 0 auto;
-}
-
-.someday-input {
-  width: 240px;
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--calendar-line);
-  border-radius: 17px;
-  background: var(--calendar-input);
-  color: var(--calendar-ink);
-  font: inherit;
-  font-size: 14px;
-}
-
-.someday-input:focus {
-  border-color: var(--calendar-emphasis);
-  outline: none;
-}
-
-.someday-add {
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--calendar-muted);
-  cursor: pointer;
-}
-
-.someday-add:hover,
-.someday-add:focus-visible {
-  background: var(--calendar-soft);
-  color: var(--calendar-ink);
-  outline: none;
-}
-
-.someday-add svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-width: 2;
 }
 
 .calendar-page {

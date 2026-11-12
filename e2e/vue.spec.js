@@ -215,24 +215,30 @@ test('Calendar lines Someday tasks along its foot, where they can be ticked off'
 }) => {
   await freezeCalendarClock(page)
   await page.goto('/tasks')
+  const someday = page.getByRole('region', { name: 'Someday tasks' })
+
+  // With nothing put off to Someday the row is not there.
+  await page.goto('/calendar')
+  await expect(page.locator('.day-event-lane')).toBeVisible()
+  await expect(someday).toHaveCount(0)
+
   await page.evaluate(async (base) => {
-    await fetch(`${base}/task-items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: 'Learn to juggle', dueDate: '9999-12-31' }),
-    })
+    for (const content of ['Learn to juggle', 'Sort the garage']) {
+      await fetch(`${base}/task-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, dueDate: '9999-12-31' }),
+      })
+    }
   }, TASKS_API_URL)
 
-  await page.goto('/calendar')
-  const someday = page.getByRole('region', { name: 'Someday tasks' })
+  await page.reload()
   await expect(someday.getByRole('button', { name: 'Learn to juggle', exact: true })).toBeVisible()
+  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toBeVisible()
   // Someday is not a day: the task is in the row, not on the calendar.
   await expect(page.locator('.task-event', { hasText: 'Learn to juggle' })).toHaveCount(0)
-
-  await someday.getByRole('button', { name: 'Add a Someday task' }).click()
-  await someday.getByRole('textbox', { name: 'New Someday task' }).fill('Sort the garage')
-  await someday.getByRole('textbox', { name: 'New Someday task' }).press('Enter')
-  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toBeVisible()
+  // Tasks are not added from the row.
+  await expect(someday.getByRole('textbox')).toHaveCount(0)
 
   const tick = someday.getByRole('checkbox', { name: 'Complete Learn to juggle' })
   await tick.click()
@@ -247,12 +253,11 @@ test('Calendar lines Someday tasks along its foot, where they can be ticked off'
   await expect(placed).toBeVisible()
   await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toHaveCount(0)
 
-  // A completed task is gone the next time the calendar opens; the dropped
-  // one was saved to the day.
+  // A completed task is gone the next time the calendar opens and the dropped
+  // one was saved to the day, which leaves the row empty, so it goes too.
   await page.reload()
   await expect(placed).toBeVisible()
-  await expect(someday.getByRole('button', { name: 'Sort the garage', exact: true })).toHaveCount(0)
-  await expect(someday.getByRole('button', { name: 'Learn to juggle', exact: true })).toHaveCount(0)
+  await expect(someday).toHaveCount(0)
 })
 
 test('Calendar settings manages subscriptions that appear in the Calendar view', async ({
