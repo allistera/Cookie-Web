@@ -11,7 +11,7 @@ export const TASKS_CALENDAR_NAME = 'Tasks'
 export const TASKS_CALENDAR_COLOR = '#5e6ad2'
 
 // Timed tasks use their estimate, or a thirty-minute slot when none is set.
-const TIMED_TASK_MINUTES = 30
+export const TIMED_TASK_MINUTES = 30
 const WHOLE_DAY_MINUTES = 24 * 60
 
 /**

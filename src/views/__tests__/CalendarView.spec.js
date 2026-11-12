@@ -193,13 +193,15 @@ const SEED_TASKS = [
 ]
 
 // Put off to Someday: no day to show on, so not in SEED_TASKS. Tests that
-// look at the Someday row pass these to mockCalendarApi.
+// look at the Someday row pass these to mockCalendarApi. One carries an
+// estimate, which a drop on the calendar runs for; the other has none.
 const SOMEDAY_TASKS = [
   {
     id: 'task-someday-1',
     projectId: 'project-1',
     parentId: null,
     content: 'Learn to juggle',
+    durationMinutes: 90,
     dueDate: '9999-12-31',
     dueTime: null,
     priority: null,
@@ -309,7 +311,11 @@ function mockCalendarApi({
       if (url === TASKS_ENDPOINT && method === 'PATCH') {
         const task = taskRows.find((row) => row.id === body.id)
         if (!task) return { ok: false, status: 404 }
-        task.completedAt = body.completed ? '2026-07-24T10:30:00.000Z' : null
+        const { completed, ...changes } = body
+        Object.assign(task, changes)
+        if (Object.hasOwn(body, 'completed')) {
+          task.completedAt = completed ? '2026-07-24T10:30:00.000Z' : null
+        }
         return { ok: true, json: async () => clone({ item: task }) }
       }
 
@@ -787,6 +793,148 @@ describe('CalendarView', () => {
 
     // A task with no project lives in the Inbox.
     expect(router.currentRoute.value.fullPath).toBe('/tasks?project=inbox&task=task-someday-2')
+  })
+
+  // Drags carry a dataTransfer the way browsers build one; jsdom's events do
+  // not, so these hand one in.
+  const dataTransfer = () => ({ effectAllowed: '', dropEffect: '', setData: vi.fn() })
+  const taskWrites = () =>
+    fetch.mock.calls
+      .filter(([url, options]) => url === TASKS_ENDPOINT && options?.method === 'PATCH')
+      .map(([, options]) => JSON.parse(options.body))
+
+  it('gives a Someday task the day and time it is dropped on, running for its estimate', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const lane = wrapper.get('.day-event-lane')
+    mockRect(lane.element)
+    const transfer = dataTransfer()
+
+    const title = wrapper
+      .findAll('.someday-title')
+      .find((button) => button.text() === 'Learn to juggle')
+    expect(title.attributes('draggable')).toBe('true')
+    await title.trigger('dragstart', { dataTransfer: transfer })
+    expect(transfer.effectAllowed).toBe('move')
+
+    // The lane's 1100px hold the 11 visible hours from 8 AM: clientX 200 is
+    // 10 AM. The preview is as long as the task's 90-minute estimate.
+    await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    expect(transfer.dropEffect).toBe('move')
+    const preview = wrapper.get('.day-event.drag-preview').element.style
+    expect(Number.parseFloat(preview.left)).toBeCloseTo((2 / 11) * 100, 3)
+    expect(Number.parseFloat(preview.width)).toBeCloseTo((1.5 / 11) * 100, 3)
+
+    // Passing over an event chip inside the lane keeps the preview.
+    await lane.trigger('dragleave', { clientX: 210, clientY: 10 })
+    expect(wrapper.find('.day-event.drag-preview').exists()).toBe(true)
+    await lane.trigger('dragleave', { clientX: -5, clientY: 10 })
+    expect(wrapper.find('.day-event.drag-preview').exists()).toBe(false)
+
+    await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    await lane.trigger('drop', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    await flushPromises()
+
+    expect(taskWrites()).toEqual([
+      {
+        id: 'task-someday-1',
+        dueDate: '2026-07-24',
+        dueTime: '10:00',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+    ])
+    expect(wrapper.findAll('.someday-title').map((button) => button.text())).toEqual([
+      'Sort the garage',
+    ])
+    const placed = wrapper
+      .findAll('.day-event.task-event')
+      .find((event) => event.get('strong').text() === 'Learn to juggle')
+    expect(placed.get('.day-event-time').text()).toBe('10:00 AM – 11:30 AM')
+    expect(wrapper.find('.day-event.drag-preview').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("schedules a dropped Someday task on the week column's day, half an hour long by default", async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+    const grid = wrapper.get('.week-grid')
+    mockRect(grid.element)
+    const transfer = dataTransfer()
+
+    const title = wrapper
+      .findAll('.someday-title')
+      .find((button) => button.text() === 'Sort the garage')
+    await title.trigger('dragstart', { dataTransfer: transfer })
+    // The grid's 1100px hold seven columns, so clientX 400 is in the third
+    // (Wednesday 22 July); 72px per hour from 8 AM puts clientY 144 at 10 AM.
+    await grid.trigger('dragover', { clientX: 400, clientY: 144, dataTransfer: transfer })
+    const preview = wrapper.get('.week-event.drag-preview').element.style
+    expect(preview.top).toBe('144px')
+    expect(preview.height).toBe('36px')
+    // jsdom folds the column's share of the width into a percentage.
+    expect(preview.left).toMatch(/^calc\(28\.57\d*% \+ 8px\)$/)
+
+    await grid.trigger('drop', { clientX: 400, clientY: 144, dataTransfer: transfer })
+    await flushPromises()
+
+    expect(taskWrites()[0]).toMatchObject({
+      id: 'task-someday-2',
+      dueDate: '2026-07-22',
+      dueTime: '10:00',
+    })
+    const placed = wrapper
+      .findAll('.week-event.task-event')
+      .find((event) => event.get('strong').text() === 'Sort the garage')
+    expect(placed.element.style.top).toBe('144px')
+    // Half an hour is 36px; week chips never draw shorter than 38px.
+    expect(placed.element.style.height).toBe('38px')
+    expect(wrapper.findAll('.someday-title').map((button) => button.text())).toEqual([
+      'Learn to juggle',
+    ])
+    wrapper.unmount()
+  })
+
+  it('puts a dropped Someday task back in its place in the row when the save fails', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const respond = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url, options = {}) =>
+      options.method === 'PATCH' ? { ok: false, status: 500 } : respond(url, options),
+    )
+    const lane = wrapper.get('.day-event-lane')
+    mockRect(lane.element)
+    const transfer = dataTransfer()
+
+    await wrapper.findAll('.someday-title')[0].trigger('dragstart', { dataTransfer: transfer })
+    await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    await lane.trigger('drop', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    await flushPromises()
+
+    expect(wrapper.findAll('.someday-title').map((button) => button.text())).toEqual([
+      'Learn to juggle',
+      'Sort the garage',
+    ])
+    expect(wrapper.findAll('.task-event').map((task) => task.text())).not.toContain(
+      'Learn to juggle',
+    )
+    expect(useInboxStore().notify).toHaveBeenCalledWith('Failed to schedule the task.', 'error')
+    wrapper.unmount()
+  })
+
+  it('ignores drops on the calendar that did not start from the Someday row', async () => {
+    mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const lane = wrapper.get('.day-event-lane')
+    mockRect(lane.element)
+    const transfer = dataTransfer()
+
+    await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    expect(wrapper.find('.day-event.drag-preview').exists()).toBe(false)
+    await lane.trigger('drop', { clientX: 200, clientY: 10, dataTransfer: transfer })
+    await flushPromises()
+    expect(taskWrites()).toEqual([])
+    wrapper.unmount()
   })
 
   it('colors an event chip to match its owning calendar', async () => {
