@@ -377,11 +377,12 @@ test('Dragging on the day timeline opens New event with the date, start, and end
   const box = await lane.boundingBox()
   const y = box.y + 40
 
-  // The lane's width holds the 11 visible hours from 8 AM, left to right: 3/11 -> 11:00 AM,
-  // 4/11 -> 12:00 PM. (11 AM-12 PM is clear of the seeded Standup and Coffee with Sam events.)
-  await page.mouse.move(box.x + (box.width * 3) / 11, y)
+  // The lane's width holds the day's 24 hours, left to right, and opens scrolled to 8 AM:
+  // 11/24 -> 11:00 AM, 12/24 -> 12:00 PM. (11 AM-12 PM is clear of the seeded Standup and
+  // Coffee with Sam events.)
+  await page.mouse.move(box.x + (box.width * 11) / 24, y)
   await page.mouse.down()
-  await page.mouse.move(box.x + (box.width * 4) / 11, y)
+  await page.mouse.move(box.x + (box.width * 12) / 24, y)
   await page.mouse.up()
 
   const dialog = page.getByRole('dialog', { name: 'New event' })
@@ -395,6 +396,28 @@ test('Dragging on the day timeline opens New event with the date, start, and end
   await dialog.getByRole('button', { name: 'Create Event' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.day-event', { hasText: 'Dentist appointment' })).toBeVisible()
+})
+
+test('Calendar day timeline opens on the working hours and swipes through the rest of the day', async ({
+  page,
+}) => {
+  await freezeCalendarClock(page)
+  await page.goto('/calendar')
+
+  const timeline = page.locator('.day-timeline')
+  const label = (text) => timeline.locator('.day-hour-label', { hasText: text }).first()
+  await timeline.scrollIntoViewIfNeeded()
+  await expect(label('8 AM')).toBeInViewport()
+  await expect(label('10 PM')).not.toBeInViewport()
+
+  // A sideways wheel is what a trackpad swipe sends.
+  await timeline.hover()
+  await page.mouse.wheel(4000, 0)
+  await expect(label('10 PM')).toBeInViewport()
+  await expect(label('8 AM')).not.toBeInViewport()
+
+  await page.mouse.wheel(-8000, 0)
+  await expect(label('1 AM')).toBeInViewport()
 })
 
 test('Calendar moves an event dragged along the day timeline to its new time', async ({ page }) => {
@@ -411,10 +434,10 @@ test('Calendar moves an event dragged along the day timeline to its new time', a
   const x = chipBox.x + chipBox.width / 2
   const y = chipBox.y + chipBox.height / 2
 
-  // The lane's width holds the 11 visible hours, so 2/11 of it is two hours.
+  // The lane's width holds the day's 24 hours, so 2/24 of it is two hours.
   await page.mouse.move(x, y)
   await page.mouse.down()
-  await page.mouse.move(x + (laneBox.width * 2) / 11, y, { steps: 5 })
+  await page.mouse.move(x + (laneBox.width * 2) / 24, y, { steps: 5 })
   await expect(page.locator('.day-event.move-preview .day-event-time')).toHaveText(
     '11:00 AM – 11:30 AM',
   )

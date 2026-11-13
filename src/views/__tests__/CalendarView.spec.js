@@ -422,19 +422,23 @@ function mockCalendarApi({
   )
 }
 
-function mockRect(element) {
+function mockRect(element, { left = 0, width = 1100 } = {}) {
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
     top: 0,
-    left: 0,
-    width: 1100,
+    left,
+    width,
     height: 1056,
-    right: 1100,
+    right: left + width,
     bottom: 1056,
-    x: 0,
+    x: left,
     y: 0,
     toJSON() {},
   })
 }
+
+// The day lane holds all 24 hours at 100px each and is swiped sideways. This
+// is the lane as the view opens it, scrolled so that 8 AM sits at clientX 0.
+const mockDayLane = (element) => mockRect(element, { left: -800, width: 2400 })
 
 // Mounts and waits for the initial GET /api/calendar-events to resolve, so
 // the seed events are already rendered before the test interacts with them.
@@ -550,8 +554,8 @@ describe('CalendarView', () => {
     const timedTask = wrapper.get('.day-event.task-event')
     expect(timedTask.text()).toContain('Call the bank')
     expect(timedTask.attributes('style')).toContain('left:')
-    // Ninety of the day view's 660 visible minutes (8 AM to 7 PM).
-    expect(Number.parseFloat(timedTask.element.style.width)).toBeCloseTo((90 / 660) * 100, 3)
+    // Ninety of the day's 1440 minutes.
+    expect(Number.parseFloat(timedTask.element.style.width)).toBeCloseTo((90 / 1440) * 100, 3)
 
     const tasksToggle = wrapper
       .findAll('.calendar-list-item')
@@ -646,28 +650,19 @@ describe('CalendarView', () => {
   it('lays the day out left to right, with each event a column labelled with its times', async () => {
     const wrapper = await mountCalendar()
 
-    expect(wrapper.findAll('.day-hour-label').map((label) => label.text())).toEqual([
-      '8 AM',
-      '9 AM',
-      '10 AM',
-      '11 AM',
-      '12 PM',
-      '1 PM',
-      '2 PM',
-      '3 PM',
-      '4 PM',
-      '5 PM',
-      '6 PM',
-      '7 PM',
-    ])
+    const labels = wrapper.findAll('.day-hour-label').map((label) => label.text())
+    expect(labels).toHaveLength(25)
+    expect(labels.slice(0, 2)).toEqual(['12 AM', '1 AM'])
+    expect(labels.slice(11, 14)).toEqual(['11 AM', '12 PM', '1 PM'])
+    expect(labels.slice(-2)).toEqual(['11 PM', '12 AM'])
 
-    // 9:00 to 9:30 AM: one hour into the 11 visible hours, half an hour wide,
-    // and the lane's full height as nothing overlaps it.
+    // 9:00 to 9:30 AM: nine hours into the day's 24, half an hour wide, and
+    // the lane's full height as nothing overlaps it.
     const standup = wrapper
       .findAll('.day-event')
       .find((event) => event.get('strong').text() === 'Standup')
-    expect(Number.parseFloat(standup.element.style.left)).toBeCloseTo((1 / 11) * 100, 3)
-    expect(Number.parseFloat(standup.element.style.width)).toBeCloseTo((0.5 / 11) * 100, 3)
+    expect(Number.parseFloat(standup.element.style.left)).toBeCloseTo((9 / 24) * 100, 3)
+    expect(Number.parseFloat(standup.element.style.width)).toBeCloseTo((0.5 / 24) * 100, 3)
     expect(standup.element.style.top).toBe('0%')
     expect(standup.element.style.height).toBe('100%')
     expect(standup.get('.day-event-time').text()).toBe('9:00 AM – 9:30 AM')
@@ -693,9 +688,9 @@ describe('CalendarView', () => {
     await flushPromises()
     const task = wrapper.get('.day-event.task-event')
     expect(task.text()).toContain('Call the bank')
-    // Midnight to 10 AM, of which the visible hours show 8 AM to 10 AM.
+    // Midnight to 10 AM, all of it on the day strip.
     expect(task.element.style.left).toBe('0%')
-    expect(Number.parseFloat(task.element.style.width)).toBeCloseTo((120 / 660) * 100, 3)
+    expect(Number.parseFloat(task.element.style.width)).toBeCloseTo((10 / 24) * 100, 3)
     expect(wrapper.find('.all-day-event.task-event').exists()).toBe(false)
   })
 
@@ -795,8 +790,8 @@ describe('CalendarView', () => {
     // first event and after the last is not between anything.
     const gaps = wrapper.findAll('.day-gap')
     expect(gaps.map((gap) => gap.text())).toEqual(['5hrs'])
-    expect(Number.parseFloat(gaps[0].element.style.left)).toBeCloseTo((1.5 / 11) * 100, 3)
-    expect(Number.parseFloat(gaps[0].element.style.width)).toBeCloseTo((5 / 11) * 100, 3)
+    expect(Number.parseFloat(gaps[0].element.style.left)).toBeCloseTo((9.5 / 24) * 100, 3)
+    expect(Number.parseFloat(gaps[0].element.style.width)).toBeCloseTo((5 / 24) * 100, 3)
   })
 
   it('leaves a break of under an hour unlabelled', async () => {
@@ -932,7 +927,7 @@ describe('CalendarView', () => {
     mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
     const wrapper = await mountCalendar({ attachTo: document.body })
     const lane = wrapper.get('.day-event-lane')
-    mockRect(lane.element)
+    mockDayLane(lane.element)
     const transfer = dataTransfer()
 
     const title = wrapper
@@ -942,18 +937,18 @@ describe('CalendarView', () => {
     await title.trigger('dragstart', { dataTransfer: transfer })
     expect(transfer.effectAllowed).toBe('move')
 
-    // The lane's 1100px hold the 11 visible hours from 8 AM: clientX 200 is
+    // The lane runs 100px an hour with 8 AM at clientX 0: clientX 200 is
     // 10 AM. The preview is as long as the task's 90-minute estimate.
     await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
     expect(transfer.dropEffect).toBe('move')
     const preview = wrapper.get('.day-event.drag-preview').element.style
-    expect(Number.parseFloat(preview.left)).toBeCloseTo((2 / 11) * 100, 3)
-    expect(Number.parseFloat(preview.width)).toBeCloseTo((1.5 / 11) * 100, 3)
+    expect(Number.parseFloat(preview.left)).toBeCloseTo((10 / 24) * 100, 3)
+    expect(Number.parseFloat(preview.width)).toBeCloseTo((1.5 / 24) * 100, 3)
 
     // Passing over an event chip inside the lane keeps the preview.
     await lane.trigger('dragleave', { clientX: 210, clientY: 10 })
     expect(wrapper.find('.day-event.drag-preview').exists()).toBe(true)
-    await lane.trigger('dragleave', { clientX: -5, clientY: 10 })
+    await lane.trigger('dragleave', { clientX: -805, clientY: 10 })
     expect(wrapper.find('.day-event.drag-preview').exists()).toBe(false)
 
     await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
@@ -1028,7 +1023,7 @@ describe('CalendarView', () => {
       options.method === 'PATCH' ? { ok: false, status: 500 } : respond(url, options),
     )
     const lane = wrapper.get('.day-event-lane')
-    mockRect(lane.element)
+    mockDayLane(lane.element)
     const transfer = dataTransfer()
 
     await wrapper.findAll('.someday-title')[0].trigger('dragstart', { dataTransfer: transfer })
@@ -1051,7 +1046,7 @@ describe('CalendarView', () => {
     mockCalendarApi({ tasks: [...SEED_TASKS, ...SOMEDAY_TASKS] })
     const wrapper = await mountCalendar({ attachTo: document.body })
     const lane = wrapper.get('.day-event-lane')
-    mockRect(lane.element)
+    mockDayLane(lane.element)
     const transfer = dataTransfer()
 
     await lane.trigger('dragover', { clientX: 200, clientY: 10, dataTransfer: transfer })
@@ -1183,10 +1178,10 @@ describe('CalendarView', () => {
     try {
       const wrapper = await mountCalendar()
 
-      // 10:30 AM is 2.5 hours into the day view's 11 visible hours, which run
-      // left to right.
+      // 10:30 AM is 10.5 hours into the day view's 24, which run left to
+      // right.
       const dayLine = wrapper.get('.day-current-time')
-      expect(Number.parseFloat(dayLine.element.style.left)).toBeCloseTo((2.5 / 11) * 100, 3)
+      expect(Number.parseFloat(dayLine.element.style.left)).toBeCloseTo((10.5 / 24) * 100, 3)
       expect(dayLine.attributes('aria-label')).toBe('Current time 10:30 AM')
 
       await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
@@ -1200,12 +1195,13 @@ describe('CalendarView', () => {
     }
   })
 
-  it('hides the current-time line when the clock is outside the visible hours', async () => {
+  it("keeps the current-time line on the day strip outside the week grid's hours", async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(2026, 6, 24, 6, 0))
     try {
       const wrapper = await mountCalendar()
-      expect(wrapper.find('.day-current-time').exists()).toBe(false)
+      // 6 AM is a quarter of the way along the day strip.
+      expect(wrapper.get('.day-current-time').element.style.left).toBe('25%')
 
       await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
       expect(wrapper.find('.week-current-time').exists()).toBe(false)
@@ -1694,15 +1690,15 @@ describe('CalendarView', () => {
   it('creates an event by dragging on the day timeline, prefilling date, start, and end', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
     const lane = wrapper.get('.day-event-lane')
-    mockRect(lane.element)
+    mockDayLane(lane.element)
 
-    // The lane's 1100px hold the 11 visible hours from 8 AM, left to right:
+    // The lane runs 100px an hour, left to right, with 8 AM at clientX 0:
     // clientX 100 -> 9:00, clientX 200 -> 10:00.
     await lane.trigger('mousedown', { clientX: 100, button: 0 })
     await lane.trigger('mousemove', { clientX: 200, button: 0 })
     const preview = wrapper.get('.day-event.drag-preview').element.style
-    expect(Number.parseFloat(preview.left)).toBeCloseTo((1 / 11) * 100, 3)
-    expect(Number.parseFloat(preview.width)).toBeCloseTo((1 / 11) * 100, 3)
+    expect(Number.parseFloat(preview.left)).toBeCloseTo((9 / 24) * 100, 3)
+    expect(Number.parseFloat(preview.width)).toBeCloseTo((1 / 24) * 100, 3)
     await lane.trigger('mouseup', { clientX: 200, button: 0 })
 
     expect(wrapper.find('.new-event-datetime').exists()).toBe(true)
@@ -1742,7 +1738,7 @@ describe('CalendarView', () => {
   it('defaults to a 30-minute slot when the timeline is clicked without dragging', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
     const lane = wrapper.get('.day-event-lane')
-    mockRect(lane.element)
+    mockDayLane(lane.element)
 
     await lane.trigger('mousedown', { clientX: 300, button: 0 })
     await lane.trigger('mouseup', { clientX: 300, button: 0 })
@@ -1751,6 +1747,62 @@ describe('CalendarView', () => {
     expect(timeInputs[0].element.value).toBe('11:00')
     expect(timeInputs[1].element.value).toBe('11:30')
     wrapper.unmount()
+  })
+
+  it('follows a drag across the day lane when the lane is swiped under the pointer', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const lane = wrapper.get('.day-event-lane')
+    mockDayLane(lane.element)
+
+    await lane.trigger('mousedown', { clientX: 100, button: 0 })
+    // Swiped two hours on: the pointer has not moved, but it is over 11:00.
+    mockRect(lane.element, { left: -1000, width: 2400 })
+    await lane.trigger('mousemove', { clientX: 100, button: 0 })
+    await lane.trigger('mouseup', { clientX: 100, button: 0 })
+
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect(timeInputs[0].element.value).toBe('09:00')
+    expect(timeInputs[1].element.value).toBe('11:00')
+    wrapper.unmount()
+  })
+
+  it('stops an event dragged out to the end of the day a minute short of midnight', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const lane = wrapper.get('.day-event-lane')
+    mockDayLane(lane.element)
+
+    await lane.trigger('mousedown', { clientX: 1400, button: 0 })
+    await lane.trigger('mousemove', { clientX: 5000, button: 0 })
+    await lane.trigger('mouseup', { clientX: 5000, button: 0 })
+
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect(timeInputs[0].element.value).toBe('22:00')
+    expect(timeInputs[1].element.value).toBe('23:59')
+    wrapper.unmount()
+  })
+
+  it('opens the day strip on the working hours and keeps its place between days', async () => {
+    const lanes = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(2400)
+    try {
+      const wrapper = await mountCalendar({ attachTo: document.body })
+      const timeline = wrapper.get('.day-timeline').element
+      // 8 AM is a third of the way along the 2400px lane.
+      expect(timeline.scrollLeft).toBe(800)
+
+      timeline.scrollLeft = 1500
+      await wrapper.get('[aria-label="Next period"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('.day-timeline').element.scrollLeft).toBe(1500)
+
+      // Leaving the day view and coming back starts it at the working hours.
+      await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+      await wrapper.get('.calendar-view-tabs button:nth-child(1)').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('.day-timeline').element.scrollLeft).toBe(800)
+      wrapper.unmount()
+    } finally {
+      lanes.mockRestore()
+    }
   })
 
   const dayChip = (wrapper, title) =>
@@ -1769,16 +1821,16 @@ describe('CalendarView', () => {
 
   it('moves an event to the time it is dragged to on the day timeline', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
-    mockRect(wrapper.get('.day-event-lane').element)
+    mockDayLane(wrapper.get('.day-event-lane').element)
 
-    // The lane's 1100px hold the 11 visible hours from 8 AM: 200px to the
+    // The lane runs 100px an hour: 200px to the
     // right is two hours later, so the 9:00 Standup lands on 11:00.
     await dragChip(dayChip(wrapper, 'Standup'), 120, 320)
     expect(dayChip(wrapper, 'Standup').classes()).toContain('moving')
     const preview = wrapper.get('.day-event.move-preview')
     expect(preview.get('.day-event-time').text()).toBe('11:00 AM – 11:30 AM')
-    expect(Number.parseFloat(preview.element.style.left)).toBeCloseTo((3 / 11) * 100, 3)
-    expect(Number.parseFloat(preview.element.style.width)).toBeCloseTo((0.5 / 11) * 100, 3)
+    expect(Number.parseFloat(preview.element.style.left)).toBeCloseTo((11 / 24) * 100, 3)
+    expect(Number.parseFloat(preview.element.style.width)).toBeCloseTo((0.5 / 24) * 100, 3)
 
     await dayChip(wrapper, 'Standup').trigger('mouseup', { clientX: 320, button: 0 })
     // The click that ends the drag does not open the event.
@@ -1815,24 +1867,28 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
-  it('keeps a dragged event inside the visible hours', async () => {
+  it('keeps a dragged event inside the day', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
-    mockRect(wrapper.get('.day-event-lane').element)
+    mockDayLane(wrapper.get('.day-event-lane').element)
 
     await dragChip(dayChip(wrapper, 'Standup'), 120, 5000)
-    expect(wrapper.get('.day-event.move-preview .day-event-time').text()).toBe('6:30 PM – 7:00 PM')
+    expect(wrapper.get('.day-event.move-preview .day-event-time').text()).toBe(
+      '11:30 PM – 12:00 AM',
+    )
     await dayChip(wrapper, 'Standup').trigger('mousemove', { clientX: -5000, button: 0 })
-    expect(wrapper.get('.day-event.move-preview .day-event-time').text()).toBe('8:00 AM – 8:30 AM')
+    expect(wrapper.get('.day-event.move-preview .day-event-time').text()).toBe(
+      '12:00 AM – 12:30 AM',
+    )
     await dayChip(wrapper, 'Standup').trigger('mouseup', { clientX: -5000, button: 0 })
     await flushPromises()
 
-    expect(eventWrites().map(({ start }) => start)).toEqual(['08:00'])
+    expect(eventWrites().map(({ start }) => start)).toEqual(['00:00'])
     wrapper.unmount()
   })
 
   it('opens an event that is pressed without being dragged, and saves nothing', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
-    mockRect(wrapper.get('.day-event-lane').element)
+    mockDayLane(wrapper.get('.day-event-lane').element)
 
     const standup = dayChip(wrapper, 'Standup')
     await dragChip(standup, 120, 122)
@@ -1848,7 +1904,7 @@ describe('CalendarView', () => {
 
   it('puts a dragged event back at its time when the save fails', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
-    mockRect(wrapper.get('.day-event-lane').element)
+    mockDayLane(wrapper.get('.day-event-lane').element)
     const respond = fetch.getMockImplementation()
     fetch.mockImplementation(async (url, options = {}) =>
       options.method === 'PATCH' ? { ok: false, status: 500 } : respond(url, options),
@@ -1865,7 +1921,7 @@ describe('CalendarView', () => {
 
   it('moves a timed task along the day timeline by changing its due time', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
-    mockRect(wrapper.get('.day-event-lane').element)
+    mockDayLane(wrapper.get('.day-event-lane').element)
 
     // An hour and a half earlier: 150px to the left of where it was pressed.
     await dragChip(dayChip(wrapper, 'Call the bank'), 800, 650)
@@ -1885,7 +1941,7 @@ describe('CalendarView', () => {
 
   it('leaves a repeating event where it is when dragged, since that would move the series', async () => {
     const wrapper = await mountCalendar({ attachTo: document.body })
-    mockRect(wrapper.get('.day-event-lane').element)
+    mockDayLane(wrapper.get('.day-event-lane').element)
 
     await dragChip(dayChip(wrapper, 'Recurring review'), 900, 700)
     expect(wrapper.find('.day-event.move-preview').exists()).toBe(false)
