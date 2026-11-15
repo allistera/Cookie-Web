@@ -101,6 +101,22 @@ describe('NextCalendarEvent', () => {
     await flushPromises()
     expect(wrapper.find('.next-calendar-event').exists()).toBe(false)
   })
+  // Returning to the tab fires both events; one fetch of the day is enough.
+  it('refreshes once when the tab becomes visible and focused together', async () => {
+    respond([])
+    await render()
+    const before = fetch.mock.calls.length
+
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(before + 1)
+
+    // A later return refreshes again.
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(before + 2)
+  })
   it('refreshes at midnight and stops polling after unmount', async () => {
     respond([])
     vi.setSystemTime(new Date(2026, 9, 9, 23, 59, 50))

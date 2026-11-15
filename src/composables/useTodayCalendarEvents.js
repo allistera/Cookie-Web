@@ -87,12 +87,14 @@ function tick() {
     void refresh()
 }
 
+// Coming back to the tab fires both visibilitychange and focus; the second
+// one shares the refresh the first started instead of fetching the day again.
 function onFocus() {
-  void refresh()
+  if (!inFlight) void refresh()
 }
 
 function onVisibilityChange() {
-  if (document.visibilityState === 'visible') void refresh()
+  if (document.visibilityState === 'visible' && !inFlight) void refresh()
 }
 
 function start() {
