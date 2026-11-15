@@ -15,7 +15,7 @@ const MAX_MAIL_ENTRIES = 20
 // its URL and staticAssetResponse is cache-first, so bump the revision below
 // whenever `npm run fetch:icon-font` changes public/fonts/, or existing
 // installs render new glyphs as their ligature text.
-// Icon subset revision: 2026-10-20 (processing mail and mobile tasks)
+// Icon subset revision: 2026-11-15 (grade axis pinned, same glyphs)
 const SHELL_URLS = [
   '/',
   '/site.webmanifest',
@@ -100,9 +100,17 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (!url.pathname.startsWith('/api/') && STATIC_DESTINATIONS.has(request.destination)) {
-    event.respondWith(staticAssetResponse(request))
+    event.respondWith(staticAssetResponse(event))
   }
 })
+
+// Cache writes run after the response has been handed to the page: put()
+// settles only once the whole body is stored, and the page should not wait
+// for that (or for the trim). A write that fails (quota, a body cut short)
+// leaves the cache as it was and never fails the request it came from.
+function storeInBackground(event, write) {
+  event.waitUntil(write().catch(() => {}))
+}
 
 async function recentMailResponse(event) {
   const cache = await caches.open(MAIL_CACHE)
@@ -110,9 +118,12 @@ async function recentMailResponse(event) {
   try {
     const response = await fetch(event.request)
     if (response.ok) {
-      await cache.delete(cacheKey)
-      await cache.put(cacheKey, response.clone())
-      await trimCache(cache, MAX_MAIL_ENTRIES)
+      const copy = response.clone()
+      storeInBackground(event, async () => {
+        await cache.delete(cacheKey)
+        await cache.put(cacheKey, copy)
+        await trimCache(cache, MAX_MAIL_ENTRIES)
+      })
     }
     return response
   } catch {
@@ -136,7 +147,8 @@ async function shellNavigationResponse(event) {
   }
 }
 
-async function staticAssetResponse(request) {
+async function staticAssetResponse(event) {
+  const { request } = event
   const cached =
     (await (await caches.open(SHELL_CACHE)).match(request)) ??
     (await (await caches.open(RUNTIME_CACHE)).match(request))
@@ -146,9 +158,12 @@ async function staticAssetResponse(request) {
   // A missing file answered with the SPA's index.html must not be cached
   // cache-first under a script or style URL.
   if (response.ok && !isHtml(response)) {
-    const cache = await caches.open(RUNTIME_CACHE)
-    await cache.put(request, response.clone())
-    await trimCache(cache, MAX_RUNTIME_ENTRIES)
+    const copy = response.clone()
+    storeInBackground(event, async () => {
+      const cache = await caches.open(RUNTIME_CACHE)
+      await cache.put(request, copy)
+      await trimCache(cache, MAX_RUNTIME_ENTRIES)
+    })
   }
   return response
 }

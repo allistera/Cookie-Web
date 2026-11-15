@@ -1220,7 +1220,7 @@ test('Document AI sends the latest draft, previews edits and applies them throug
     await route.fulfill({
       json: {
         reply: 'I made the opening clearer.',
-        model: 'gpt-5.6-sol',
+        model: 'gpt-6.1-sol',
         proposal: {
           title: 'Clear notes',
           blocks: [{ type: 'paragraph', data: { text: 'A clearer opening.' } }],
@@ -1261,7 +1261,7 @@ test('Document AI refuses to overwrite edits made after requesting a suggestion'
     route.fulfill({
       json: {
         reply: 'Suggestion ready',
-        model: 'gpt-5.6-sol',
+        model: 'gpt-6.1-sol',
         proposal: {
           title: 'Old suggestion',
           blocks: [{ type: 'paragraph', data: { text: 'Old suggestion' } }],
@@ -1292,7 +1292,7 @@ test('Document AI supports no document, follow-up context and retry after failur
     if (requests.length === 1)
       return route.fulfill({ status: 502, json: { error: 'Please try again' } })
     return route.fulfill({
-      json: { reply: 'Here is an answer.', proposal: null, model: 'gpt-5.6-sol' },
+      json: { reply: 'Here is an answer.', proposal: null, model: 'gpt-6.1-sol' },
     })
   })
   await page.goto('/documents')
@@ -1322,7 +1322,7 @@ test('Document AI can create a new document without an attached draft', async ({
     return route.fulfill({
       json: {
         reply: 'Here is a new memo.',
-        model: 'gpt-5.6-sol',
+        model: 'gpt-6.1-sol',
         proposal: {
           title: 'AI memo',
           blocks: [{ type: 'paragraph', data: { text: 'New memo content.' } }],
@@ -1364,7 +1364,7 @@ test('Navigating away cancels Document AI without adding its reply to another do
     started()
     await held
     await route.fulfill({
-      json: { reply: 'Old document reply', proposal: null, model: 'gpt-5.6-sol' },
+      json: { reply: 'Old document reply', proposal: null, model: 'gpt-6.1-sol' },
     })
   })
   await page.goto('/documents')

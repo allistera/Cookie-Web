@@ -61,7 +61,10 @@ watch(
 // pixel frame; taller bodies scroll inside the frame.
 const MAX_FRAME_HEIGHT = 12000
 const SCRIPT_CLOSE = '</scr' + 'ipt>'
-const emailBodyBridgeUrl = '/email-body-bridge.js'
+// The bridge is cached for a day (vercel.json), so its URL carries the
+// revision: bump ?v= here and "Bridge revision" in public/email-body-bridge.js
+// together whenever that file changes, or a cached copy keeps running.
+const emailBodyBridgeUrl = '/email-body-bridge.js?v=1'
 
 function randomToken() {
   if (globalThis.crypto?.randomUUID) {

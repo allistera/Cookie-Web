@@ -890,6 +890,62 @@ describe('Inbox Store', () => {
     expect(store.categories).toEqual([{ id: 'c1' }])
   })
 
+  // The shell loads both palettes at boot and Settings asks again as it
+  // mounts, before the first answers are back.
+  it.each([
+    ['labels', 'loadLabels', '/labels'],
+    ['categories', 'loadCategories', '/categories'],
+  ])('shares one %s request between concurrent loads', async (key, load, path) => {
+    const answers = []
+    const fetchMock = vi.fn(() => new Promise((resolve) => answers.push(resolve)))
+    vi.stubGlobal('fetch', fetchMock)
+    const respond = (rows) => answers.shift()({ ok: true, json: async () => ({ [key]: rows }) })
+    const store = useInboxStore()
+
+    const first = store[load]()
+    const second = store[load]()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(String(fetchMock.mock.calls[0][0]).split('?')[0].endsWith(path)).toBe(true)
+
+    // A forced reload wants data newer than the request already on its way,
+    // so it waits for that one and then asks again.
+    const forced = store[load]({ force: true })
+    await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    respond([{ id: 'stale' }])
+    await Promise.all([first, second])
+    expect(store[key]).toEqual([{ id: 'stale' }])
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    respond([{ id: 'fresh' }])
+    await forced
+    expect(store[key]).toEqual([{ id: 'fresh' }])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['labels', 'loadLabels'],
+    ['categories', 'loadCategories'],
+  ])('does not join a %s request sent for the previous account', async (key, load) => {
+    const answers = []
+    const fetchMock = vi.fn(() => new Promise((resolve) => answers.push(resolve)))
+    vi.stubGlobal('fetch', fetchMock)
+    const respond = (rows) => answers.shift()({ ok: true, json: async () => ({ [key]: rows }) })
+    const store = useInboxStore()
+    store.setComposeOwner('alice')
+
+    const alice = store[load]()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    store.setComposeOwner('bob')
+    const bob = store[load]()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+
+    respond([{ id: 'alice-private' }])
+    respond([{ id: 'bob-own' }])
+    await Promise.all([alice, bob])
+    expect(store[key]).toEqual([{ id: 'bob-own' }])
+  })
+
   it('uses the server unread count and cursor when provided', async () => {
     const row = (id) => ({
       id,

@@ -211,10 +211,22 @@ function tick() {
 function refresh() {
   lastRefresh = Date.now()
   now.value = new Date()
-  loadEvents()
+  return loadEvents()
+}
+// Coming back to the tab fires both visibilitychange and focus; the second
+// one leaves the refresh the first started to finish instead of fetching the
+// day again.
+let returnRefresh = null
+function refreshOnReturn() {
+  if (returnRefresh) return
+  const pending = refresh()
+  returnRefresh = pending
+  void pending.finally(() => {
+    if (returnRefresh === pending) returnRefresh = null
+  })
 }
 function onVisibilityChange() {
-  if (document.visibilityState === 'visible') refresh()
+  if (document.visibilityState === 'visible') refreshOnReturn()
 }
 function onKeydown(event) {
   if (event.key === 'Escape' && openEvent.value) {
@@ -224,13 +236,13 @@ function onKeydown(event) {
 }
 onMounted(() => {
   timer = setInterval(tick, 30_000)
-  window.addEventListener('focus', refresh)
+  window.addEventListener('focus', refreshOnReturn)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 onUnmounted(() => {
   disposed = true
   clearInterval(timer)
-  window.removeEventListener('focus', refresh)
+  window.removeEventListener('focus', refreshOnReturn)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>

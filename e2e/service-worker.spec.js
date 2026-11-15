@@ -31,7 +31,10 @@ test('the service worker keeps the shell and recently read mail available offlin
   })
 
   // Reload once under worker control so the route and its module graph become
-  // the cached application shell.
+  // the cached application shell. The wait before going offline reads this
+  // load's resource timing entries; the buffer holds 250 by default, so it is
+  // raised to keep a larger module graph checked in full.
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(5000))
   await page.reload()
   await expect(page.locator('#traditionalInboxView')).toBeVisible()
   const shellUrls = await page.evaluate(async () => {
@@ -62,6 +65,27 @@ test('the service worker keeps the shell and recently read mail available offlin
       }),
     )
     .toBe(1)
+
+  // The worker hands an asset to the page before it has finished storing it,
+  // so wait until everything this load used is in a cache before cutting the
+  // network: the offline reload below needs every one of them.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const urls = performance
+          .getEntriesByType('resource')
+          .filter((entry) =>
+            ['script', 'link', 'css', 'img', 'other'].includes(entry.initiatorType),
+          )
+          .map((entry) => new URL(entry.name))
+          .filter((url) => url.origin === location.origin && !url.pathname.startsWith('/api/'))
+        const cached = await Promise.all(
+          urls.map((url) => caches.match(url.href, { ignoreVary: true })),
+        )
+        return cached.filter((response) => !response).length
+      }),
+    )
+    .toBe(0)
 
   await context.setOffline(true)
   try {

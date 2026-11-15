@@ -29,23 +29,23 @@ describe('AI Today settings', () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it('loads the nano 09:00–19:00 default and saves editable model and schedule fields', async () => {
+  it('loads the Luna 09:00–19:00 default and saves editable model and schedule fields', async () => {
     const wrapper = mount(AiTodaySettings)
     await flushPromises()
 
-    expect(wrapper.get('[aria-label="AI Today model"]').element.value).toBe('gpt-5-nano')
+    expect(wrapper.get('[aria-label="AI Today model"]').element.value).toBe('gpt-6-luna')
     expect(wrapper.get('[aria-label="Schedule start time"]').element.value).toBe('9')
     expect(wrapper.get('[aria-label="Schedule end time"]').element.value).toBe('19')
     expect(wrapper.findAll('.ai-today-days input:checked')).toHaveLength(7)
 
-    await wrapper.get('[aria-label="AI Today model"]').setValue('gpt-4.1-nano')
+    await wrapper.get('[aria-label="AI Today model"]').setValue('gpt-6.1-terra')
     await wrapper.get('[aria-label="Schedule interval"]').setValue('3')
     fetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         enrichmentSettings: {
           ...defaults,
-          model: 'gpt-4.1-nano',
+          model: 'gpt-6.1-terra',
           schedule: { ...defaults.schedule, intervalHours: 3 },
         },
       }),
@@ -56,11 +56,22 @@ describe('AI Today settings', () => {
     expect(JSON.parse(fetch.mock.calls.at(-1)[1].body)).toEqual({
       enrichmentSettings: {
         ...defaults,
-        model: 'gpt-4.1-nano',
+        model: 'gpt-6.1-terra',
         schedule: { ...defaults.schedule, intervalHours: 3 },
       },
     })
-    expect(useInboxStore().enrichmentSettings.model).toBe('gpt-4.1-nano')
+    expect(useInboxStore().enrichmentSettings.model).toBe('gpt-6.1-terra')
+  })
+
+  it('shows the default model when the saved one has been retired', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ enrichmentSettings: { ...defaults, model: 'gpt-5-nano' } }),
+    })
+    const wrapper = mount(AiTodaySettings)
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="AI Today model"]').element.value).toBe('gpt-6-luna')
   })
 
   it('keeps an edited draft after a failed save', async () => {

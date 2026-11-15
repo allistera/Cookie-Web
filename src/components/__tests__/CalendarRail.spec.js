@@ -231,4 +231,22 @@ describe('CalendarRail', () => {
     await wrapper.get('[aria-label="Hide calendar sidebar"]').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
+
+  // Returning to the tab fires both events; one fetch of the day is enough.
+  it('refreshes once when the tab becomes visible and focused together', async () => {
+    await render()
+    const dayRequests = () =>
+      fetch.mock.calls.filter(([url]) => url === calendarEventsUrl(TODAY, TODAY)).length
+    const before = dayRequests()
+
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(dayRequests()).toBe(before + 1)
+
+    // A later return refreshes again.
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(dayRequests()).toBe(before + 2)
+  })
 })

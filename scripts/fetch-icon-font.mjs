@@ -29,10 +29,14 @@ const PUBLIC_PREFIX = '/fonts/'
 // icon_names list must be sorted or the css2 endpoint answers 400.
 const ICON_NAMES = [...new Set([...MATERIAL_SYMBOL_NAMES, ...DOCUMENT_ICON_NAMES])].sort()
 
-// The variable-axis ranges Google serves for Material Symbols Outlined.
+// The full optical size, weight and fill ranges Google serves for Material
+// Symbols Outlined. Grade is pinned to its default of 0: nothing in the app
+// sets GRAD, and leaving that axis variable made the subset 40% larger for
+// glyphs that render the same. Give it a range again (-50..200) before
+// styling an icon with a grade.
 const GOOGLE_CSS_URL =
   'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:' +
-  'opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=' +
+  'opsz,wght,FILL,GRAD@20..48,100..700,0..1,0&icon_names=' +
   `${ICON_NAMES.join(',')}&display=block`
 
 // css2 content-negotiates on User-Agent: without a modern browser string it

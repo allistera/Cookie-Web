@@ -2772,7 +2772,7 @@ export function localApiPlugin(mode) {
     }
     if (sub === 'enrichment-settings') {
       state.enrichmentSettings ??= {
-        model: 'gpt-5-nano',
+        model: 'gpt-6-luna',
         schedule: {
           enabled: true,
           days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],

@@ -146,6 +146,64 @@ describe('browser error monitoring', () => {
     app.unmount()
   })
 
+  // The SDK chunk must not compete with the first view: nothing is fetched
+  // until the scheduled idle task runs.
+  it('waits for the browser to be idle before loading the SDK', async () => {
+    let runWhenIdle
+    const schedule = vi.fn((task) => {
+      runWhenIdle = task
+    })
+    const ready = initSentry({ config: {} }, loadSdk, schedule)
+    await Promise.resolve()
+    expect(schedule).toHaveBeenCalledOnce()
+    expect(loadSdk).not.toHaveBeenCalled()
+
+    runWhenIdle()
+    await ready
+    expect(loadSdk).toHaveBeenCalledOnce()
+    expect(init).toHaveBeenCalledOnce()
+  })
+
+  // The SDK's own global handlers do not exist until it has loaded.
+  it('reports uncaught errors and unhandled rejections raised before the SDK is ready', async () => {
+    let runWhenIdle
+    const schedule = (task) => {
+      runWhenIdle = task
+    }
+    const ready = initSentry({ config: {} }, loadSdk, schedule)
+    const uncaught = new Error('uncaught before the SDK')
+    const rejected = new Error('rejected before the SDK')
+    window.dispatchEvent(Object.assign(new Event('error'), { error: uncaught }))
+    window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: rejected }))
+    // A cross-origin "Script error." carries no error object to report.
+    window.dispatchEvent(Object.assign(new Event('error'), { error: null }))
+    expect(captureException).not.toHaveBeenCalled()
+
+    runWhenIdle()
+    await ready
+    expect(captureException.mock.calls).toEqual([[uncaught], [rejected]])
+
+    // From here the SDK listens for itself; nothing is reported twice. (The
+    // listener stands in for the SDK's: the test environment treats an error
+    // event nobody listens for as a failure.)
+    const sdkListener = vi.fn()
+    window.addEventListener('error', sdkListener)
+    window.dispatchEvent(Object.assign(new Event('error'), { error: new Error('later') }))
+    window.removeEventListener('error', sdkListener)
+    expect(sdkListener).toHaveBeenCalledOnce()
+    expect(captureException).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops listening for early errors when the SDK cannot be loaded', async () => {
+    loadSdk.mockRejectedValue(new Error('Chunk unavailable'))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const removed = vi.spyOn(window, 'removeEventListener')
+    await initSentry({ config: {} }, loadSdk)
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['error', 'unhandledrejection']),
+    )
+  })
+
   it('bounds the early error queue and preserves the previous handler', async () => {
     let resolveSdk
     loadSdk.mockReturnValue(
