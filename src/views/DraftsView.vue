@@ -45,7 +45,7 @@ async function discard(draft) {
   // create a second draft, so close it if this was the one being edited,
   // whether in the composer or minimised to a tab.
   if (store.composerDraftId === draft.id) store.closeComposer({ save: false })
-  const tab = store.dockTabs.find((entry) => entry.snapshot?.draftId === draft.id)
+  const tab = store.dockTabs.find((entry) => (entry.snapshot ?? entry.stored)?.draftId === draft.id)
   if (tab) store.closeDockTab(tab.key)
 }
 

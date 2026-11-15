@@ -18,10 +18,15 @@ export function dockTabRoute(tab) {
 }
 
 // The subject, as the tab's title. `composer` is the inbox store: the
-// message in the composer is titled from what is being typed.
+// message in the composer is titled from what is being typed, a minimised
+// one from what it held, and one restored after a refresh
+// (lib/dockTabStorage.js) from the subject stored with it.
 export function dockTabTitle(tab, composer) {
   if (tab.kind === 'email') return tab.item.title
-  const subject = tab.snapshot ? tab.snapshot.subject : composer.composerSubject
+  const subject =
+    tab.key === composer.composerTabKey
+      ? composer.composerSubject
+      : (tab.snapshot ?? tab.stored)?.subject
   return String(subject ?? '').trim() || 'New message'
 }
 

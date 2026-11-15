@@ -824,8 +824,10 @@ export const useInboxStore = defineStore('inbox', {
     // order they were opened: { key, kind: 'compose', snapshot } for every
     // message being written, where snapshot holds a minimised message and is
     // null for the one in the composer (composerTabKey); and
-    // { key, kind: 'email', item } for emails kept from the reader. Kept in
-    // memory only: a minimised message is also saved to Drafts.
+    // { key, kind: 'email', item } for emails kept from the reader. A
+    // minimised message is also saved to Drafts, so a refresh brings it back
+    // as { snapshot: null, stored: { draftId, subject } }, a tab that opens
+    // that draft (lib/dockTabStorage.js).
     dockTabs: [],
     composerTabKey: null,
     replySessionId: 0,
@@ -4040,7 +4042,11 @@ export const useInboxStore = defineStore('inbox', {
       this.composerSendIdentity = null
       this.composerSaveState = 'saved'
       this.isComposerActive = true
-      this.claimComposerTab()
+      // A tab restored after a refresh stands for this draft: the composer
+      // takes that tab rather than a new one.
+      this.claimComposerTab(
+        this.dockTabs.find((tab) => !tab.snapshot && tab.stored?.draftId === draft.id)?.key,
+      )
     },
 
     // Puts a message that left the composer back into it (an undone or

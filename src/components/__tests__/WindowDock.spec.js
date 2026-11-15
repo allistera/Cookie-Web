@@ -102,6 +102,23 @@ describe('WindowDock', () => {
     expect(minimise).toHaveBeenCalledOnce()
   })
 
+  it('opens the draft a tab restored after a refresh stands for', async () => {
+    store.dockTabs = [
+      {
+        key: 'compose:draft:draft-1',
+        kind: 'compose',
+        snapshot: null,
+        stored: { draftId: 'draft-1', subject: 'Quarterly numbers' },
+      },
+    ]
+    const openDraft = vi.spyOn(store, 'openDraft').mockResolvedValue()
+    await render()
+
+    await tab('Quarterly numbers').get('.window-dock-title').trigger('click')
+
+    expect(openDraft).toHaveBeenCalledWith({ id: 'draft-1', isSummary: true })
+  })
+
   it('opens an email tab in the folder it came from, and asks again each time', async () => {
     store.dockTabs = [emailTab, minimisedMessage('compose:1', 'Quarterly numbers')]
     await render()
