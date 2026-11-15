@@ -7,6 +7,12 @@ const email = { id: 42, subject: 'Revised floor plan', sender: 'City Constructio
 const emailTab = emailDockTab(emailBucketItem(email, { folder: 'label', label: 'Home' }))
 const openMessage = { key: 'compose:1', kind: 'compose', snapshot: null }
 const minimised = { key: 'compose:2', kind: 'compose', snapshot: { subject: 'Lunch on Friday' } }
+const restored = {
+  key: 'compose:draft:d1',
+  kind: 'compose',
+  snapshot: null,
+  stored: { draftId: 'd1', subject: 'Holiday plans' },
+}
 
 function store(state = {}) {
   return { dockTabs: [], composerTabKey: null, composerSubject: '', openEmailId: null, ...state }
@@ -25,10 +31,17 @@ describe('dock tabs', () => {
     expect(dockTabTitle(emailTab, store())).toBe('Revised floor plan')
     expect(dockTabTitle(minimised, store())).toBe('Lunch on Friday')
     // The message in the composer is titled from what is being typed.
-    expect(dockTabTitle(openMessage, store({ composerSubject: 'Quarterly numbers' }))).toBe(
-      'Quarterly numbers',
+    const composing = { composerTabKey: 'compose:1', composerSubject: 'Quarterly numbers' }
+    expect(dockTabTitle(openMessage, store(composing))).toBe('Quarterly numbers')
+    expect(dockTabTitle(openMessage, store({ ...composing, composerSubject: '  ' }))).toBe(
+      'New message',
     )
-    expect(dockTabTitle(openMessage, store({ composerSubject: '  ' }))).toBe('New message')
+    // One restored after a refresh keeps the subject stored with it, until
+    // it is opened and typed in again.
+    expect(dockTabTitle(restored, store(composing))).toBe('Holiday plans')
+    expect(
+      dockTabTitle(restored, store({ composerTabKey: restored.key, composerSubject: 'Edited' })),
+    ).toBe('Edited')
   })
 
   it('knows which tab is open, whatever type the email id is', () => {

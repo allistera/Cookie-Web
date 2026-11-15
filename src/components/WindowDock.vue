@@ -23,7 +23,9 @@ const tabs = computed(() =>
 function toggle({ tab, open }) {
   if (tab.kind === 'compose') {
     if (open) store.minimizeComposer()
-    else store.openComposerTab(tab.key)
+    else if (tab.snapshot) store.openComposerTab(tab.key)
+    // Restored after a refresh: the message is the draft it was saved as.
+    else store.openDraft({ id: tab.stored.draftId, isSummary: true })
     return
   }
   if (open) {

@@ -195,6 +195,27 @@ describe('messages in the window dock', () => {
     expect(titles()).toEqual(['Lunch on Friday', '(in the composer)'])
   })
 
+  it('opens a draft into the tab a refresh restored for it', async () => {
+    const restored = {
+      key: 'compose:draft:draft-2',
+      kind: 'compose',
+      snapshot: null,
+      stored: { draftId: 'draft-2', subject: 'Holiday plans' },
+    }
+    store.composeNew()
+    write('Lunch on Friday')
+    store.dockTabs.unshift(restored)
+
+    await store.openDraft({ id: 'draft-2', subject: 'Holiday plans', text: 'Where to?' })
+
+    // The same tab, in the same place, now holds the open message.
+    expect(store.composerTabKey).toBe(restored.key)
+    expect(store.composerDraftId).toBe('draft-2')
+    expect(store.dockTabs).toHaveLength(2)
+    expect(store.dockTabs[0].key).toBe(restored.key)
+    expect(store.dockTabs[1].snapshot.subject).toBe('Lunch on Friday')
+  })
+
   it('keeps the open message as a tab when an undone send returns', () => {
     store.composeNew()
     write('Lunch on Friday')

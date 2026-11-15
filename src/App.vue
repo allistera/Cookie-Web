@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, getCurrentScope, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from './stores/inbox'
 import { useSearchStore } from './stores/search'
@@ -606,6 +606,17 @@ async function refreshAfterReconnect() {
     documentsStore.isLoaded ? documentsStore.loadWorkspace({ force: true }) : Promise.resolve(),
   ])
 }
+
+// The window dock's tabs are stored for an hour and come back after a
+// refresh (lib/dockTabStorage.js). It loads as its own chunk to stay off the
+// entry bundle, and runs in this component's scope so it stops with it;
+// without the chunk the tabs are simply not restored.
+const appScope = getCurrentScope()
+import('./lib/dockTabStorage.js')
+  .then(({ keepDockTabs }) => {
+    if (appScope.active) appScope.run(() => keepDockTabs(store))
+  })
+  .catch(() => {})
 
 onMounted(() => {
   stopOutboxSync = installOutboxSync({

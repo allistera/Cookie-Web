@@ -87,3 +87,48 @@ test('emails minimised from the reader are tabs that open them again', async ({ 
   await expect(dock).toBeHidden()
   await expect(reader).toBeVisible()
 })
+
+test('tabs come back after a refresh', async ({ page }) => {
+  await page.goto('/inbox')
+  const composer = page.locator('#composerToast')
+  const reader = page.locator('.ni-reader')
+  const dock = page.getByRole('navigation', { name: 'Open windows' })
+
+  // A message and an email, both minimised.
+  await page.locator('.compose-btn').click()
+  await composer.locator('.composer-subject-inline').fill('Quarterly numbers')
+  await composer.locator('.composer-editor').fill('Up eight percent on last year.')
+  await composer.getByRole('button', { name: 'Minimise composer' }).click()
+  await page.locator('.ni-row', { hasText: 'City Construction' }).click()
+  await reader.getByRole('button', { name: 'Minimise to a tab' }).click()
+  await expect(dock.locator('.window-dock-tab')).toHaveCount(2)
+
+  // The message is stored by its row in Drafts, so wait for its save.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(localStorage)
+          .filter((key) => key.startsWith('cookie.dockTabs.'))
+          .map((key) => localStorage.getItem(key))
+          .join(''),
+      ),
+    )
+    .toContain('"kind":"compose"')
+
+  await page.reload()
+
+  const numbers = dock.getByRole('button', { name: 'Quarterly numbers', exact: true })
+  const plan = dock.getByRole('button', { name: /^Revised Floor Plan/ })
+  await expect(numbers).toBeVisible()
+  await expect(plan).toBeVisible()
+
+  // The message opens from Drafts with what was written, in its own tab.
+  await numbers.click()
+  await expect(composer.locator('.composer-subject-inline')).toHaveValue('Quarterly numbers')
+  await expect(composer.locator('.composer-editor')).toContainText('Up eight percent')
+  await expect(numbers).toHaveAttribute('aria-pressed', 'true')
+  await expect(dock.locator('.window-dock-tab')).toHaveCount(2)
+
+  await plan.click()
+  await expect(reader.locator('.ni-reader-subject-text')).toContainText('Revised Floor Plan')
+})
