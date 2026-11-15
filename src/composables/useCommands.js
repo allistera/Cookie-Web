@@ -182,7 +182,7 @@ export function useCommands() {
         id: 'compose',
         title: 'Compose',
         icon: 'edit_square',
-        run: () => store.openComposer(),
+        run: () => store.composeNew(),
       },
       {
         id: 'bucket-pin',

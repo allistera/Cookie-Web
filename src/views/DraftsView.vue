@@ -42,8 +42,11 @@ function attachmentTitle(draft) {
 async function discard(draft) {
   await store.discardDraft(draft.id)
   // Reopening the composer on a row that no longer exists would silently
-  // create a second draft, so close it if this was the one being edited.
+  // create a second draft, so close it if this was the one being edited,
+  // whether in the composer or minimised to a tab.
   if (store.composerDraftId === draft.id) store.closeComposer({ save: false })
+  const tab = store.dockTabs.find((entry) => entry.snapshot?.draftId === draft.id)
+  if (tab) store.closeDockTab(tab.key)
 }
 
 function discardRecovery(record) {

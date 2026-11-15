@@ -32,14 +32,21 @@ export function bundleBudgetPlugin() {
         // with no change on the app side. By November 2026 Vercel's build of
         // main sat about 190 bytes under 530 KB, and the Paper Trail sidebar
         // item (about 340 bytes of always-visible chrome) took it 146 over,
-        // so both budgets that carry the entry moved up by 1 KB.
+        // so both budgets that carry the entry moved up by 1 KB. The window
+        // dock (tabs for several open messages and emails) added 1.7 KB to
+        // the inbox store: parking a message has to be there, because an
+        // undone send or an opened draft can displace the composer from
+        // anywhere. That put Vercel's build about 0.9 KB over, so the entry
+        // moved up by 2 KB.
         const budget = chunk.isEntry
-          ? 531_000
+          ? 533_000
           : // The inbox view statically imports the entry, so it carries the
             // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
-            // Sentry debug IDs.
+            // Sentry debug IDs. With the window dock's share of the entry and
+            // the reader's own minimise control it reached 662.5 KB, 1.5 KB
+            // over, and moved up by 3 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 661_000
+            ? 664_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&

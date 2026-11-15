@@ -39,6 +39,7 @@ const KeyboardShortcutsDialog = lazyComponent(
   () => import('./components/KeyboardShortcutsDialog.vue'),
 )
 const ComposerWindow = lazyComponent(() => import('./components/ComposerWindow.vue'))
+const WindowDock = lazyComponent(() => import('./components/WindowDock.vue'))
 const DocumentsSidebar = lazyComponent(() => import('./components/DocumentsSidebar.vue'))
 const TasksSidebar = lazyComponent(() => import('./components/TasksSidebar.vue'))
 const SavedViewsSidebar = lazyComponent(() => import('./components/SavedViewsSidebar.vue'))
@@ -845,7 +846,7 @@ onUnmounted(() => {
       >
         <!-- LEFT SIDEBAR -->
         <aside v-if="activeApp === 'email'" class="left-sidebar">
-          <button class="compose-btn" @click="store.openComposer()">
+          <button class="compose-btn" @click="store.composeNew()">
             <span class="material-symbols-outlined">edit_square</span>
             <span>Compose</span>
           </button>
@@ -1091,6 +1092,7 @@ onUnmounted(() => {
     </div>
 
     <ComposerWindow v-if="composerLoaded" />
+    <WindowDock v-if="store.dockTabs.length" />
   </template>
 </template>
 

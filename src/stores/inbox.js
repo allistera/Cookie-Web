@@ -820,6 +820,14 @@ export const useInboxStore = defineStore('inbox', {
     // a session that has since moved on, which is what stops a slow upload
     // from landing on the next message the user opens.
     composerSessionId: 0,
+    // Tabs along the bottom of the screen (components/WindowDock.vue), in the
+    // order they were opened: { key, kind: 'compose', snapshot } for every
+    // message being written, where snapshot holds a minimised message and is
+    // null for the one in the composer (composerTabKey); and
+    // { key, kind: 'email', item } for emails kept from the reader. Kept in
+    // memory only: a minimised message is also saved to Drafts.
+    dockTabs: [],
+    composerTabKey: null,
     replySessionId: 0,
     // How many composer uploads are still in flight, so the composer can
     // disable sending until every picked file actually exists server-side.
@@ -909,6 +917,9 @@ export const useInboxStore = defineStore('inbox', {
 
     // Reading panel: id of the email open in the traditional inbox reader
     openEmailId: null,
+    // Bumped by the window dock before it routes to /inbox?open=<id>, so a
+    // tab opens its email again even when the route is already that one.
+    emailOpenRequests: 0,
 
     // Id of the message whose body is currently being fetched (null when idle).
     // Drives the reader's loading spinner so HTML emails show a spinner during
@@ -976,6 +987,13 @@ export const useInboxStore = defineStore('inbox', {
     // rather than by re-fetching, so the folder appears as soon as the first
     // save lands and goes when the last draft is sent or thrown away.
     draftCount: (state) => state.drafts.length + state.draftRecoveries.length,
+    // Nothing written yet: at most the signature a fresh message starts with.
+    isComposerBlank: (state) =>
+      !state.composerTo.trim() &&
+      !state.composerSubject.trim() &&
+      !state.composerAttachments.length &&
+      state.composerTextArea.replace(/\s+/g, '') ===
+        htmlToText(state.signatureHtml).replace(/\s+/g, ''),
     // The sidebar lists Scheduled only while a Send Later is still queued.
     scheduledSendCount: (state) =>
       state.isScheduledSendsLoaded ? state.scheduledSends.length : state.scheduledCountHint,
@@ -2484,7 +2502,7 @@ export const useInboxStore = defineStore('inbox', {
           const currentIndex = this.traditionalEmails.indexOf(email)
           if (currentIndex > -1) this.traditionalEmails.splice(currentIndex, 1)
         }
-        if (this.openEmailId === email.id) this.openEmailId = null
+        this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
         if (
           !isWithheld(email) &&
@@ -2564,7 +2582,7 @@ export const useInboxStore = defineStore('inbox', {
         removeFromCapturedLists(email, positions)
         email.unread = false
         email.isArchived = true
-        if (this.openEmailId === email.id) this.openEmailId = null
+        this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
         if (leavesSpam) this.spamCount = Math.max(0, this.spamCount - 1)
         if (leavesSnoozed) this.snoozedCount = Math.max(0, this.snoozedCount - 1)
@@ -2651,7 +2669,7 @@ export const useInboxStore = defineStore('inbox', {
         for (const { item } of positions) if (item) item.isSpam = spam
         removeFromCapturedLists(email, positions)
         if (destination && !destination.includes(email)) destination.unshift(email)
-        if (this.openEmailId === email.id) this.openEmailId = null
+        this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
         if (entersInbox && email.unread) this.unreadInboxCount++
         if (live) {
@@ -2729,7 +2747,7 @@ export const useInboxStore = defineStore('inbox', {
         if (applied) return
         applied = true
         removeFromCapturedLists(email, positions)
-        if (this.openEmailId === email.id) this.openEmailId = null
+        this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
         if (leavesSpam) this.spamCount = Math.max(0, this.spamCount - 1)
         if (leavesSnoozed) this.snoozedCount = Math.max(0, this.snoozedCount - 1)
@@ -2869,6 +2887,7 @@ export const useInboxStore = defineStore('inbox', {
     openComposer() {
       if (!this.isComposerActive) this.composerSessionId += 1
       this.isComposerActive = true
+      this.claimComposerTab()
       if (!this.composePreferencesLoaded) this.loadComposePreferences()
       // Populate the "to" auto-suggest; cached after the first load.
       this.loadContacts()
@@ -3002,6 +3021,8 @@ export const useInboxStore = defineStore('inbox', {
       this.composerTextArea = ''
       this.composerRecoveryId = null
       this.composerSendIdentity = null
+      this.dockTabs = []
+      this.composerTabKey = null
       this.replyRecoveryId = null
       this.replySendIdentity = null
       this.draftRecoveries = []
@@ -3274,17 +3295,21 @@ export const useInboxStore = defineStore('inbox', {
 
     // save:false is for the send paths, which have already taken the draft id
     // via consumeComposerDraft() — flushing there would write a fresh row for
-    // a message that is on its way out.
+    // a message that is on its way out. Returns the snapshot it saved.
     closeComposer({ save = true } = {}) {
       clearTimeout(composerDraftTimer)
       // The save can queue behind one still in flight, and by then the fields
       // below are cleared: it carries a snapshot of this message.
-      const draft = save ? this.composerDraftSnapshot() : null
+      const snapshot = save ? this.composerDraftSnapshot() : null
+      const draft = snapshot && { ...snapshot, closing: true }
       const session = this.composerSessionId
       // A new session keeps anything still in flight for the closed message
       // (an autosave's row id, an AI draft) off whatever opens next.
       this.composerSessionId += 1
-      if (draft) this.saveComposerDraft(session, { ...draft, closing: true })
+      if (draft) this.saveComposerDraft(session, draft)
+      // The closed message's tab goes with it (minimizeComposer keeps its own).
+      if (this.composerTabKey) this.closeDockTab(this.composerTabKey)
+      this.composerTabKey = null
       this.isComposerActive = false
       this.composerSnippetPreviewOpen = false
       this.composerAvailabilityPreviewOpen = false
@@ -3302,6 +3327,63 @@ export const useInboxStore = defineStore('inbox', {
       this.isAiDraftLoading = false
       this.aiDraftPreview = ''
       this.composerAiInstruction = ''
+      return draft
+    },
+
+    // --- Window dock ------------------------------------------------------
+    // Gives the open composer its tab: `key` when a minimised message is
+    // coming back, a new one otherwise (a session belongs to one message, so
+    // it names the tab).
+    claimComposerTab(key = null) {
+      if (key) this.composerTabKey = key
+      if (this.composerTabKey) return
+      this.composerTabKey = `compose:${this.composerSessionId}`
+      this.dockTabs.push({ key: this.composerTabKey, kind: 'compose', snapshot: null })
+    },
+
+    closeDockTab(key) {
+      this.dockTabs = this.dockTabs.filter((tab) => tab.key !== key)
+    },
+
+    // The email left the list it was open in, so the reader and a tab kept
+    // on it would point at nothing.
+    releaseEmail(id) {
+      if (this.openEmailId === id) this.openEmailId = null
+      this.closeDockTab(`email:${id}`)
+    },
+
+    // Puts the open message away as a tab. It is saved exactly as closing it
+    // would, so it is in Drafts too if the page goes before it is reopened;
+    // tabKey has that save bring the row it writes back to this tab
+    // (writeComposerDraft).
+    minimizeComposer() {
+      if (!this.isComposerActive) return
+      this.claimComposerTab()
+      const tab = this.dockTabs.find((entry) => entry.key === this.composerTabKey)
+      this.composerTabKey = null
+      tab.snapshot = this.closeComposer()
+      tab.snapshot.tabKey = tab.key
+    },
+
+    // Clears the composer for another message: the open one stays as a tab,
+    // unless nothing was written in it.
+    setComposerAside() {
+      if (this.isComposerActive && !this.isComposerBlank) this.minimizeComposer()
+      else this.closeComposer()
+    },
+
+    // The Compose button: a new message beside whatever is being written.
+    composeNew() {
+      if (!this.isComposerBlank) this.setComposerAside()
+      this.openComposer()
+    },
+
+    openComposerTab(key) {
+      const tab = this.dockTabs.find((entry) => entry.key === key)
+      const snapshot = tab?.snapshot
+      if (!snapshot) return
+      // Null when the message is another account's and stays where it is.
+      if (this.restoreComposerMessage(snapshot, snapshot.draftId, key) !== null) tab.snapshot = null
     },
 
     // --- Drafts ---------------------------------------------------------
@@ -3654,6 +3736,14 @@ export const useInboxStore = defineStore('inbox', {
         const draftId = await this.persistDraft(rowId, draft)
         await this.acknowledgeDraftRecovery(draft)
         lastComposerSave = { session, draftId }
+        // A minimised message keeps its row with its tab. Reopened before
+        // this save landed, it is in the composer with no row yet and takes
+        // this one, ahead of its own first save.
+        if (draft.tabKey) {
+          const tab = this.dockTabs.find((entry) => entry.key === draft.tabKey)
+          if (tab?.snapshot) tab.snapshot.draftId ??= draftId
+          else if (draft.tabKey === this.composerTabKey) this.composerDraftId ??= draftId
+        }
         // A send, a close, or another draft opening while this was in flight
         // means the id belongs to a message that is no longer the one on
         // screen. A send that took the message collects the id through
@@ -3920,15 +4010,21 @@ export const useInboxStore = defineStore('inbox', {
     // Reopens a saved draft in the composer, preserving the active session
     // if another action takes over while its full content is loading.
     async openDraft(draft) {
+      // Minimised in the dock: that copy has every edit the saved one has.
+      const tab = this.dockTabs.find((entry) => entry.snapshot?.draftId === draft.id)
+      if (tab) return this.openComposerTab(tab.key)
       if (draft.isSummary) {
         const session = this.composerSessionId
         draft = await this.loadDraftContent(draft)
         if (!draft || session !== this.composerSessionId) return false
       }
-      // Whatever is in the composer now is a different message: get its last
-      // edits to the server before its state is overwritten, and await it so
-      // the write cannot land after this draft has taken the composer over.
-      if (this.isComposerActive) await this.flushComposerDraft()
+      // The draft already in the composer is reloaded: get its last edits to
+      // the server first, and await it so the write cannot land after this
+      // version has taken the composer over. Any other message stays as a tab.
+      if (this.isComposerActive) {
+        if (this.composerDraftId === draft.id) await this.flushComposerDraft()
+        else this.setComposerAside()
+      }
       // The composer's content is now this version of the draft.
       this.noteDraftVersion(draft)
       this.composerSessionId += 1
@@ -3944,16 +4040,18 @@ export const useInboxStore = defineStore('inbox', {
       this.composerSendIdentity = null
       this.composerSaveState = 'saved'
       this.isComposerActive = true
+      this.claimComposerTab()
     },
 
     // Puts a message that left the composer back into it (an undone or
-    // failed send, a canceled scheduled send). Anything opened meanwhile is
-    // a different message: closing it saves its last edits to its own row,
-    // and the new session keeps its in-flight autosave from claiming
-    // composerDraftId for the restored message. Returns that session.
-    restoreComposerMessage(message, draftId) {
+    // failed send, a canceled scheduled send, a minimised tab: `tabKey`).
+    // Anything opened meanwhile is a different message: it stays as a tab,
+    // its last edits saved to its own row, and the new session keeps its
+    // in-flight autosave from claiming composerDraftId for the restored
+    // message. Returns that session.
+    restoreComposerMessage(message, draftId, tabKey = null) {
       if (message.owner !== undefined && message.owner !== this.composeOwnerSub) return null
-      this.closeComposer({ save: this.isComposerActive })
+      this.setComposerAside()
       this.composerTo = message.to
       this.composerSubject = message.subject
       this.composerTextArea = message.text
@@ -3965,6 +4063,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerRecoveryId = message.recoveryId ?? null
       this.composerSendIdentity = message.sendIdentity ?? null
       this.isComposerActive = true
+      this.claimComposerTab(tabKey)
       return this.composerSessionId
     },
 
@@ -4132,8 +4231,9 @@ export const useInboxStore = defineStore('inbox', {
       if (!task?.message_id || this.followUpDraftTaskId) return false
       this.followUpDraftTaskId = task.id
       // A fresh message: whatever the composer held (body, attachments, its
-      // Drafts row) is saved and cleared rather than carried into this reply.
-      this.closeComposer()
+      // Drafts row) is saved and kept as a tab rather than carried into this
+      // reply.
+      this.setComposerAside()
       this.openComposer()
       const session = this.composerSessionId
       this.composerTo = task.reply_to || ''
