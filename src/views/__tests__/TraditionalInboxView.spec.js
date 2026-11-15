@@ -2628,22 +2628,25 @@ describe('TraditionalInboxView Done action (replaces Archive/Delete)', () => {
     expect(inboxZero.find('img').exists()).toBe(false)
   })
 
-  it('the reader topbar offers Done, Snooze and Star, then a divider and More', async () => {
+  it('the reader topbar offers Minimise, then Done, Snooze and Star, a divider and More', async () => {
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
 
     const topbar = wrapper.find('.ni-reader-topbar')
     const buttons = topbar.findAll('.ni-reader-btn')
+    // Minimise sits alone at the left; the triage actions stay on the right.
     expect(buttons.map((button) => button.attributes('title'))).toEqual([
+      'Minimise to a tab',
       'Done',
       'Snooze',
       'Star',
       'More',
     ])
-    expect(buttons[0].text()).toContain('check_box')
-    expect(buttons[1].text()).toContain('schedule')
-    expect(buttons[2].text()).toContain('star_border')
-    expect(buttons[3].text()).toContain('more_horiz')
+    expect(buttons[0].text()).toContain('horizontal_rule')
+    expect(buttons[1].text()).toContain('check_box')
+    expect(buttons[2].text()).toContain('schedule')
+    expect(buttons[3].text()).toContain('star_border')
+    expect(buttons[4].text()).toContain('more_horiz')
     expect(topbar.find('[title="Category"]').exists()).toBe(false)
     expect(topbar.find('.ni-reader-divider').exists()).toBe(true)
     expect(topbar.find('[title="Delete"]').exists()).toBe(false)
