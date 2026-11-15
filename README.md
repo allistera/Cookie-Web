@@ -200,8 +200,9 @@ need a connection and the Send buttons wait for one.
 Composer and inline reply edits also keep account-scoped recovery copies in
 IndexedDB before remote autosave. Drafts lists local copies after a failed save
 or a conflict; opening one creates a separate draft so it cannot overwrite
-another tab's newer version. The composer distinguishes server saves, local
-saves, and unavailable storage. Unconfirmed delivery identities stay with the
+another tab's newer version. The composer shows no save status while the
+account or this device holds the draft; it warns, with **Retry save**, only when
+neither does. Unconfirmed delivery identities stay with the
 local copy until sending is confirmed, so retrying after reload reuses the same
 request. If local storage is unavailable, keep the tab open until remote saving
 succeeds.

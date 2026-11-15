@@ -73,6 +73,38 @@ describe('ComposerWindow snippet preview', () => {
   })
 })
 
+describe('ComposerWindow save status', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it.each(['saved', 'saving', 'local'])('shows nothing while the draft is %s', (state) => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.composerSaveState = state
+    const wrapper = mount(ComposerWindow, { attachTo: document.body })
+
+    expect(wrapper.find('.composer-save-status').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('warns and offers a retry when the draft is saved nowhere', async () => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.composerSaveState = 'error'
+    const flush = vi.spyOn(store, 'flushComposerDraft').mockResolvedValue()
+    const wrapper = mount(ComposerWindow, { attachTo: document.body })
+
+    const warning = wrapper.get('.composer-save-status')
+    expect(warning.attributes('role')).toBe('alert')
+    expect(warning.text()).toContain('Not saved. Keep this tab open and retry.')
+    await warning.get('button').trigger('click')
+
+    expect(flush).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+})
+
 describe('ComposerWindow forwarded attachments', () => {
   beforeEach(() => {
     setActivePinia(createPinia())

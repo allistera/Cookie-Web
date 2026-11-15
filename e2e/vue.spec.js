@@ -2328,7 +2328,8 @@ test('Drafts folder sits under Sent only while a draft exists', async ({ page })
   // autosave explicitly before testing the server-backed reload below.
   await expect(draftsItem).toBeVisible()
   await expect(draftsItem.locator('.nav-badge')).toHaveText('1')
-  await expect(composer.getByRole('status')).toHaveText('Saved')
+  await expect(composer).toHaveAttribute('data-save-state', 'saved')
+  await expect(composer.locator('.composer-save-status')).toHaveCount(0)
   const labels = await page.locator('.sidebar-nav .nav-item .nav-text').allTextContents()
   expect(labels.indexOf('Drafts')).toBe(labels.indexOf('Sent') + 1)
 
@@ -2368,7 +2369,9 @@ test('A local recovery survives a failed draft save and reload until explicitly 
   await composer.locator('.composer-subject-inline').fill('Recover after reload')
   await composer.locator('.composer-editor').fill('Keep these unsynced edits.')
   await failedSave
-  await expect(composer.getByRole('status')).toContainText('Saved on this device')
+  // The device holds the edits, so the composer raises no warning.
+  await expect(composer).toHaveAttribute('data-save-state', 'local')
+  await expect(composer.getByRole('alert')).toHaveCount(0)
 
   await page.goto('/drafts')
   const localDrafts = page.getByRole('region', { name: 'Recoverable local drafts' })
