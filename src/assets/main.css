@@ -3377,6 +3377,18 @@ button.chat-source:focus-visible {
   width: 860px;
 }
 
+/* With tabs along the bottom (components/WindowDock.vue, 40px tall) the
+   composer sits on top of them rather than over them, and the reader keeps
+   its last lines clear of them. */
+body:has(.window-dock) .composer-toast {
+  bottom: 48px;
+  max-height: calc(100vh - 68px);
+}
+
+body:has(.window-dock) .ni-reader {
+  padding-bottom: 64px;
+}
+
 .composer-draft-row {
   display: flex;
   justify-content: space-between;

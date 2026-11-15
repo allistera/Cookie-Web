@@ -35,6 +35,7 @@ import {
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
 import { emailBucketItem } from '../lib/bucketItems'
+import { emailDockTab } from '../lib/dockTabs'
 import { PAPER_TRAIL_LABEL } from '../lib/paperTrail'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
@@ -960,12 +961,13 @@ async function scheduleSelected(choice) {
 const openEmail = computed(() => store.openEmail)
 // The open email is what 'b' pins to the bucket, with the folder it is open
 // in so the bucket's row can load that folder and find it again.
-useBucketCandidate(() =>
+const openEmailItem = computed(() =>
   emailBucketItem(openEmail.value, {
     folder: activeFilter.value ?? '',
     label: activeFilter.value === 'label' ? String(route.query.label ?? '') : '',
   }),
 )
+useBucketCandidate(() => openEmailItem.value)
 
 // The reader no longer renders sender controls, but still needs the sender
 // decision so accepted mail can reveal remote images.
@@ -980,17 +982,16 @@ watch(
 // The AI Inbox's triage rows link here as /inbox?open=<message id>. The list
 // is usually still in flight when the route lands, so this waits for the email
 // to arrive rather than giving up on the first miss. Each id opens once, so
-// closing the reader does not immediately reopen it.
+// closing the reader does not immediately reopen it; a tab in the window dock
+// asks again (emailOpenRequests) to bring its email back.
 const requestedEmailId = computed(() => (route.query.open ? String(route.query.open) : ''))
 let openedFromRoute = ''
 
 watch(
-  [requestedEmailId, () => store.emailById(requestedEmailId.value)],
-  ([id, email]) => {
-    if (!id) {
-      openedFromRoute = ''
-      return
-    }
+  [requestedEmailId, () => store.emailById(requestedEmailId.value), () => store.emailOpenRequests],
+  ([id, email, requests], [, , previousRequests] = []) => {
+    if (!id || requests !== previousRequests) openedFromRoute = ''
+    if (!id) return
     if (!email || openedFromRoute === id) return
     openedFromRoute = id
     // A linked email outside the saved tab would be closed again as soon as
@@ -1259,6 +1260,15 @@ function closeReader() {
   store.closeReader()
 }
 
+// Puts the open email away as a tab in the window dock, to come back to
+// while reading or writing something else.
+function minimizeReader() {
+  if (!openEmailItem.value) return
+  const tab = emailDockTab(openEmailItem.value)
+  if (!store.dockTabs.some((entry) => entry.key === tab.key)) store.dockTabs.push(tab)
+  closeReader()
+}
+
 // Reset reply state whenever the open email changes or closes, including
 // changes made from outside this view (e.g. the command palette).
 watch(
@@ -1475,12 +1485,6 @@ watch(
   { immediate: true },
 )
 
-function composerHasDraft() {
-  // Even a visually blank composer can have focus or an AI draft in flight.
-  // Treat the open window itself as a draft rather than replacing its state.
-  return store.isComposerActive
-}
-
 // Opens ChatGPT in a new tab with the open email prefilled. Built from the
 // body the reader already holds (no await) so the browser treats the new tab
 // as a direct result of the click and does not block it as a popup. The
@@ -1504,19 +1508,10 @@ function askChatGptAboutOpenEmail() {
 async function forwardOpenEmail() {
   const email = openEmail.value
   if (!email) return
-  if (composerHasDraft()) {
-    store.notify('Close your current draft before forwarding.', 'error')
-    return
-  }
   const body = await store.fetchMessageBody(email.id)
   if (openEmail.value?.id !== email.id) return
   if (!body) {
     store.notify('Could not load the original email to forward.', 'error')
-    return
-  }
-  // Do not overwrite a draft the user started while the original body was loading.
-  if (composerHasDraft()) {
-    store.notify('Close your current draft before forwarding.', 'error')
     return
   }
   const draft = buildForwardDraft({
@@ -1525,7 +1520,8 @@ async function forwardOpenEmail() {
     html: body.html ?? null,
   })
 
-  store.closeComposer()
+  // A message already being written stays as a tab in the window dock.
+  store.setComposerAside()
   store.composerTo = ''
   store.composerSubject = forwardSubject(email.subject)
   store.composerHtml = draft.html
@@ -1669,10 +1665,8 @@ async function generateInlineReply() {
 function generateReplyDraft() {
   const email = openEmail.value
   if (!email) return
-  if (composerHasDraft()) {
-    store.notify('Close your current draft before opening this reply in the composer.', 'error')
-    return
-  }
+  // A message already being written stays as a tab in the window dock.
+  store.setComposerAside()
   store.composerTo = replyTo.value
   store.composerSubject = replySubject.value
   store.composerReplyToMessageId = email.id
@@ -2102,13 +2096,15 @@ function onDocumentClick(e) {
   // email commands read the open email as they run. Nor must closing the
   // keyboard shortcuts help, whose close button and backdrop sit over the
   // page, nor the bucket and its header button: a bucket row that opens an
-  // email has done so by the time this listener runs on the same click.
+  // email has done so by the time this listener runs on the same click. The
+  // window dock's tabs open and close the reader themselves in the same way.
   if (
     !openEmail.value ||
     store.isCommandPaletteOpen ||
     within('ks-overlay') ||
     within('bucket-panel') ||
-    within('bucket-trigger')
+    within('bucket-trigger') ||
+    within('window-dock')
   )
     return
   // Clicks inside the panel keep it open; clicks on rows are handled by
@@ -2443,7 +2439,16 @@ onUnmounted(() => {
     <Transition name="ni-slide">
       <div class="ni-reader" v-if="openEmail">
         <div class="ni-reader-topbar">
-          <div class="ni-reader-nav"></div>
+          <div class="ni-reader-nav">
+            <button
+              class="ni-reader-btn"
+              title="Minimise to a tab"
+              aria-label="Minimise to a tab"
+              @click="minimizeReader"
+            >
+              <span class="material-symbols-outlined">horizontal_rule</span>
+            </button>
+          </div>
           <div class="ni-reader-nav">
             <!-- Mail waiting in New senders: decide its sender without
                  going back to the list. -->

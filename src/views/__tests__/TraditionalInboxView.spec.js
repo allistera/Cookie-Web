@@ -3199,11 +3199,13 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
     ])
   })
 
-  it('does not replace an existing draft or create a truncated forward', async () => {
+  it('keeps an existing draft as a tab, and never creates a truncated forward', async () => {
     const email = store.traditionalEmails[0]
     store.messageBodies.set(email.id, { html: null, text: 'Original', attachments: [] })
-    store.isComposerActive = true
+    store.openComposer()
+    store.composerSubject = 'My draft'
     store.composerHtml = '<p>My draft</p>'
+    store.composerTextArea = 'My draft'
     const notify = vi.spyOn(store, 'notify')
     const wrapper = mountView()
     await wrapper.find('.ni-row').trigger('click')
@@ -3213,8 +3215,12 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
 
     await forward.trigger('click')
 
-    expect(store.composerHtml).toBe('<p>My draft</p>')
-    expect(notify).toHaveBeenCalledWith('Close your current draft before forwarding.', 'error')
+    // The forward takes the composer; the draft waits in the window dock.
+    expect(store.composerSubject).toBe(`Fwd: ${email.subject}`)
+    expect(store.dockTabs.map((tab) => tab.snapshot?.html ?? null)).toEqual([
+      '<p>My draft</p>',
+      null,
+    ])
 
     store.closeComposer()
     store.messageBodies.delete(email.id)
@@ -3223,6 +3229,8 @@ describe('TraditionalInboxView placeholder controls (rage-click fix)', () => {
 
     expect(store.isComposerActive).toBe(false)
     expect(notify).toHaveBeenCalledWith('Could not load the original email to forward.', 'error')
+    // This file shares one pinia: the tab must not outlive the test.
+    store.dockTabs = []
   })
 
   it('keeps the working reader controls', async () => {
@@ -3722,6 +3730,51 @@ describe('opening an email from the route', () => {
     await nextTick()
 
     expect(store.openEmailId).toBe('m2')
+  })
+
+  // A tab in the window dock routes here too. Its email may have been opened
+  // from this very route and closed since, so the dock says when it asks.
+  it('opens the same email again when the window dock asks for it', async () => {
+    const store = resetReader()
+    store.traditionalEmails = [{ id: 'm2', subject: 'Second', sender: 'B', unread: true }]
+    await router.replace({ path: '/inbox', query: { open: 'm2' } })
+    mountView()
+    await nextTick()
+    store.closeReader()
+    await nextTick()
+    expect(store.openEmailId).toBeNull()
+
+    store.emailOpenRequests += 1
+    await nextTick()
+
+    expect(store.openEmailId).toBe('m2')
+  })
+
+  it('minimises the open email to a tab in the window dock', async () => {
+    const store = resetReader()
+    store.dockTabs = []
+    store.traditionalEmails = [{ id: 'm2', subject: 'Second', sender: 'B', unread: true }]
+    await router.replace({ path: '/inbox' })
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await nextTick()
+
+    await wrapper.get('[aria-label="Minimise to a tab"]').trigger('click')
+
+    expect(store.openEmailId).toBeNull()
+    expect(store.dockTabs).toEqual([
+      {
+        key: 'email:m2',
+        kind: 'email',
+        item: expect.objectContaining({ id: 'm2', title: 'Second' }),
+      },
+    ])
+    // Minimising it again adds nothing.
+    store.openReader(store.traditionalEmails[0])
+    await nextTick()
+    await wrapper.get('[aria-label="Minimise to a tab"]').trigger('click')
+    expect(store.dockTabs).toHaveLength(1)
+    store.dockTabs = []
   })
 
   it('leaves the reader closed when no ?open is given', async () => {

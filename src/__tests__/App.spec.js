@@ -76,7 +76,7 @@ async function key(value, options = {}) {
 describe('application shell', () => {
   it('opens the composer and expands the optional mail folders', async () => {
     await render()
-    const compose = vi.spyOn(store, 'openComposer').mockImplementation(() => {})
+    const compose = vi.spyOn(store, 'composeNew').mockImplementation(() => {})
     await wrapper.get('.compose-btn').trigger('click')
     expect(compose).toHaveBeenCalledOnce()
     store.applyFolderCounts({ processingCount: 2 })

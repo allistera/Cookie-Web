@@ -88,7 +88,9 @@ function closeAiPrompt() {
 // the instruction; the prompt comes up with it so that instruction can be
 // read and changed. Immediate, because the panel can already be open when
 // this lazily-loaded window first mounts (a reply drafted from the inbox).
-// A closed composer starts its next message on the plain footer.
+// A closed composer starts its next message on the plain footer, and so
+// does one the window dock swaps in: the tab key changes then, which the
+// active flag alone does not show.
 watch(
   () => store.isAiDraftActive,
   (active) => {
@@ -97,9 +99,9 @@ watch(
   { immediate: true },
 )
 watch(
-  () => store.isComposerActive,
-  (active) => {
-    if (!active) closeAiPrompt()
+  () => [store.isComposerActive, store.composerTabKey],
+  ([active]) => {
+    if (!active || !store.isAiDraftActive) closeAiPrompt()
   },
 )
 
@@ -197,8 +199,8 @@ const composerToRef = ref(null)
 const composerSubjectRef = ref(null)
 const composerBodyRef = ref(null)
 watch(
-  () => store.isComposerActive,
-  (active) => {
+  () => [store.isComposerActive, store.composerTabKey],
+  ([active]) => {
     if (active) nextTick(() => composerSubjectRef.value?.focus())
   },
   { immediate: true },
@@ -303,6 +305,15 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="composer-window-actions">
+        <button
+          class="composer-icon-btn"
+          title="Minimise to a tab"
+          aria-label="Minimise composer"
+          tabindex="-1"
+          @click="store.minimizeComposer"
+        >
+          <span class="material-symbols-outlined">horizontal_rule</span>
+        </button>
         <button
           class="composer-icon-btn"
           title="Close"
