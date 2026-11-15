@@ -252,6 +252,7 @@ onUnmounted(() => {
     id="composerToast"
     class="composer-toast"
     :class="{ active: store.isComposerActive, 'ai-active': store.isAiDraftActive }"
+    :data-save-state="store.composerSaveState"
     @keydown.esc="onComposerEscape"
   >
     <div class="composer-draft-row">
@@ -313,23 +314,11 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
-    <div class="composer-save-status" role="status">
-      {{
-        store.composerSaveState === 'saved'
-          ? 'Saved'
-          : store.composerSaveState === 'saving'
-            ? 'Saving…'
-            : store.composerSaveState === 'local'
-              ? 'Saved on this device. Waiting to sync.'
-              : 'Not saved. Keep this tab open and retry.'
-      }}
-      <button
-        v-if="store.composerSaveState === 'local' || store.composerSaveState === 'error'"
-        type="button"
-        @click="store.flushComposerDraft()"
-      >
-        Retry save
-      </button>
+    <!-- Saves that work stay silent. This warns only when neither the account
+         nor this device holds the draft. -->
+    <div v-if="store.composerSaveState === 'error'" class="composer-save-status" role="alert">
+      Not saved. Keep this tab open and retry.
+      <button type="button" @click="store.flushComposerDraft()">Retry save</button>
     </div>
     <div v-if="scheduledRetryAt" class="composer-save-status" role="status">
       Confirm the original request for {{ scheduledRetryLabel }} before changing its time.
