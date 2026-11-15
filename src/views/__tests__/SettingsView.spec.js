@@ -142,7 +142,7 @@ describe('SettingsView', () => {
           if (String(url).includes('/tasks/enrichment-settings')) {
             return {
               enrichmentSettings: {
-                model: 'gpt-5-nano',
+                model: 'gpt-6-luna',
                 schedule: {
                   enabled: true,
                   days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],

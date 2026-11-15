@@ -1,11 +1,10 @@
 export const enrichmentModelOptions = [
-  { value: 'gpt-5-nano', label: 'GPT-5 nano', hint: 'Lowest cost; recommended for frequent runs.' },
+  { value: 'gpt-6-luna', label: 'GPT-6 Luna', hint: 'Lowest cost; recommended for frequent runs.' },
   {
-    value: 'gpt-5.6-luna',
-    label: 'GPT-5.6 Luna',
-    hint: 'More capable, with a higher per-run cost.',
+    value: 'gpt-6.1-terra',
+    label: 'GPT-6.1 Terra',
+    hint: 'More capable, at about ten times the per-run cost.',
   },
-  { value: 'gpt-4.1-nano', label: 'GPT-4.1 nano', hint: 'Low-cost alternative.' },
 ]
 
 export const enrichmentDayOptions = [
@@ -21,7 +20,7 @@ export const enrichmentDayOptions = [
 export const enrichmentIntervalOptions = [1, 2, 3, 4, 6, 12]
 
 export const defaultEnrichmentSettings = Object.freeze({
-  model: 'gpt-5-nano',
+  model: 'gpt-6-luna',
   schedule: Object.freeze({
     enabled: true,
     days: Object.freeze(enrichmentDayOptions.map(({ value }) => value)),

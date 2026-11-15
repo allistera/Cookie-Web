@@ -102,7 +102,7 @@ Migration `0011_backfill_ai_pending.sql` queues historical inbound messages. Sen
 
 OpenAI is the initial provider because Cookie already uses OpenAI embeddings and mailbox Q&A. Reusing one provider keeps credentials, monitoring, and data-flow review simple.
 
-The default classification and compose model is `gpt-5.6-luna`. Worker configuration uses `AI_MODEL`; Compose supports `OPENAI_COMPOSE_MODEL`.
+The default classification and compose model is `gpt-6-luna`. Worker configuration uses `AI_MODEL`; Compose supports `OPENAI_COMPOSE_MODEL`.
 
 A generic multi-provider abstraction is intentionally absent. Add one only after a second provider is adopted and evaluated against the same private examples.
 

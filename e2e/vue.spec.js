@@ -585,22 +585,22 @@ test('Settings AI Today pane changes the enrichment model and schedule', async (
   await page.goto('/settings/ai-today')
   const pane = page.getByTestId('ai-today-settings-section')
   await expect(pane).toContainText('Europe/London')
-  await expect(pane.getByLabel('AI Today model')).toHaveValue('gpt-5-nano')
+  await expect(pane.getByLabel('AI Today model')).toHaveValue('gpt-6-luna')
   await expect(pane.getByLabel('Schedule start time')).toHaveValue('9')
   await expect(pane.getByLabel('Schedule end time')).toHaveValue('19')
 
-  await pane.getByLabel('AI Today model').selectOption('gpt-4.1-nano')
+  await pane.getByLabel('AI Today model').selectOption('gpt-6.1-terra')
   await pane.getByLabel('Schedule interval').selectOption('3')
   await pane.getByRole('button', { name: 'Save' }).click()
 
   await expect(page.locator('.toast', { hasText: 'AI Today settings saved.' })).toBeVisible()
   expect(saved.at(-1).enrichmentSettings).toMatchObject({
-    model: 'gpt-4.1-nano',
+    model: 'gpt-6.1-terra',
     schedule: { startHour: 9, endHour: 19, intervalHours: 3 },
   })
 
   await page.reload()
-  await expect(pane.getByLabel('AI Today model')).toHaveValue('gpt-4.1-nano')
+  await expect(pane.getByLabel('AI Today model')).toHaveValue('gpt-6.1-terra')
   await expect(pane.getByLabel('Schedule interval')).toHaveValue('3')
 })
 
