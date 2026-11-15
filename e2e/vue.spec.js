@@ -334,6 +334,27 @@ test('All-day events stay below the date header and outside the hourly lane', as
   expect(timelineBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1)
 })
 
+test('Day view runs down to the foot of the page however tall the window is', async ({ page }) => {
+  await freezeCalendarClock(page)
+  await page.setViewportSize({ width: 1440, height: 1300 })
+  await page.goto('/calendar')
+
+  const card = page.locator('.day-calendar')
+  const content = page.locator('.calendar-content')
+  await expect(page.locator('.day-event-lane')).toBeVisible()
+
+  // Only the page's own bottom padding is left under the card.
+  const [cardBox, contentBox] = await Promise.all([card.boundingBox(), content.boundingBox()])
+  const gap = contentBox.y + contentBox.height - (cardBox.y + cardBox.height)
+  expect(Math.abs(gap - 24)).toBeLessThanOrEqual(1)
+
+  // In a window too short for it the lane keeps a workable height and the
+  // page scrolls instead.
+  await page.setViewportSize({ width: 1440, height: 500 })
+  const laneBox = await page.locator('.day-event-lane').boundingBox()
+  expect(laneBox.height).toBeGreaterThanOrEqual(340)
+})
+
 test('Clicking an event opens it prefilled for editing, with a Delete button', async ({ page }) => {
   await freezeCalendarClock(page)
   await page.goto('/calendar')

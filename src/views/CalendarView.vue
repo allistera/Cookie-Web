@@ -2943,7 +2943,28 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+/* The day card takes the height left under the header, down to the foot of
+   the page; with more above it than the page can hold, the page scrolls. */
+.calendar-content:has(.day-calendar) {
+  display: flex;
+  flex-direction: column;
+}
+
+.calendar-page:has(> .day-calendar) {
+  flex: 1 0 auto;
+  padding-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.day-calendar {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .day-calendar > h2 {
+  flex: 0 0 auto;
   height: 76px;
   margin: 0;
   padding: 26px 36px;
@@ -2959,7 +2980,10 @@ onUnmounted(() => {
    sideways through the hours; an hour never gets narrower than a label. */
 .day-timeline {
   --day-strip-width: max(calc(100% * var(--day-zoom)), 1440px);
+  flex: 1 0 auto;
   padding: 0 36px 28px;
+  display: flex;
+  flex-direction: column;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
@@ -2967,6 +2991,7 @@ onUnmounted(() => {
 
 .day-hour-axis {
   position: relative;
+  flex: 0 0 auto;
   width: var(--day-strip-width);
   height: 44px;
 }
@@ -2983,8 +3008,9 @@ onUnmounted(() => {
 
 .day-event-lane {
   position: relative;
+  flex: 1 0 auto;
   width: var(--day-strip-width);
-  height: clamp(340px, calc(100vh - 532px), 620px);
+  min-height: 340px;
   cursor: crosshair;
 }
 
@@ -3123,6 +3149,7 @@ onUnmounted(() => {
 }
 
 .day-calendar .all-day-row {
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
