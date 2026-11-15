@@ -18,13 +18,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
       Resource hints for the Worker origins the app calls at boot (see
-      src/lib/apiWorkers.js and App.vue's authenticated watcher). The Auth0
-      tenant origin is added at runtime by src/main.js from VITE_AUTH0_DOMAIN.
+      src/lib/apiWorkers.js). App.vue's authenticated watchers call the first
+      four on every route; the default view, AI Today, loads the day from the
+      tasks Worker, and it and the inbox read today's events from the calendar
+      Worker. The messages Worker is first called when a message is opened, so
+      it has no hint. The Auth0 tenant origin is added at runtime by
+      src/main.js from VITE_AUTH0_DOMAIN.
     -->
     <link rel="preconnect" href="https://emails-api.infinitywave.online" crossorigin />
     <link rel="preconnect" href="https://labels-api.infinitywave.online" crossorigin />
     <link rel="preconnect" href="https://drafts-api.infinitywave.online" crossorigin />
-    <link rel="preconnect" href="https://messages-api.infinitywave.online" crossorigin />
+    <link rel="preconnect" href="https://search-api.infinitywave.online" crossorigin />
+    <link rel="preconnect" href="https://tasks-api.infinitywave.online" crossorigin />
+    <link rel="preconnect" href="https://calendar-api.infinitywave.online" crossorigin />
     <!--
       The icon font is applied after auth (src/lib/iconFont.js), but its bytes
       can start arriving now so the first authenticated paint is not icon-less.

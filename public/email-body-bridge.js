@@ -3,6 +3,11 @@
 // injects an ES-module import that cannot run in an opaque-origin srcdoc frame.
 // Configuration and per-message identifiers travel as data attributes on
 // <body>, allowing one cacheable bridge file to serve every open message.
+//
+// Bridge revision: 1
+// Browsers keep this file for a day (vercel.json). When it changes, bump the
+// revision above and the ?v= on emailBodyBridgeUrl in
+// src/components/EmailBody.vue together, so no reader runs a cached copy.
 const source = document.body.dataset.bridgeSource
 const token = document.body.dataset.bridgeToken
 const generation = document.body.dataset.bridgeGeneration

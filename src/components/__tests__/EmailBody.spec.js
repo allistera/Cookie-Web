@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import process from 'node:process'
+
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
@@ -13,6 +17,19 @@ const HOSTILE = `
 afterEach(() => vi.useRealTimers())
 
 describe('EmailBody', () => {
+  // Browsers keep the bridge for a day, so the reader addresses it by the
+  // revision the file declares; the two are bumped together.
+  it('loads the bridge script by its declared revision', () => {
+    const bridge = readFileSync(resolve(process.cwd(), 'public/email-body-bridge.js'), 'utf8')
+    const revision = bridge.match(/^\/\/ Bridge revision: (\d+)$/m)?.[1]
+    expect(revision).toBeDefined()
+
+    const wrapper = mount(EmailBody, { props: { html: '<p>Hello</p>' } })
+    expect(wrapper.find('iframe').attributes('srcdoc')).toContain(
+      `src="/email-body-bridge.js?v=${revision}"`,
+    )
+  })
+
   it('renders untrusted HTML inside a no-script sandboxed iframe', () => {
     const wrapper = mount(EmailBody, { props: { html: HOSTILE, text: 'fallback', sender: 'Ada' } })
 

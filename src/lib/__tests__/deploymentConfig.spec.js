@@ -4,6 +4,14 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import {
+  CALENDAR_API_URL,
+  DRAFTS_API_URL,
+  EMAILS_API_URL,
+  LABELS_API_URL,
+  SEARCH_API_URL,
+  TASKS_API_URL,
+} from '../apiWorkers'
 import { SENTRY_TUNNEL_PATH } from '../sentryPrivacy'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -17,6 +25,44 @@ describe('deployment caching', () => {
       key: 'Cache-Control',
       value: 'public, max-age=31536000, immutable',
     })
+  })
+
+  // Every opened message loads the bridge inside its sandboxed frame; without
+  // a lifetime each open revalidates it before the body can be sized.
+  it('lets browsers keep the email body bridge script', () => {
+    const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'))
+    const cached = config.headers.find(
+      (entry) =>
+        new RegExp(`^${entry.source}$`, 'u').test('/email-body-bridge.js') &&
+        entry.headers.some((header) => header.key === 'Cache-Control'),
+    )
+
+    expect(cached?.headers).toContainEqual({
+      key: 'Cache-Control',
+      value: 'public, max-age=86400, stale-while-revalidate=604800',
+    })
+  })
+})
+
+describe('resource hints', () => {
+  // index.html cannot import apiWorkers.js, so a Worker moving to another
+  // domain would leave a hint opening a connection nothing uses. The hinted
+  // origins are the ones called at boot: by App.vue on every route, and by
+  // the default view (tasks) and its events card (calendar).
+  it('preconnects to the Worker origins called at boot', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8')
+    const hinted = [...html.matchAll(/<link rel="preconnect" href="([^"]+)" crossorigin \/>/gu)]
+
+    expect(hinted.map((match) => match[1]).toSorted()).toEqual(
+      [
+        CALENDAR_API_URL,
+        DRAFTS_API_URL,
+        EMAILS_API_URL,
+        LABELS_API_URL,
+        SEARCH_API_URL,
+        TASKS_API_URL,
+      ].toSorted(),
+    )
   })
 })
 
