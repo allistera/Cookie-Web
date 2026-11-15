@@ -44,8 +44,9 @@ if (auth0 && auth0Domain) {
 }
 if (auth0) app.use(auth0)
 
-// Install the temporary error handler synchronously, but never wait for the
-// optional SDK download before rendering the inbox or starting offline support.
+// Install the temporary error handlers synchronously. The optional SDK itself
+// is fetched once the browser is idle after this first render, so it never
+// delays the inbox or offline support; early errors are kept for it.
 void initSentry(app)
 app.mount('#app')
 
