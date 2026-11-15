@@ -25,51 +25,51 @@
     "@editorjs/image": "^2.10.3",
     "@editorjs/list": "^2.0.9",
     "@excalidraw/excalidraw": "^0.18.1",
-    "@sentry/vue": "^11.11.0",
+    "@sentry/vue": "^11.12.0",
     "@supabase/realtime-js": "^2.119.0",
-    "@univerjs/preset-sheets-conditional-formatting": "^1.4.0",
-    "@univerjs/preset-sheets-core": "^1.4.0",
-    "@univerjs/preset-sheets-data-validation": "^1.4.0",
-    "@univerjs/preset-sheets-filter": "^1.4.0",
-    "@univerjs/preset-sheets-find-replace": "^1.4.0",
-    "@univerjs/preset-sheets-hyper-link": "^1.4.0",
-    "@univerjs/preset-sheets-sort": "^1.4.0",
-    "@univerjs/presets": "^1.4.0",
-    "dompurify": "^3.4.17",
+    "@univerjs/preset-sheets-conditional-formatting": "^1.5.0",
+    "@univerjs/preset-sheets-core": "^1.5.0",
+    "@univerjs/preset-sheets-data-validation": "^1.5.0",
+    "@univerjs/preset-sheets-filter": "^1.5.0",
+    "@univerjs/preset-sheets-find-replace": "^1.5.0",
+    "@univerjs/preset-sheets-hyper-link": "^1.5.0",
+    "@univerjs/preset-sheets-sort": "^1.5.0",
+    "@univerjs/presets": "^1.5.0",
+    "dompurify": "^3.4.18",
     "editorjs-drag-drop": "^1.1.16",
     "highlight.js": "^11.12.0",
     "html2pdf.js": "^0.14.0",
-    "jose": "^6.2.15",
+    "jose": "^6.2.17",
     "pinia": "^4.1.0",
     "postgres": "^3.4.9",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "resend": "^6.37.0",
+    "resend": "^6.38.1",
     "vue": "^3.5.45",
-    "vue-router": "^5.4.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@oxlint/plugins": "^1.92.0",
-    "@playwright/test": "^1.65.0",
-    "@sentry/vite-plugin": "^11.11.0",
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@oxlint/plugins": "^1.93.0",
+    "@playwright/test": "^1.65.1",
+    "@sentry/vite-plugin": "^11.12.0",
+    "@vitejs/plugin-vue": "^6.0.11",
     "@vitest/coverage-v8": "5.1.0",
     "@vitest/eslint-plugin": "^1.6.28",
-    "@vue/test-utils": "^2.5.1",
-    "eslint": "^10.14.0",
+    "@vue/test-utils": "^2.6.0",
+    "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-oxlint": "^1.92.0",
+    "eslint-plugin-oxlint": "^1.93.0",
     "eslint-plugin-playwright": "^2.12.2",
-    "eslint-plugin-vue": "^10.12.0",
-    "fake-indexeddb": "^6.2.7",
+    "eslint-plugin-vue": "^10.12.1",
+    "fake-indexeddb": "^6.2.8",
     "globals": "^17.14.0",
-    "jsdom": "^31.0.0",
+    "jsdom": "^31.0.1",
     "npm-run-all2": "^9.0.4",
-    "oxfmt": "^0.77.0",
-    "oxlint": "^1.92.0",
-    "prettier": "3.9.10",
-    "vite": "^8.3.6",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
+    "prettier": "3.10.1",
+    "vite": "^8.3.8",
     "vite-plugin-vue-devtools": "^8.2.1",
     "vitest": "^5.1.0",
     "vue-eslint-parser": "^10.4.2"
@@ -78,10 +78,10 @@
     "node": "^22.22.2 || ^24.15.0"
   },
   "overrides": {
-    "brace-expansion": "5.0.12",
+    "brace-expansion": "5.0.13",
     "@excalidraw/excalidraw": {
       "nanoid": "3.3.20",
-      "sass": "1.105.2"
+      "sass": "1.108.2"
     },
     "@excalidraw/mermaid-to-excalidraw": {
       "nanoid": "5.1.16"
@@ -90,11 +90,11 @@
       "nanoid": "5.1.16"
     },
     "lodash-es": "4.18.1",
-    "katex": "0.18.2",
+    "katex": "0.18.11",
     "@vercel/cli-config": {
       "zod": "4.6.7"
     },
-    "minimatch": "11.0.3",
-    "glob": "14.0.3"
+    "minimatch": "11.0.8",
+    "glob": "14.0.6"
   }
 }
