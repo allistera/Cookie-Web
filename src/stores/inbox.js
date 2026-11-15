@@ -8,6 +8,7 @@ import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
 import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from '../lib/connectivity'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
+import { createSharedLoad } from '../lib/sharedLoad'
 import {
   loadDraftRecoveries,
   newRecoveryId,
@@ -451,6 +452,10 @@ let aiDraftRequestSeq = 0
 let draftsLoadSeq = 0
 const DRAFTS_FRESH_MS = 30_000
 const pendingDraftsLoads = new WeakMap()
+// The shell asks for both palettes at boot and Settings asks again when it
+// mounts, usually before the first answers arrive; callers share the request.
+const sharedLabelsLoad = createSharedLoad()
+const sharedCategoriesLoad = createSharedLoad()
 let draftEditsDuringLoad = null
 
 // Newest-first upsert or removal, shared by the live list and the replay in
@@ -1615,8 +1620,14 @@ export const useInboxStore = defineStore('inbox', {
 
     // Both palettes load at app boot; Settings and the pickers call these
     // again on open and get the loaded copy unless they ask for a refetch.
+    // Concurrent callers share one request; a forced reload made while one is
+    // in flight runs after it, so it never settles for an older answer.
     async loadLabels({ force = false } = {}) {
       if (this.isLabelsLoaded && !force) return
+      return sharedLabelsLoad(this, () => this.loadLabelsUncached(), { force })
+    },
+
+    async loadLabelsUncached() {
       const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
@@ -1649,8 +1660,13 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
+    // Shared and forced the same way as loadLabels.
     async loadCategories({ force = false } = {}) {
       if (this.isCategoriesLoaded && !force) return
+      return sharedCategoriesLoad(this, () => this.loadCategoriesUncached(), { force })
+    },
+
+    async loadCategoriesUncached() {
       const generation = this.composeGeneration
       const owner = offlineOwner()
       try {
@@ -3037,6 +3053,9 @@ export const useInboxStore = defineStore('inbox', {
       this.isDraftsLoading = false
       draftsLoadSeq += 1
       pendingDraftsLoads.delete(this)
+      // The next account must not join a palette request sent for this one.
+      sharedLabelsLoad.reset(this)
+      sharedCategoriesLoad.reset(this)
       this.composerAttachments = []
       this.composerReplyToMessageId = null
       this.composerFollowUpAt = null
