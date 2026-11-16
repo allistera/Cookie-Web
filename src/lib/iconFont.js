@@ -19,6 +19,7 @@ export const MATERIAL_SYMBOL_NAMES = [
   'audio_file',
   'auto_awesome',
   'auto_fix_high',
+  'auto_stories',
   'block',
   'bolt',
   'bookmark',

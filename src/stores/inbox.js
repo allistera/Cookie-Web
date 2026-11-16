@@ -753,6 +753,8 @@ export const useInboxStore = defineStore('inbox', {
     labelCursor: null,
     hasMoreLabel: false,
     labelFolderName: null,
+    // Set while The Feed shows the label list: its rows stay when marked done.
+    labelFolderKeepsDone: false,
     isLabelLoaded: false,
     isLabelRefreshing: false,
     // Done archive pager (page replacement, not append): the cursor used to
@@ -1528,9 +1530,12 @@ export const useInboxStore = defineStore('inbox', {
     setInboxTab(tab) {
       this.inboxTab = tab
     },
-    loadLabelEmails(name) {
+    // keepsDone is for The Feed, which lists mail whether or not it is done,
+    // so marking a row done there must not take it out of the list.
+    loadLabelEmails(name, { keepsDone = false } = {}) {
       const label = String(name ?? '').trim()
       if (!label) return
+      this.labelFolderKeepsDone = keepsDone
       if (this.labelFolderName !== label) {
         this.labelEmails = []
         this.labelCursor = null
@@ -2575,7 +2580,7 @@ export const useInboxStore = defineStore('inbox', {
       const positions = captureListPositions(email, [
         this.traditionalEmails,
         this.starredEmails,
-        this.labelEmails,
+        this.labelFolderKeepsDone ? [] : this.labelEmails,
         this.snoozedEmails,
         this.spamEmails,
       ])

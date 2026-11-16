@@ -4339,6 +4339,31 @@ describe('Inbox Store', () => {
     expect(store.openEmail).toBe(null)
   })
 
+  it('archiveEmail leaves the row in a label list that keeps done mail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: {} }) }),
+    )
+
+    const store = useInboxStore()
+    const email = { id: 'abc-123', unread: true }
+    store.labelFolderKeepsDone = true
+    store.traditionalEmails = [email]
+    store.labelEmails = [email]
+
+    store.archiveEmail(email, false)
+    expect(store.traditionalEmails).toEqual([])
+    expect(store.labelEmails.map((e) => e.id)).toEqual(['abc-123'])
+    expect(store.labelEmails[0].isArchived).toBe(true)
+
+    // Any other label folder drops the row again.
+    store.labelFolderKeepsDone = false
+    const other = { id: 'def-456', unread: false }
+    store.labelEmails = [other]
+    store.archiveEmail(other, false)
+    expect(store.labelEmails).toEqual([])
+  })
+
   it('archiveEmail offers Undo that restores the row and unread state', async () => {
     vi.stubGlobal(
       'fetch',

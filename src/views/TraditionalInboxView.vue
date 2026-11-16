@@ -37,6 +37,7 @@ import { scheduleChoices } from '../utils/schedule'
 import { emailBucketItem } from '../lib/bucketItems'
 import { emailDockTab } from '../lib/dockTabs'
 import { PAPER_TRAIL_LABEL } from '../lib/paperTrail'
+import { isFeedQuery, isFromToday } from '../lib/theFeed'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { detectCalendarSuggestion, formatCalendarSuggestion } from '../utils/calendarSuggestion'
@@ -79,17 +80,21 @@ const FILTER_META = {
 
 const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.query.filter : null))
 
+// The Feed is the Newsletters label folder narrowed to today's mail. The
+// folder spans Done, and Done leaves its rows in place while The Feed is open.
+const isFeed = computed(() => isFeedQuery(route.query))
+
 // The sent list refreshes on every visit — cheap, and it picks up mail sent
 // from other devices since the last look.
 watch(
-  [activeFilter, () => route.query.label],
-  ([filter, label]) => {
+  [activeFilter, () => route.query.label, isFeed],
+  ([filter, label, feed]) => {
     if (filter === 'sent') store.loadSentEmails()
     if (filter === 'spam') store.loadSpamEmails()
     if (filter === 'snoozed') store.loadSnoozedEmails()
     if (filter === 'done') store.loadDonePage(0)
     if (filter === 'starred') store.loadStarredEmails()
-    if (filter === 'label') store.loadLabelEmails(label)
+    if (filter === 'label') store.loadLabelEmails(label, { keepsDone: feed })
     if (['screening', 'blocked'].includes(filter)) store.loadFolder(filter)
     if (
       !['sent', 'spam', 'snoozed', 'done', 'starred', 'label', 'screening', 'blocked'].includes(
@@ -218,7 +223,9 @@ const filteredEmails = computed(() => {
     case 'starred':
       return store.starredEmails
     case 'label':
-      return store.labelEmails
+      return isFeed.value
+        ? store.labelEmails.filter((email) => !email.isSent && isFromToday(email))
+        : store.labelEmails
     case 'sent':
       return store.sentEmails
     case 'spam':
@@ -235,6 +242,7 @@ const filteredEmails = computed(() => {
 })
 
 const headerTitle = computed(() => {
+  if (isFeed.value) return 'The Feed'
   if (activeFilter.value === 'label') return route.query.label
   return FILTER_META[activeFilter.value]?.title
 })
@@ -244,21 +252,23 @@ const isPaperTrail = computed(
   () => activeFilter.value === 'label' && route.query.label === PAPER_TRAIL_LABEL,
 )
 
-const headerIcon = computed(() =>
-  isPaperTrail.value ? 'receipt_long' : FILTER_META[activeFilter.value]?.icon,
-)
+const headerIcon = computed(() => {
+  if (isFeed.value) return 'auto_stories'
+  return isPaperTrail.value ? 'receipt_long' : FILTER_META[activeFilter.value]?.icon
+})
 
 const headerIconStyle = computed(() => {
-  if (activeFilter.value !== 'label') return undefined
+  if (activeFilter.value !== 'label' || isFeed.value) return undefined
   const label = store.allLabels.find((l) => l.name === route.query.label)
   return label ? { color: label.color } : undefined
 })
 
-const emptyText = computed(() =>
-  isPaperTrail.value
+const emptyText = computed(() => {
+  if (isFeed.value) return 'No newsletters today.'
+  return isPaperTrail.value
     ? 'No receipts or confirmations yet.'
-    : (FILTER_META[activeFilter.value]?.emptyText ?? ''),
-)
+    : (FILTER_META[activeFilter.value]?.emptyText ?? '')
+})
 
 const emailHasAiSummary = (email) => {
   const threadId = store.messageBodies.get(email.id)?.threadId
@@ -282,6 +292,9 @@ const showLoadMore = computed(() => {
   if (activeFilter.value === 'spam') return store.hasMoreSpam
   if (activeFilter.value === 'snoozed') return store.hasMoreSnoozed
   if (activeFilter.value === 'starred') return store.hasMoreStarred
+  // The label list is newest first, so The Feed has more of today's mail to
+  // fetch only while the oldest loaded row is itself from today.
+  if (isFeed.value) return store.hasMoreLabel && isFromToday(store.labelEmails.at(-1))
   if (activeFilter.value === 'label') return store.hasMoreLabel
   if (activeFilter.value === 'done') return false // Done uses the pager below
   return store.hasMoreEmails
