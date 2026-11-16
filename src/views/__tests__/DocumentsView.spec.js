@@ -242,6 +242,50 @@ describe('DocumentsView', () => {
     wrapper.unmount()
   })
 
+  it('uploads files dropped anywhere on the dashboard into the open folder', async () => {
+    const upload = vi.spyOn(store, 'uploadDropped').mockResolvedValue()
+    store.folders = [{ id: 'f-1', parent_id: null, title: 'Projects' }]
+    store.isLoaded = true
+    const wrapper = await mountAt('/documents?folder=f-1')
+    const view = wrapper.get('.documents-view')
+    const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')] }
+
+    await wrapper.get('.documents-header').trigger('dragover', { dataTransfer })
+    expect(view.classes()).toContain('file-drop-active')
+    expect(dataTransfer.dropEffect).toBe('copy')
+    await wrapper.get('.documents-header').trigger('drop', { dataTransfer })
+    expect(upload).toHaveBeenCalledWith(dataTransfer, 'f-1')
+    expect(view.classes()).not.toContain('file-drop-active')
+
+    // A drag of something else (a document card, selected text) is not a file drop.
+    await view.trigger('dragover', { dataTransfer: { types: ['text/plain'] } })
+    expect(view.classes()).not.toContain('file-drop-active')
+
+    // A drop a folder card already took only clears the highlight.
+    upload.mockClear()
+    await view.trigger('dragover', { dataTransfer })
+    const taken = new Event('drop', { bubbles: true, cancelable: true })
+    taken.dataTransfer = dataTransfer
+    taken.preventDefault()
+    view.element.dispatchEvent(taken)
+    await flushPromises()
+    expect(upload).not.toHaveBeenCalled()
+    expect(view.classes()).not.toContain('file-drop-active')
+    wrapper.unmount()
+  })
+
+  it('leaves files dropped on an open document to the editor', async () => {
+    const upload = vi.spyOn(store, 'uploadDropped').mockResolvedValue()
+    const wrapper = await mountAt('/documents/doc-a')
+    const view = wrapper.get('.documents-view')
+    const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')] }
+    await view.trigger('dragover', { dataTransfer })
+    await view.trigger('drop', { dataTransfer })
+    expect(view.classes()).not.toContain('file-drop-active')
+    expect(upload).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('stops flushing once the view has unmounted', async () => {
     const wrapper = await mountAt('/documents/doc-a')
     wrapper.unmount()

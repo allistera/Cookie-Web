@@ -1028,6 +1028,45 @@ describe('documents store — files', () => {
     expect(store.uploads).toEqual([])
   })
 
+  it('announces where an upload went and how much of it failed', async () => {
+    const notify = useInboxStore().notify
+    store.folders = [{ id: 'f-1', parent_id: null, title: 'Projects' }]
+    stubFetch({
+      POST: (url, body) =>
+        body.get('file').name === 'bad.bin'
+          ? { ok: false, status: 500, json: async () => ({}) }
+          : { ok: true, status: 201, json: async () => ({ file: { ...FILE, folder_id: 'f-1' } }) },
+    })
+    await store.uploadFiles([new File(['a'], 'a.pdf')], 'f-1')
+    expect(notify).toHaveBeenLastCalledWith('Uploaded 1 file to Projects.', 'info')
+
+    await store.uploadFiles([new File(['a'], 'a.pdf'), new File(['b'], 'bad.bin')], null)
+    expect(notify).toHaveBeenLastCalledWith(
+      '1 of 2 files could not be uploaded to Documents.',
+      'error',
+    )
+  })
+
+  it('uploads the files of a drop and says that folders were skipped', async () => {
+    const notify = useInboxStore().notify
+    const upload = vi.spyOn(store, 'uploadFiles').mockResolvedValue()
+    const file = new File(['x'], 'a.txt')
+    await store.uploadDropped(
+      {
+        items: [
+          { kind: 'file', getAsFile: () => file, webkitGetAsEntry: () => ({}) },
+          { kind: 'file', getAsFile: () => null, webkitGetAsEntry: () => ({ isDirectory: true }) },
+        ],
+      },
+      'f-1',
+    )
+    expect(upload).toHaveBeenCalledWith([file], 'f-1')
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining('Folders cannot be uploaded'),
+      'error',
+    )
+  })
+
   it('keeps a failed upload as a dismissable placeholder', async () => {
     stubFetch({
       POST: () => ({

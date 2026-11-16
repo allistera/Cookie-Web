@@ -258,6 +258,37 @@ describe('DocumentsSidebar', () => {
     expect(tree.classes()).not.toContain('drop-target')
   })
 
+  it('uploads files dropped onto a folder or the root of the tree', async () => {
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const store = useDocumentsStore()
+    const upload = vi.spyOn(store, 'uploadDropped').mockResolvedValue()
+    const move = vi.spyOn(store, 'moveDocument').mockResolvedValue()
+    const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')], getData: () => '' }
+    const projects = wrapper
+      .findAll('.folder-item')
+      .find((node) => node.text().includes('Projects'))
+
+    await projects.trigger('dragover', { dataTransfer })
+    expect(projects.classes()).toContain('drop-target')
+    expect(dataTransfer.dropEffect).toBe('copy')
+    // Unless the drop is cancelled the browser opens the file itself.
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    drop.dataTransfer = dataTransfer
+    projects.element.dispatchEvent(drop)
+    await flushPromises()
+    expect(drop.defaultPrevented).toBe(true)
+    expect(upload).toHaveBeenLastCalledWith(dataTransfer, 'f-projects')
+    expect(projects.classes()).not.toContain('drop-target')
+
+    const tree = wrapper.find('.documents-tree')
+    await tree.trigger('dragover', { dataTransfer })
+    expect(tree.classes()).toContain('drop-target')
+    await tree.trigger('drop', { dataTransfer })
+    expect(upload).toHaveBeenLastCalledWith(dataTransfer, null)
+    expect(move).not.toHaveBeenCalled()
+  })
+
   it('opens the new document picker', async () => {
     const wrapper = mountSidebar()
     await flushPromises()
@@ -448,7 +479,7 @@ describe('DocumentsSidebar drag and loading states', () => {
     await flushPromises()
     const move = vi.spyOn(useDocumentsStore(), 'moveDocument').mockResolvedValue()
     const tree = wrapper.get('.documents-tree')
-    await tree.trigger('dragover', { dataTransfer: { types: ['Files'] } })
+    await tree.trigger('dragover', { dataTransfer: { types: ['text/uri-list'] } })
     expect(tree.classes()).not.toContain('drop-target')
     await tree.trigger('drop', { dataTransfer: { getData: () => 'folder:unknown' } })
     await tree.trigger('drop')
