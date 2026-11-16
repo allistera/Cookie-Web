@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
-import { createPinia, setActivePinia } from 'pinia'
+import { createPinia, getActivePinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 
@@ -37,11 +37,14 @@ async function openMoreMenu(wrapper) {
 
 function mountView(options = {}) {
   // useAuth0() is inject()-based, so providing under its key feeds the view a
-  // signed-in user through the real interface.
+  // signed-in user through the real interface. The test's Pinia is installed
+  // as in the app, so a lazily loaded component (The Feed) reaches the same
+  // stores as the view however late its chunk arrives: views left mounted by
+  // earlier tests can switch the active Pinia in the meantime.
   return mount(TraditionalInboxView, {
     ...options,
     global: {
-      plugins: [router],
+      plugins: [router, getActivePinia()],
       provide: { [AUTH0_INJECTION_KEY]: { user: ref({ email: SELF_EMAIL }) } },
     },
   })
@@ -4779,7 +4782,8 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     expect(load).toHaveBeenCalledWith('Newsletters', { keepsDone: true })
     expect(wrapper.get('.ni-title-icon').text()).toBe('auto_stories')
     expect(wrapper.get('h1').text()).toBe('The Feed')
-    expect(wrapper.text()).toContain('No newsletters today.')
+    // The Feed's own component is a lazy chunk, empty state included.
+    await vi.waitFor(() => expect(wrapper.text()).toContain('No newsletters today.'))
 
     const newsletter = (id, sentAt, extra = {}) => ({
       id,
@@ -4799,12 +4803,29 @@ describe('TraditionalInboxView list and reader action coverage', () => {
       newsletter('yesterday', startOfToday - 1),
     ]
     store.hasMoreLabel = true
-    await nextTick()
-    expect(wrapper.findAll('.ni-row').map((row) => row.find('.ni-subject-text').text())).toEqual([
+    // The Feed shows posts with their content open, not rows.
+    const fetchBody = vi
+      .spyOn(store, 'fetchMessageBody')
+      .mockImplementation(async (id) => ({ html: null, text: `The whole of ${id}` }))
+    await vi.waitFor(() => expect(wrapper.findAll('.feed-post')).toHaveLength(2))
+    await flushPromises()
+    expect(wrapper.findAll('.feed-post').map((post) => post.get('h2').text())).toEqual([
       'Issue open',
       'Issue done',
     ])
+    expect(fetchBody.mock.calls).toEqual([['open'], ['done']])
+    expect(wrapper.text()).toContain('The whole of open')
+    expect(wrapper.text()).toContain('The whole of done')
+    expect(wrapper.find('.ni-row').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('No newsletters today.')
+
+    // A post's title opens it in the reader, and Done leaves the post listed.
+    const open = vi.spyOn(store, 'openReader').mockImplementation(() => {})
+    await wrapper.get('.feed-post-open').trigger('click')
+    expect(open).toHaveBeenCalledWith(store.labelEmails[0])
+    const archive = vi.spyOn(store, 'archiveEmail').mockImplementation(() => {})
+    await wrapper.get('.feed-post [title="Done"]').trigger('click')
+    expect(archive).toHaveBeenCalledWith(store.labelEmails[0])
     // The oldest loaded row is from yesterday, so no later page holds today's.
     expect(wrapper.find('.ni-load-more').exists()).toBe(false)
 
@@ -4817,6 +4838,31 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     await flushPromises()
     expect(load).toHaveBeenLastCalledWith('Newsletters', { keepsDone: false })
     expect(wrapper.get('h1').text()).toBe('Newsletters')
+    expect(wrapper.find('.feed-post').exists()).toBe(false)
+    expect(wrapper.findAll('.ni-row')).toHaveLength(2)
+  })
+
+  it('leaves the arrow keys, Space and Enter alone in The Feed, which has no rows', async () => {
+    vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
+    store.labelEmails = [makeEmail('issue', Date.now())]
+    const feed = { filter: 'label', label: 'Newsletters', received: 'today' }
+    await router.replace({ path: '/inbox', query: feed })
+    wrapper = mountView()
+    await vi.waitFor(() => expect(wrapper.findAll('.feed-post')).toHaveLength(1))
+    // Reading a post in the reader leaves the list's highlight on its email.
+    store.openEmailId = 'issue'
+    await nextTick()
+    store.openEmailId = null
+    await nextTick()
+
+    for (const pressed of ['ArrowDown', 'ArrowUp', ' ', 'Enter']) {
+      const event = new KeyboardEvent('keydown', { key: pressed, bubbles: true, cancelable: true })
+      document.body.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    await nextTick()
+    expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
+    expect(store.openEmailId).toBe(null)
   })
 
   it('marks a day read from the keyboard without collapsing it', async () => {

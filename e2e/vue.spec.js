@@ -1458,7 +1458,7 @@ test('Paper Trail sits under AI Today and lists mail the classifier flagged', as
   await expect(page.locator('.ni-row', { hasText: 'Your receipt for order 1042' })).toBeVisible()
 })
 
-test("The Feed sits under Paper Trail and lists today's newsletters, done or not", async ({
+test("The Feed sits under Paper Trail and shows today's newsletters as open posts", async ({
   page,
 }) => {
   // The Feed is the Newsletters label folder (which spans Done) narrowed to
@@ -1474,7 +1474,7 @@ test("The Feed sits under Paper Trail and lists today's newsletters, done or not
     is_starred: false,
     is_sent: false,
     is_archived: isArchived,
-    has_html: false,
+    has_html: true,
     labels: [{ name: 'Newsletters', color: '#d9730d', kind: 'user' }],
   })
   await page.route(
@@ -1495,10 +1495,26 @@ test("The Feed sits under Paper Trail and lists today's newsletters, done or not
         },
       }),
   )
-  await page.route(`${MESSAGES_API_URL}/messages`, (route) =>
-    route.request().method() === 'PATCH'
-      ? route.fulfill({ json: { message: {} } })
-      : route.fallback(),
+  // Each post asks for its own body, which the feed shows open.
+  const bodyRequests = []
+  await page.route(
+    (url) => url.href.startsWith(`${MESSAGES_API_URL}/messages`),
+    (route) => {
+      const id = new URL(route.request().url()).searchParams.get('id')
+      if (route.request().method() === 'PATCH') return route.fulfill({ json: { message: {} } })
+      if (route.request().method() !== 'GET' || !id?.startsWith('feed-')) return route.fallback()
+      bodyRequests.push(id)
+      return route.fulfill({
+        json: {
+          id,
+          body_html: `<h1>Inside ${id}</h1><p>The whole newsletter, ready to read.</p>`,
+          body_text: `Inside ${id}`,
+          unsubscribe: null,
+          thread: [],
+          attachments: [],
+        },
+      })
+    },
   )
   await page.goto('/inbox')
   const labels = await page.locator('.sidebar-nav .nav-item .nav-text').allTextContents()
@@ -1509,17 +1525,37 @@ test("The Feed sits under Paper Trail and lists today's newsletters, done or not
   await expect(page).toHaveURL(/received=today/)
   await expect(item).toHaveClass(/active/)
   await expect(page.locator('.ni-header h1')).toHaveText('The Feed')
-  const open = page.locator('.ni-row', { hasText: 'Morning edition' })
-  await expect(open).toBeVisible()
-  await expect(page.locator('.ni-row', { hasText: 'Already read edition' })).toBeVisible()
-  await expect(page.locator('.ni-row', { hasText: 'Last week edition' })).toHaveCount(0)
 
-  // Marking a newsletter done leaves it in The Feed.
-  await open.hover()
-  await open.locator('[title="Done"]').click()
+  // Posts, not rows: a heading for each of today's newsletters, done or not,
+  // with the newsletter itself underneath.
+  const posts = page.locator('.feed-post')
+  await expect(posts).toHaveCount(2)
+  await expect(page.locator('.ni-row')).toHaveCount(0)
+  const open = posts.filter({ hasText: 'Morning edition' })
+  const done = posts.filter({ hasText: 'Already read edition' })
+  await expect(open.getByRole('heading', { name: 'Morning edition' })).toBeVisible()
+  await expect(open.locator('.feed-post-meta')).toContainText('Daily Bites')
+  const content = (post) => post.frameLocator('iframe[title="Email content"]')
+  await expect(content(open).getByRole('heading', { name: 'Inside feed-open' })).toBeVisible()
+  await expect(content(done).getByRole('heading', { name: 'Inside feed-done' })).toBeVisible()
+  await expect(done.locator('.feed-post-done')).toHaveText('Done')
+  expect(bodyRequests.toSorted()).toEqual(['feed-done', 'feed-open'])
+
+  // Marking a newsletter done leaves its post in The Feed.
+  await open.getByRole('button', { name: 'Mark Morning edition done' }).click()
   await expect(page.locator('.toast', { hasText: 'Marked done.' })).toBeVisible()
-  await expect(open).toBeVisible()
-  await expect(page.locator('.ni-row')).toHaveCount(2)
+  await expect(open.locator('.feed-post-done')).toHaveText('Done')
+  await expect(posts).toHaveCount(2)
+
+  // A post's title opens it in the reader, which stays open.
+  await open.getByRole('button', { name: 'Morning edition', exact: true }).click()
+  await expect(page.locator('.ni-reader .ni-reader-subject-text')).toHaveText('Morning edition')
+  await expect(
+    page
+      .locator('.ni-reader')
+      .frameLocator('iframe[title="Email content"]')
+      .getByRole('heading', { name: 'Inside feed-open' }),
+  ).toBeVisible()
 })
 
 test('A due scheduled email appears at the top in the conditional Due Today group', async ({
