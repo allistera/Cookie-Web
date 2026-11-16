@@ -479,7 +479,7 @@ describe('DocumentsSidebar drag and loading states', () => {
     await flushPromises()
     const move = vi.spyOn(useDocumentsStore(), 'moveDocument').mockResolvedValue()
     const tree = wrapper.get('.documents-tree')
-    await tree.trigger('dragover', { dataTransfer: { types: ['Files'] } })
+    await tree.trigger('dragover', { dataTransfer: { types: ['text/uri-list'] } })
     expect(tree.classes()).not.toContain('drop-target')
     await tree.trigger('drop', { dataTransfer: { getData: () => 'folder:unknown' } })
     await tree.trigger('drop')
