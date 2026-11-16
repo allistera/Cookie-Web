@@ -4844,25 +4844,30 @@ describe('TraditionalInboxView list and reader action coverage', () => {
 
   it('leaves the arrow keys, Space and Enter alone in The Feed, which has no rows', async () => {
     vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
-    store.labelEmails = [makeEmail('issue', Date.now())]
+    store.labelEmails = [makeEmail('issue', Date.now()), makeEmail('later', Date.now() - 1000)]
     const feed = { filter: 'label', label: 'Newsletters', received: 'today' }
     await router.replace({ path: '/inbox', query: feed })
     wrapper = mountView()
-    await vi.waitFor(() => expect(wrapper.findAll('.feed-post')).toHaveLength(1))
+    await vi.waitFor(() => expect(wrapper.findAll('.feed-post')).toHaveLength(2))
     // Reading a post in the reader leaves the list's highlight on its email.
     store.openEmailId = 'issue'
     await nextTick()
     store.openEmailId = null
     await nextTick()
 
-    for (const pressed of ['ArrowDown', 'ArrowUp', ' ', 'Enter']) {
-      const event = new KeyboardEvent('keydown', { key: pressed, bubbles: true, cancelable: true })
-      document.body.dispatchEvent(event)
-      expect(event.defaultPrevented).toBe(false)
-    }
-    await nextTick()
+    // In a list these would move the highlight, tick its row and open it.
+    await key('ArrowDown')
+    await key(' ')
+    await key('Enter')
     expect(wrapper.find('.ni-bulk-bar').exists()).toBe(false)
     expect(store.openEmailId).toBe(null)
+
+    // The label's own list shows the highlight where the reader left it.
+    await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Newsletters' } })
+    await flushPromises()
+    expect(wrapper.findAll('.ni-row.highlighted').map((row) => row.text())).toEqual([
+      expect.stringContaining('Subject issue'),
+    ])
   })
 
   it('marks a day read from the keyboard without collapsing it', async () => {
