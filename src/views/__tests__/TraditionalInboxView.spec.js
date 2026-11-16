@@ -4750,7 +4750,7 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     const load = vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
     await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Paper Trail' } })
     wrapper = mountView()
-    expect(load).toHaveBeenCalledWith('Paper Trail')
+    expect(load).toHaveBeenCalledWith('Paper Trail', { keepsDone: false })
     expect(wrapper.get('.ni-title-icon').text()).toBe('receipt_long')
     expect(wrapper.get('h1').text()).toBe('Paper Trail')
     expect(wrapper.text()).toContain('No receipts or confirmations yet.')
@@ -4769,6 +4769,54 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     await nextTick()
     expect(wrapper.findAll('.ni-row')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('No receipts or confirmations yet.')
+  })
+
+  it("narrows The Feed to today's received newsletters, done or not", async () => {
+    const load = vi.spyOn(store, 'loadLabelEmails').mockResolvedValue()
+    const feed = { filter: 'label', label: 'Newsletters', received: 'today' }
+    await router.replace({ path: '/inbox', query: feed })
+    wrapper = mountView()
+    expect(load).toHaveBeenCalledWith('Newsletters', { keepsDone: true })
+    expect(wrapper.get('.ni-title-icon').text()).toBe('auto_stories')
+    expect(wrapper.get('h1').text()).toBe('The Feed')
+    expect(wrapper.text()).toContain('No newsletters today.')
+
+    const newsletter = (id, sentAt, extra = {}) => ({
+      id,
+      sender: 'Daily Bites',
+      address: 'newsletter@example.com',
+      subject: `Issue ${id}`,
+      snippet: 'This week',
+      sentAt: new Date(sentAt).toISOString(),
+      labels: [{ name: 'Newsletters', color: '#c2410c', kind: 'user' }],
+      ...extra,
+    })
+    const startOfToday = new Date().setHours(0, 0, 0, 0)
+    store.labelEmails = [
+      newsletter('open', Date.now()),
+      newsletter('done', startOfToday, { isArchived: true }),
+      newsletter('forwarded', startOfToday, { isSent: true }),
+      newsletter('yesterday', startOfToday - 1),
+    ]
+    store.hasMoreLabel = true
+    await nextTick()
+    expect(wrapper.findAll('.ni-row').map((row) => row.find('.ni-subject-text').text())).toEqual([
+      'Issue open',
+      'Issue done',
+    ])
+    expect(wrapper.text()).not.toContain('No newsletters today.')
+    // The oldest loaded row is from yesterday, so no later page holds today's.
+    expect(wrapper.find('.ni-load-more').exists()).toBe(false)
+
+    store.labelEmails = store.labelEmails.slice(0, 2)
+    await nextTick()
+    expect(wrapper.get('.ni-load-more').text()).toBe('Load more')
+
+    // The plain label folder keeps its own name and every row.
+    await router.replace({ path: '/inbox', query: { filter: 'label', label: 'Newsletters' } })
+    await flushPromises()
+    expect(load).toHaveBeenLastCalledWith('Newsletters', { keepsDone: false })
+    expect(wrapper.get('h1').text()).toBe('Newsletters')
   })
 
   it('marks a day read from the keyboard without collapsing it', async () => {

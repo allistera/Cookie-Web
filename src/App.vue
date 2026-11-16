@@ -17,6 +17,7 @@ import { isOnline } from './lib/connectivity'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
 import { PAPER_TRAIL_LABEL, PAPER_TRAIL_ROUTE } from './lib/paperTrail'
+import { FEED_ROUTE, isFeedQuery } from './lib/theFeed'
 import { scheduleIdleTask } from './lib/scheduleIdleTask'
 import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
@@ -879,6 +880,15 @@ onUnmounted(() => {
               <span class="material-symbols-outlined" aria-hidden="true">receipt_long</span>
               <span class="nav-text">Paper Trail</span>
             </router-link>
+            <!-- Today's newsletters (the Newsletters label), done or not. -->
+            <router-link
+              :to="FEED_ROUTE"
+              class="nav-item"
+              :class="{ active: isFeedQuery(route.query) }"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">auto_stories</span>
+              <span class="nav-text">The Feed</span>
+            </router-link>
             <!-- New senders only shows while it holds mail (the count arrives
                  with the inbox state), or while it is open. -->
             <router-link
@@ -1008,7 +1018,10 @@ onUnmounted(() => {
                 :to="{ path: '/inbox', query: { filter: 'label', label: label.name } }"
                 class="nav-item"
                 :class="{
-                  active: route.query.filter === 'label' && route.query.label === label.name,
+                  active:
+                    route.query.filter === 'label' &&
+                    route.query.label === label.name &&
+                    !isFeedQuery(route.query),
                 }"
               >
                 <span class="material-symbols-outlined" :style="{ color: label.color }">sell</span>

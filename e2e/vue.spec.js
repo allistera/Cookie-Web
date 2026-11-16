@@ -1458,6 +1458,70 @@ test('Paper Trail sits under AI Today and lists mail the classifier flagged', as
   await expect(page.locator('.ni-row', { hasText: 'Your receipt for order 1042' })).toBeVisible()
 })
 
+test("The Feed sits under Paper Trail and lists today's newsletters, done or not", async ({
+  page,
+}) => {
+  // The Feed is the Newsletters label folder (which spans Done) narrowed to
+  // today's mail, so the stub answers with a done row and an older one too.
+  const newsletter = (id, subject, sentAt, isArchived = false) => ({
+    id,
+    from_name: 'Daily Bites',
+    from_address: 'newsletter@dailybites.example',
+    subject,
+    snippet: 'This week in food.',
+    sent_at: new Date(sentAt).toISOString(),
+    is_unread: false,
+    is_starred: false,
+    is_sent: false,
+    is_archived: isArchived,
+    has_html: false,
+    labels: [{ name: 'Newsletters', color: '#d9730d', kind: 'user' }],
+  })
+  await page.route(
+    (url) =>
+      url.pathname.endsWith('/emails') &&
+      url.searchParams.get('folder') === 'label' &&
+      url.searchParams.get('label') === 'Newsletters',
+    (route) =>
+      route.fulfill({
+        json: {
+          emails: [
+            newsletter('feed-open', 'Morning edition', Date.now()),
+            newsletter('feed-done', 'Already read edition', Date.now(), true),
+            newsletter('feed-old', 'Last week edition', Date.now() - 2 * 24 * 60 * 60 * 1000),
+          ],
+          nextCursor: null,
+          readReceiptsAvailable: false,
+        },
+      }),
+  )
+  await page.route(`${MESSAGES_API_URL}/messages`, (route) =>
+    route.request().method() === 'PATCH'
+      ? route.fulfill({ json: { message: {} } })
+      : route.fallback(),
+  )
+  await page.goto('/inbox')
+  const labels = await page.locator('.sidebar-nav .nav-item .nav-text').allTextContents()
+  expect(labels.indexOf('The Feed')).toBe(labels.indexOf('Paper Trail') + 1)
+
+  const item = page.locator('.nav-item', { hasText: 'The Feed' })
+  await item.click()
+  await expect(page).toHaveURL(/received=today/)
+  await expect(item).toHaveClass(/active/)
+  await expect(page.locator('.ni-header h1')).toHaveText('The Feed')
+  const open = page.locator('.ni-row', { hasText: 'Morning edition' })
+  await expect(open).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'Already read edition' })).toBeVisible()
+  await expect(page.locator('.ni-row', { hasText: 'Last week edition' })).toHaveCount(0)
+
+  // Marking a newsletter done leaves it in The Feed.
+  await open.hover()
+  await open.locator('[title="Done"]').click()
+  await expect(page.locator('.toast', { hasText: 'Marked done.' })).toBeVisible()
+  await expect(open).toBeVisible()
+  await expect(page.locator('.ni-row')).toHaveCount(2)
+})
+
 test('A due scheduled email appears at the top in the conditional Due Today group', async ({
   page,
 }) => {

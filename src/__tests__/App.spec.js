@@ -291,16 +291,42 @@ describe('application shell', () => {
     const [areas, boxes] = wrapper
       .findAll('.left-sidebar .sidebar-nav')
       .map((nav) => nav.findAll('.nav-text').map((node) => node.text()))
-    expect(areas).toEqual(['AI Today', 'Paper Trail', 'New senders'])
+    expect(areas).toEqual(['AI Today', 'Paper Trail', 'The Feed', 'New senders'])
     expect(boxes).toEqual(['Inbox', 'More'])
     store.screeningCount = 0
     await nextTick()
     expect(
       wrapper
         .findAll('.left-sidebar .sidebar-nav .nav-text')
-        .slice(0, 3)
+        .slice(0, 4)
         .map((node) => node.text()),
-    ).toEqual(['AI Today', 'Paper Trail', 'Inbox'])
+    ).toEqual(['AI Today', 'Paper Trail', 'The Feed', 'Inbox'])
+  })
+
+  it("opens The Feed as today's Newsletters, apart from the Newsletters label itself", async () => {
+    await render()
+    store.labels = [{ id: 'l1', name: 'Newsletters', color: '#c2410c', kind: 'user' }]
+    await nextTick()
+    const item = (name) =>
+      wrapper
+        .findAll('.left-sidebar .nav-item')
+        .find((node) => node.find('.nav-text').text() === name)
+    expect(item('The Feed').classes()).not.toContain('active')
+    await item('The Feed').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/inbox')
+    expect(router.currentRoute.value.query).toEqual({
+      filter: 'label',
+      label: 'Newsletters',
+      received: 'today',
+    })
+    expect(item('The Feed').classes()).toContain('active')
+    expect(item('Newsletters').classes()).not.toContain('active')
+
+    await item('Newsletters').trigger('click')
+    await flushPromises()
+    expect(item('Newsletters').classes()).toContain('active')
+    expect(item('The Feed').classes()).not.toContain('active')
   })
 
   it('opens Paper Trail as the Paper Trail label list', async () => {
