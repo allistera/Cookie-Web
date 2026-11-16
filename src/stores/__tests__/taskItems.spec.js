@@ -285,6 +285,21 @@ describe('task items store', () => {
   })
 })
 
+describe('a generated task', () => {
+  it('is asked for on Someday, as any new task starts out', async () => {
+    const request = vi
+      .spyOn(store, 'request')
+      .mockResolvedValue({ item: { ...ITEM, dueDate: SOMEDAY }, subtasks: [] })
+
+    await store.generateItem('Plan a release')
+
+    expect(request).toHaveBeenCalledExactlyOnceWith('POST', {
+      params: '/generate',
+      body: { text: 'Plan a release', timeZone: expect.any(String), dueDate: SOMEDAY },
+    })
+  })
+})
+
 describe('adding a divider', () => {
   it('asks the server to insert after the anchor and reloads its order', async () => {
     store.loadedProject = 'p1'

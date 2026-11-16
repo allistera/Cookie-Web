@@ -9,7 +9,7 @@ import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlin
 import { enqueueOutbox, pendingOutboxEntries, registerOutboxHandler } from '../lib/outbox'
 import { filterIdOf, isFilterProject, taskMatchesFilter } from '../lib/taskFilters'
 import { dealPositions, sortForList } from '../lib/taskOrder'
-import { isSomeday } from '../lib/taskSomeday'
+import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useInboxStore } from './inbox'
 import { useProjectsStore } from './projects'
 import { useTaskFiltersStore } from './taskFilters'
@@ -362,10 +362,16 @@ export const useTaskItemsStore = defineStore('taskItems', {
       }
     },
 
+    // The generated task starts out on Someday, as any new task does; its
+    // sub-tasks carry no date of their own.
     async generateItem(text) {
       const { item, subtasks } = await this.request('POST', {
         params: '/generate',
-        body: { text, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' },
+        body: {
+          text,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          dueDate: SOMEDAY,
+        },
       })
       if (this.belongsToLoadedList(item)) {
         this.items.push(item, ...subtasks)
