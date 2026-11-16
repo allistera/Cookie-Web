@@ -49,6 +49,26 @@ export function formatBytes(bytes) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
+// A drag from outside the page (the desktop, another app) carries files; an
+// item dragged within the app only carries text.
+export function hasDraggedFiles(event) {
+  return Array.from(event?.dataTransfer?.types ?? []).includes('Files')
+}
+
+// What a drop carried: its files, and how many folders came with them. A
+// folder arrives as a File the browser cannot read, so its upload could only
+// fail; it is counted instead, for the caller to mention.
+export function droppedFiles(dataTransfer) {
+  const items = Array.from(dataTransfer?.items ?? []).filter((item) => item.kind === 'file')
+  if (!items.length) return { files: Array.from(dataTransfer?.files ?? []), folders: 0 }
+  const isFolder = (item) => Boolean(item.webkitGetAsEntry?.()?.isDirectory)
+  const files = items
+    .filter((item) => !isFolder(item))
+    .map((item) => item.getAsFile())
+    .filter(Boolean)
+  return { files, folders: items.filter(isFolder).length }
+}
+
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 
 // Folders first by title, then documents and files together by name.

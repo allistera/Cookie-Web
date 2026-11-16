@@ -12,7 +12,7 @@ import {
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
 import { AI_API_URL, TASKS_API_URL } from '../lib/apiWorkers'
 import { isNetworkError } from '../lib/connectivity'
-import { MAX_UPLOAD_BYTES, fileFolderKey } from '../lib/documentFiles'
+import { MAX_UPLOAD_BYTES, droppedFiles, fileFolderKey } from '../lib/documentFiles'
 import {
   offlineOwner,
   readOfflineCache,
@@ -236,8 +236,32 @@ export const useDocumentsStore = defineStore('documents', {
       return file
     },
 
+    // The target can be a folder that is not on screen (a drop onto a folder
+    // card or the sidebar), so the outcome is announced as well as shown.
     async uploadFiles(fileList, folderId = null) {
-      await Promise.all(Array.from(fileList).map((file) => this.uploadFile(file, folderId)))
+      const stored = await Promise.all(
+        Array.from(fileList).map((file) => this.uploadFile(file, folderId)),
+      )
+      const failed = stored.filter((file) => !file).length
+      const count = (n) => `${n} ${n === 1 ? 'file' : 'files'}`
+      const where = this.folders.find((folder) => folder.id === folderId)?.title ?? 'Documents'
+      if (failed) {
+        this.notify(
+          `${failed} of ${count(stored.length)} could not be uploaded to ${where}.`,
+          'error',
+        )
+      } else if (stored.length) {
+        this.notify(`Uploaded ${count(stored.length)} to ${where}.`)
+      }
+    },
+
+    // Files dropped from outside the page. Folders in the drop are skipped.
+    async uploadDropped(dataTransfer, folderId = null) {
+      const { files, folders } = droppedFiles(dataTransfer)
+      if (folders) {
+        this.notify('Folders cannot be uploaded. Drop the files inside them instead.', 'error')
+      }
+      await this.uploadFiles(files, folderId)
     },
 
     // One request per file so a single failure cannot sink the batch; the

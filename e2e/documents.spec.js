@@ -1471,6 +1471,63 @@ test('Files can be uploaded into a folder, switched to list view, previewed and 
   await expect(card).toHaveCount(0)
 })
 
+// Drops a file the way a drag from the desktop does: a DataTransfer carrying
+// the file, over the target and then onto it.
+async function dropFile(page, target, name) {
+  const dataTransfer = await page.evaluateHandle((fileName) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(['dropped'], fileName, { type: 'text/plain' }))
+    return transfer
+  }, name)
+  await target.dispatchEvent('dragover', { dataTransfer })
+  await target.dispatchEvent('drop', { dataTransfer })
+}
+
+test('Files dropped on the Documents view upload into the folder they land on', async ({
+  page,
+}) => {
+  await page.goto('/documents?folder=stub-folder-projects')
+  await expect(page.locator('.browser-breadcrumb')).toContainText('Projects')
+  const fileCard = (name) => page.locator('.browser-item[data-kind="file"]', { hasText: name })
+
+  // Anywhere on the dashboard, the page header included, is the open folder.
+  const header = page.locator('.documents-header')
+  await header.dispatchEvent('dragover', {
+    dataTransfer: await page.evaluateHandle(() => {
+      const transfer = new DataTransfer()
+      transfer.items.add(new File(['x'], 'hover.txt'))
+      return transfer
+    }),
+  })
+  await expect(page.locator('.documents-view')).toHaveClass(/file-drop-active/)
+  await dropFile(page, header, 'on-header.txt')
+  await expect(page.locator('.documents-view')).not.toHaveClass(/file-drop-active/)
+  await expect(fileCard('on-header.txt')).toBeVisible()
+  await expect(page.locator('.toast', { hasText: 'Uploaded 1 file to Projects.' })).toBeVisible()
+
+  // A folder card takes the file for itself, not for the folder around it.
+  const kitchen = page.locator('.browser-item[data-kind="folder"]', { hasText: 'Kitchen' })
+  await dropFile(page, kitchen, 'on-card.txt')
+  await expect(
+    page.locator('.toast', { hasText: 'Uploaded 1 file to Kitchen Renovation.' }),
+  ).toBeVisible()
+  await expect(fileCard('on-card.txt')).toHaveCount(0)
+
+  // So does a folder in the sidebar tree, whatever the pane is showing.
+  const sidebar = page.locator('.documents-sidebar')
+  await dropFile(page, sidebar.locator('.folder-item', { hasText: 'Kitchen' }), 'on-sidebar.txt')
+  await expect(
+    page.locator('.toast', { hasText: 'Uploaded 1 file to Kitchen Renovation.' }),
+  ).toHaveCount(2)
+  await expect(fileCard('on-sidebar.txt')).toHaveCount(0)
+
+  await kitchen.dblclick()
+  await expect(page.locator('.browser-breadcrumb')).toContainText('Kitchen Renovation')
+  await expect(fileCard('on-card.txt')).toBeVisible()
+  await expect(fileCard('on-sidebar.txt')).toBeVisible()
+  await expect(fileCard('on-header.txt')).toHaveCount(0)
+})
+
 test('Document AI reuses an opaque conversation ID across turns and resets on navigation', async ({
   page,
 }) => {

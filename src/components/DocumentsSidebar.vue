@@ -6,7 +6,7 @@ import DocumentIcon from './DocumentIcon.vue'
 import VirtualList from './VirtualList.vue'
 import { useDocumentsStore } from '../stores/documents'
 import { confirmDocumentDelete, confirmFolderDelete } from '../lib/documentDeleteConfirmation'
-import { folderBreadcrumb } from '../lib/documentFiles'
+import { folderBreadcrumb, hasDraggedFiles } from '../lib/documentFiles'
 import { flattenDocumentsTree } from '../lib/documentsTree'
 import { getStoredExpandedFolderIds, saveExpandedFolderIds } from '../lib/documentsSidebarFolders'
 
@@ -171,6 +171,8 @@ async function submitRename(folder) {
 // the "Documents" label and root-level document rows - is one drop zone for
 // the root, so a document can leave a folder without aiming at the label.
 // Dropping onto a document that sits inside a folder targets that folder.
+// Files dragged in from outside the page use the same targets and upload
+// into the folder they land on.
 const dragDocId = ref(null)
 const dropFolderId = ref(undefined)
 
@@ -181,10 +183,11 @@ function onDragStart(doc, event) {
 }
 
 function onDragOver(folderId, event) {
+  const files = hasDraggedFiles(event)
   const external = Array.from(event.dataTransfer?.types ?? []).includes('text/plain')
-  if (!dragDocId.value && !external) return
+  if (!dragDocId.value && !external && !files) return
   event.preventDefault()
-  event.dataTransfer.dropEffect = 'move'
+  event.dataTransfer.dropEffect = files ? 'copy' : 'move'
   dropFolderId.value = folderId
 }
 
@@ -210,6 +213,12 @@ function onDrop(folderId, event) {
   const ownDocId = dragDocId.value
   dragDocId.value = null
   dropFolderId.value = undefined
+  if (hasDraggedFiles(event)) {
+    // Without this the browser opens the dropped file in place of the app.
+    event.preventDefault()
+    void store.uploadDropped(event.dataTransfer, folderId)
+    return
+  }
   // Items dragged in from the browser pane carry "<kind>:<id>"; the tree's
   // own rows only set dragDocId.
   const data = ownDocId ? '' : String(event?.dataTransfer?.getData?.('text/plain') ?? '')

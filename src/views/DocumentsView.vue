@@ -21,6 +21,7 @@ import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { documentBucketItem } from '../lib/bucketItems'
 import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
 import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
+import { hasDraggedFiles } from '../lib/documentFiles'
 
 // The dashboard only needs document metadata. Keep Editor.js and its tools out
 // of that route payload until a specific document is actually opened.
@@ -275,6 +276,31 @@ const currentFolderId = computed(() => {
 const showBrowser = computed(
   () => !starredOnly.value && !activeTag.value && !store.activeSearchQuery,
 )
+
+// Files dragged in from outside the page upload into the open folder (the
+// root for the starred, tag and search lists) wherever on the dashboard they
+// land. A folder card takes its own drop and marks it defaultPrevented. An
+// open document is left alone: the editor handles what is dropped into it.
+const fileDropActive = ref(false)
+function acceptsFileDrop(event) {
+  return !route.params.id && !route.params.fileId && hasDraggedFiles(event)
+}
+function onFileDragOver(event) {
+  if (!acceptsFileDrop(event)) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'copy'
+  fileDropActive.value = true
+}
+function onFileDragLeave(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) fileDropActive.value = false
+}
+function onFileDrop(event) {
+  fileDropActive.value = false
+  if (!acceptsFileDrop(event) || event.defaultPrevented) return
+  event.preventDefault()
+  void store.uploadDropped(event.dataTransfer, currentFolderId.value)
+}
+
 const dashboardOffset = ref(0)
 const dashboardScope = computed(() => ({ starred: starredOnly.value, tag: activeTag.value }))
 watch(
@@ -358,7 +384,13 @@ function onEditorSave(payload) {
 </script>
 
 <template>
-  <div class="documents-view">
+  <div
+    class="documents-view"
+    :class="{ 'file-drop-active': fileDropActive }"
+    @dragover="onFileDragOver"
+    @dragleave="onFileDragLeave"
+    @drop="onFileDrop"
+  >
     <!-- Editor -->
     <template v-if="route.params.id && !route.params.fileId">
       <div class="editor-statusbar">
@@ -677,6 +709,12 @@ function onEditorSave(payload) {
   height: 100%;
   overflow-y: auto;
   background: var(--bg-card);
+}
+
+.documents-view.file-drop-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-card);
 }
 
 .editor-with-sidebar {

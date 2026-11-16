@@ -11,6 +11,7 @@ import {
   folderBreadcrumb,
   folderContents,
   formatBytes,
+  hasDraggedFiles,
   isPreviewable,
 } from '../lib/documentFiles'
 import { getStoredLayout, saveLayout } from '../lib/documentsLayout'
@@ -218,48 +219,36 @@ function downloadFromMenu(entry) {
 }
 
 // Drag and drop: items carry "<kind>:<id>" so the sidebar tree can accept
-// them too; folder cards accept both document and file drops. External file
-// drops anywhere on the pane upload into the current folder.
+// them too; folder cards accept document and file moves, and files dragged in
+// from outside the page, which upload into that folder. A file dropped
+// anywhere else is the view's: DocumentsView uploads it into the open folder
+// and skips a drop a folder card has already taken (defaultPrevented), which
+// is why file drags are left to bubble here.
 const dropTargetId = ref(undefined)
-const dragOverPane = ref(false)
 function onDragStart(entry, event) {
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('text/plain', `${entry.kind}:${entry.id}`)
 }
-function hasFiles(event) {
-  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
-}
 function onFolderDragOver(entry, event) {
-  if (entry.kind !== 'folder' || hasFiles(event)) return
+  if (entry.kind !== 'folder') return
+  const files = hasDraggedFiles(event)
   event.preventDefault()
-  event.stopPropagation()
-  event.dataTransfer.dropEffect = 'move'
+  if (!files) event.stopPropagation()
+  event.dataTransfer.dropEffect = files ? 'copy' : 'move'
   dropTargetId.value = entry.id
 }
 function onFolderDrop(entry, event) {
-  if (entry.kind !== 'folder' || hasFiles(event)) return
+  if (entry.kind !== 'folder') return
   event.preventDefault()
-  event.stopPropagation()
   dropTargetId.value = undefined
+  if (hasDraggedFiles(event)) {
+    void store.uploadDropped(event.dataTransfer, entry.id)
+    return
+  }
+  event.stopPropagation()
   const [kind, id] = String(event.dataTransfer.getData('text/plain')).split(':')
   if (kind === 'document') void store.moveDocument(id, entry.id)
   else if (kind === 'file') void store.moveFile(id, entry.id)
-}
-function onPaneDragOver(event) {
-  if (!hasFiles(event)) return
-  event.preventDefault()
-  dragOverPane.value = true
-}
-function onPaneDragLeave(event) {
-  if (!event.currentTarget.contains(event.relatedTarget)) dragOverPane.value = false
-}
-function onPaneDrop(event) {
-  dragOverPane.value = false
-  dropTargetId.value = undefined
-  const dropped = Array.from(event.dataTransfer?.files ?? [])
-  if (!dropped.length) return
-  event.preventDefault()
-  void store.uploadFiles(dropped, props.folderId)
 }
 const fileInput = ref(null)
 function onFilesChosen(event) {
@@ -291,14 +280,7 @@ function detail(entry) {
 </script>
 
 <template>
-  <section
-    class="documents-browser"
-    :class="[`layout-${layout}`, { 'drop-active': dragOverPane }]"
-    aria-label="Folder contents"
-    @dragover="onPaneDragOver"
-    @dragleave="onPaneDragLeave"
-    @drop="onPaneDrop"
-  >
+  <section class="documents-browser" :class="`layout-${layout}`" aria-label="Folder contents">
     <header class="browser-toolbar">
       <nav class="browser-breadcrumb" aria-label="Folder path">
         <button type="button" class="browser-refresh" aria-label="Refresh" @click="load(true)">
@@ -540,11 +522,6 @@ function detail(entry) {
   gap: 16px;
   min-height: 60vh;
   border-radius: 12px;
-}
-.documents-browser.drop-active {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-  background: var(--accent-soft);
 }
 .browser-toolbar {
   display: flex;

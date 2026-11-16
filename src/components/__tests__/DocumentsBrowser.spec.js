@@ -198,15 +198,38 @@ describe('DocumentsBrowser', () => {
     expect(fetchBlob).toHaveBeenCalledTimes(1)
   })
 
-  it('uploads dropped files into the current folder', async () => {
-    const upload = vi.spyOn(store, 'uploadFiles').mockResolvedValue()
-    const wrapper = mountBrowser('f-work')
+  it('uploads files dropped onto a folder card into that folder', async () => {
+    const upload = vi.spyOn(store, 'uploadDropped').mockResolvedValue()
+    const wrapper = mountBrowser(null)
     await flushPromises()
-    const file = new File(['x'], 'a.txt')
-    await wrapper.find('.documents-browser').trigger('drop', {
-      dataTransfer: { files: [file], types: ['Files'], getData: () => '' },
+    const dataTransfer = { files: [new File(['x'], 'a.txt')], types: ['Files'], getData: () => '' }
+    const folderCard = wrapper.find('.browser-item[data-kind="folder"]')
+
+    await folderCard.trigger('dragover', { dataTransfer })
+    expect(folderCard.classes()).toContain('drop-target')
+    expect(dataTransfer.dropEffect).toBe('copy')
+
+    // The drop is marked as taken, and bubbles so the view can clear its
+    // own highlight without uploading the files a second time.
+    const bubbled = []
+    wrapper.element.addEventListener('drop', (event) => bubbled.push(event.defaultPrevented))
+    await folderCard.trigger('drop', { dataTransfer })
+    expect(upload).toHaveBeenCalledWith(dataTransfer, 'f-work')
+    expect(bubbled).toEqual([true])
+    expect(folderCard.classes()).not.toContain('drop-target')
+  })
+
+  it('leaves files dropped elsewhere in the pane to the view', async () => {
+    const upload = vi.spyOn(store, 'uploadDropped').mockResolvedValue()
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    const bubbled = []
+    wrapper.element.addEventListener('drop', (event) => bubbled.push(event.defaultPrevented))
+    await wrapper.find('.browser-item[data-kind="document"]').trigger('drop', {
+      dataTransfer: { files: [new File(['x'], 'a.txt')], types: ['Files'], getData: () => '' },
     })
-    expect(upload).toHaveBeenCalledWith([file], 'f-work')
+    expect(upload).not.toHaveBeenCalled()
+    expect(bubbled).toEqual([false])
   })
 
   it('shows upload placeholders with their error', async () => {

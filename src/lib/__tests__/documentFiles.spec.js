@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  droppedFiles,
   fileFolderKey,
   fileIcon,
   fileKind,
   folderBreadcrumb,
   folderContents,
   formatBytes,
+  hasDraggedFiles,
   isPreviewable,
 } from '../documentFiles'
 
@@ -39,6 +41,30 @@ describe('documentFiles helpers', () => {
     expect(fileKind('application/octet-stream')).toBe('File')
     expect(fileIcon('application/pdf')).toBe('picture_as_pdf')
     expect(fileIcon('application/octet-stream')).toBe('draft')
+  })
+
+  it('tells a drag of files from a drag within the app', () => {
+    expect(hasDraggedFiles({ dataTransfer: { types: ['Files'] } })).toBe(true)
+    expect(hasDraggedFiles({ dataTransfer: { types: ['text/plain'] } })).toBe(false)
+    expect(hasDraggedFiles(undefined)).toBe(false)
+  })
+
+  it('reads the files of a drop and counts the folders it skips', () => {
+    const file = new File(['x'], 'a.txt')
+    const fileItem = { kind: 'file', getAsFile: () => file, webkitGetAsEntry: () => ({}) }
+    const folderItem = {
+      kind: 'file',
+      getAsFile: () => new File([], 'Photos'),
+      webkitGetAsEntry: () => ({ isDirectory: true }),
+    }
+    const textItem = { kind: 'string' }
+    expect(droppedFiles({ items: [fileItem, folderItem, textItem] })).toEqual({
+      files: [file],
+      folders: 1,
+    })
+    // A drop without an item list still yields its files.
+    expect(droppedFiles({ files: [file] })).toEqual({ files: [file], folders: 0 })
+    expect(droppedFiles(undefined)).toEqual({ files: [], folders: 0 })
   })
 
   it('formats bytes', () => {
