@@ -44,9 +44,13 @@ export function bundleBudgetPlugin() {
             // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
             // Sentry debug IDs. With the window dock's share of the entry and
             // the reader's own minimise control it reached 662.5 KB, 1.5 KB
-            // over, and moved up by 3 KB.
+            // over, and moved up by 3 KB. The Feed's blog of open posts is
+            // a lazy chunk of its own, but the view's share of it (the
+            // branch that swaps the list for it, the shared image rule and
+            // the keys it leaves to scrolling) is 0.9 KB, which put Vercel's
+            // build about 0.3 KB over, so the view moved up by 2 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 664_000
+            ? 666_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&

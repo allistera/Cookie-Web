@@ -54,6 +54,7 @@ import {
 import { lazyComponent } from '../router/chunkReload'
 
 const ShareAvailability = lazyComponent(() => import('../components/ShareAvailability.vue'))
+const TheFeed = lazyComponent(() => import('../components/TheFeed.vue'))
 
 const store = useInboxStore()
 const { isOpen: calendarRailOpen } = useCalendarRail()
@@ -80,8 +81,9 @@ const FILTER_META = {
 
 const activeFilter = computed(() => (FILTER_META[route.query.filter] ? route.query.filter : null))
 
-// The Feed is the Newsletters label folder narrowed to today's mail. The
-// folder spans Done, and Done leaves its rows in place while The Feed is open.
+// The Feed is the Newsletters label folder narrowed to today's mail, shown as
+// a blog of open posts instead of rows (components/TheFeed.vue). The folder
+// spans Done, and Done leaves its posts in place while The Feed is open.
 const isFeed = computed(() => isFeedQuery(route.query))
 
 // The sent list refreshes on every visit — cheap, and it picks up mail sent
@@ -161,6 +163,15 @@ function isImportantEmail(email) {
 // arrive just after the body renders; EmailBody widens to images when it does.
 function senderAccepted(email) {
   return senders.known[normalizeSender(email.address)] === 'accepted'
+}
+
+// Whether the email is read with its remote images in place rather than
+// behind "Show images": the reader and The Feed's posts share this test.
+function showsRemoteImages(email) {
+  return (
+    !['held', 'blocked'].includes(email.screeningStatus) &&
+    (isImportantEmail(email) || senderAccepted(email))
+  )
 }
 
 // Important is exclusive: whatever Important holds appears in no other tab,
@@ -2003,7 +2014,14 @@ function onKeydown(e) {
   // or after it instead. Only while nothing else covers the list. Enter and
   // Space are left to a focused control (a row, a tab, a button) that acts on
   // them itself, as the highlighted row does once the keys have focused it.
-  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isListKey(e) && !isListObscured()) {
+  // The Feed has no rows to move through: there the arrows and Space scroll
+  // the posts, and only step between emails while one is open in the reader.
+  if (
+    (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+    isListKey(e) &&
+    !isListObscured() &&
+    (!isFeed.value || openEmail.value)
+  ) {
     e.preventDefault()
     const step = e.key === 'ArrowUp' ? -1 : 1
     if (openEmail.value) openAdjacentEmail(step)
@@ -2015,6 +2033,7 @@ function onKeydown(e) {
     !e.repeat &&
     isListKey(e) &&
     !isListCovered() &&
+    !isFeed.value &&
     !e.target?.closest?.('button, a, [role="button"], [role="checkbox"], [role="tab"]')
   ) {
     // Looked up among the rows on show, so a highlight left behind in a day
@@ -2120,13 +2139,15 @@ function onDocumentClick(e) {
     within('window-dock')
   )
     return
-  // Clicks inside the panel keep it open; clicks on rows are handled by
-  // openReader; the bulk bar acts on the list without dismissing the reader.
+  // Clicks inside the panel keep it open; clicks on rows and on The Feed's
+  // post titles are handled by openReader; the bulk bar acts on the list
+  // without dismissing the reader.
   if (
     clickedReader ||
     clickedAvailabilityDialog ||
     e.target.closest('.ni-reader') ||
     e.target.closest('.ni-row') ||
+    e.target.closest('.feed-post-open') ||
     e.target.closest('.ni-bulk-bar')
   ) {
     return
@@ -2180,8 +2201,32 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- The Feed reads like a blog: the day's newsletters, each one open. -->
+    <TheFeed
+      v-if="isFeed"
+      :emails="filteredEmails"
+      :shows-images="showsRemoteImages"
+      @open="openReader"
+      @done="removeEmail"
+      @keydown="forwardEmailKeydown"
+    >
+      <div
+        v-if="store.isLabelRefreshing && !filteredEmails.length"
+        class="ni-empty ni-label-loading"
+        role="status"
+        aria-label="Loading emails"
+      >
+        <div class="spinner" aria-hidden="true"></div>
+      </div>
+      <div class="ni-empty" v-else-if="!filteredEmails.length">{{ emptyText }}</div>
+      <button v-if="showLoadMore" class="ni-load-more" :disabled="isLoadingMore" @click="loadMore">
+        {{ isLoadingMore ? 'Loading…' : 'Load more' }}
+      </button>
+    </TheFeed>
+
     <!-- Email list -->
     <VirtualList
+      v-else
       ref="mailList"
       class="ni-list"
       :class="{ 'ni-list-swipeable': showInboxTabs }"
@@ -3056,10 +3101,7 @@ onUnmounted(() => {
                 :has-html-body="openEmail.hasHtml"
                 :loading="store.isOpenBodyLoading"
                 :body-resolved="store.isOpenBodyResolved"
-                :show-images="
-                  !['held', 'blocked'].includes(openEmail.screeningStatus) &&
-                  (isImportantEmail(openEmail) || senderAccepted(openEmail))
-                "
+                :show-images="showsRemoteImages(openEmail)"
                 @keydown="forwardEmailKeydown"
                 @unsubscribe-link="setContentUnsubscribe"
               />
