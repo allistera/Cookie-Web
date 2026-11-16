@@ -3037,6 +3037,8 @@ test('Tasks: a task opens in the panel, takes a date, and the link survives a re
   await page.locator('.add-task-row input').fill('Ship the panel')
   await page.locator('.add-task-row input').press('Enter')
   await expect(page.locator('.task-row')).toHaveCount(1)
+  // A new task is put off to Someday until it is given a day.
+  await expect(page.locator('.task-due')).toHaveText('Someday')
 
   await page.locator('.task-open').click()
   await expect(page.locator('.task-panel')).toBeVisible()
@@ -3124,7 +3126,7 @@ test('Tasks: Today lists what is due today from across the projects', async ({ p
   await page.locator('.task-panel-date-input').press('Enter')
   await page.keyboard.press('Escape')
 
-  // A second task with no date, which Today must leave behind.
+  // A second task left on Someday, which Today must leave behind.
   await page.locator('.add-task-btn').click()
   await page.locator('.add-task-row input').fill('Someday')
   await page.locator('.add-task-row input').press('Enter')
@@ -3163,10 +3165,13 @@ test('Tasks: Add Task creates in the Inbox from wherever you are', async ({ page
 
   await sidebar.locator('.nav-item', { hasText: 'Inbox' }).click()
   await expect(page.locator('.task-content')).toHaveText('Buy milk')
+  // The text named no day, so the task is on Someday.
+  await expect(page.locator('.task-due')).toHaveText('Someday')
 
   // And it is really there, not just in local state.
   await page.reload()
   await expect(page.locator('.task-content')).toHaveText('Buy milk')
+  await expect(page.locator('.task-due')).toHaveText('Someday')
 })
 
 test('Tasks: natural-language quick add parses into Advanced and saves every field', async ({

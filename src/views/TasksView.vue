@@ -616,7 +616,12 @@ async function submitDraft() {
   const content = draft.value.trim()
   composing.value = false
   if (!content) return
-  await items.createItem({ content, projectId: isInbox.value ? null : project.value })
+  // Named with no day, the task starts out on Someday.
+  await items.createItem({
+    content,
+    projectId: isInbox.value ? null : project.value,
+    dueDate: SOMEDAY,
+  })
 }
 </script>
 

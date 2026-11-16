@@ -24,11 +24,12 @@ useModalFocus(dialog, { initialFocus: titleInput })
 const isSaving = ref(false)
 const error = ref('')
 const parsedText = ref(null)
+// A new task is put off to Someday until it is given a day.
 const draft = ref({
   content: '',
   description: '',
   projectId: null,
-  dueDate: '',
+  dueDate: SOMEDAY,
   dueTime: '',
   durationMinutes: DEFAULT_DURATION_MINUTES,
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -58,7 +59,8 @@ async function interpret() {
   const input = text.value.trim()
   if (parsedText.value === input) return
   const parsed = await items.interpretItem(input)
-  draft.value = { ...draft.value, ...parsed }
+  // Text that names no day leaves the task on Someday.
+  draft.value = { ...draft.value, ...parsed, dueDate: parsed.dueDate || SOMEDAY }
   parsedText.value = input
 }
 
@@ -210,7 +212,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 type="date"
                 aria-label="Due date"
                 :value="someday ? '' : draft.dueDate"
-                :disabled="isSaving || someday"
+                :disabled="isSaving"
                 @input="draft.dueDate = $event.target.value"
                 @change="!draft.dueDate && (draft.dueTime = '')"
             /></label>

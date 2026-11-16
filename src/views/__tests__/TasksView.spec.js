@@ -252,7 +252,7 @@ describe('TasksView', () => {
     await input.trigger('blur')
 
     expect(create).toHaveBeenCalledTimes(1)
-    expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: 'p2' })
+    expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: 'p2', dueDate: SOMEDAY })
   })
 
   // Regression: switching projects must never show the previous project's
@@ -298,7 +298,7 @@ describe('TasksView', () => {
     await wrapper.get('.add-task-row input').setValue('Ship it')
     await wrapper.get('.add-task-row input').trigger('keydown.enter')
 
-    expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: null })
+    expect(create).toHaveBeenCalledWith({ content: 'Ship it', projectId: null, dueDate: SOMEDAY })
   })
 
   it('opens a task in the panel by putting its id in the query', async () => {

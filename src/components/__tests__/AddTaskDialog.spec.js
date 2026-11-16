@@ -64,18 +64,49 @@ describe('AddTaskDialog natural-language quick add', () => {
     opener.remove()
   })
 
-  it('creates an unscheduled task with an estimate from Advanced', async () => {
+  it('puts a task from Advanced off to Someday, with its estimate', async () => {
     const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
     const wrapper = mountDialog()
     await wrapper.get('button.add-task-advanced').trigger('click')
     await wrapper.get('[aria-label="Task name"]').setValue('Write notes')
+    expect(wrapper.get('.add-task-someday input').element.checked).toBe(true)
     await wrapper.get('[aria-label="Estimated duration in minutes"]').setValue('45')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(create).toHaveBeenCalledWith({
       content: 'Write notes',
       projectId: null,
+      dueDate: SOMEDAY,
       durationMinutes: 45,
+    })
+    wrapper.unmount()
+  })
+
+  it('creates a task with no date once Someday is unticked', async () => {
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+    const wrapper = mountDialog()
+    await wrapper.get('button.add-task-advanced').trigger('click')
+    await wrapper.get('[aria-label="Task name"]').setValue('Write notes')
+    await wrapper.get('.add-task-someday input').setValue(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(create).toHaveBeenCalledWith({ content: 'Write notes', projectId: null })
+    wrapper.unmount()
+  })
+
+  it('takes a day in place of Someday when one is entered', async () => {
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+    const wrapper = mountDialog()
+    await wrapper.get('button.add-task-advanced').trigger('click')
+    await wrapper.get('[aria-label="Task name"]').setValue('Write notes')
+    await wrapper.get('[aria-label="Due date"]').setValue('2026-09-11')
+    expect(wrapper.get('.add-task-someday input').element.checked).toBe(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(create).toHaveBeenCalledWith({
+      content: 'Write notes',
+      projectId: null,
+      dueDate: '2026-09-11',
     })
     wrapper.unmount()
   })
@@ -93,6 +124,7 @@ describe('AddTaskDialog natural-language quick add', () => {
     expect(create).toHaveBeenCalledWith({
       content: 'Write notes',
       projectId: null,
+      dueDate: SOMEDAY,
       durationMinutes: null,
     })
     wrapper.unmount()
@@ -130,6 +162,25 @@ describe('AddTaskDialog natural-language quick add', () => {
       labels: ['home'],
     })
     expect(wrapper.emitted('close')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('puts a task off to Someday when the text names no day', async () => {
+    vi.spyOn(items, 'interpretItem').mockResolvedValue(
+      parsedTask({ dueDate: null, dueTime: null, timeZone: null, priority: 4, labels: [] }),
+    )
+    const create = vi.spyOn(items, 'createItem').mockResolvedValue({ id: 't1' })
+    const wrapper = mountDialog()
+
+    await wrapper.get('[aria-label="Describe your task"]').setValue('Call plumber #Work')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledWith({
+      content: 'Call plumber',
+      projectId: 'p1',
+      dueDate: SOMEDAY,
+    })
     wrapper.unmount()
   })
 
@@ -187,8 +238,9 @@ describe('AddTaskDialog natural-language quick add', () => {
     await flushPromises()
     await wrapper.get('.add-task-someday input').setValue(true)
 
+    // The date stays open, so a day can be entered in place of Someday.
     expect(wrapper.get('[aria-label="Due date"]').element.value).toBe('')
-    expect(wrapper.get('[aria-label="Due date"]').element.disabled).toBe(true)
+    expect(wrapper.get('[aria-label="Due date"]').element.disabled).toBe(false)
     expect(wrapper.get('[aria-label="Due time"]').element.disabled).toBe(true)
     expect(wrapper.get('.task-repeat input').element.disabled).toBe(true)
 
