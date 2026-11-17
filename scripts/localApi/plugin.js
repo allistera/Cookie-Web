@@ -72,6 +72,7 @@ export function localApiPlugin(mode) {
         rules: [],
         scheduledSends: [],
         followUps: new Map(),
+        invitationAnswers: new Map(),
         contactInsights: new Map(),
         projects: [],
         taskItems: [],
@@ -2934,7 +2935,7 @@ export function localApiPlugin(mode) {
     return json(res, { labels })
   }
 
-  // cookie-web-messages: /messages[/attachment|contacts|contact-insights]
+  // cookie-web-messages: /messages[/attachment|calendar-invite|contacts|contact-insights]
   const handleWorkerMessagesApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
@@ -3009,6 +3010,11 @@ export function localApiPlugin(mode) {
         nextCursor: null,
       })
     }
+    if (sub === 'calendar-invite') {
+      const { fixtureInvitation } = await import('./fixtures/invitations.js')
+      const { invitationAnswers } = fixtureMailboxState(req, res)
+      return json(res, fixtureInvitation(url.searchParams.get('id'), invitationAnswers))
+    }
     if (sub === 'attachment') {
       const id = url.searchParams.get('id')
       if (id !== 'fixture-1-attachment-1') {
@@ -3036,6 +3042,9 @@ export function localApiPlugin(mode) {
       const id = url.searchParams.get('id')
       const { summaries } = fixtureMailboxState(req, res)
       const body = fixtureMessageBody(id)
+      const { FIXTURE_INVITATION_MESSAGE_ID } = await import('./fixtures/invitations.js')
+      // The reader asks /messages/calendar-invite only when told to.
+      if (id === FIXTURE_INVITATION_MESSAGE_ID) body.calendar_invite_pending = true
       const thread = body.thread.map(({ body_text: _bodyText, ...message }) => message)
       const threadId = fixtureThreadId(id)
       const latestMessageId = thread.at(-1)?.id ?? id
@@ -3192,6 +3201,47 @@ export function localApiPlugin(mode) {
     return json(res, { error: 'Method not allowed' }, 405)
   }
 
+  // cookie-web-send: /send/invitation-reply, the one send route the browser
+  // calls on the Worker's own origin with no proxy in front (sending itself
+  // goes through /api/send above). Mirrors invitationReply.js: one calendar
+  // entry per invitation, replaced on every answer and removed by a decline.
+  const handleWorkerSendApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    if (url.pathname !== '/send/invitation-reply') return json(res, { error: 'Not Found' }, 404)
+    if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+    const body = await readBody(req)
+    const { FIXTURE_INVITATION_ID, fixtureInvitationEvent } =
+      await import('./fixtures/invitations.js')
+    if (!['accepted', 'tentative', 'declined'].includes(body.response) || !body.timeZone) {
+      return json(res, { error: 'invitationId, response and a valid timeZone are required' }, 400)
+    }
+    if (body.invitationId !== FIXTURE_INVITATION_ID) {
+      return json(res, { error: 'Invitation not found' }, 404)
+    }
+    const state = await ensureCalendarEvents(fixtureMailboxState(req, res))
+    const previous = state.invitationAnswers.get(FIXTURE_INVITATION_ID)
+    state.calendarEvents = state.calendarEvents.filter(
+      (event) => event.invitationId !== FIXTURE_INVITATION_ID,
+    )
+    let event = null
+    if (body.response !== 'declined') {
+      const entry = fixtureInvitationEvent(body.response, body.timeZone)
+      state.calendarEvents.push(entry)
+      event = { id: entry.id, date: entry.date }
+    }
+    const answer = {
+      response: body.response,
+      responded_at:
+        previous?.response === body.response ? previous.responded_at : new Date().toISOString(),
+      event,
+    }
+    state.invitationAnswers.set(FIXTURE_INVITATION_ID, answer)
+    return json(res, {
+      invitation: { id: FIXTURE_INVITATION_ID, ...answer },
+      sent: previous?.response !== body.response,
+    })
+  }
+
   // Same-origin adapter for the legacy /api/messages?resource=… shape. The
   // service worker (public/sw.js) caches recent mail from this path in
   // e2e/dev — production uses the cross-origin messages Worker — but the
@@ -3223,6 +3273,7 @@ export function localApiPlugin(mode) {
     server.middlewares.use('/__e2e__/tasks-api', handleWorkerTasksApi)
     server.middlewares.use('/__e2e__/labels-api', handleWorkerLabelsApi)
     server.middlewares.use('/__e2e__/messages-api', handleWorkerMessagesApi)
+    server.middlewares.use('/__e2e__/send-api', handleWorkerSendApi)
     server.middlewares.use('/__e2e__/receipts-api', handleWorkerReceiptsApi)
     server.middlewares.use('/__e2e__/emails-api', handleWorkerEmailsApi)
     server.middlewares.use('/__e2e__/ai-api', handleWorkerAiApi)

@@ -571,3 +571,24 @@ The lines go to the project's own Postgres logs in Supabase. Both parameter
 settings are zero so mail content and addresses bound to a slow statement are
 never written there. They apply to new sessions. To undo one, run
 `ALTER ROLE postgres RESET <setting>;`.
+
+## Calendar invitations (0113)
+
+`0113_calendar_invitations.sql` creates `calendar_invitations`: one row per
+event a person was invited to by email. A row is unique on
+`(user_id, uid, recurrence_id)`, the iCalendar identity of an event or of one
+occurrence of a repeating event, so a revised or cancelled invitation updates
+the row it belongs to instead of adding one. `sequence` and `dtstamp` order the
+revisions, `response` is the person's answer to the current one, and
+`reply_revision` counts the answers given, which is how Cookie-Worker names each
+reply mail so that a retried request cannot send it twice.
+
+It also adds `calendar_events.invitation_id`, with a unique index on
+`(invitation_id, event_date)`: an invitation's entries exist once per day they
+cover and no more. The foreign key clears the link rather than deleting the
+entry if an invitation row is ever removed.
+
+Apply it before deploying Cookie-Worker's `cookie-web-messages` and
+`cookie-web-send`. Until then the messages Worker reports no invitation and the
+reader keeps its "Add to calendar" offer. No API role can read either table's
+new data; Cookie-Worker uses its own database role.

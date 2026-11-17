@@ -74,6 +74,59 @@ describe('Inbox Store', () => {
       await vi.waitFor(() => expect(store.openEmailCalendarInvite).toEqual(invite))
       expect(isProxy(store.messageBodies.get('m1'))).toBe(false)
     })
+
+    it('keeps the invitation a message carries and asks for it again on each open', async () => {
+      const invitation = { id: 'invitation-1', response: null }
+      const answered = { id: 'invitation-1', response: 'accepted' }
+      const invites = [invitation, answered]
+      const fetchMock = vi.fn(async (url) =>
+        String(url).includes('/calendar-invite')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ calendar_invite: null, calendar_invitation: invites.shift() }),
+            }
+          : bodyResponse({ calendar_invite_pending: true }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.openEmailId = 'm1'
+
+      await store.fetchMessageBody('m1')
+      await vi.waitFor(() => expect(store.openEmailCalendarInvitation).toEqual(invitation))
+
+      // Answered on another device, or revised by the organiser, since: the
+      // cached body is reused, the invitation is not.
+      await store.fetchMessageBody('m1')
+      await vi.waitFor(() => expect(store.openEmailCalendarInvitation).toEqual(answered))
+      expect(
+        fetchMock.mock.calls.filter(([url]) => !String(url).includes('/calendar-invite')),
+      ).toHaveLength(1)
+    })
+
+    it('does not ask again for a message that turned out to carry no invitation', async () => {
+      const fetchMock = vi.fn(async (url) =>
+        String(url).includes('/calendar-invite')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ calendar_invite: null, calendar_invitation: null }),
+            }
+          : bodyResponse({ calendar_invite_pending: true }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.openEmailId = 'm1'
+
+      await store.fetchMessageBody('m1')
+      await vi.waitFor(() =>
+        expect(store.messageBodies.get('m1').calendarInvitePending).toBe(false),
+      )
+      await store.fetchMessageBody('m1')
+
+      expect(store.openEmailCalendarInvitation).toBeNull()
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('Best-effort loaders expose loading and error state', () => {

@@ -11,6 +11,7 @@ import {
   LABELS_API_URL,
   MESSAGES_API_URL,
   RECEIPTS_API_URL,
+  SEND_API_URL,
   TASKS_API_URL,
 } from '../src/lib/apiWorkers.js'
 
@@ -19,8 +20,11 @@ import {
 // mode holds no bearer token, so left alone every one of them reaches the real
 // production Worker and 401s — which is what broke 28 of the 64 specs.
 //
-// ORIGINS below routes nine of the twelve; notifications, send and mcp are not
-// routed. Each origin is routed back to the dev/preview server's own fixture handlers
+// ORIGINS below routes ten of the twelve; notifications and mcp are not
+// routed, and of the send Worker's routes only the invitation reply has a
+// fixture (sending goes through the same-origin /api/send, attachment uploads
+// are stubbed by the specs that need them).
+// Each origin is routed back to the dev/preview server's own fixture handlers
 // (the /__e2e__/* mounts in scripts/localApi/plugin.js), preserving method, path, query and
 // body. Going through the server rather than answering in-process is
 // deliberate: /api/emails, /api/search and the Worker handlers all read the
@@ -36,6 +40,7 @@ const ORIGINS = [
   [SEARCH_API_URL, '/__e2e__/search-api'],
   [CALENDAR_API_URL, '/__e2e__/calendar-api'],
   [DRAFTS_API_URL, '/__e2e__/drafts-api'],
+  [SEND_API_URL, '/__e2e__/send-api'],
 ]
 
 // That server state is keyed by a cookie so parallel workers never share a
