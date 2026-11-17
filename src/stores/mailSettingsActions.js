@@ -10,6 +10,7 @@ import {
   TASKS_API_URL,
   MESSAGES_API_URL,
   NOTIFICATIONS_API_URL,
+  SEND_API_URL,
 } from '../lib/apiWorkers'
 import { parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
@@ -46,6 +47,48 @@ export const mailSettingsActions = {
     } catch (error) {
       // Receipt status is advisory; never make Sent unusable when it fails.
       console.error('Failed to load read receipts:', error)
+    }
+  },
+  // Answers a calendar invitation: the send Worker mails the organiser a
+  // calendar reply and puts the event on, or takes it off, the calendar. The
+  // answer is then written into every cached message that carries the same
+  // invitation (the original and its updates). Resolves to { ok, error };
+  // `error` is the Worker's own explanation when it gave one.
+  async respondToInvitation(invitationId, response) {
+    const generation = this.composeGeneration
+    const failed = (error) => ({
+      ok: false,
+      error: error || 'The reply could not be sent. Try again.',
+    })
+    try {
+      const headers = await this.authHeaders()
+      if (generation !== this.composeGeneration) return failed('')
+      const result = await fetch(`${SEND_API_URL}/send/invitation-reply`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invitationId,
+          response,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        }),
+      })
+      if (!result.ok) return failed(String((await errorDetails(result)).error ?? ''))
+      const { invitation } = await result.json()
+      if (generation !== this.composeGeneration) return failed('')
+      for (const [messageId, body] of this.messageBodies) {
+        if (body.calendarInvitation?.id !== invitationId) continue
+        this.replaceMessageBody(messageId, {
+          calendarInvitation: {
+            ...body.calendarInvitation,
+            response: invitation?.response ?? response,
+            responded_at: invitation?.responded_at ?? null,
+            event: invitation?.event ?? null,
+          },
+        })
+      }
+      return { ok: true, error: '' }
+    } catch {
+      return failed('The reply could not be sent. Check your connection and try again.')
     }
   },
   async downloadAttachment(attachment) {

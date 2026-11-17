@@ -71,6 +71,18 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   browser, so it still matches after being renamed or moved) or when an event
   on the same day has the same start time and title, such as an invite Google
   Calendar added by itself.
+- An email carrying a calendar invitation to the mailbox opens with an
+  invitation card: who invited, the event, its time on your clock, and Accept,
+  Maybe and Decline. Nothing is sent until one is pressed; the organiser is then
+  mailed a calendar reply, and the answer is kept with the mailbox and shown on
+  the card. Accepting or answering maybe puts the event on the calendar (one
+  entry per invitation, with "Go to event"), and declining takes it off. An
+  updated invitation moves that entry and, when the time changed, asks for an
+  answer again; a cancellation removes it. Cookie answers only for the address
+  it sends mail as. An invitation sent to another of your addresses is
+  explained on the card instead, with the plain "Add to calendar" offer kept.
+  Needs migration `0113_calendar_invitations.sql` and the `cookie-web-messages`
+  and `cookie-web-send` Workers from Cookie-Worker.
 - Settings → Calendars → Add subscription accepts public `https://` and
   `webcal://` calendar feeds from supported providers, including Apple iCloud.
   Enable Public Calendar sharing in iCloud and paste its link here. Webcal links

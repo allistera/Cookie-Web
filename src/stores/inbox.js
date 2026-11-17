@@ -1109,6 +1109,13 @@ export const useInboxStore = defineStore('inbox', {
       const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
       return cached?.calendarInvite ?? null
     },
+    // The Worker's account of the invitation the open message carries (who
+    // invited, the answer on record), as received: the reader parses it
+    // (lib/calendarInvitation.js). Null for mail that is not an invitation.
+    openEmailCalendarInvitation(state) {
+      const cached = state.openEmailId ? state.messageBodies.get(state.openEmailId) : null
+      return cached?.calendarInvitation ?? null
+    },
   },
 
   actions: {
@@ -2119,7 +2126,11 @@ export const useInboxStore = defineStore('inbox', {
       if (!id) return null
       if (this.messageBodies.has(id)) {
         const cached = this.messageBodies.get(id)
-        if (cached.calendarInvitePending) void this.fetchCalendarInvite(id)
+        // An invitation can be revised, cancelled or answered elsewhere
+        // between reads, so its state is asked for again on each open.
+        if (cached.calendarInvitePending || cached.calendarInvitation) {
+          void this.fetchCalendarInvite(id)
+        }
         return cached
       }
       return this.refetchMessageBody(id)
@@ -2247,14 +2258,17 @@ export const useInboxStore = defineStore('inbox', {
             { headers },
           )
           if (!response.ok) return
-          const { calendar_invite } = await response.json()
+          const { calendar_invite, calendar_invitation } = await response.json()
           if (generation !== this.composeGeneration) return
           // Bodies are replaced, not mutated, so identity with `cached` can
           // change underneath a slow invite fetch (a thread mute, say). The
-          // invite still belongs to this entry as long as it is still waiting.
-          if (!this.messageBodies.get(id)?.calendarInvitePending) return
+          // invite still belongs to this entry as long as it is still waiting
+          // for one, or is having its invitation refreshed.
+          const entry = this.messageBodies.get(id)
+          if (!entry?.calendarInvitePending && !entry?.calendarInvitation) return
           this.replaceMessageBody(id, {
             calendarInvite: calendar_invite ?? null,
+            calendarInvitation: calendar_invitation ?? null,
             calendarInvitePending: false,
           })
         } catch {
@@ -2269,6 +2283,10 @@ export const useInboxStore = defineStore('inbox', {
 
     downloadAttachment(...args) {
       return invokeMailSettings(this, 'downloadAttachment', args)
+    },
+
+    respondToInvitation(...args) {
+      return invokeMailSettings(this, 'respondToInvitation', args)
     },
 
     async ensureThreadSummary(email) {

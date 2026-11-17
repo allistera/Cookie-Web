@@ -928,6 +928,162 @@ describe('TraditionalInboxView day accordion', () => {
     })
   })
 
+  describe('a calendar invitation in the reader', () => {
+    const tomorrow = new Date(Date.now() + DAY)
+    const start = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 15, 0)
+    const end = new Date(start.getTime() + HOUR)
+    const calendarInvite = {
+      title: 'Team sync',
+      description: '',
+      location: 'Room 4',
+      start_at: start.toISOString(),
+      end_at: end.toISOString(),
+    }
+    const calendarInvitation = (overrides = {}) => ({
+      id: 'invitation-1',
+      status: 'active',
+      current: true,
+      title: 'Team sync',
+      location: 'Room 4',
+      start_at: start.toISOString(),
+      end_at: end.toISOString(),
+      all_day: false,
+      recurring: false,
+      occurrence: false,
+      organizer: { name: 'Olive Organiser', address: 'olive@example.com' },
+      attendee: 'me@cookie.test',
+      sender: 'me@cookie.test',
+      can_reply: true,
+      reply_blocked: null,
+      response: null,
+      responded_at: null,
+      event: null,
+      ...overrides,
+    })
+
+    async function openInvitation(invitation) {
+      const email = makeEmail('invitation-mail', Date.now() - HOUR)
+      email.subject = 'Invitation: Team sync'
+      email.body = 'You have been invited.'
+      store.traditionalEmails.unshift(email)
+      const wrapper = mountView()
+      await wrapper
+        .findAll('.ni-row')
+        .find((row) => row.text().includes('Invitation: Team sync'))
+        .trigger('click')
+      // Let the open-reader fetch settle before supplying the cached API result.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      store.messageBodies.set('invitation-mail', {
+        html: null,
+        text: 'You have been invited.',
+        calendarInvite,
+        calendarInvitation: invitation,
+      })
+      // The card is its own chunk, loaded when an invitation is first open.
+      await vi.waitFor(() => wrapper.get('[data-testid="invitation-card"]'))
+      return wrapper
+    }
+
+    it('offers Accept, Maybe and Decline in place of the plain event offer', async () => {
+      const wrapper = await openInvitation(calendarInvitation())
+
+      const card = wrapper.get('[data-testid="invitation-card"]')
+      expect(card.text()).toContain('Olive Organiser invited you')
+      expect(card.findAll('.invitation-card-response')).toHaveLength(3)
+      expect(wrapper.find('.ni-calendar-suggestion').exists()).toBe(false)
+    })
+
+    it('sends the answer once and shows the answer that was recorded', async () => {
+      const wrapper = await openInvitation(calendarInvitation())
+      let finish
+      const respond = vi.spyOn(store, 'respondToInvitation').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = () => {
+              store.messageBodies.set('invitation-mail', {
+                ...store.messageBodies.get('invitation-mail'),
+                calendarInvitation: calendarInvitation({
+                  response: 'accepted',
+                  responded_at: new Date().toISOString(),
+                  event: { id: 'event-1', date: '2026-12-01' },
+                }),
+              })
+              resolve({ ok: true, error: '' })
+            }
+          }),
+      )
+      const buttons = () => wrapper.findAll('.invitation-card-response')
+
+      await buttons()[0].trigger('click')
+      // A second press while the first is in flight sends nothing more.
+      await buttons()[2].trigger('click')
+      expect(respond).toHaveBeenCalledExactlyOnceWith('invitation-1', 'accepted')
+      expect(buttons().every((button) => button.element.disabled)).toBe(true)
+
+      finish()
+      await flushPromises()
+
+      expect(buttons()[0].attributes('aria-pressed')).toBe('true')
+      expect(wrapper.get('[data-testid="invitation-answer"]').text()).toContain('You accepted.')
+      expect(buttons().every((button) => !button.element.disabled)).toBe(true)
+
+      await wrapper.get('.invitation-card-event').trigger('click')
+      expect(routerPush).toHaveBeenCalledWith({
+        name: 'calendar',
+        query: { date: '2026-12-01', event: 'event-1' },
+      })
+    })
+
+    it('shows why a reply could not be sent and lets it be tried again', async () => {
+      const wrapper = await openInvitation(calendarInvitation())
+      const respond = vi
+        .spyOn(store, 'respondToInvitation')
+        .mockResolvedValueOnce({
+          ok: false,
+          error: 'The reply is still being sent. Try again shortly.',
+        })
+        .mockResolvedValueOnce({ ok: true, error: '' })
+
+      await wrapper.findAll('.invitation-card-response')[1].trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[role="alert"]').text()).toBe(
+        'The reply is still being sent. Try again shortly.',
+      )
+
+      await wrapper.findAll('.invitation-card-response')[1].trigger('click')
+      await flushPromises()
+      expect(respond).toHaveBeenCalledTimes(2)
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    })
+
+    it('explains an invitation sent to another address and keeps the plain event offer', async () => {
+      const wrapper = await openInvitation(
+        calendarInvitation({
+          can_reply: false,
+          reply_blocked: 'alias',
+          attendee: 'alex@personal.example',
+        }),
+      )
+
+      expect(wrapper.get('[data-testid="invitation-blocked"]').text()).toContain(
+        'This invitation was sent to alex@personal.example.',
+      )
+      expect(wrapper.findAll('.invitation-card-response')).toHaveLength(0)
+      expect(wrapper.get('.ni-calendar-suggestion').text()).toContain('Event detected')
+    })
+
+    it('shows a cancelled invitation without any offer to add it', async () => {
+      const wrapper = await openInvitation(
+        calendarInvitation({ status: 'cancelled', can_reply: false, reply_blocked: 'cancelled' }),
+      )
+
+      expect(wrapper.get('[data-testid="invitation-card"]').text()).toContain(
+        'Olive Organiser cancelled this event',
+      )
+      expect(wrapper.find('.ni-calendar-suggestion').exists()).toBe(false)
+    })
+  })
+
   it('shows due scheduled emails in an expanded Due Today group above Today', () => {
     const due = makeEmail('due-1', Date.now() - 5 * DAY)
     due.scheduledFor = new Date(Date.now() - HOUR).toISOString()

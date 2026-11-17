@@ -55,6 +55,7 @@ import { lazyComponent } from '../router/chunkReload'
 
 const ShareAvailability = lazyComponent(() => import('../components/ShareAvailability.vue'))
 const TheFeed = lazyComponent(() => import('../components/TheFeed.vue'))
+const InvitationCard = lazyComponent(() => import('../components/InvitationCard.vue'))
 
 const store = useInboxStore()
 const { isOpen: calendarRailOpen } = useCalendarRail()
@@ -1041,6 +1042,45 @@ const openEmailCalendarSuggestion = computed(() =>
 )
 const openEmailCalendarSuggestionLabel = computed(() =>
   formatCalendarSuggestion(openEmailCalendarSuggestion.value),
+)
+// A calendar invitation addressed to this mailbox gets its own card with
+// Accept / Maybe / Decline (InvitationCard.vue, loaded when one is open).
+// Answering one also files it on the calendar, so the plain "Add to calendar"
+// offer above is kept only for invitations Cookie cannot answer (sent to
+// another address, say). The payload is the Worker's own; the card parses it.
+const openEmailInvitation = computed(() => store.openEmailCalendarInvitation)
+const showCalendarSuggestion = computed(
+  () =>
+    Boolean(openEmailCalendarSuggestion.value) &&
+    !(
+      openEmailInvitation.value?.can_reply === true ||
+      openEmailInvitation.value?.status === 'cancelled'
+    ),
+)
+const invitationSending = ref('')
+const invitationError = ref('')
+async function respondToOpenInvitation(response) {
+  const invitation = openEmailInvitation.value
+  if (!invitation || invitationSending.value) return
+  const messageId = openEmail.value?.id
+  invitationSending.value = response
+  invitationError.value = ''
+  const result = await store.respondToInvitation(invitation.id, response)
+  // The reader may have moved to another email while the reply was sent.
+  if (openEmail.value?.id !== messageId) return
+  invitationSending.value = ''
+  // Null when the account changed under a lazy load: nothing was sent.
+  invitationError.value = result?.ok === false ? result.error : ''
+}
+function goToInvitationEvent(event) {
+  router.push({ name: 'calendar', query: { date: event.date, event: event.id } })
+}
+watch(
+  () => openEmail.value?.id ?? null,
+  () => {
+    invitationSending.value = ''
+    invitationError.value = ''
+  },
 )
 // The calendar's events on the suggested day, so the reader can tell an event
 // that was already added (offer to go to it) from one that was not (offer to
@@ -2830,8 +2870,17 @@ onUnmounted(() => {
           </span>
         </div>
 
+        <InvitationCard
+          v-if="openEmailInvitation"
+          :payload="openEmailInvitation"
+          :sending="invitationSending"
+          :error="invitationError"
+          @respond="respondToOpenInvitation"
+          @open-event="goToInvitationEvent"
+        />
+
         <section
-          v-if="openEmailCalendarSuggestion"
+          v-if="showCalendarSuggestion"
           class="ni-calendar-suggestion"
           :class="{ 'ni-calendar-suggestion-added': openEmailCalendarEvent }"
           aria-label="Calendar suggestion"
