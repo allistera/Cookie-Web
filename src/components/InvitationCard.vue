@@ -29,6 +29,12 @@ const when = computed(() => invitationWhen(invitation.value))
 const answer = computed(() => invitationAnswer(invitation.value))
 const blockedReason = computed(() => invitationBlockedReason(invitation.value))
 const canAnswer = computed(() => invitation.value.canReply && !invitation.value.cancelled)
+// Which of the two icons the card wears. Decided here, not in the template:
+// the icon-font subset check reads every quoted word inside an icon span as
+// an icon name.
+const onCalendarIcon = computed(
+  () => invitation.value.response === 'accepted' && !invitation.value.cancelled,
+)
 const details = computed(() =>
   [when.value, invitation.value.recurring ? 'Repeats' : '', invitation.value.location]
     .filter(Boolean)
@@ -48,11 +54,8 @@ const details = computed(() =>
     data-testid="invitation-card"
   >
     <span class="material-symbols-outlined invitation-card-icon" aria-hidden="true">
-      {{
-        invitation.response === 'accepted' && !invitation.cancelled
-          ? 'event_available'
-          : 'calendar_month'
-      }}
+      <template v-if="onCalendarIcon">event_available</template>
+      <template v-else>calendar_month</template>
     </span>
     <div class="invitation-card-body">
       <strong class="invitation-card-heading">{{ heading }}</strong>
