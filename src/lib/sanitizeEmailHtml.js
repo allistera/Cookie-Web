@@ -111,12 +111,12 @@ function installLinkHook() {
 // (event handlers included) is dropped. The wrapper is built with
 // setAttribute so a quote in the value (a quoted font-family, say) is
 // serialized escaped rather than ending the attribute early.
-function carryDocumentStyling(html, { headSheets }) {
+function carryDocumentStyling(html, headSheets) {
   if (!globalThis.DOMParser) return html
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const body = doc.body
   if (!body) return html
-  const sheets = headSheets ? Array.from(doc.head?.querySelectorAll('style') ?? []) : []
+  const sheets = headSheets ? [...doc.querySelectorAll('head style')] : []
   const style = body.getAttribute('style')?.trim() ?? ''
   const bgcolor = body.getAttribute('bgcolor')?.trim() ?? ''
   const paintsBody = Boolean(style || bgcolor)
@@ -139,25 +139,22 @@ function carryDocumentStyling(html, { headSheets }) {
   return `${carriedSheets}${wrapper.outerHTML}`
 }
 
+function sanitize(dirty, config, headSheets) {
+  const html = String(dirty ?? '')
+  if (html === '') return ''
+  installLinkHook()
+  return DOMPurify.sanitize(carryDocumentStyling(html, headSheets), config)
+}
+
 // Returns a sanitized HTML string safe to embed in the reader iframe's
 // srcdoc, style sheets from the sender's <head> included. Empty string for
 // empty / missing input. Only for that sandboxed frame: use sanitizeEmailHtml
 // for anything that ends up in the app's own page.
-export function sanitizeEmailHtmlForReader(dirty) {
-  const html = String(dirty ?? '')
-  if (html === '') return ''
-  installLinkHook()
-  return DOMPurify.sanitize(carryDocumentStyling(html, { headSheets: true }), READER_CONFIG)
-}
+export const sanitizeEmailHtmlForReader = (dirty) => sanitize(dirty, READER_CONFIG, true)
 
 // Returns a sanitized HTML string for the composer (drafts, signatures,
 // snippets, pasted content). Empty string for empty / missing input.
-export function sanitizeEmailHtml(dirty) {
-  const html = String(dirty ?? '')
-  if (html === '') return ''
-  installLinkHook()
-  return DOMPurify.sanitize(carryDocumentStyling(html, { headSheets: false }), CONFIG)
-}
+export const sanitizeEmailHtml = (dirty) => sanitize(dirty, CONFIG, false)
 
 export function sanitizeForwardedEmailHtml(dirty) {
   const html = String(dirty ?? '')
