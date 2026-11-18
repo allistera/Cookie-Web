@@ -6,8 +6,23 @@ import { fixtureEmails, fixtureSentEmails } from './emails.js'
 // javascript: link — so manual/e2e testing proves the sanitizer (layer 1) and
 // the no-script sandboxed iframe (layer 2) neutralize sender-controlled HTML.
 // Other messages return no HTML body, exercising the plain-text fallback.
-const HOSTILE_HTML = `
+//
+// It is a whole document, as real mail is: the <head> style sheet hides the
+// preheader and paints the card by class, and resets the page height the way
+// common templates do, so the reader has to carry the sheet across without
+// letting that reset stretch the page to the frame.
+const HOSTILE_HTML = `<!doctype html>
+<html>
+<head>
+  <style>
+    html, body { height: 100% !important; }
+    .fixture-preheader { display: none; }
+    .fixture-card { background-color: #ffffff; }
+  </style>
+</head>
+<body>
   <div>
+    <span class="fixture-preheader">Preheader hidden by the head style sheet.</span>
     <h1>Revised Floor Plan</h1>
     <p>Hi Allister, here is the <strong>updated design</strong> bringing more natural light into the kitchen.</p>
     <script>window.top.document.title = 'pwned'</script>
@@ -19,9 +34,12 @@ const HOSTILE_HTML = `
     </table>
     <p style="color: #000000">Hard-coded black text on no background.</p>
     <p style="color: #000000; background-color: #ffffff">Black text on its own white background.</p>
+    <p class="fixture-card">Uncoloured text on a white card.</p>
     <p><a href="https://cityconstruction.com/plan">View the full plan</a></p>
     <p><a href="javascript:alert('xss')">Do not click</a></p>
-  </div>`
+  </div>
+</body>
+</html>`
 
 // The City Construction conversation: an earlier check-in, then the design
 // update (fixture-1) the inbox row opens. The reader expands the earlier

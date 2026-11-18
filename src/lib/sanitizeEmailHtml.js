@@ -40,6 +40,12 @@ const CONFIG = {
   WHOLE_DOCUMENT: false,
 }
 
+// The reader's frame also takes the style sheets from the sender's <head>
+// (see carryDocumentStyling). FORCE_BODY keeps a <style> that opens the
+// content: without it the parser files the element under <head>, which is not
+// part of what DOMPurify returns.
+const READER_CONFIG = { ...CONFIG, FORCE_BODY: true }
+
 // A forwarded body is inserted into the live contenteditable composer rather
 // than the reader's sandboxed iframe. Strip resources and presentation hooks
 // that could track the user or escape the quote's visual boundaries.
@@ -84,38 +90,73 @@ function installLinkHook() {
   hookInstalled = true
 }
 
-// Sanitizing keeps only the contents of the sender's <body>, so a page
-// colour set on the body itself (inline style or legacy bgcolor) would be
-// lost — and emails that paint their text white on a dark body then render
-// as white on the reader's own light panel. Carry that background across on
-// a wrapper <div>. The wrapper is part of the string DOMPurify sanitizes, so
-// its style is vetted exactly like any other inline style and any other
-// body attribute (event handlers included) is dropped. The wrapper is built
-// with setAttribute so a quote in the value (a quoted font-family, say) is
+// Sanitizing keeps only the contents of the sender's <body>, which loses two
+// things the message needs to look as it was written.
+//
+// A page colour set on the body itself (inline style or legacy bgcolor):
+// emails that paint their text white on a dark body would render as white on
+// the reader's own light panel, so that background goes on a wrapper <div>.
+//
+// Style sheets in <head> (headSheets, the reader only): most marketing mail
+// keeps every class rule there (hidden preheaders, column widths, which of
+// the desktop and mobile images shows), so without them the reader shows the
+// bare markup. They are moved to the front of the content. The HTML parser
+// also files a <style> that opens a headless fragment under <head>, so those
+// are carried the same way. A sheet restyles the whole document it lands in,
+// which is why only the reader's sandboxed frame asks for them: content bound
+// for the composer sits in the app's own page.
+//
+// Everything carried is part of the string DOMPurify sanitizes, so it is
+// vetted exactly like the rest of the message and any other body attribute
+// (event handlers included) is dropped. The wrapper is built with
+// setAttribute so a quote in the value (a quoted font-family, say) is
 // serialized escaped rather than ending the attribute early.
-function carryBodyBackground(html) {
+function carryDocumentStyling(html, { headSheets }) {
   if (!globalThis.DOMParser) return html
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const body = doc.body
   if (!body) return html
+  const sheets = headSheets ? Array.from(doc.head?.querySelectorAll('style') ?? []) : []
   const style = body.getAttribute('style')?.trim() ?? ''
   const bgcolor = body.getAttribute('bgcolor')?.trim() ?? ''
-  if (!style && !bgcolor) return html
+  const paintsBody = Boolean(style || bgcolor)
+  if (sheets.length === 0 && !paintsBody) return html
+  // Older templates and everything Outlook writes wrap the sheet in an HTML
+  // comment. CSS ignores those delimiters, but DOMPurify drops a <style> whose
+  // text looks like markup, so they come out first.
+  const carriedSheets = sheets
+    .map((sheet) => {
+      sheet.textContent = sheet.textContent.replaceAll(/<!--|-->/g, '')
+      return sheet.outerHTML
+    })
+    .join('')
+  if (!paintsBody) return `${carriedSheets}${body.innerHTML}`
   const background = bgcolor ? `background-color: ${bgcolor};` : ''
   const separator = background && style ? ' ' : ''
   const wrapper = doc.createElement('div')
   wrapper.setAttribute('style', `${background}${separator}${style}`)
   wrapper.append(...body.childNodes)
-  return wrapper.outerHTML
+  return `${carriedSheets}${wrapper.outerHTML}`
 }
 
 // Returns a sanitized HTML string safe to embed in the reader iframe's
-// srcdoc. Empty string for empty / missing input.
+// srcdoc, style sheets from the sender's <head> included. Empty string for
+// empty / missing input. Only for that sandboxed frame: use sanitizeEmailHtml
+// for anything that ends up in the app's own page.
+export function sanitizeEmailHtmlForReader(dirty) {
+  const html = String(dirty ?? '')
+  if (html === '') return ''
+  installLinkHook()
+  return DOMPurify.sanitize(carryDocumentStyling(html, { headSheets: true }), READER_CONFIG)
+}
+
+// Returns a sanitized HTML string for the composer (drafts, signatures,
+// snippets, pasted content). Empty string for empty / missing input.
 export function sanitizeEmailHtml(dirty) {
   const html = String(dirty ?? '')
   if (html === '') return ''
   installLinkHook()
-  return DOMPurify.sanitize(carryBodyBackground(html), CONFIG)
+  return DOMPurify.sanitize(carryDocumentStyling(html, { headSheets: false }), CONFIG)
 }
 
 export function sanitizeForwardedEmailHtml(dirty) {

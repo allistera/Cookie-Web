@@ -4,7 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { startTiming } from '../lib/performance'
 
 import { BRIDGE_SOURCE, RESIZE_INTERVAL_MS } from '../lib/emailBodyBridgeConstants'
-import { hasBlockedRemoteImages, sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
+import { hasBlockedRemoteImages, sanitizeEmailHtmlForReader } from '../lib/sanitizeEmailHtml'
 import {
   BRIDGE_HINT_SOURCE,
   selectPlainTextUnsubscribeTarget,
@@ -64,7 +64,7 @@ const SCRIPT_CLOSE = '</scr' + 'ipt>'
 // The bridge is cached for a day (vercel.json), so its URL carries the
 // revision: bump ?v= here and "Bridge revision" in public/email-body-bridge.js
 // together whenever that file changes, or a cached copy keeps running.
-const emailBodyBridgeUrl = '/email-body-bridge.js?v=1'
+const emailBodyBridgeUrl = '/email-body-bridge.js?v=2'
 
 function randomToken() {
   if (globalThis.crypto?.randomUUID) {
@@ -72,6 +72,10 @@ function randomToken() {
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
+
+// The reader's text and link colours inside the frame, per theme.
+const LIGHT_COLORS = { fg: '#282a30', link: '#5e6ad2' }
+const DARK_COLORS = { fg: '#f7f8f8', link: '#858df8' }
 
 const frameRef = ref(null)
 const frameHeight = ref(80)
@@ -85,7 +89,7 @@ let latestLinksRevision = 0
 
 // Layer 1: sanitize. Empty string when there is no usable HTML body, which
 // switches the template to the plain-text fallback.
-const safeHtml = computed(() => sanitizeEmailHtml(props.html))
+const safeHtml = computed(() => sanitizeEmailHtmlForReader(props.html))
 const hasHtml = computed(() => safeHtml.value.trim().length > 0)
 
 // Remote images are blocked by default (see the CSP in srcdoc below) so a
@@ -149,16 +153,21 @@ let themeObserver = null
 
 // The iframe document. Its only dynamic input is the already-sanitized body;
 // the surrounding chrome (doctype, base CSS) is a fixed string we control.
+//
+// The frame is as tall as its content, so the html:root rule keeps the
+// email's own style sheet from tying the page's height back to the frame's
+// (the common "html, body { height: 100% }" reset). Left alone, every
+// measurement would come back a little taller than the last, without end.
 const srcdoc = computed(() => {
   if (!hasHtml.value) return ''
   const dark = theme.value === 'dark'
-  const fg = dark ? '#f7f8f8' : '#282a30'
-  const link = dark ? '#858df8' : '#5e6ad2'
+  const { fg, link } = dark ? DARK_COLORS : LIGHT_COLORS
   // Dark theme only: the reader panel's colour (--bg-card), in the rgb() form
   // computed styles use, so the bridge can recolour text an email hard-coded
-  // too dark to read on it.
+  // too dark to read on it, and the light theme's colours for text the email
+  // left uncoloured on a pale background of its own.
   const contrast = dark
-    ? ` data-bridge-surface="rgb(16, 17, 19)" data-bridge-text="${fg}" data-bridge-link="${link}"`
+    ? ` data-bridge-surface="rgb(16, 17, 19)" data-bridge-text="${fg}" data-bridge-link="${link}" data-bridge-ink="${LIGHT_COLORS.fg}" data-bridge-ink-link="${LIGHT_COLORS.link}"`
     : ''
   // Widened only once the reader clicks "Show images" for this message.
   const imgSrc = imagesAllowed.value ? 'data: cid: https: http:' : 'data: cid:'
@@ -167,6 +176,7 @@ const srcdoc = computed(() => {
 <style>
 :root { color-scheme: ${dark ? 'dark' : 'light'}; }
 html, body { margin: 0; padding: 0; background: transparent; }
+html:root, html:root > body { height: auto !important; min-height: 0 !important; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px; line-height: 1.55; color: ${fg};

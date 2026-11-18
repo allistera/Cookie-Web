@@ -1162,6 +1162,35 @@ test('Dark theme keeps hard-coded dark email text readable', async ({ page }) =>
     'color',
     'rgb(0, 0, 0)',
   )
+  // Text the email left uncoloured inherits the reader's light colour, which
+  // its own white card would hide, so it takes the light theme's text colour.
+  await expect(body.getByText('Uncoloured text on a white card.')).toHaveCSS(
+    'color',
+    'rgb(40, 42, 48)',
+  )
+})
+
+test("Reader applies the style sheet from an email's head", async ({ page }) => {
+  await page.goto('/inbox')
+
+  await page
+    .locator('.ni-row', { hasText: 'Revised Floor Plan - Natural Light adjustments' })
+    .click()
+  const body = page.locator('.ni-reader').frameLocator('iframe[title="Email content"]')
+
+  await expect(body.getByText('Uncoloured text on a white card.')).toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  )
+  await expect(body.getByText('Preheader hidden by the head style sheet.')).toHaveCSS(
+    'display',
+    'none',
+  )
+  // The sheet's "height: 100%" reset must not stretch the page to the frame:
+  // the frame follows the page's height, so the two would chase each other.
+  await expect
+    .poll(() => body.locator('body').evaluate((page) => page.offsetHeight < window.innerHeight))
+    .toBe(true)
 })
 
 test('Light theme leaves hard-coded dark email text as authored', async ({ page }) => {

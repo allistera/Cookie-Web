@@ -4,7 +4,7 @@
 // Configuration and per-message identifiers travel as data attributes on
 // <body>, allowing one cacheable bridge file to serve every open message.
 //
-// Bridge revision: 1
+// Bridge revision: 2
 // Browsers keep this file for a day (vercel.json). When it changes, bump the
 // revision above and the ?v= on emailBodyBridgeUrl in
 // src/components/EmailBody.vue together, so no reader runs a cached copy.
@@ -96,12 +96,18 @@ const scheduleLinkSnapshot = () => requestAnimationFrame(collectLinkSnapshot)
 // Dark theme only (the reader passes its panel colour as data-bridge-surface).
 // The frame is transparent, so an email that hard-codes dark text without
 // painting a background of its own would render dark-on-dark. Text that sits
-// directly on the reader's panel and lacks contrast against it is recoloured;
-// anything on a background the email painted itself is left as authored.
+// directly on the reader's panel and lacks contrast against it is recoloured.
+//
+// On a background the email painted itself, text is left as authored, with
+// one exception: text the email gave no colour at all. That text was written
+// for a browser's black default but inherits the reader's light one, so on a
+// pale background it takes the light theme's colours (data-bridge-ink) instead.
 const MIN_TEXT_CONTRAST = 4.5
 const SOLID_ALPHA = 0.5
 
 const parseColor = (value) => {
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value || '')
+  if (hex) return { rgb: hex.slice(1).map((pair) => Number.parseInt(pair, 16)), alpha: 1 }
   const parts = /^rgba?\(([^)]+)\)$/
     .exec(value || '')?.[1]
     .split(/[\s,/]+/)
@@ -118,24 +124,39 @@ const luminance = (rgb) => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
+const contrast = (one, other) => {
+  const [lighter, darker] = [luminance(one), luminance(other)].sort((a, b) => b - a)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+const sameColor = (one, other) => one.every((channel, index) => channel === other[index])
+
 const fixTextContrast = () => {
   const surface = parseColor(document.body.dataset.bridgeSurface)
   if (!surface) return
-  const surfaceLuminance = luminance(surface.rgb)
-  const { bridgeText, bridgeLink } = document.body.dataset
+  const { bridgeText, bridgeLink, bridgeInk, bridgeInkLink } = document.body.dataset
+  // The reader's own colours, each paired with its light-theme counterpart.
+  const readerColors = [
+    [parseColor(bridgeText), bridgeInk],
+    [parseColor(bridgeLink), bridgeInkLink],
+  ]
 
-  const paintsBackground = new Map()
-  const sitsOnSurface = (element) => {
-    if (!element) return true
-    const known = paintsBackground.get(element)
-    if (known !== undefined) return known
+  // The solid colour behind an element's text: the reader's panel (the very
+  // surface.rgb array, so callers can tell it apart) unless the email painted
+  // one further in. Null behind an image or gradient, where it is unknown.
+  const backdrops = new Map()
+  const backdropOf = (element) => {
+    if (!element) return surface.rgb
+    if (backdrops.has(element)) return backdrops.get(element)
     const style = getComputedStyle(element)
     const background = parseColor(style.backgroundColor)
-    const painted =
-      style.backgroundImage !== 'none' || !background || background.alpha >= SOLID_ALPHA
-    const result = !painted && sitsOnSurface(element.parentElement)
-    paintsBackground.set(element, result)
-    return result
+    let backdrop = null
+    if (style.backgroundImage === 'none' && background) {
+      backdrop =
+        background.alpha >= SOLID_ALPHA ? background.rgb : backdropOf(element.parentElement)
+    }
+    backdrops.set(element, backdrop)
+    return backdrop
   }
 
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
@@ -148,13 +169,15 @@ const fixTextContrast = () => {
   }
   for (const element of elements) {
     const color = parseColor(getComputedStyle(element).color)
-    if (!color || !sitsOnSurface(element)) continue
-    const textLuminance = luminance(color.rgb)
-    const contrast =
-      (Math.max(textLuminance, surfaceLuminance) + 0.05) /
-      (Math.min(textLuminance, surfaceLuminance) + 0.05)
-    if (contrast >= MIN_TEXT_CONTRAST) continue
-    element.style.setProperty('color', element.closest('a') ? bridgeLink : bridgeText, 'important')
+    const backdrop = backdropOf(element)
+    if (!color || !backdrop || contrast(color.rgb, backdrop) >= MIN_TEXT_CONTRAST) continue
+    const replacement =
+      backdrop === surface.rgb
+        ? element.closest('a')
+          ? bridgeLink
+          : bridgeText
+        : readerColors.find(([reader]) => reader && sameColor(color.rgb, reader.rgb))?.[1]
+    if (replacement) element.style.setProperty('color', replacement, 'important')
   }
 }
 
