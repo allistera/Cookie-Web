@@ -474,8 +474,16 @@ async function consumeGoogleReturn() {
         clearGoogleAuthorization()
       }
       if (!response.ok) throw new Error('Google sign-in could not be completed')
+      const body = await response.json().catch(() => ({}))
       if (!isCalendarSessionCurrent(session)) return
-      store.notify('Google Calendar connected. Choose which calendars to show.', 'info')
+      // A connection with no calendar chosen comes back with all of them
+      // switched on by the Worker. A reconnected account keeps its choice.
+      store.notify(
+        body?.selectedAll === true
+          ? 'Google Calendar connected. Every calendar on the account is showing; untick any you do not want.'
+          : 'Google Calendar connected. Choose which calendars to show.',
+        'info',
+      )
     } catch {
       if (isCalendarSessionCurrent(session)) {
         googleError.value = 'Google Calendar could not be connected. Retry or start sign-in again.'

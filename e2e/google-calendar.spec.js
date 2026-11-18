@@ -23,11 +23,13 @@ test('Google Calendar connects from Settings, shows the chosen calendars in Cale
   await expect(
     page.locator('.calendar-settings-google-account').getByText('person@example.com'),
   ).toBeVisible()
+  // Every calendar on the account shows from the start; one can be unticked.
   const showPersonal = page.getByRole('checkbox', { name: 'Show person@example.com in Cookie' })
   const showTeam = page.getByRole('checkbox', { name: 'Show Team in Cookie' })
-  await expect(showPersonal).not.toBeChecked()
-  await showPersonal.check()
   await expect(showPersonal).toBeChecked()
+  await expect(showTeam).toBeChecked()
+  await showTeam.uncheck()
+  await expect(showTeam).not.toBeChecked()
   await showTeam.check()
   await expect(showTeam).toBeChecked()
 

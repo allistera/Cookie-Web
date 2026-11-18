@@ -4,16 +4,27 @@ import { RouterLink } from 'vue-router'
 import { dateKey, meetingLink, monthGrid, normalizeCalendarEvent } from '../utils/calendarDates'
 import { assignLanes } from '../utils/calendarLanes'
 import { useInboxStore } from '../stores/inbox'
+import { useTaskItemsStore } from '../stores/taskItems'
 import {
   calendarEventsUrl,
   calendarSession,
   isCalendarSessionCurrent,
   useCalendars,
 } from '../composables/useCalendars'
+import { TASKS_API_URL } from '../lib/apiWorkers'
+import {
+  TASKS_CALENDAR_COLOR,
+  TASKS_CALENDAR_NAME,
+  taskToCalendarItems,
+} from '../lib/taskCalendarItems'
+import { subscribeTaskMutations } from '../lib/taskMutationRefresh'
+import { addDays } from '../lib/taskSchedule'
 
 // Read-only day calendar docked on the right of Mail, Documents and Tasks,
 // toggled from the header (useCalendarRail). Shows one day: a mini month to
 // pick it, the next event with a Join link, all-day chips and a timeline.
+// Every calendar the Calendar view lists is drawn, the Tasks one included:
+// tasks due that day sit among the events with a checkbox glyph.
 // Clicking an event shows its details; editing happens in the Calendar view.
 const props = defineProps({
   // A day the rail follows, such as an open daily note's. Null means today.
@@ -104,18 +115,59 @@ async function loadEvents() {
   }
 }
 
+// Tasks due on the day, done ones included, shaped as calendar items the way
+// the Calendar view shapes them. A separate request from the events, so the
+// tasks Worker failing leaves the events readable and the other way round.
+const tasks = ref([])
+let tasksRequest = 0
+
+async function loadTasks() {
+  const key = selectedKey.value
+  const seq = ++tasksRequest
+  const session = calendarSession()
+  const superseded = () => disposed || seq !== tasksRequest || !isCalendarSessionCurrent(session)
+  try {
+    const headers = await store.authHeaders()
+    if (superseded()) return
+    const response = await fetch(
+      // From the day before: a timed task that runs past midnight leaves its
+      // remainder on this day.
+      `${TASKS_API_URL}/task-items?view=calendar&from=${addDays(key, -1)}&to=${key}&completed=1`,
+      { headers },
+    )
+    if (!response.ok) throw new Error(`GET task-items responded ${response.status}`)
+    const body = await response.json()
+    if (superseded()) return
+    tasks.value = (Array.isArray(body.items) ? body.items : [])
+      .flatMap(taskToCalendarItems)
+      .filter((item) => item.date === key)
+  } catch (error) {
+    if (superseded()) return
+    console.error('Failed to load tasks for the calendar sidebar:', error)
+    tasks.value = []
+  }
+}
+const loadDay = () => Promise.all([loadEvents(), loadTasks()])
+// A task completed, moved or deleted elsewhere on the page (the Tasks view,
+// its sidebar) is read back straight away.
+const stopTaskMutations = subscribeTaskMutations(useTaskItemsStore(), () => void loadTasks())
+
+const isTask = (event) => event.kind === 'task'
+const taskIcon = (event) => (event.done ? 'check_box' : 'check_box_outline_blank')
+const dayItems = computed(() => [...events.value, ...tasks.value])
+
 const minutesOf = (value) => {
   const [h, m] = String(value).split(':').map(Number)
   return (h || 0) * 60 + (m || 0)
 }
 const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
 
-const allDayEvents = computed(() => events.value.filter((event) => event.allDay))
+const allDayEvents = computed(() => dayItems.value.filter((event) => event.allDay))
 
 // Timed events laid out in side-by-side lanes where they overlap.
 const timedEvents = computed(() =>
   assignLanes(
-    events.value
+    dayItems.value
       .filter((event) => !event.allDay)
       .map((event) => {
         const start = minutesOf(event.start)
@@ -126,6 +178,7 @@ const timedEvents = computed(() =>
 )
 
 function eventColor(event) {
+  if (isTask(event)) return TASKS_CALENDAR_COLOR
   return calendarById.value.get(event.calendar)?.color || null
 }
 function eventStyle(item) {
@@ -149,7 +202,10 @@ const hourLabel = (hour) => HOUR_FMT.format(new Date(2000, 0, 1, hour))
 
 const upNext = computed(() => {
   if (!isToday.value) return null
-  const next = timedEvents.value.find((item) => item.start > nowMinutes.value)
+  // A task with a due time is not something to join or turn up to.
+  const next = timedEvents.value.find(
+    (item) => item.start > nowMinutes.value && !isTask(item.event),
+  )
   if (!next) return null
   const minutes = next.start - nowMinutes.value
   const countdown =
@@ -170,8 +226,10 @@ const openEventDetails = computed(() => {
     when: event.allDay
       ? 'All day'
       : `${timeLabel(start)} – ${timeLabel(start + (Number(event.duration) || 0))}`,
-    calendarName: calendarById.value.get(event.calendar)?.name ?? null,
-    link: meetingLink(event),
+    calendarName: isTask(event)
+      ? TASKS_CALENDAR_NAME
+      : (calendarById.value.get(event.calendar)?.name ?? null),
+    link: isTask(event) ? null : meetingLink(event),
   }
 })
 watch(selectedKey, () => {
@@ -191,7 +249,7 @@ function scrollToFocus() {
 watch(
   selectedKey,
   async () => {
-    await loadEvents()
+    await loadDay()
     await nextTick()
     scrollToFocus()
   },
@@ -211,7 +269,7 @@ function tick() {
 function refresh() {
   lastRefresh = Date.now()
   now.value = new Date()
-  return loadEvents()
+  return loadDay()
 }
 // Coming back to the tab fires both visibilitychange and focus; the second
 // one leaves the refresh the first started to finish instead of fetching the
@@ -241,6 +299,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   disposed = true
+  stopTaskMutations()
   clearInterval(timer)
   window.removeEventListener('focus', refreshOnReturn)
   document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -349,10 +408,17 @@ onUnmounted(() => {
         :key="event.id"
         type="button"
         class="cr-all-day-chip"
+        :class="{ task: isTask(event), done: event.done }"
         :style="eventColor(event) ? { '--event-color': eventColor(event) } : undefined"
         @click="openEvent = event"
       >
-        {{ event.title }}
+        <span
+          v-if="isTask(event)"
+          class="material-symbols-outlined cr-task-icon"
+          aria-hidden="true"
+          >{{ taskIcon(event) }}</span
+        ><span class="cr-chip-title">{{ event.title }}</span>
+        <span v-if="event.done" class="visually-hidden">(done)</span>
       </button>
     </div>
 
@@ -371,11 +437,19 @@ onUnmounted(() => {
           :key="item.event.id"
           type="button"
           class="cr-event"
-          :class="{ past: isPast(item) }"
+          :class="{ past: isPast(item), task: isTask(item.event), done: item.event.done }"
           :style="eventStyle(item)"
           @click="openEvent = item.event"
         >
-          <strong>{{ item.event.title }}</strong>
+          <strong
+            ><span
+              v-if="isTask(item.event)"
+              class="material-symbols-outlined cr-task-icon"
+              aria-hidden="true"
+              >{{ taskIcon(item.event) }}</span
+            >{{ item.event.title }}</strong
+          >
+          <span v-if="item.event.done" class="visually-hidden">(done)</span>
           <small v-if="showsTime(item)"
             >{{ timeLabel(item.start)
             }}<template v-if="item.event.location"> · {{ item.event.location }}</template></small
@@ -400,7 +474,7 @@ onUnmounted(() => {
       v-if="openEventDetails"
       class="cr-details"
       role="dialog"
-      aria-label="Event details"
+      :aria-label="isTask(openEventDetails.event) ? 'Task details' : 'Event details'"
       :style="
         eventColor(openEventDetails.event)
           ? { '--event-color': eventColor(openEventDetails.event) }
@@ -410,7 +484,7 @@ onUnmounted(() => {
       <button
         type="button"
         class="cr-icon-btn cr-details-close"
-        aria-label="Close event details"
+        :aria-label="isTask(openEventDetails.event) ? 'Close task details' : 'Close event details'"
         @click="openEvent = null"
       >
         <span class="material-symbols-outlined" aria-hidden="true">close</span>
@@ -427,6 +501,10 @@ onUnmounted(() => {
           <dt>Where</dt>
           <dd>{{ openEventDetails.event.location }}</dd>
         </template>
+        <template v-if="isTask(openEventDetails.event)">
+          <dt>Status</dt>
+          <dd>{{ openEventDetails.event.done ? 'Done' : 'To do' }}</dd>
+        </template>
       </dl>
       <div class="cr-details-actions">
         <a
@@ -438,6 +516,19 @@ onUnmounted(() => {
           >Join</a
         >
         <RouterLink
+          v-if="isTask(openEventDetails.event)"
+          class="cr-secondary"
+          :to="{
+            path: '/tasks',
+            query: {
+              project: openEventDetails.event.projectId,
+              task: openEventDetails.event.taskId,
+            },
+          }"
+          >Open task</RouterLink
+        >
+        <RouterLink
+          v-else
           class="cr-secondary"
           :to="{
             name: 'calendar',
@@ -680,6 +771,30 @@ onUnmounted(() => {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--event-color, var(--text-blue)) 16%, var(--bg-card));
   cursor: pointer;
+}
+
+/* A task is told from an event by its dashed edge and checkbox glyph, as on
+   the Calendar view. Done, it stays on its day, faded and struck through. */
+.cr-all-day-chip.task,
+.cr-event.task {
+  border-left-style: dashed;
+}
+
+.cr-all-day-chip.done,
+.cr-event.done {
+  opacity: 0.7;
+}
+
+.cr-all-day-chip.done .cr-chip-title,
+.cr-event.done strong {
+  text-decoration: line-through;
+}
+
+.cr-task-icon {
+  display: inline-block;
+  font-size: 14px;
+  vertical-align: -3px;
+  margin-right: 4px;
 }
 
 .cr-timeline {
