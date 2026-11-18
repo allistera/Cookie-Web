@@ -5,7 +5,8 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import CalendarRail from '../CalendarRail.vue'
 import { calendarEventsUrl, useCalendars } from '../../composables/useCalendars'
 import { useInboxStore } from '../../stores/inbox'
-import { CALENDAR_API_URL } from '../../lib/apiWorkers'
+import { useTaskItemsStore } from '../../stores/taskItems'
+import { CALENDAR_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
 
 const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const TODAY = '2026-11-03'
@@ -58,8 +59,21 @@ const EVENTS = {
   ],
 }
 
+// The day's tasks window: from the day before, for a task that runs past
+// midnight, with done tasks included.
+const tasksUrl = (day, dayBefore) =>
+  `${TASKS_API_URL}/task-items?view=calendar&from=${dayBefore}&to=${day}&completed=1`
+const TODAY_TASKS_URL = tasksUrl(TODAY, '2026-11-02')
+const TASKS = [
+  { id: 'rent', content: 'Pay rent', dueDate: TODAY, projectId: 'home-project' },
+  { id: 'post', content: 'Post parcel', dueDate: TODAY, completedAt: '2026-11-03T09:00:00Z' },
+  { id: 'call', content: 'Ring the bank', dueDate: TODAY, dueTime: '14:00' },
+]
+
 let router
 let wrapper
+// What the tasks Worker answers; no tasks unless a test sets some.
+let taskItems
 
 function mockApi() {
   vi.stubGlobal(
@@ -75,6 +89,9 @@ function mockApi() {
             ],
           }),
         }
+      }
+      if (String(url).startsWith(`${TASKS_API_URL}/task-items`)) {
+        return { ok: true, json: async () => ({ items: taskItems }) }
       }
       for (const [day, events] of Object.entries(EVENTS)) {
         if (url === calendarEventsUrl(day, day)) return { ok: true, json: async () => ({ events }) }
@@ -96,6 +113,7 @@ beforeEach(async () => {
     routes: [
       { path: '/inbox', component: { template: '<div />' } },
       { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
+      { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
     ],
   })
   await router.push('/inbox')
@@ -108,6 +126,7 @@ beforeEach(async () => {
     { id: 'work', name: 'Work', color: '#4cb782' },
     { id: 'home', name: 'Home', color: '#d9822b' },
   ]
+  taskItems = []
   mockApi()
 })
 
@@ -224,6 +243,112 @@ describe('CalendarRail', () => {
 
     expect(wrapper.get('.cr-note').text()).toContain("Couldn't load")
     expect(wrapper.findAll('.cr-event')).toHaveLength(0)
+  })
+
+  it("shows the day's tasks among the events, done ones struck through", async () => {
+    taskItems = TASKS
+    await render()
+
+    expect(fetch).toHaveBeenCalledWith(TODAY_TASKS_URL, { headers: {} })
+    const chips = wrapper.findAll('.cr-all-day-chip')
+    expect(chips.map((chip) => chip.get('.cr-chip-title').text())).toEqual([
+      'Bin collection',
+      'Pay rent',
+      'Post parcel',
+    ])
+    expect(chips[0].classes()).not.toContain('task')
+    expect(chips[1].classes()).toContain('task')
+    expect(chips[1].classes()).not.toContain('done')
+    expect(chips[1].get('.cr-task-icon').text()).toBe('check_box_outline_blank')
+    expect(chips[2].classes()).toContain('done')
+    expect(chips[2].get('.cr-task-icon').text()).toBe('check_box')
+    expect(chips[2].text()).toContain('(done)')
+
+    const timed = wrapper.findAll('.cr-event')
+    expect(timed.map((item) => item.find('strong').text())).toEqual([
+      'Standup',
+      'check_box_outline_blankRing the bank',
+      'Code review',
+      'Call with Rachel',
+    ])
+    expect(timed[1].classes()).toContain('task')
+  })
+
+  it('keeps a task with a due time out of Up next', async () => {
+    taskItems = TASKS
+    await render()
+
+    // Ring the bank is due at 14:00, before the 15:00 events.
+    expect(wrapper.get('.cr-up-next').text()).toContain('Code review')
+  })
+
+  it('opens a task in Tasks from its details', async () => {
+    taskItems = TASKS
+    await render()
+    await wrapper.findAll('.cr-all-day-chip')[1].trigger('click')
+
+    const details = wrapper.get('.cr-details')
+    expect(details.attributes('aria-label')).toBe('Task details')
+    expect(details.text()).toContain('Pay rent')
+    expect(details.text()).toContain('Tasks')
+    expect(details.text()).toContain('To do')
+    expect(details.get('.cr-secondary').text()).toBe('Open task')
+    await details.get('.cr-secondary').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/tasks')
+    expect(router.currentRoute.value.query).toEqual({ project: 'home-project', task: 'rent' })
+  })
+
+  it("shows the rest of a task that ran past the day before's midnight", async () => {
+    taskItems = [
+      {
+        id: 'deploy',
+        content: 'Overnight deploy',
+        dueDate: '2026-11-02',
+        dueTime: '23:30',
+        durationMinutes: 90,
+      },
+    ]
+    await render()
+
+    const remainder = wrapper.findAll('.cr-event').find((item) => item.classes('task'))
+    expect(remainder.text()).toContain('Overnight deploy')
+    // Midnight to 01:00 on a 48px hour, less the 2px gap.
+    expect(remainder.element.style.top).toBe('0px')
+    expect(remainder.element.style.height).toBe('46px')
+  })
+
+  it('keeps the events when the tasks cannot be loaded', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const answer = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url) =>
+      String(url).startsWith(TASKS_API_URL)
+        ? { ok: false, status: 503, json: async () => ({}) }
+        : answer(url),
+    )
+    await render()
+
+    expect(wrapper.find('.cr-note').exists()).toBe(false)
+    expect(wrapper.findAll('.cr-event')).toHaveLength(3)
+    expect(wrapper.findAll('.cr-event.task')).toHaveLength(0)
+  })
+
+  it('reads the tasks again when one is changed elsewhere on the page', async () => {
+    await render()
+    expect(wrapper.findAll('.cr-all-day-chip')).toHaveLength(1)
+    const eventRequests = fetch.mock.calls.filter(
+      ([url]) => url === calendarEventsUrl(TODAY, TODAY),
+    ).length
+
+    taskItems = TASKS
+    useTaskItemsStore().invalidateHistory()
+    await flushPromises()
+
+    expect(wrapper.findAll('.cr-all-day-chip')).toHaveLength(3)
+    // Only the tasks are fetched again.
+    expect(
+      fetch.mock.calls.filter(([url]) => url === calendarEventsUrl(TODAY, TODAY)),
+    ).toHaveLength(eventRequests)
   })
 
   it('asks to close from its close button', async () => {

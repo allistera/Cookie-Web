@@ -1,5 +1,5 @@
 import { expect, test } from './workerFixtures.js'
-import { CALENDAR_API_URL } from '../src/lib/apiWorkers.js'
+import { CALENDAR_API_URL, TASKS_API_URL } from '../src/lib/apiWorkers.js'
 
 const EVENTS = [
   {
@@ -55,6 +55,12 @@ test('the calendar sidebar is closed by default, opens from the header, and stay
     const from = new URL(route.request().url()).searchParams.get('from')
     route.fulfill({ json: { events: EVENTS.filter((event) => event.date === from) } })
   })
+  // A task due that day sits among the events, as on the Calendar view.
+  await page.route(`${TASKS_API_URL}/task-items?view=calendar*`, (route) =>
+    route.fulfill({
+      json: { items: [{ id: 'rent', content: 'Pay rent', dueDate: '2026-11-03' }] },
+    }),
+  )
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/inbox')
 
@@ -67,7 +73,10 @@ test('the calendar sidebar is closed by default, opens from the header, and stay
   await expect(rail).toBeVisible()
   await expect(rail).toContainText('Today')
   await expect(rail.locator('.cr-up-next')).toContainText('in 1 hr 13 min')
-  await expect(rail.locator('.cr-all-day-chip')).toHaveText('Bin collection')
+  await expect(rail.locator('.cr-all-day-chip .cr-chip-title')).toHaveText([
+    'Bin collection',
+    'Pay rent',
+  ])
   await expect(rail.locator('.cr-event', { hasText: 'Lunch with Sam' })).toBeVisible()
   // The rail's Up next replaces the inbox chip while it is open.
   await expect(page.locator('.next-calendar-event')).toBeHidden()
@@ -80,6 +89,12 @@ test('the calendar sidebar is closed by default, opens from the header, and stay
   )
   await page.keyboard.press('Escape')
   await expect(details).toBeHidden()
+
+  await rail.locator('.cr-all-day-chip', { hasText: 'Pay rent' }).click()
+  await expect(
+    rail.getByRole('dialog', { name: 'Task details' }).getByRole('link', { name: 'Open task' }),
+  ).toHaveAttribute('href', '/tasks?project=inbox&task=rent')
+  await page.keyboard.press('Escape')
 
   // Remembered in this browser across a reload, and on Tasks too.
   await page.reload()
