@@ -233,6 +233,32 @@ describe('CalendarSettings', () => {
     )
   })
 
+  it('says every calendar is showing when the Worker switched them all on', async () => {
+    rememberGoogleAuthorization('v'.repeat(43))
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/settings/:section?', component: CalendarSettings }],
+    })
+    await router.push(`/settings/calendar#google_completion=${'c'.repeat(43)}`)
+    await router.isReady()
+    const baseFetch = fetch.getMockImplementation()
+    fetch.mockImplementation((url, options = {}) =>
+      url === GOOGLE_ENDPOINT && options.method === 'POST'
+        ? Promise.resolve({
+            ok: true,
+            json: async () => ({ connected: true, selectedAll: true }),
+          })
+        : baseFetch(url, options),
+    )
+    mount(CalendarSettings, { global: { plugins: [router] } })
+    await flushPromises()
+
+    expect(useInboxStore().notify).toHaveBeenCalledWith(
+      expect.stringContaining('Every calendar on the account is showing'),
+      'info',
+    )
+  })
+
   it.each([502, 503])('retries the saved completion after a %s gateway failure', async (status) => {
     rememberGoogleAuthorization('v'.repeat(43))
     const router = createRouter({

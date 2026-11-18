@@ -1438,7 +1438,11 @@ export function localApiPlugin(mode) {
       google.pending = null
       google.connected = true
       google.email = google.fixtureEmail
-      res.end(JSON.stringify({ connected: true }))
+      // Mirrors finishGoogleAuthorization: a connection with nothing chosen
+      // starts with every calendar on the account showing.
+      const selectedAll = google.selected.length === 0
+      if (selectedAll) google.selected = google.calendars.map((calendar) => calendar.id)
+      res.end(JSON.stringify({ connected: true, selectedAll }))
       return
     }
     if (req.method === 'PATCH') {
