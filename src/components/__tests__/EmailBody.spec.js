@@ -58,6 +58,24 @@ describe('EmailBody', () => {
     expect(srcdoc).toContain('rel="noopener noreferrer"')
   })
 
+  it("renders the email's head style sheet without letting it size the page to the frame", () => {
+    const wrapper = mount(EmailBody, {
+      props: {
+        html:
+          '<html><head><style>html,body{height:100%!important}.preheader{display:none}</style>' +
+          '</head><body><p class="preheader">Preview</p><p>Hello</p></body></html>',
+      },
+    })
+
+    const srcdoc = wrapper.find('iframe').attributes('srcdoc')
+    expect(srcdoc).toContain('.preheader{display:none}')
+    // The reader's rule outranks the email's reset on specificity, wherever
+    // the two sheets fall in the document.
+    expect(srcdoc).toContain(
+      'html:root, html:root > body { height: auto !important; min-height: 0 !important; }',
+    )
+  })
+
   it('blocks sender-controlled remote resources while preserving embedded content', () => {
     const wrapper = mount(EmailBody, {
       props: {
@@ -262,6 +280,10 @@ describe('EmailBody', () => {
     expect(darkSrcdoc).toContain('data-bridge-surface="rgb(16, 17, 19)"')
     expect(darkSrcdoc).toContain('data-bridge-text="#f7f8f8"')
     expect(darkSrcdoc).toContain('data-bridge-link="#858df8"')
+    // The light theme's colours, for uncoloured text on a pale background the
+    // email painted itself.
+    expect(darkSrcdoc).toContain('data-bridge-ink="#282a30"')
+    expect(darkSrcdoc).toContain('data-bridge-ink-link="#5e6ad2"')
 
     wrapper.unmount()
     document.documentElement.removeAttribute('data-theme')

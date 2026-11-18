@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 
-import { sanitizeEmailHtml } from '../sanitizeEmailHtml'
+import {
+  sanitizeEmailHtml,
+  sanitizeEmailHtmlForReader,
+  sanitizeForwardedEmailHtml,
+} from '../sanitizeEmailHtml'
 
 // body_html is arbitrary, sender-controlled HTML. These tests pin the
 // first defence-in-depth layer: the output must never carry executable
@@ -135,5 +139,98 @@ describe('sanitizeEmailHtml', () => {
     expect(sanitizeEmailHtml(null)).toBe('')
     expect(sanitizeEmailHtml(undefined)).toBe('')
     expect(sanitizeEmailHtml('')).toBe('')
+  })
+})
+
+describe('sanitizeEmailHtmlForReader', () => {
+  // Marketing mail keeps its class rules in <head>. Sanitizing returns only
+  // the body, so without carrying the sheets across the reader shows the bare
+  // markup: preheaders visible, both the desktop and mobile images, no layout.
+  it('keeps style sheets declared in <head>', () => {
+    const out = sanitizeEmailHtmlForReader(
+      '<!doctype html><html><head><title>t</title>' +
+        '<style>.preheader{display:none}</style><style>.card{max-width:720px}</style>' +
+        '</head><body><div class="preheader">Preview</div><p class="card">hi</p></body></html>',
+    )
+    expect(out).toBe(
+      '<style>.preheader{display:none}</style><style>.card{max-width:720px}</style>' +
+        '<div class="preheader">Preview</div><p class="card">hi</p>',
+    )
+  })
+
+  it('keeps a style sheet that opens a message with no <head> of its own', () => {
+    expect(sanitizeEmailHtmlForReader('<style>.a{color:red}</style><p class="a">hi</p>')).toBe(
+      '<style>.a{color:red}</style><p class="a">hi</p>',
+    )
+  })
+
+  it('keeps a head style sheet wrapped in an HTML comment, as Outlook writes it', () => {
+    const out = sanitizeEmailHtmlForReader(
+      '<html><head><style><!--\np.MsoNormal{margin:0cm}\n--></style></head>' +
+        '<body><p class="MsoNormal">hi</p></body></html>',
+    )
+    expect(out).toContain('p.MsoNormal{margin:0cm}')
+    expect(out).not.toContain('<!--')
+    expect(out).toContain('<p class="MsoNormal">hi</p>')
+  })
+
+  it('puts head style sheets ahead of the wrapper that carries the body background', () => {
+    const out = sanitizeEmailHtmlForReader(
+      '<head><style>.a{color:#fff}</style></head><body bgcolor="#000000"><p class="a">hi</p></body>',
+    )
+    expect(out).toBe(
+      '<style>.a{color:#fff}</style>' +
+        '<div style="background-color: #000000;"><p class="a">hi</p></div>',
+    )
+  })
+
+  it('carries nothing else out of <head>', () => {
+    const out = sanitizeEmailHtmlForReader(
+      '<head><style>.a{color:red}</style><script>window.evil = 1</script>' +
+        '<link rel="stylesheet" href="https://evil.example/x.css">' +
+        '<meta http-equiv="refresh" content="0;url=https://evil.example">' +
+        '<base href="https://evil.example/"><title>t</title></head><body><p>hi</p></body>',
+    )
+    expect(out).toBe('<style>.a{color:red}</style><p>hi</p>')
+  })
+
+  it('drops a head style sheet that hides markup', () => {
+    const out = sanitizeEmailHtmlForReader(
+      '<head><style><img src=x onerror=alert(1)></style></head><body><p>hi</p></body>',
+    )
+    expect(out).toBe('<p>hi</p>')
+  })
+
+  // The composer edits in the app's own page, where a carried sheet would
+  // restyle the app itself.
+  it('leaves head style sheets out of content bound for the composer', () => {
+    const out = sanitizeEmailHtml(
+      '<head><style>body{font-family:Calibri}</style></head><body><p>hi</p></body>',
+    )
+    expect(out).toBe('<p>hi</p>')
+  })
+
+  it('still strips every style sheet from a forwarded body', () => {
+    const out = sanitizeForwardedEmailHtml(
+      '<head><style>.a{color:red}</style></head><body><p class="a">hi</p></body>',
+    )
+    expect(out).toBe('<p>hi</p>')
+  })
+
+  it('sanitizes the body as sanitizeEmailHtml does', () => {
+    const out = sanitizeEmailHtmlForReader(
+      '<body style="background:#000" onload="window.evil = 1"><p>hi</p>' +
+        '<script>window.evil = 1</script><a href="https://example.com/page">link</a></body>',
+    )
+    expect(out).toContain('<div style="background:#000">')
+    expect(out).not.toContain('window.evil')
+    expect(out.toLowerCase()).not.toContain('onload')
+    expect(out).toContain('target="_blank"')
+    expect(out).toContain('rel="noopener noreferrer"')
+  })
+
+  it('returns an empty string for empty input', () => {
+    expect(sanitizeEmailHtmlForReader(null)).toBe('')
+    expect(sanitizeEmailHtmlForReader('')).toBe('')
   })
 })
