@@ -5,6 +5,7 @@ import { dateKey, meetingLink, monthGrid, normalizeCalendarEvent } from '../util
 import { assignLanes } from '../utils/calendarLanes'
 import { useInboxStore } from '../stores/inbox'
 import { useTaskItemsStore } from '../stores/taskItems'
+import { useCalendarRailCalendars } from '../composables/useCalendarRailCalendars'
 import {
   calendarEventsUrl,
   calendarSession,
@@ -14,6 +15,7 @@ import {
 import { TASKS_API_URL } from '../lib/apiWorkers'
 import {
   TASKS_CALENDAR_COLOR,
+  TASKS_CALENDAR_ID,
   TASKS_CALENDAR_NAME,
   taskToCalendarItems,
 } from '../lib/taskCalendarItems'
@@ -22,9 +24,10 @@ import { addDays } from '../lib/taskSchedule'
 
 // Read-only day calendar docked on the right of Mail, Documents and Tasks,
 // toggled from the header (useCalendarRail). Shows one day: a mini month to
-// pick it, the next event with a Join link, all-day chips and a timeline.
-// Every calendar the Calendar view lists is drawn, the Tasks one included:
-// tasks due that day sit among the events with a checkbox glyph.
+// pick it, a list of every calendar, the next event with a Join link, all-day
+// chips and a timeline. Every calendar the Calendar view lists is drawn, the
+// Tasks one included: tasks due that day sit among the events with a checkbox
+// glyph. Each calendar in the list can be hidden from the day for a while.
 // Clicking an event shows its details; editing happens in the Calendar view.
 const props = defineProps({
   // A day the rail follows, such as an open daily note's. Null means today.
@@ -39,6 +42,34 @@ const { calendars, loadCalendars } = useCalendars(
 )
 loadCalendars()
 const calendarById = computed(() => new Map(calendars.value.map((c) => [c.id, c])))
+
+// --- Calendar list --------------------------------------------------------
+// The same calendars in the same order as the Calendar view's sidebar, with
+// Tasks last. The list is a disclosure so a long list need not crowd the
+// timeline out; whether it is open, and which calendars are hidden, live in
+// useCalendarRailCalendars so they outlast the rail remounting between views.
+const {
+  isListOpen: calendarsOpen,
+  toggleList: toggleCalendarsOpen,
+  isCalendarShown,
+  toggleCalendar,
+} = useCalendarRailCalendars()
+const TASKS_PSEUDO_CALENDAR = {
+  id: TASKS_CALENDAR_ID,
+  name: TASKS_CALENDAR_NAME,
+  color: TASKS_CALENDAR_COLOR,
+}
+const listedCalendars = computed(() => {
+  const local = []
+  const subscribed = []
+  const google = []
+  for (const calendar of calendars.value) {
+    if (calendar.source === 'google') google.push(calendar)
+    else if (calendar.subscriptionUrl) subscribed.push(calendar)
+    else local.push(calendar)
+  }
+  return [...local, ...subscribed, ...google, TASKS_PSEUDO_CALENDAR]
+})
 
 const HOUR_HEIGHT = 48
 const hours = Array.from({ length: 24 }, (_, hour) => hour)
@@ -154,7 +185,11 @@ const stopTaskMutations = subscribeTaskMutations(useTaskItemsStore(), () => void
 
 const isTask = (event) => event.kind === 'task'
 const taskIcon = (event) => (event.done ? 'check_box' : 'check_box_outline_blank')
-const dayItems = computed(() => [...events.value, ...tasks.value])
+const dayItems = computed(() =>
+  [...events.value, ...tasks.value].filter((item) =>
+    isCalendarShown(isTask(item) ? TASKS_CALENDAR_ID : item.calendar),
+  ),
+)
 
 const minutesOf = (value) => {
   const [h, m] = String(value).split(':').map(Number)
@@ -373,6 +408,46 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <section class="cr-calendars">
+      <button
+        type="button"
+        class="cr-calendars-toggle"
+        :aria-expanded="calendarsOpen"
+        aria-controls="cr-calendar-list"
+        @click="toggleCalendarsOpen"
+      >
+        <span>Calendars</span>
+        <span class="material-symbols-outlined" aria-hidden="true">{{
+          calendarsOpen ? 'expand_less' : 'expand_more'
+        }}</span>
+      </button>
+      <div
+        v-show="calendarsOpen"
+        id="cr-calendar-list"
+        class="cr-calendar-list"
+        role="group"
+        aria-label="Calendars"
+      >
+        <button
+          v-for="calendar in listedCalendars"
+          :key="calendar.id"
+          type="button"
+          class="cr-calendar"
+          :class="{ muted: !isCalendarShown(calendar.id) }"
+          :aria-pressed="isCalendarShown(calendar.id)"
+          :style="{ '--calendar-color': calendar.color }"
+          @click="toggleCalendar(calendar.id)"
+        >
+          <span class="cr-calendar-color" aria-hidden="true">
+            <svg v-if="isCalendarShown(calendar.id)" viewBox="0 0 16 16">
+              <path d="m3.5 8 2.7 2.7 6.3-6.2" />
+            </svg>
+          </span>
+          <span class="cr-calendar-name">{{ calendar.name }}</span>
+        </button>
+      </div>
+    </section>
 
     <div
       v-if="upNext"
@@ -683,6 +758,96 @@ onUnmounted(() => {
   color: #fff;
   font-weight: 700;
   opacity: 1;
+}
+
+.cr-calendars {
+  margin: 0 12px 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.cr-calendars-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 4px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cr-calendars-toggle:hover {
+  color: var(--text-primary);
+}
+
+.cr-calendars-toggle .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.cr-calendar-list {
+  display: grid;
+  max-height: 148px;
+  overflow-y: auto;
+}
+
+.cr-calendar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cr-calendar:hover {
+  background: var(--bg-hover);
+}
+
+.cr-calendar.muted {
+  color: var(--text-secondary);
+}
+
+.cr-calendar-color {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--calendar-color, var(--text-blue));
+  border-radius: 4px;
+  background: var(--calendar-color, var(--text-blue));
+  color: #fff;
+}
+
+.cr-calendar.muted .cr-calendar-color {
+  background: transparent;
+}
+
+.cr-calendar-color svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cr-calendar-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cr-up-next {

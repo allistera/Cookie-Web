@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import CalendarRail from '../CalendarRail.vue'
 import { calendarEventsUrl, useCalendars } from '../../composables/useCalendars'
+import { useCalendarRailCalendars } from '../../composables/useCalendarRailCalendars'
 import { useInboxStore } from '../../stores/inbox'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
@@ -74,21 +75,19 @@ let router
 let wrapper
 // What the tasks Worker answers; no tasks unless a test sets some.
 let taskItems
+// What GET /calendars answers.
+const DEFAULT_CALENDARS = [
+  { id: 'work', name: 'Work', color: '#4cb782' },
+  { id: 'home', name: 'Home', color: '#d9822b' },
+]
+let calendarRows
 
 function mockApi() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url) => {
       if (url === CALENDARS_ENDPOINT) {
-        return {
-          ok: true,
-          json: async () => ({
-            calendars: [
-              { id: 'work', name: 'Work', color: '#4cb782' },
-              { id: 'home', name: 'Home', color: '#d9822b' },
-            ],
-          }),
-        }
+        return { ok: true, json: async () => ({ calendars: calendarRows }) }
       }
       if (String(url).startsWith(`${TASKS_API_URL}/task-items`)) {
         return { ok: true, json: async () => ({ items: taskItems }) }
@@ -120,12 +119,12 @@ beforeEach(async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(new Date(2026, 10, 3, 13, 47))
   setActivePinia(createPinia())
+  localStorage.clear()
+  useCalendarRailCalendars().reset()
   vi.spyOn(useInboxStore(), 'authHeaders').mockResolvedValue({})
   // useCalendars' list is module-level and loads once; seed it directly.
-  useCalendars(vi.fn(), vi.fn()).calendars.value = [
-    { id: 'work', name: 'Work', color: '#4cb782' },
-    { id: 'home', name: 'Home', color: '#d9822b' },
-  ]
+  calendarRows = DEFAULT_CALENDARS
+  useCalendars(vi.fn(), vi.fn()).calendars.value = calendarRows
   taskItems = []
   mockApi()
 })
@@ -349,6 +348,75 @@ describe('CalendarRail', () => {
     expect(
       fetch.mock.calls.filter(([url]) => url === calendarEventsUrl(TODAY, TODAY)),
     ).toHaveLength(eventRequests)
+  })
+
+  it('lists every calendar with Tasks last, in colour', async () => {
+    calendarRows = [
+      { id: 'work', name: 'Work', color: '#4cb782' },
+      { id: 'google:me', name: 'me@gmail.com', color: '#039be5', source: 'google' },
+      { id: 'feed', name: 'Bank holidays', color: '#888', subscriptionUrl: 'https://x/y.ics' },
+      { id: 'home', name: 'Home', color: '#d9822b' },
+    ]
+    // Seeded as well as served: the list may already count as loaded.
+    useCalendars(vi.fn(), vi.fn()).calendars.value = calendarRows
+    await render()
+
+    const list = wrapper.get('[role="group"][aria-label="Calendars"]')
+    const rows = list.findAll('.cr-calendar')
+    expect(rows.map((row) => row.text())).toEqual([
+      'Work',
+      'Home',
+      'Bank holidays',
+      'me@gmail.com',
+      'Tasks',
+    ])
+    expect(rows[0].element.style.getPropertyValue('--calendar-color')).toBe('#4cb782')
+    expect(rows[4].element.style.getPropertyValue('--calendar-color')).toBe('#5e6ad2')
+    expect(rows.every((row) => row.attributes('aria-pressed') === 'true')).toBe(true)
+  })
+
+  it('hides a calendar from the day and keeps that across a remount', async () => {
+    taskItems = TASKS
+    await render()
+    expect(wrapper.findAll('.cr-event')).toHaveLength(4)
+
+    const row = (name) => wrapper.findAll('.cr-calendar').find((r) => r.text() === name)
+    await row('Work').trigger('click')
+    expect(row('Work').attributes('aria-pressed')).toBe('false')
+    expect(row('Work').classes()).toContain('muted')
+    expect(wrapper.findAll('.cr-event').map((e) => e.find('strong').text())).toEqual([
+      'check_box_outline_blankRing the bank',
+    ])
+    // Up next looked at Work's events; nothing is left to come.
+    expect(wrapper.find('.cr-up-next').exists()).toBe(false)
+
+    await row('Tasks').trigger('click')
+    expect(wrapper.findAll('.cr-event')).toHaveLength(0)
+    expect(wrapper.findAll('.cr-all-day-chip').map((c) => c.text())).toEqual(['Bin collection'])
+
+    wrapper.unmount()
+    await render()
+    expect(row('Work').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.findAll('.cr-event')).toHaveLength(0)
+
+    await row('Work').trigger('click')
+    expect(wrapper.findAll('.cr-event')).toHaveLength(3)
+  })
+
+  it('folds the calendar list and remembers that', async () => {
+    await render()
+    const toggle = wrapper.get('.cr-calendars-toggle')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.cr-calendar-list').element.style.display).toBe('')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.cr-calendar-list').element.style.display).toBe('none')
+    expect(localStorage.getItem('cookie.calendarRail.calendarsOpen')).toBe('0')
+
+    wrapper.unmount()
+    await render()
+    expect(wrapper.get('.cr-calendars-toggle').attributes('aria-expanded')).toBe('false')
   })
 
   it('asks to close from its close button', async () => {

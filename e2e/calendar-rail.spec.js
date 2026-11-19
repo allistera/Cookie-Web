@@ -81,6 +81,15 @@ test('the calendar sidebar is closed by default, opens from the header, and stay
   // The rail's Up next replaces the inbox chip while it is open.
   await expect(page.locator('.next-calendar-event')).toBeHidden()
 
+  // Every calendar is listed, Tasks last; hiding one takes its events off the day.
+  const calendarList = rail.getByRole('group', { name: 'Calendars' })
+  await expect(calendarList.getByRole('button')).toContainText(['Work', 'Tasks'])
+  await calendarList.getByRole('button', { name: 'Work', exact: true }).click()
+  await expect(rail.locator('.cr-event', { hasText: 'Lunch with Sam' })).toBeHidden()
+  await expect(rail.locator('.cr-up-next')).toBeHidden()
+  await calendarList.getByRole('button', { name: 'Work', exact: true }).click()
+  await expect(rail.locator('.cr-event', { hasText: 'Lunch with Sam' })).toBeVisible()
+
   await rail.locator('.cr-event', { hasText: 'Call with Rachel Ward' }).click()
   const details = rail.getByRole('dialog', { name: 'Event details' })
   await expect(details.getByRole('link', { name: 'Join' })).toHaveAttribute(
