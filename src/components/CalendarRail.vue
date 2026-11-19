@@ -5,7 +5,7 @@ import { dateKey, meetingLink, monthGrid, normalizeCalendarEvent } from '../util
 import { assignLanes } from '../utils/calendarLanes'
 import { useInboxStore } from '../stores/inbox'
 import { useTaskItemsStore } from '../stores/taskItems'
-import { useCalendarRail } from '../composables/useCalendarRail'
+import { useCalendarRailCalendars } from '../composables/useCalendarRailCalendars'
 import {
   calendarEventsUrl,
   calendarSession,
@@ -47,13 +47,13 @@ const calendarById = computed(() => new Map(calendars.value.map((c) => [c.id, c]
 // The same calendars in the same order as the Calendar view's sidebar, with
 // Tasks last. The list is a disclosure so a long list need not crowd the
 // timeline out; whether it is open, and which calendars are hidden, live in
-// useCalendarRail so they outlast the rail remounting between views.
+// useCalendarRailCalendars so they outlast the rail remounting between views.
 const {
   isListOpen: calendarsOpen,
   toggleList: toggleCalendarsOpen,
   isCalendarShown,
   toggleCalendar,
-} = useCalendarRail()
+} = useCalendarRailCalendars()
 const TASKS_PSEUDO_CALENDAR = {
   id: TASKS_CALENDAR_ID,
   name: TASKS_CALENDAR_NAME,

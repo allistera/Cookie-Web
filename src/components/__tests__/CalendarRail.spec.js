@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import CalendarRail from '../CalendarRail.vue'
 import { calendarEventsUrl, useCalendars } from '../../composables/useCalendars'
-import { useCalendarRail } from '../../composables/useCalendarRail'
+import { useCalendarRailCalendars } from '../../composables/useCalendarRailCalendars'
 import { useInboxStore } from '../../stores/inbox'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
@@ -120,7 +120,7 @@ beforeEach(async () => {
   vi.setSystemTime(new Date(2026, 10, 3, 13, 47))
   setActivePinia(createPinia())
   localStorage.clear()
-  useCalendarRail().reset()
+  useCalendarRailCalendars().reset()
   vi.spyOn(useInboxStore(), 'authHeaders').mockResolvedValue({})
   // useCalendars' list is module-level and loads once; seed it directly.
   calendarRows = DEFAULT_CALENDARS
