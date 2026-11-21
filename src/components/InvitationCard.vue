@@ -24,21 +24,27 @@ const props = defineProps({
 defineEmits(['respond', 'open-event'])
 
 const invitation = computed(() => parseCalendarInvitation(props.payload))
-const heading = computed(() => invitationHeading(invitation.value))
-const when = computed(() => invitationWhen(invitation.value))
-const answer = computed(() => invitationAnswer(invitation.value))
-const blockedReason = computed(() => invitationBlockedReason(invitation.value))
-const canAnswer = computed(() => invitation.value.canReply && !invitation.value.cancelled)
+const heading = computed(() => (invitation.value ? invitationHeading(invitation.value) : ''))
+const when = computed(() => (invitation.value ? invitationWhen(invitation.value) : ''))
+const answer = computed(() => (invitation.value ? invitationAnswer(invitation.value) : ''))
+const blockedReason = computed(() =>
+  invitation.value ? invitationBlockedReason(invitation.value) : '',
+)
+const canAnswer = computed(() =>
+  Boolean(invitation.value?.canReply && !invitation.value.cancelled),
+)
 // Which of the two icons the card wears. Decided here, not in the template:
 // the icon-font subset check reads every quoted word inside an icon span as
 // an icon name.
-const onCalendarIcon = computed(
-  () => invitation.value.response === 'accepted' && !invitation.value.cancelled,
+const onCalendarIcon = computed(() =>
+  Boolean(invitation.value?.response === 'accepted' && !invitation.value.cancelled),
 )
 const details = computed(() =>
-  [when.value, invitation.value.recurring ? 'Repeats' : '', invitation.value.location]
-    .filter(Boolean)
-    .join(' · '),
+  invitation.value
+    ? [when.value, invitation.value.recurring ? 'Repeats' : '', invitation.value.location]
+        .filter(Boolean)
+        .join(' · ')
+    : '',
 )
 </script>
 

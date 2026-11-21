@@ -208,14 +208,18 @@ export class KanbanBlockTool {
       if (!tasksEl.contains(event.relatedTarget)) this.dropIndicator.remove()
     })
     tasksEl.addEventListener('drop', (event) => {
-      if (!this.dragTaskId) return
+      const draggedId = this.dragTaskId
+      if (!draggedId) return
       event.preventDefault()
       const beforeEl = this.dropIndicator.nextElementSibling
       const beforeTaskId = beforeEl?.classList.contains('kanban-task')
         ? beforeEl.dataset.taskId
         : null
-      this.moveTask(this.dragTaskId, lane, beforeTaskId)
+      this.dragTaskId = null
       this.dropIndicator.remove()
+      document.removeEventListener('dragover', this.preventStrayDrop)
+      document.removeEventListener('drop', this.preventStrayDrop)
+      this.moveTask(draggedId, lane, beforeTaskId)
     })
     laneEl.append(tasksEl)
 
@@ -251,7 +255,9 @@ export class KanbanBlockTool {
       // Deferred a frame so the browser captures the drag image before the
       // fade-out class below applies - applying it synchronously would drag
       // an already-faded card.
-      requestAnimationFrame(() => taskEl.classList.add('kanban-task--dragging'))
+      requestAnimationFrame(() => {
+        if (this.dragTaskId === task.id) taskEl.classList.add('kanban-task--dragging')
+      })
     })
     taskEl.addEventListener('dragend', () => {
       taskEl.classList.remove('kanban-task--dragging')
@@ -332,7 +338,12 @@ export class KanbanBlockTool {
     // remove these.
     document.removeEventListener('dragover', this.preventStrayDrop)
     document.removeEventListener('drop', this.preventStrayDrop)
+    this.dragTaskId = null
     this.wrapper = null
     this.board = null
+  }
+
+  removed() {
+    this.destroy()
   }
 }

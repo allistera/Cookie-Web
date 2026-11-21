@@ -10,6 +10,7 @@ import { localToday } from '../lib/localDate'
 import { LABEL_PALETTE } from '../lib/labelPalette'
 import { filterRoute } from '../lib/taskFilters'
 import { normalizeLabelName } from '../lib/taskLabels'
+import { DIVIDER_DRAG_TYPE, TASK_DRAG_TYPE, TASKS_DRAG_TYPE } from '../lib/taskOrder'
 import { flattenProjectTree } from '../lib/taskProjectsTree'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskFiltersStore } from '../stores/taskFilters'
@@ -210,9 +211,15 @@ function onDragStart(project, event) {
   event.dataTransfer.setData('text/plain', project.id)
 }
 
+function canReparentProject(sourceId, targetId) {
+  if (!sourceId || sourceId === targetId) return false
+  if (targetId === null) return true
+  return !store.descendantIds(sourceId).includes(targetId)
+}
+
 function onDragOver(targetId, event) {
   if (onTaskDragOver(targetId, event)) return
-  if (!dragId.value || dragId.value === targetId) return
+  if (!canReparentProject(dragId.value, targetId)) return
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   dropId.value = targetId
@@ -220,7 +227,7 @@ function onDragOver(targetId, event) {
 
 function onDrop(targetId, event) {
   if (onTaskDrop(targetId, event)) return
-  if (dragId.value && dragId.value !== targetId) store.moveProject(dragId.value, targetId)
+  if (canReparentProject(dragId.value, targetId)) store.moveProject(dragId.value, targetId)
   dragId.value = null
   dropId.value = undefined
 }
@@ -234,12 +241,6 @@ function onDragEnd() {
 // type) can be dropped on Inbox or a project to move it there, or on Today
 // to make it due today. Only the type is readable while dragging; the id
 // comes out on drop.
-const TASK_DRAG_TYPE = 'application/x-cookie-task'
-// A divider carries this type as well: it has no date to set, so Today
-// refuses it while it is still in the air.
-const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
-// A multi-select drag from TasksView carries every selected id as JSON.
-const TASKS_DRAG_TYPE = 'application/x-cookie-tasks'
 const taskDropTarget = ref(null)
 
 // The ids a task drop applies to: the whole selection when several tasks
@@ -294,9 +295,15 @@ function onTaskDrop(target, event) {
       for (const id of ids) taskItems.setDueDate(id, localToday())
       taskItems.clearSelection()
     }
-  } else if (ids.length > 1) {
-    taskItems.moveItems(ids, target === 'inbox' ? null : target)
-  } else taskItems.moveItem(ids[0], target === 'inbox' ? null : target)
+  } else {
+    const projectId = target === 'inbox' ? null : target
+    const toMove = ids.filter((id) => {
+      const task = taskItems.itemById(id)
+      return !task || (task.projectId ?? null) !== projectId
+    })
+    if (toMove.length > 1) taskItems.moveItems(toMove, projectId)
+    else if (toMove.length === 1) taskItems.moveItem(toMove[0], projectId)
+  }
   return true
 }
 
@@ -428,9 +435,15 @@ async function startRenameLabel(label) {
 
 async function submitRenameLabel(label) {
   if (renamingLabelId.value !== label.id) return
+  const previousName = label.name
   const name = normalizeLabelName(renameLabelName.value)
   renamingLabelId.value = null
-  if (name && name !== label.name) await labelsStore.renameLabel(label.id, name)
+  if (name && name !== previousName) {
+    const renamed = await labelsStore.renameLabel(label.id, name)
+    if (renamed && selectedProject.value === `label:${previousName}`) {
+      void router.replace({ query: { ...route.query, project: `label:${renamed.name}` } })
+    }
+  }
 }
 
 // The dot opens a row of swatches under the label; picking one closes it.

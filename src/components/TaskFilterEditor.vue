@@ -83,7 +83,7 @@ function removeRule(index) {
 
 async function save() {
   const fields = editor.value
-  if (!fields || problem.value) return
+  if (!fields || problem.value || store.saving) return
   // Read before the editor closes and takes the mode with it.
   const editing = isEdit.value
   const filter = editing

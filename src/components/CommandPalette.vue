@@ -12,7 +12,11 @@ const selectedIndex = ref(0)
 const inputRef = ref(null)
 const listRef = ref(null)
 
-const visibleCommands = computed(() => filterCommands(commands.value, query.value))
+// Avoid recomputing and diffing ~60 commands on every email/route change while
+// the palette is closed.
+const visibleCommands = computed(() =>
+  store.isCommandPaletteOpen ? filterCommands(commands.value, query.value) : [],
+)
 
 watch(query, () => {
   selectedIndex.value = 0
@@ -81,7 +85,12 @@ function onInputKeydown(e) {
 
 <template>
   <div class="cp-overlay" :class="{ active: store.isCommandPaletteOpen }" @click.self="close">
-    <div class="cp-panel" role="dialog" aria-label="Command palette">
+    <div
+      v-if="store.isCommandPaletteOpen"
+      class="cp-panel"
+      role="dialog"
+      aria-label="Command palette"
+    >
       <div class="cp-header">
         <span class="material-symbols-outlined">cookie</span>
         <span>Cookie Command</span>

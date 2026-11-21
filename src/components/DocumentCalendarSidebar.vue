@@ -1,9 +1,9 @@
 <script setup>
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useDocumentsStore } from '../stores/documents'
-import { calendarEventsUrl, useCalendars } from '../composables/useCalendars'
+import { calendarEventsUrl, calendarOwnerSession, useCalendars } from '../composables/useCalendars'
 
 // Read-only day view docked next to a daily note (Daily/<year>/<month>/DD-MM-YY):
 // a NotePlan-style mini month calendar plus that day's Cookie events, so the
@@ -83,21 +83,31 @@ const monthWeeks = computed(() => {
 
 const events = ref([])
 const eventsTruncated = ref(false)
+let eventsSeq = 0
 
 async function loadEvents() {
+  const seq = ++eventsSeq
   const key = selectedKey.value
   try {
     const headers = await store.authHeaders()
     const response = await fetch(calendarEventsUrl(key, key), { headers })
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
-    if (selectedKey.value !== key) return
+    if (seq !== eventsSeq || selectedKey.value !== key) return
     events.value = (body.events ?? []).map(normalizeCalendarEvent)
     eventsTruncated.value = Boolean(body.truncated)
   } catch (error) {
+    if (seq !== eventsSeq) return
     console.error('Failed to load the daily note calendar sidebar:', error)
   }
 }
+onBeforeUnmount(() => {
+  eventsSeq += 1
+})
+watch(calendarOwnerSession, () => {
+  loadCalendars()
+  loadEvents()
+})
 watch(selectedKey, loadEvents, { immediate: true })
 
 // A successful autosave may have synced a typed time-line into a linked
@@ -158,7 +168,9 @@ function hourLabel(hour) {
         </div>
       </div>
       <div class="mini-month-weekdays">
-        <span v-for="label in ['M', 'T', 'W', 'T', 'F', 'S', 'S']" :key="label">{{ label }}</span>
+        <span v-for="(label, index) in ['M', 'T', 'W', 'T', 'F', 'S', 'S']" :key="index">{{
+          label
+        }}</span>
       </div>
       <div class="mini-month-grid">
         <span

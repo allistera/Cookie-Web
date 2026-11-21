@@ -58,6 +58,7 @@ export const useOutOfOfficeStore = defineStore('outOfOffice', {
     },
     async update(body) {
       if (!this.ownerSub || this.saving) return false
+      const owner = this.ownerSub
       const generation = this.generation
       this.saving = true
       this.error = ''
@@ -70,27 +71,41 @@ export const useOutOfOfficeStore = defineStore('outOfOffice', {
           headers,
           body: JSON.stringify(body),
         })
-        const document = await response.json()
+        const document = await response.json().catch(() => ({}))
         if (generation !== this.generation) return false
         if (response.status === 409) {
+          this.generation++
+          this.loading = false
           this.conflict = true
           this.error = conflictMessage
           return false
         }
         if (!response.ok) {
+          this.generation++
+          this.loading = false
           this.error = document.error || 'Could not save. Your changes have not been applied.'
           return false
         }
         this.document = document
         this.loaded = true
+        this.generation++
+        this.loading = false
         return true
       } catch {
-        if (generation === this.generation)
+        if (generation === this.generation) {
+          this.generation++
+          this.loading = false
           this.error =
             'Could not confirm the change. Reload the current settings before trying again.'
+        }
         return false
       } finally {
-        if (generation === this.generation) this.saving = false
+        if (
+          owner === this.ownerSub &&
+          (generation === this.generation || generation + 1 === this.generation)
+        ) {
+          this.saving = false
+        }
       }
     },
     save(draft) {

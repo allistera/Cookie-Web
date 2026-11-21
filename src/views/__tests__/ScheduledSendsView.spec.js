@@ -186,6 +186,7 @@ describe('ScheduledSendsView', () => {
     await flushPromises()
 
     await wrapper.find('.scheduled-sends-cancel').trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
 
     expect(wrapper.text()).toContain('Nothing is scheduled to send later.')

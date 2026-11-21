@@ -8,6 +8,9 @@ import { isNetworkError } from '../lib/connectivity'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { createSharedLoad } from '../lib/sharedLoad'
 import { useInboxStore } from './inbox'
+import { useTaskCommentsStore } from './taskComments'
+import { useTaskItemsStore } from './taskItems'
+import { useTaskLabelsStore } from './taskLabels'
 
 const projectLoads = createSharedLoad()
 const projectMutations = new WeakMap()
@@ -23,39 +26,61 @@ export const useProjectsStore = defineStore('projects', {
   }),
 
   getters: {
+    projectsById: (state) => new Map(state.projects.map((project) => [project.id, project])),
+
+    projectsByParent: (state) => {
+      const byParent = new Map()
+      for (const project of state.projects) {
+        const key = project.parentId ?? null
+        let list = byParent.get(key)
+        if (!list) {
+          list = []
+          byParent.set(key, list)
+        }
+        list.push(project)
+      }
+      return byParent
+    },
+
     // Every descendant of a project, direct and transitive (not including
     // the project itself). Deleting a project cascades to this whole set,
     // both locally and server-side, so this is the single definition of
     // "the subtree a delete destroys" that both the store and the sidebar's
     // confirmation prompt read from.
-    descendantIds: (state) => (id) => {
-      const ids = []
-      let frontier = [id]
-      while (frontier.length) {
-        const children = state.projects.filter((project) => frontier.includes(project.parentId))
-        frontier = []
-        for (const child of children) {
-          ids.push(child.id)
-          frontier.push(child.id)
+    descendantIds() {
+      return (id) => {
+        const ids = []
+        const seen = new Set([id])
+        const queue = [id]
+        for (let head = 0; head < queue.length; head += 1) {
+          const children = this.projectsByParent.get(queue[head]) ?? []
+          for (const child of children) {
+            if (seen.has(child.id)) continue
+            seen.add(child.id)
+            ids.push(child.id)
+            queue.push(child.id)
+          }
         }
+        return ids
       }
-      return ids
     },
 
     // The chain from the root down to (and including) this project, for the
     // view's breadcrumb. A parentId that no longer resolves simply stops the
     // walk rather than looping.
-    ancestorsOf: (state) => (id) => {
-      const byId = new Map(state.projects.map((project) => [project.id, project]))
-      const chain = []
-      let current = byId.get(id)
-      const seen = new Set()
-      while (current && !seen.has(current.id)) {
-        seen.add(current.id)
-        chain.unshift(current)
-        current = current.parentId ? byId.get(current.parentId) : null
+    ancestorsOf() {
+      return (id) => {
+        const byId = this.projectsById
+        const chain = []
+        let current = byId.get(id)
+        const seen = new Set()
+        while (current && !seen.has(current.id)) {
+          seen.add(current.id)
+          chain.unshift(current)
+          current = current.parentId ? byId.get(current.parentId) : null
+        }
+        return chain
       }
-      return chain
     },
   },
 
@@ -140,7 +165,9 @@ export const useProjectsStore = defineStore('projects', {
       }
       const perform = async () => {
         project = this.projects.find((row) => row.id === id) ?? project
-        const previous = { ...project }
+        const previous = Object.fromEntries(
+          Object.keys(changes).map((key) => [key, project[key]]),
+        )
         Object.assign(project, changes)
         try {
           const { project: updated } = await this.request('PATCH', { id, ...changes })
@@ -149,13 +176,16 @@ export const useProjectsStore = defineStore('projects', {
           return project
         } catch (error) {
           console.error('Failed to update project:', error)
-          Object.assign(project, previous)
+          for (const [key, value] of Object.entries(previous)) {
+            if (project[key] === changes[key]) project[key] = value
+          }
           this.notify(error.userMessage || failureMessage, 'error')
           return null
         }
       }
-      const queue = projectMutations.get(this) ?? new Map()
-      projectMutations.set(this, queue)
+      const store = toRaw(this)
+      const queue = projectMutations.get(store) ?? new Map()
+      projectMutations.set(store, queue)
       const prior = queue.get(id)
       const pending = prior ? prior.then(perform) : perform()
       queue.set(id, pending)
@@ -192,6 +222,19 @@ export const useProjectsStore = defineStore('projects', {
       this.projects = this.projects.filter((project) => !doomed.has(project.id))
       try {
         await this.request('DELETE', { id })
+        const items = useTaskItemsStore()
+        const comments = useTaskCommentsStore()
+        const removedTaskIds = items.items
+          .filter((row) => doomed.has(row.projectId))
+          .map((row) => row.id)
+        if (removedTaskIds.length) {
+          const removedSet = new Set(removedTaskIds)
+          items.items = items.items.filter((row) => !removedSet.has(row.id) && !removedSet.has(row.parentId))
+          items.selectedIds = items.selectedIds.filter((selected) => !removedSet.has(selected))
+          for (const taskId of removedTaskIds) comments.forgetThread(taskId)
+        }
+        const labels = useTaskLabelsStore()
+        if (labels.isLoaded || labels.isLoading) void labels.loadLabels({ force: true })
         return true
       } catch (error) {
         console.error('Failed to delete project:', error)

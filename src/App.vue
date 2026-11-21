@@ -103,8 +103,12 @@ watch(
   () => activeApp.value === 'documents',
   async (onDocuments) => {
     if (!onDocuments || documentsStoreRef.value) return
-    const { useDocumentsStore } = await import('./stores/documents')
-    documentsStoreRef.value = useDocumentsStore()
+    try {
+      const { useDocumentsStore } = await import('./stores/documents')
+      documentsStoreRef.value = useDocumentsStore()
+    } catch {
+      // Stale chunk or offline load error is handled by vite:preloadError.
+    }
   },
   { immediate: true },
 )
@@ -112,16 +116,21 @@ const calendarRailDate = computed(() =>
   activeApp.value === 'documents' ? (documentsStoreRef.value?.openDocDailyDate ?? null) : null,
 )
 
-function onCalendarRailKeydown(event) {
+function isEditableTarget(event) {
   const target = event.target instanceof Element ? event.target : null
-  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
+  if (!target) return false
+  if (target instanceof HTMLElement && target.isContentEditable) return true
+  return Boolean(target.closest('input, textarea, select, [contenteditable]'))
+}
+
+function onCalendarRailKeydown(event) {
   if (
     event.key !== ']' ||
     event.repeat ||
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
-    isTyping ||
+    isEditableTarget(event) ||
     !calendarRailAvailable.value ||
     store.isCommandPaletteOpen ||
     store.isShortcutsHelpOpen
@@ -187,8 +196,6 @@ function undoSend() {
 }
 
 function onUndoKeydown(event) {
-  const target = event.target instanceof Element ? event.target : null
-  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
   const canUndo = store.pendingSend || store.toasts.some((toast) => toast.action)
   if (
     event.key !== 'u' ||
@@ -196,7 +203,7 @@ function onUndoKeydown(event) {
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
-    isTyping ||
+    isEditableTarget(event) ||
     store.isCommandPaletteOpen ||
     !canUndo
   ) {
@@ -249,15 +256,12 @@ watch(
 // The one '/' shortcut for the command palette: opens it and, on first use,
 // mounts it (it is lazy-loaded, so it cannot listen for the key itself).
 function onCommandPaletteKeydown(event) {
-  const target = event.target instanceof HTMLElement ? event.target : null
-  const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
   if (
     event.key !== '/' ||
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
-    isTyping ||
-    target?.isContentEditable ||
+    isEditableTarget(event) ||
     store.isCommandPaletteOpen
   ) {
     return
@@ -270,15 +274,13 @@ function onCommandPaletteKeydown(event) {
 // '?' opens the keyboard shortcuts help (and mounts it, on first use, like the
 // palette above). The open dialog catches its own keys, '?' included, to close.
 function onShortcutsHelpKeydown(event) {
-  const target = event.target instanceof Element ? event.target : null
-  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
   if (
     event.key !== '?' ||
     event.repeat ||
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
-    isTyping ||
+    isEditableTarget(event) ||
     store.isCommandPaletteOpen ||
     store.isShortcutsHelpOpen ||
     // Another modal (a native <dialog> sits in the top layer, above the help)
@@ -305,15 +307,13 @@ watch(
 // bucket and its header button. Plain key only, never while typing.
 const pinToBucket = useBucketPin()
 function onBucketKeydown(event) {
-  const target = event.target instanceof Element ? event.target : null
-  const isTyping = target?.closest('input, textarea, select, [contenteditable="true"]')
   if (
     event.key !== 'b' ||
     event.repeat ||
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
-    isTyping ||
+    isEditableTarget(event) ||
     store.isCommandPaletteOpen ||
     store.isShortcutsHelpOpen ||
     !bucketsStore.candidate
@@ -322,6 +322,14 @@ function onBucketKeydown(event) {
   }
   event.preventDefault()
   pinToBucket()
+}
+
+function onGlobalKeydown(event) {
+  onUndoKeydown(event)
+  onCommandPaletteKeydown(event)
+  onShortcutsHelpKeydown(event)
+  onBucketKeydown(event)
+  onCalendarRailKeydown(event)
 }
 
 // The bucket clears itself after its time (three days unless changed).
@@ -355,8 +363,10 @@ async function handleLogout() {
   setCalendarsOwner(null)
   store.setComposeOwner(null)
   savedViewsStore.setOwner(null)
+  outOfOfficeStore.setOwner(null)
   sendersStore.setOwner(null)
   bucketsStore.setOwner(null)
+  contactInsightsStore.setOwner?.(null)
   searchStore.clear()
   clearCachedMail()
   clearGoogleAuthorization()
@@ -487,6 +497,7 @@ watch(
     outOfOfficeStore.setOwner(sub)
     sendersStore.setOwner(sub)
     bucketsStore.setOwner(sub)
+    contactInsightsStore.setOwner?.(sub)
     if (sub) store.loadComposePreferences()
     if (sub) savedViewsStore.load()
     if (sub) outOfOfficeStore.load()
@@ -615,7 +626,7 @@ async function refreshAfterReconnect() {
 const appScope = getCurrentScope()
 import('./lib/dockTabStorage.js')
   .then(({ keepDockTabs }) => {
-    if (appScope.active) appScope.run(() => keepDockTabs(store))
+    if (appScope?.active) appScope.run(() => keepDockTabs(store))
   })
   .catch(() => {})
 
@@ -625,22 +636,14 @@ onMounted(() => {
     onSynced: refreshAfterReconnect,
     onError: onOutboxSyncError,
   })
-  document.addEventListener('keydown', onUndoKeydown)
-  document.addEventListener('keydown', onCommandPaletteKeydown)
-  document.addEventListener('keydown', onShortcutsHelpKeydown)
-  document.addEventListener('keydown', onBucketKeydown)
-  document.addEventListener('keydown', onCalendarRailKeydown)
+  document.addEventListener('keydown', onGlobalKeydown)
   document.addEventListener('click', onDocumentClick)
 })
 
 onUnmounted(() => {
   stopOutboxSync()
   cancelScheduledSearch()
-  document.removeEventListener('keydown', onUndoKeydown)
-  document.removeEventListener('keydown', onCommandPaletteKeydown)
-  document.removeEventListener('keydown', onShortcutsHelpKeydown)
-  document.removeEventListener('keydown', onBucketKeydown)
-  document.removeEventListener('keydown', onCalendarRailKeydown)
+  document.removeEventListener('keydown', onGlobalKeydown)
   document.removeEventListener('click', onDocumentClick)
 })
 </script>

@@ -7,14 +7,13 @@ import { useTodayCalendarEvents } from '../composables/useTodayCalendarEvents'
 // Today's "Today's Events" card through one polled fetch.
 const { now, todayEvents } = useTodayCalendarEvents()
 
-const nextEvent = computed(
-  () =>
-    todayEvents.value
-      .filter((event) => !event.allDay)
-      .map((event) => ({ ...event, startsAt: new Date(`${event.date}T${event.start}`) }))
-      .filter((event) => event.startsAt > now.value)
-      .sort((a, b) => a.startsAt - b.startsAt)[0],
+const timedEvents = computed(() =>
+  todayEvents.value
+    .filter((event) => !event.allDay)
+    .map((event) => ({ ...event, startsAt: new Date(`${event.date}T${event.start}`) }))
+    .sort((a, b) => a.startsAt - b.startsAt),
 )
+const nextEvent = computed(() => timedEvents.value.find((event) => event.startsAt > now.value))
 const countdown = computed(() => {
   if (!nextEvent.value) return ''
   const minutes = Math.ceil((nextEvent.value.startsAt - now.value) / 60_000)

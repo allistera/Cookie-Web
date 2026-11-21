@@ -23,6 +23,38 @@ async function errorDetails(response) {
   }
 }
 
+const pendingRuleUpdates = new Map()
+const latestRuleSeq = new Map()
+let ruleUpdateSeq = 0
+const pendingLabelAutoApply = new Map()
+const latestLabelAutoApplySeq = new Map()
+let labelAutoApplySeq = 0
+
+function serializeById(map, id, run) {
+  const chained = (map.get(id) ?? Promise.resolve()).catch(() => {}).then(run)
+  map.set(id, chained)
+  chained
+    .finally(() => {
+      if (map.get(id) === chained) map.delete(id)
+    })
+    .catch(() => {})
+  return chained
+}
+
+function allMailLists(store) {
+  return [
+    store.traditionalEmails,
+    store.starredEmails,
+    store.labelEmails,
+    store.sentEmails,
+    store.spamEmails,
+    store.screeningEmails,
+    store.blockedEmails,
+    store.snoozedEmails,
+    store.doneEmails,
+  ]
+}
+
 export const mailSettingsActions = {
   async loadReadReceipts(emails) {
     if (!emails.length) return
@@ -335,7 +367,7 @@ export const mailSettingsActions = {
         headers,
         body: JSON.stringify(next),
       })
-      const payload = await response.json()
+      const payload = await response.json().catch(() => ({}))
       if (owner !== this.composeOwnerSub || generation !== this.composeGeneration) return false
       if (response.status === 409) {
         this.applyComposePreferences(payload.current)
@@ -438,8 +470,7 @@ export const mailSettingsActions = {
       headers,
       body: JSON.stringify({ instruction: instruction.trim() }),
     })
-    const data = await response.json()
-    if (generation !== this.composeGeneration) return false
+    const data = await response.json().catch(() => ({}))
     if (generation !== this.composeGeneration) return false
     if (!response.ok) throw new Error(data.error || 'AI rule generation failed. Please try again.')
     if (
@@ -488,7 +519,7 @@ export const mailSettingsActions = {
       const response = await fetch(`${TASKS_API_URL}/tasks/interests`, { headers })
       if (!response.ok) throw new Error(`GET interests responded ${response.status}`)
       const { interests, personaliseGithub } = await response.json()
-      if (generation !== this.composeGeneration) return
+      if (generation !== this.composeGeneration || this.interestsLoaded) return
       this.interests = interests
       this.personaliseGithub = personaliseGithub === true
       this.interestsLoaded = true
@@ -698,7 +729,6 @@ export const mailSettingsActions = {
         this.notify('A category with that name already exists.', 'error')
         return false
       }
-      if (generation !== this.composeGeneration) return false
       if (!response.ok) throw new Error(`POST /categories responded ${response.status}`)
       const { category } = await response.json()
       if (generation !== this.composeGeneration) return false
@@ -725,15 +755,7 @@ export const mailSettingsActions = {
       if (generation !== this.composeGeneration) return false
       if (!response.ok) throw new Error(`DELETE /categories responded ${response.status}`)
       this.categories = this.categories.filter((category) => category.id !== id)
-      for (const list of [
-        this.traditionalEmails,
-        this.starredEmails,
-        this.labelEmails,
-        this.sentEmails,
-        this.spamEmails,
-        this.snoozedEmails,
-        this.doneEmails,
-      ]) {
+      for (const list of allMailLists(this)) {
         for (const email of list) {
           if (email.category?.id === id) email.category = null
         }
@@ -762,7 +784,6 @@ export const mailSettingsActions = {
         this.notify('A label with that name already exists.', 'error')
         return false
       }
-      if (generation !== this.composeGeneration) return false
       if (!response.ok) {
         throw new Error(`POST /api/labels responded ${response.status}`)
       }
@@ -780,6 +801,7 @@ export const mailSettingsActions = {
   },
   async deleteLabel(id) {
     const generation = this.composeGeneration
+    const deleted = this.labels.find((label) => label.id === id)
     try {
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       if (generation !== this.composeGeneration) return false
@@ -793,6 +815,15 @@ export const mailSettingsActions = {
         throw new Error(`DELETE /api/labels responded ${response.status}`)
       }
       this.labels = this.labels.filter((label) => label.id !== id)
+      if (deleted?.name) {
+        for (const list of allMailLists(this)) {
+          for (const email of list) {
+            if (email.labels?.some((item) => item.name === deleted.name)) {
+              email.labels = email.labels.filter((item) => item.name !== deleted.name)
+            }
+          }
+        }
+      }
       this.notify('Label deleted.')
     } catch (error) {
       if (generation !== this.composeGeneration) return false
@@ -819,22 +850,14 @@ export const mailSettingsActions = {
         this.notify('A label with that name already exists.', 'error')
         return false
       }
-      if (generation !== this.composeGeneration) return false
       if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
 
       const { label: updatedLabel } = await response.json()
       if (generation !== this.composeGeneration) return false
       Object.assign(label, updatedLabel)
       this.labels.sort((a, b) => a.name.localeCompare(b.name))
-      for (const list of [
-        this.traditionalEmails,
-        this.starredEmails,
-        this.labelEmails,
-        this.sentEmails,
-        this.spamEmails,
-        this.snoozedEmails,
-        this.doneEmails,
-      ]) {
+      if (this.labelFolderName === previousName) this.labelFolderName = updatedLabel.name
+      for (const list of allMailLists(this)) {
         for (const email of list) {
           for (const messageLabel of email.labels || []) {
             if (messageLabel.name === previousName) messageLabel.name = updatedLabel.name
@@ -853,50 +876,60 @@ export const mailSettingsActions = {
   },
   async updateRule(rule, changes) {
     const generation = this.composeGeneration
+    const seq = ++ruleUpdateSeq
+    latestRuleSeq.set(rule.id, seq)
     const previous = { ...rule }
     Object.assign(rule, changes)
-    try {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+    return serializeById(pendingRuleUpdates, rule.id, async () => {
       if (generation !== this.composeGeneration) return false
-      const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ id: rule.id, ...changes }),
-      })
-      if (generation !== this.composeGeneration) return false
-      if (!response.ok)
-        throw new Error(`PATCH /api/labels?resource=rules responded ${response.status}`)
-      const { rule: updatedRule } = await response.json()
-      if (generation !== this.composeGeneration) return false
-      Object.assign(rule, updatedRule)
-      return true
-    } catch (error) {
-      if (generation !== this.composeGeneration) return false
-      Object.assign(rule, previous)
-      console.error('Failed to update rule:', error)
-      this.notify('Failed to update rule.', 'error')
-      return false
-    }
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return false
+        const response = await fetch(`${LABELS_API_URL}/labels/rules`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: rule.id, ...changes }),
+        })
+        if (generation !== this.composeGeneration) return false
+        if (!response.ok)
+          throw new Error(`PATCH /api/labels?resource=rules responded ${response.status}`)
+        const { rule: updatedRule } = await response.json()
+        if (generation !== this.composeGeneration) return false
+        if (latestRuleSeq.get(rule.id) === seq) Object.assign(rule, updatedRule)
+        return true
+      } catch (error) {
+        if (generation !== this.composeGeneration) return false
+        if (latestRuleSeq.get(rule.id) === seq) Object.assign(rule, previous)
+        console.error('Failed to update rule:', error)
+        this.notify('Failed to update rule.', 'error')
+        return false
+      }
+    })
   },
   async setLabelAutoApply(label, autoApply) {
     const generation = this.composeGeneration
+    const seq = ++labelAutoApplySeq
+    latestLabelAutoApplySeq.set(label.id, seq)
     const previous = label.auto_apply
     label.auto_apply = autoApply
-    try {
-      const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+    return serializeById(pendingLabelAutoApply, label.id, async () => {
       if (generation !== this.composeGeneration) return false
-      const response = await fetch(`${LABELS_API_URL}/labels`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ id: label.id, auto_apply: autoApply }),
-      })
-      if (generation !== this.composeGeneration) return false
-      if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
-    } catch (error) {
-      if (generation !== this.composeGeneration) return false
-      label.auto_apply = previous
-      console.error('Failed to update label auto-tagging:', error)
-      this.notify('Failed to update auto-tagging.', 'error')
-    }
+      try {
+        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return false
+        const response = await fetch(`${LABELS_API_URL}/labels`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ id: label.id, auto_apply: autoApply }),
+        })
+        if (generation !== this.composeGeneration) return false
+        if (!response.ok) throw new Error(`PATCH /api/labels responded ${response.status}`)
+      } catch (error) {
+        if (generation !== this.composeGeneration) return false
+        if (latestLabelAutoApplySeq.get(label.id) === seq) label.auto_apply = previous
+        console.error('Failed to update label auto-tagging:', error)
+        this.notify('Failed to update auto-tagging.', 'error')
+      }
+    })
   },
 }

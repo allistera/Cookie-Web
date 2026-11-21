@@ -647,9 +647,10 @@ async function starSelected() {
 // Marks every selected email as read.
 async function markSelectedRead() {
   const emails = [...selectedEmails.value].filter((email) => email.unread)
+  const traditionalIds = new Set(store.traditionalEmails.map((item) => item.id))
   for (const email of emails) {
     email.unread = false
-    if (store.traditionalEmails.includes(email) && isInboxRow(store, email))
+    if (traditionalIds.has(email.id) && isInboxRow(store, email))
       store.unreadInboxCount = Math.max(0, store.unreadInboxCount - 1)
   }
   let succeeded = true
@@ -663,8 +664,7 @@ async function markSelectedRead() {
     succeeded = false
     for (const email of emails) {
       email.unread = true
-      if (store.traditionalEmails.includes(email) && isInboxRow(store, email))
-        store.unreadInboxCount++
+      if (traditionalIds.has(email.id) && isInboxRow(store, email)) store.unreadInboxCount++
     }
     store.notify('Failed to mark messages as read.', 'error')
   }
@@ -724,8 +724,9 @@ async function restoreSelectedMessage() {
 
 async function decideSelectedSenders(action) {
   if (decidingSenders.value) return
+  const snapshot = [...selectedEmails.value]
   const firstEmailByAddress = new Map()
-  for (const email of selectedEmails.value) {
+  for (const email of snapshot) {
     const address = normalizeSender(email.address)
     if (address && !firstEmailByAddress.has(address)) firstEmailByAddress.set(address, email.id)
   }
@@ -747,7 +748,7 @@ async function decideSelectedSenders(action) {
     // PATCHes settle before the reload so it can't fetch them unread again.
     if (action === 'accept') {
       await Promise.all(
-        selectedEmails.value
+        snapshot
           .filter((email) => covered.has(normalizeSender(email.address)))
           .map((email) => store.setUnread(email, false)),
       )
@@ -859,7 +860,7 @@ async function categorySelected(category) {
           category_id: category?.id ?? null,
         },
       )
-      const changedIds = result.queued ? emails.map((email) => email.id) : result.ids
+      const changedIdSet = new Set(result.queued ? emails.map((email) => email.id) : result.ids)
       changed = result.queued ? emails.length : result.updated
       for (const list of [
         store.traditionalEmails,
@@ -869,9 +870,11 @@ async function categorySelected(category) {
         store.spamEmails,
         store.snoozedEmails,
         store.doneEmails,
+        store.screeningEmails,
+        store.blockedEmails,
       ]) {
         for (const email of list) {
-          if (changedIds.includes(email.id)) email.category = category ?? null
+          if (changedIdSet.has(email.id)) email.category = category ?? null
         }
       }
     }
@@ -1373,7 +1376,9 @@ watch(
     if (id) {
       highlightedId.value = id
       nextTick(() => mailList.value?.scrollToKey(`email:${id}`))
-      store.fetchMessageBody(id).then(() => store.ensureThreadSummary(store.openEmail))
+      store.fetchMessageBody(id).then(() => {
+        if (store.openEmailId === id) store.ensureThreadSummary(store.openEmail)
+      })
       store.loadDrafts({ silent: true })
     }
   },
@@ -1668,14 +1673,6 @@ function removeReplyAttachment(id) {
   store.discardUploadedAttachment(id).catch(() => {})
 }
 
-function formatReplyAttachmentSize(bytes) {
-  const size = Number(bytes)
-  if (!Number.isFinite(size) || size < 0) return ''
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function selectReplyFollowUp(choice) {
   replyFollowUpAt.value = choice.date.toISOString()
   replyFollowUpOpen.value = false
@@ -1739,6 +1736,7 @@ function generateReplyDraft() {
   store.composerFollowUpAt = replyFollowUpAt.value
   store.composerAttachments = replyAttachments.value
   store.composerRecoveryId = store.replyRecoveryId
+  store.replyRecoveryId = null
   store.composerSendIdentity = store.replySendIdentity
   // The composer now owns this draft row and keeps autosaving into it.
   const replyDraftId = store.consumeReplyDraft()
@@ -1874,28 +1872,15 @@ async function sendReply() {
   isSendingReply.value = true
   // A reminder picked from a menu left open would miss the snapshot above.
   replyFollowUpOpen.value = false
+  let delivered = false
+  let result
   try {
     await recovery
     // A first save still in flight owns the only row for this reply.
     const handoff = replyDraftId ? null : store.settleReplyHandoff()
     if (handoff) replyDraftId = await handoff
-    const result = await store.sendMail(payload)
-    await store.discardDraft(replyDraftId)
-    await store.discardComposerRecovery(payload.recoveryId, payload.owner, payload.recoveryRevision)
-    if (session === store.replySessionId) {
-      // The send consumed them; clear before discardReply() so its cleanup
-      // doesn't delete attachments that just went out.
-      replyAttachments.value = []
-      discardReply()
-    }
-    store.notify(
-      result?.followUpScheduled === false
-        ? 'Reply sent, but the reminder could not be saved.'
-        : result?.sentCopyPending
-          ? 'Reply sent. Its Sent copy is still syncing.'
-          : 'Reply sent.',
-      result?.followUpScheduled === false ? 'error' : 'info',
-    )
+    result = await store.sendMail(payload)
+    delivered = true
   } catch (error) {
     console.error('Failed to send reply:', error)
     store.notify(
@@ -1925,6 +1910,27 @@ async function sendReply() {
   } finally {
     isSendingReply.value = false
   }
+  if (!delivered) return
+  // Post-send cleanup runs outside the delivery try/catch so a local cleanup
+  // error never reports a failed send or invites a duplicate reply.
+  await Promise.allSettled([
+    store.discardDraft(replyDraftId),
+    store.discardComposerRecovery(payload.recoveryId, payload.owner, payload.recoveryRevision),
+  ])
+  if (session === store.replySessionId) {
+    // The send consumed them; clear before discardReply() so its cleanup
+    // doesn't delete attachments that just went out.
+    replyAttachments.value = []
+    discardReply()
+  }
+  store.notify(
+    result?.followUpScheduled === false
+      ? 'Reply sent, but the reminder could not be saved.'
+      : result?.sentCopyPending
+        ? 'Reply sent. Its Sent copy is still syncing.'
+        : 'Reply sent.',
+    result?.followUpScheduled === false ? 'error' : 'info',
+  )
 }
 
 // Outbound rows (Sent view, and sent copies surfaced by search) show who the
@@ -1956,16 +1962,22 @@ function isTypingTarget(target) {
 // Whether anything other than the reader sits over the email list: the
 // composer, command palette, chat or contact drawer, one of the multi-select
 // bar's menus, or a dialog opened from elsewhere in the app.
-function isListObscured() {
+function isOverlayCoveringInbox() {
   return Boolean(
     store.isComposerActive ||
     store.isCommandPaletteOpen ||
     store.isChatDrawerActive ||
     contactInsights.isOpen ||
+    document.querySelector('dialog[open], [aria-modal="true"]'),
+  )
+}
+
+function isListObscured() {
+  return Boolean(
+    isOverlayCoveringInbox() ||
     bulkLabelOpen.value ||
     bulkCategoryOpen.value ||
-    bulkScheduleOpen.value ||
-    document.querySelector('dialog[open], [aria-modal="true"]'),
+    bulkScheduleOpen.value,
   )
 }
 
@@ -2002,9 +2014,14 @@ function isAvailabilityDialogEvent(event) {
 function onKeydown(e) {
   // The teleported reply dialog owns its keys, including Escape and shortcuts.
   if (isAvailabilityDialogEvent(e)) return
-  // The command palette owns Escape while it is open. Otherwise Escape
-  // unchecks the multi-select first; a second press closes the reader.
-  if (e.key === 'Escape' && !store.isCommandPaletteOpen) {
+  // The command palette, composer, and modal dialogs own Escape while open.
+  // Otherwise Escape unchecks the multi-select first; a second press closes the reader.
+  if (
+    e.key === 'Escape' &&
+    !store.isCommandPaletteOpen &&
+    !store.isComposerActive &&
+    !document.querySelector('dialog[open], [aria-modal="true"]')
+  ) {
     if (selectedEmails.value.length) {
       clearSelection()
     } else if (openEmail.value) {
@@ -2023,10 +2040,10 @@ function onKeydown(e) {
     !e.metaKey &&
     !e.ctrlKey &&
     !e.altKey &&
-    !store.isCommandPaletteOpen &&
+    !isOverlayCoveringInbox() &&
     !isTypingTarget(e.target)
   ) {
-    if (e.key === 'e') {
+    if (e.key === 'e' && activeFilter.value !== 'done') {
       e.preventDefault()
       markSelectedDone()
       return
@@ -2120,7 +2137,8 @@ function onKeydown(e) {
     !e.ctrlKey &&
     !e.altKey &&
     openEmail.value &&
-    !store.isCommandPaletteOpen &&
+    activeFilter.value !== 'done' &&
+    !isOverlayCoveringInbox() &&
     !isTypingTarget(e.target)
   ) {
     e.preventDefault()
@@ -2176,7 +2194,9 @@ function onDocumentClick(e) {
     within('ks-overlay') ||
     within('bucket-panel') ||
     within('bucket-trigger') ||
-    within('window-dock')
+    within('window-dock') ||
+    within('snippet-preview-backdrop') ||
+    within('composer-toast')
   )
     return
   // Clicks inside the panel keep it open; clicks on rows and on The Feed's
@@ -2297,6 +2317,7 @@ onUnmounted(() => {
               :aria-label="`Mark ${row.group.label} emails as read`"
               @click.stop="markGroupRead(row.group)"
               @keydown.enter.stop.prevent="markGroupRead(row.group)"
+              @keydown.space.stop.prevent="markGroupRead(row.group)"
             >
               <span class="material-symbols-outlined">mark_email_read</span>
               Mark Read
@@ -2963,7 +2984,7 @@ onUnmounted(() => {
                   {{ attachment.filename || 'Attachment' }}
                 </span>
                 <span v-if="attachment.size_bytes != null" class="composer-attachment-size">
-                  {{ formatReplyAttachmentSize(attachment.size_bytes) }}
+                  {{ formatFileSize(attachment.size_bytes) }}
                 </span>
                 <button
                   type="button"
@@ -3187,7 +3208,9 @@ onUnmounted(() => {
               v-else
               :message="message"
               :expanded="expandedThreadIds.has(message.id)"
+              :show-images="showsRemoteImages(openEmail)"
               @toggle="toggleThreadMessage(message.id)"
+              @keydown="forwardEmailKeydown"
             />
           </template>
         </div>

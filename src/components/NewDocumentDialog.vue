@@ -74,7 +74,10 @@ async function createAiDocument() {
 </script>
 
 <template>
-  <div class="new-document-overlay" @mousedown.self="store.closeNewDocumentDialog()">
+  <div
+    class="new-document-overlay"
+    @mousedown.self="!isCreating && store.closeNewDocumentDialog()"
+  >
     <section
       ref="dialog"
       class="new-document-dialog"

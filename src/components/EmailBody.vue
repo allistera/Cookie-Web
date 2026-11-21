@@ -64,7 +64,7 @@ const SCRIPT_CLOSE = '</scr' + 'ipt>'
 // The bridge is cached for a day (vercel.json), so its URL carries the
 // revision: bump ?v= here and "Bridge revision" in public/email-body-bridge.js
 // together whenever that file changes, or a cached copy keeps running.
-const emailBodyBridgeUrl = '/email-body-bridge.js?v=2'
+const emailBodyBridgeUrl = '/email-body-bridge.js?v=3'
 
 function randomToken() {
   if (globalThis.crypto?.randomUUID) {
@@ -151,6 +151,13 @@ function currentTheme() {
 const theme = ref(currentTheme())
 let themeObserver = null
 
+// Reloading srcdoc (Show images or theme switch) resets the bridge's
+// linksRevision back to 0 while keeping the same frameGeneration; reset our
+// watermark so post-load unsubscribe-link snapshots are not silently dropped.
+watch([imagesAllowed, theme], () => {
+  latestLinksRevision = 0
+})
+
 // The iframe document. Its only dynamic input is the already-sanitized body;
 // the surrounding chrome (doctype, base CSS) is a fixed string we control.
 //
@@ -185,7 +192,7 @@ body {
 img { max-width: 100%; height: auto; }
 table { max-width: 100%; border-collapse: collapse; }
 a { color: ${link}; }
-</style></head><body data-bridge-source="${BRIDGE_SOURCE}" data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}" data-bridge-hint-source="${BRIDGE_HINT_SOURCE}" data-bridge-resize-interval="${RESIZE_INTERVAL_MS}"${contrast}>${safeHtml.value}
+</style></head><body data-bridge-source="${BRIDGE_SOURCE}" data-bridge-token="${frameToken}" data-bridge-generation="${frameGeneration.value}" data-bridge-hint-source="${BRIDGE_HINT_SOURCE}" data-bridge-resize-interval="${RESIZE_INTERVAL_MS}"${contrast}><div id="__cookie_email_root__" style="display: flow-root;">${safeHtml.value}</div>
 <script nonce="${scriptNonce}" src="${emailBodyBridgeUrl}">${SCRIPT_CLOSE}</body></html>`
 })
 

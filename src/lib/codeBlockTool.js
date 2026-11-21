@@ -175,7 +175,10 @@ export class CodeBlockTool {
     const pre = event.detail.data
     this.data.code = pre ? preText(pre) : ''
     const language = pre ? languageFromElement(pre) : PLAIN_LANGUAGE
-    if (language !== PLAIN_LANGUAGE) this.data.language = language
+    if (language !== PLAIN_LANGUAGE) {
+      this.data.language = language
+      this.loadGrammar()
+    }
     if (this.textarea) this.textarea.value = this.data.code
     if (this.select) this.select.value = this.data.language
     this.refresh()
@@ -192,5 +195,9 @@ export class CodeBlockTool {
     this.destroyed = true
     if (this.refreshFrame !== null) cancelAnimationFrame(this.refreshFrame)
     this.refreshFrame = null
+  }
+
+  removed() {
+    this.destroy()
   }
 }

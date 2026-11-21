@@ -1,8 +1,9 @@
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { formatEmailDate, useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
+const discardingIds = ref(new Set())
 
 onMounted(() => {
   store.loadDrafts({ force: true })
@@ -39,19 +40,50 @@ function attachmentTitle(draft) {
   return count === 1 ? '1 attachment' : `${count} attachments`
 }
 
+const recoveryRows = computed(() =>
+  store.draftRecoveries.map((record) => ({
+    record,
+    recipient: recipient(record.snapshot),
+    preview: draftPreview(record.snapshot),
+  })),
+)
+
+const draftRows = computed(() =>
+  store.drafts.map((draft) => ({
+    draft,
+    recipient: recipient(draft),
+    preview: draftPreview(draft),
+    attachments: attachmentCount(draft),
+    attachmentLabel: attachmentTitle(draft),
+    updatedLabel: formatUpdatedAt(draft.updatedAt),
+  })),
+)
+
 async function discard(draft) {
-  await store.discardDraft(draft.id)
-  // Reopening the composer on a row that no longer exists would silently
-  // create a second draft, so close it if this was the one being edited,
-  // whether in the composer or minimised to a tab.
+  if (discardingIds.value.has(draft.id)) return
+  discardingIds.value = new Set(discardingIds.value).add(draft.id)
+  // Close the composer before awaiting deletion so a pending debounced
+  // autosave cannot recreate the draft while DELETE is in flight.
   if (store.composerDraftId === draft.id) store.closeComposer({ save: false })
   const tab = store.dockTabs.find((entry) => (entry.snapshot ?? entry.stored)?.draftId === draft.id)
   if (tab) store.closeDockTab(tab.key)
+  try {
+    await store.discardDraft(draft.id)
+  } catch (error) {
+    console.error('Failed to discard draft:', error)
+    store.notify('Failed to discard draft.', 'error')
+  } finally {
+    const next = new Set(discardingIds.value)
+    next.delete(draft.id)
+    discardingIds.value = next
+  }
 }
 
 function discardRecovery(record) {
   if (window.confirm('Discard this local recovery copy? This cannot be undone.')) {
     if (store.composerRecoveryId === record.id) store.closeComposer({ save: false })
+    const tab = store.dockTabs.find((entry) => entry.snapshot?.recoveryId === record.id)
+    if (tab) store.closeDockTab(tab.key)
     store.discardComposerRecovery(record.id, record.owner)
   }
 }
@@ -79,28 +111,29 @@ function discardRecovery(record) {
           copies are removed when you log out.
         </p>
         <div
-          v-for="record in store.draftRecoveries"
-          :key="record.id"
+          v-for="row in recoveryRows"
+          :key="row.record.id"
           class="ni-row drafts-row"
           role="button"
           tabindex="0"
-          :aria-label="`${recipient(record.snapshot)}: ${record.snapshot.subject || '(no subject)'}`"
-          @click="store.openRecoveredDraft(record)"
-          @keydown.enter.self.prevent="store.openRecoveredDraft(record)"
+          :aria-label="`${row.recipient}: ${row.record.snapshot.subject || '(no subject)'}`"
+          @click="store.openRecoveredDraft(row.record)"
+          @keydown.enter.self.prevent="store.openRecoveredDraft(row.record)"
+          @keydown.space.self.prevent="store.openRecoveredDraft(row.record)"
         >
           <div class="ni-lead"></div>
-          <div class="ni-sender">{{ recipient(record.snapshot) }}</div>
+          <div class="ni-sender">{{ row.recipient }}</div>
           <div class="ni-subject">
             <span class="ni-subject-text">
-              {{ record.snapshot.subject || '(no subject)' }}
-              <span v-if="draftPreview(record.snapshot)" class="drafts-preview">{{
-                draftPreview(record.snapshot)
-              }}</span>
+              {{ row.record.snapshot.subject || '(no subject)' }}
+              <span v-if="row.preview" class="drafts-preview">{{ row.preview }}</span>
             </span>
           </div>
           <div class="ni-date">
             {{
-              record.durable ? 'Saved on this device' : 'Storage unavailable — keep this tab open'
+              row.record.durable
+                ? 'Saved on this device'
+                : 'Storage unavailable — keep this tab open'
             }}
           </div>
           <div class="ni-actions" @click.stop>
@@ -108,8 +141,8 @@ function discardRecovery(record) {
               type="button"
               class="ni-action-btn"
               title="Discard"
-              :aria-label="`Discard local copy of ${record.snapshot.subject || 'draft'}`"
-              @click="discardRecovery(record)"
+              :aria-label="`Discard local copy of ${row.record.snapshot.subject || 'draft'}`"
+              @click="discardRecovery(row.record)"
             >
               <span class="material-symbols-outlined" aria-hidden="true">delete</span>
             </button>
@@ -132,42 +165,42 @@ function discardRecovery(record) {
           Saved to your account
         </h2>
         <div
-          v-for="draft in store.drafts"
-          :key="draft.id"
+          v-for="row in draftRows"
+          :key="row.draft.id"
           class="ni-row drafts-row"
           role="button"
           tabindex="0"
-          :aria-label="`${recipient(draft)}: ${draft.subject || '(no subject)'}`"
-          @click="store.openDraft(draft)"
-          @keydown.enter.self.prevent="store.openDraft(draft)"
+          :aria-label="`${row.recipient}: ${row.draft.subject || '(no subject)'}`"
+          @click="store.openDraft(row.draft)"
+          @keydown.enter.self.prevent="store.openDraft(row.draft)"
+          @keydown.space.self.prevent="store.openDraft(row.draft)"
         >
           <div class="ni-lead"></div>
-          <div class="ni-sender">{{ recipient(draft) }}</div>
+          <div class="ni-sender">{{ row.recipient }}</div>
           <div class="ni-subject">
             <span class="ni-subject-text">
-              {{ draft.subject || '(no subject)' }}
-              <span v-if="draftPreview(draft)" class="drafts-preview">{{
-                draftPreview(draft)
-              }}</span>
+              {{ row.draft.subject || '(no subject)' }}
+              <span v-if="row.preview" class="drafts-preview">{{ row.preview }}</span>
             </span>
           </div>
           <div class="ni-date">
             <span
-              v-if="attachmentCount(draft)"
+              v-if="row.attachments"
               class="material-symbols-outlined ni-row-attachment-icon"
-              :title="attachmentTitle(draft)"
-              :aria-label="attachmentTitle(draft)"
+              :title="row.attachmentLabel"
+              :aria-label="row.attachmentLabel"
               >attach_file</span
             >
-            <span class="drafts-time">{{ formatUpdatedAt(draft.updatedAt) }}</span>
+            <span class="drafts-time">{{ row.updatedLabel }}</span>
           </div>
           <div class="ni-actions" @click.stop>
             <button
               type="button"
               class="ni-action-btn"
               title="Discard"
-              :aria-label="`Discard ${draft.subject || 'draft'}`"
-              @click="discard(draft)"
+              :aria-label="`Discard ${row.draft.subject || 'draft'}`"
+              :disabled="discardingIds.has(row.draft.id)"
+              @click="discard(row.draft)"
             >
               <span class="material-symbols-outlined" aria-hidden="true">delete</span>
             </button>

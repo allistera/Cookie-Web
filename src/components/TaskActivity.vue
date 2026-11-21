@@ -157,7 +157,7 @@ onBeforeUnmount(() => {
 })
 
 const lookups = {
-  projectName: (id) => projects.projects.find((row) => row.id === id)?.name,
+  projectName: (id) => projects.projectsById.get(id)?.name,
   taskTitle: (id) => items.itemById(id)?.content,
 }
 function openTask(row) {
@@ -253,7 +253,7 @@ function openTask(row) {
           {{ row.title }}
         </button>
         <p v-else>{{ row.title }} <span class="muted">(deleted task)</span></p>
-        <details v-if="Object.keys(row.changes).length">
+        <details v-if="row.changes && Object.keys(row.changes).length">
           <summary>
             {{
               Object.keys(row.changes)

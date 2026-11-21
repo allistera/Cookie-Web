@@ -61,23 +61,41 @@ export const MESSAGE_PATCH = 'message-patch'
 export function applyQueuedMessageChanges(
   rows,
   entries,
-  { inboxPage = false, now = Date.now() } = {},
+  { inboxPage = false, folder = null, now = Date.now() } = {},
 ) {
   if (!entries.length) return rows
   const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))
-  const FIELDS = ['is_starred', 'is_unread', 'is_archived', 'scheduled_for']
+  const FIELDS = ['is_starred', 'is_unread', 'is_archived', 'scheduled_for', 'is_deleted']
   return rows
     .map((row) => {
       const change = changes.get(row.id)
       if (!change) return row
       const next = { ...row }
       for (const field of FIELDS) if (change[field] !== undefined) next[field] = change[field]
+      if (change.is_spam !== undefined) {
+        next.spam_verdict = change.is_spam ? 'spam' : 'not_spam'
+      }
       return next
     })
     .filter((row) => {
-      if (!inboxPage || !changes.has(row.id)) return true
-      if (row.is_archived) return false
-      return !row.scheduled_for || new Date(row.scheduled_for).getTime() <= now
+      if (!changes.has(row.id)) return true
+      if (row.is_deleted) return false
+      if (inboxPage) {
+        if (row.is_archived || row.spam_verdict === 'spam') return false
+        return !row.scheduled_for || new Date(row.scheduled_for).getTime() <= now
+      }
+      if (folder === 'starred') return Boolean(row.is_starred)
+      if (folder === 'spam') return row.spam_verdict === 'spam' && !row.is_archived
+      if (folder === 'snoozed') {
+        return (
+          row.spam_verdict !== 'spam' &&
+          !row.is_archived &&
+          Boolean(row.scheduled_for) &&
+          new Date(row.scheduled_for).getTime() > now
+        )
+      }
+      if (folder === 'done') return Boolean(row.is_archived)
+      return true
     })
 }
 
@@ -152,6 +170,14 @@ const pendingInviteFetches = new Map()
 // the second. Each map holds the tail of that message's update chain.
 const pendingStarUpdates = new Map()
 const pendingUnreadUpdates = new Map()
+const pendingLabelUpdates = new Map()
+const latestStarAction = new Map()
+const latestUnreadAction = new Map()
+let starActionSeq = 0
+let unreadActionSeq = 0
+let doneLoadSeq = 0
+let tasksLoadSeq = 0
+let scheduledSendsLoadSeq = 0
 
 // Inbox rows removed optimistically (Done, Report spam, Snooze) whose PATCH
 // may not have landed when an inbox page was requested. Such a page still
@@ -166,15 +192,17 @@ const inboxRemovals = new Map() // id -> { settledSeq: number | null }
 // @param {Promise<unknown>} persistence resolves false (or rejects) when the
 //   change did not land, in which case the row belongs in the list again.
 function trackInboxRemoval(id, persistence) {
-  inboxRemovals.set(id, { settledSeq: null })
+  const entry = { settledSeq: null }
+  inboxRemovals.set(id, entry)
   persistence.then(
     (ok) => {
-      const entry = inboxRemovals.get(id)
-      if (!entry) return
+      if (inboxRemovals.get(id) !== entry) return
       if (ok === false) inboxRemovals.delete(id)
       else entry.settledSeq = ++inboxRemovalSeq
     },
-    () => inboxRemovals.delete(id),
+    () => {
+      if (inboxRemovals.get(id) === entry) inboxRemovals.delete(id)
+    },
   )
 }
 
@@ -336,7 +364,7 @@ function reversibleMessageUpdate(
     } catch (error) {
       if (!currentAccount()) return
       console.error('Failed to undo email action:', error)
-      apply()
+      if (isCurrent()) apply()
       store.notify('Failed to undo email action.', 'error')
     }
   }
@@ -357,6 +385,7 @@ const EMAIL_DAY_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 
 // "3:54 pm" for today, "5 Jul" for anything older — Notion Mail style.
 export function formatEmailDate(isoString) {
   const sentAt = new Date(isoString)
+  if (Number.isNaN(sentAt.getTime())) return ''
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   if (sentAt >= startOfToday) {
@@ -602,23 +631,43 @@ export function mapEmailRow(message) {
   }
 }
 
-// Every cached copy of an email (the open reader can hold a different object
-// than the list rows), so an importance change moves it between inbox tabs
-// everywhere at once.
-function setImportanceFields(store, email, isPriority, category) {
-  const lists = [
+function allEmailLists(store) {
+  return [
     store.traditionalEmails,
     store.starredEmails,
     store.labelEmails,
     store.sentEmails,
     store.spamEmails,
+    store.screeningEmails,
+    store.blockedEmails,
     store.snoozedEmails,
     store.doneEmails,
   ]
-  for (const row of [
-    email,
-    ...lists.flatMap((list) => list.filter((item) => item.id === email.id)),
-  ]) {
+}
+
+function matchingEmailCopies(store, email) {
+  const seen = new Set()
+  const matches = []
+  if (email) {
+    seen.add(email)
+    matches.push(email)
+  }
+  for (const list of allEmailLists(store)) {
+    for (const item of list) {
+      if (item.id === email.id && !seen.has(item)) {
+        seen.add(item)
+        matches.push(item)
+      }
+    }
+  }
+  return matches
+}
+
+// Every cached copy of an email (the open reader can hold a different object
+// than the list rows), so an importance change moves it between inbox tabs
+// everywhere at once.
+function setImportanceFields(store, email, isPriority, category) {
+  for (const row of matchingEmailCopies(store, email)) {
     row.isPriority = isPriority
     row.category = category
   }
@@ -629,13 +678,38 @@ function setImportanceFields(store, email, isPriority, category) {
 // three new object references. Vue treats that as a change and re-renders
 // every visible EmailRow on every Realtime ping. Compare those fields by
 // value and leave the existing reference in place when nothing moved.
+function deepEqual(a, b) {
+  if (Object.is(a, b)) return true
+  if (a == null || b == null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    for (let i = 0; i < a.length; i += 1) {
+      if (!deepEqual(a[i], b[i])) return false
+    }
+    return true
+  }
+  if (
+    Object.prototype.toString.call(a) !== '[object Object]' ||
+    Object.prototype.toString.call(b) !== '[object Object]'
+  ) {
+    return false
+  }
+  const keysA = Object.keys(a)
+  const keysB = Object.keys(b)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!Object.hasOwn(b, key) || !deepEqual(a[key], b[key])) return false
+  }
+  return true
+}
+
 const COMPOSITE_FIELDS = new Set(['labels', 'recipients', 'category'])
 
 function assignChangedFields(target, row) {
   for (const key of Object.keys(row)) {
     const next = row[key]
     if (COMPOSITE_FIELDS.has(key)) {
-      if (JSON.stringify(target[key]) === JSON.stringify(next)) continue
+      if (deepEqual(target[key], next)) continue
     } else if (Object.is(target[key], next)) continue
     target[key] = next
   }
@@ -1317,13 +1391,21 @@ export const useInboxStore = defineStore('inbox', {
 
     async refreshInboxEmails() {
       if (this.activeSearchQuery) return
+      const generation = this.composeGeneration
+      const queueGeneration = this.senderQueueGeneration
       const seq = this.listSeq
       const fetchSeq = inboxFetchSeq()
       const owner = offlineOwner()
       try {
         const page = await this.fetchEmailPage()
         const { emails, nextCursor, unreadCount, userId } = page
-        if (this.activeSearchQuery || seq !== this.listSeq) return
+        if (
+          this.activeSearchQuery ||
+          seq !== this.listSeq ||
+          generation !== this.composeGeneration ||
+          queueGeneration !== this.senderQueueGeneration
+        )
+          return
         const incoming = dropPendingRemovals(emails.map(mapEmailRow), fetchSeq)
         const existing = this.traditionalEmails
         this.traditionalEmails = mergeInboxPage(
@@ -1348,7 +1430,13 @@ export const useInboxStore = defineStore('inbox', {
         this.isInboxStateLoaded = true
         writeOfflineCache('inbox:page', page, owner)
       } catch (error) {
-        if (this.activeSearchQuery || seq !== this.listSeq) return
+        if (
+          this.activeSearchQuery ||
+          seq !== this.listSeq ||
+          generation !== this.composeGeneration ||
+          queueGeneration !== this.senderQueueGeneration
+        )
+          return
         // A refresh runs on every focus and Realtime ping; offline, the list
         // on screen stays and the banner says why.
         if (isNetworkError(error)) {
@@ -1428,7 +1516,9 @@ export const useInboxStore = defineStore('inbox', {
       if (!cached) return false
       const queued = await pendingOutboxEntries(MESSAGE_PATCH)
       if (seq !== folderLoadSeq[folder]) return true
-      this[keys.list] = applyQueuedMessageChanges(cached.value.emails, queued).map(mapEmailRow)
+      this[keys.list] = applyQueuedMessageChanges(cached.value.emails, queued, { folder }).map(
+        mapEmailRow,
+      )
       this[keys.cursor] = null
       this[keys.hasMore] = false
       if (keys.loaded) this[keys.loaded] = true
@@ -1482,19 +1572,27 @@ export const useInboxStore = defineStore('inbox', {
 
     async refreshSenderMail() {
       this.senderQueueGeneration++
-      // Strands any loadEmails/loadMoreEmails in flight, which then never
-      // clear isRefreshing themselves; a first load stranded here is rerun.
+      // Strands any loadEmails/loadMoreEmails/loadFolder in flight, which then never
+      // clear their refreshing flags themselves; a first load stranded here is rerun.
       const strandedFirstLoad = this.isRefreshing && !this.isInboxLoaded && !this.activeSearchQuery
       this.listSeq++
       this.isRefreshing = false
+      this.isDoneRefreshing = false
+      for (const keys of Object.values(FOLDER_STATE)) {
+        this[keys.refreshing] = false
+      }
       this.openEmailId = null
       this.messageBodies.clear()
       this.threadSummaries.clear()
       this.summaryRejectedVersions.clear()
       pendingBodyFetches.clear()
       await Promise.all([
-        this.refreshInbox(),
-        strandedFirstLoad ? this.loadEmails() : Promise.resolve(),
+        strandedFirstLoad ? this.loadEmails() : this.refreshInbox(),
+        strandedFirstLoad ? this.loadDrafts({ silent: true }) : Promise.resolve(),
+        strandedFirstLoad && this.isScreeningLoaded
+          ? this.loadFolder('screening')
+          : Promise.resolve(),
+        strandedFirstLoad && this.isBlockedLoaded ? this.loadFolder('blocked') : Promise.resolve(),
         ...['spam', 'snoozed', 'starred', 'label']
           .filter((folder) => this[FOLDER_STATE[folder].loaded])
           .map((folder) =>
@@ -1565,16 +1663,22 @@ export const useInboxStore = defineStore('inbox', {
     // page is one oversized day, where the size cap wins over the invariant.
     async loadDonePage(pageIndex = 0) {
       const generation = this.composeGeneration
+      const queueGeneration = this.senderQueueGeneration
+      const seq = ++doneLoadSeq
       const cursor = this.donePageCursors[pageIndex] ?? null
       const owner = offlineOwner()
       this.isDoneRefreshing = true
+      const isCurrent = () =>
+        seq === doneLoadSeq &&
+        generation === this.composeGeneration &&
+        queueGeneration === this.senderQueueGeneration
       try {
         const { emails, nextCursor } = await this.fetchEmailPage({
           folder: 'done',
           before: cursor ?? undefined,
           limit: DONE_PAGE_SIZE,
         })
-        if (generation !== this.composeGeneration) return
+        if (!isCurrent()) return
         // Done pages by day rather than by cursor like the other folders,
         // but its first page is cached the same way.
         if (pageIndex === 0) writeOfflineCache(folderCacheKey('done'), { emails }, owner)
@@ -1591,28 +1695,39 @@ export const useInboxStore = defineStore('inbox', {
         this.doneHasNext = Boolean(nextCursor && last)
         this.donePageCursors[pageIndex + 1] = this.doneHasNext ? `${last.sentAt}|${last.id}` : null
       } catch (error) {
-        if (generation !== this.composeGeneration) return
+        if (!isCurrent()) return
         if (isNetworkError(error)) {
           noteNetworkFailure()
-          if (pageIndex === 0 && (await this.applyCachedDonePage())) return
+          if (pageIndex === 0 && (await this.applyCachedDonePage(seq, generation, queueGeneration)))
+            return
+          if (!isCurrent()) return
         }
         console.error('Failed to load done emails:', error)
         this.notify('Failed to load done emails.', 'error')
       } finally {
-        if (generation === this.composeGeneration) this.isDoneRefreshing = false
+        if (isCurrent()) this.isDoneRefreshing = false
       }
     },
 
     // Done's cached first page in place of one the Worker could not serve;
     // one page is all there is offline, so there is no next page.
-    async applyCachedDonePage() {
-      const generation = this.composeGeneration
+    async applyCachedDonePage(
+      seq = doneLoadSeq,
+      generation = this.composeGeneration,
+      queueGeneration = this.senderQueueGeneration,
+    ) {
+      const isCurrent = () =>
+        seq === doneLoadSeq &&
+        generation === this.composeGeneration &&
+        queueGeneration === this.senderQueueGeneration
       const cached = await readOfflineCache(folderCacheKey('done'))
-      if (generation !== this.composeGeneration) return true
+      if (!isCurrent()) return true
       if (!cached) return false
       const queued = await pendingOutboxEntries(MESSAGE_PATCH)
-      if (generation !== this.composeGeneration) return true
-      this.doneEmails = applyQueuedMessageChanges(cached.value.emails, queued).map(mapEmailRow)
+      if (!isCurrent()) return true
+      this.doneEmails = applyQueuedMessageChanges(cached.value.emails, queued, {
+        folder: 'done',
+      }).map(mapEmailRow)
       this.donePageIndex = 0
       this.isDoneLoaded = true
       this.doneHasNext = false
@@ -1809,32 +1924,37 @@ export const useInboxStore = defineStore('inbox', {
     async toggleMessageLabel(email, label) {
       if (!email || !label) return
       const generation = this.composeGeneration
-      const applied = (email.labels || []).some((l) => l.name === label.name)
-      const action = applied ? 'remove_label' : 'add_label'
-      try {
-        const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      return serializePerMessage(pendingLabelUpdates, email.id, async () => {
         if (generation !== this.composeGeneration) return
-        const response = await fetch(`${MESSAGES_API_URL}/messages`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ id: email.id, action, label_id: label.id }),
-        })
-        if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
-        const { labels } = await response.json()
-        if (generation !== this.composeGeneration) return
-        email.labels = labels
-        if (!isWithheld(email) && this.isLabelLoaded && this.labelFolderName === label.name) {
-          syncFolderMembership(
-            this.labelEmails,
-            email,
-            (labels || []).some((item) => item.name === label.name),
-          )
+        const applied = (email.labels || []).some((l) => l.name === label.name)
+        const action = applied ? 'remove_label' : 'add_label'
+        try {
+          const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+          if (generation !== this.composeGeneration) return
+          const response = await fetch(`${MESSAGES_API_URL}/messages`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ id: email.id, action, label_id: label.id }),
+          })
+          if (!response.ok) throw new Error(`POST /api/messages responded ${response.status}`)
+          const { labels } = await response.json()
+          if (generation !== this.composeGeneration) return
+          for (const copy of matchingEmailCopies(this, email)) {
+            copy.labels = labels
+          }
+          if (!isWithheld(email) && this.isLabelLoaded && this.labelFolderName === label.name) {
+            syncFolderMembership(
+              this.labelEmails,
+              email,
+              (labels || []).some((item) => item.name === label.name),
+            )
+          }
+        } catch (error) {
+          if (generation !== this.composeGeneration) return
+          console.error('Failed to update message labels:', error)
+          this.notify('Failed to update tags.', 'error')
         }
-      } catch (error) {
-        if (generation !== this.composeGeneration) return
-        console.error('Failed to update message labels:', error)
-        this.notify('Failed to update tags.', 'error')
-      }
+      })
     },
 
     // Returns true on success so the settings form knows to reset.
@@ -1916,7 +2036,8 @@ export const useInboxStore = defineStore('inbox', {
     // Invalidates an in-flight search without changing the currently displayed
     // results. Used when the same header input is submitted to mailbox Q&A.
     cancelPendingSearch() {
-      searchAbortController?.abort()
+      if (!searchAbortController) return
+      searchAbortController.abort()
       searchAbortController = null
       this.listSeq++
       this.isRefreshing = false
@@ -1926,11 +2047,14 @@ export const useInboxStore = defineStore('inbox', {
     // invalidates any search or load still in flight.
     clearSearch() {
       const hadActiveSearch = Boolean(this.activeSearchQuery)
+      const hadPendingSearch = Boolean(searchAbortController)
       searchAbortController?.abort()
       searchAbortController = null
-      this.listSeq++
       this.activeSearchQuery = ''
-      this.isRefreshing = false
+      if (hadActiveSearch || hadPendingSearch) {
+        this.listSeq++
+        this.isRefreshing = false
+      }
       if (hadActiveSearch) return this.loadEmails()
     },
 
@@ -2052,17 +2176,21 @@ export const useInboxStore = defineStore('inbox', {
     async setThreadMuted(id, muted) {
       const body = this.messageBodies.get(id)
       if (!body?.threadId || this.mutingThreadIds.has(body.threadId)) return
+      const generation = this.composeGeneration
       const threadId = body.threadId
       this.mutingThreadIds.add(threadId)
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (generation !== this.composeGeneration) return
         const response = await fetch(`${MESSAGES_API_URL}/messages`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ id, action: muted ? 'mute_thread' : 'unmute_thread' }),
         })
+        if (generation !== this.composeGeneration) return
         if (!response.ok) throw new Error(`Thread mute responded ${response.status}`)
         const { thread } = await response.json()
+        if (generation !== this.composeGeneration) return
         if (thread?.id !== threadId || ![true, false].includes(thread.is_muted)) {
           throw new Error('Invalid thread mute response')
         }
@@ -2072,10 +2200,11 @@ export const useInboxStore = defineStore('inbox', {
         }
         this.notify(thread.is_muted ? 'Thread muted. Replies will be silent.' : 'Thread unmuted.')
       } catch (error) {
+        if (generation !== this.composeGeneration) return
         console.error('Failed to update thread mute:', error)
         this.notify('Could not change thread notifications. Please try again.', 'error')
       } finally {
-        this.mutingThreadIds.delete(threadId)
+        if (generation === this.composeGeneration) this.mutingThreadIds.delete(threadId)
       }
     },
 
@@ -2383,11 +2512,21 @@ export const useInboxStore = defineStore('inbox', {
         }
         return null
       } catch (error) {
+        if (
+          generation !== this.composeGeneration ||
+          queueGeneration !== this.senderQueueGeneration
+        )
+          return null
         console.error('AI summarization failed:', error)
         this.notify('AI summarization failed. Please try again.', 'error')
         return null
       } finally {
-        this.summaryLoadingIds.delete(id)
+        if (
+          generation === this.composeGeneration &&
+          queueGeneration === this.senderQueueGeneration
+        ) {
+          this.summaryLoadingIds.delete(id)
+        }
       }
     },
 
@@ -2461,16 +2600,16 @@ export const useInboxStore = defineStore('inbox', {
         } else if (result.status === 'manual' && isSafeUnsubscribeUrl(result.url)) {
           window.open(result.url, '_blank', 'noopener')
           this.notify('Finish unsubscribing on the page that just opened.')
-        } else if (
-          result.status === 'manual' &&
+        } else {
           // Same strict mailto policy as the reader bridge: single address,
           // subject-only param, no control characters — the value comes from
           // sender-controlled List-Unsubscribe headers.
-          parseMailto(result.mailto)
-        ) {
-          window.location.href = parseMailto(result.mailto)?.href ?? ''
-        } else {
-          this.notify('This sender offers no automated unsubscribe.', 'error')
+          const mailto = result.status === 'manual' ? parseMailto(result.mailto) : null
+          if (mailto) {
+            window.location.href = mailto.href
+          } else {
+            this.notify('This sender offers no automated unsubscribe.', 'error')
+          }
         }
       } catch (error) {
         if (generation !== this.composeGeneration) return
@@ -2490,8 +2629,12 @@ export const useInboxStore = defineStore('inbox', {
 
     toggleStar(email) {
       const generation = this.composeGeneration
+      const seq = ++starActionSeq
+      latestStarAction.set(email.id, seq)
       const nextStarred = !email.starred
-      email.starred = nextStarred
+      for (const copy of matchingEmailCopies(this, email)) {
+        copy.starred = nextStarred
+      }
       if (!isWithheld(email)) this.adjustStarredCount(nextStarred ? 1 : -1)
       if (this.isStarredLoaded && !isWithheld(email))
         syncFolderMembership(this.starredEmails, email, nextStarred)
@@ -2500,8 +2643,10 @@ export const useInboxStore = defineStore('inbox', {
           if (generation !== this.composeGeneration) return
           console.error('Failed to update starred state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
-          if (email.starred === nextStarred) {
-            email.starred = !nextStarred
+          if (latestStarAction.get(email.id) === seq) {
+            for (const copy of matchingEmailCopies(this, email)) {
+              copy.starred = !nextStarred
+            }
             if (!isWithheld(email)) this.adjustStarredCount(nextStarred ? -1 : 1)
             if (this.isStarredLoaded && !isWithheld(email))
               syncFolderMembership(this.starredEmails, email, !nextStarred)
@@ -2523,10 +2668,13 @@ export const useInboxStore = defineStore('inbox', {
       persist = null,
     ) {
       if (!email) return false
-      const inboxIndex = this.traditionalEmails.indexOf(email)
-      const snoozedIndex = this.snoozedEmails.indexOf(email)
+      const inboxIndex = this.traditionalEmails.findIndex((item) => item.id === email.id)
+      const inboxItem = inboxIndex > -1 ? this.traditionalEmails[inboxIndex] : null
+      const snoozedIndex = this.snoozedEmails.findIndex((item) => item.id === email.id)
       const previousScheduledFor = email.scheduledFor
       const wasUnreadInbox = inboxIndex > -1 && email.unread && isInboxRow(this, email)
+      const willBeSnoozed =
+        !email.isSpam && !email.isArchived && !isWithheld(email) && isSnoozedAt(scheduledFor)
       // Spam never shows in Snoozed, so only non-spam moves the count.
       const snoozedDelta =
         email.isSpam || email.isArchived || isWithheld(email)
@@ -2537,19 +2685,21 @@ export const useInboxStore = defineStore('inbox', {
       const apply = () => {
         if (applied) return
         applied = true
-        email.scheduledFor = scheduledFor
+        for (const copy of matchingEmailCopies(this, email)) {
+          copy.scheduledFor = scheduledFor
+        }
         this.snoozedCount = Math.max(0, this.snoozedCount + snoozedDelta)
         if (inboxIndex > -1) {
-          const currentIndex = this.traditionalEmails.indexOf(email)
+          const currentIndex = this.traditionalEmails.findIndex((item) => item.id === email.id)
           if (currentIndex > -1) this.traditionalEmails.splice(currentIndex, 1)
         }
         this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
         if (
-          !isWithheld(email) &&
+          willBeSnoozed &&
           this.isSnoozedLoaded &&
           snoozedIndex === -1 &&
-          !this.snoozedEmails.includes(email)
+          !this.snoozedEmails.some((item) => item.id === email.id)
         ) {
           this.snoozedEmails.unshift(email)
         }
@@ -2558,17 +2708,19 @@ export const useInboxStore = defineStore('inbox', {
         if (!applied) return
         applied = false
         untrackInboxRemoval(email.id)
-        email.scheduledFor = previousScheduledFor
+        for (const copy of matchingEmailCopies(this, email)) {
+          copy.scheduledFor = previousScheduledFor
+        }
         this.snoozedCount = Math.max(0, this.snoozedCount - snoozedDelta)
-        if (inboxIndex > -1 && !this.traditionalEmails.includes(email)) {
+        if (inboxIndex > -1 && !this.traditionalEmails.some((item) => item.id === email.id)) {
           this.traditionalEmails.splice(
             Math.min(inboxIndex, this.traditionalEmails.length),
             0,
-            email,
+            inboxItem ?? email,
           )
         }
         if (snoozedIndex === -1) {
-          const currentIndex = this.snoozedEmails.indexOf(email)
+          const currentIndex = this.snoozedEmails.findIndex((item) => item.id === email.id)
           if (currentIndex > -1) this.snoozedEmails.splice(currentIndex, 1)
         }
         if (wasUnreadInbox) this.unreadInboxCount++
@@ -2650,7 +2802,7 @@ export const useInboxStore = defineStore('inbox', {
         apply,
         restore,
         changes: { is_archived: true, is_unread: false },
-        undoChanges: { is_archived: false, is_unread: wasUnread },
+        undoChanges: { is_archived: wasArchived, is_unread: wasUnread },
         message: 'Marked done.',
         errorMessage: 'Failed to archive email.',
         shouldNotify,
@@ -2706,10 +2858,11 @@ export const useInboxStore = defineStore('inbox', {
       const apply = () => {
         if (applied) return
         applied = true
-        email.isSpam = spam
+        for (const copy of matchingEmailCopies(this, email)) copy.isSpam = spam
         for (const { item } of positions) if (item) item.isSpam = spam
         removeFromCapturedLists(email, positions)
-        if (destination && !destination.includes(email)) destination.unshift(email)
+        if (destination && !destination.some((item) => item.id === email.id))
+          destination.unshift(email)
         this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
         if (entersInbox && email.unread) this.unreadInboxCount++
@@ -2722,10 +2875,10 @@ export const useInboxStore = defineStore('inbox', {
         if (!applied) return
         applied = false
         if (spam) untrackInboxRemoval(email.id)
-        email.isSpam = wasSpam
+        for (const copy of matchingEmailCopies(this, email)) copy.isSpam = wasSpam
         for (const { item } of positions) if (item) item.isSpam = wasSpam
         if (destination) {
-          const index = destination.indexOf(email)
+          const index = destination.findIndex((item) => item.id === email.id)
           if (index > -1) destination.splice(index, 1)
         }
         restoreCapturedLists(email, positions)
@@ -2780,6 +2933,9 @@ export const useInboxStore = defineStore('inbox', {
       // Done hides spam and snoozed mail too, so only a live row lowers
       // either count.
       const live = !email.isArchived && !isWithheld(email)
+      const leavesStarred = Boolean(email.starred) && !isWithheld(email)
+      const leavesScreening = email.screeningStatus === 'held'
+      const leavesBlocked = email.screeningStatus === 'blocked'
       const leavesSpam = Boolean(email.isSpam) && live
       const leavesSnoozed = !email.isSpam && isSnoozedAt(email.scheduledFor) && live
       let applied = false
@@ -2790,6 +2946,9 @@ export const useInboxStore = defineStore('inbox', {
         removeFromCapturedLists(email, positions)
         this.releaseEmail(email.id)
         if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
+        if (leavesStarred) this.adjustStarredCount(-1)
+        if (leavesScreening) this.screeningCount = Math.max(0, this.screeningCount - 1)
+        if (leavesBlocked) this.blockedCount = Math.max(0, this.blockedCount - 1)
         if (leavesSpam) this.spamCount = Math.max(0, this.spamCount - 1)
         if (leavesSnoozed) this.snoozedCount = Math.max(0, this.snoozedCount - 1)
       }
@@ -2799,6 +2958,9 @@ export const useInboxStore = defineStore('inbox', {
         untrackInboxRemoval(email.id)
         restoreCapturedLists(email, positions)
         if (wasUnreadInbox) this.unreadInboxCount++
+        if (leavesStarred) this.adjustStarredCount(1)
+        if (leavesScreening) this.screeningCount++
+        if (leavesBlocked) this.blockedCount++
         if (leavesSpam) this.spamCount++
         if (leavesSnoozed) this.snoozedCount++
       }
@@ -2829,8 +2991,13 @@ export const useInboxStore = defineStore('inbox', {
     setUnread(email, unread) {
       const generation = this.composeGeneration
       if (email.unread === unread) return pendingUnreadUpdates.get(email.id) ?? Promise.resolve()
-      const countsTowardInbox = this.traditionalEmails.includes(email) && isInboxRow(this, email)
-      email.unread = unread
+      const seq = ++unreadActionSeq
+      latestUnreadAction.set(email.id, seq)
+      const countsTowardInbox =
+        this.traditionalEmails.some((item) => item.id === email.id) && isInboxRow(this, email)
+      for (const copy of matchingEmailCopies(this, email)) {
+        copy.unread = unread
+      }
       if (countsTowardInbox) {
         this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? 1 : -1))
       }
@@ -2839,8 +3006,10 @@ export const useInboxStore = defineStore('inbox', {
           if (generation !== this.composeGeneration) return
           console.error('Failed to update read state:', error)
           // Only revert if a later toggle hasn't already moved past this one.
-          if (email.unread === unread) {
-            email.unread = !unread
+          if (latestUnreadAction.get(email.id) === seq) {
+            for (const copy of matchingEmailCopies(this, email)) {
+              copy.unread = !unread
+            }
             if (countsTowardInbox) {
               this.unreadInboxCount = Math.max(0, this.unreadInboxCount + (unread ? -1 : 1))
             }
@@ -2895,28 +3064,22 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     async setMessageFollowUp(email, followUpAt) {
+      const generation = this.composeGeneration
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (generation !== this.composeGeneration) return null
       const response = await fetch('/api/send?resource=follow-up', {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ messageId: email.id, followUpAt }),
       })
+      if (generation !== this.composeGeneration) return null
       if (!response.ok) {
         throw new Error(`PATCH follow-up responded ${response.status}`)
       }
       const { message } = await response.json()
-      for (const list of [
-        this.traditionalEmails,
-        this.starredEmails,
-        this.labelEmails,
-        this.sentEmails,
-        this.spamEmails,
-        this.snoozedEmails,
-        this.doneEmails,
-      ]) {
-        for (const item of list) {
-          if (item.id === email.id) item.followUpAt = message.followUpAt
-        }
+      if (generation !== this.composeGeneration) return null
+      for (const item of matchingEmailCopies(this, email)) {
+        item.followUpAt = message.followUpAt
       }
       if (message.followUpAt === null && email.isSent) {
         const inboxIndex = this.traditionalEmails.findIndex((item) => item.id === email.id)
@@ -2993,6 +3156,10 @@ export const useInboxStore = defineStore('inbox', {
         'isChatLoading',
         'isAiDraftActive',
         'isAiDraftLoading',
+        'isSendingEmail',
+        'composerSnippetPreviewOpen',
+        'composerAvailabilityPreviewOpen',
+        'labelFolderKeepsDone',
         'calendarNewEventPending',
       ])
         this[key] = false
@@ -3005,6 +3172,7 @@ export const useInboxStore = defineStore('inbox', {
         'blockedCount',
         'scheduledCountHint',
         'donePageIndex',
+        'pendingAttachmentUploads',
       ])
         this[key] = 0
       for (const key of [
@@ -3038,7 +3206,20 @@ export const useInboxStore = defineStore('inbox', {
       searchAbortController = askAbortController = null
       askSeq++
       aiDraftRequestSeq++
+      doneLoadSeq++
+      tasksLoadSeq++
+      scheduledSendsLoadSeq++
       pendingInviteFetches.clear()
+      pendingStarUpdates.clear()
+      pendingUnreadUpdates.clear()
+      pendingLabelUpdates.clear()
+      pendingSpamUpdates.clear()
+      latestStarAction.clear()
+      latestUnreadAction.clear()
+      latestSpamAction.clear()
+      inboxRemovals.clear()
+      draftEditsDuringLoad = null
+      draftSyncs.delete(toRaw(this))
       this.openEmailId = null
       this.bodyLoadingId = null
       this.messageBodies.clear()
@@ -3164,25 +3345,27 @@ export const useInboxStore = defineStore('inbox', {
     async loadTasks({ force = false } = {}) {
       if (this.tasksLoaded && !force) return
       const generation = this.composeGeneration
+      const seq = ++tasksLoadSeq
       this.isTasksLoading = true
       this.tasksError = null
       try {
         const headers = await this.authHeaders()
-        if (generation !== this.composeGeneration) return
+        if (generation !== this.composeGeneration || seq !== tasksLoadSeq) return
         const response = await fetch(`${TASKS_API_URL}/tasks?date=${localToday()}`, { headers })
         if (!response.ok) throw new Error(`GET /api/tasks responded ${response.status}`)
         const { tasks, digest, news } = await response.json()
-        if (generation !== this.composeGeneration) return
+        if (generation !== this.composeGeneration || seq !== tasksLoadSeq) return
         this.tasks = tasks
         this.digest = digest ?? null
         this.news = news ?? null
         this.tasksLoaded = true
       } catch (error) {
-        if (generation !== this.composeGeneration) return
+        if (generation !== this.composeGeneration || seq !== tasksLoadSeq) return
         console.error('Failed to load tasks:', error)
         this.tasksError = 'Could not load your day.'
       } finally {
-        if (generation === this.composeGeneration) this.isTasksLoading = false
+        if (generation === this.composeGeneration && seq === tasksLoadSeq)
+          this.isTasksLoading = false
       }
     },
 
@@ -3234,10 +3417,14 @@ export const useInboxStore = defineStore('inbox', {
     // roll back its optimistic UI.
     async markTopicItemRead(item) {
       if (!item?.unread) return
+      const generation = this.composeGeneration
       await this.updateMessage(item.message_id, { is_unread: false })
+      if (generation !== this.composeGeneration) return
       item.unread = false
-      const email = this.traditionalEmails.find((e) => e.id === item.message_id)
-      if (email) email.unread = false
+      const email = this.emailById(item.message_id)
+      if (email) {
+        for (const copy of matchingEmailCopies(this, email)) copy.unread = false
+      }
       // If the triage item is unread, this is one fewer in the inbox badge.
       this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
     },
@@ -3245,6 +3432,7 @@ export const useInboxStore = defineStore('inbox', {
     // Mark the referenced email Done. Apply local state after persistence so
     // failed updates can restore the view without repairing cached mail.
     async completeTopicItem(item) {
+      const generation = this.composeGeneration
       const email = this.emailById(item.message_id)
       const positions = email
         ? captureListPositions(email, [
@@ -3269,13 +3457,18 @@ export const useInboxStore = defineStore('inbox', {
       })
       trackInboxRemoval(item.message_id, persistence)
       await persistence
+      if (generation !== this.composeGeneration) return
       item.unread = false
       item.done = true
       if (email) {
         removeFromCapturedLists(email, positions)
-        email.unread = false
-        email.isArchived = true
-        if (addToDone) this.doneEmails.unshift(email)
+        for (const copy of matchingEmailCopies(this, email)) {
+          copy.unread = false
+          copy.isArchived = true
+        }
+        if (addToDone && !this.doneEmails.some((candidate) => candidate.id === email.id)) {
+          this.doneEmails.unshift(email)
+        }
       }
       if (wasUnreadInbox) this.unreadInboxCount = Math.max(0, this.unreadInboxCount - 1)
     },
@@ -3292,7 +3485,9 @@ export const useInboxStore = defineStore('inbox', {
     // caller can roll back its optimistic UI; on success the task is dropped
     // from the local list.
     async completeTask(id) {
+      const generation = this.composeGeneration
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (generation !== this.composeGeneration) return null
       const response = await fetch(`${TASKS_API_URL}/tasks`, {
         method: 'POST',
         headers,
@@ -3300,11 +3495,14 @@ export const useInboxStore = defineStore('inbox', {
         // next occurrence from today, and the Worker's clock is UTC.
         body: JSON.stringify({ id, action: 'complete', today: localToday() }),
       })
+      if (generation !== this.composeGeneration) return null
       if (!response.ok) {
         throw new Error(`POST /api/tasks responded ${response.status}`)
       }
+      const data = await response.json()
+      if (generation !== this.composeGeneration) return null
       this.tasks = this.tasks.filter((t) => t.id !== id)
-      return response.json()
+      return data
     },
 
     // Reschedules a gathered task to another day (POST /api/tasks). A
@@ -3314,18 +3512,23 @@ export const useInboxStore = defineStore('inbox', {
     // still be visible today is the caller's call, since a reschedule to
     // later today keeps it there.
     async rescheduleTask(id, dueDate) {
+      const generation = this.composeGeneration
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+      if (generation !== this.composeGeneration) return null
       const response = await fetch(`${TASKS_API_URL}/tasks`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ id, action: 'reschedule', due_date: dueDate }),
       })
+      if (generation !== this.composeGeneration) return null
       if (!response.ok) {
         throw new Error(`POST /api/tasks responded ${response.status}`)
       }
+      const data = await response.json()
+      if (generation !== this.composeGeneration) return null
       const task = this.tasks.find((t) => t.id === id)
       if (task) task.due_date = dueDate
-      return response.json()
+      return data
     },
 
     // Reschedules a triage item's underlying message so it drops off today's
@@ -3386,6 +3589,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     closeDockTab(key) {
+      if (this.composerTabKey === key) this.composerTabKey = null
       this.dockTabs = this.dockTabs.filter((tab) => tab.key !== key)
     },
 
@@ -3404,9 +3608,10 @@ export const useInboxStore = defineStore('inbox', {
       if (!this.isComposerActive) return
       this.claimComposerTab()
       const tab = this.dockTabs.find((entry) => entry.key === this.composerTabKey)
+      if (!tab) return
       this.composerTabKey = null
       tab.snapshot = this.closeComposer()
-      tab.snapshot.tabKey = tab.key
+      if (tab.snapshot) tab.snapshot.tabKey = tab.key
     },
 
     // Clears the composer for another message: the open one stays as a tab,
@@ -3552,10 +3757,10 @@ export const useInboxStore = defineStore('inbox', {
     // caller passes force (the Drafts view, autosave reconciliation).
     async loadDrafts({ silent = false, force = false } = {}) {
       const pending = pendingDraftsLoads.get(this)
-      if (pending) return pending
+      if (pending && !force) return pending
       if (!force && Date.now() - this.draftsLoadedAt < DRAFTS_FRESH_MS) return
       const request = this.loadDraftsUncached({ silent }).finally(() => {
-        pendingDraftsLoads.delete(this)
+        if (pendingDraftsLoads.get(this) === request) pendingDraftsLoads.delete(this)
       })
       pendingDraftsLoads.set(this, request)
       return request
@@ -3567,6 +3772,7 @@ export const useInboxStore = defineStore('inbox', {
       this.isDraftsLoading = true
       try {
         const headers = await this.authHeaders()
+        if (seq !== draftsLoadSeq) return
         const response = await fetch(`${DRAFTS_API_URL}/drafts?view=summary`, { headers })
         if (!response.ok) throw new Error(`GET /drafts responded ${response.status}`)
         const { drafts } = await response.json()
@@ -3575,10 +3781,11 @@ export const useInboxStore = defineStore('inbox', {
         // was on its way; replay those so a draft saved a moment ago (and the
         // sidebar folder it brought with it) is not undone by the fetch.
         let list = Array.isArray(drafts) ? drafts : []
-        for (const edit of draftEditsDuringLoad) list = applyDraftEdit(list, edit)
+        for (const edit of draftEditsDuringLoad ?? []) list = applyDraftEdit(list, edit)
         this.drafts = list
         this.draftsLoadedAt = Date.now()
       } catch (error) {
+        if (seq !== draftsLoadSeq) return
         console.error('Failed to load drafts:', error)
         if (!silent) this.notify('Could not load your drafts.', 'error')
       } finally {
@@ -4035,16 +4242,21 @@ export const useInboxStore = defineStore('inbox', {
     // contain previews; only opening a draft needs its complete content.
     async loadDraftContent(draft) {
       if (!draft.isSummary) return draft
+      const generation = this.composeGeneration
       try {
         const headers = await this.authHeaders()
+        if (generation !== this.composeGeneration) return null
         const response = await fetch(`${DRAFTS_API_URL}/drafts/${encodeURIComponent(draft.id)}`, {
           headers,
         })
+        if (generation !== this.composeGeneration) return null
         if (!response.ok) throw new Error(`GET draft responded ${response.status}`)
         const { draft: loaded } = await response.json()
+        if (generation !== this.composeGeneration) return null
         this.noteDraftVersion(loaded)
         return loaded
       } catch (error) {
+        if (generation !== this.composeGeneration) return null
         console.error('Failed to open draft:', error)
         this.notify('Could not open your draft. Please try again.', 'error')
         return null
@@ -4054,21 +4266,26 @@ export const useInboxStore = defineStore('inbox', {
     // Reopens a saved draft in the composer, preserving the active session
     // if another action takes over while its full content is loading.
     async openDraft(draft) {
+      const generation = this.composeGeneration
       // Minimised in the dock: that copy has every edit the saved one has.
       const tab = this.dockTabs.find((entry) => entry.snapshot?.draftId === draft.id)
       if (tab) return this.openComposerTab(tab.key)
+      // Reopening the draft that is already live in the composer: flush any
+      // pending typing and keep the live editor state rather than reverting it
+      // to the pre-flush list snapshot.
+      if (this.isComposerActive && this.composerDraftId === draft.id) {
+        await this.flushComposerDraft()
+        if (generation !== this.composeGeneration) return false
+        return true
+      }
       if (draft.isSummary) {
         const session = this.composerSessionId
         draft = await this.loadDraftContent(draft)
-        if (!draft || session !== this.composerSessionId) return false
+        if (!draft || generation !== this.composeGeneration || session !== this.composerSessionId)
+          return false
       }
-      // The draft already in the composer is reloaded: get its last edits to
-      // the server first, and await it so the write cannot land after this
-      // version has taken the composer over. Any other message stays as a tab.
-      if (this.isComposerActive) {
-        if (this.composerDraftId === draft.id) await this.flushComposerDraft()
-        else this.setComposerAside()
-      }
+      // Any other open message stays as a tab.
+      if (this.isComposerActive) this.setComposerAside()
       // The composer's content is now this version of the draft.
       this.noteDraftVersion(draft)
       this.composerSessionId += 1
@@ -4133,11 +4350,13 @@ export const useInboxStore = defineStore('inbox', {
 
       // A few uploads at once rather than one after another; results keep
       // the order the files were picked in.
+      const generation = this.composeGeneration
       const queue = picked.slice(0, room)
       const results = Array.from({ length: queue.length }, () => null)
       let next = 0
       const worker = async () => {
         while (next < queue.length) {
+          if (generation !== this.composeGeneration) return
           const index = next++
           const file = queue[index]
           this.pendingAttachmentUploads += 1
@@ -4145,10 +4364,13 @@ export const useInboxStore = defineStore('inbox', {
             const attachment = await this.uploadAttachmentFile(file)
             results[index] = { ...attachment, source: 'upload' }
           } catch (error) {
+            if (generation !== this.composeGeneration) return
             console.error('Attachment upload failed:', error)
             this.notify(`Could not attach ${file.name}.`, 'error')
           } finally {
-            this.pendingAttachmentUploads -= 1
+            if (generation === this.composeGeneration) {
+              this.pendingAttachmentUploads = Math.max(0, this.pendingAttachmentUploads - 1)
+            }
           }
         }
       }
@@ -4232,6 +4454,7 @@ export const useInboxStore = defineStore('inbox', {
       this.isAiDraftLoading = true
       try {
         const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+        if (session !== this.composerSessionId) return false
         const body = {
           instruction,
           to: this.composerTo,
@@ -4296,13 +4519,16 @@ export const useInboxStore = defineStore('inbox', {
         .join(' ')
       this.isAiDraftActive = true
 
+      const generation = this.composeGeneration
       try {
         const generated = await this.requestAiDraft({ replyToMessageId: task.message_id })
         if (!generated || session !== this.composerSessionId) return false
         this.insertAiDraft()
         return true
       } finally {
-        this.followUpDraftTaskId = null
+        if (generation === this.composeGeneration && this.followUpDraftTaskId === task.id) {
+          this.followUpDraftTaskId = null
+        }
       }
     },
 
@@ -4339,9 +4565,10 @@ export const useInboxStore = defineStore('inbox', {
       // The first save may still be in flight; its row goes with this send.
       const handoff = draftId ? null : this.settleComposerHandoff()
       if (!handoff) return
+      const generation = this.composeGeneration
       const pending = this.pendingSend
       const lateDraftId = await handoff
-      if (!lateDraftId) return
+      if (!lateDraftId || generation !== this.composeGeneration) return
       // Counting down or sending: commit and undo read draftId from this
       // object later, so attaching it is enough.
       if (this.pendingSend === pending || pending.outcome === 'sending') {
@@ -4392,6 +4619,7 @@ export const useInboxStore = defineStore('inbox', {
     async commitPendingSend() {
       if (!this.pendingSend) return
       clearInterval(sendCountdownTimer)
+      const generation = this.composeGeneration
       const draft = this.pendingSend
       this.pendingSend = null
       draft.outcome = 'sending'
@@ -4399,6 +4627,7 @@ export const useInboxStore = defineStore('inbox', {
       try {
         if (draft.owner && draft.owner !== this.composeOwnerSub) return
         const result = await this.sendMail(draft)
+        if (generation !== this.composeGeneration) return
         this.notify(
           result?.sentCopyPending
             ? 'Email sent. Your Sent copy is being recovered.'
@@ -4416,6 +4645,7 @@ export const useInboxStore = defineStore('inbox', {
         draft.outcome = 'failed'
         if (
           error.code === 'ACCOUNT_CHANGED' ||
+          generation !== this.composeGeneration ||
           (draft.owner && draft.owner !== this.composeOwnerSub)
         )
           return
@@ -4430,7 +4660,7 @@ export const useInboxStore = defineStore('inbox', {
         )
         draft.restoredSession = this.restoreComposerMessage(draft, draft.draftId)
       } finally {
-        this.isSendingEmail = false
+        if (generation === this.composeGeneration) this.isSendingEmail = false
       }
     },
 
@@ -4465,18 +4695,23 @@ export const useInboxStore = defineStore('inbox', {
         sendIdentity: this.composerSendIdentity,
         owner: this.composeOwnerSub,
       })
+      const generation = this.composeGeneration
       const recovery = this.persistComposerRecovery(draft)
       let draftId = this.consumeComposerDraft()
       this.closeComposer({ save: false })
       this.isSendingEmail = true
       try {
         await recovery
-        if (draft.owner !== this.composeOwnerSub) return false
+        if (generation !== this.composeGeneration || draft.owner !== this.composeOwnerSub)
+          return false
         // A first save still in flight owns the only row for this message.
         const handoff = draftId ? null : this.settleComposerHandoff()
         if (handoff) draftId = await handoff
+        if (generation !== this.composeGeneration || draft.owner !== this.composeOwnerSub)
+          return false
         draft.sendAt = sendAt
         const { scheduledSend } = await this.sendMail(draft)
+        if (generation !== this.composeGeneration) return false
         const status = scheduledSend.status
         if (this.isScheduledSendsLoaded) {
           this.scheduledSends = this.scheduledSends.filter((item) => item.id !== scheduledSend.id)
@@ -4500,6 +4735,7 @@ export const useInboxStore = defineStore('inbox', {
       } catch (error) {
         if (
           error.code === 'ACCOUNT_CHANGED' ||
+          generation !== this.composeGeneration ||
           (draft.owner && draft.owner !== this.composeOwnerSub)
         )
           return false
@@ -4513,7 +4749,7 @@ export const useInboxStore = defineStore('inbox', {
         this.restoreComposerMessage(draft, draftId)
         return false
       } finally {
-        this.isSendingEmail = false
+        if (generation === this.composeGeneration) this.isSendingEmail = false
       }
     },
 
@@ -4522,23 +4758,25 @@ export const useInboxStore = defineStore('inbox', {
     async loadScheduledSends() {
       if (this.isScheduledSendsLoaded) return
       const generation = this.composeGeneration
+      const seq = ++scheduledSendsLoadSeq
       this.isScheduledSendsLoading = true
       this.scheduledSendsError = null
       try {
         const headers = await this.authHeaders()
-        if (generation !== this.composeGeneration) return
+        if (generation !== this.composeGeneration || seq !== scheduledSendsLoadSeq) return
         const response = await fetch('/api/send?resource=scheduled', { headers })
         if (!response.ok) throw new Error(`GET scheduled sends responded ${response.status}`)
         const { scheduledSends } = await response.json()
-        if (generation !== this.composeGeneration) return
+        if (generation !== this.composeGeneration || seq !== scheduledSendsLoadSeq) return
         this.scheduledSends = scheduledSends
         this.isScheduledSendsLoaded = true
       } catch (error) {
-        if (generation !== this.composeGeneration) return
+        if (generation !== this.composeGeneration || seq !== scheduledSendsLoadSeq) return
         console.error('Failed to load scheduled sends:', error)
         this.scheduledSendsError = 'Could not load your scheduled mail.'
       } finally {
-        if (generation === this.composeGeneration) this.isScheduledSendsLoading = false
+        if (generation === this.composeGeneration && seq === scheduledSendsLoadSeq)
+          this.isScheduledSendsLoading = false
       }
     },
 

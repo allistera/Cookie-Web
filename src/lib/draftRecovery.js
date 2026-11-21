@@ -25,10 +25,12 @@ export function writeDraftRecovery(record, isCurrent = () => true) {
 }
 
 export function removeDraftRecovery(owner, id, revision) {
-  return getOfflineDb().mutate(CACHE_STORE, keyFor(owner, id), (current) => {
+  const removal = getOfflineDb().mutate(CACHE_STORE, keyFor(owner, id), (current) => {
     if (!current || (revision !== undefined && current.revision !== revision)) return undefined
     return null
   })
+  writes.add(removal)
+  return removal.finally(() => writes.delete(removal))
 }
 
 export async function drainDraftRecoveryWrites() {

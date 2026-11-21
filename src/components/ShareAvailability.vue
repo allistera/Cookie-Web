@@ -39,8 +39,20 @@ const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 const timeZone = ref(browserZone)
 const interpretationTimeZone = ref(browserZone)
 const confirmed = ref(false)
-const from = ref(availabilityDate(Date.now() + 86_400_000, browserZone))
-const to = ref(availabilityDate(Date.now() + 7 * 86_400_000, browserZone))
+function addCalendarDays(isoDate, days) {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + days))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+function defaultRange(now = Date.now()) {
+  const today = availabilityDate(now, browserZone)
+  return { from: addCalendarDays(today, 1), to: addCalendarDays(today, 7) }
+}
+const initialRange = defaultRange()
+const from = ref(initialRange.from)
+const to = ref(initialRange.to)
+let defaultFrom = initialRange.from
+let defaultTo = initialRange.to
 const duration = ref(30)
 const workStart = ref('09:00')
 const workEnd = ref('17:00')
@@ -98,16 +110,25 @@ watch(
 )
 
 async function show() {
+  const fresh = defaultRange()
+  if (from.value === defaultFrom && to.value === defaultTo) {
+    from.value = fresh.from
+    to.value = fresh.to
+  }
+  defaultFrom = fresh.from
+  defaultTo = fresh.to
   invalidate()
+  const current = generation
+  const owner = store.composeOwnerSub
   open.value = true
   emit('previewState', true)
   await nextTick()
+  if (current !== generation || !open.value || owner !== store.composeOwnerSub) return
   dialog.value?.showModal()
   calendarLoading.value = true
   calendarsReady.value = false
-  const owner = store.composeOwnerSub
   const ready = await loadCalendars({ force: true })
-  if (!open.value || owner !== store.composeOwnerSub) return
+  if (current !== generation || !open.value || owner !== store.composeOwnerSub) return
   calendarLoading.value = false
   calendarsReady.value = ready
   selected.value = ready ? calendars.value.slice(0, 10).map((calendar) => calendar.id) : []

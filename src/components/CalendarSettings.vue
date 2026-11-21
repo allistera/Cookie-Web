@@ -61,6 +61,7 @@ const confirmingDeleteId = ref(null)
 const operationError = ref('')
 const errorCalendarId = ref(null)
 const syncingCalendarId = ref(null)
+const submittingCalendar = ref(false)
 
 const calendarGroups = computed(() => [
   {
@@ -143,11 +144,13 @@ function closeCreate() {
 }
 
 async function createCalendar() {
+  if (submittingCalendar.value) return
   const session = calendarSession()
   const name = newCalendarName.value.trim()
   const subscriptionUrl = newCalendarSubscriptionUrl.value.trim()
   if (!name || (createMode.value === 'subscription' && !subscriptionUrl)) return
 
+  submittingCalendar.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (!isCalendarSessionCurrent(session)) return
@@ -160,14 +163,17 @@ async function createCalendar() {
         subscriptionUrl: createMode.value === 'subscription' ? subscriptionUrl : undefined,
       }),
     })
+    if (!isCalendarSessionCurrent(session)) return
     if (response.status === 409) {
       operationError.value = 'A calendar with that name already exists.'
+      errorCalendarId.value = null
       return
     }
     if (response.status === 400 && subscriptionUrl) {
       // The Worker accepts HTTPS and webcal feeds from allowed providers.
       operationError.value =
         'That link was not accepted. Use a public https:// or webcal:// calendar feed from a supported provider.'
+      errorCalendarId.value = null
       return
     }
     if (!response.ok) throw new Error(`POST calendars responded ${response.status}`)
@@ -179,8 +185,11 @@ async function createCalendar() {
       store.notify(`Sync failed: ${calendar.subscriptionError}`, 'error')
     }
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to create calendar:', error)
     store.notify('Failed to create calendar.', 'error')
+  } finally {
+    if (isCalendarSessionCurrent(session)) submittingCalendar.value = false
   }
 }
 
@@ -205,11 +214,13 @@ function cancelRenameCalendar() {
 }
 
 async function renameCalendar() {
+  if (submittingCalendar.value) return
   const session = calendarSession()
   const id = editingCalendarId.value
   const name = editingCalendarName.value.trim()
   if (!id || !name) return
 
+  submittingCalendar.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (!isCalendarSessionCurrent(session)) return
@@ -218,6 +229,7 @@ async function renameCalendar() {
       headers,
       body: JSON.stringify({ id, name }),
     })
+    if (!isCalendarSessionCurrent(session)) return
     if (response.status === 409) {
       operationError.value = 'A calendar with that name already exists.'
       errorCalendarId.value = id
@@ -230,26 +242,32 @@ async function renameCalendar() {
     if (index !== -1) calendars.value[index] = calendar
     cancelRenameCalendar()
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to rename calendar:', error)
     store.notify('Failed to rename calendar.', 'error')
+  } finally {
+    if (isCalendarSessionCurrent(session)) submittingCalendar.value = false
   }
 }
 
 async function syncCalendarNow(calendar) {
+  const session = calendarSession()
   syncingCalendarId.value = calendar.id
   clearError()
   try {
     const { ok, errorMessage } = await syncCalendar(calendar.id)
+    if (!isCalendarSessionCurrent(session)) return
     if (!ok) {
       operationError.value = `Sync failed: ${errorMessage || 'unknown error'}`
       errorCalendarId.value = calendar.id
       store.notify(operationError.value, 'error')
     }
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to sync calendar:', error)
     store.notify('Failed to sync calendar.', 'error')
   } finally {
-    syncingCalendarId.value = null
+    if (isCalendarSessionCurrent(session)) syncingCalendarId.value = null
   }
 }
 
@@ -258,10 +276,12 @@ function requestDeleteCalendar(id) {
 }
 
 async function confirmDeleteCalendar() {
+  if (submittingCalendar.value) return
   const session = calendarSession()
   const id = confirmingDeleteId.value
   if (!id) return
 
+  submittingCalendar.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
     if (!isCalendarSessionCurrent(session)) return
@@ -270,20 +290,25 @@ async function confirmDeleteCalendar() {
       headers,
       body: JSON.stringify({ id }),
     })
+    if (!isCalendarSessionCurrent(session)) return
     if (!response.ok) {
       const body = await response.json().catch(() => ({}))
+      if (!isCalendarSessionCurrent(session)) return
       operationError.value = body.error || 'Failed to delete calendar.'
       errorCalendarId.value = id
       confirmingDeleteId.value = null
       store.notify(operationError.value, 'error')
       return
     }
-    if (!isCalendarSessionCurrent(session)) return
     calendars.value = calendars.value.filter((calendar) => calendar.id !== id)
+    if (defaultCalendarId.value === id) defaultCalendarId.value = null
     cancelRenameCalendar()
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to delete calendar:', error)
     store.notify('Failed to delete calendar.', 'error')
+  } finally {
+    if (isCalendarSessionCurrent(session)) submittingCalendar.value = false
   }
 }
 
@@ -336,10 +361,12 @@ async function loadGoogle() {
 }
 
 async function connectGoogle() {
+  const session = calendarSession()
   googleBusy.value = true
   googleError.value = ''
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (!isCalendarSessionCurrent(session)) return
     const response = await fetch(GOOGLE_CALENDAR_ENDPOINT, {
       method: 'POST',
       headers,
@@ -348,8 +375,10 @@ async function connectGoogle() {
         returnTo: `${window.location.origin}/settings/calendar`,
       }),
     })
+    if (!isCalendarSessionCurrent(session)) return
     if (!response.ok) throw new Error(`POST google-calendar responded ${response.status}`)
     const { url, verifier } = await response.json()
+    if (!isCalendarSessionCurrent(session)) return
     if (!url) throw new Error('No authorization URL')
     // Failure to retain the proof must stop navigation, not create an
     // unbound connection attempt (e.g. storage disabled in this browser).
@@ -357,6 +386,7 @@ async function connectGoogle() {
     // Stays busy: the page is on its way to Google.
     navigateTo(String(url))
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to start Google sign-in:', error)
     googleError.value = 'Google sign-in could not be started.'
     googleBusy.value = false
@@ -364,6 +394,7 @@ async function connectGoogle() {
 }
 
 async function toggleGoogleCalendar(calendar, selected) {
+  const session = calendarSession()
   const current = google.value
   if (!current) return
   const calendarIds = current.calendars
@@ -373,22 +404,26 @@ async function toggleGoogleCalendar(calendar, selected) {
   googleError.value = ''
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (!isCalendarSessionCurrent(session)) return
     const response = await fetch(GOOGLE_CALENDAR_ENDPOINT, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({ calendarIds }),
     })
+    if (!isCalendarSessionCurrent(session)) return
     if (!response.ok) throw new Error(`PATCH google-calendar responded ${response.status}`)
     const body = await response.json()
+    if (!isCalendarSessionCurrent(session)) return
     google.value = { ...current, calendars: normalizeGoogle(body).calendars }
     // The sidebar's shared list now includes (or drops) the calendar.
-    await refreshSharedCalendars()
+    await refreshSharedCalendars(session)
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to save the Google calendar selection:', error)
     googleError.value = 'The calendar selection could not be saved.'
     googleListKey.value += 1
   } finally {
-    googleBusy.value = false
+    if (isCalendarSessionCurrent(session)) googleBusy.value = false
   }
 }
 
@@ -397,20 +432,24 @@ async function disconnectGoogle() {
     confirmingDisconnect.value = true
     return
   }
+  const session = calendarSession()
   googleBusy.value = true
   googleError.value = ''
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (!isCalendarSessionCurrent(session)) return
     const response = await fetch(GOOGLE_CALENDAR_ENDPOINT, { method: 'DELETE', headers })
+    if (!isCalendarSessionCurrent(session)) return
     if (!response.ok) throw new Error(`DELETE google-calendar responded ${response.status}`)
     google.value = normalizeGoogle({ configured: true, connected: false })
     confirmingDisconnect.value = false
-    await refreshSharedCalendars()
+    await refreshSharedCalendars(session)
   } catch (error) {
+    if (!isCalendarSessionCurrent(session)) return
     console.error('Failed to disconnect Google Calendar:', error)
     googleError.value = 'Google Calendar could not be disconnected.'
   } finally {
-    googleBusy.value = false
+    if (isCalendarSessionCurrent(session)) googleBusy.value = false
   }
 }
 
@@ -418,8 +457,8 @@ async function disconnectGoogle() {
 // list the Calendar sidebar reads, which loadCalendars reports as false
 // (and its own toast) rather than throwing. Say so here, since the ticks
 // above look saved and the sidebar would not match until the next load.
-async function refreshSharedCalendars() {
-  if (!(await fetchCalendars({ force: true }))) {
+async function refreshSharedCalendars(session = calendarSession()) {
+  if (!(await fetchCalendars({ force: true })) && isCalendarSessionCurrent(session)) {
     googleError.value =
       'Saved, but the calendar list could not be refreshed. Reload to see the change in Calendar.'
   }
@@ -693,7 +732,7 @@ onMounted(async () => {
             @keydown.escape="closeCreate"
           />
         </label>
-        <p v-if="operationError" class="calendar-settings-error" role="alert">
+        <p v-if="operationError && !errorCalendarId" class="calendar-settings-error" role="alert">
           {{ operationError }}
         </p>
         <div class="calendar-settings-create-actions">
@@ -702,6 +741,7 @@ onMounted(async () => {
             type="submit"
             class="btn btn-primary"
             :disabled="
+              submittingCalendar ||
               !newCalendarName.trim() ||
               (group.mode === 'subscription' && !newCalendarSubscriptionUrl.trim())
             "

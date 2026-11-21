@@ -12,6 +12,7 @@ import { dealPositions, sortForList } from '../lib/taskOrder'
 import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useInboxStore } from './inbox'
 import { useProjectsStore } from './projects'
+import { useTaskCommentsStore } from './taskComments'
 import { useTaskFiltersStore } from './taskFilters'
 import { useTaskLabelsStore } from './taskLabels'
 
@@ -67,7 +68,7 @@ export function belongsToList(item, project, items, today = localToday()) {
 export function applyQueuedTaskChanges(items, entries, project = null) {
   if (!entries.length) return items
   const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))
-  const changed = []
+  const changedIds = new Set()
   const next = items.map((item) => {
     const { id, completed, today, expectedDueDate, ...fields } = changes.get(item.id) ?? {}
     if (!id) return item
@@ -77,11 +78,11 @@ export function applyQueuedTaskChanges(items, entries, project = null) {
     if (completed !== undefined && !recurring) {
       row.completedAt = completed ? new Date().toISOString() : null
     }
-    changed.push(row)
+    changedIds.add(row.id)
     return row
   })
   return next.filter((item) => {
-    if (!changed.includes(item)) return true
+    if (!changedIds.has(item.id)) return true
     if (!item.parentId && item.completedAt) return false
     return project === null || belongsToList(item, project, next)
   })
@@ -110,6 +111,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // The localToday() the loaded Today list was fetched for, so a list left
     // open past midnight refetches instead of staying on yesterday.
     loadedDate: null,
+    openDetailId: null,
     isLoading: false,
     loadSeq: 0,
     historyRevision: 0,
@@ -185,6 +187,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // it fails outright. loadedProject is set back to `project` only on
       // success, so a failed load also leaves the store retryable rather
       // than stuck believing it already "loaded" nothing.
+      const sameListRefresh = preserveOnError && this.loadedProject === project
       const retained = preserveOnError
         ? {
             items: [...this.items],
@@ -195,14 +198,17 @@ export const useTaskItemsStore = defineStore('taskItems', {
         : null
       const seq = ++this.loadSeq
       const owner = offlineOwner()
-      this.items = []
-      this.selectedIds = []
-      this.nextCursor = null
+      if (!sameListRefresh) {
+        this.items = []
+        this.selectedIds = []
+        this.nextCursor = null
+        this.loadedProject = null
+      }
+      this.detailLoading = {}
       this.detailErrors = {}
       this.detailCursors = {}
       this.detailCounts = {}
       this.isLoadingMore = false
-      this.loadedProject = null
       this.isLoading = true
       try {
         // Today and a filter span every project and need the caller's own
@@ -390,16 +396,37 @@ export const useTaskItemsStore = defineStore('taskItems', {
     },
 
     setDueTime(id, dueTime, timeZone) {
-      return this.patchItem(id, {}, { dueTime, timeZone }, 'Failed to set the time.')
+      return this.patchItem(
+        id,
+        { dueTime, timeZone },
+        { dueTime, timeZone },
+        'Failed to set the time.',
+      )
     },
 
     setDuration(id, durationMinutes) {
-      return this.patchItem(id, {}, { durationMinutes }, 'Failed to save the estimated duration.')
+      return this.patchItem(
+        id,
+        { durationMinutes },
+        { durationMinutes },
+        'Failed to save the estimated duration.',
+      )
     },
 
     async setLabels(id, labels) {
-      const item = await this.patchItem(id, {}, { labels }, 'Failed to save task labels.')
-      if (item) this.refreshLabelCounts()
+      let queued = false
+      const item = await this.patchItem(
+        id,
+        { labels },
+        { labels },
+        'Failed to save task labels.',
+        {
+          onQueued: () => {
+            queued = true
+          },
+        },
+      )
+      if (item && !queued) this.refreshLabelCounts()
       return item
     },
 
@@ -431,7 +458,38 @@ export const useTaskItemsStore = defineStore('taskItems', {
     // called once the row's earlier edits have settled: an edit that builds
     // on the row's current state (adding a label) must read it then, not
     // when it was asked for.
-    patchItem(id, localPatch, body, failureMessage, { reload = true, onQueued = () => {} } = {}) {
+    setOpenDetailId(id) {
+      this.openDetailId = id || null
+    },
+
+    settleItemInList(row, { retainOpenDetail = true } = {}) {
+      if (!row || !this.items.includes(row)) return
+      const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(row)
+      if (!row.parentId && (row.completedAt || outsideList)) {
+        if (retainOpenDetail && row.id === this.openDetailId && !row.completedAt) {
+          row.detailOnly = true
+          this.deselect(row.id)
+          return
+        }
+        this.items = this.items.filter(
+          (candidate) => candidate.id !== row.id && (!outsideList || candidate.parentId !== row.id),
+        )
+        this.deselect(row.id)
+        return
+      }
+      if (row.detailOnly) delete row.detailOnly
+      if (this.loadedProject === 'today' || isFilterProject(this.loadedProject)) {
+        this.items = sortForList(this.items, this.loadedProject)
+      }
+    },
+
+    patchItem(
+      id,
+      localPatch,
+      body,
+      failureMessage,
+      { reload = true, refreshCounts = true, onQueued = () => {}, retainOpenDetail = true } = {},
+    ) {
       let item = this.items.find((row) => row.id === id)
       if (!item) {
         this.notify(failureMessage, 'error')
@@ -441,21 +499,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       // Serialize edits to the same row; a later edit snapshots the last
       // confirmed state, so an earlier response or rollback cannot undo it.
       // A row that no longer belongs on screen (completed, or moved out of
-      // the loaded list) leaves it.
-      // Today and a filter list are ordered by due date, so a row that
-      // stays after a date edit may still have moved.
-      const settleInList = (row) => {
-        if (!this.items.includes(row)) return
-        const outsideList = this.loadedProject !== null && !this.belongsToLoadedList(row)
-        if (!row.parentId && (row.completedAt || outsideList)) {
-          this.items = this.items.filter(
-            (candidate) => candidate.id !== id && (!outsideList || candidate.parentId !== id),
-          )
-          this.deselect(id)
-        } else if (this.loadedProject === 'today' || isFilterProject(this.loadedProject)) {
-          this.items = sortForList(this.items, this.loadedProject)
-        }
-      }
+      // the loaded list) leaves it, or becomes detailOnly while its panel is open.
       const perform = async () => {
         item = this.items.find((row) => row.id === id) ?? item
         const previous = { ...item }
@@ -467,12 +511,25 @@ export const useTaskItemsStore = defineStore('taskItems', {
           item = this.items.find((row) => row.id === id) ?? item
           Object.assign(item, updated)
           const onScreen = this.items.includes(item)
-          settleInList(item)
-          if (['completed', 'projectId', 'parentId'].some((key) => Object.hasOwn(payload, key))) {
+          this.settleItemInList(item, { retainOpenDetail })
+          if (
+            refreshCounts &&
+            ['completed', 'projectId', 'parentId'].some((key) => Object.hasOwn(payload, key))
+          ) {
             this.refreshProjectCounts()
           }
-          if (reload && onScreen && Object.hasOwn(payload, 'projectId') && this.loadedProject) {
-            await this.loadItems(this.loadedProject, { force: true })
+          const skipProjectReload =
+            this.loadedProject === 'today' ||
+            String(this.loadedProject ?? '').startsWith('label:') ||
+            isFilterProject(this.loadedProject)
+          if (
+            reload &&
+            onScreen &&
+            Object.hasOwn(payload, 'projectId') &&
+            this.loadedProject &&
+            !skipProjectReload
+          ) {
+            await this.loadItems(this.loadedProject, { force: true, preserveOnError: true })
           }
           return item
         } catch (error) {
@@ -481,7 +538,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
           // queue that cannot be written, roll back below.
           if (isNetworkError(error) && (await queueTaskPatch(id, payload))) {
             onQueued()
-            settleInList(item)
+            this.settleItemInList(item, { retainOpenDetail })
             return item
           }
           console.error('Failed to update task:', error)
@@ -533,6 +590,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
         {},
         { recurrence, today: localToday() },
         'Failed to set the repeat schedule.',
+        { retainOpenDetail: false },
       )
     },
 
@@ -602,8 +660,14 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return done
     },
 
-    completeItems(ids) {
-      return this.editItems(ids, (id) => this.setCompleted(id, true), 'Completed')
+    async completeItems(ids) {
+      const done = await this.editItems(
+        ids,
+        (id) => this.setCompleted(id, true, { refreshCounts: false }),
+        'Completed',
+      )
+      if (done) this.refreshProjectCounts()
+      return done
     },
 
     // `dueDate` is 'YYYY-MM-DD', or null to clear it.
@@ -633,36 +697,45 @@ export const useTaskItemsStore = defineStore('taskItems', {
       return done
     },
 
-    // Deletes several tasks, one request each (each cascades to its own
-    // sub-tasks, so they leave the list with it), and refreshes the label
-    // counts once at the end rather than per task.
+    // Deletes several tasks concurrently, then filters the list, forgets their
+    // comment threads, and refreshes counts once at the end.
     async deleteItems(ids) {
-      let removed = 0
-      for (const id of ids) {
-        try {
-          await this.request('DELETE', { body: { id } })
-          this.items = this.items.filter((row) => row.id !== id && row.parentId !== id)
-          removed++
-        } catch (error) {
-          console.error('Failed to delete task:', error)
-        }
+      const outcomes = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await this.request('DELETE', { body: { id } })
+            return id
+          } catch (error) {
+            console.error('Failed to delete task:', error)
+            return null
+          }
+        }),
+      )
+      const removedIds = new Set(outcomes.filter(Boolean))
+      if (removedIds.size) {
+        const comments = useTaskCommentsStore()
+        this.items = this.items.filter(
+          (row) => !removedIds.has(row.id) && !removedIds.has(row.parentId),
+        )
+        for (const id of removedIds) comments.forgetThread(id)
+        this.refreshLabelCounts()
+        this.refreshProjectCounts()
       }
       this.spendSelection(ids)
-      this.refreshLabelCounts()
-      this.reportBulk('Deleted', removed, ids.length)
-      if (removed) this.refreshProjectCounts()
-      return removed
+      this.reportBulk('Deleted', removedIds.size, ids.length)
+      return removedIds.size
     },
 
     // Moves several tasks (a multi-select drag, or the bulk bar) to a
-    // project (null: Inbox), one request each, then reloads the list once
-    // rather than per task.
+    // project (null: Inbox), one request each, then reloads the list and counts
+    // once rather than per task.
     async moveItems(ids, projectId) {
       let queued = false
       const results = await Promise.all(
         ids.map((id) =>
           this.patchItem(id, { projectId }, { projectId }, 'Failed to move task.', {
             reload: false,
+            refreshCounts: false,
             onQueued: () => {
               queued = true
             },
@@ -671,8 +744,17 @@ export const useTaskItemsStore = defineStore('taskItems', {
       )
       const moved = results.filter(Boolean).length
       this.spendSelection(ids)
-      if (moved && !queued && this.loadedProject)
-        await this.loadItems(this.loadedProject, { force: true, preserveOnError: true })
+      if (moved && !queued) {
+        this.refreshProjectCounts()
+        const skipReload =
+          !this.loadedProject ||
+          this.loadedProject === 'today' ||
+          String(this.loadedProject).startsWith('label:') ||
+          isFilterProject(this.loadedProject)
+        if (!skipReload) {
+          await this.loadItems(this.loadedProject, { force: true, preserveOnError: true })
+        }
+      }
       this.reportBulk('Moved', moved, ids.length)
       return moved
     },
@@ -688,11 +770,28 @@ export const useTaskItemsStore = defineStore('taskItems', {
     async reorderItems(ids) {
       if (!ids?.length) return false
       const seq = ++reorderSeq
-      const today = this.loadedProject === 'today'
+      const loadSeq = this.loadSeq
+      const project = this.loadedProject
+      const today = project === 'today'
       const key = today ? 'todayPosition' : 'position'
-      const previous = new Map(this.items.map((row) => [row.id, row[key]]))
+      const idSet = new Set(ids)
+      const firstRow = this.items.find((row) => row.id === ids[0])
+      let todayOffset = 0
+      if (today && firstRow) {
+        for (const row of this.items) {
+          if (
+            !idSet.has(row.id) &&
+            row.dueDate === firstRow.dueDate &&
+            Number.isFinite(row.todayPosition) &&
+            row.todayPosition > todayOffset
+          ) {
+            todayOffset = row.todayPosition
+          }
+        }
+      }
+      const baseline = new Map(this.items.map((row) => [row.id, row[key]]))
       const next = today
-        ? new Map(ids.map((id, index) => [id, index + 1]))
+        ? new Map(ids.map((id, index) => [id, todayOffset + index + 1]))
         : dealPositions(this.items, ids)
       for (const row of this.items) {
         if (next.has(row.id)) row[key] = next.get(row.id)
@@ -704,19 +803,27 @@ export const useTaskItemsStore = defineStore('taskItems', {
       reorderQueue = reorderQueue.catch(() => {}).then(send)
       try {
         const result = await reorderQueue
-        if (seq === reorderSeq && result?.items) {
+        if (
+          seq === reorderSeq &&
+          this.loadSeq === loadSeq &&
+          this.loadedProject === project &&
+          result?.items
+        ) {
+          const byId = new Map(this.items.map((item) => [item.id, item]))
           for (const updated of result.items) {
-            const row = this.items.find((item) => item.id === updated.id)
+            const row = byId.get(updated.id)
             if (row) Object.assign(row, updated)
           }
           this.items = sortForList(this.items, this.loadedProject)
         }
         return true
       } catch (error) {
-        if (seq !== reorderSeq) return false
+        if (seq !== reorderSeq || this.loadSeq !== loadSeq || this.loadedProject !== project) {
+          return false
+        }
         console.error('Failed to re-arrange tasks:', error)
         for (const row of this.items) {
-          if (previous.has(row.id)) row[key] = previous.get(row.id)
+          if (baseline.has(row.id)) row[key] = baseline.get(row.id)
         }
         this.items = sortForList(this.items, this.loadedProject)
         this.notify(error.userMessage || 'Failed to re-arrange the tasks.', 'error')
@@ -728,11 +835,15 @@ export const useTaskItemsStore = defineStore('taskItems', {
     async replayTaskPatch(payload, owner = offlineOwner()) {
       const { item: updated } = await this.request('PATCH', { body: payload, owner })
       const item = this.items.find((row) => row.id === payload.id)
-      if (item) Object.assign(item, updated)
+      if (item) {
+        Object.assign(item, updated)
+        this.settleItemInList(item)
+      }
       this.refreshProjectCounts()
+      if (Object.hasOwn(payload, 'labels')) this.refreshLabelCounts()
     },
 
-    async setCompleted(id, completed) {
+    async setCompleted(id, completed, { refreshCounts = true } = {}) {
       if (this.completingIds.includes(id)) return null
       const item = this.itemById(id)
       const recurring = completed && item?.recurrence
@@ -744,7 +855,10 @@ export const useTaskItemsStore = defineStore('taskItems', {
         : { completedAt: completed ? new Date().toISOString() : null }
       this.completingIds.push(id)
       try {
-        return await this.patchItem(id, localPatch, body, 'Failed to update the task.')
+        return await this.patchItem(id, localPatch, body, 'Failed to update the task.', {
+          refreshCounts,
+          retainOpenDetail: false,
+        })
       } finally {
         this.completingIds = this.completingIds.filter((pending) => pending !== id)
       }
@@ -763,6 +877,7 @@ export const useTaskItemsStore = defineStore('taskItems', {
       const selectionAfterDelete = [...this.selectedIds]
       try {
         await this.request('DELETE', { body: { id } })
+        useTaskCommentsStore().forgetThread(id)
         // Sub-tasks go with it and may carry labels of their own, so this
         // does not check the removed row's labels before asking.
         this.refreshLabelCounts()

@@ -21,26 +21,13 @@ const TOOLBOX_ICON = `
 // have to be merged in (mountUniver) — without a preset's locale, its menu
 // items render as raw i18n keys (e.g. "sheets-sort-ui.general.sort") instead
 // of "Sort".
-async function loadUniver() {
+let univerPromise = null
+
+function loadUniver() {
+  if (univerPromise) return univerPromise
   // Select exports before returning modules so lazy imports can tree-shake
   // unused core APIs instead of retaining every preset namespace export.
-  const [
-    presets,
-    core,
-    _coreLocaleEn,
-    sort,
-    _sortLocaleEn,
-    filter,
-    _filterLocaleEn,
-    conditionalFormatting,
-    _conditionalFormattingLocaleEn,
-    dataValidation,
-    _dataValidationLocaleEn,
-    findReplace,
-    _findReplaceLocaleEn,
-    hyperLink,
-    _hyperLinkLocaleEn,
-  ] = await Promise.all([
+  univerPromise = Promise.all([
     import('@univerjs/presets').then(
       ({ createUniver, defaultTheme, LocaleType, mergeLocales, CommandType }) => ({
         createUniver,
@@ -80,8 +67,6 @@ async function loadUniver() {
       UniverSheetsHyperLinkPreset,
     })),
     import('@univerjs/preset-sheets-hyper-link/locales/en-US'),
-  ])
-  await Promise.all([
     import('@univerjs/preset-sheets-core/lib/index.css'),
     import('@univerjs/preset-sheets-sort/lib/index.css'),
     import('@univerjs/preset-sheets-filter/lib/index.css'),
@@ -90,23 +75,46 @@ async function loadUniver() {
     import('@univerjs/preset-sheets-find-replace/lib/index.css'),
     import('@univerjs/preset-sheets-hyper-link/lib/index.css'),
   ])
-  return {
-    presets,
-    core,
-    _coreLocaleEn,
-    sort,
-    _sortLocaleEn,
-    filter,
-    _filterLocaleEn,
-    conditionalFormatting,
-    _conditionalFormattingLocaleEn,
-    dataValidation,
-    _dataValidationLocaleEn,
-    findReplace,
-    _findReplaceLocaleEn,
-    hyperLink,
-    _hyperLinkLocaleEn,
-  }
+    .then(
+      ([
+        presets,
+        core,
+        _coreLocaleEn,
+        sort,
+        _sortLocaleEn,
+        filter,
+        _filterLocaleEn,
+        conditionalFormatting,
+        _conditionalFormattingLocaleEn,
+        dataValidation,
+        _dataValidationLocaleEn,
+        findReplace,
+        _findReplaceLocaleEn,
+        hyperLink,
+        _hyperLinkLocaleEn,
+      ]) => ({
+        presets,
+        core,
+        _coreLocaleEn,
+        sort,
+        _sortLocaleEn,
+        filter,
+        _filterLocaleEn,
+        conditionalFormatting,
+        _conditionalFormattingLocaleEn,
+        dataValidation,
+        _dataValidationLocaleEn,
+        findReplace,
+        _findReplaceLocaleEn,
+        hyperLink,
+        _hyperLinkLocaleEn,
+      }),
+    )
+    .catch((error) => {
+      univerPromise = null
+      throw error
+    })
+  return univerPromise
 }
 
 // Univer reports every command it runs, including selection moves, scrolling
@@ -131,8 +139,10 @@ export class UniverSheetTool {
     this.univerAPI = null
     this.changeFrame = null
     this.themeObserver = null
+    this.mountNode = null
     this.calculating = false
     this.calculationSettled = Promise.resolve()
+    this.resolveCalculationSettled = null
     this.formulaDisposables = []
     this.commandListener = null
   }
@@ -172,6 +182,7 @@ export class UniverSheetTool {
         Array.from({ length: 4 }, (_, col) => sheet?.cellData?.[row]?.[col]?.v ?? '').join(' · '),
       )
     const loading = editorPreview('Table', lines)
+    this.mountNode = loading
     this.wrapper.append(loading)
     this.cancelDeferredMount = deferEditorMount(this.wrapper, loading, (preview) =>
       this.mountUniver(preview),
@@ -205,6 +216,7 @@ export class UniverSheetTool {
       const canvas = document.createElement('div')
       canvas.className = 'univer-sheet-block__canvas'
       loading.replaceWith(canvas)
+      this.mountNode = canvas
 
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
 
@@ -276,17 +288,18 @@ export class UniverSheetTool {
       // followed by autosave can't serialize a workbook where a dependent
       // cell's cached value is still stale relative to its formula/inputs.
       const formula = univerAPI.getFormula()
-      let resolveSettled = () => {}
       this.formulaDisposables = [
         formula.calculationStart(() => {
+          if (this.calculating) return
           this.calculating = true
           this.calculationSettled = new Promise((resolve) => {
-            resolveSettled = resolve
+            this.resolveCalculationSettled = resolve
           })
         }),
         formula.calculationEnd(() => {
           this.calculating = false
-          resolveSettled()
+          this.resolveCalculationSettled?.()
+          this.resolveCalculationSettled = null
         }),
       ]
 
@@ -305,8 +318,11 @@ export class UniverSheetTool {
       if (import.meta.env.MODE === 'e2e') this.wrapper.__univerAPI = univerAPI
     } catch (error) {
       console.error('Loading the table failed:', error)
-      loading.classList.add('error')
-      loading.textContent = 'Table could not be loaded.'
+      const errorNode = this.mountNode?.isConnected ? this.mountNode : this.wrapper
+      if (errorNode) {
+        errorNode.classList.add('error')
+        errorNode.textContent = 'Table could not be loaded.'
+      }
     }
   }
 
@@ -334,10 +350,18 @@ export class UniverSheetTool {
     this.commandListener = null
     for (const disposable of this.formulaDisposables) disposable.dispose()
     this.formulaDisposables = []
+    this.calculating = false
+    this.resolveCalculationSettled?.()
+    this.resolveCalculationSettled = null
     this.univer?.dispose()
     this.univerAPI?.dispose()
     this.univer = null
     this.univerAPI = null
+    this.mountNode = null
     this.wrapper = null
+  }
+
+  removed() {
+    this.destroy()
   }
 }

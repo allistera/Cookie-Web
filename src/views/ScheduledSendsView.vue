@@ -1,21 +1,25 @@
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
+const cancellingIds = ref(new Set())
+
+const SCHEDULED_FMT = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
 
 onMounted(() => {
   store.loadScheduledSends()
 })
 
 function formatScheduledFor(scheduledFor) {
-  return new Date(scheduledFor).toLocaleString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const date = new Date(scheduledFor)
+  return Number.isNaN(date.getTime()) ? '' : SCHEDULED_FMT.format(date)
 }
 
 function statusLabel(item) {
@@ -33,11 +37,17 @@ function statusLabel(item) {
 // so a failure here just needs to tell the user — nothing to roll back
 // locally, the row is still in the list either way.
 async function cancel(scheduledSend) {
+  if (cancellingIds.value.has(scheduledSend.id)) return
+  cancellingIds.value = new Set(cancellingIds.value).add(scheduledSend.id)
   try {
     await store.cancelScheduledSend(scheduledSend)
   } catch (error) {
     console.error('Failed to cancel scheduled send:', error)
     store.notify('Failed to cancel scheduled send.', 'error')
+  } finally {
+    const next = new Set(cancellingIds.value)
+    next.delete(scheduledSend.id)
+    cancellingIds.value = next
   }
 }
 </script>
@@ -88,7 +98,9 @@ async function cancel(scheduledSend) {
         <button
           type="button"
           class="scheduled-sends-cancel"
-          :disabled="Boolean(item.status && item.status !== 'pending')"
+          :disabled="
+            cancellingIds.has(item.id) || Boolean(item.status && item.status !== 'pending')
+          "
           @click="cancel(item)"
         >
           Cancel
@@ -211,7 +223,12 @@ async function cancel(scheduledSend) {
   cursor: pointer;
 }
 
-.scheduled-sends-cancel:hover {
+.scheduled-sends-cancel:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+
+.scheduled-sends-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

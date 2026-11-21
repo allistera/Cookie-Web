@@ -57,6 +57,7 @@ export class TocBlockTool {
     this.wrapper.className = 'toc-block'
     this.wrapper.setAttribute('aria-label', 'Table of contents')
     this.wrapper.contentEditable = 'false'
+    this.wrapper.dataset.mutationFree = 'true'
     this.wrapper.addEventListener('keydown', (event) => {
       if (GUARDED_KEYS.has(event.key)) event.stopPropagation()
     })
@@ -80,7 +81,8 @@ export class TocBlockTool {
     if (!root || this.observer) return
     this.observer = new MutationObserver((mutations) => {
       // Ignore the list re-rendering itself, or it would refresh forever.
-      if (mutations.every((mutation) => this.wrapper.contains(mutation.target))) return
+      if (!this.wrapper || mutations.every((mutation) => this.wrapper.contains(mutation.target)))
+        return
       this.scheduleRefresh()
     })
     this.observer.observe(root, { childList: true, subtree: true, characterData: true })

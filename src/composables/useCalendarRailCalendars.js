@@ -1,4 +1,5 @@
-import { readonly, ref } from 'vue'
+import { readonly, ref, watch } from 'vue'
+import { calendarSession } from './useCalendars'
 
 // The calendar list inside the calendar rail (CalendarRail.vue). Kept apart
 // from useCalendarRail, which App.vue imports into the entry chunk, so this
@@ -22,6 +23,10 @@ const isListOpen = ref(readListOpen())
 // Calendars hidden from the rail's day. Not stored, so a fresh page load shows
 // every calendar again, as the Calendar view does.
 const hiddenCalendars = ref(new Set())
+
+watch(calendarSession, () => {
+  hiddenCalendars.value = new Set()
+})
 
 export function useCalendarRailCalendars() {
   function toggleList() {

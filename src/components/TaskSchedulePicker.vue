@@ -21,6 +21,8 @@ const props = defineProps({
 const emit = defineEmits(['update:dueDate', 'update:dueTime', 'saveRecurrence'])
 
 const MONTHS_SHOWN = 12
+const MAX_CONTIGUOUS_MONTHS = 36
+const INPUT_DATE_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' })
 
 const open = ref(false)
 const today = useLocalToday()
@@ -55,17 +57,20 @@ function monthNumber(iso) {
 }
 const months = computed(() => {
   const due = calendarDate.value || today.value
-  const start = due < today.value ? due : today.value
-  const end = Math.max(monthNumber(today.value) + MONTHS_SHOWN - 1, monthNumber(due))
-  return monthsFrom(`${start.slice(0, 8)}01`, end - monthNumber(start) + 1)
+  const todayMonth = monthNumber(today.value)
+  const dueMonth = monthNumber(due)
+  const startMonth = Math.min(dueMonth, todayMonth)
+  const endMonth = Math.max(todayMonth + MONTHS_SHOWN - 1, dueMonth)
+  if (endMonth - startMonth + 1 <= MAX_CONTIGUOUS_MONTHS) {
+    const start = due < today.value ? due : today.value
+    return monthsFrom(`${start.slice(0, 8)}01`, endMonth - startMonth + 1)
+  }
+  const baseMonths = monthsFrom(`${today.value.slice(0, 8)}01`, MONTHS_SHOWN)
+  const dueMonths = monthsFrom(`${due.slice(0, 8)}01`, 1)
+  return dueMonth < todayMonth ? [...dueMonths, ...baseMonths] : [...baseMonths, ...dueMonths]
 })
 const atFirstMonth = computed(() => monthIndex.value <= 0)
 const atLastMonth = computed(() => monthIndex.value >= months.value.length - 1)
-
-function isWeekend(iso) {
-  const day = new Date(`${iso}T00:00:00`).getDay()
-  return day === 0 || day === 6
-}
 
 watch(
   () => props.recurrence,
@@ -118,17 +123,23 @@ function scrollToMonth(index) {
 // Which month heads the visible part of the calendar after a scroll, so
 // the arrows step from where the person is looking.
 function onCalendarScroll() {
-  const sections = [...(calendar.value?.querySelectorAll('.task-schedule-month') ?? [])]
-  const top = calendar.value.scrollTop + 8
+  const box = calendar.value
+  if (!box) return
+  const sections = box.querySelectorAll('.task-schedule-month')
+  const boxTop = box.getBoundingClientRect().top
+  const threshold = 8
   let index = 0
-  sections.forEach((section, at) => {
-    if (offsetInCalendar(section) <= top) index = at
-  })
+  for (let at = 0; at < sections.length; at += 1) {
+    if (sections[at].getBoundingClientRect().top - boxTop <= threshold) index = at
+    else break
+  }
   monthIndex.value = index
 }
 
+let unmounted = false
+
 async function openPicker() {
-  if (open.value) return
+  if (open.value || unmounted) return
   today.value = localToday()
   dateText.value = props.dueDate ? formatInput(props.dueDate) : ''
   prefilledText = dateText.value
@@ -137,6 +148,7 @@ async function openPicker() {
   showRepeat.value = false
   open.value = true
   await nextTick()
+  if (!open.value || unmounted) return
   place()
   scrollToMonth(monthIndexOf(calendarDate.value || today.value))
   input.value?.focus()
@@ -149,7 +161,7 @@ async function openPicker() {
 function formatInput(iso) {
   if (isSomeday(iso)) return 'Someday'
   const date = new Date(`${iso}T00:00:00`)
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(date)
+  return INPUT_DATE_FMT.format(date)
 }
 
 function close({ refocus = true } = {}) {
@@ -228,6 +240,7 @@ async function toggleRepeat() {
 }
 
 onBeforeUnmount(() => {
+  unmounted = true
   document.removeEventListener('pointerdown', onPointerDown, true)
   window.removeEventListener('resize', place)
 })
@@ -339,12 +352,14 @@ defineExpose({ open: openPicker })
         </div>
       </div>
       <div class="task-schedule-weekdays" aria-hidden="true">
-        <span v-for="day in ['M', 'T', 'W', 'T', 'F', 'S', 'S']" :key="day">{{ day }}</span>
+        <span v-for="(day, index) in ['M', 'T', 'W', 'T', 'F', 'S', 'S']" :key="index">{{
+          day
+        }}</span>
       </div>
       <div ref="calendar" class="task-schedule-calendar" @scroll.passive="onCalendarScroll">
         <section
           v-for="(month, index) in months"
-          :key="month.label"
+          :key="`${month.year}-${month.month}`"
           class="task-schedule-month"
           :aria-label="month.label"
         >
@@ -359,7 +374,7 @@ defineExpose({ open: openPicker })
                   today: iso === today,
                   selected: iso === dueDate,
                   past: iso < today,
-                  weekend: isWeekend(iso),
+                  weekend: slot >= 5,
                 }"
                 :data-date="iso"
                 :aria-label="iso"

@@ -16,17 +16,21 @@ defineProps({
   highlighted: { type: Boolean, default: false },
   hasAiSummary: { type: Boolean, default: false },
   showDone: { type: Boolean, default: true },
+  selectable: { type: Boolean, default: true },
 })
 
 defineEmits(['open', 'toggle-select', 'toggle-star', 'done', 'toggle-unread'])
 
+const FOLLOW_UP_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function followUpTitle(followUpAt) {
-  return `Follow up ${new Date(followUpAt).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })}`
+  const date = new Date(followUpAt)
+  return Number.isNaN(date.getTime()) ? 'Follow up' : `Follow up ${FOLLOW_UP_FMT.format(date)}`
 }
 </script>
 
@@ -44,10 +48,11 @@ function followUpTitle(followUpAt) {
     :aria-label="`${sender}: ${email.subject}`"
     @click="$emit('open', email)"
     @keydown.enter.self.prevent="$emit('open', email)"
-    @keydown.space.self.prevent="$emit('toggle-select', email)"
+    @keydown.space.self.prevent="selectable && $emit('toggle-select', email)"
   >
     <div class="ni-lead">
       <span
+        v-if="selectable"
         class="ni-checkbox"
         :class="{ checked }"
         role="checkbox"

@@ -16,19 +16,23 @@ import { plainTextToHtml } from '../lib/composeHtml'
 import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
 import { getLegacySignature, clearLegacySignature } from '../lib/signature'
 import { getLegacySnippets, clearLegacySnippets } from '../lib/snippets'
-import CalendarSettings from '../components/CalendarSettings.vue'
 import ComposerEditor from '../components/ComposerEditor.vue'
-import DocumentTemplateSettings from '../components/DocumentTemplateSettings.vue'
-import DailyNoteSettings from '../components/DailyNoteSettings.vue'
-import OutOfOfficeSettings from '../components/OutOfOfficeSettings.vue'
-import SenderSettings from '../components/SenderSettings.vue'
-import SpamRetentionSettings from '../components/SpamRetentionSettings.vue'
-import AiTodaySettings from '../components/AiTodaySettings.vue'
-import CategorySettings from '../components/CategorySettings.vue'
-import TaskLabelSettings from '../components/TaskLabelSettings.vue'
-import McpClientSettings from '../components/McpClientSettings.vue'
-import TodoistSettings from '../components/TodoistSettings.vue'
-import NtfySettings from '../components/NtfySettings.vue'
+import { lazyComponent } from '../router/chunkReload'
+
+const CalendarSettings = lazyComponent(() => import('../components/CalendarSettings.vue'))
+const DocumentTemplateSettings = lazyComponent(
+  () => import('../components/DocumentTemplateSettings.vue'),
+)
+const DailyNoteSettings = lazyComponent(() => import('../components/DailyNoteSettings.vue'))
+const OutOfOfficeSettings = lazyComponent(() => import('../components/OutOfOfficeSettings.vue'))
+const SenderSettings = lazyComponent(() => import('../components/SenderSettings.vue'))
+const SpamRetentionSettings = lazyComponent(() => import('../components/SpamRetentionSettings.vue'))
+const AiTodaySettings = lazyComponent(() => import('../components/AiTodaySettings.vue'))
+const CategorySettings = lazyComponent(() => import('../components/CategorySettings.vue'))
+const TaskLabelSettings = lazyComponent(() => import('../components/TaskLabelSettings.vue'))
+const McpClientSettings = lazyComponent(() => import('../components/McpClientSettings.vue'))
+const TodoistSettings = lazyComponent(() => import('../components/TodoistSettings.vue'))
+const NtfySettings = lazyComponent(() => import('../components/NtfySettings.vue'))
 
 const store = useInboxStore()
 const { user } = useAuth()
@@ -78,8 +82,10 @@ async function persistInterests(next, personaliseGithub = store.personaliseGithu
   isSavingInterests.value = true
   try {
     await store.saveInterests(next, personaliseGithub)
+    return true
   } catch {
     interestError.value = 'Could not save. Try again.'
+    return false
   } finally {
     isSavingInterests.value = false
   }
@@ -98,8 +104,8 @@ async function addInterest() {
     interestError.value = 'Already on the list.'
     return
   }
-  interestDraft.value = ''
-  await persistInterests([...store.interests, value])
+  const saved = await persistInterests([...store.interests, value])
+  if (saved && interestDraft.value.trim() === value) interestDraft.value = ''
 }
 
 async function removeInterest(interest) {
@@ -154,14 +160,22 @@ watch(
     isGeneratingSnippet.value = false
     snippetGenerationVersion += 1
     refreshLegacyValues()
-    if (sub) {
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [user.value?.sub, activeSection.value],
+  ([sub, section]) => {
+    if (!sub) return
+    if (section === 'labels') store.loadLabels()
+    else if (section === 'categories') store.loadCategories()
+    else if (section === 'rules') {
       store.loadLabels()
-      store.loadCategories()
       store.loadRules()
-      store.loadInterests()
-      store.loadSpamRetention()
-      store.loadComposePreferences()
-    }
+    } else if (section === 'personalisation') store.loadInterests()
+    else if (section === 'spam') store.loadSpamRetention()
+    else if (section === 'signature' || section === 'snippets') store.loadComposePreferences()
   },
   { immediate: true },
 )
@@ -354,15 +368,20 @@ async function generateSnippet() {
   const ownerGeneration = store.composeGeneration
   const version = ++snippetGenerationVersion
   isGeneratingSnippet.value = true
-  const snippet = await store.requestAiSnippet(aiSnippetInstruction.value)
-  if (ownerGeneration !== store.composeGeneration || version !== snippetGenerationVersion) return
-  isGeneratingSnippet.value = false
-  if (!snippet) return
-  snippetDraftSession += 1
-  snippetDraft.name = snippet.name
-  snippetDraft.html = plainTextToHtml(snippet.text)
-  editingSnippetId.value = null
-  snippetError.value = ''
+  try {
+    const snippet = await store.requestAiSnippet(aiSnippetInstruction.value)
+    if (ownerGeneration !== store.composeGeneration || version !== snippetGenerationVersion) return
+    if (!snippet) return
+    snippetDraftSession += 1
+    snippetDraft.name = snippet.name
+    snippetDraft.html = plainTextToHtml(snippet.text)
+    editingSnippetId.value = null
+    snippetError.value = ''
+  } finally {
+    if (ownerGeneration === store.composeGeneration && version === snippetGenerationVersion) {
+      isGeneratingSnippet.value = false
+    }
+  }
 }
 
 // --- Appearance ---
@@ -442,17 +461,20 @@ const isRenamingLabel = ref(false)
 async function submitLabel() {
   if (!newLabel.name.trim() || isSavingLabel.value) return
   isSavingLabel.value = true
-  const created = await store.createLabel({
-    name: newLabel.name.trim(),
-    color: newLabel.color,
-    description: newLabel.description.trim(),
-  })
-  if (created) {
-    newLabel.name = ''
-    newLabel.description = ''
-    newLabel.color = LABEL_PALETTE[3]
+  try {
+    const created = await store.createLabel({
+      name: newLabel.name.trim(),
+      color: newLabel.color,
+      description: newLabel.description.trim(),
+    })
+    if (created) {
+      newLabel.name = ''
+      newLabel.description = ''
+      newLabel.color = LABEL_PALETTE[3]
+    }
+  } finally {
+    isSavingLabel.value = false
   }
-  isSavingLabel.value = false
 }
 
 function startRenamingLabel(label) {
@@ -476,8 +498,12 @@ async function submitLabelRename(label) {
 
   const previousName = label.name
   isRenamingLabel.value = true
-  const renamed = await store.renameLabel(label, name)
-  isRenamingLabel.value = false
+  let renamed
+  try {
+    renamed = await store.renameLabel(label, name)
+  } finally {
+    isRenamingLabel.value = false
+  }
 
   if (renamed) {
     if (route.query.filter === 'label' && route.query.label === previousName) {
@@ -638,14 +664,16 @@ async function submitRule() {
 
   const savingRuleId = editingRuleId.value
   let ok
-  if (savingRuleId) {
-    const rule = store.rules.find((r) => r.id === savingRuleId)
-    ok = rule ? await store.updateRule(rule, payload) : false
-  } else {
-    ok = Boolean(await store.createRule(payload))
+  try {
+    if (savingRuleId) {
+      const rule = store.rules.find((r) => r.id === savingRuleId)
+      ok = rule ? await store.updateRule(rule, payload) : false
+    } else {
+      ok = Boolean(await store.createRule(payload))
+    }
+  } finally {
+    isSavingRule.value = false
   }
-
-  isSavingRule.value = false
   // Edit may have opened another rule while this save was in flight; leave
   // that newer draft (and its error slot) alone.
   if (editingRuleId.value !== savingRuleId) return
@@ -783,7 +811,7 @@ function toggleRuleEnabled(rule) {
                 class="settings-avatar"
               />
               <div class="settings-account-info">
-                <span class="settings-account-name">{{ user?.name || 'Allister' }}</span>
+                <span class="settings-account-name">{{ user?.name || user?.email || 'Account' }}</span>
                 <span class="settings-account-email">{{ user?.email || '' }}</span>
                 <span class="settings-account-provider">Signed in with Google via Auth0</span>
               </div>

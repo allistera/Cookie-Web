@@ -38,19 +38,21 @@ export const useSendersStore = defineStore('senders', {
     // A fresh load (reload or a new search) supersedes one still in flight;
     // only a `more` page waits for the previous request.
     async load({ more = false, query = this.query } = {}) {
-      if (!this.ownerSub || this.saving || (more && (!this.nextCursor || this.loading)))
+      const text = normalizeSender(query)
+      const paginate = more && text === this.query
+      if (!this.ownerSub || this.saving || (paginate && (!this.nextCursor || this.loading)))
         return false
       const generation = this.generation
       const request = ++this.loadRequest
       const current = () => generation === this.generation && request === this.loadRequest
-      const text = normalizeSender(query)
       this.query = text
+      if (!paginate) this.nextCursor = null
       this.loading = true
       try {
         const headers = await authHeaders()
         if (!current()) return false
         const params = new URLSearchParams()
-        if (more) params.set('after', this.nextCursor)
+        if (paginate) params.set('after', this.nextCursor)
         if (text) params.set('q', text)
         const search = params.toString()
         const response = await fetch(`${EMAILS_API_URL}/emails/senders${search && `?${search}`}`, {
@@ -61,7 +63,7 @@ export const useSendersStore = defineStore('senders', {
         const data = await response.json()
         if (!current()) return false
         this.enabled = data.enabled
-        this.decisions = more
+        this.decisions = paginate
           ? [
               ...new Map(
                 [...this.decisions, ...data.decisions].map((entry) => [entry.address, entry]),
@@ -116,9 +118,11 @@ export const useSendersStore = defineStore('senders', {
           headers,
           body: JSON.stringify(body),
         })
-        const data = await response.json()
+        const data = await response.json().catch(() => ({}))
         if (generation !== this.generation) return false
         if (!response.ok) {
+          this.generation++
+          this.loading = false
           this.error = data.error || 'Could not change this sender.'
           return false
         }
@@ -146,7 +150,10 @@ export const useSendersStore = defineStore('senders', {
                 (['accept', 'block'].includes(body.action) || entry.decision === removed)
               ),
           )
-          if (data.decision) this.decisions.push({ address: data.address, decision: data.decision })
+          const matchesQuery = !this.query || normalizeSender(data.address).includes(this.query)
+          if (data.decision && matchesQuery) {
+            this.decisions.push({ address: data.address, decision: data.decision })
+          }
         }
         this.decisions.sort((a, b) => a.address.localeCompare(b.address))
         // Invalidate pre-save reads without changing the account identity.
@@ -154,8 +161,11 @@ export const useSendersStore = defineStore('senders', {
         this.loading = false
         return true
       } catch {
-        if (generation === this.generation)
+        if (generation === this.generation) {
+          this.generation++
+          this.loading = false
           this.error = 'Could not confirm the change. Reload before trying again.'
+        }
         return false
       } finally {
         if (

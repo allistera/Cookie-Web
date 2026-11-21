@@ -102,7 +102,7 @@ export const useTaskCommentsStore = defineStore('taskComments', {
         const kept = thread.comments.filter(
           (row) =>
             !incomingIds.has(row.id) &&
-            (more || (newerThanPage(row) && (nextCursor !== null || !initialIds.has(row.id)))),
+            (more || !initialIds.has(row.id) || (newerThanPage(row) && nextCursor !== null)),
         )
         thread.comments = sortComments([...kept, ...comments])
         thread.nextCursor = nextCursor
@@ -137,6 +137,7 @@ export const useTaskCommentsStore = defineStore('taskComments', {
           const data = await response.json().catch(() => ({}))
           const error = new Error(data.error || `Comment failed (${response.status})`)
           error.status = response.status
+          if (response.status < 500 && data.error) error.userMessage = data.error
           throw error
         }
         const { comment } = await response.json()
@@ -146,7 +147,7 @@ export const useTaskCommentsStore = defineStore('taskComments', {
         return comment
       } catch (error) {
         console.error('Failed to add comment:', error)
-        this.notify(error.message || 'Failed to add the comment.', 'error')
+        this.notify(error.userMessage || 'Failed to add the comment.', 'error')
         return null
       }
     },

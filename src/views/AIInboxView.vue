@@ -139,9 +139,19 @@ const scheduleOptions = computed(() =>
 // traditional inbox's schedule menus behave. Clicks inside the wrapper are
 // left alone: the toggle button and the menu items own those.
 function onDocumentClick(event) {
-  if (event.target.closest('.ni-schedule-wrap')) return
+  if (event.target instanceof Element && event.target.closest('.ni-schedule-wrap')) return
   reschedulingTaskId.value = null
   reschedulingItemId.value = null
+}
+
+function toggleTaskReschedule(taskId) {
+  reschedulingItemId.value = null
+  reschedulingTaskId.value = reschedulingTaskId.value === taskId ? null : taskId
+}
+
+function toggleItemReschedule(messageId) {
+  reschedulingTaskId.value = null
+  reschedulingItemId.value = reschedulingItemId.value === messageId ? null : messageId
 }
 
 async function completeTask(task) {
@@ -236,6 +246,22 @@ async function rescheduleDigestItem(item, choice) {
     store.notify('Failed to reschedule email.', 'error')
   }
 }
+
+// Clear optimistic hide sets whenever the store replaces tasks/digest with a
+// fresh server load so items that legitimately return to today are not stuck hidden.
+watch(
+  () => store.tasks,
+  () => {
+    if (completingTaskIds.value.size) completingTaskIds.value = new Set()
+  },
+)
+watch(
+  () => store.digest,
+  () => {
+    if (completingItemIds.value.size) completingItemIds.value = new Set()
+    if (hiddenItemIds.value.size) hiddenItemIds.value = new Set()
+  },
+)
 
 async function draftFollowUp(task) {
   const generated = await store.draftFollowUp(task)
@@ -405,7 +431,7 @@ onUnmounted(() => {
                   class="action-pill-btn"
                   aria-haspopup="menu"
                   :aria-expanded="reschedulingTaskId === task.id"
-                  @click="reschedulingTaskId = reschedulingTaskId === task.id ? null : task.id"
+                  @click="toggleTaskReschedule(task.id)"
                 >
                   <span class="material-symbols-outlined">schedule</span>
                   <span>Reschedule</span>
@@ -481,10 +507,7 @@ onUnmounted(() => {
                     :aria-label="`Reschedule: ${item.headline}`"
                     aria-haspopup="menu"
                     :aria-expanded="reschedulingItemId === item.message_id"
-                    @click="
-                      reschedulingItemId =
-                        reschedulingItemId === item.message_id ? null : item.message_id
-                    "
+                    @click="toggleItemReschedule(item.message_id)"
                   >
                     <span class="material-symbols-outlined">schedule</span>
                   </button>

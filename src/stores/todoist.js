@@ -37,6 +37,9 @@ export const useTodoistStore = defineStore('todoist', {
     isLoading: false,
     isSaving: false,
     isSyncing: false,
+    loadingOps: 0,
+    savingOps: 0,
+    loadingSeq: 0,
     // Bumped by every write that lands (save, sync, disconnect). A read that
     // started before such a write must not overwrite its result when it
     // finally resolves.
@@ -71,12 +74,14 @@ export const useTodoistStore = defineStore('todoist', {
     // is small.
     async loadSettings({ force = true } = {}) {
       if (this.isLoaded && !force) return true
+      this.loadingOps += 1
       this.isLoading = true
       const seq = this.writeSeq
+      const reqSeq = ++this.loadingSeq
       try {
         const { todoist } = await this.request('GET')
-        // A save or sync that landed meanwhile already holds newer state.
-        if (seq === this.writeSeq) {
+        // A save, sync, or newer read that landed meanwhile already holds newer state.
+        if (seq === this.writeSeq && reqSeq === this.loadingSeq) {
           this.settings = { ...emptyTodoistSettings(), ...todoist }
           this.isLoaded = true
         }
@@ -85,7 +90,8 @@ export const useTodoistStore = defineStore('todoist', {
         console.error('Failed to load Todoist settings:', error)
         return false
       } finally {
-        this.isLoading = false
+        this.loadingOps = Math.max(0, this.loadingOps - 1)
+        this.isLoading = this.loadingOps > 0
       }
     },
 
@@ -113,6 +119,7 @@ export const useTodoistStore = defineStore('todoist', {
     },
 
     async save(body, successMessage) {
+      this.savingOps += 1
       this.isSaving = true
       try {
         const { todoist } = await this.request('PUT', body)
@@ -124,12 +131,14 @@ export const useTodoistStore = defineStore('todoist', {
         this.notify(error.userMessage || 'Failed to save Todoist settings.', 'error')
         return null
       } finally {
-        this.isSaving = false
+        this.savingOps = Math.max(0, this.savingOps - 1)
+        this.isSaving = this.savingOps > 0
       }
     },
 
     // Forgets the token. Mirrored projects and tasks stay in Cookie.
     async disconnect() {
+      this.savingOps += 1
       this.isSaving = true
       try {
         await this.request('DELETE')
@@ -141,7 +150,8 @@ export const useTodoistStore = defineStore('todoist', {
         this.notify(error.userMessage || 'Failed to disconnect Todoist.', 'error')
         return false
       } finally {
-        this.isSaving = false
+        this.savingOps = Math.max(0, this.savingOps - 1)
+        this.isSaving = this.savingOps > 0
       }
     },
 

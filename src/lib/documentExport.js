@@ -49,10 +49,21 @@ function listMarkdown(items, style, depth = 0, start = 1) {
     .join('')
 }
 
+function normalizeHeadingLevel(level) {
+  const parsed = Number.parseInt(level, 10)
+  return Number.isInteger(parsed) ? Math.min(6, Math.max(1, parsed)) : 1
+}
+
+function normalizeListStart(start) {
+  const parsed = Number.parseInt(start, 10)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 1
+}
+
 function listHTML(items, style, start = 1) {
   const tag = style === 'ordered' ? 'ol' : 'ul'
+  const safeStart = normalizeListStart(start)
   return (
-    `<${tag}${tag === 'ol' ? ` start="${start}"` : ''}>` +
+    `<${tag}${tag === 'ol' ? ` start="${safeStart}"` : ''}>` +
     items
       .map(
         (item) =>
@@ -186,12 +197,7 @@ export async function prepareExportBlocks(
         appState: { ...block.data.appState, exportBackground: true },
         mimeType: 'image/png',
       })
-      const url = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result)
-        reader.onerror = () => reject(new Error('Could not render the drawing.'))
-        reader.readAsDataURL(blob)
-      })
+      const url = await blobToDataUrl(blob, 'Could not render the drawing.')
       return { type: 'image', data: { file: { url }, caption: '' } }
     }),
   ).then((prepared) => prepared.filter(Boolean))
@@ -220,7 +226,7 @@ function headingOutline(blocks) {
         .replace(/\s/g, '-') || 'section'
     const seen = used.get(base) ?? 0
     used.set(base, seen + 1)
-    const level = Math.min(6, Math.max(1, data.level || 1))
+    const level = normalizeHeadingLevel(data.level)
     outline.set(index, { level, text, slug: seen ? `${base}-${seen}` : base })
   })
   return outline
@@ -265,7 +271,7 @@ export function convertBlocksToMarkdown(blocks, title = '') {
         markdown += tocMarkdown(outline)
         break
       case 'header':
-        markdown += `${'#'.repeat(Math.min(6, Math.max(1, data.level || 1)))} ${inline(data.text)}\n\n`
+        markdown += `${'#'.repeat(normalizeHeadingLevel(data.level))} ${inline(data.text)}\n\n`
         break
       case 'paragraph':
         markdown += `${inline(data.text)}\n\n`
@@ -323,7 +329,7 @@ export function convertBlocksToHTML(blocks, title = '') {
   <meta charset="UTF-8">
   <title>${escapeHtml(title) || 'Document'}</title>
   <style>
-    body {
+    .cookie-export-body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       max-width: 800px;
       margin: 0 auto;
@@ -331,49 +337,53 @@ export function convertBlocksToHTML(blocks, title = '') {
       line-height: 1.6;
       color: #333;
     }
-    h1, h2, h3 {
+    .cookie-export-body h1,
+    .cookie-export-body h2,
+    .cookie-export-body h3 {
       margin-top: 1.5em;
       margin-bottom: 0.5em;
       line-height: 1.2;
     }
-    h1 { font-size: 2em; }
-    h2 { font-size: 1.5em; }
-    h3 { font-size: 1.25em; }
-    p { margin-bottom: 1em; }
-    ul, ol { margin-bottom: 1em; padding-left: 2em; }
-    code {
+    .cookie-export-body h1 { font-size: 2em; }
+    .cookie-export-body h2 { font-size: 1.5em; }
+    .cookie-export-body h3 { font-size: 1.25em; }
+    .cookie-export-body p { margin-bottom: 1em; }
+    .cookie-export-body ul,
+    .cookie-export-body ol { margin-bottom: 1em; padding-left: 2em; }
+    .cookie-export-body code {
       background: #f4f4f4;
       padding: 0.2em 0.4em;
       border-radius: 3px;
       font-family: monospace;
     }
-    pre {
+    .cookie-export-body pre {
       background: #f4f4f4;
       padding: 1em;
       border-radius: 6px;
       overflow-x: auto;
     }
-    pre code {
+    .cookie-export-body pre code {
       background: none;
       padding: 0;
     }
-    img {
+    .cookie-export-body img {
       max-width: 100%;
       height: auto;
       display: block;
       margin: 1em 0;
     }
-    hr {
+    .cookie-export-body hr {
       border: none;
       border-top: 1px solid #ddd;
       margin: 2em 0;
     }
-    table {
+    .cookie-export-body table {
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 1em;
     }
-    table td, table th {
+    .cookie-export-body table td,
+    .cookie-export-body table th {
       border: 1px solid #ddd;
       padding: 8px;
       text-align: left;
@@ -381,6 +391,7 @@ export function convertBlocksToHTML(blocks, title = '') {
   </style>
 </head>
 <body>
+  <div class="cookie-export-body">
   ${title ? `<h1>${escapeHtml(title)}</h1>` : ''}
 `
 
@@ -391,7 +402,7 @@ export function convertBlocksToHTML(blocks, title = '') {
         html += tocHTML(outline)
         break
       case 'header': {
-        const level = Math.min(6, Math.max(1, data.level || 1))
+        const level = normalizeHeadingLevel(data.level)
         const slug = outline.get(index)?.slug
         const id = slug ? ` id="${slug}"` : ''
         html += `<h${level}${id}>${inline(data.text)}</h${level}>`
@@ -438,7 +449,7 @@ export function convertBlocksToHTML(blocks, title = '') {
         throw new Error(`The ${type} block cannot be exported.`)
     }
   }
-  return html + '</body></html>'
+  return html + '</div></body></html>'
 }
 
 /**

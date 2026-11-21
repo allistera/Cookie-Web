@@ -121,12 +121,17 @@ function scrollToEnd() {
 
 const editingId = ref(null)
 const editDraft = ref('')
+const editProblem = computed(() =>
+  editingId.value ? commentDraftProblem({ body: editDraft.value }) : null,
+)
+const editError = ref('')
 const editInput = ref(null)
 const editRows = computed(() => Math.min(8, Math.max(2, editDraft.value.split('\n').length)))
 
 async function startEdit(comment) {
   editingId.value = comment.id
   editDraft.value = comment.body ?? ''
+  editError.value = ''
   await nextTick()
   editInput.value?.focus()
   editInput.value?.setSelectionRange?.(editDraft.value.length, editDraft.value.length)
@@ -134,15 +139,24 @@ async function startEdit(comment) {
 
 function cancelEdit() {
   editingId.value = null
+  editError.value = ''
 }
 
 async function saveEdit(comment) {
   if (editingId.value !== comment.id) return
+  if (editProblem.value) {
+    editError.value = editProblem.value
+    return
+  }
   const body = editDraft.value.trim()
   if (body === (comment.body ?? '')) return cancelEdit()
   // An entry that only has text cannot be emptied; the server would refuse
   // it, and Delete is the way to take the entry away.
-  if (!body && !comment.attachment) return
+  if (!body && !comment.attachment) {
+    editError.value = 'Enter a comment, or delete it instead.'
+    return
+  }
+  editError.value = ''
   const saved = await store.editComment(props.taskId, comment.id, body)
   // Only this edit closes; one cancelled and replaced by another entry's
   // edit while the save was in flight leaves that newer draft alone.
@@ -300,10 +314,18 @@ function isBusy(comment) {
               aria-label="Edit comment"
               :rows="editRows"
               :disabled="isBusy(comment)"
+              @input="editError = ''"
               @keydown="onEditKeydown($event, comment)"
             ></textarea>
+            <p v-if="editError || editProblem" class="task-comment-problem" role="alert">
+              {{ editError || editProblem }}
+            </p>
             <div class="task-comment-edit-actions">
-              <button type="submit" class="task-comments-button" :disabled="isBusy(comment)">
+              <button
+                type="submit"
+                class="task-comments-button"
+                :disabled="isBusy(comment) || Boolean(editProblem)"
+              >
                 Save
               </button>
               <button type="button" class="task-comments-link" @click="cancelEdit()">Cancel</button>

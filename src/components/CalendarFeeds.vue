@@ -35,11 +35,14 @@ watch(
   { flush: 'sync' },
 )
 watch(
-  () => props.calendars.map((calendar) => calendar.id),
-  (ids) => {
-    links.value = Object.fromEntries(Object.entries(links.value).filter(([id]) => ids.includes(id)))
-    enabled.value = new Set([...enabled.value].filter((id) => ids.includes(id)))
-    confirmation.value = null
+  () => props.calendars.map((calendar) => calendar.id).join('\0'),
+  () => {
+    const ids = new Set(props.calendars.map((calendar) => calendar.id))
+    links.value = Object.fromEntries(Object.entries(links.value).filter(([id]) => ids.has(id)))
+    enabled.value = new Set([...enabled.value].filter((id) => ids.has(id)))
+    if (confirmation.value && !ids.has(confirmation.value.calendarId)) {
+      confirmation.value = null
+    }
   },
   { flush: 'sync' },
 )

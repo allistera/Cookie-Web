@@ -52,18 +52,33 @@ export function removeOfflineCache(name, owner = offlineOwner()) {
   return getOfflineDb().delete(CACHE_STORE, cacheKey(name, owner))
 }
 
+// Serialize recent-index updates per (owner, indexName) so concurrent writes
+// never overwrite each other's LRU list and orphan evicted keys.
+const recentChains = new Map()
+
 // Caches `value` under `name` and records it in the `indexName` list, which
 // keeps at most `max` names: the oldest beyond that are deleted. Used for
 // per-item caches (opened documents) that would otherwise grow without bound.
 export async function writeRecentOfflineCache(indexName, name, value, max, owner = offlineOwner()) {
   await writeOfflineCache(name, value, owner)
-  const recent = ((await readOfflineCache(indexName, owner))?.value ?? []).filter(
-    (item) => item !== name,
-  )
-  recent.push(name)
-  const evicted = recent.splice(0, Math.max(0, recent.length - max))
-  await Promise.all(evicted.map((item) => removeOfflineCache(item, owner)))
-  await writeOfflineCache(indexName, recent, owner)
+  const lockKey = cacheKey(indexName, owner)
+  const previous = recentChains.get(lockKey) ?? Promise.resolve()
+  const next = previous
+    .catch(() => {})
+    .then(async () => {
+      const recent = ((await readOfflineCache(indexName, owner))?.value ?? []).filter(
+        (item) => item !== name,
+      )
+      recent.push(name)
+      const evicted = recent.splice(0, Math.max(0, recent.length - max))
+      await Promise.all(evicted.map((item) => removeOfflineCache(item, owner)))
+      await writeOfflineCache(indexName, recent, owner)
+    })
+  const settled = next.finally(() => {
+    if (recentChains.get(lockKey) === settled) recentChains.delete(lockKey)
+  })
+  recentChains.set(lockKey, settled)
+  return settled
 }
 
 export async function clearOfflineData() {

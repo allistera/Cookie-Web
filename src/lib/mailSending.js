@@ -82,6 +82,13 @@ export async function prepareMailSend(store, draft) {
     ? await replyQuoteFor(store, message.replyToMessageId)
     : null
   assertAccount()
+  // Re-check after the async quote lookup so concurrent sends of the same
+  // reply cannot mint two distinct requestIds.
+  const existing = draft.sendIdentity ?? requests.get(cacheKey)
+  if (existing && existing.fingerprint === fingerprint) {
+    draft.sendIdentity = existing
+    return existing
+  }
   const outgoing = quote
     ? {
         ...message,
@@ -95,39 +102,67 @@ export async function prepareMailSend(store, draft) {
   return identity
 }
 
+function releaseIdentity(store, ownerSub, draft, identity) {
+  requestIds.get(toRaw(store))?.delete(JSON.stringify([ownerSub ?? null, identity.fingerprint]))
+  if (draft.sendIdentity === identity) draft.sendIdentity = null
+}
+
 export async function sendMail(draft) {
+  const ownerSub = this.composeOwnerSub ?? null
   const assertOwner = accountGuard(this, draft)
   assertOwner()
   if (!draft.owner && this.composeOwnerSub) draft.owner = this.composeOwnerSub
+  const hadIdentity = Boolean(draft.sendIdentity)
   const identity = await prepareMailSend(this, draft)
   // Persist before dispatch, including the quote as it was on the first
   // attempt. A changed original message cannot silently alter a retry.
   if (draft.recoveryId && this.persistComposerRecovery) {
-    const recovery = await this.persistComposerRecovery(draft)
-    if (!recovery?.durable) throw new Error('The send recovery copy could not be saved.')
+    let recovery
+    try {
+      recovery = await this.persistComposerRecovery(draft)
+    } catch (error) {
+      if (!hadIdentity) releaseIdentity(this, ownerSub, draft, identity)
+      throw error
+    }
+    if (!recovery?.durable) {
+      if (!hadIdentity) releaseIdentity(this, ownerSub, draft, identity)
+      throw new Error('The send recovery copy could not be saved.')
+    }
   }
   assertOwner()
-  const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+  let headers
+  try {
+    headers = await this.authHeaders({ 'Content-Type': 'application/json' })
+  } catch (error) {
+    if (!hadIdentity) releaseIdentity(this, ownerSub, draft, identity)
+    throw error
+  }
   assertOwner()
   const response = await fetch('/api/send', {
     method: 'POST',
     headers,
     body: JSON.stringify({ ...identity.outgoing, requestId: identity.requestId }),
   })
-  assertOwner()
   if (!response.ok) {
     const result = await response.json().catch(() => ({}))
+    // Deterministic 4xx rejections (excluding delivery uncertainty codes) mean
+    // the server refused the message before delivery; release the identity so
+    // the user can edit and resend instead of hitting a permanent lockout.
+    const uncertainCodes = new Set(['DELIVERY_PENDING', 'DELIVERY_UNCERTAIN', 'DELIVERY_CONFLICT'])
+    if (response.status >= 400 && response.status < 500 && !uncertainCodes.has(result.code)) {
+      releaseIdentity(this, ownerSub, draft, identity)
+    }
     assertOwner()
     const error = new Error(result.error || `POST /api/send responded ${response.status}`)
     error.code = result.code
     throw error
   }
+  // Release the consumed requestId before assertOwner() so an account switch
+  // during delivery never strands a spent identity in requestIds.
+  releaseIdentity(this, ownerSub, draft, identity)
+  assertOwner()
   const result = await response.json()
   assertOwner()
-  requestIds
-    .get(toRaw(this))
-    ?.delete(JSON.stringify([this.composeOwnerSub ?? null, identity.fingerprint]))
-  draft.sendIdentity = null
   if (!draft.sendAt && this.isSentLoaded) this.loadSentEmails().catch(() => {})
   return result
 }

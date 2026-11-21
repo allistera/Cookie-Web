@@ -189,16 +189,16 @@ describe('SettingsView', () => {
 
   async function openView() {
     const wrapper = mountView()
-    await vi.waitFor(() => expect(store.composePreferencesLoaded).toBe(true))
-    await vi.waitFor(() => expect(store.labels).toHaveLength(2))
-    await vi.waitFor(() => expect(store.rules).toHaveLength(1))
-    await vi.waitFor(() => expect(store.categories).toHaveLength(1))
+    await vi.dynamicImportSettled()
+    await flushPromises()
     await wrapper.vm.$nextTick()
     return wrapper
   }
 
   async function openPane(wrapper, section) {
     await router.push({ name: 'settings', params: { section } })
+    await vi.dynamicImportSettled()
+    await flushPromises()
     await wrapper.vm.$nextTick()
   }
 
@@ -254,9 +254,10 @@ describe('SettingsView', () => {
     await flushPromises()
   }
 
-  it('loads account settings after authentication supplies the owner', async () => {
+  it('loads section settings on demand after authentication supplies the owner', async () => {
     const signedInUser = authUser.value
     authUser.value = undefined
+    await router.push({ name: 'settings', params: { section: 'rules' } })
     const wrapper = mountView()
     await flushPromises()
     expect(fetch).not.toHaveBeenCalled()
@@ -264,10 +265,13 @@ describe('SettingsView', () => {
     authUser.value = signedInUser
     await vi.waitFor(() => expect(store.rules).toHaveLength(1))
     await vi.waitFor(() => expect(store.labels).toHaveLength(2))
-    await vi.waitFor(() => expect(store.categories).toHaveLength(1))
-    await vi.waitFor(() => expect(store.composePreferencesLoaded).toBe(true))
-    await openRulesPane(wrapper)
     expect(wrapper.get('[title="Edit Bills"]').exists()).toBe(true)
+
+    await openPane(wrapper, 'categories')
+    await vi.waitFor(() => expect(store.categories).toHaveLength(1))
+
+    await openPane(wrapper, 'signature')
+    await vi.waitFor(() => expect(store.composePreferencesLoaded).toBe(true))
   })
 
   it('generates an editable draft without creating a rule', async () => {
@@ -443,6 +447,7 @@ describe('SettingsView', () => {
       .findAll('.settings-nav-item')
       .find((item) => item.text().includes('MCP clients'))
     await link.trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
 
     expect(wrapper.get('.settings-page-header').text()).toBe('MCP clients')
@@ -883,7 +888,6 @@ describe('SettingsView', () => {
   describe('Spam pane', () => {
     it('sits in the Email group and shows the stored retention', async () => {
       const wrapper = await openView()
-      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
 
       const emailGroup = wrapper
         .findAll('.settings-nav-group')
@@ -891,6 +895,7 @@ describe('SettingsView', () => {
       expect(emailGroup.text()).toContain('Spam')
 
       await openPane(wrapper, 'spam')
+      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
       const pane = wrapper.find('[data-testid="spam-section"]')
       expect(pane.exists()).toBe(true)
       expect(pane.text()).toContain('Delete spam and blocked mail automatically')
@@ -900,8 +905,8 @@ describe('SettingsView', () => {
 
     it('saves a new retention and confirms it', async () => {
       const wrapper = await openView()
-      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
       await openPane(wrapper, 'spam')
+      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
       const pane = wrapper.find('[data-testid="spam-section"]')
       fetch.mockImplementation(async () => ({
         ok: true,
@@ -928,8 +933,8 @@ describe('SettingsView', () => {
 
     it('refuses an out-of-range value without calling the server', async () => {
       const wrapper = await openView()
-      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
       await openPane(wrapper, 'spam')
+      await vi.waitFor(() => expect(store.spamRetentionLoaded).toBe(true))
       const pane = wrapper.find('[data-testid="spam-section"]')
       fetch.mockClear()
 

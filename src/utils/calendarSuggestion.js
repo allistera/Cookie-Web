@@ -52,7 +52,10 @@ function validDate(year, month, day) {
 
 function detectedDate(text, sentAt) {
   const iso = text.match(ISO_DATE)
-  if (iso) return validDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+  if (iso) {
+    const date = validDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+    if (date) return date
+  }
 
   const monthDate = text.match(MONTH_DATE)
   if (monthDate) {
@@ -63,7 +66,7 @@ function detectedDate(text, sentAt) {
       year += 1
       date = validDate(year, month, Number(monthDate[2]))
     }
-    return date
+    if (date) return date
   }
 
   const dayMonthDate = text.match(DAY_MONTH_DATE)
@@ -75,18 +78,24 @@ function detectedDate(text, sentAt) {
       year += 1
       date = validDate(year, month, Number(dayMonthDate[1]))
     }
-    return date
+    if (date) return date
   }
 
   const slashMonthDate = text.match(SLASH_MONTH_DATE)
   if (slashMonthDate) {
     const month = MONTHS.get(slashMonthDate[2].slice(0, 3).toLowerCase())
-    return validDate(Number(slashMonthDate[3]), month, Number(slashMonthDate[1]))
+    const date = validDate(Number(slashMonthDate[3]), month, Number(slashMonthDate[1]))
+    if (date) return date
   }
 
   const numericDate = text.match(NUMERIC_DATE)
   if (numericDate) {
-    return validDate(Number(numericDate[3]), Number(numericDate[2]) - 1, Number(numericDate[1]))
+    const date = validDate(
+      Number(numericDate[3]),
+      Number(numericDate[2]) - 1,
+      Number(numericDate[1]),
+    )
+    if (date) return date
   }
 
   const relative = text.match(RELATIVE_DATE)?.[1].toLowerCase()
@@ -125,10 +134,6 @@ function cleanTitle(subject) {
   return subject.replace(/^(?:(?:re|fwd?|confirmation|invitation):\s*)+/i, '').trim()
 }
 
-function localDateKey(date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
-}
-
 function localTime(date) {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 }
@@ -157,13 +162,14 @@ function structuredCalendarSuggestion(email, now) {
 
   // The existing draft contract has one local date and two local clock times;
   // a midnight-spanning invite cannot be represented without changing it.
-  if (localDateKey(start) !== localDateKey(end)) return null
+  const startKey = dateKey(start)
+  if (startKey !== dateKey(end)) return null
 
   return {
     title,
     description: String(invite.description ?? ''),
     location: String(invite.location ?? ''),
-    date: localDateKey(start),
+    date: startKey,
     start: localTime(start),
     end: localTime(end),
   }
@@ -184,6 +190,7 @@ export function detectCalendarSuggestion(email, now = new Date()) {
   if (!date || startMinutes === null) return null
 
   const endMinutes = Math.min(startMinutes + 60, 23 * 60 + 59)
+  if (endMinutes <= startMinutes) return null
   // Match the structured path: an event that has already ended is not offered,
   // including one earlier today.
   const endsAt = new Date(date)

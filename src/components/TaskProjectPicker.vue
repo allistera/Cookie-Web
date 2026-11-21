@@ -25,11 +25,18 @@ const input = ref(null)
 const list = ref(null)
 const menuStyle = ref({})
 
-const rows = computed(() => projectPickerRows(projects.projects, query.value))
+const allRows = computed(() => projectPickerRows(projects.projects, ''))
+const rows = computed(() => {
+  const needle = query.value.trim().toLowerCase()
+  if (!needle) return allRows.value
+  return allRows.value
+    .filter((row) => row.name.toLowerCase().includes(needle))
+    .map((row) => (row.depth ? { ...row, depth: 0 } : row))
+})
 // Where the "My Projects" heading goes: above the first project row.
 const firstProjectIndex = computed(() => rows.value.findIndex((row) => !row.inbox))
 const currentProject = computed(() =>
-  props.modelValue ? projects.projects.find((row) => row.id === props.modelValue) : null,
+  props.modelValue ? projects.projectsById.get(props.modelValue) ?? null : null,
 )
 // A task can arrive before the projects list does; until its project is
 // known the chip must not claim the Inbox, nor may Enter fall back to it.
@@ -96,16 +103,20 @@ function place() {
   menuStyle.value = style
 }
 
+let unmounted = false
+
 async function openPicker() {
-  if (open.value) return
+  if (open.value || unmounted) return
   query.value = ''
   open.value = true
   await nextTick()
+  if (!open.value || unmounted) return
   place()
   active.value = startIndex()
   input.value?.focus()
   window.addEventListener('resize', place)
   await nextTick()
+  if (!open.value || unmounted) return
   scrollActiveIntoView()
 }
 
@@ -115,7 +126,10 @@ function close({ refocus = true } = {}) {
   window.removeEventListener('resize', place)
   if (refocus) button.value?.focus()
 }
-onBeforeUnmount(() => window.removeEventListener('resize', place))
+onBeforeUnmount(() => {
+  unmounted = true
+  window.removeEventListener('resize', place)
+})
 
 function toggle() {
   if (open.value) close()

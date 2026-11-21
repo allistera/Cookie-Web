@@ -5,12 +5,12 @@ import { useRoute, useRouter } from 'vue-router'
 import TaskActivity from '../components/TaskActivity.vue'
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import TaskDisplay from '../components/TaskDisplay.vue'
-import { localToday } from '../lib/localDate'
 import { addDays, describeRule, filterIdOf, isFilterProject } from '../lib/taskFilters'
-import { orderAfterDrop } from '../lib/taskOrder'
+import { DIVIDER_DRAG_TYPE, TASK_DRAG_TYPE, TASKS_DRAG_TYPE, orderAfterDrop } from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
 import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useInlineEdit } from '../composables/useInlineEdit'
+import { useLocalToday } from '../composables/useLocalToday'
 import { labelChipStyle } from '../lib/taskLabels'
 import { useProjectsStore } from '../stores/projects'
 import { useTaskFiltersStore } from '../stores/taskFilters'
@@ -22,6 +22,7 @@ const route = useRoute()
 const router = useRouter()
 const projects = useProjectsStore()
 const items = useTaskItemsStore()
+const today = useLocalToday()
 const taskLayout = computed(() => (route.query.layout === 'board' ? 'board' : 'list'))
 const grouping = computed(() => (route.query.group === 'labels' ? 'labels' : 'priority'))
 function setLayout(layout) {
@@ -68,7 +69,7 @@ const filterRules = computed(() =>
 const filterMissing = computed(() => isFilter.value && filters.isLoaded && !currentFilter.value)
 const isRule = computed(() => isInbox.value || isToday.value || isLabel.value || isFilter.value)
 const current = computed(() =>
-  isRule.value ? null : projects.projects.find((row) => row.id === project.value),
+  isRule.value ? null : projects.projectsById.get(project.value) ?? null,
 )
 const ancestors = computed(() =>
   isRule.value ? [] : projects.ancestorsOf(project.value).slice(0, -1),
@@ -90,7 +91,7 @@ const canCompose = computed(() => !isToday.value && !isFilter.value)
 // Today's rows come from across the tree, so each says where it lives.
 function homeOf(item) {
   if (!item.projectId) return 'Inbox'
-  return projects.projects.find((row) => row.id === item.projectId)?.name ?? 'Inbox'
+  return projects.projectsById.get(item.projectId)?.name ?? 'Inbox'
 }
 
 // Which task the panel is showing, if any. Keeping it in the URL makes a task
@@ -215,7 +216,7 @@ const DUE_MONTHS = [
 // A row due today needs no chip — the heading already says so — but anything
 // late does, and says it plainly.
 function isOverdue(item) {
-  return Boolean(item.dueDate) && item.dueDate < localToday()
+  return Boolean(item.dueDate) && item.dueDate < today.value
 }
 
 function showsDue(item) {
@@ -283,6 +284,11 @@ const topLevelItems = computed(() =>
 const taskOffset = ref(0)
 watch(project, () => {
   taskOffset.value = 0
+  composing.value = false
+  editingDividerId.value = null
+  bulkMenu.value = null
+  titleEdit.editing.value = false
+  descriptionEdit.editing.value = false
 })
 const visibleItems = computed(() =>
   topLevelItems.value.slice(taskOffset.value, taskOffset.value + 100),
@@ -308,27 +314,47 @@ async function nextTaskPage() {
   if (taskOffset.value + 100 < topLevelItems.value.length) taskOffset.value += 100
 }
 
+const selectedIdSet = computed(() => new Set(items.selectedIds))
+
 const taskGroups = computed(() => {
   if (taskLayout.value === 'list') return [{ id: 'list', items: visibleItems.value }]
   const tasks = visibleItems.value.filter((item) => !isDivider(item))
   if (grouping.value === 'priority') {
+    const byPriority = new Map(PRIORITIES.map((priority) => [priority.value, []]))
+    for (const item of tasks) {
+      byPriority.get(priorityOf(item))?.push(item)
+    }
     return PRIORITIES.map((priority) => ({
       id: priority.value,
       name: priority.label,
-      items: tasks.filter((item) => priorityOf(item) === priority.value),
+      items: byPriority.get(priority.value) ?? [],
     }))
   }
-  const labelNames = [...new Set(tasks.flatMap((item) => item.labels ?? []))].sort((a, b) =>
-    a.localeCompare(b),
-  )
+  const byLabel = new Map()
+  const unlabelled = []
+  for (const item of tasks) {
+    if (!item.labels?.length) {
+      unlabelled.push(item)
+      continue
+    }
+    for (const label of item.labels) {
+      let bucket = byLabel.get(label)
+      if (!bucket) {
+        bucket = []
+        byLabel.set(label, bucket)
+      }
+      bucket.push(item)
+    }
+  }
+  const labelNames = [...byLabel.keys()].sort((a, b) => a.localeCompare(b))
   return [
     ...labelNames.map((label) => ({
       id: `label:${label}`,
       name: label,
       style: labelStyleOf(label),
-      items: tasks.filter((item) => item.labels?.includes(label)),
+      items: byLabel.get(label),
     })),
-    { id: 'unlabelled', name: 'No label', items: tasks.filter((item) => !item.labels?.length) },
+    { id: 'unlabelled', name: 'No label', items: unlabelled },
   ]
 })
 
@@ -338,12 +364,6 @@ const taskGroups = computed(() => {
 // or a project) it moves — TasksSidebar handles those drops, reading the id
 // back from this MIME type. Today is ordered by due date, so there a row can
 // only be re-arranged among the rows due the same day.
-const TASK_DRAG_TYPE = 'application/x-cookie-task'
-// A divider carries a second type so the sidebar's Today, which sets a due
-// date, can refuse it before it lands.
-const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
-// A multi-select drag also carries every selected id, as JSON.
-const TASKS_DRAG_TYPE = 'application/x-cookie-tasks'
 const dragTaskId = ref(null)
 // More than one task in the air: only the sidebar takes the drop.
 const draggingMany = ref(false)
@@ -433,7 +453,7 @@ const selectableItems = computed(() => visibleItems.value.filter((item) => !isDi
 const allSelected = computed(
   () =>
     selectableItems.value.length > 0 &&
-    selectableItems.value.every((item) => items.selectedIds.includes(item.id)),
+    selectableItems.value.every((item) => selectedIdSet.value.has(item.id)),
 )
 
 function selectAll() {
@@ -456,6 +476,7 @@ function toggleBulkMenu(name) {
 
 function onSelectionKeydown(event) {
   if (event.key !== 'Escape') return
+  if (document.querySelector('dialog[open], [role="dialog"], .cp-overlay.open')) return
   if (bulkMenu.value) bulkMenu.value = null
   else if (items.selectedIds.length) items.clearSelection()
 }
@@ -489,11 +510,11 @@ const moveTargets = computed(() => {
 })
 
 const dueChoices = computed(() => {
-  const today = localToday()
+  const currentToday = today.value
   return [
-    { id: 'today', label: 'Today', dueDate: today },
-    { id: 'tomorrow', label: 'Tomorrow', dueDate: addDays(today, 1) },
-    { id: 'next-week', label: 'Next week', dueDate: addDays(today, 7) },
+    { id: 'today', label: 'Today', dueDate: currentToday },
+    { id: 'tomorrow', label: 'Tomorrow', dueDate: addDays(currentToday, 1) },
+    { id: 'next-week', label: 'Next week', dueDate: addDays(currentToday, 7) },
     { id: 'someday', label: 'Someday', dueDate: SOMEDAY },
     { id: 'none', label: 'No date', dueDate: null },
   ]
@@ -616,12 +637,15 @@ async function submitDraft() {
   const content = draft.value.trim()
   composing.value = false
   if (!content) return
-  // Named with no day, the task starts out on Someday.
-  await items.createItem({
+  // Named with no day, the task starts out on Someday. A label view has no
+  // project of its own, so tasks added there land in Inbox with the label.
+  const payload = {
     content,
-    projectId: isInbox.value ? null : project.value,
+    projectId: isInbox.value || isLabel.value ? null : project.value,
     dueDate: SOMEDAY,
-  })
+  }
+  if (isLabel.value && labelName.value) payload.labels = [labelName.value]
+  await items.createItem(payload)
 }
 </script>
 
@@ -673,7 +697,7 @@ async function submitDraft() {
       class="tasks-title-input"
       aria-label="Project name"
       @keydown.enter.prevent="titleEdit.submit"
-      @keydown.escape="titleEdit.editing.value = false"
+      @keydown.escape.stop="titleEdit.editing.value = false"
       @blur="titleEdit.submit"
     />
     <h1 v-else-if="isLabel" class="tasks-title">
@@ -694,7 +718,7 @@ async function submitDraft() {
       placeholder="Add a description"
       aria-label="Project description"
       :rows="descriptionRows"
-      @keydown.escape="descriptionEdit.editing.value = false"
+      @keydown.escape.stop="descriptionEdit.editing.value = false"
       @blur="descriptionEdit.submit"
     ></textarea>
     <p
@@ -929,8 +953,8 @@ async function submitDraft() {
               :class="{
                 'task-divider': isDivider(item),
                 dragging:
-                  dragTaskId === item.id || (draggingMany && items.selectedIds.includes(item.id)),
-                selected: items.selectedIds.includes(item.id),
+                  dragTaskId === item.id || (draggingMany && selectedIdSet.has(item.id)),
+                selected: selectedIdSet.has(item.id),
                 'drop-before': dropRowId === item.id && dropPlace === 'before',
                 'drop-after': dropRowId === item.id && dropPlace === 'after',
               }"
@@ -971,7 +995,7 @@ async function submitDraft() {
                   aria-label="Divider text"
                   maxlength="120"
                   @keydown.enter.prevent="submitDividerEdit(item)"
-                  @keydown.escape="editingDividerId = null"
+                  @keydown.escape.stop="editingDividerId = null"
                   @blur="submitDividerEdit(item)"
                 />
                 <button
@@ -1010,7 +1034,7 @@ async function submitDraft() {
                   class="task-open"
                   type="button"
                   :aria-pressed="
-                    items.selectedIds.length ? items.selectedIds.includes(item.id) : undefined
+                    items.selectedIds.length ? selectedIdSet.has(item.id) : undefined
                   "
                   @mousedown="$event.shiftKey && $event.preventDefault()"
                   @click="onTaskClick(item, $event)"
@@ -1085,7 +1109,7 @@ async function submitDraft() {
         placeholder="Task name"
         aria-label="Task name"
         @keydown.enter.prevent="submitDraft"
-        @keydown.escape="composing = false"
+        @keydown.escape.stop="composing = false"
         @blur="submitDraft"
       />
     </form>

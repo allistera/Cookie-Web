@@ -1,21 +1,52 @@
 const MINUTE = 60_000
+const SLOT_STEP_MINUTES = 15
+const dateFormatters = new Map()
+const wallFormatters = new Map()
+const slotFormatters = new Map()
+
+function cachedFormatter(cache, timeZone, factory) {
+  let formatter = cache.get(timeZone)
+  if (!formatter) {
+    formatter = factory(timeZone)
+    if (cache.size >= 32) cache.delete(cache.keys().next().value)
+    cache.set(timeZone, formatter)
+  }
+  return formatter
+}
 
 export function validAvailabilityZone(zone) {
+  if (!zone) return false
+  if (dateFormatters.has(zone)) return true
   try {
-    new Intl.DateTimeFormat('en', { timeZone: zone }).format()
-    return Boolean(zone)
+    cachedFormatter(
+      dateFormatters,
+      zone,
+      (tz) =>
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }),
+    ).format()
+    return true
   } catch {
     return false
   }
 }
 
 export function availabilityDate(instant, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedFormatter(
+    dateFormatters,
     timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(instant)
+    (tz) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }),
+  ).formatToParts(instant)
   const part = (type) => parts.find((p) => p.type === type)?.value
   return `${part('year')}-${part('month')}-${part('day')}`
 }
@@ -38,20 +69,26 @@ export function suggestAvailability(
     end - start > 32 * 86_400_000
   )
     return []
-  if (![15, 30, 45, 60, 90, 120].includes(Number(duration)) || workStart >= workEnd) return []
+  const durationMinutes = Number(duration)
+  if (![15, 30, 45, 60, 90, 120].includes(durationMinutes) || workStart >= workEnd) return []
   if (
     data.busy.some((b) => !Number.isFinite(b.start) || !Number.isFinite(b.end) || b.end <= b.start)
   )
     return []
-  const formatter = new Intl.DateTimeFormat('en-CA', {
+  const formatter = cachedFormatter(
+    wallFormatters,
     timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  })
+    (tz) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }),
+  )
   const wall = (instant) => {
     const parts = formatter.formatToParts(instant)
     const part = (type) => parts.find((p) => p.type === type)?.value
@@ -60,20 +97,32 @@ export function suggestAvailability(
       time: `${part('hour')}:${part('minute')}`,
     }
   }
+  // Merge busy intervals once so overlap checks run in linear time via a cursor.
+  const sortedBusy = [...data.busy].sort((a, b) => a.start - b.start || a.end - b.end)
+  const mergedBusy = []
+  for (const interval of sortedBusy) {
+    const prev = mergedBusy[mergedBusy.length - 1]
+    if (prev && interval.start <= prev.end) prev.end = Math.max(prev.end, interval.end)
+    else mergedBusy.push({ start: interval.start, end: interval.end })
+  }
   const occurrences = new Map()
   const candidates = []
-  for (let instant = start; instant <= end; instant += 15 * MINUTE) {
+  for (let instant = start; instant <= end; instant += SLOT_STEP_MINUTES * MINUTE) {
     const value = { instant, ...wall(instant) }
     const key = `${value.date}T${value.time}`
     occurrences.set(key, (occurrences.get(key) || 0) + 1)
     candidates.push(value)
   }
   const slots = []
+  const durationMs = durationMinutes * MINUTE
+  const stepSlots = durationMinutes / SLOT_STEP_MINUTES
   let previousEnd = 0
-  for (const candidate of candidates) {
-    const slotEnd = candidate.instant + Number(duration) * MINUTE
+  let busyIndex = 0
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidate = candidates[i]
+    const slotEnd = candidate.instant + durationMs
     if (candidate.instant < now || candidate.instant < previousEnd || slotEnd > end) continue
-    const last = wall(slotEnd)
+    const last = candidates[i + stepSlots] ?? wall(slotEnd)
     if (candidate.date !== last.date || candidate.time < workStart || last.time > workEnd) continue
     if (
       occurrences.get(`${candidate.date}T${candidate.time}`) !== 1 ||
@@ -83,10 +132,13 @@ export function suggestAvailability(
     if (
       new Date(`${last.date}T${last.time}:00Z`) -
         new Date(`${candidate.date}T${candidate.time}:00Z`) !==
-      Number(duration) * MINUTE
+      durationMs
     )
       continue
-    if (data.busy.some((busy) => candidate.instant < busy.end && slotEnd > busy.start)) continue
+    while (busyIndex < mergedBusy.length && mergedBusy[busyIndex].end <= candidate.instant) {
+      busyIndex += 1
+    }
+    if (busyIndex < mergedBusy.length && mergedBusy[busyIndex].start < slotEnd) continue
     slots.push({ start: candidate.instant, end: slotEnd })
     previousEnd = slotEnd
     if (slots.length === 100) break
@@ -95,21 +147,23 @@ export function suggestAvailability(
 }
 
 export function formatAvailabilitySlot(slot, timeZone) {
-  const date = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    weekday: 'short',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(slot.start)
-  const time = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'shortOffset',
-    hourCycle: 'h23',
-  })
-  return `${date}, ${time.format(slot.start)} – ${time.format(slot.end)}`
+  const { date, time } = cachedFormatter(slotFormatters, timeZone, (tz) => ({
+    date: new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }),
+    time: new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'shortOffset',
+      hourCycle: 'h23',
+    }),
+  }))
+  return `${date.format(slot.start)}, ${time.format(slot.start)} – ${time.format(slot.end)}`
 }
 
 export function availabilityProposal(slots, timeZone, duration) {

@@ -8,6 +8,10 @@
 // order rather than a midpoint between neighbours costs one small request
 // per drop and can never run out of precision.
 
+export const TASK_DRAG_TYPE = 'application/x-cookie-task'
+export const DIVIDER_DRAG_TYPE = 'application/x-cookie-divider'
+export const TASKS_DRAG_TYPE = 'application/x-cookie-tasks'
+
 // Position first, then creation time and id as stable tiebreaks, the same
 // order the server lists a project in.
 export function compareByPosition(a, b) {

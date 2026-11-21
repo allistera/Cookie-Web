@@ -35,7 +35,8 @@ const totalHeight = computed(() => {
 })
 const rowsByKey = computed(() => new Map(layout.value.map((row) => [row.item.key, row])))
 const windowRows = computed(() => {
-  // Keep a focused row mounted for keyboard users even as they scroll.
+  // Keep a focused row mounted for keyboard users even as they scroll,
+  // preserving DOM order so Vue does not relocate and blur the focused node.
   const start = Math.max(0, scrollTop.value - 400)
   const end = scrollTop.value + viewportHeight.value + 400
   const rows = layout.value.slice(
@@ -43,30 +44,42 @@ const windowRows = computed(() => {
     rowIndexAtOffset(layout.value, end) + 1,
   )
   const focused = rowsByKey.value.get(focusedKey.value)
-  if (focused && !rows.includes(focused)) rows.push(focused)
+  if (focused && !rows.includes(focused)) {
+    if (rows.length && focused.top < rows[0].top) rows.unshift(focused)
+    else rows.push(focused)
+  }
   return rows
 })
 
 function onScroll() {
   scrollTop.value = viewport.value?.scrollTop ?? 0
-  const first = layout.value[rowIndexAtOffset(layout.value, scrollTop.value)]
-  anchor = first ? { key: first.item.key, offset: scrollTop.value - first.top } : null
+  const index = rowIndexAtOffset(layout.value, scrollTop.value)
+  const first = layout.value[index]
+  anchor = first ? { key: first.item.key, index, offset: scrollTop.value - first.top } : null
 }
 
-function restoreAnchor() {
+function restoreAnchor(preservePositionWhenMissing = false) {
   if (!viewport.value) return
   const row = anchor && rowsByKey.value.get(anchor.key)
-  viewport.value.scrollTop = row ? row.top + anchor.offset : 0
+  if (row) {
+    viewport.value.scrollTop = row.top + anchor.offset
+  } else if (preservePositionWhenMissing && anchor && layout.value.length) {
+    const fallback = layout.value[Math.min(anchor.index, layout.value.length - 1)]
+    viewport.value.scrollTop = fallback ? fallback.top + anchor.offset : 0
+  } else {
+    viewport.value.scrollTop = 0
+  }
   onScroll()
 }
 
 watch(
   () => props.items,
-  async () => {
-    const keys = new Set(props.items.map((item) => item.key))
+  async (nextItems, prevItems) => {
+    const keys = new Set(nextItems.map((item) => item.key))
+    const overlaps = Boolean(prevItems?.some((item) => keys.has(item.key)))
     for (const key of heights.keys()) if (!keys.has(key)) heights.delete(key)
     await nextTick()
-    restoreAnchor()
+    restoreAnchor(overlaps)
   },
 )
 
@@ -111,6 +124,7 @@ onMounted(() => {
         const entries = [...pendingMeasurements.values()]
         pendingMeasurements.clear()
         let changed = false
+        let changedAboveAnchor = false
         for (const entry of entries) {
           if (entry.target === viewport.value) {
             viewportHeight.value = entry.contentRect.height || 800
@@ -119,6 +133,8 @@ onMounted(() => {
             const height =
               entry.borderBoxSize?.[0]?.blockSize ?? entry.target.getBoundingClientRect().height
             if (height > 0 && heights.get(key) !== height) {
+              const existing = rowsByKey.value.get(key)
+              if (existing && existing.top <= scrollTop.value) changedAboveAnchor = true
               heights.set(key, height)
               changed = true
             }
@@ -126,7 +142,7 @@ onMounted(() => {
         }
         if (changed) {
           revision.value += 1
-          nextTick(restoreAnchor)
+          if (changedAboveAnchor) nextTick(() => restoreAnchor(true))
         }
       })
     })

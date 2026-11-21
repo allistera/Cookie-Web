@@ -26,6 +26,10 @@ const SHELL_URLS = [
   // an offline start renders every icon hidden by main.css.
   '/fonts/material-symbols-outlined.css',
   '/fonts/material-symbols-outlined.woff2',
+  // Unversioned bridge script loaded inside email reader iframes: precaching
+  // it here ensures SW updates refresh it instead of pinning a stale copy in
+  // the cache-first runtime cache across deploys.
+  '/email-body-bridge.js',
 ]
 const STATIC_DESTINATIONS = new Set(['font', 'image', 'manifest', 'script', 'style'])
 
@@ -139,11 +143,14 @@ async function recentMailResponse(event) {
 async function shellNavigationResponse(event) {
   try {
     const response = await fetch(event.request)
-    if (response.ok && isHtml(response)) event.waitUntil(cacheShellDocument(response.clone()))
+    if (response.ok && isHtml(response)) {
+      const copy = response.clone()
+      storeInBackground(event, () => cacheShellDocument(copy))
+    }
     return response
   } catch {
     const cache = await caches.open(SHELL_CACHE)
-    return cache.match('/')
+    return (await cache.match('/')) ?? Response.error()
   }
 }
 

@@ -30,6 +30,8 @@ async function fetchScreening(address, headers) {
 
 export const useContactInsightsStore = defineStore('contactInsights', {
   state: () => ({
+    ownerSub: null,
+    generation: 0,
     isOpen: false,
     contact: null,
     screening: null,
@@ -40,9 +42,19 @@ export const useContactInsightsStore = defineStore('contactInsights', {
     saveState: 'idle',
     loadError: '',
     requestId: 0,
+    saveSeq: 0,
   }),
 
   actions: {
+    setOwner(sub) {
+      const owner = sub || null
+      if (owner === this.ownerSub) return
+      const generation = this.generation + 1
+      this.$reset()
+      this.ownerSub = owner
+      this.generation = generation
+    },
+
     async openContact({ address, name = null }) {
       const normalized = cleanAddress(address)
       if (!normalized) return
@@ -71,18 +83,26 @@ export const useContactInsightsStore = defineStore('contactInsights', {
     async loadContact({ more = false } = {}) {
       const address = this.contact?.address
       if (!address || (more && !this.nextCursor)) return
+      const inbox = useInboxStore()
+      const generation = this.generation
+      const inboxGeneration = inbox.composeGeneration
       const requestId = ++this.requestId
+      const isCurrent = () =>
+        generation === this.generation &&
+        inboxGeneration === inbox.composeGeneration &&
+        requestId === this.requestId
       if (more) this.isLoadingMore = true
       else this.isLoading = true
       try {
-        const headers = await useInboxStore().authHeaders()
+        const headers = await inbox.authHeaders()
+        if (!isCurrent()) return
         const params = new URLSearchParams({ address, limit: '10' })
         if (more) params.set('before', this.nextCursor)
         const [data, screening] = await Promise.all([
           jsonRequest(`${MESSAGES_API_URL}/messages/contact-insights?${params}`, { headers }),
           more ? this.screening : fetchScreening(address, headers),
         ])
-        if (requestId !== this.requestId || this.contact?.address !== address) return
+        if (!isCurrent() || this.contact?.address !== address) return
         this.screening = screening
         this.contact = {
           ...this.contact,
@@ -93,11 +113,11 @@ export const useContactInsightsStore = defineStore('contactInsights', {
         this.nextCursor = data.nextCursor
         this.loadError = ''
       } catch (error) {
-        if (requestId !== this.requestId) return
+        if (!isCurrent()) return
         console.error('Failed to load contact insights:', error)
         this.loadError = 'Could not load contact insights.'
       } finally {
-        if (requestId === this.requestId) {
+        if (isCurrent()) {
           this.isLoading = false
           this.isLoadingMore = false
         }
@@ -105,15 +125,23 @@ export const useContactInsightsStore = defineStore('contactInsights', {
     },
 
     async saveContact(address, fields) {
-      this.saveState = 'saving'
+      const inbox = useInboxStore()
+      const generation = this.generation
+      const inboxGeneration = inbox.composeGeneration
+      const seq = ++this.saveSeq
+      const isCurrentAccount = () =>
+        generation === this.generation && inboxGeneration === inbox.composeGeneration
+      if (this.contact?.address === address) this.saveState = 'saving'
       try {
-        const headers = await useInboxStore().authHeaders({ 'Content-Type': 'application/json' })
+        const headers = await inbox.authHeaders({ 'Content-Type': 'application/json' })
+        if (!isCurrentAccount()) return false
         const data = await jsonRequest(`${MESSAGES_API_URL}/messages/contact-insights`, {
           method: 'PATCH',
           headers,
           body: { address, ...fields },
         })
-        if (this.contact?.address === address) {
+        if (!isCurrentAccount()) return false
+        if (this.contact?.address === address && seq === this.saveSeq) {
           this.contact = {
             ...this.contact,
             ...data.contact,
@@ -124,8 +152,9 @@ export const useContactInsightsStore = defineStore('contactInsights', {
         return true
       } catch (error) {
         console.error('Failed to save contact insights:', error)
-        if (this.contact?.address === address) this.saveState = 'error'
-        useInboxStore().notify(
+        if (!isCurrentAccount()) return false
+        if (this.contact?.address === address && seq === this.saveSeq) this.saveState = 'error'
+        inbox.notify(
           error.userMessage || 'Could not save contact insights. Please try again.',
           'error',
         )

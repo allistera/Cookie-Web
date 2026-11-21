@@ -18,6 +18,17 @@ let isClosing = false
 let ownerAddress = null
 
 const contact = computed(() => store.contact)
+const safeLinkedinHref = computed(() => {
+  const raw = contact.value?.linkedinUrl
+  if (!raw) return ''
+  try {
+    const parsed = new URL(raw)
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : ''
+  } catch {
+    return ''
+  }
+})
+
 const displayName = computed(() => contact.value?.name || contact.value?.address || 'Contact')
 // Where a block applies: the sender's whole domain ('@example.com' covers its
 // subdomains too) or, for public email providers, this exact address.
@@ -190,8 +201,8 @@ onBeforeUnmount(() => {
               @blur="persist"
             />
             <a
-              v-if="contact.linkedinUrl"
-              :href="contact.linkedinUrl"
+              v-if="safeLinkedinHref"
+              :href="safeLinkedinHref"
               target="_blank"
               rel="noreferrer"
               aria-label="Open LinkedIn profile"

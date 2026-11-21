@@ -16,6 +16,7 @@ import DOMPurify from 'dompurify'
 const CONFIG = {
   FORBID_TAGS: [
     'script',
+    'style',
     'iframe',
     'object',
     'embed',
@@ -44,7 +45,11 @@ const CONFIG = {
 // (see carryDocumentStyling). FORCE_BODY keeps a <style> that opens the
 // content: without it the parser files the element under <head>, which is not
 // part of what DOMPurify returns.
-const READER_CONFIG = { ...CONFIG, FORCE_BODY: true }
+const READER_CONFIG = {
+  ...CONFIG,
+  FORBID_TAGS: CONFIG.FORBID_TAGS.filter((tag) => tag !== 'style'),
+  FORCE_BODY: true,
+}
 
 // A forwarded body is inserted into the live contenteditable composer rather
 // than the reader's sandboxed iframe. Strip resources and presentation hooks
@@ -171,6 +176,8 @@ export function sanitizeForwardedEmailHtml(dirty) {
 // than any https?:// substring, so a plain link in the body text doesn't
 // trigger a false positive.
 const REMOTE_IMG_TAG_RE = /<img\b[^>]*\bsrc\s*=\s*["']?\s*https?:\/\//i
+const REMOTE_SRCSET_RE = /<(?:img|source)\b[^>]*\bsrcset\s*=\s*["'][^"']*https?:\/\//i
+const REMOTE_POSTER_RE = /<video\b[^>]*\bposter\s*=\s*["']?\s*https?:\/\//i
 const REMOTE_BACKGROUND_URL_RE = /\burl\(\s*['"]?\s*https?:\/\//i
 const REMOTE_BACKGROUND_ATTR_RE = /\bbackground\s*=\s*["']?\s*https?:\/\//i
 
@@ -179,6 +186,8 @@ export function hasBlockedRemoteImages(safeHtml) {
   if (html === '') return false
   return (
     REMOTE_IMG_TAG_RE.test(html) ||
+    REMOTE_SRCSET_RE.test(html) ||
+    REMOTE_POSTER_RE.test(html) ||
     REMOTE_BACKGROUND_URL_RE.test(html) ||
     REMOTE_BACKGROUND_ATTR_RE.test(html)
   )

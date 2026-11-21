@@ -22,6 +22,7 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
         request = indexedDB.open(name, DB_VERSION)
       } catch (error) {
         console.error('Offline storage is unavailable:', error)
+        opening = null
         resolve(null)
         return
       }
@@ -34,19 +35,27 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
       }
       request.onsuccess = () => {
         const db = request.result
-        // Another tab upgrading (or deleting) the database: let go of this
-        // connection so it can, and reopen on the next operation.
+        // Another tab upgrading (or deleting) the database, or the browser
+        // closing the connection under memory/storage pressure: drop this
+        // handle so the next operation reopens cleanly.
         db.onversionchange = () => {
           db.close()
+          opening = null
+        }
+        db.onclose = () => {
           opening = null
         }
         resolve(db)
       }
       request.onerror = () => {
         console.error('Offline storage failed to open:', request.error)
+        opening = null
         resolve(null)
       }
-      request.onblocked = () => resolve(null)
+      request.onblocked = () => {
+        opening = null
+        resolve(null)
+      }
     })
     return opening
   }
@@ -64,7 +73,19 @@ export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name
         return
       }
       let result = null
-      const request = operate(transaction.objectStore(storeName))
+      let request
+      try {
+        request = operate(transaction.objectStore(storeName))
+      } catch (error) {
+        console.error('Offline storage operation failed:', error)
+        try {
+          transaction.abort()
+        } catch {
+          // Ignore abort errors on already-inactive transactions.
+        }
+        resolve(null)
+        return
+      }
       request.onsuccess = () => {
         result = request.result ?? null
       }

@@ -312,6 +312,14 @@ watch(
   { immediate: true },
 )
 const dashboardPage = computed(() => store.pageFor(dashboardScope.value))
+watch(
+  () => dashboardPage.value?.ids.length ?? 0,
+  (length) => {
+    if (length > 0 && dashboardOffset.value >= length) {
+      dashboardOffset.value = Math.floor((length - 1) / 100) * 100
+    }
+  },
+)
 async function nextDashboardPage() {
   if (dashboardOffset.value + 100 >= (dashboardPage.value?.ids.length ?? 0)) {
     // A scope switch mid-load resets the offset for the new scope; don't

@@ -41,24 +41,31 @@ function isSafeHref(href) {
   return /^(https?:\/\/|mailto:)/i.test(href)
 }
 
-// Code spans are lifted out before the other inline marks run, so a `*` or
-// `_` inside code is left alone, and put back once they have.
+// Code spans and anchors are lifted out into collision-free sentinels before
+// the emphasis/strike marks run, so `*`, `_`, or `~~` inside code or a URL
+// is left alone, and put back once they have.
 function inline(escaped) {
-  const spans = []
-  let text = escaped.replace(/`([^`\n]+)`/g, (_match, code) => {
-    spans.push(`<code>${code}</code>`)
-    return `\uE000${spans.length - 1}\uE000`
-  })
+  let marker = '\uE000'
+  while (escaped.includes(marker)) marker += '\uE000'
+  const tokens = []
+  const stash = (html) => {
+    const token = `${marker}${tokens.length}${marker}`
+    tokens.push(html)
+    return token
+  }
+  let text = escaped.replace(/`([^`\n]+)`/g, (_match, code) => stash(`<code>${code}</code>`))
   text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, href) =>
     isSafeHref(href)
-      ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`
+      ? stash(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`)
       : match,
   )
   text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
   text = text.replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
   text = text.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
   text = text.replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>')
-  return text.replace(/\uE000(\d+)\uE000/g, (_match, index) => spans[Number(index)])
+  return text.replace(new RegExp(`${marker}(\\d+)${marker}`, 'g'), (_match, index) => {
+    return tokens[Number(index)]
+  })
 }
 
 const HEADING = /^(#{1,3})\s+(.*)$/

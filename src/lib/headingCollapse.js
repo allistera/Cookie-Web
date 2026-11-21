@@ -135,7 +135,10 @@ export function createHeadingCollapse({ editor, holder, docId }) {
     button.title = label
   }
 
+  let lastTarget = null
   function onPointerMove(event) {
+    if (event.target === lastTarget) return
+    lastTarget = event.target
     const blockElement = event.target instanceof Element ? event.target.closest('.ce-block') : null
     // Moving onto the toolbar itself keeps the heading it belongs to.
     if (!blockElement || !holder.contains(blockElement)) return

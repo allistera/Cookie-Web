@@ -4,7 +4,7 @@
 // Configuration and per-message identifiers travel as data attributes on
 // <body>, allowing one cacheable bridge file to serve every open message.
 //
-// Bridge revision: 2
+// Bridge revision: 3
 // Browsers keep this file for a day (vercel.json). When it changes, bump the
 // revision above and the ?v= on emailBodyBridgeUrl in
 // src/components/EmailBody.vue together, so no reader runs a cached copy.
@@ -19,9 +19,19 @@ let lastHeight = 0
 let resizeTimer = null
 let linksRevision = 0
 
+const measureContentHeight = () => {
+  const root = document.getElementById('__cookie_email_root__')
+  if (root) {
+    const rectHeight = Math.ceil(root.getBoundingClientRect().height)
+    const intrinsic = Math.max(rectHeight, root.scrollHeight)
+    if (intrinsic > 0) return intrinsic
+  }
+  return Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
+}
+
 const sendResize = () => {
   resizeTimer = null
-  const height = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
+  const height = measureContentHeight()
   if (height === lastHeight) return
   lastHeight = height
   send('resize', { height })
@@ -167,6 +177,9 @@ const fixTextContrast = () => {
       elements.add(parent)
     }
   }
+  // Batch all computed-style reads before applying inline colour writes so the
+  // browser does not force a synchronous style recalc per mutated node.
+  const updates = []
   for (const element of elements) {
     const color = parseColor(getComputedStyle(element).color)
     const backdrop = backdropOf(element)
@@ -177,13 +190,16 @@ const fixTextContrast = () => {
           ? bridgeLink
           : bridgeText
         : readerColors.find(([reader]) => reader && sameColor(color.rgb, reader.rgb))?.[1]
-    if (replacement) element.style.setProperty('color', replacement, 'important')
+    if (replacement) updates.push([element, replacement])
+  }
+  for (const [element, replacement] of updates) {
+    element.style.setProperty('color', replacement, 'important')
   }
 }
 
 addEventListener('keydown', (event) => {
   const target = event.target instanceof Element ? event.target : null
-  if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+  if (target?.closest('input, textarea, select, [contenteditable]')) return
   if (
     !event.metaKey &&
     !event.ctrlKey &&
@@ -209,7 +225,9 @@ addEventListener('load', () => {
   scheduleLinkSnapshot()
 })
 
-new ResizeObserver(scheduleResize).observe(document.documentElement)
+new ResizeObserver(scheduleResize).observe(
+  document.getElementById('__cookie_email_root__') || document.documentElement,
+)
 fixTextContrast()
 sendResize()
 scheduleLinkSnapshot()

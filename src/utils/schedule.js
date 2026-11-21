@@ -32,8 +32,8 @@ export function thisWeekendMorning(now = new Date()) {
   const daysUntilSaturday = (6 - result.getDay() + 7) % 7
   result.setDate(result.getDate() + daysUntilSaturday)
 
-  // Keep the preset in the future when it is already Saturday morning.
-  if (result <= now) result.setDate(result.getDate() + (result.getDay() === 6 ? 1 : 7))
+  // Keep the preset in the future when it is already Saturday morning (moves to Sunday).
+  if (result <= now) result.setDate(result.getDate() + 1)
   return result
 }
 

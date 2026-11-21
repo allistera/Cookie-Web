@@ -30,6 +30,18 @@ describe('readJsonBody', () => {
     await expect(readJsonBody(req)).resolves.toEqual({ a: 1 })
   })
 
+  it('preserves multi-byte UTF-8 characters split across stream chunks', async () => {
+    const payload = Buffer.from('{"emoji":"🍪","name":"Renée"}', 'utf8')
+    const splitAt = payload.indexOf(0xf0) + 2
+    const req = {
+      async *[Symbol.asyncIterator]() {
+        yield payload.subarray(0, splitAt)
+        yield payload.subarray(splitAt)
+      },
+    }
+    await expect(readJsonBody(req)).resolves.toEqual({ emoji: '🍪', name: 'Renée' })
+  })
+
   it('returns an empty object for an empty raw stream body', async () => {
     await expect(readJsonBody(fakeStream([]))).resolves.toEqual({})
   })

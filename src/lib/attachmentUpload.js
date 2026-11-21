@@ -36,7 +36,9 @@ export function attachmentSizeError(file) {
  *
  * @returns the stored attachment row: { id, filename, content_type, size_bytes }
  */
-export async function uploadAttachment(file, { authHeaders, fetchImpl = fetch } = {}) {
+const UPLOAD_TIMEOUT_MS = 60_000
+
+export async function uploadAttachment(file, { authHeaders, fetchImpl = fetch, signal } = {}) {
   const sizeError = attachmentSizeError(file)
   if (sizeError) throw new Error(sizeError)
 
@@ -45,11 +47,18 @@ export async function uploadAttachment(file, { authHeaders, fetchImpl = fetch } 
   const headers = await authHeaders()
   const body = new FormData()
   body.append('file', file, file.name)
-  const response = await fetchImpl(ATTACHMENTS_URL, { method: 'POST', headers, body })
+  const requestSignal = signal ?? globalThis.AbortSignal?.timeout?.(UPLOAD_TIMEOUT_MS)
+  const options = requestSignal
+    ? { method: 'POST', headers, body, signal: requestSignal }
+    : { method: 'POST', headers, body }
+  const response = await fetchImpl(ATTACHMENTS_URL, options)
   if (!response.ok) {
     const result = await response.json().catch(() => ({}))
     throw new Error(result?.error || `POST /send/attachments responded ${response.status}`)
   }
-  const { attachment } = await response.json()
-  return attachment
+  const data = await response.json()
+  if (!data?.attachment?.id) {
+    throw new Error('Attachment upload returned an incomplete response.')
+  }
+  return data.attachment
 }

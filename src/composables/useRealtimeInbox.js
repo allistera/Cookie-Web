@@ -122,13 +122,14 @@ export function useRealtimeInbox(
     try {
       const response = await postNotificationEvent({ action: 'claim', eventId })
       if ((response.status === 423 || response.status === 425) && retriesRemaining > 0) {
-        const retryAfter = Number.parseInt(response.headers?.get?.('Retry-After') || '30', 10)
+        const parsedRetry = Number.parseInt(response.headers?.get?.('Retry-After') || '30', 10)
+        const retryAfter = Number.isFinite(parsedRetry) ? Math.max(1, parsedRetry) : 30
         const timer = setTimeout(
           () => {
             notificationRetryTimers.delete(timer)
             claimNotificationEvent(eventId, userId, version, retriesRemaining - 1)
           },
-          Math.max(1, retryAfter) * 1000,
+          retryAfter * 1000,
         )
         notificationRetryTimers.add(timer)
         return
@@ -151,12 +152,29 @@ export function useRealtimeInbox(
     }
   }
 
-  // The open email's inbox row as of now, or null when it isn't listed
-  // there (opened from another folder or search) and so can't be compared.
+  // Lightweight signature of the open email's metadata (never serializing full
+  // body text), looked up across all loaded folders so non-inbox folders do not
+  // needlessly refetch full bodies on every unrelated mailbox UPDATE ping.
   function openRowSignature() {
     const id = store.openEmailId
-    const row = id ? store.traditionalEmails.find((email) => email.id === id) : null
-    return row ? JSON.stringify(row) : null
+    const row = id
+      ? (store.emailById?.(id) ?? store.traditionalEmails.find((email) => email.id === id))
+      : null
+    if (!row) return null
+    return JSON.stringify([
+      row.unread,
+      row.starred,
+      row.isArchived,
+      row.isSpam,
+      row.scheduledFor,
+      row.followUpAt,
+      row.readAt,
+      row.sentAt,
+      row.threadCount,
+      row.aiSummary,
+      row.category?.id ?? null,
+      row.labels?.map((label) => label.name),
+    ])
   }
 
   // Refetch the open body only when the thread may have changed: always for
@@ -208,7 +226,7 @@ export function useRealtimeInbox(
       : storeRefresh
     refreshPromise = refresh
     refreshUserId = userId
-    refresh.finally(() => {
+    const finishRefresh = () => {
       if (refreshPromise !== refresh) return
       refreshPromise = null
       refreshUserId = null
@@ -216,7 +234,8 @@ export function useRealtimeInbox(
         refreshQueued = false
         refreshNow()
       }
-    })
+    }
+    refresh.then(finishRefresh, finishRefresh)
     return refresh
   }
 
@@ -278,7 +297,14 @@ export function useRealtimeInbox(
   }
 
   function detachChannel() {
-    if (channel) detaching = channelClient.removeChannel(channel)
+    if (channel) {
+      const pendingDetach = Promise.resolve(channelClient.removeChannel(channel))
+        .catch(() => {})
+        .finally(() => {
+          if (detaching === pendingDetach) detaching = null
+        })
+      detaching = pendingDetach
+    }
     channel = null
     channelClient = null
   }

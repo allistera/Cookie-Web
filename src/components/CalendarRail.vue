@@ -103,10 +103,16 @@ const shiftMonth = (months) => {
 }
 const goToday = () => selectDay(new Date())
 
+const FULL_DATE_FMT = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' })
 const monthLabel = computed(() =>
   displayedMonth.value.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
 )
-const monthDays = computed(() => monthGrid(displayedMonth.value))
+const monthDays = computed(() =>
+  monthGrid(displayedMonth.value).map((day) => ({
+    ...day,
+    ariaLabel: FULL_DATE_FMT.format(day.date),
+  })),
+)
 const dayLabel = computed(() =>
   selected.value.toLocaleDateString(undefined, {
     weekday: 'short',
@@ -139,7 +145,7 @@ async function loadEvents() {
     truncated.value = Boolean(body.truncated)
     loadFailed.value = false
   } catch (error) {
-    if (disposed || seq !== request) return
+    if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return
     console.error('Failed to load the calendar sidebar:', error)
     events.value = []
     loadFailed.value = true
@@ -179,6 +185,15 @@ async function loadTasks() {
   }
 }
 const loadDay = () => Promise.all([loadEvents(), loadTasks()])
+watch(calendarSession, () => {
+  events.value = []
+  tasks.value = []
+  openEvent.value = null
+  truncated.value = false
+  loadFailed.value = false
+  void loadCalendars()
+  void loadDay()
+})
 // A task completed, moved or deleted elsewhere on the page (the Tasks view,
 // its sidebar) is read back straight away.
 const stopTaskMutations = subscribeTaskMutations(useTaskItemsStore(), () => void loadTasks())
@@ -221,7 +236,7 @@ function eventStyle(item) {
     top: `${(item.start * HOUR_HEIGHT) / 60}px`,
     height: `${Math.max(((item.end - item.start) * HOUR_HEIGHT) / 60 - 2, 18)}px`,
     left: `calc(44px + (100% - 44px) * ${item.lane / item.lanes})`,
-    width: `calc((100% - 44px) / ${item.lanes} - 2px)`,
+    width: `calc(${100 / item.lanes}% - ${44 / item.lanes + 2}px)`,
   }
   const color = eventColor(item.event)
   if (color) style['--event-color'] = color
@@ -270,6 +285,13 @@ const openEventDetails = computed(() => {
 watch(selectedKey, () => {
   openEvent.value = null
 })
+watch(dayItems, (items) => {
+  if (!openEvent.value) return
+  const updated = items.find(
+    (item) => item.id === openEvent.value.id && item.kind === openEvent.value.kind,
+  )
+  openEvent.value = updated ?? null
+})
 
 // --- Scrolling and refresh ------------------------------------------------
 const timeline = ref(null)
@@ -294,16 +316,21 @@ watch(
 let timer
 let lastRefresh = Date.now()
 function tick() {
+  if (document.visibilityState === 'hidden') return
   const previousDay = todayKey.value
   now.value = new Date()
-  if (document.visibilityState === 'hidden') return
   // Following "today" across midnight, unless a daily note pins the day.
   if (previousDay !== todayKey.value && !props.date && selectedKey.value === previousDay) goToday()
   else if (Date.now() - lastRefresh >= 300_000) refresh()
 }
 function refresh() {
+  const previousDay = todayKey.value
   lastRefresh = Date.now()
   now.value = new Date()
+  if (previousDay !== todayKey.value && !props.date && selectedKey.value === previousDay) {
+    goToday()
+    return Promise.resolve()
+  }
   return loadDay()
 }
 // Coming back to the tab fires both visibilitychange and focus; the second
@@ -400,7 +427,7 @@ onUnmounted(() => {
             today: day.key === todayKey,
             selected: day.key === selectedKey,
           }"
-          :aria-label="day.date.toLocaleDateString(undefined, { dateStyle: 'full' })"
+          :aria-label="day.ariaLabel"
           :aria-pressed="day.key === selectedKey"
           @click="selectDay(day.date)"
         >
@@ -459,7 +486,8 @@ onUnmounted(() => {
         <span class="cr-up-next-label">Up next · {{ upNext.countdown }}</span>
         <span class="cr-up-next-title">{{ upNext.event.title }}</span>
         <span class="cr-up-next-time"
-          >{{ timeLabel(upNext.start) }} – {{ timeLabel(upNext.end) }}</span
+          >{{ timeLabel(upNext.start) }} –
+          {{ timeLabel(upNext.start + (Number(upNext.event.duration) || 0)) }}</span
         >
       </button>
       <a

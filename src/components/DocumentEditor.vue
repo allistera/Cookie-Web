@@ -141,6 +141,11 @@ async function compressImage(file) {
       canvas.width = width
       canvas.height = height
 
+      if (!ctx) {
+        URL.revokeObjectURL(objectUrl)
+        reject(new Error('Image compression failed'))
+        return
+      }
       ctx.drawImage(img, 0, 0, width, height)
 
       canvas.toBlob(
@@ -179,7 +184,7 @@ async function uploadFileToBlob(file) {
   })
 
   if (!response.ok) {
-    const error = await response.json()
+    const error = await response.json().catch(() => ({}))
     throw new Error(error.error || 'Upload failed')
   }
 
@@ -249,6 +254,7 @@ async function snapshot() {
 defineExpose({ flushPendingBlocks, snapshot })
 
 function mountEditor() {
+  if (!holder.value) return
   editorReady.value = false
   // The title is contenteditable, so it is filled imperatively — a template
   // text binding would re-render on the store's own save echo and throw the

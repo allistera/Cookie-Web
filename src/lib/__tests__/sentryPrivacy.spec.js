@@ -194,13 +194,22 @@ describe('Sentry payload privacy', () => {
     expect(breadcrumb('navigation', { from: url, to: url }).data.payload.data).toEqual({})
     const slowClick = breadcrumb(
       'ui.slowClickDetected',
-      { url, route: 'private', clickCount: 2, endReason: 'timeout', timeAfterClickMs: 3000 },
-      'button.btn',
+      {
+        url,
+        route: 'private',
+        node: { tagName: 'button', textContent: 'private', attributes: { 'aria-label': 'private' } },
+        clickCount: 2,
+        endReason: 'timeout',
+        timeAfterClickMs: 3000,
+      },
+      'button.btn[aria-label="Open bucket: private"][title="secret"]',
     )
     expect(slowClick.data.payload).toMatchObject({
       message: 'button.btn',
       data: { clickCount: 2, endReason: 'timeout', timeAfterClickMs: 3000 },
     })
+    expect(slowClick.data.payload.data.node).toBeUndefined()
+    expect(breadcrumb('fetch', { method: 'GET', statusCode: 200 }, url).data.payload.message).toBeUndefined()
     expect(breadcrumb('console', { arguments: ['private mail'] })).toBeNull()
     const domEvent = { type: 3, data: { source: 0, adds: [] } }
     expect(sanitizeRecordingEvent(domEvent)).toBe(domEvent)

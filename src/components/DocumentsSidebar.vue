@@ -154,8 +154,9 @@ async function startRename(folder) {
   renamingFolderId.value = folder.id
   renameTitle.value = folder.title
   await nextTick()
-  renameInput.value?.[0]?.focus?.()
-  renameInput.value?.[0]?.select?.()
+  const element = Array.isArray(renameInput.value) ? renameInput.value[0] : renameInput.value
+  element?.focus?.()
+  element?.select?.()
 }
 
 async function submitRename(folder) {

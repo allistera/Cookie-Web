@@ -181,7 +181,6 @@ const recordingBreadcrumbs = new Set([
 ])
 const recordingDataKeys = new Set([
   'nodeId',
-  'node',
   'method',
   'statusCode',
   'request_body_size',
@@ -197,6 +196,15 @@ const recordingDataKeys = new Set([
   'altKey',
   'shiftKey',
 ])
+
+// @sentry/replay builds UI breadcrumb messages with htmlTreeAsString() against
+// the live DOM, embedding unmasked aria-label/title/alt/name attributes. Strip
+// attribute selectors so masked metadata never leaks through breadcrumbs, and
+// omit message entirely for network/navigation breadcrumbs which may carry URLs.
+function sanitizeBreadcrumbMessage(category, message) {
+  if (message == null || !category?.startsWith('ui.')) return undefined
+  return String(message).replace(/\[[^\]]*\]/g, '')
+}
 
 export function sanitizeRecordingEvent(event) {
   if (event.type === rrwebMetaEvent) {
@@ -220,7 +228,7 @@ export function sanitizeRecordingEvent(event) {
         type: 'default',
         timestamp: payload.timestamp,
         category: payload.category,
-        message: payload.message,
+        message: sanitizeBreadcrumbMessage(payload.category, payload.message),
         data,
       },
     },

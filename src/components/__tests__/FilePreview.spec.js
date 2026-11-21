@@ -137,7 +137,7 @@ describe('file downloads and navigation', () => {
     },
   )
 
-  it('downloads the current preview on request and reports download failures', async () => {
+  it('reuses the loaded blob on download and reports failures when re-fetching', async () => {
     vi.useFakeTimers()
     vi.spyOn(store, 'loadFile').mockResolvedValue({ name: 'image.png', mime_type: 'image/png' })
     const fetchBlob = vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['image']))
@@ -147,13 +147,34 @@ describe('file downloads and navigation', () => {
     await flushPromises()
     await wrapper.get('.file-preview-download').trigger('click')
     await flushPromises()
-    expect(fetchBlob).toHaveBeenLastCalledWith('image')
+    expect(fetchBlob).toHaveBeenCalledTimes(1)
     expect(click).toHaveBeenCalledOnce()
-    fetchBlob.mockRejectedValueOnce(new Error('Offline'))
+    // When the initial blob load failed (so no cached blob exists), clicking
+    // Download retries the fetch and notifies on failure.
+    fetchBlob.mockRejectedValueOnce(new Error('Offline')).mockRejectedValueOnce(new Error('Offline'))
+    await wrapper.setProps({ fileId: 'image-2' })
+    await flushPromises()
     await wrapper.get('.file-preview-download').trigger('click')
     await flushPromises()
     expect(notify).toHaveBeenCalledWith('Download failed.', 'error')
     await vi.advanceTimersByTimeAsync(1000)
+  })
+
+  it('pins the blob MIME type to the allowlisted metadata type for iframe previews', async () => {
+    const createdBlobs = []
+    URL.createObjectURL.mockImplementation((blob) => {
+      createdBlobs.push(blob)
+      return 'blob:safe-pdf'
+    })
+    vi.spyOn(store, 'loadFile').mockResolvedValue({
+      id: 'pdf-1',
+      name: 'brief.pdf',
+      mime_type: 'application/pdf',
+    })
+    vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['<script>alert(1)</script>'], { type: 'text/html' }))
+    wrapper = mount(FilePreview, { props: { fileId: 'pdf-1' }, global: { plugins: [router] } })
+    await flushPromises()
+    expect(createdBlobs[0]?.type).toBe('application/pdf')
   })
 
   it.each([null, 'work'])('returns to the containing folder (%s)', async (folder) => {

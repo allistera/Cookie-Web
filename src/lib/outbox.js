@@ -22,6 +22,8 @@ const handlers = new Map()
 const pending = ref(0)
 const failures = ref([])
 let flushing = null
+let flushingOwner = null
+let refreshSeq = 0
 
 export const outboxPending = readonly(pending)
 export const outboxFailures = readonly(failures)
@@ -36,8 +38,9 @@ async function ownEntries(owner = offlineOwner()) {
 
 export async function refreshOutboxPending() {
   const owner = offlineOwner()
+  const seq = ++refreshSeq
   const entries = await ownEntries(owner)
-  if (owner !== offlineOwner()) return pending.value
+  if (seq !== refreshSeq || owner !== offlineOwner()) return pending.value
   pending.value = entries.length
   failures.value = entries
     .filter((entry) => entry.failure)
@@ -118,10 +121,20 @@ export async function pendingOutboxEntries(kind) {
 // and skipped; see syncOutbox. An entry edited while its request was in
 // flight (its revision moved on) is kept too, and sent in a further pass.
 export function flushOutbox() {
-  flushing ??= replay().finally(() => {
-    flushing = null
-  })
-  return flushing
+  const owner = offlineOwner()
+  if (flushing && flushingOwner === owner) return flushing
+  const previous = flushing
+  const next = (previous ? previous.catch(() => {}) : Promise.resolve())
+    .then(() => replay())
+    .finally(() => {
+      if (flushing === next) {
+        flushing = null
+        flushingOwner = null
+      }
+    })
+  flushing = next
+  flushingOwner = owner
+  return next
 }
 
 // Bounds the passes a stream of edits during replay can cause; whatever is
@@ -157,8 +170,20 @@ async function replayPass(result) {
     try {
       await handler(entry.payload, { owner })
       if (owner !== offlineOwner()) return { stopped: true, revised }
+      // Atomically check revision and delete in one readwrite transaction so a
+      // concurrent enqueue cannot be clobbered between read and delete.
+      const deleted = await db.mutate(OUTBOX_STORE, entry.seq, (latest) =>
+        owner === offlineOwner() &&
+        latest &&
+        latest.owner === owner &&
+        (latest.revision ?? 1) === (entry.revision ?? 1)
+          ? null
+          : undefined,
+      )
+      if (owner !== offlineOwner()) return { stopped: true, revised }
       noteNetworkSuccess()
       result.replayed++
+      if (!deleted) revised++
     } catch (error) {
       const network = isNetworkError(error)
       if (network) noteNetworkFailure()
@@ -182,16 +207,6 @@ async function replayPass(result) {
       result.remaining++
       continue
     }
-    // Only the revision that was sent is settled: a change merged in while
-    // the request ran stays queued and goes in the next pass.
-    const current = await db.get(OUTBOX_STORE, entry.seq)
-    if (current && (current.revision ?? 1) !== (entry.revision ?? 1)) {
-      revised++
-      continue
-    }
-    await db.mutate(OUTBOX_STORE, entry.seq, (latest) =>
-      owner === offlineOwner() && latest?.revision === entry.revision ? null : undefined,
-    )
   }
   result.remaining += revised
   return { stopped: false, revised }
@@ -262,4 +277,6 @@ export function resetOutboxForTests() {
   pending.value = 0
   failures.value = []
   flushing = null
+  flushingOwner = null
+  refreshSeq = 0
 }

@@ -25,10 +25,12 @@ let lastRefresh = 0
 // instead of fetching the same day twice.
 let inFlight = null
 
+const todayKey = computed(() => dateKey(now.value))
+
 // Today's events only (the window asked for is one day, but the account
 // could change under a response), all-day ones first, then by start time.
 const todayEvents = computed(() => {
-  const today = dateKey(now.value)
+  const today = todayKey.value
   return events.value
     .filter((event) => event.date === today)
     .map(normalizeCalendarEvent)
@@ -77,9 +79,9 @@ async function fetchToday() {
 }
 
 function tick() {
+  if (document.visibilityState === 'hidden') return
   const previousDay = dateKey(now.value)
   now.value = new Date()
-  if (document.visibilityState === 'hidden') return
   if (
     previousDay !== dateKey(now.value) ||
     now.value.getTime() - lastRefresh >= REFRESH_INTERVAL_MS

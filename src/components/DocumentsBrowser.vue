@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import DocumentIcon from './DocumentIcon.vue'
 import FileThumbnail from './FileThumbnail.vue'
 import { useDocumentsStore } from '../stores/documents'
-import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
+import { confirmDocumentDelete, confirmFolderDelete } from '../lib/documentDeleteConfirmation'
 import {
   fileKind,
   folderBreadcrumb,
@@ -39,6 +39,14 @@ const offset = ref(0)
 let pageGeneration = 0
 const pagedIds = computed(() =>
   store.workspacePaged ? (store.pageFor(pageScope.value)?.ids ?? []) : [],
+)
+watch(
+  () => pagedIds.value.length,
+  (length) => {
+    if (length > 0 && offset.value >= length) {
+      offset.value = Math.floor((length - 1) / PAGE_SIZE) * PAGE_SIZE
+    }
+  },
 )
 const documents = computed(() =>
   store.workspacePaged
@@ -103,7 +111,9 @@ async function download(file) {
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = file.name
+    document.body.appendChild(anchor)
     anchor.click()
+    anchor.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch (error) {
     store.notify(error.message || 'Download failed.', 'error')
@@ -180,7 +190,7 @@ function submitRename(entry) {
 async function remove(entry) {
   menuFor.value = null
   if (entry.kind === 'folder') {
-    if (!window.confirm(`Delete folder "${entry.name}" and its subfolders?`)) return
+    if (!confirmFolderDelete(entry.item)) return
     return store.deleteFolder(entry.id)
   }
   if (entry.kind === 'document') {
@@ -247,8 +257,8 @@ function onFolderDrop(entry, event) {
   }
   event.stopPropagation()
   const [kind, id] = String(event.dataTransfer.getData('text/plain')).split(':')
-  if (kind === 'document') void store.moveDocument(id, entry.id)
-  else if (kind === 'file') void store.moveFile(id, entry.id)
+  if (kind === 'document' && id) void store.moveDocument(id, entry.id)
+  else if (kind === 'file' && id) void store.moveFile(id, entry.id)
 }
 const fileInput = ref(null)
 function onFilesChosen(event) {

@@ -61,18 +61,27 @@ export function invitationOrganizer(invitation) {
   return invitation.organizerName || invitation.organizerAddress
 }
 
-const TIME = { hour: '2-digit', minute: '2-digit' }
+const TIME_FMT = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
+const RESPONDED_DAY_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' })
+const LOCAL_DAY_FMT = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+})
+const UTC_DAY_FMT = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+})
 
 // "Tue 1 Dec 2026", put together from the formatter's parts: left to itself
 // the formatter punctuates a date differently from one engine to the next.
 function dayText(date, { year, timeZone }) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone,
-  }).formatToParts(date)
+  const formatter = timeZone === 'UTC' ? UTC_DAY_FMT : LOCAL_DAY_FMT
+  const parts = formatter.formatToParts(date)
   const part = (type) => parts.find((entry) => entry.type === type)?.value ?? ''
   const day = `${part('weekday')} ${part('day')} ${part('month')}`
   return year ? `${day} ${part('year')}` : day
@@ -85,14 +94,14 @@ export function invitationWhen(invitation) {
   const start = new Date(invitation.startAt)
   const end = new Date(invitation.endAt)
   if (invitation.allDay) {
-    const last = new Date(end.getTime() - MS_PER_DAY)
+    const last = end.getTime() <= start.getTime() ? start : new Date(end.getTime() - MS_PER_DAY)
     const lastDay = dayText(last, { year: true, timeZone: 'UTC' })
     return last.getTime() <= start.getTime()
       ? `${lastDay}, all day`
       : `${dayText(start, { year: false, timeZone: 'UTC' })} to ${lastDay}, all day`
   }
-  const startTime = start.toLocaleTimeString('en-GB', TIME)
-  const endTime = end.toLocaleTimeString('en-GB', TIME)
+  const startTime = TIME_FMT.format(start)
+  const endTime = TIME_FMT.format(end)
   const endDay = dayText(end, { year: true })
   return dayText(start, { year: true }) === endDay
     ? `${endDay}, ${startTime} to ${endTime}`
@@ -113,12 +122,7 @@ export function invitationAnswer(invitation) {
     (response) => response.value === invitation.response,
   )?.answered
   if (!answered) return ''
-  const told = invitation.respondedAt
-    ? new Date(invitation.respondedAt).toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-      })
-    : ''
+  const told = invitation.respondedAt ? RESPONDED_DAY_FMT.format(new Date(invitation.respondedAt)) : ''
   return told
     ? `${answered}. ${invitationOrganizer(invitation)} was told on ${told}.`
     : `${answered}.`

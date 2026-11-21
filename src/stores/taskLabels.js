@@ -161,23 +161,34 @@ export const useTaskLabelsStore = defineStore('taskLabels', {
 
     async deleteLabel(id) {
       await labelLoads.current(toRaw(this))
-      const doomed = this.labels.find((row) => row.id === id)
-      if (!doomed) return false
-      this.labels = this.labels.filter((label) => label.id !== id)
-      try {
-        await this.request('DELETE', { id })
-        rewriteLoadedTasks((labels) => labels.filter((name) => name !== doomed.name))
-        return true
-      } catch (error) {
-        console.error('Failed to delete label:', error)
-        // Put back only the deleted label, so a create or rename that landed
-        // meanwhile survives the rollback.
-        if (!this.labels.some((label) => label.id === id)) {
-          this.labels = [...this.labels, doomed].sort(byNameOrder)
+      const perform = async () => {
+        const doomed = this.labels.find((row) => row.id === id)
+        if (!doomed) return false
+        this.labels = this.labels.filter((label) => label.id !== id)
+        try {
+          await this.request('DELETE', { id })
+          rewriteLoadedTasks((labels) => labels.filter((name) => name !== doomed.name))
+          return true
+        } catch (error) {
+          console.error('Failed to delete label:', error)
+          // Put back only the deleted label, so a create or rename that landed
+          // meanwhile survives the rollback.
+          if (!this.labels.some((label) => label.id === id)) {
+            this.labels = [...this.labels, doomed].sort(byNameOrder)
+          }
+          this.notify(error.userMessage || 'Failed to delete the label.', 'error')
+          return false
         }
-        this.notify(error.userMessage || 'Failed to delete the label.', 'error')
-        return false
       }
+      const store = toRaw(this)
+      const queue = labelMutations.get(store) ?? new Map()
+      labelMutations.set(store, queue)
+      const prior = queue.get(id)
+      const pending = prior ? prior.then(perform) : perform()
+      queue.set(id, pending)
+      return pending.finally(() => {
+        if (queue.get(id) === pending) queue.delete(id)
+      })
     },
   },
 })

@@ -40,6 +40,8 @@ export const useBucketsStore = defineStore('buckets', {
       const owner = sub || null
       if (owner === this.ownerSub) return
       this.ownerSub = owner
+      this.candidate = null
+      this.candidateToken = null
       this.isOpen = false
       this.bucket = owner ? readBucket(owner) : null
       this.expireIfDue()
@@ -141,11 +143,12 @@ export const useBucketsStore = defineStore('buckets', {
 
     // Puts a cleared bucket back. Anything pinned since the clear (which
     // made a fresh bucket) is kept, after the restored items.
-    restore(bucket) {
-      if (!bucket || bucket.owner !== this.ownerSub) return
+    restore(bucket, now = Date.now()) {
+      if (!bucket || bucket.owner !== this.ownerSub || !(bucket.expiresAt > now)) return
       const keys = new Set(bucket.items.map(bucketItemKey))
       const since = (this.bucket?.items ?? []).filter((item) => !keys.has(bucketItemKey(item)))
-      this.bucket = { ...bucket, items: [...bucket.items, ...since] }
+      const expiresAt = Math.max(bucket.expiresAt, this.bucket?.expiresAt ?? 0)
+      this.bucket = { ...bucket, expiresAt, items: [...bucket.items, ...since] }
       this.persist()
     },
 

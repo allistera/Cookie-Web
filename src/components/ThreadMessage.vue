@@ -13,9 +13,10 @@ const props = defineProps({
   // snippet, sent_at, is_sent — no body, which is fetched on expand.
   message: { type: Object, required: true },
   expanded: { type: Boolean, default: false },
+  showImages: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['toggle'])
+const emit = defineEmits(['toggle', 'keydown'])
 
 const store = useInboxStore()
 const sender = computed(() => props.message.from_name || props.message.from_address)
@@ -82,7 +83,14 @@ watch(
     <p v-if="loadFailed" class="ni-thread-message-status">Couldn't load this message.</p>
     <p v-else-if="!body" class="ni-thread-message-status">Loading…</p>
     <template v-else>
-      <EmailBody :html="body.html" :text="body.text ?? ''" :sender="sender" body-resolved />
+      <EmailBody
+        :html="body.html"
+        :text="body.text ?? ''"
+        :sender="sender"
+        :show-images="showImages"
+        body-resolved
+        @keydown="emit('keydown', $event)"
+      />
 
       <div v-if="body.attachments?.length" class="ni-attachments" aria-label="Attachments">
         <component

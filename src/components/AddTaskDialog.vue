@@ -25,7 +25,7 @@ const isSaving = ref(false)
 const error = ref('')
 const parsedText = ref(null)
 // A new task is put off to Someday until it is given a day.
-const draft = ref({
+const defaultDraft = () => ({
   content: '',
   description: '',
   projectId: null,
@@ -37,6 +37,7 @@ const draft = ref({
   recurrence: '',
   labels: [],
 })
+const draft = ref(defaultDraft())
 const projectOptions = computed(() =>
   flattenProjectTree(projects.projects, new Set(projects.projects.map((row) => row.id))),
 )
@@ -59,8 +60,13 @@ async function interpret() {
   const input = text.value.trim()
   if (parsedText.value === input) return
   const parsed = await items.interpretItem(input)
-  // Text that names no day leaves the task on Someday.
-  draft.value = { ...draft.value, ...parsed, dueDate: parsed.dueDate || SOMEDAY }
+  // Text that names no day leaves the task on Someday (without time or repeat).
+  const next = { ...defaultDraft(), ...parsed, dueDate: parsed.dueDate || SOMEDAY }
+  if (isSomeday(next.dueDate)) {
+    next.dueTime = ''
+    next.recurrence = ''
+  }
+  draft.value = next
   parsedText.value = input
 }
 
@@ -167,7 +173,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             placeholder="Call plumber Friday 3pm p1 #Work @home"
             maxlength="1000"
             :disabled="isSaving"
-            @keydown.enter.exact.prevent="submit"
+            @keydown.enter.exact="!$event.isComposing && ($event.preventDefault(), submit())"
             @keydown.meta.enter.prevent="submit"
             @keydown.ctrl.enter.prevent="submit"
           ></textarea>

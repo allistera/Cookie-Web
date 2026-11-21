@@ -9,6 +9,7 @@ import { newFilterRule } from '../lib/taskFilters'
 import { useInboxStore } from './inbox'
 
 const filterLoads = createSharedLoad()
+const filterChanges = new WeakMap()
 
 // The fields a filter is saved with; anything else on a draft stays behind.
 function pickFields(filter) {
@@ -121,20 +122,29 @@ export const useTaskFiltersStore = defineStore('taskFilters', {
     // saved first, the change is applied to its list and tried once more;
     // `change` returns null (having set this.error) when it no longer makes
     // sense, e.g. the filter it edits was deleted elsewhere.
-    async applyChange(change) {
-      if (!(await this.loadFilters())) {
-        this.error = 'Saved filters are not loaded. Please try again.'
+    applyChange(change) {
+      const store = toRaw(this)
+      const previous = filterChanges.get(store) ?? Promise.resolve()
+      const run = async () => {
+        if (!(await this.loadFilters())) {
+          this.error = 'Saved filters are not loaded. Please try again.'
+          return false
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          this.error = ''
+          const next = change(this.filters)
+          if (!next) return false
+          const result = await this.putFilters(next)
+          if (result !== 'conflict') return result === 'ok'
+        }
+        this.error = 'Saved filters keep changing in another session. Please try again.'
         return false
       }
-      for (let attempt = 0; attempt < 2; attempt++) {
-        this.error = ''
-        const next = change(this.filters)
-        if (!next) return false
-        const result = await this.putFilters(next)
-        if (result !== 'conflict') return result === 'ok'
-      }
-      this.error = 'Saved filters keep changing in another session. Please try again.'
-      return false
+      const pending = previous.catch(() => {}).then(run)
+      filterChanges.set(store, pending)
+      return pending.finally(() => {
+        if (filterChanges.get(store) === pending) filterChanges.delete(store)
+      })
     },
 
     async createFilter(fields) {

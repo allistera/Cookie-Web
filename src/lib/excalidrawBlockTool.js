@@ -12,9 +12,15 @@ const TOOLBOX_ICON = `
     <path d="M4 13c2-2 4-2 6 0s4 2 6 0 3-2 4-1"/>
   </svg>`
 
+const GUARDED_KEYS = new Set(['Backspace', 'Delete', 'Enter'])
+
 export class ExcalidrawBlockTool {
   static get toolbox() {
     return { title: 'Excalidraw', icon: TOOLBOX_ICON }
+  }
+
+  static get enableLineBreaks() {
+    return true
   }
 
   constructor({ data, config }) {
@@ -22,6 +28,8 @@ export class ExcalidrawBlockTool {
     this.config = config ?? {}
     this.root = null
     this.wrapper = null
+    this.mountNode = null
+    this.pendingScene = null
     this.changeFrame = null
   }
 
@@ -29,9 +37,13 @@ export class ExcalidrawBlockTool {
     this.wrapper = document.createElement('div')
     this.wrapper.className = 'excalidraw-block'
     this.wrapper.setAttribute('role', 'region')
+    this.wrapper.addEventListener('keydown', (event) => {
+      if (GUARDED_KEYS.has(event.key)) event.stopPropagation()
+    })
     this.updateLabel()
 
     const loading = editorPreview(excalidrawDrawingLabel(this.data))
+    this.mountNode = loading
     this.wrapper.append(loading)
     this.cancelDeferredMount = deferEditorMount(this.wrapper, loading, (preview) =>
       this.mountExcalidraw(preview),
@@ -55,14 +67,15 @@ export class ExcalidrawBlockTool {
         const nextVersion = getSceneVersion(elements)
         if (nextVersion === sceneVersion) return
         sceneVersion = nextVersion
-        this.data = serializeExcalidrawScene(elements, appState, files, serializeAsJSON)
-        this.updateLabel()
+        this.pendingScene = { elements, appState, files, serializeAsJSON }
+        this.updateLabel(elements)
         this.scheduleDocumentSave()
       }
 
       const canvas = document.createElement('div')
       canvas.className = 'excalidraw-block__canvas'
       loading.replaceWith(canvas)
+      this.mountNode = canvas
       this.root = createRoot(canvas)
       this.root.render(
         createElement(Excalidraw, {
@@ -88,8 +101,11 @@ export class ExcalidrawBlockTool {
       )
     } catch (error) {
       console.error('Loading Excalidraw failed:', error)
-      loading.classList.add('error')
-      loading.textContent = 'Excalidraw could not be loaded.'
+      const errorNode = this.mountNode?.isConnected ? this.mountNode : this.wrapper
+      if (errorNode) {
+        errorNode.classList.add('error')
+        errorNode.textContent = 'Excalidraw could not be loaded.'
+      }
     }
   }
 
@@ -101,11 +117,16 @@ export class ExcalidrawBlockTool {
     })
   }
 
-  updateLabel() {
-    this.wrapper?.setAttribute('aria-label', excalidrawDrawingLabel(this.data))
+  updateLabel(elements = this.data.elements) {
+    this.wrapper?.setAttribute('aria-label', excalidrawDrawingLabel({ elements }))
   }
 
   save() {
+    if (this.pendingScene) {
+      const { elements, appState, files, serializeAsJSON } = this.pendingScene
+      this.data = serializeExcalidrawScene(elements, appState, files, serializeAsJSON)
+      this.pendingScene = null
+    }
     return this.data
   }
 
@@ -113,8 +134,14 @@ export class ExcalidrawBlockTool {
     this.cancelDeferredMount?.()
     if (this.changeFrame !== null) cancelAnimationFrame(this.changeFrame)
     this.changeFrame = null
+    this.pendingScene = null
     this.root?.unmount()
     this.root = null
+    this.mountNode = null
     this.wrapper = null
+  }
+
+  removed() {
+    this.destroy()
   }
 }

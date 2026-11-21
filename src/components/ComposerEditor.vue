@@ -456,10 +456,14 @@ function normalizeEmoji() {
   return changed
 }
 
+let lastEmittedHtml = null
+
 function emitUpdate() {
   if (!editorRef.value) return
   normalizeEmoji()
-  emit('update:modelValue', editorRef.value.innerHTML)
+  const html = editorRef.value.innerHTML
+  lastEmittedHtml = html
+  emit('update:modelValue', html)
   // innerText is layout-aware (keeps line breaks); jsdom doesn't implement
   // it, so tests fall back to textContent.
   emit('update:text', editorRef.value.innerText ?? editorRef.value.textContent)
@@ -474,16 +478,20 @@ function replaceContent(html) {
   emitUpdate()
 }
 
-const DANGEROUS_HTML_RE = /<script|on\w+=|javascript:/i
+const DANGEROUS_HTML_RE = /<(?:script|style|iframe|object|embed|form|meta)\b|on\w+=|(?:javascript|data):/i
 
-function onInput() {
+function onInput(event) {
+  if (event?.isComposing) return
   const el = editorRef.value
-  if (el && DANGEROUS_HTML_RE.test(el.innerHTML)) {
-    const clean = sanitizeEmailHtml(el.innerHTML)
-    // Only rewrite when sanitization actually changed something: assigning
-    // innerHTML resets the caret to the start even when the output is
-    // identical — e.g. while literally typing "javascript:" in a message.
-    if (clean !== el.innerHTML) el.innerHTML = clean
+  if (el) {
+    const currentHtml = el.innerHTML
+    if (DANGEROUS_HTML_RE.test(currentHtml)) {
+      const clean = sanitizeEmailHtml(currentHtml)
+      // Only rewrite when sanitization actually changed something: assigning
+      // innerHTML resets the caret to the start even when the output is
+      // identical — e.g. while literally typing "javascript:" in a message.
+      if (clean !== currentHtml) el.innerHTML = clean
+    }
   }
   emitUpdate()
   updateSlashMenu()
@@ -509,6 +517,7 @@ function onKeydown(event) {
     }
     if (event.key === 'Escape') {
       event.preventDefault()
+      event.stopPropagation()
       menuOpen.value = false
       return
     }
@@ -525,14 +534,18 @@ function onBlur() {
   menuOpen.value = false
 }
 
-// External updates (AI insert, reset on close) replace the content — but only
-// when the user isn't actively typing, so live editing isn't clobbered.
+// External updates (AI insert, reset on close, conflict refresh) replace the
+// content. Echoes of our own emitUpdate() are skipped so live typing and caret
+// position are never disturbed.
 watch(
   () => props.modelValue,
   (value) => {
     const el = editorRef.value
-    if (el && document.activeElement !== el && value !== el.innerHTML) {
-      el.innerHTML = sanitizeEmailHtml(value)
+    if (!el || value === lastEmittedHtml || value === el.innerHTML) return
+    const clean = sanitizeEmailHtml(value)
+    if (document.activeElement !== el || value === '') {
+      el.innerHTML = clean
+      lastEmittedHtml = el.innerHTML
       if (normalizeEmoji()) emitUpdate()
     }
   },

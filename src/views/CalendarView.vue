@@ -8,6 +8,9 @@ import { useInboxStore } from '../stores/inbox'
 import {
   browserTimeZone,
   calendarEventsUrl,
+  calendarOwnerSession,
+  calendarSession,
+  isCalendarSessionCurrent,
   isGoogleCalendarId,
   useCalendars,
 } from '../composables/useCalendars'
@@ -48,6 +51,24 @@ const {
   (message, kind) => store.notify(message, kind),
 )
 
+const addDays = (date, days) => {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+const startOfWeek = (date) => {
+  const start = new Date(date)
+  const mondayOffset = (start.getDay() + 6) % 7
+  start.setDate(start.getDate() - mondayOffset)
+  return start
+}
+
+// Only surfaced within a bounded lookahead: a double-booking three months out
+// is easy to fix before it matters, so it isn't worth an actionable warning
+// today the way one happening this week or next is.
+const CONFLICT_WINDOW_DAYS = 30
+
 // Ticks every minute (see onMounted) so the current-time line and "today"
 // follow the wall clock, including past midnight.
 const now = ref(new Date())
@@ -58,6 +79,7 @@ const todayStart = computed(() =>
   new Date(now.value.getFullYear(), now.value.getMonth(), now.value.getDate()).getTime(),
 )
 const referenceDate = computed(() => new Date(todayStart.value))
+const todayKey = computed(() => dateKey(referenceDate.value))
 const WEEK_HOUR_HEIGHT = 72
 const START_HOUR = 8
 const END_HOUR = 19
@@ -207,9 +229,11 @@ let tasksWindow = null
 
 async function loadCalendarTasks(from, to) {
   const seq = ++tasksRequestSeq
+  const session = calendarSession()
   tasksWindow = { from, to }
   try {
     const headers = await store.authHeaders()
+    if (unmounted || seq !== tasksRequestSeq || !isCalendarSessionCurrent(session)) return
     const pages = await Promise.all(
       taskCalendarWindows(from, to).map(async (window) => {
         const response = await fetch(
@@ -224,9 +248,10 @@ async function loadCalendarTasks(from, to) {
         return Array.isArray(items) ? items : []
       }),
     )
-    if (seq !== tasksRequestSeq) return
+    if (unmounted || seq !== tasksRequestSeq || !isCalendarSessionCurrent(session)) return
     calendarTasks.value = pages.flat().flatMap(taskToCalendarItems)
   } catch (error) {
+    if (unmounted || seq !== tasksRequestSeq || !isCalendarSessionCurrent(session)) return
     // Tasks are an overlay on the calendar: a failure keeps the events
     // readable rather than blocking them.
     console.error('Failed to load tasks for the calendar:', error)
@@ -249,15 +274,21 @@ const somedayTask = ({ id, content, durationMinutes, priority }) => ({
   saving: false,
 })
 
+let somedayRequestSeq = 0
+
 async function loadSomedayTasks() {
+  const seq = ++somedayRequestSeq
+  const session = calendarSession()
   try {
     const headers = await store.authHeaders()
+    if (unmounted || seq !== somedayRequestSeq || !isCalendarSessionCurrent(session)) return
     const response = await fetch(
       `${TASKS_API_URL}/task-items?view=calendar&from=${SOMEDAY}&to=${SOMEDAY}`,
       { headers },
     )
     if (!response.ok) throw new Error(`GET /task-items?view=calendar responded ${response.status}`)
     const { items } = await response.json()
+    if (unmounted || seq !== somedayRequestSeq || !isCalendarSessionCurrent(session)) return
     // A reload after an edit in the task panel keeps the rows ticked here.
     const ticked = somedayTasks.value.filter((task) => task.done)
     somedayTasks.value = [
@@ -267,30 +298,33 @@ async function loadSomedayTasks() {
       ...ticked,
     ]
   } catch (error) {
+    if (unmounted || seq !== somedayRequestSeq || !isCalendarSessionCurrent(session)) return
     // Like dated tasks, an overlay: the calendar stays readable without it.
     console.error('Failed to load Someday tasks for the calendar:', error)
   }
 }
 
-async function writeTask(method, body) {
+async function patchTask(body) {
   const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
   const response = await fetch(`${TASKS_API_URL}/task-items`, {
-    method,
+    method: 'PATCH',
     headers,
     body: JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`${method} /task-items responded ${response.status}`)
+  if (!response.ok) throw new Error(`PATCH /task-items responded ${response.status}`)
   return response.json()
 }
 
 async function toggleSomedayTask(task) {
   if (task.saving) return
+  const session = calendarSession()
   const done = !task.done
   task.done = done
   task.saving = true
   try {
-    await writeTask('PATCH', { id: task.id, completed: done })
+    await patchTask({ id: task.id, completed: done })
   } catch (error) {
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     task.done = !done
     console.error('Failed to update a Someday task:', error)
     store.notify('Failed to update the task.', 'error')
@@ -308,6 +342,7 @@ const savingTaskIds = new Set()
 async function toggleCalendarTask(event) {
   const id = event.taskId
   if (savingTaskIds.has(id)) return
+  const session = calendarSession()
   const done = !event.done
   // An overnight task is two chips for one task, so both follow the tick.
   const setDone = (value) => {
@@ -316,9 +351,11 @@ async function toggleCalendarTask(event) {
   savingTaskIds.add(id)
   setDone(done)
   try {
-    await writeTask('PATCH', { id, completed: done })
+    await patchTask({ id, completed: done })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     if (tasksWindow) void loadCalendarTasks(tasksWindow.from, tasksWindow.to)
   } catch (error) {
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     setDone(!done)
     console.error('Failed to update a task from the calendar:', error)
     store.notify('Failed to update the task.', 'error')
@@ -440,6 +477,7 @@ function dropSomedayTask(event, view) {
 async function scheduleSomedayTask(task, dueDate, dueTime) {
   const index = somedayTasks.value.indexOf(task)
   if (index === -1 || task.saving) return
+  const session = calendarSession()
   task.saving = true
   somedayTasks.value.splice(index, 1)
   const placed = (row) => [
@@ -448,14 +486,16 @@ async function scheduleSomedayTask(task, dueDate, dueTime) {
   ]
   calendarTasks.value = placed({ ...task, dueDate, dueTime })
   try {
-    const { item } = await writeTask('PATCH', {
+    const { item } = await patchTask({
       id: task.id,
       dueDate,
       dueTime,
       timeZone: browserTimeZone(),
     })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     calendarTasks.value = placed(item)
   } catch (error) {
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     calendarTasks.value = calendarTasks.value.filter((item) => item.taskId !== task.id)
     somedayTasks.value.splice(Math.min(index, somedayTasks.value.length), 0, task)
     console.error('Failed to schedule a Someday task:', error)
@@ -472,20 +512,27 @@ async function scheduleSomedayTask(task, dueDate, dueTime) {
 // needs dates outside it, so week-to-week browsing stays free.
 const EVENT_RANGE_VIEW_DAYS = 45
 const EVENT_RANGE_PAD_DAYS = 60
+const MAX_REFERENCE_BRIDGE_MS = 180 * 86_400_000
 const loadedEventRange = ref(null)
 let eventsRequestSeq = 0
 let eventsLoadedAt = 0
 
 // The visible grid needs at most ±45 days around selectedDate (a month grid
-// spans six weeks); the insights rail additionally always needs the conflict
-// window and the auto-scheduled week anchored on referenceDate ("today").
+// spans six weeks); when browsing near today, also include the conflict window
+// and the auto-scheduled week anchored on referenceDate ("today") without
+// bridging years into a single oversized request.
 function requiredEventRange() {
-  const bounds = [
+  const viewBounds = [
     addDays(selectedDate.value, -EVENT_RANGE_VIEW_DAYS),
     addDays(selectedDate.value, EVENT_RANGE_VIEW_DAYS),
-    addDays(referenceDate.value, -7),
-    addDays(referenceDate.value, CONFLICT_WINDOW_DAYS + 1),
-  ].map((date) => date.getTime())
+  ]
+  if (Math.abs(selectedDate.value.getTime() - referenceDate.value.getTime()) <= MAX_REFERENCE_BRIDGE_MS) {
+    viewBounds.push(
+      addDays(referenceDate.value, -7),
+      addDays(referenceDate.value, CONFLICT_WINDOW_DAYS + 1),
+    )
+  }
+  const bounds = viewBounds.map((date) => date.getTime())
   return { from: new Date(Math.min(...bounds)), to: new Date(Math.max(...bounds)) }
 }
 
@@ -494,16 +541,18 @@ async function loadEvents() {
   const from = dateKey(addDays(required.from, -EVENT_RANGE_PAD_DAYS))
   const to = dateKey(addDays(required.to, EVENT_RANGE_PAD_DAYS))
   const seq = ++eventsRequestSeq
+  const session = calendarSession()
   void loadCalendarTasks(from, to)
   try {
     const headers = await store.authHeaders()
+    if (unmounted || seq !== eventsRequestSeq || !isCalendarSessionCurrent(session)) return
     const response = await fetch(calendarEventsUrl(from, to), { headers })
     if (!response.ok) throw new Error(`GET /calendar-events responded ${response.status}`)
     const { events: rows, googleError, truncated } = await response.json()
     // A rapid navigation may have started a newer load for a different
     // window; dropping the stale response keeps events/loadedEventRange
     // describing the same fetch.
-    if (seq !== eventsRequestSeq) return
+    if (unmounted || seq !== eventsRequestSeq || !isCalendarSessionCurrent(session)) return
     events.value = rows.map(normalizeCalendarEvent)
     eventsTruncated.value = Boolean(truncated)
     loadedEventRange.value = { from, to }
@@ -513,7 +562,7 @@ async function loadEvents() {
     // for (the watcher only compares against the previous window).
     ensureEventRange()
   } catch (error) {
-    if (seq !== eventsRequestSeq) return
+    if (unmounted || seq !== eventsRequestSeq || !isCalendarSessionCurrent(session)) return
     console.error('Failed to load calendar events:', error)
     store.notify('Failed to load calendar events.', 'error')
   }
@@ -577,19 +626,6 @@ const visibleEvents = computed(() =>
 const timedVisibleEvents = computed(() => visibleEvents.value.filter((event) => !event.allDay))
 const allDayVisibleEvents = computed(() => visibleEvents.value.filter((event) => event.allDay))
 
-const addDays = (date, days) => {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-const startOfWeek = (date) => {
-  const start = new Date(date)
-  const mondayOffset = (start.getDay() + 6) % 7
-  start.setDate(start.getDate() - mondayOffset)
-  return start
-}
-
 // The real current week (anchored on referenceDate/"today"), independent of
 // whatever day/week/month the user has navigated to — the "Auto-scheduled"
 // insight card reports on this week, not the one being viewed.
@@ -611,13 +647,8 @@ const autoScheduledCount = computed(
     ).length,
 )
 
-// Only surfaced within a bounded lookahead: a double-booking three months out
-// is easy to fix before it matters, so it isn't worth an actionable warning
-// today the way one happening this week or next is.
-const CONFLICT_WINDOW_DAYS = 30
-
 const eventInterval = (event) => {
-  const start = new Date(`${event.date}T${event.start}:00`)
+  const start = new Date(`${event.date}T${String(event.start).slice(0, 5)}:00`)
   return { start, end: new Date(start.getTime() + event.duration * 60_000) }
 }
 
@@ -734,9 +765,9 @@ const monthDays = computed(() => {
   const first = new Date(selectedDate.value.getFullYear(), selectedDate.value.getMonth(), 1)
   const last = new Date(selectedDate.value.getFullYear(), selectedDate.value.getMonth() + 1, 0)
   const gridStart = startOfWeek(first)
-  const gridEnd = addDays(startOfWeek(last), 6)
+  const gridEndKey = dateKey(addDays(startOfWeek(last), 6))
   const days = []
-  for (let date = gridStart; date <= gridEnd; date = addDays(date, 1)) days.push(date)
+  for (let date = gridStart; dateKey(date) <= gridEndKey; date = addDays(date, 1)) days.push(date)
   return days
 })
 
@@ -829,12 +860,48 @@ const dayEventStyle = ({ event, start, end, lane, lanes }) => {
   }
 }
 
-const weekEventStyle = (event) => {
-  const dayIndex = weekDays.value.findIndex((date) => dateKey(date) === event.date)
+const weekDayIndexByKey = computed(
+  () => new Map(weekDays.value.map((date, index) => [dateKey(date), index])),
+)
+
+const weekEventItems = computed(() => {
+  const byDay = new Map()
+  const visibleStart = START_HOUR * 60
+  const visibleEnd = END_HOUR * 60
+  for (const event of weekTimedEvents.value) {
+    const { hour, minute } = parseStart(event.start)
+    const start = Math.max(hour * 60 + minute, visibleStart)
+    const end = Math.min(hour * 60 + minute + Number(event.duration), visibleEnd)
+    const item = { event, start, end, lane: 0, lanes: 1 }
+    const bucket = byDay.get(event.date)
+    if (bucket) bucket.push(item)
+    else byDay.set(event.date, [item])
+  }
+  const laidOut = []
+  for (const items of byDay.values()) {
+    assignLanes(items.filter((item) => item.end > item.start))
+    laidOut.push(...items)
+  }
+  return laidOut
+})
+
+const weekEventStyle = (item) => {
+  const event = item.event ?? item
+  const lane = item.lane ?? 0
+  const lanes = item.lanes ?? 1
+  const dayIndex = weekDayIndexByKey.value.get(event.date) ?? -1
+  const columnStartPct = (dayIndex * 100) / 7
+  const lanePct = 100 / (7 * lanes)
+  const left =
+    lanes === 1
+      ? `calc(${columnStartPct}% + 8px)`
+      : `calc(${columnStartPct + lane * lanePct}% + ${8 - (lane * 16) / lanes}px)`
+  const width =
+    lanes === 1 ? 'calc(100% / 7 - 16px)' : `calc(${lanePct}% - ${16 / lanes + 2}px)`
   return {
     ...eventPosition(event, WEEK_HOUR_HEIGHT),
-    left: `calc(${dayIndex} * (100% / 7) + 8px)`,
-    width: 'calc(100% / 7 - 16px)',
+    left,
+    width,
   }
 }
 
@@ -867,7 +934,11 @@ function previewRange(view) {
   }
   const drop = somedayDrop.value
   if (drop?.view === view) {
-    return { date: drop.date, start: drop.startMinutes, end: drop.startMinutes + drop.duration }
+    return {
+      date: drop.date,
+      start: drop.startMinutes,
+      end: Math.min(drop.startMinutes + drop.duration, AXES[view].last),
+    }
   }
   return null
 }
@@ -881,11 +952,11 @@ const dayDragPreviewStyle = computed(() => {
 const weekDragPreviewStyle = computed(() => {
   const range = previewRange('week')
   if (!range) return null
-  const dayIndex = weekDays.value.findIndex((date) => dateKey(date) === dateKey(range.date))
+  const dayIndex = weekDayIndexByKey.value.get(dateKey(range.date)) ?? -1
   return {
     top: `${(range.start - START_HOUR * 60) * (WEEK_HOUR_HEIGHT / 60)}px`,
     height: `${Math.max((range.end - range.start) * (WEEK_HOUR_HEIGHT / 60), 6)}px`,
-    left: `calc(${dayIndex} * (100% / 7) + 8px)`,
+    left: `calc(${(dayIndex * 100) / 7}% + 8px)`,
     width: 'calc(100% / 7 - 16px)',
   }
 })
@@ -905,7 +976,7 @@ const eventTimeRange = (event) => {
   return `${eventTime(event)} – ${eventTime({ start: minutesToTimeString(endMinutes) })}`
 }
 
-const isToday = (date) => dateKey(date) === dateKey(referenceDate.value)
+const isToday = (date) => dateKey(date) === todayKey.value
 const isCurrentMonth = (date) => date.getMonth() === selectedDate.value.getMonth()
 // One O(N) bucketing pass instead of a full-array filter per month cell —
 // the 42-cell month grid made that O(42×N) on every render.
@@ -957,9 +1028,19 @@ function setView(mode) {
 }
 
 function navigate(direction) {
-  const next = new Date(selectedDate.value)
-  if (viewMode.value === 'month') next.setMonth(next.getMonth() + direction)
-  else next.setDate(next.getDate() + direction * (viewMode.value === 'week' ? 7 : 1))
+  const current = selectedDate.value
+  if (viewMode.value === 'month') {
+    const targetMonth = current.getMonth() + direction
+    const maxDay = new Date(current.getFullYear(), targetMonth + 1, 0).getDate()
+    selectedDate.value = new Date(
+      current.getFullYear(),
+      targetMonth,
+      Math.min(current.getDate(), maxDay),
+    )
+    return
+  }
+  const next = new Date(current)
+  next.setDate(next.getDate() + direction * (viewMode.value === 'week' ? 7 : 1))
   selectedDate.value = next
 }
 
@@ -1053,18 +1134,23 @@ function editEvent(event) {
   eventFormReadOnly.value = !writableCalendars.value.some(
     (calendar) => calendar.id === event.calendar,
   )
+  const startMinutes = timeStringToMinutes(event.start)
+  const rawEndMinutes = startMinutes + Number(event.duration || 0)
   eventForm.value = {
     title: event.title,
     description: event.description || '',
     location: event.location || '',
     date: event.seriesDate ?? event.date,
     start: event.start,
-    // An all-day event's 1440-minute duration would overflow into an
-    // invalid "24:00" end time; there's no meaningful end-of-day time to
-    // show anyway since it's rendered as an all-day banner, not a slot.
-    end: event.allDay
-      ? '23:59'
-      : minutesToTimeString(timeStringToMinutes(event.start) + event.duration),
+    // An all-day event's 1440-minute duration (or an overnight event crossing
+    // midnight) would overflow into an invalid >= 24:00 <input type="time">
+    // value; clamp the editable end clock time to 23:59 and preserve allDay on
+    // save unless the user explicitly changes the times.
+    end:
+      event.allDay || rawEndMinutes >= DAY_MINUTES
+        ? '23:59'
+        : minutesToTimeString(Math.max(rawEndMinutes, startMinutes)),
+    allDay: Boolean(event.allDay),
     calendar: event.calendar,
     repeat: parseRepeatFrequency(event.recurrenceRule),
     repeatUntil: parseRepeatUntil(event.recurrenceRule),
@@ -1114,6 +1200,15 @@ watch(
   },
 )
 
+function clearLinkedEventQuery() {
+  const query = router?.currentRoute.value.query
+  if (query?.event && openedEventLink === `${query.date}/${query.event}`) {
+    const rest = { ...query }
+    delete rest.event
+    router.replace({ query: rest })
+  }
+}
+
 // User-initiated dismissal (Escape, overlay, Close/Cancel). Blocked while a
 // save/delete is in flight, as AddTaskDialog does: those requests resolve
 // against the dialog's state and close it themselves when they finish.
@@ -1124,12 +1219,7 @@ function dismissEventDialog() {
   // the same link (a bucket row, the Mail next-event chip) opens it again
   // rather than being a navigation to where the page already is. A newer
   // link held back by a failed save keeps its URL: this close opens it.
-  const query = router?.currentRoute.value.query
-  if (query?.event && openedEventLink === `${query.date}/${query.event}`) {
-    const rest = { ...query }
-    delete rest.event
-    router.replace({ query: rest })
-  }
+  clearLinkedEventQuery()
 }
 
 function closeNewEvent() {
@@ -1156,23 +1246,27 @@ async function createEventFromText() {
     return
   }
 
+  const session = calendarSession()
   linkedEventWaitingForDialog = true
   eventSaving.value = true
   eventAiError.value = ''
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     const interpretResponse = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'interpret', text, timeZone }),
     })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     if (!interpretResponse.ok) {
       const error = new Error(`AI event request responded ${interpretResponse.status}`)
       error.status = interpretResponse.status
       throw error
     }
     const { draft } = await interpretResponse.json()
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     // Same rules as saveEvent: a Google-bound event takes no repeat rule from
     // here, and the zone tells Google what wall-clock time the draft means.
     const fields = { ...draft, calendar, tone: 'accepted', timeZone }
@@ -1186,19 +1280,22 @@ async function createEventFromText() {
       headers,
       body: JSON.stringify(fields),
     })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     if (!createResponse.ok) {
       throw new Error(`POST /calendar-events responded ${createResponse.status}`)
     }
     await loadEvents()
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     closeNewEvent()
   } catch (error) {
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     console.error('Failed to create calendar event from text:', error)
     eventAiError.value =
       error.status === 429
         ? 'You have made too many AI requests. Please wait a moment and try again.'
         : 'Cookie could not create that event. Try adding a clear date and time, or use Advanced.'
   } finally {
-    eventSaving.value = false
+    if (!unmounted && isCalendarSessionCurrent(session)) eventSaving.value = false
   }
 }
 
@@ -1206,9 +1303,18 @@ async function saveEvent() {
   if (eventSaving.value) return
   const title = eventForm.value.title.trim()
   if (!title) return
-  const { date, start, end, location, description, repeat, repeatUntil, repeatDays } =
+  const { date, start, end, allDay, location, description, repeat, repeatUntil, repeatDays } =
     eventForm.value
-  const duration = Math.max(timeStringToMinutes(end) - timeStringToMinutes(start), SNAP_MINUTES)
+  const startMinutes = start ? timeStringToMinutes(start) : NaN
+  const endMinutes = end ? timeStringToMinutes(end) : NaN
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
+    store.notify('Choose a valid start and end time.', 'error')
+    return
+  }
+  const keepsAllDay = Boolean(allDay && start === '00:00' && end === '23:59')
+  const duration = keepsAllDay
+    ? DAY_MINUTES
+    : Math.max(endMinutes - startMinutes, SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
   const calendar = eventForm.value.calendar || defaultCalendarId()
@@ -1234,14 +1340,17 @@ async function saveEvent() {
     repeatDays: effectiveRepeat === 'weekly' && repeatDays.length ? repeatDays : null,
     timeZone: browserTimeZone(),
   }
+  if (keepsAllDay) fields.allDay = true
 
   // Captured before the first await so the request always targets the event
   // the dialog was opened on.
   const editingId = editingEventId.value
+  const session = calendarSession()
   linkedEventWaitingForDialog = true
   eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     if (editingId) {
       const existing = events.value.find((event) => (event.seriesId ?? event.id) === editingId)
       const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
@@ -1249,6 +1358,7 @@ async function saveEvent() {
         headers,
         body: JSON.stringify({ id: editingId, ...fields, tone: existing?.tone ?? null }),
       })
+      if (unmounted || !isCalendarSessionCurrent(session)) return
       if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
       // An event made from an email stays that email's after it moves.
       relinkEmailCalendarEvent(editingId, date)
@@ -1258,10 +1368,13 @@ async function saveEvent() {
       // several days comes back as one row per day.
       if (effectiveRepeat === 'none' && !toGoogle && !existing?.recurrenceRule) {
         const { event: updated } = await response.json()
+        if (unmounted || !isCalendarSessionCurrent(session)) return
+        const normalized = normalizeCalendarEvent({ ...updated, seriesId: updated.id })
         events.value = events.value.map((event) =>
-          (event.seriesId ?? event.id) === editingId ? { ...updated, seriesId: updated.id } : event,
+          (event.seriesId ?? event.id) === editingId ? normalized : event,
         )
         closeNewEvent()
+        clearLinkedEventQuery()
         return
       }
     } else {
@@ -1270,11 +1383,13 @@ async function saveEvent() {
         headers,
         body: JSON.stringify({ ...fields, tone: 'accepted' }),
       })
+      if (unmounted || !isCalendarSessionCurrent(session)) return
       if (!response.ok) throw new Error(`POST /calendar-events responded ${response.status}`)
       // Link the new event to the email it was suggested from so the reader
       // shows it as added instead of offering it again.
       if (newEventSourceMessageId) {
         const { event: created } = await response.json().catch(() => ({}))
+        if (unmounted || !isCalendarSessionCurrent(session)) return
         if (created?.id) {
           rememberEmailCalendarEvent(newEventSourceMessageId, {
             id: created.id,
@@ -1286,35 +1401,44 @@ async function saveEvent() {
     // Recurring series are expanded into occurrences server-side, so a full
     // reload is the simplest way to keep every occurrence in sync.
     await loadEvents()
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     closeNewEvent()
+    if (editingId) clearLinkedEventQuery()
   } catch (error) {
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     console.error('Failed to save calendar event:', error)
     store.notify('Failed to save event.', 'error')
   } finally {
-    eventSaving.value = false
+    if (!unmounted && isCalendarSessionCurrent(session)) eventSaving.value = false
   }
 }
 
 async function deleteEvent() {
   if (!editingEventId.value || eventSaving.value) return
   const id = editingEventId.value
+  const session = calendarSession()
   linkedEventWaitingForDialog = true
   eventSaving.value = true
   try {
     const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
       method: 'DELETE',
       headers,
       body: JSON.stringify({ id }),
     })
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     if (!response.ok) throw new Error(`DELETE /calendar-events responded ${response.status}`)
     await loadEvents()
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     closeNewEvent()
+    clearLinkedEventQuery()
   } catch (error) {
+    if (unmounted || !isCalendarSessionCurrent(session)) return
     console.error('Failed to delete calendar event:', error)
     store.notify('Failed to delete event.', 'error')
   } finally {
-    eventSaving.value = false
+    if (!unmounted && isCalendarSessionCurrent(session)) eventSaving.value = false
   }
 }
 
@@ -1340,7 +1464,7 @@ watch(showNewEvent, (open) => {
 function onEventDialogKeydown(event) {
   if (event.key !== 'Tab') return
   const focusable = [
-    ...event.currentTarget.querySelectorAll('input, select, textarea, button'),
+    ...event.currentTarget.querySelectorAll('a[href], input, select, textarea, button'),
   ].filter((element) => !element.disabled)
   const first = focusable[0]
   const last = focusable.at(-1)
@@ -1443,8 +1567,11 @@ function onDragEnd() {
   window.removeEventListener('mouseup', onDragEnd)
   if (!dragDraft.value) return
   const { view, date, anchorMinutes, currentMinutes } = dragDraft.value
-  // The dialog's times are clock times, which stop a minute short of midnight.
-  const startMinutes = Math.min(anchorMinutes, currentMinutes, DAY_MINUTES - SNAP_MINUTES)
+  // The dialog's times are clock times, which stop a minute short of midnight,
+  // and a click at the bottom edge of the week grid still reserves at least
+  // one quarter-hour slot.
+  const maxStart = Math.min(AXES[view].last, DAY_MINUTES) - SNAP_MINUTES
+  const startMinutes = Math.min(anchorMinutes, currentMinutes, maxStart)
   const endMinutes = Math.min(
     currentMinutes === anchorMinutes
       ? clampMinutes(startMinutes + 30, view)
@@ -1452,7 +1579,7 @@ function onDragEnd() {
     DAY_MINUTES - 1,
   )
   dragDraft.value = null
-  openNewEvent({ date, startMinutes, endMinutes })
+  openNewEvent({ date, startMinutes, endMinutes: Math.max(endMinutes, startMinutes + SNAP_MINUTES) })
 }
 
 // A timed event or task picked up on the day lane and carried along it to
@@ -1556,8 +1683,9 @@ const dayMovePreview = computed(() => {
   }
 })
 
-async function saveEventStart(event, start) {
+async function saveEventStart(event, start, session) {
   const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
+  if (unmounted || !isCalendarSessionCurrent(session)) return
   const response = await fetch(`${CALENDAR_API_URL}/calendar-events`, {
     method: 'PATCH',
     headers,
@@ -1577,19 +1705,21 @@ async function saveEventStart(event, start) {
       timeZone: browserTimeZone(),
     }),
   })
+  if (unmounted || !isCalendarSessionCurrent(session)) return
   if (!response.ok) throw new Error(`PATCH /calendar-events responded ${response.status}`)
   const { event: saved } = await response.json()
-  events.value = events.value.map((row) =>
-    row.id === event.id ? { ...saved, seriesId: saved.id } : row,
-  )
+  if (unmounted || !isCalendarSessionCurrent(session)) return
+  const normalized = normalizeCalendarEvent({ ...saved, seriesId: saved.id })
+  events.value = events.value.map((row) => (row.id === event.id ? normalized : row))
 }
 
-async function saveTaskStart(item, start) {
-  const { item: saved } = await writeTask('PATCH', {
+async function saveTaskStart(item, start, session) {
+  const { item: saved } = await patchTask({
     id: item.taskId,
     dueTime: start,
     timeZone: browserTimeZone(),
   })
+  if (unmounted || !isCalendarSessionCurrent(session)) return
   calendarTasks.value = [
     ...calendarTasks.value.filter((row) => row.taskId !== item.taskId),
     ...taskToCalendarItems(saved),
@@ -1598,26 +1728,54 @@ async function saveTaskStart(item, start) {
 
 // The event sits at its new time at once and goes back if the save fails.
 async function moveEvent(event, start) {
-  const rows = event.kind === 'task' ? calendarTasks : events
-  const place = (value) => {
-    rows.value = rows.value.map((row) => (row.id === event.id ? { ...row, start: value } : row))
+  const session = calendarSession()
+  const isTask = event.kind === 'task'
+  const previousTaskRows = isTask
+    ? calendarTasks.value.filter((row) => row.taskId === event.taskId)
+    : null
+  const placeEvent = (value) => {
+    events.value = events.value.map((row) => (row.id === event.id ? { ...row, start: value } : row))
   }
   movingIds.add(event.id)
-  place(start)
+  if (isTask) {
+    calendarTasks.value = calendarTasks.value
+      .filter((row) => row.taskId !== event.taskId || row.id === event.id)
+      .map((row) => (row.id === event.id ? { ...row, start } : row))
+  } else {
+    placeEvent(start)
+  }
   try {
-    if (event.kind === 'task') await saveTaskStart(event, start)
-    else await saveEventStart(event, start)
+    if (isTask) await saveTaskStart(event, start, session)
+    else await saveEventStart(event, start, session)
   } catch (error) {
-    place(event.start)
+    if (unmounted || !isCalendarSessionCurrent(session)) return
+    if (isTask) {
+      calendarTasks.value = [
+        ...calendarTasks.value.filter((row) => row.taskId !== event.taskId),
+        ...previousTaskRows,
+      ]
+    } else {
+      placeEvent(event.start)
+    }
     console.error('Failed to move a calendar event:', error)
-    store.notify(
-      event.kind === 'task' ? 'Failed to move the task.' : 'Failed to move the event.',
-      'error',
-    )
+    store.notify(isTask ? 'Failed to move the task.' : 'Failed to move the event.', 'error')
   } finally {
     movingIds.delete(event.id)
   }
 }
+
+watch(calendarOwnerSession, () => {
+  events.value = []
+  calendarTasks.value = []
+  somedayTasks.value = []
+  loadedEventRange.value = null
+  closeNewEvent()
+  openTaskId.value = ''
+  if (!unmounted) {
+    void loadSomedayTasks()
+    void Promise.all([loadVisibleCalendars(), loadEvents()])
+  }
+})
 
 function onKeydown(event) {
   if (event.key === 'Escape' && showNewEvent.value) dismissEventDialog()
@@ -2001,26 +2159,26 @@ onUnmounted(() => {
                   :style="{ top: `${index * WEEK_HOUR_HEIGHT}px` }"
                 ></div>
                 <button
-                  v-for="event in weekTimedEvents"
-                  :key="event.id"
+                  v-for="item in weekEventItems"
+                  :key="item.event.id"
                   type="button"
                   class="calendar-event week-event"
                   :class="[
-                    `tone-${event.tone || 'default'}`,
-                    { 'task-event': event.kind === 'task', 'task-done': event.done },
+                    `tone-${item.event.tone || 'default'}`,
+                    { 'task-event': item.event.kind === 'task', 'task-done': item.event.done },
                   ]"
-                  :style="weekEventStyle(event)"
-                  @click="editEvent(event)"
+                  :style="weekEventStyle(item)"
+                  @click="editEvent(item.event)"
                 >
                   <span
-                    v-if="event.kind === 'task'"
+                    v-if="item.event.kind === 'task'"
                     class="material-symbols-outlined task-event-icon"
                     aria-hidden="true"
-                    >{{ taskEventIcon(event) }}</span
+                    >{{ taskEventIcon(item.event) }}</span
                   >
-                  <strong>{{ event.title }}</strong>
-                  <span v-if="event.duration >= 60"
-                    >{{ eventTime(event) }} · {{ event.duration }} min</span
+                  <strong>{{ item.event.title }}</strong>
+                  <span v-if="item.event.duration >= 60"
+                    >{{ eventTime(item.event) }} · {{ item.event.duration }} min</span
                   >
                 </button>
                 <div
@@ -3905,12 +4063,6 @@ onUnmounted(() => {
     width: auto;
     min-width: max-content;
     padding-inline: 10px;
-  }
-
-  .calendar-list-edit-icon {
-    position: static;
-    flex: 0 0 24px;
-    opacity: 1;
   }
 
   .calendar-page {

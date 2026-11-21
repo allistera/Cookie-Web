@@ -95,7 +95,10 @@ export function withPrivateDocumentImages(
       const container = this.ui.nodes?.imageContainer
       if (container) container.dataset.mutationFree = 'true'
       resolve(url).then(
-        (signedUrl) => this.ui.fillImage(signedUrl),
+        (signedUrl) => {
+          if (this._data.file?.url !== url) return
+          this.ui.fillImage(signedUrl)
+        },
         (error) => console.error('Failed to load document image:', error),
       )
     }

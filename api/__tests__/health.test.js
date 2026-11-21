@@ -104,9 +104,11 @@ describe('production health probes', () => {
     expect((await runHealthChecks({ database })).status).toBe('degraded')
     expect(getSql).not.toHaveBeenCalled()
   })
-  it('cancels a database probe when its deadline expires', async () => {
+  it('cancels a database probe when its deadline expires without unhandled rejections', async () => {
     vi.useFakeTimers()
-    const query = Object.assign(new Promise(() => {}), { cancel: vi.fn() })
+    const query = Object.assign(new Promise(() => {}), {
+      cancel: vi.fn(() => Promise.reject(new Error('already closed'))),
+    })
     const { database } = createHealthChecks({
       getSql: () => () => query,
       env: { DATABASE_URL: 'configured' },

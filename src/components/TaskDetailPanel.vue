@@ -48,6 +48,11 @@ const userName = computed(() => shortUserName(auth?.user?.value?.name))
 const item = computed(() => items.itemById(props.taskId))
 const parent = computed(() => (item.value?.parentId ? items.itemById(item.value.parentId) : null))
 watch(
+  () => props.taskId,
+  (id) => items.setOpenDetailId(id),
+  { immediate: true },
+)
+watch(
   () => [props.taskId, items.isLoading],
   () => {
     if (!items.isLoading && (!item.value || item.value.summary)) void items.loadDetail(props.taskId)
@@ -355,10 +360,26 @@ const labelEditor = ref(null)
 watch(
   () => props.taskId,
   () => {
+    subtaskOffset.value = 0
     customDurationOpen.value = false
     labelsOpen.value = false
+    addingSubtask.value = false
+    subtaskDraft.value = ''
+    savingRecurrence.value = false
+    completing.value = false
+    menuOpen.value = false
+    tab.value = 'comments'
+    activityOpened.value = false
+    titleEdit.editing.value = false
+    descriptionEdit.editing.value = false
   },
 )
+
+function startDescriptionEdit(event) {
+  if (event?.target instanceof Element && event.target.closest('a')) return
+  if (event?.type === 'keydown' && event.key === 'Enter') event.preventDefault()
+  descriptionEdit.start()
+}
 async function openLabels() {
   labelsOpen.value = true
   await nextTick()
@@ -486,8 +507,11 @@ const closeButton = ref(null)
 
 function trapTab(event) {
   const focusable = [
-    ...panel.value.querySelectorAll('input, select, textarea, button, [tabindex="0"]'),
-  ].filter((element) => !element.disabled)
+    ...panel.value.querySelectorAll('a[href], input, select, textarea, button, [tabindex="0"]'),
+  ].filter(
+    (element) =>
+      !element.disabled && !element.hidden && element.getAttribute('aria-hidden') !== 'true',
+  )
   const first = focusable[0]
   const last = focusable.at(-1)
   if (!first) return
@@ -528,6 +552,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   unmounted = true
+  items.setOpenDetailId(null)
   document.removeEventListener('keydown', onKeydown)
   if (opener?.isConnected) opener.focus?.()
 })
@@ -788,9 +813,9 @@ onBeforeUnmount(() => {
               role="button"
               tabindex="0"
               title="Edit description"
-              @click="descriptionEdit.start"
-              @keydown.enter.prevent="descriptionEdit.start"
-              @keydown.space.prevent="descriptionEdit.start"
+              @click="startDescriptionEdit"
+              @keydown.enter="startDescriptionEdit"
+              @keydown.space.prevent="startDescriptionEdit"
               v-html="descriptionHtml"
             ></div>
             <p

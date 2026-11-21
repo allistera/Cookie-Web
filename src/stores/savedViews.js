@@ -117,9 +117,9 @@ export const useSavedViewsStore = defineStore('savedViews', {
           headers,
           body: JSON.stringify({ revision: this.revision, views: nextViews }),
         })
-        const document = await response.json()
+        const document = await response.json().catch(() => ({}))
         if (!current()) return 'stale'
-        if (response.status === 409) {
+        if (response.status === 409 && document.current) {
           this.applyDocument(document.current)
           return 'conflict'
         }
@@ -212,7 +212,11 @@ export const useSavedViewsStore = defineStore('savedViews', {
       let removed = null
       const saved = await this.applyChange((views) => {
         const index = views.findIndex((view) => view.id === id)
-        removed = index === -1 ? null : { view: views[index], index }
+        if (index === -1) {
+          removed = null
+          return null
+        }
+        removed = { view: views[index], index }
         return views.filter((view) => view.id !== id)
       })
       return saved ? removed : null
@@ -221,12 +225,17 @@ export const useSavedViewsStore = defineStore('savedViews', {
     // Undo for deleteView: puts the view back where it was, unless it
     // already exists again.
     async restoreView(view, index) {
-      return this.applyChange((views) => {
-        if (views.some((existing) => existing.id === view.id)) return views
+      let alreadyPresent = false
+      const saved = await this.applyChange((views) => {
+        if (views.some((existing) => existing.id === view.id)) {
+          alreadyPresent = true
+          return null
+        }
         const next = [...views]
         next.splice(Math.min(index, next.length), 0, view)
         return next
       })
+      return saved || alreadyPresent
     },
   },
 })

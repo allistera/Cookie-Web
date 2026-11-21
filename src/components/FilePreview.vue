@@ -14,10 +14,16 @@ const file = ref(null)
 const objectUrl = ref('')
 const error = ref('')
 const loading = ref(false)
+let loadedBlob = null
+
+function normalizedMimeType(mimeType) {
+  return String(mimeType || '').toLowerCase()
+}
 
 function release() {
   if (objectUrl.value) URL.revokeObjectURL(objectUrl.value)
   objectUrl.value = ''
+  loadedBlob = null
 }
 
 function download(blob) {
@@ -46,8 +52,13 @@ async function load() {
     file.value = meta
     const blob = await store.fetchFileBlob(fileId)
     if (token !== loadToken) return
+    loadedBlob = blob
     if (isPreviewable(meta.mime_type)) {
-      objectUrl.value = URL.createObjectURL(blob)
+      // Pin the blob's MIME type to the allowlisted metadata type so a
+      // mislabelled response can never execute HTML/SVG inside the same-origin
+      // preview iframe.
+      const safeBlob = new Blob([blob], { type: normalizedMimeType(meta.mime_type) })
+      objectUrl.value = URL.createObjectURL(safeBlob)
     } else {
       download(blob)
     }
@@ -60,7 +71,7 @@ async function load() {
 
 async function downloadCurrent() {
   try {
-    download(await store.fetchFileBlob(props.fileId))
+    download(loadedBlob ?? (await store.fetchFileBlob(props.fileId)))
   } catch {
     store.notify('Download failed.', 'error')
   }
@@ -98,7 +109,11 @@ onBeforeUnmount(() => {
     <p v-if="error" role="alert" class="file-preview-error">{{ error }}</p>
     <div v-else-if="loading" class="documents-loading"><div class="spinner"></div></div>
     <div v-else-if="objectUrl" class="file-preview-body">
-      <img v-if="file.mime_type.startsWith('image/')" :src="objectUrl" :alt="file.name" />
+      <img
+        v-if="normalizedMimeType(file?.mime_type).startsWith('image/')"
+        :src="objectUrl"
+        :alt="file.name"
+      />
       <iframe v-else :src="objectUrl" :title="file.name"></iframe>
     </div>
     <p v-else class="file-preview-error">

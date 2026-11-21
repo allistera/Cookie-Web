@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useInboxStore } from '../stores/inbox'
+import { formatFileSize } from '../lib/attachments'
 import { isOnline } from '../lib/connectivity'
 import { filterContacts } from '../lib/contactSuggest'
 import { convertEmojiToEmoticons } from '../lib/emoticons'
@@ -111,17 +112,30 @@ const scheduledRetryAt = computed(() => store.composerSendIdentity?.outgoing?.se
 const scheduledRetryLabel = computed(() =>
   scheduledRetryAt.value ? new Date(scheduledRetryAt.value).toLocaleString() : '',
 )
+const FOLLOW_UP_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 const followUpOpen = ref(false)
 const followUpOptions = computed(() => (followUpOpen.value ? scheduleChoices() : []))
 const followUpLabel = computed(() => {
   if (!store.composerFollowUpAt) return 'Remind me'
-  return new Date(store.composerFollowUpAt).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const date = new Date(store.composerFollowUpAt)
+  return Number.isNaN(date.getTime()) ? 'Remind me' : FOLLOW_UP_FMT.format(date)
 })
+
+function toggleScheduleSend() {
+  scheduleSendOpen.value = !scheduleSendOpen.value
+  if (scheduleSendOpen.value) followUpOpen.value = false
+}
+
+function toggleFollowUp() {
+  followUpOpen.value = !followUpOpen.value
+  if (followUpOpen.value) scheduleSendOpen.value = false
+}
 
 function selectScheduleSend(choice) {
   scheduleSendOpen.value = false
@@ -146,11 +160,7 @@ function clearFollowUp() {
 }
 
 function formatAttachmentSize(bytes) {
-  const size = Number(bytes)
-  if (!Number.isFinite(size) || size < 0) return ''
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  return formatFileSize(bytes)
 }
 
 function openContactSuggest() {
@@ -184,6 +194,11 @@ function onContactEnter(event) {
 }
 
 function onComposerEscape() {
+  if (scheduleSendOpen.value || followUpOpen.value) {
+    scheduleSendOpen.value = false
+    followUpOpen.value = false
+    return
+  }
   if (contactSuggestions.value.length) {
     closeContactSuggest()
     return
@@ -255,7 +270,7 @@ onUnmounted(() => {
     class="composer-toast"
     :class="{ active: store.isComposerActive, 'ai-active': store.isAiDraftActive }"
     :data-save-state="store.composerSaveState"
-    @keydown.esc="onComposerEscape"
+    @keydown.esc.stop="onComposerEscape"
   >
     <div class="composer-draft-row">
       <div class="composer-draft-title">
@@ -457,7 +472,7 @@ onUnmounted(() => {
                 :aria-expanded="scheduleSendOpen"
                 title="Schedule send"
                 aria-label="Schedule send"
-                @click="scheduleSendOpen = !scheduleSendOpen"
+                @click="toggleScheduleSend"
               >
                 <span class="material-symbols-outlined">expand_less</span>
               </button>
@@ -500,7 +515,7 @@ onUnmounted(() => {
               :title="
                 store.composerFollowUpAt ? 'Change follow-up reminder' : 'Remind me if no reply'
               "
-              @click="followUpOpen = !followUpOpen"
+              @click="toggleFollowUp"
             >
               <span class="material-symbols-outlined">notification_add</span>
               <span>{{ followUpLabel }}</span>

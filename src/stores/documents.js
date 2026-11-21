@@ -214,14 +214,17 @@ export const useDocumentsStore = defineStore('documents', {
       this.filePages[key] ??= { ids: [], loaded: false, loading: false, error: null }
       const page = this.filePages[key]
       if ((page.loaded && !force) || page.loading) return
+      const owner = offlineOwner()
       page.loading = true
       page.error = null
       try {
         const { files } = await this.filesRequest('GET', `?folder=${encodeURIComponent(key)}`)
+        if (owner !== offlineOwner() || this.filePages[key] !== page) return
         for (const file of files) this.files[file.id] = file
         page.ids = files.map((file) => file.id)
         page.loaded = true
       } catch (error) {
+        if (owner !== offlineOwner()) return
         page.error = error.userMessage || 'Failed to load files.'
         this.notify(page.error, 'error')
       } finally {
@@ -284,10 +287,15 @@ export const useDocumentsStore = defineStore('documents', {
         return null
       }
       try {
+        const owner = offlineOwner()
         const form = new FormData()
         form.append('file', file)
         if (folderId) form.append('folder', folderId)
         const headers = await this.authHeaders()
+        if (owner !== offlineOwner()) {
+          this.uploads = this.uploads.filter((upload) => upload.id !== placeholder.id)
+          return null
+        }
         const response = await fetch(`${TASKS_API_URL}/files`, {
           method: 'POST',
           headers,
@@ -298,6 +306,10 @@ export const useDocumentsStore = defineStore('documents', {
           throw new Error(data.error || `Upload failed (${response.status})`)
         }
         const { file: stored } = await response.json()
+        if (owner !== offlineOwner()) {
+          this.uploads = this.uploads.filter((upload) => upload.id !== placeholder.id)
+          return null
+        }
         this.files[stored.id] = stored
         const page = this.filePages[fileFolderKey(stored.folder_id)]
         if (page?.loaded && !page.ids.includes(stored.id)) page.ids.unshift(stored.id)
@@ -472,10 +484,11 @@ export const useDocumentsStore = defineStore('documents', {
         pageLoads.delete(toRaw(this))
         const byId = new Map()
         const pages = {}
-        for (const [key, page] of Object.entries(workspace.pages)) {
-          for (const doc of page.documents) byId.set(doc.id, doc)
+        for (const [key, page] of Object.entries(workspace.pages ?? {})) {
+          const docs = page?.documents ?? []
+          for (const doc of docs) byId.set(doc.id, doc)
           pages[key] = {
-            ids: page.documents.map((doc) => doc.id),
+            ids: docs.map((doc) => doc.id),
             nextCursor: null,
             loaded: true,
             loading: false,
@@ -627,11 +640,16 @@ export const useDocumentsStore = defineStore('documents', {
       this.openDocId = id
       this.openDoc = null
       this.saveState = null
+      this.saveConflict = false
       if (!id) return
       const owner = offlineOwner()
       this.isOpenDocLoading = true
       try {
-        const { document } = await this.request('GET', { params: `?id=${encodeURIComponent(id)}` })
+        const { document } = await this.request('GET', {
+          params: `?id=${encodeURIComponent(id)}`,
+          owner,
+        })
+        if (owner !== offlineOwner()) return
         // Ignore a fetch that resolves after the user has moved on.
         if (this.openDocId === id) this.openDoc = document
         writeRecentOfflineCache(
@@ -642,6 +660,7 @@ export const useDocumentsStore = defineStore('documents', {
           owner,
         )
       } catch (error) {
+        if (owner !== offlineOwner()) return
         if (isNetworkError(error) && (await this.applyCachedDocument(id))) return
         console.error('Failed to load document:', error)
         this.notify('Failed to load the document.', 'error')
@@ -870,13 +889,16 @@ export const useDocumentsStore = defineStore('documents', {
         toRaw(this),
         async () => {
           this.dailyNoteSeedLoading = true
+          const owner = offlineOwner()
           try {
             const headers = await this.authHeaders()
+            if (owner !== offlineOwner()) return false
             const response = await fetch(`${TASKS_API_URL}/tasks/daily-note-seed`, { headers })
             if (!response.ok) {
               throw new Error(`GET daily-note-seed responded ${response.status}`)
             }
             const { blocks } = await response.json()
+            if (owner !== offlineOwner()) return false
             this.dailyNoteSeed = blocks
             this.dailyNoteSeedLoaded = true
             return true
@@ -1069,18 +1091,22 @@ export const useDocumentsStore = defineStore('documents', {
         console.error('Failed to update document:', error)
         this.notify('Failed to update the document.', 'error')
       } finally {
-        const before = { ...row }
         state.pending.delete(seq)
-        const next = { ...state.confirmed }
-        for (const [pendingSeq, pending] of state.pending) {
-          for (const [key, value] of Object.entries(pending)) {
-            if (pendingSeq > (state.versions[key] ?? 0)) next[key] = value
+        if (!this.documents.some((doc) => doc.id === id)) {
+          requests.delete(id)
+        } else {
+          const before = { ...row }
+          const next = { ...state.confirmed }
+          for (const [pendingSeq, pending] of state.pending) {
+            for (const [key, value] of Object.entries(pending)) {
+              if (pendingSeq > (state.versions[key] ?? 0)) next[key] = value
+            }
           }
+          Object.assign(row, next)
+          if (this.openDoc?.id === id) Object.assign(this.openDoc, next)
+          this.syncDocumentPages(row, before)
+          if (!state.pending.size) requests.delete(id)
         }
-        Object.assign(row, next)
-        if (this.openDoc?.id === id) Object.assign(this.openDoc, next)
-        this.syncDocumentPages(row, before)
-        if (!state.pending.size) requests.delete(id)
       }
     },
 

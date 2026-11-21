@@ -53,16 +53,19 @@ const calendarLoads = createSharedLoad()
 const LOADS = {}
 let owner = null
 const generation = ref(0)
+const ownerGeneration = ref(0)
 
 // App sets this synchronously at the authentication boundary. Outstanding
 // reads and syncs from the previous account must never repopulate the cache.
 export function setCalendarsOwner(sub) {
   if (owner === (sub || null)) return
   owner = sub || null
+  ownerGeneration.value += 1
   resetCalendarsState()
 }
 
 export const calendarSession = () => generation.value
+export const calendarOwnerSession = () => ownerGeneration.value
 export const isCalendarSessionCurrent = (session) => session === generation.value
 
 // Cookie's own calendars, which Settings creates, renames and deletes.

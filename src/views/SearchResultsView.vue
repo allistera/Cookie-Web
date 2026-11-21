@@ -162,15 +162,31 @@ function openTaskResult(row) {
   router.push({ path: '/tasks', query: { project: row.projectId ?? 'inbox', task: row.id } })
 }
 
+const mappedResults = computed(() =>
+  store.results.map((row) => {
+    if (row.type !== 'email') return { row }
+    const email = toEmailRow(row)
+    return { row, email, sender: rowSender(email) }
+  }),
+)
+
+function toggleStarRow(email) {
+  inboxStore.toggleStar(email)
+}
+
+function toggleUnreadRow(email) {
+  inboxStore.setUnread(email, !email.unread)
+}
+
+const DUE_FMT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+})
+
 function formatDue(dueDate) {
   if (isSomeday(dueDate)) return 'Someday'
-  return (
-    'Due ' +
-    new Date(`${dueDate}T00:00:00`).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-    })
-  )
+  const date = new Date(`${dueDate}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? '' : `Due ${DUE_FMT.format(date)}`
 }
 
 const UPDATED_FMT = new Intl.DateTimeFormat('en-GB', {
@@ -245,7 +261,7 @@ const errorMessage = computed(() => {
       >
         {{ scope.label }}
       </button>
-      <button type="button" class="search-results-ask" @click="askAssistant">
+      <button v-if="currentQuery" type="button" class="search-results-ask" @click="askAssistant">
         <span class="material-symbols-outlined text-purple" aria-hidden="true">chat_bubble</span>
         <span>Ask the assistant about: &ldquo;{{ currentQuery }}&rdquo;</span>
       </button>
@@ -269,14 +285,21 @@ const errorMessage = computed(() => {
     </div>
 
     <ul v-else class="search-results-list">
-      <li v-for="row in store.results" :key="`${row.type}-${row.id}`" class="search-results-item">
+      <li
+        v-for="{ row, email, sender } in mappedResults"
+        :key="`${row.type}-${row.id}`"
+        class="search-results-item"
+      >
         <EmailRow
           v-if="row.type === 'email'"
-          :email="toEmailRow(row)"
-          :sender="rowSender(toEmailRow(row))"
-          :has-ai-summary="toEmailRow(row).hasAiSummary"
+          :email="email"
+          :sender="sender"
+          :has-ai-summary="email.hasAiSummary"
           :show-done="false"
+          :selectable="false"
           @open="openEmailResult(row)"
+          @toggle-star="toggleStarRow"
+          @toggle-unread="toggleUnreadRow"
         />
         <button
           v-else-if="row.type === 'task'"
@@ -355,7 +378,13 @@ const errorMessage = computed(() => {
   font-size: 20px;
 }
 
-.search-results-title-row,
+.search-results-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .search-save-view {
   border: 1px solid var(--border-color);
   border-radius: 6px;
