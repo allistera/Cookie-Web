@@ -11,7 +11,6 @@ import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearOfflineData, setOfflineOwner } from './lib/offlineCache'
 import { drainDraftRecoveryWrites } from './lib/draftRecovery'
-import { clearGoogleAuthorization } from './lib/googleCalendarAuth'
 import { installOutboxSync, outboxPending, syncOutbox } from './lib/outbox'
 import { isOnline } from './lib/connectivity'
 import { clearCachedMail } from './lib/serviceWorker'
@@ -22,7 +21,7 @@ import { scheduleIdleTask } from './lib/scheduleIdleTask'
 import LoadingBar from './components/LoadingBar.vue'
 import { useAuth } from './composables/useAuth'
 import { useBucketPin } from './composables/useBucketCandidate'
-import { setCalendarsOwner } from './composables/useCalendars'
+import { setCalendarsOwner } from './composables/calendarOwner'
 import { useCalendarRail } from './composables/useCalendarRail'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
@@ -369,9 +368,11 @@ async function handleLogout() {
   contactInsightsStore.setOwner?.(null)
   searchStore.clear()
   clearCachedMail()
-  clearGoogleAuthorization()
   // Mail, tasks and documents cached for offline use belong to the account
   // signing out; the logout redirect waits for the delete to land.
+  await import('./lib/googleCalendarAuth')
+    .then(({ clearGoogleAuthorization }) => clearGoogleAuthorization())
+    .catch(() => {})
   await drainDraftRecoveryWrites()
   await clearOfflineData()
   logout({ logoutParams: { returnTo: window.location.origin } })

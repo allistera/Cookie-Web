@@ -478,7 +478,8 @@ function replaceContent(html) {
   emitUpdate()
 }
 
-const DANGEROUS_HTML_RE = /<(?:script|style|iframe|object|embed|form|meta)\b|on\w+=|(?:javascript|data):/i
+const DANGEROUS_HTML_RE =
+  /<(?:script|style|iframe|object|embed|form|meta)\b|on\w+=|(?:javascript|data):/i
 
 function onInput(event) {
   if (event?.isComposing) return

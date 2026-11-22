@@ -811,7 +811,9 @@ function toggleRuleEnabled(rule) {
                 class="settings-avatar"
               />
               <div class="settings-account-info">
-                <span class="settings-account-name">{{ user?.name || user?.email || 'Account' }}</span>
+                <span class="settings-account-name">{{
+                  user?.name || user?.email || 'Account'
+                }}</span>
                 <span class="settings-account-email">{{ user?.email || '' }}</span>
                 <span class="settings-account-provider">Signed in with Google via Auth0</span>
               </div>

@@ -1,11 +1,7 @@
 import { SEND_API_URL } from './apiWorkers'
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from './attachmentLimits'
 
-// Mirrors MAX_OUTBOUND_ATTACHMENT_BYTES on cookie-web-send (Cookie-Worker,
-// workers/cookie-web-send/src/outbound.js). Checking here too keeps an
-// oversized pick from spending the user's upload allowance on a request the
-// Worker would refuse anyway.
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
-export const MAX_ATTACHMENTS = 20
+export { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS }
 
 // The same route the iOS composer posts to, so both clients share one upload
 // contract, rate limit and ownership rule on the send Worker.

@@ -415,17 +415,11 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
     async setLabels(id, labels) {
       let queued = false
-      const item = await this.patchItem(
-        id,
-        { labels },
-        { labels },
-        'Failed to save task labels.',
-        {
-          onQueued: () => {
-            queued = true
-          },
+      const item = await this.patchItem(id, { labels }, { labels }, 'Failed to save task labels.', {
+        onQueued: () => {
+          queued = true
         },
-      )
+      })
       if (item && !queued) this.refreshLabelCounts()
       return item
     },

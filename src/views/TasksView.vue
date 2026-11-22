@@ -6,7 +6,12 @@ import TaskActivity from '../components/TaskActivity.vue'
 import TaskDetailPanel from '../components/TaskDetailPanel.vue'
 import TaskDisplay from '../components/TaskDisplay.vue'
 import { addDays, describeRule, filterIdOf, isFilterProject } from '../lib/taskFilters'
-import { DIVIDER_DRAG_TYPE, TASK_DRAG_TYPE, TASKS_DRAG_TYPE, orderAfterDrop } from '../lib/taskOrder'
+import {
+  DIVIDER_DRAG_TYPE,
+  TASK_DRAG_TYPE,
+  TASKS_DRAG_TYPE,
+  orderAfterDrop,
+} from '../lib/taskOrder'
 import { PRIORITIES, priorityOf } from '../lib/taskPriority'
 import { SOMEDAY, isSomeday } from '../lib/taskSomeday'
 import { useInlineEdit } from '../composables/useInlineEdit'
@@ -69,7 +74,7 @@ const filterRules = computed(() =>
 const filterMissing = computed(() => isFilter.value && filters.isLoaded && !currentFilter.value)
 const isRule = computed(() => isInbox.value || isToday.value || isLabel.value || isFilter.value)
 const current = computed(() =>
-  isRule.value ? null : projects.projectsById.get(project.value) ?? null,
+  isRule.value ? null : (projects.projectsById.get(project.value) ?? null),
 )
 const ancestors = computed(() =>
   isRule.value ? [] : projects.ancestorsOf(project.value).slice(0, -1),
@@ -952,8 +957,7 @@ async function submitDraft() {
               class="task-row"
               :class="{
                 'task-divider': isDivider(item),
-                dragging:
-                  dragTaskId === item.id || (draggingMany && selectedIdSet.has(item.id)),
+                dragging: dragTaskId === item.id || (draggingMany && selectedIdSet.has(item.id)),
                 selected: selectedIdSet.has(item.id),
                 'drop-before': dropRowId === item.id && dropPlace === 'before',
                 'drop-after': dropRowId === item.id && dropPlace === 'after',
@@ -1033,9 +1037,7 @@ async function submitDraft() {
                 <button
                   class="task-open"
                   type="button"
-                  :aria-pressed="
-                    items.selectedIds.length ? selectedIdSet.has(item.id) : undefined
-                  "
+                  :aria-pressed="items.selectedIds.length ? selectedIdSet.has(item.id) : undefined"
                   @mousedown="$event.shiftKey && $event.preventDefault()"
                   @click="onTaskClick(item, $event)"
                   @keydown.shift.enter.prevent="onTaskClick(item, $event)"

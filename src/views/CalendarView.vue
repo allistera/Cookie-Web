@@ -526,7 +526,10 @@ function requiredEventRange() {
     addDays(selectedDate.value, -EVENT_RANGE_VIEW_DAYS),
     addDays(selectedDate.value, EVENT_RANGE_VIEW_DAYS),
   ]
-  if (Math.abs(selectedDate.value.getTime() - referenceDate.value.getTime()) <= MAX_REFERENCE_BRIDGE_MS) {
+  if (
+    Math.abs(selectedDate.value.getTime() - referenceDate.value.getTime()) <=
+    MAX_REFERENCE_BRIDGE_MS
+  ) {
     viewBounds.push(
       addDays(referenceDate.value, -7),
       addDays(referenceDate.value, CONFLICT_WINDOW_DAYS + 1),
@@ -896,8 +899,7 @@ const weekEventStyle = (item) => {
     lanes === 1
       ? `calc(${columnStartPct}% + 8px)`
       : `calc(${columnStartPct + lane * lanePct}% + ${8 - (lane * 16) / lanes}px)`
-  const width =
-    lanes === 1 ? 'calc(100% / 7 - 16px)' : `calc(${lanePct}% - ${16 / lanes + 2}px)`
+  const width = lanes === 1 ? 'calc(100% / 7 - 16px)' : `calc(${lanePct}% - ${16 / lanes + 2}px)`
   return {
     ...eventPosition(event, WEEK_HOUR_HEIGHT),
     left,
@@ -1312,9 +1314,7 @@ async function saveEvent() {
     return
   }
   const keepsAllDay = Boolean(allDay && start === '00:00' && end === '23:59')
-  const duration = keepsAllDay
-    ? DAY_MINUTES
-    : Math.max(endMinutes - startMinutes, SNAP_MINUTES)
+  const duration = keepsAllDay ? DAY_MINUTES : Math.max(endMinutes - startMinutes, SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
   const calendar = eventForm.value.calendar || defaultCalendarId()
@@ -1579,7 +1579,11 @@ function onDragEnd() {
     DAY_MINUTES - 1,
   )
   dragDraft.value = null
-  openNewEvent({ date, startMinutes, endMinutes: Math.max(endMinutes, startMinutes + SNAP_MINUTES) })
+  openNewEvent({
+    date,
+    startMinutes,
+    endMinutes: Math.max(endMinutes, startMinutes + SNAP_MINUTES),
+  })
 }
 
 // A timed event or task picked up on the day lane and carried along it to

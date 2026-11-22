@@ -36,7 +36,7 @@ const rows = computed(() => {
 // Where the "My Projects" heading goes: above the first project row.
 const firstProjectIndex = computed(() => rows.value.findIndex((row) => !row.inbox))
 const currentProject = computed(() =>
-  props.modelValue ? projects.projectsById.get(props.modelValue) ?? null : null,
+  props.modelValue ? (projects.projectsById.get(props.modelValue) ?? null) : null,
 )
 // A task can arrive before the projects list does; until its project is
 // known the chip must not claim the Inbox, nor may Enter fall back to it.

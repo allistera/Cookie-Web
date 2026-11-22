@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 // actions - exported so this stays the single source of truth for the path.
 import { CALENDAR_API_URL } from '../lib/apiWorkers'
 import { createSharedLoad } from '../lib/sharedLoad'
+import { calendarOwnerSession, registerCalendarReset, setCalendarsOwner } from './calendarOwner'
 
 export const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 export const CALENDAR_EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
@@ -51,21 +52,11 @@ let loaded = false
 // chains one fresh fetch after it, shared by every forced caller meanwhile.
 const calendarLoads = createSharedLoad()
 const LOADS = {}
-let owner = null
 const generation = ref(0)
-const ownerGeneration = ref(0)
 
-// App sets this synchronously at the authentication boundary. Outstanding
-// reads and syncs from the previous account must never repopulate the cache.
-export function setCalendarsOwner(sub) {
-  if (owner === (sub || null)) return
-  owner = sub || null
-  ownerGeneration.value += 1
-  resetCalendarsState()
-}
+export { calendarOwnerSession, setCalendarsOwner }
 
 export const calendarSession = () => generation.value
-export const calendarOwnerSession = () => ownerGeneration.value
 export const isCalendarSessionCurrent = (session) => session === generation.value
 
 // Cookie's own calendars, which Settings creates, renames and deletes.
@@ -185,6 +176,7 @@ function resetCalendarsState() {
   loaded = false
   calendarLoads.reset(LOADS)
 }
+registerCalendarReset(resetCalendarsState)
 
 // Test-only: this module's state is a real singleton (by design — see the
 // comments above), so specs that mount multiple calendar-touching
