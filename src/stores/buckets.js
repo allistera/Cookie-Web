@@ -7,7 +7,7 @@ import {
   readBucket,
   removeBucket,
   writeBucket,
-} from '../lib/bucketItems'
+} from '../lib/bucketStorage'
 
 // One bucket per signed-in account (see lib/bucketItems.js for what it
 // holds). The view showing an email, document, task or event registers it

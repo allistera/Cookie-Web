@@ -151,7 +151,9 @@ describe('file downloads and navigation', () => {
     expect(click).toHaveBeenCalledOnce()
     // When the initial blob load failed (so no cached blob exists), clicking
     // Download retries the fetch and notifies on failure.
-    fetchBlob.mockRejectedValueOnce(new Error('Offline')).mockRejectedValueOnce(new Error('Offline'))
+    fetchBlob
+      .mockRejectedValueOnce(new Error('Offline'))
+      .mockRejectedValueOnce(new Error('Offline'))
     await wrapper.setProps({ fileId: 'image-2' })
     await flushPromises()
     await wrapper.get('.file-preview-download').trigger('click')
@@ -171,7 +173,9 @@ describe('file downloads and navigation', () => {
       name: 'brief.pdf',
       mime_type: 'application/pdf',
     })
-    vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['<script>alert(1)</script>'], { type: 'text/html' }))
+    vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(
+      new Blob(['<script>alert(1)</script>'], { type: 'text/html' }),
+    )
     wrapper = mount(FilePreview, { props: { fileId: 'pdf-1' }, global: { plugins: [router] } })
     await flushPromises()
     expect(createdBlobs[0]?.type).toBe('application/pdf')

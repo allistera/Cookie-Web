@@ -165,9 +165,7 @@ export const useProjectsStore = defineStore('projects', {
       }
       const perform = async () => {
         project = this.projects.find((row) => row.id === id) ?? project
-        const previous = Object.fromEntries(
-          Object.keys(changes).map((key) => [key, project[key]]),
-        )
+        const previous = Object.fromEntries(Object.keys(changes).map((key) => [key, project[key]]))
         Object.assign(project, changes)
         try {
           const { project: updated } = await this.request('PATCH', { id, ...changes })
@@ -229,7 +227,9 @@ export const useProjectsStore = defineStore('projects', {
           .map((row) => row.id)
         if (removedTaskIds.length) {
           const removedSet = new Set(removedTaskIds)
-          items.items = items.items.filter((row) => !removedSet.has(row.id) && !removedSet.has(row.parentId))
+          items.items = items.items.filter(
+            (row) => !removedSet.has(row.id) && !removedSet.has(row.parentId),
+          )
           items.selectedIds = items.selectedIds.filter((selected) => !removedSet.has(selected))
           for (const taskId of removedTaskIds) comments.forgetThread(taskId)
         }

@@ -5,7 +5,7 @@ import { invokeMailSettings } from '../lib/lazyMailSettings'
 import { defaultEnrichmentSettings, parseEnrichmentSettings } from '../lib/enrichmentSettings'
 
 import { authHeaders as buildAuthHeaders } from '../lib/authHeaders'
-import { MAX_ATTACHMENTS, uploadAttachment } from '../lib/attachmentUpload'
+import { MAX_ATTACHMENTS } from '../lib/attachmentLimits'
 import { isNetworkError, noteNetworkFailure, noteNetworkSuccess } from '../lib/connectivity'
 import { offlineOwner, readOfflineCache, writeOfflineCache } from '../lib/offlineCache'
 import { createSharedLoad } from '../lib/sharedLoad'
@@ -2512,10 +2512,7 @@ export const useInboxStore = defineStore('inbox', {
         }
         return null
       } catch (error) {
-        if (
-          generation !== this.composeGeneration ||
-          queueGeneration !== this.senderQueueGeneration
-        )
+        if (generation !== this.composeGeneration || queueGeneration !== this.senderQueueGeneration)
           return null
         console.error('AI summarization failed:', error)
         this.notify('AI summarization failed. Please try again.', 'error')
@@ -4381,7 +4378,8 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     // One file to storage; the stored attachment row.
-    uploadAttachmentFile(file) {
+    async uploadAttachmentFile(file) {
+      const { uploadAttachment } = await import('../lib/attachmentUpload')
       return uploadAttachment(file, { authHeaders: (extra) => this.authHeaders(extra) })
     },
 

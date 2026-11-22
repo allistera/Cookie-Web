@@ -124,13 +124,10 @@ export function useRealtimeInbox(
       if ((response.status === 423 || response.status === 425) && retriesRemaining > 0) {
         const parsedRetry = Number.parseInt(response.headers?.get?.('Retry-After') || '30', 10)
         const retryAfter = Number.isFinite(parsedRetry) ? Math.max(1, parsedRetry) : 30
-        const timer = setTimeout(
-          () => {
-            notificationRetryTimers.delete(timer)
-            claimNotificationEvent(eventId, userId, version, retriesRemaining - 1)
-          },
-          retryAfter * 1000,
-        )
+        const timer = setTimeout(() => {
+          notificationRetryTimers.delete(timer)
+          claimNotificationEvent(eventId, userId, version, retriesRemaining - 1)
+        }, retryAfter * 1000)
         notificationRetryTimers.add(timer)
         return
       }

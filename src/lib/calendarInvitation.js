@@ -122,7 +122,9 @@ export function invitationAnswer(invitation) {
     (response) => response.value === invitation.response,
   )?.answered
   if (!answered) return ''
-  const told = invitation.respondedAt ? RESPONDED_DAY_FMT.format(new Date(invitation.respondedAt)) : ''
+  const told = invitation.respondedAt
+    ? RESPONDED_DAY_FMT.format(new Date(invitation.respondedAt))
+    : ''
   return told
     ? `${answered}. ${invitationOrganizer(invitation)} was told on ${told}.`
     : `${answered}.`

@@ -1,0 +1,3 @@
+// Mirrors MAX_OUTBOUND_ATTACHMENT_BYTES / MAX_ATTACHMENTS on cookie-web-send.
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+export const MAX_ATTACHMENTS = 20

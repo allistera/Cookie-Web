@@ -30,9 +30,7 @@ const answer = computed(() => (invitation.value ? invitationAnswer(invitation.va
 const blockedReason = computed(() =>
   invitation.value ? invitationBlockedReason(invitation.value) : '',
 )
-const canAnswer = computed(() =>
-  Boolean(invitation.value?.canReply && !invitation.value.cancelled),
-)
+const canAnswer = computed(() => Boolean(invitation.value?.canReply && !invitation.value.cancelled))
 // Which of the two icons the card wears. Decided here, not in the template:
 // the icon-font subset check reads every quoted word inside an icon span as
 // an icon name.
