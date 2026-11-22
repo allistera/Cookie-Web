@@ -2,7 +2,7 @@
 
 Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only two residual functions, `api/health.js` and `api/send.js`.
 
-The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
+System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
 
 ![Cookie’s AI Today dashboard with suggested to-dos, email triage, and daily news](docs/images/ai-today.png)
 
