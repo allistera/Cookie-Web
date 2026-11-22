@@ -1,14 +1,16 @@
 # Cookie-Web
 
+Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only two residual functions, `api/health.js` and `api/send.js`.
+
+The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
+
+![Cookie’s AI Today dashboard with suggested to-dos, email triage, and daily news](docs/images/ai-today.png)
+
 Header search uses the same hybrid ranking after a typing pause and on Enter.
 Mail search includes archived messages by default; use `in:inbox`, `in:sent`,
 or `in:done` to restrict folders. Deleted messages remain excluded. Quote a
 term or phrase for exact keyword matching, using `mode=keyword` in a search
 URL when you want keyword-only results.
-
-Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only two residual functions, `api/health.js` and `api/send.js`.
-
-The production application is available at [mail.infinitywave.online](https://mail.infinitywave.online). System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
 
 ## Repository map
 
@@ -21,23 +23,9 @@ The production application is available at [mail.infinitywave.online](https://ma
 
 ## Architecture
 
-```text
-Cloudflare Email Routing
-  -> Cookie-Worker
-       -> parse MIME and upload attachments to Vercel Blob
-       -> store through Hyperdrive in Supabase Postgres
-       -> forward the original email
-       -> run best-effort OpenAI classification
-       -> index into Meilisearch
+![Inbound mail flows from Cloudflare Email Routing to Cookie-Worker for attachment storage, message persistence, forwarding, classification, and indexing.](docs/images/inbound-mail.svg)
 
-Vue 3 browser application (static build served from Vercel)
-  -> Auth0-protected Cloudflare Workers (and `/api/send`, still on Vercel)
-       -> Supabase Postgres
-       -> Meilisearch (self-hosted)
-       -> OpenAI Responses API
-       -> Resend
-  <- Supabase Realtime: content-free "inbox changed" pings on a private channel
-```
+![The Vue client calls the protected API for database, search, AI, and delivery services and receives inbox changes through Supabase Realtime.](docs/images/browser-api.svg)
 
 Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.com/allistera/Cookie-Worker). Database migrations remain in this repository because both runtimes share the same schema.
 

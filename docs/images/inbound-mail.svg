@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 316" font-family="Arial, sans-serif" text-anchor="middle">
+<title>Inbound mail</title>
+<rect width="900" height="316" rx="14" fill="#f7f8fc"/>
+<text x="450" y="39" font-size="24" font-weight="bold" fill="#273153">Inbound mail</text>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#65769a"/></marker></defs>
+<path d="M218 178H267" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<path d="M508 178H545V80H580" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="582" y="54" width="300" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
+<text x="732.0" y="76.0" font-size="16" fill="#273153">Parse MIME and upload</text>
+<text x="732.0" y="96.0" font-size="16" fill="#273153">attachments to Vercel Blob</text>
+<path d="M508 178H545V134H580" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="582" y="108" width="300" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
+<text x="732.0" y="130.0" font-size="16" fill="#273153">Store in Supabase Postgres</text>
+<text x="732.0" y="150.0" font-size="16" fill="#273153">through Hyperdrive</text>
+<path d="M508 178H545V188H580" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="582" y="162" width="300" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
+<text x="732.0" y="194.0" font-size="16" fill="#273153">Forward the original email</text>
+<path d="M508 178H545V242H580" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="582" y="216" width="300" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
+<text x="732.0" y="248.0" font-size="16" fill="#273153">Classify with OpenAI (best effort)</text>
+<path d="M508 178H545V296H580" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="582" y="270" width="300" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
+<text x="732.0" y="302.0" font-size="16" fill="#273153">Index in Meilisearch</text>
+<rect x="16" y="152" width="202" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
+<text x="117.0" y="184.0" font-size="16" fill="#273153">Cloudflare Email Routing</text>
+<rect x="270" y="152" width="238" height="52" rx="8" fill="#414e86" stroke="#aeb8d1"/>
+<text x="389.0" y="184.0" font-size="16" fill="white">Cookie-Worker</text>
+</svg>
