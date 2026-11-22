@@ -48,9 +48,16 @@ export function bundleBudgetPlugin() {
             // a lazy chunk of its own, but the view's share of it (the
             // branch that swaps the list for it, the shared image rule and
             // the keys it leaves to scrolling) is 0.9 KB, which put Vercel's
-            // build about 0.3 KB over, so the view moved up by 2 KB.
+            // build about 0.3 KB over, so the view moved up by 2 KB. The
+            // round of bug fixes across the app on 21 November 2026 added
+            // about 6.7 KB, most of it to the entry. To keep the entry
+            // inside its own budget, the bucket items, calendars and
+            // attachment helpers then left it for four chunks the view
+            // still imports, each with a 346-byte Sentry debug ID on
+            // Vercel. That put Vercel's build 7.9 KB over, so the view
+            // moved up by 10 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 666_000
+            ? 676_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
