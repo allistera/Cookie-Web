@@ -952,7 +952,7 @@ export function localApiPlugin(mode) {
     }
     res.end(JSON.stringify(state.savedViews))
   }
-  // cookie-web-ai: /compose and /summarize. Fixture-only, like the other
+  // cookie-web-ai: /compose, /compose-suggest and /summarize. Fixture-only, like the other
   // migrated Workers — the real handlers live in Cookie-Worker now.
   const handleWorkerAiApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
@@ -970,6 +970,13 @@ export function localApiPlugin(mode) {
           draft: { subject: 'AI draft', text: 'A reviewable AI-generated draft.' },
         }),
       )
+      return
+    }
+    if (url.pathname === '/compose-suggest') {
+      // One fixed continuation of one fixed phrase, so only a test that types
+      // those words is ever offered a suggestion.
+      const suggestion = String(body.text ?? '').endsWith('Thanks for') ? ' your email.' : ''
+      res.end(JSON.stringify({ suggestion }))
       return
     }
     if (url.pathname === '/summarize') {

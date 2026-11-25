@@ -3007,6 +3007,11 @@ onUnmounted(() => {
                 placeholder="Write your reply, or type “/” for commands…"
                 :snippets="store.snippets"
                 :recipient-values="replyRecipientValues"
+                :smart-compose="{
+                  subject: replySubject,
+                  to: replyTo,
+                  replyToMessageId: openEmail?.id,
+                }"
                 @update:text="replyTextPlain = $event"
                 @preview-state="replySnippetPreviewOpen = $event"
                 @generate="generateReplyDraft"

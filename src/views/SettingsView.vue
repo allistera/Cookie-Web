@@ -16,6 +16,7 @@ import { plainTextToHtml } from '../lib/composeHtml'
 import { normalizeSnippetName, snippetNameIsReserved } from '../lib/snippets'
 import { getLegacySignature, clearLegacySignature } from '../lib/signature'
 import { getLegacySnippets, clearLegacySnippets } from '../lib/snippets'
+import { setSmartComposeEnabled, smartComposeEnabled } from '../lib/smartCompose'
 import ComposerEditor from '../components/ComposerEditor.vue'
 import { lazyComponent } from '../router/chunkReload'
 
@@ -38,6 +39,15 @@ const store = useInboxStore()
 const { user } = useAuth()
 const route = useRoute()
 const router = useRouter()
+
+// Writing suggestions in the message editor; the choice is kept in this
+// browser (lib/smartCompose.js).
+const writingSuggestionsOn = ref(smartComposeEnabled())
+
+function toggleWritingSuggestions(event) {
+  writingSuggestionsOn.value = event.target.checked
+  setSmartComposeEnabled(writingSuggestionsOn.value)
+}
 
 const sectionGroups = settingsSectionGroups
 const sections = settingsSections
@@ -901,6 +911,24 @@ function toggleRuleEnabled(rule) {
                 {{ store.composePreferencesSaving ? 'Saving…' : 'Save signature' }}
               </button>
             </div>
+            <h3 class="settings-section-title settings-subsection-title">Writing suggestions</h3>
+            <label class="settings-row">
+              <div class="settings-row-text">
+                <span>Suggest the next words as I write</span>
+                <small>
+                  Cookie AI offers the likely next words in grey while you write an email. Press Tab
+                  to accept them, or keep typing to ignore them. The text before the cursor is sent
+                  to the AI model each time you pause. This choice is kept in this browser.
+                </small>
+              </div>
+              <input
+                type="checkbox"
+                class="settings-switch"
+                data-testid="writing-suggestions-switch"
+                :checked="writingSuggestionsOn"
+                @change="toggleWritingSuggestions"
+              />
+            </label>
           </section>
 
           <!-- Compose snippets -->

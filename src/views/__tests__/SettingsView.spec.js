@@ -9,6 +9,7 @@ import ComposerEditor from '../../components/ComposerEditor.vue'
 import { useInboxStore } from '../../stores/inbox'
 import { setAuth0Client } from '../../auth0-client'
 import { AI_API_URL, EMAILS_API_URL, LABELS_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import { SMART_COMPOSE_STORAGE_KEY } from '../../lib/smartCompose'
 
 enableAutoUnmount(afterEach)
 
@@ -577,6 +578,20 @@ describe('SettingsView', () => {
     await select.setValue('dark')
     expect(localStorage.getItem('cookie-theme')).toBe('dark')
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  it('switches writing suggestions off and on for this browser', async () => {
+    const wrapper = await openView()
+    await openPane(wrapper, 'signature')
+
+    const toggle = wrapper.get('[data-testid="writing-suggestions-switch"]')
+    expect(toggle.element.checked).toBe(true)
+
+    await toggle.setValue(false)
+    expect(localStorage.getItem(SMART_COMPOSE_STORAGE_KEY)).toBe('1')
+
+    await toggle.setValue(true)
+    expect(localStorage.getItem(SMART_COMPOSE_STORAGE_KEY)).toBeNull()
   })
 
   it('saves the personal signature to the account only after Save', async () => {

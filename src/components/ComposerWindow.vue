@@ -425,6 +425,11 @@ onUnmounted(() => {
           v-model="store.composerHtml"
           :snippets="store.snippets"
           :recipient-values="recipientValues"
+          :smart-compose="{
+            subject: store.composerSubject,
+            to: store.composerTo,
+            replyToMessageId: store.composerReplyToMessageId,
+          }"
           @update:text="store.composerTextArea = $event"
           @preview-state="store.composerSnippetPreviewOpen = $event"
           @generate="store.openAiDraft()"
