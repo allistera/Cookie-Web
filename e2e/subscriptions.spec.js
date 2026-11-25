@@ -33,3 +33,18 @@ test('Subscriptions lists every sender and unsubscribes from the list', async ({
   await expect(daily.getByRole('button')).toHaveCount(0)
   await expect(gadget.getByRole('button')).toHaveText('Unsubscribe')
 })
+
+test('Subscriptions scrolls to senders below the bottom of the window', async ({ page }) => {
+  // Short enough that the four fixture senders do not fit.
+  await page.setViewportSize({ width: 1280, height: 300 })
+  await page.goto('/subscriptions')
+
+  const view = page.getByTestId('subscriptions-view')
+  const last = view.locator('.subscriptions-row').last()
+  await expect(last).toBeAttached()
+  await expect(last).not.toBeInViewport()
+
+  await view.hover()
+  await page.mouse.wheel(0, 2000)
+  await expect(last).toBeInViewport()
+})
