@@ -4,6 +4,7 @@ import {
   appendRecipient,
   completedRecipients,
   currentRecipientToken,
+  messageRecipientsValid,
   parseRecipients,
   recipientsValid,
 } from '../recipients.js'
@@ -32,6 +33,27 @@ describe('recipientsValid', () => {
     const twenty = Array.from({ length: 20 }, (_, i) => address(i)).join(', ')
     expect(recipientsValid(twenty)).toBe(true)
     expect(recipientsValid(`${twenty}, one-too-many@example.com`)).toBe(false)
+  })
+})
+
+describe('messageRecipientsValid', () => {
+  const many = (count, prefix) =>
+    Array.from({ length: count }, (_, index) => `${prefix}${index}@b.com`).join(', ')
+
+  it('needs a valid To line and takes Cc and Bcc as optional', () => {
+    expect(messageRecipientsValid('a@b.com', '', '')).toBe(true)
+    expect(messageRecipientsValid('a@b.com', 'c@d.com, ', 'e@f.com')).toBe(true)
+    expect(messageRecipientsValid('', 'c@d.com', '')).toBe(false)
+  })
+
+  it('rejects a Cc or Bcc entry that is not an address', () => {
+    expect(messageRecipientsValid('a@b.com', 'carol', '')).toBe(false)
+    expect(messageRecipientsValid('a@b.com', '', 'c@d.com, dave')).toBe(false)
+  })
+
+  it('counts the three lines against one limit', () => {
+    expect(messageRecipientsValid(many(10, 'to'), many(5, 'cc'), many(5, 'bcc'))).toBe(true)
+    expect(messageRecipientsValid(many(10, 'to'), many(5, 'cc'), many(6, 'bcc'))).toBe(false)
   })
 })
 

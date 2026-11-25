@@ -28,6 +28,7 @@ import { buildChatGptPrompt, chatGptUrl } from '../lib/askChatGpt'
 import { buildForwardDraft, forwardSubject } from '../lib/forwardEmail'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml } from '../lib/composeHtml'
+import { messageRecipientsValid } from '../lib/recipients'
 import {
   snippetRecipientValues,
   unresolvedSnippetFields,
@@ -53,6 +54,7 @@ import {
 } from '../lib/emailCalendarEvents'
 import { lazyComponent } from '../router/chunkReload'
 
+const ComposerCopies = lazyComponent(() => import('../components/ComposerCopies.vue'))
 const ShareAvailability = lazyComponent(() => import('../components/ShareAvailability.vue'))
 const TheFeed = lazyComponent(() => import('../components/TheFeed.vue'))
 const InvitationCard = lazyComponent(() => import('../components/InvitationCard.vue'))
@@ -1200,6 +1202,10 @@ const isReplyOpen = ref(false)
 const isReplyAll = ref(false)
 const isAiReply = ref(false)
 const savedReplyTo = ref(null)
+// The reply's Cc line as typed or restored from a draft; null while it still
+// follows the mode (the original's Cc list for Reply all, nobody for Reply).
+const savedReplyCc = ref(null)
+const replyBcc = ref('')
 const savedReplySubject = ref(null)
 // A refresh must not reopen a draft handed to the composer, sent, or discarded.
 const handledReplyDrafts = new Set()
@@ -1236,48 +1242,62 @@ const openEmailRecipientAddresses = computed(() =>
 
 const { user } = useAuth()
 
-// Everyone a reply-all goes to: the sender first, then the To and Cc lists,
-// minus the signed-in account and any duplicates (case-insensitive). The
-// send endpoint takes one comma-separated "to" list, so Cc recipients travel
-// in "to" as well.
+// Everyone a reply-all goes to, minus the signed-in account and any
+// duplicates (case-insensitive): the sender and the To list are written to,
+// and the Cc list stays on Cc.
 const replyAllRecipients = computed(() => {
   const email = openEmail.value
-  if (!email) return []
+  const lines = { to: [], cc: [] }
+  if (!email) return lines
   const self = String(user.value?.email ?? '')
     .trim()
     .toLowerCase()
-  const candidates = [
-    { name: email.sender, address: email.address },
-    ...(email.recipients?.to ?? []),
-    ...(email.recipients?.cc ?? []),
-  ]
   const seen = new Set()
-  const recipients = []
-  for (const candidate of candidates) {
-    const address = String(candidate?.address ?? '').trim()
-    const key = address.toLowerCase()
-    if (!address || key === self || seen.has(key)) continue
-    seen.add(key)
-    recipients.push({ name: candidate.name || null, address })
+  const take = (line, candidates) => {
+    for (const candidate of candidates ?? []) {
+      const address = String(candidate?.address ?? '').trim()
+      const key = address.toLowerCase()
+      if (!address || key === self || seen.has(key)) continue
+      seen.add(key)
+      lines[line].push({ name: candidate.name || null, address })
+    }
   }
-  return recipients
+  take('to', [{ name: email.sender, address: email.address }, ...(email.recipients?.to ?? [])])
+  take('cc', email.recipients?.cc)
+  // Mail needs someone on "to": with nobody left there, the Cc list moves up.
+  return lines.to.length ? lines : { to: lines.cc, cc: [] }
 })
 
 // Reply all is only offered when it would reach more than one person; a
 // one-to-one message has nobody to add beyond the sender.
-const canReplyAll = computed(() => replyAllRecipients.value.length > 1)
+const canReplyAll = computed(
+  () => replyAllRecipients.value.to.length + replyAllRecipients.value.cc.length > 1,
+)
 
 const replyRecipients = computed(() => {
   const email = openEmail.value
   if (!email) return []
   return isReplyAll.value
-    ? replyAllRecipients.value
+    ? replyAllRecipients.value.to
     : [{ name: email.sender, address: email.address }]
 })
 
 const replyTo = computed(
   () =>
     savedReplyTo.value ?? replyRecipients.value.map((recipient) => recipient.address).join(', '),
+)
+const replyCc = computed({
+  get: () =>
+    savedReplyCc.value ??
+    (isReplyAll.value
+      ? replyAllRecipients.value.cc.map((recipient) => recipient.address).join(', ')
+      : ''),
+  set: (value) => {
+    savedReplyCc.value = value
+  },
+})
+const replyRecipientsValid = computed(() =>
+  messageRecipientsValid(replyTo.value, replyCc.value, replyBcc.value),
 )
 const replyRecipientValues = computed(() =>
   snippetRecipientValues(replyTo.value, replyRecipients.value),
@@ -1359,6 +1379,8 @@ watch(
     isReplyAll.value = false
     isAiReply.value = false
     savedReplyTo.value = null
+    savedReplyCc.value = null
+    replyBcc.value = ''
     savedReplySubject.value = null
     replyHtml.value = ''
     replyTextPlain.value = ''
@@ -1517,21 +1539,24 @@ async function clearOpenEmailFollowUp() {
   }
 }
 
-function replyToOpenEmail() {
+// Switching modes keeps any text already typed; only the recipient set
+// changes. That includes the Cc line, which follows the mode again; asking
+// for the mode the box is already in leaves a Cc typed by hand alone.
+function openReply(all) {
   savedReplyTo.value = null
+  if (isReplyAll.value !== all) savedReplyCc.value = null
   if (!isReplyOpen.value) store.replySessionId += 1
-  isReplyAll.value = false
+  isReplyAll.value = all
   isReplyOpen.value = true
   nextTick(() => replyEditorRef.value?.focus())
 }
 
-// Switching modes keeps any text already typed; only the recipient set changes.
+function replyToOpenEmail() {
+  openReply(false)
+}
+
 function replyAllToOpenEmail() {
-  savedReplyTo.value = null
-  if (!isReplyOpen.value) store.replySessionId += 1
-  isReplyAll.value = true
-  isReplyOpen.value = true
-  nextTick(() => replyEditorRef.value?.focus())
+  openReply(true)
 }
 
 // The command palette raises reader actions through the store because the
@@ -1611,6 +1636,8 @@ function discardReply() {
   isReplyAll.value = false
   isAiReply.value = false
   savedReplyTo.value = null
+  savedReplyCc.value = null
+  replyBcc.value = ''
   savedReplySubject.value = null
   replyHtml.value = ''
   replyTextPlain.value = ''
@@ -1637,6 +1664,8 @@ function replyDraftPayload() {
   const email = openEmail.value
   return {
     to: replyTo.value,
+    cc: replyCc.value,
+    bcc: replyBcc.value,
     subject: replySubject.value,
     text: replyTextPlain.value,
     html: replyHtml.value,
@@ -1729,6 +1758,8 @@ function generateReplyDraft() {
   // A message already being written stays as a tab in the window dock.
   store.setComposerAside()
   store.composerTo = replyTo.value
+  store.composerCc = replyCc.value
+  store.composerBcc = replyBcc.value
   store.composerSubject = replySubject.value
   store.composerReplyToMessageId = email.id
   store.composerHtml = replyHtml.value
@@ -1794,6 +1825,8 @@ watch(
     store.replySessionId += 1
     store.replyDraftId = draft.id
     savedReplyTo.value = draft.to || null
+    savedReplyCc.value = draft.cc ?? ''
+    replyBcc.value = draft.bcc ?? ''
     savedReplySubject.value = draft.subject ?? null
     replyHtml.value = draft.html ? sanitizeEmailHtml(draft.html) : plainTextToHtml(draft.text)
     replyTextPlain.value = draft.text || ''
@@ -1817,6 +1850,8 @@ watch(
     const { session, draft } = conflict
     if (session !== store.replySessionId || !isReplyOpen.value || !draft) return
     savedReplyTo.value = draft.to || null
+    savedReplyCc.value = draft.cc ?? ''
+    replyBcc.value = draft.bcc ?? ''
     savedReplySubject.value = draft.subject ?? null
     replyHtml.value = draft.html ? sanitizeEmailHtml(draft.html) : plainTextToHtml(draft.text)
     replyTextPlain.value = draft.text || ''
@@ -1832,6 +1867,8 @@ watch(
   () => [
     replyTextPlain.value,
     replyHtml.value,
+    replyCc.value,
+    replyBcc.value,
     replyFollowUpAt.value,
     replyAttachments.value.map((attachment) => attachment.id).join(','),
   ],
@@ -1847,7 +1884,8 @@ async function sendReply() {
     isSendingReply.value ||
     isGeneratingReply.value ||
     replySnippetPreviewOpen.value ||
-    replyAvailabilityPreviewOpen.value
+    replyAvailabilityPreviewOpen.value ||
+    !replyRecipientsValid.value
   )
     return
   if (unresolvedReplyFields.value.length) {
@@ -2948,6 +2986,18 @@ onUnmounted(() => {
                 >AI draft · Review before sending</small
               >
             </div>
+            <div
+              class="ni-reply-copies"
+              :inert="isSendingReply || undefined"
+              @focusin="store.loadContacts()"
+            >
+              <ComposerCopies
+                v-model:cc="replyCc"
+                v-model:bcc="replyBcc"
+                :contacts="store.contacts"
+                @exit="replyEditorRef?.focus()"
+              />
+            </div>
             <!-- Locked while sending: the mail carries what was there when Send
                  was pressed, so later edits would silently go nowhere. -->
             <div class="ni-reply-compose" :inert="isSendingReply || undefined">
@@ -3007,6 +3057,7 @@ onUnmounted(() => {
                   replySnippetPreviewOpen ||
                   replyAvailabilityPreviewOpen ||
                   store.pendingAttachmentUploads > 0 ||
+                  !replyRecipientsValid ||
                   !replyTextPlain.trim()
                 "
                 :aria-busy="isSendingReply"

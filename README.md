@@ -138,6 +138,14 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   19:00 inclusive; the hourly Cloudflare trigger skips AI work outside the
   stored slots.
 - AI Compose with an explicit review-and-insert step; it never sends automatically.
+- The composer and the reader's reply box take Cc and Bcc recipients. In the
+  composer, `+ cc` and `+ bcc` appear under the title while the subject or a
+  recipient field has the focus; in the reply box they sit beside the heading.
+  A line left empty goes away again. Reply all keeps the original message's Cc
+  list on Cc. To, Cc and Bcc share the limit of 20 recipients, and drafts and
+  Send Later keep all three lines. Needs migration `0114_cc_bcc_recipients.sql`
+  and the `cookie-web-send` and `cookie-web-drafts` Workers from Cookie-Worker;
+  deploy those Workers first.
 - Oversized email threads show a clear summary size-limit message. During the
   current session, reopening or refreshing the same thread version does not
   repeat a rejected summary request; a new latest message allows another attempt.

@@ -197,3 +197,22 @@ it('scopes ownerless retry caches to the account and abandons quotes loaded acro
   expect(draft.sendIdentity).toBeUndefined()
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
+
+it('sends the Cc and Bcc lines only when someone is on them', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+  vi.stubGlobal('fetch', fetchMock)
+  const store = { authHeaders: async () => ({}) }
+  const message = { to: 'recipient@example.com', subject: 'Hello', text: 'Body' }
+
+  await sendMail.call(store, { ...message, cc: 'dana@example.com,  sam@example.com, ', bcc: ' ' })
+  await sendMail.call(store, { ...message, cc: '', bcc: 'finance@example.com' })
+  await sendMail.call(store, { ...message, cc: ', ', bcc: '' })
+
+  const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+  expect(bodies[0].cc).toBe('dana@example.com, sam@example.com')
+  expect(bodies[0]).not.toHaveProperty('bcc')
+  expect(bodies[1].bcc).toBe('finance@example.com')
+  expect(bodies[1]).not.toHaveProperty('cc')
+  expect(bodies[2]).not.toHaveProperty('cc')
+  expect(bodies[2]).not.toHaveProperty('bcc')
+})

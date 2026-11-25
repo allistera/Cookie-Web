@@ -1,6 +1,7 @@
 import { toRaw } from 'vue'
 
 import { buildReplyQuote } from './forwardEmail'
+import { parseRecipients } from './recipients'
 
 // A failed send keeps its request identity so Retry is safe after an uncertain
 // network outcome. A confirmed send releases it, allowing intentional repeats.
@@ -61,6 +62,13 @@ export async function prepareMailSend(store, draft) {
     'sendAt',
   ]) {
     if (draft[field] !== undefined) message[field] = draft[field]
+  }
+  // Cc and Bcc are named only when someone is on them, so a message without
+  // copies keeps the fingerprint (and the saved send identity) it had before
+  // these lines existed.
+  for (const field of ['cc', 'bcc']) {
+    const line = parseRecipients(draft[field]).join(', ')
+    if (line) message[field] = line
   }
   const attachments = draft.attachments ?? []
   if (attachments.length) message.attachmentIds = attachments.map(({ id }) => id)

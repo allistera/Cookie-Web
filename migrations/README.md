@@ -592,3 +592,17 @@ Apply it before deploying Cookie-Worker's `cookie-web-messages` and
 `cookie-web-send`. Until then the messages Worker reports no invitation and the
 reader keeps its "Add to calendar" offer. No API role can read either table's
 new data; Cookie-Worker uses its own database role.
+
+## Cc and Bcc recipients (0114)
+
+`0114_cc_bcc_recipients.sql` adds `cc_addresses` and `bcc_addresses` to `drafts`
+and `scheduled_sends`: the Cc and Bcc lines of a message that has not gone out
+yet, each a comma-separated list like `to_addresses`, with `''` for a line that
+is not used. A sent message already keeps all three lines in
+`messages.recipients`.
+
+Deploy Cookie-Worker's `cookie-web-send` and `cookie-web-drafts` before the
+frontend that offers the two lines, so no message is sent by a Worker that
+ignores them. Those Workers run with or without this migration: until it is
+applied, a draft or a Send Later that has a Cc or Bcc line fails to save and
+says so, and everything else is unaffected.

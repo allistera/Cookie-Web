@@ -942,6 +942,77 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   expect(sendRequests).toBe(1)
 })
 
+test('Composer offers Cc and Bcc from its header and sends both lines', async ({ page }) => {
+  let sendRequestBody
+  await page.route('**/api/send', async (route) => {
+    sendRequestBody = route.request().postDataJSON()
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'sent-fixture' }),
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('.compose-btn').click()
+
+  const composer = page.locator('#composerToast')
+  const cc = composer.getByLabel('Cc', { exact: true })
+  const bcc = composer.getByLabel('Bcc', { exact: true })
+  // The window opens with the subject focused, which is when the links show.
+  await expect(composer.getByRole('button', { name: 'Add Cc' })).toBeVisible()
+  await composer.locator('.composer-to-inline').fill('priya@example.com')
+  await composer.getByRole('button', { name: 'Add Cc' }).click()
+  await expect(cc).toBeFocused()
+  await cc.fill('dana@example.com')
+  await composer.getByRole('button', { name: 'Add Bcc' }).click()
+  await expect(bcc).toBeFocused()
+
+  // Writing the message puts the links away, with the line left empty.
+  await composer.locator('.composer-editor').fill('The plan is attached.')
+  await expect(composer.locator('.composer-copy-add')).toHaveCount(0)
+  await expect(bcc).toHaveCount(0)
+  await expect(cc).toHaveValue('dana@example.com')
+
+  await composer.locator('.composer-subject-inline').click()
+  await composer.getByRole('button', { name: 'Add Bcc' }).click()
+  await bcc.fill('finance@example.com')
+  await composer.locator('.composer-footer .composer-send-btn').click()
+
+  await expect(composer).not.toHaveClass(/active/)
+  // The request goes out once the undo countdown has run.
+  await expect
+    .poll(() => sendRequestBody, { timeout: 15_000 })
+    .toMatchObject({
+      to: 'priya@example.com',
+      cc: 'dana@example.com',
+      bcc: 'finance@example.com',
+      text: 'The plan is attached.',
+    })
+})
+
+test('The reply box takes a Cc line beside its heading', async ({ page }) => {
+  let sendRequestBody
+  await page.route('**/api/send', async (route) => {
+    sendRequestBody = route.request().postDataJSON()
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'sent-fixture' }),
+    })
+  })
+
+  await page.goto('/inbox?open=fixture-1')
+  await page.locator('.ni-email-card [title="Reply"]').click()
+  const reply = page.locator('.ni-reply-box')
+  await reply.getByRole('button', { name: 'Add Cc' }).click()
+  await reply.getByLabel('Cc', { exact: true }).fill('dana@example.com')
+  await reply.locator('.composer-editor').fill('Approved, thank you.')
+  await reply.locator('.ni-reply-footer .btn-primary').click()
+
+  await expect(page.locator('.toast', { hasText: 'Reply sent.' })).toBeVisible()
+  expect(sendRequestBody.cc).toBe('dana@example.com')
+  expect(sendRequestBody).not.toHaveProperty('bcc')
+})
+
 test('Composer "Send Later" queues a scheduled send instead of sending immediately', async ({
   page,
 }) => {

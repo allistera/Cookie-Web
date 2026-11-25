@@ -3505,6 +3505,61 @@ describe('Inbox Store', () => {
       expect(store.composerDraftId).toBeNull()
     })
 
+    it('reopens a cancelled scheduled send with its Cc and Bcc lines', async () => {
+      const canceled = {
+        id: 'sched-1',
+        toAddresses: 'someone@example.com',
+        ccAddresses: 'dana@example.com',
+        bccAddresses: 'finance@example.com',
+        subject: 'Hello',
+        text: 'Checking in.',
+        html: '<p>Checking in.</p>',
+        replyToMessageId: null,
+        followUpAt: null,
+        attachments: [],
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ scheduledSend: canceled }) }),
+      )
+      const store = useInboxStore()
+
+      await store.cancelScheduledSend({ id: 'sched-1' })
+
+      expect(store.composerCc).toBe('dana@example.com')
+      expect(store.composerBcc).toBe('finance@example.com')
+      expect(store.isComposerBlank).toBe(false)
+    })
+
+    it('saves the Cc and Bcc lines with the draft and clears them when it closes', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 201,
+        json: async () => ({ draft: { id: 'draft-1', updatedAt: '2026-11-25T10:00:00.000Z' } }),
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useInboxStore()
+      store.isComposerActive = true
+      store.composerCc = 'dana@example.com'
+      store.composerBcc = 'finance@example.com'
+      // Someone on a copy line is enough for the message to count as started.
+      expect(store.isComposerBlank).toBe(false)
+
+      store.closeComposer()
+
+      const draftCalls = () =>
+        fetchMock.mock.calls.filter(([url]) => String(url).includes('/drafts'))
+      await vi.waitFor(() => expect(draftCalls()).toHaveLength(1))
+      expect(JSON.parse(draftCalls()[0][1].body)).toMatchObject({
+        to: '',
+        cc: 'dana@example.com',
+        bcc: 'finance@example.com',
+      })
+      expect(store.composerCc).toBe('')
+      expect(store.composerBcc).toBe('')
+      expect(store.drafts[0]).toMatchObject({ cc: 'dana@example.com', bcc: 'finance@example.com' })
+    })
+
     it('reopens a cancelled scheduled reply without the quote it went out with', async () => {
       const canceled = {
         id: 'sched-1',
