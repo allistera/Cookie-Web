@@ -14,12 +14,12 @@ URL when you want keyword-only results.
 
 ## Repository map
 
-| Repository                                                  | Responsibility                                                                         |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Cookie-Web                                                  | Vue browser client, two residual Vercel functions, and shared database migrations      |
-| [Cookie-Worker](https://github.com/allistera/Cookie-Worker) | Cloudflare Workers for inbound mail, scheduled enrichment, and scheduled-send flushing |
-| [Cookie-iOS](https://github.com/allistera/Cookie-iOS)       | Native SwiftUI client of the Cookie-Web API                                            |
-| [Cookie-Docs](https://github.com/allistera/Cookie-Docs)     | Blume/MDX documentation site for the whole system                                      |
+| Repository                                                  | Responsibility                                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Cookie-Web                                                  | Vue browser client and two residual Vercel functions                                 |
+| [Cookie-Worker](https://github.com/allistera/Cookie-Worker) | Cloudflare Workers for the API, inbound mail and scheduled jobs; database migrations |
+| [Cookie-iOS](https://github.com/allistera/Cookie-iOS)       | Native SwiftUI client of the Cookie-Web API                                          |
+| [Cookie-Docs](https://github.com/allistera/Cookie-Docs)     | Blume/MDX documentation site for the whole system                                    |
 
 ## Architecture
 
@@ -27,7 +27,7 @@ URL when you want keyword-only results.
 
 ![The Vue client calls the protected API for database, search, AI, and delivery services and receives inbox changes through Supabase Realtime.](docs/images/browser-api.svg)
 
-Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.com/allistera/Cookie-Worker). Database migrations remain in this repository because both runtimes share the same schema.
+Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.com/allistera/Cookie-Worker). The migrations for the database both runtimes share live there too, under [`migrations/`](https://github.com/allistera/Cookie-Worker/tree/main/migrations).
 
 ## Features
 
@@ -87,8 +87,8 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   Calendar. Calendars the account can only read open read-only. The
   `cookie-web-calendar` Worker holds the tokens and talks to Google; the browser
   never does. Linking finishes only in the tab that started it and under the
-  same signed-in Cookie account. Apply `migrations/0091_google_calendar.sql`
-  and `migrations/0102_google_calendar_browser_binding.sql` and set that Worker's
+  same signed-in Cookie account. Apply migrations `0091_google_calendar.sql`
+  and `0102_google_calendar_browser_binding.sql` and set that Worker's
   Google secrets (Cookie-Worker README, "Google Calendar") before deploying.
 - Auth0 authentication and per-user mailbox queries.
 - The email list opens its first available date group by default, including
@@ -171,7 +171,7 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   access token if the topic is reserved or the server requires sign-in, and save.
   The token is stored encrypted and never shown again. Turning the switch off
   pauses alerts and keeps the settings, so turning it back on needs no
-  resubscribing. Apply `migrations/0110_ntfy_user_servers.sql` and deploy the
+  resubscribing. Apply migration `0110_ntfy_user_servers.sql` and deploy the
   `cookie-web-notifications` Worker (Cookie-Worker README, "ntfy notifications")
   before deploying this form.
 - Mute or unmute a conversation from the reader's notification button. Muted
@@ -281,22 +281,22 @@ curl -i https://mail.infinitywave.online/api/health
 
 The main runtime variables are:
 
-| Name                     | Purpose                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`           | Supabase Postgres connection used by health checks, uploads, migrations, and local tooling. |
-| `OPENAI_API_KEY`         | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.                           |
-| `OPENAI_COMPOSE_MODEL`   | Optional AI Compose model override.                                                         |
-| `VITE_AUTH0_DOMAIN`      | Auth0 domain exposed to the browser: `auth.infinitywave.online` in production.              |
-| `VITE_AUTH0_CLIENT_ID`   | Auth0 SPA client ID exposed to the browser.                                                 |
-| `VITE_AUTH0_AUDIENCE`    | Auth0 API audience exposed to the browser.                                                  |
-| `VITE_SUPABASE_URL`      | Supabase project URL used for Realtime.                                                     |
-| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings.                              |
+| Name                     | Purpose                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`           | Supabase Postgres connection used by health checks and local tooling.          |
+| `OPENAI_API_KEY`         | Mailbox Q&A and AI Compose. Needs the `/v1/responses` scope only.              |
+| `OPENAI_COMPOSE_MODEL`   | Optional AI Compose model override.                                            |
+| `VITE_AUTH0_DOMAIN`      | Auth0 domain exposed to the browser: `auth.infinitywave.online` in production. |
+| `VITE_AUTH0_CLIENT_ID`   | Auth0 SPA client ID exposed to the browser.                                    |
+| `VITE_AUTH0_AUDIENCE`    | Auth0 API audience exposed to the browser.                                     |
+| `VITE_SUPABASE_URL`      | Supabase project URL used for Realtime.                                        |
+| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key used for content-free Realtime pings.                 |
 
 `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those two now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
 The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Composer attachments are posted by the browser straight to that Worker's `POST /send/attachments` route and removed with `DELETE /send/attachments/:id`, the same calls the iOS app makes, so Vercel no longer needs Blob storage or database settings for uploads. Set delivery credentials and the flush token on that Worker; deploy its follow-up support before deploying this adapter. Web request IDs survive failed sends and are renewed after successful delivery. Migration `0065_task_subtree_projects.sql` repairs task descendants left in old projects and adds a parent lookup index.
 
-Vercel stores browser build values. GitHub Actions stores only the secrets its migration workflow needs.
+Vercel stores browser build values. The GitHub Actions workflow in this repository uses no secrets.
 
 ### Browser monitoring and Vercel configuration
 
@@ -424,14 +424,9 @@ custom domain `auth.infinitywave.online`, so tokens carry that domain as their
 
 ## Database migrations
 
-Migrations are append-only and live in [`migrations/`](migrations/). Apply all pending files with:
+The schema this client reads is defined by the append-only migrations in the Cookie-Worker repository, under [`migrations/`](https://github.com/allistera/Cookie-Worker/tree/main/migrations). They lived here until November 2026. Its `Migrate Database` workflow applies them when they reach that repository's `main`; see its [migrations/README.md](https://github.com/allistera/Cookie-Worker/blob/main/migrations/README.md) for conventions and per-migration notes.
 
-```sh
-export DATABASE_URL='postgres://...'
-./migrations/migrate.sh
-```
-
-The `Migrate Database` workflow runs automatically when migration files reach `main`. See [migrations/README.md](migrations/README.md) for conventions and AI schema details.
+Migration numbers mentioned in this README (`0113_calendar_invitations.sql` and so on) are files in that directory. A change that needs a new migration lands it in Cookie-Worker first.
 
 ## Validation
 
@@ -465,7 +460,7 @@ scope. Run the file with `npm run test:e2e -- e2e/console-errors.spec.js`.
 
 ## Delivery and operations
 
-Pushes to `main` run CI and trigger the linked Vercel production deployment. Migration changes also trigger the database migration workflow.
+Pushes to `main` run CI and trigger the linked Vercel production deployment. Database migrations are applied from the Cookie-Worker repository.
 
 Search reindexing and drift repair run from the Cookie-Worker repository (`search-reindex.yml` and `search-drift-repair.yml`). Cloudflare Worker deployment and email-routing operations are documented in the Cookie-Worker runbook.
 
@@ -490,7 +485,7 @@ clearing the due date also stops repetition. Unsupported phrases are rejected.
 Repeat remains a separate field in the inline task editor and detail panel.
 The sidebar's Add Task dialog can also parse it from natural-language quick add.
 
-Apply `migrations/0066_task_items_recurrence.sql` before deploying the updated
+Apply migration `0066_task_items_recurrence.sql` before deploying the updated
 `cookie-web-tasks` Worker, then deploy the web client. No background job or new
 dependency is needed.
 
@@ -510,7 +505,7 @@ form and asks for a task name while keeping the parsed fields. Due times are
 stored with the browser's IANA time zone, so the original local time remains
 explicit.
 
-Apply `migrations/0067_task_items_time_and_labels.sql` before deploying the
+Apply migration `0067_task_items_time_and_labels.sql` before deploying the
 updated `cookie-web-tasks` Worker, then deploy the web client. The Worker uses
 the existing `OPENAI_API_KEY` and rate-limits interpretation to 10 requests per
 user per minute.
@@ -549,7 +544,7 @@ does not cause it to be recreated. The background recovery job also picks up
 unanswered priority mail from the last 30 days, three emails every 15 minutes,
 with at most three generation attempts per email.
 
-Apply `migrations/0069_priority_reply_drafts.sql` before deploying Cookie-Worker's
+Apply migration `0069_priority_reply_drafts.sql` before deploying Cookie-Worker's
 `mail-app-ingest` and `cookie-web-drafts`. Initial draft creation emits the
 existing content-free inbox refresh signal, allowing an open reader to show
 the draft as soon as it becomes available.
@@ -653,7 +648,7 @@ menu offers **Remove from favorites**. Favorites are saved per owned project
 and are available across devices, including nested projects whose parents are
 collapsed.
 
-Deploy Cookie-Web migration `0099_project_favorites.sql` before the task Worker,
+Apply migration `0099_project_favorites.sql` before the task Worker,
 then the web client. `GET /projects` and project write responses include the
 boolean `isFavorite`; `PATCH /projects` accepts it to add or remove a favorite.
 
