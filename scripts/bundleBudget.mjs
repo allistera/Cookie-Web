@@ -37,9 +37,12 @@ export function bundleBudgetPlugin() {
         // the inbox store: parking a message has to be there, because an
         // undone send or an opened draft can displace the composer from
         // anywhere. That put Vercel's build about 0.9 KB over, so the entry
-        // moved up by 2 KB.
+        // moved up by 2 KB. The Subscriptions sidebar item and its route
+        // (about 410 bytes) found Vercel's build about 300 bytes under and
+        // took it 110 over, so both budgets that carry the entry moved up by
+        // 1 KB again.
         const budget = chunk.isEntry
-          ? 533_000
+          ? 534_000
           : // The inbox view statically imports the entry, so it carries the
             // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
             // Sentry debug IDs. With the window dock's share of the entry and
@@ -57,7 +60,7 @@ export function bundleBudgetPlugin() {
             // Vercel. That put Vercel's build 7.9 KB over, so the view
             // moved up by 10 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 676_000
+            ? 677_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&

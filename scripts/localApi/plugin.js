@@ -87,6 +87,7 @@ export function localApiPlugin(mode) {
         senderScreening: false,
         senderDecisions: new Map(),
         screeningStates: new Map(),
+        unsubscribedSenders: new Map(),
       })
     }
     return stubMailboxState.get(sessionId)
@@ -2941,12 +2942,18 @@ export function localApiPlugin(mode) {
     return json(res, { labels })
   }
 
-  // cookie-web-messages: /messages[/attachment|calendar-invite|contacts|contact-insights]
+  // cookie-web-messages:
+  // /messages[/attachment|calendar-invite|contacts|contact-insights|subscriptions]
   const handleWorkerMessagesApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
     if (segments[0] !== 'messages') return json(res, { error: 'Not Found' }, 404)
     const sub = segments[1]
+    if (sub === 'subscriptions') {
+      const { fixtureSubscriptions } = await import('./fixtures/subscriptions.js')
+      const { unsubscribedSenders } = fixtureMailboxState(req, res)
+      return json(res, { subscriptions: fixtureSubscriptions(unsubscribedSenders) })
+    }
     if (sub === 'contacts') {
       const { fixtureEmails } = await import('./fixtures/emails.js')
       const contacts = new Map()
@@ -3065,6 +3072,24 @@ export function localApiPlugin(mode) {
     if (req.method === 'POST') {
       const body = await readBody(req)
       if (body.action === 'unsubscribe') {
+        const {
+          FIXTURE_MANUAL_SUBSCRIPTION_ID,
+          FIXTURE_MANUAL_UNSUBSCRIBE_URL,
+          fixtureSubscriptions,
+        } = await import('./fixtures/subscriptions.js')
+        if (body.id === FIXTURE_MANUAL_SUBSCRIPTION_ID) {
+          return json(res, {
+            status: 'ai_failed',
+            method: 'ai',
+            url: FIXTURE_MANUAL_UNSUBSCRIBE_URL,
+          })
+        }
+        // Like the Worker, remember the sender so Subscriptions shows it done.
+        const sender = fixtureSubscriptions().find((entry) => entry.messageId === body.id)
+        if (sender) {
+          const { unsubscribedSenders } = fixtureMailboxState(req, res)
+          unsubscribedSenders.set(sender.address, new Date().toISOString())
+        }
         return json(res, { status: 'unsubscribed', method: 'one-click' })
       }
       if (body.action === 'add_label' || body.action === 'remove_label') {
