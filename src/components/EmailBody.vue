@@ -5,6 +5,7 @@ import { startTiming } from '../lib/performance'
 
 import { BRIDGE_SOURCE, RESIZE_INTERVAL_MS } from '../lib/emailBodyBridgeConstants'
 import { hasBlockedRemoteImages, sanitizeEmailHtmlForReader } from '../lib/sanitizeEmailHtml'
+import { stripTrackingImages } from '../lib/trackingImages'
 import {
   BRIDGE_HINT_SOURCE,
   selectPlainTextUnsubscribeTarget,
@@ -87,10 +88,20 @@ let pendingResizeHeight = null
 let resizeTimer = null
 let latestLinksRevision = 0
 
-// Layer 1: sanitize. Empty string when there is no usable HTML body, which
-// switches the template to the plain-text fallback.
-const safeHtml = computed(() => sanitizeEmailHtmlForReader(props.html))
+// Layer 1: sanitize, then take out the sender's tracking images. Those go
+// whatever the image rule below says: trusted mail loads its images at once,
+// and "Show images" loads them all, so the pixel would report the opening
+// either way. Empty string when there is no usable HTML body, which switches
+// the template to the plain-text fallback.
+const readerContent = computed(() => stripTrackingImages(sanitizeEmailHtmlForReader(props.html)))
+const safeHtml = computed(() => readerContent.value.html)
 const hasHtml = computed(() => safeHtml.value.trim().length > 0)
+const trackingImagesBlocked = computed(() => readerContent.value.blocked)
+const trackingNotice = computed(() => {
+  const count = trackingImagesBlocked.value
+  if (count === 1) return 'This email contained a tracking image, which was blocked.'
+  return `This email contained ${count} tracking images, which were blocked.`
+})
 
 // Remote images are blocked by default (see the CSP in srcdoc below) so a
 // sender's tracking pixel can't silently fire just by opening the message.
@@ -284,6 +295,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <div
+    v-if="trackingImagesBlocked > 0"
+    class="ni-email-images-notice ni-email-trackers-notice"
+    role="status"
+  >
+    <span class="material-symbols-outlined" aria-hidden="true">block</span>
+    <span>{{ trackingNotice }}</span>
+  </div>
   <div v-if="remoteImagesBlocked" class="ni-email-images-notice">
     <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span>
     <span>Images are hidden to protect your privacy.</span>

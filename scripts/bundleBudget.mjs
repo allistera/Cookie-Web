@@ -58,9 +58,11 @@ export function bundleBudgetPlugin() {
             // attachment helpers then left it for four chunks the view
             // still imports, each with a 346-byte Sentry debug ID on
             // Vercel. That put Vercel's build 7.9 KB over, so the view
-            // moved up by 10 KB.
+            // moved up by 10 KB. Blocking tracking images in the reader (the
+            // detector and its notice, 1.7 KB) found Vercel's build 1.4 KB
+            // under and took it 0.3 KB over, so the view moved up by 2 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 677_000
+            ? 679_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
