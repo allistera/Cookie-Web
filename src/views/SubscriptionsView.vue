@@ -33,12 +33,9 @@ function emailCount(subscription) {
   return subscription.messageCount === 1 ? '1 email' : `${subscription.messageCount} emails`
 }
 
-function unsubscribedLabel(subscription) {
-  const label = `Unsubscribed ${formatDate(subscription.unsubscribedAt)}`
-  return isStillSending(subscription) ? `${label}, still sending` : label
-}
-
-function canUnsubscribe(subscription) {
+// A sender stays listed until the unsubscribe is confirmed; one that keeps
+// writing after that comes back, marked as still sending.
+function isListed(subscription) {
   return !subscription.unsubscribedAt || isStillSending(subscription)
 }
 
@@ -46,7 +43,7 @@ async function load() {
   isLoading.value = true
   loadError.value = ''
   try {
-    subscriptions.value = await fetchSubscriptions()
+    subscriptions.value = (await fetchSubscriptions()).filter(isListed)
   } catch (error) {
     console.error('Failed to load subscriptions:', error)
     loadError.value = 'Could not load your subscriptions.'
@@ -69,7 +66,7 @@ async function unsubscribe(subscription) {
   try {
     const outcome = await unsubscribeFromSender(subscription)
     if (outcome.status === 'unsubscribed') {
-      subscription.unsubscribedAt = new Date().toISOString()
+      subscriptions.value = subscriptions.value.filter((entry) => entry.address !== address)
       store.notify(`Unsubscribed from ${senderName(subscription)}.`)
     } else if (outcome.status === 'manual') {
       manualLinks.value = new Map(manualLinks.value).set(address, outcome.href)
@@ -98,7 +95,7 @@ onMounted(load)
         <h1>Subscriptions</h1>
         <p class="subscriptions-subtitle">
           Newsletters and mailing lists that send you mail, newest first. Unsubscribing asks the
-          sender to stop; mail you already have stays where it is.
+          sender to stop and takes it off this list; mail you already have stays where it is.
         </p>
       </header>
 
@@ -119,7 +116,7 @@ onMounted(load)
       </div>
 
       <div v-else-if="!subscriptions.length" class="subscriptions-empty">
-        No mail in this mailbox offers a way to unsubscribe.
+        No subscriptions left to unsubscribe from.
       </div>
 
       <ul v-else class="subscriptions-list">
@@ -127,7 +124,6 @@ onMounted(load)
           v-for="subscription in subscriptions"
           :key="subscription.address"
           class="subscriptions-row"
-          :class="{ 'is-unsubscribed': !canUnsubscribe(subscription) }"
         >
           <div class="subscriptions-info">
             <span class="subscriptions-name">{{ senderName(subscription) }}</span>
@@ -138,7 +134,7 @@ onMounted(load)
             </span>
           </div>
           <span v-if="subscription.unsubscribedAt" class="subscriptions-status">
-            {{ unsubscribedLabel(subscription) }}
+            Unsubscribed {{ formatDate(subscription.unsubscribedAt) }}, still sending
           </span>
           <a
             v-if="manualLinks.has(subscription.address)"
@@ -150,7 +146,7 @@ onMounted(load)
             Open unsubscribe page
           </a>
           <button
-            v-else-if="canUnsubscribe(subscription)"
+            v-else
             type="button"
             class="subscriptions-action"
             :disabled="pending.has(subscription.address)"
@@ -251,11 +247,6 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.subscriptions-row.is-unsubscribed .subscriptions-name {
-  color: var(--text-secondary);
-  font-weight: 500;
 }
 
 .subscriptions-meta {
