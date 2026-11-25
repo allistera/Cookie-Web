@@ -6,18 +6,17 @@ test('Subscriptions lists every sender and unsubscribes from the list', async ({
   await expect(page).toHaveURL(/\/subscriptions$/)
 
   const rows = page.getByTestId('subscriptions-view').locator('.subscriptions-row')
-  await expect(rows).toHaveCount(4)
+  // The fixture has four senders; Old Forum Digest was unsubscribed from
+  // earlier and has been quiet since, so it is not listed.
+  await expect(rows).toHaveCount(3)
+  await expect(rows.filter({ hasText: 'Old Forum Digest' })).toHaveCount(0)
   const daily = rows.filter({ hasText: 'Daily Bites' })
   await expect(daily).toContainText('newsletter@dailybites.example · 12 emails')
-  // A sender unsubscribed from earlier is listed as done, with no button.
-  const forum = rows.filter({ hasText: 'Old Forum Digest' })
-  await expect(forum.locator('.subscriptions-status')).toContainText('Unsubscribed')
-  await expect(forum.getByRole('button')).toHaveCount(0)
 
   await daily.getByRole('button', { name: 'Unsubscribe from Daily Bites' }).click()
   await expect(page.locator('.toast', { hasText: 'Unsubscribed from Daily Bites' })).toBeVisible()
-  await expect(daily.locator('.subscriptions-status')).toContainText('Unsubscribed')
-  await expect(daily.getByRole('button')).toHaveCount(0)
+  await expect(daily).toHaveCount(0)
+  await expect(rows).toHaveCount(2)
 
   // A sender that cannot be unsubscribed automatically hands over its page.
   const gadget = rows.filter({ hasText: 'Gadget Weekly' })
@@ -27,16 +26,16 @@ test('Subscriptions lists every sender and unsubscribes from the list', async ({
     'https://account.gadgetweekly.example/preferences',
   )
 
-  // The unsubscribe is remembered: the row is still done after a reload.
+  // The unsubscribe is remembered: the sender is still gone after a reload.
   await page.reload()
-  await expect(daily.locator('.subscriptions-status')).toContainText('Unsubscribed')
-  await expect(daily.getByRole('button')).toHaveCount(0)
+  await expect(rows).toHaveCount(2)
+  await expect(daily).toHaveCount(0)
   await expect(gadget.getByRole('button')).toHaveText('Unsubscribe')
 })
 
 test('Subscriptions scrolls to senders below the bottom of the window', async ({ page }) => {
-  // Short enough that the four fixture senders do not fit.
-  await page.setViewportSize({ width: 1280, height: 300 })
+  // Short enough that the three listed fixture senders do not fit.
+  await page.setViewportSize({ width: 1280, height: 240 })
   await page.goto('/subscriptions')
 
   const view = page.getByTestId('subscriptions-view')

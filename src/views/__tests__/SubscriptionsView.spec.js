@@ -81,10 +81,12 @@ describe('SubscriptionsView', () => {
     wrapper.unmount()
   })
 
-  it('says when no mail offers a way to unsubscribe', async () => {
+  it('says when there is nothing left to unsubscribe from', async () => {
     stubFetch({ list: () => ok({ subscriptions: [] }) })
     const wrapper = await mountView()
-    expect(wrapper.get('.subscriptions-empty').text()).toContain('offers a way to unsubscribe')
+    expect(wrapper.get('.subscriptions-empty').text()).toBe(
+      'No subscriptions left to unsubscribe from.',
+    )
     wrapper.unmount()
   })
 
@@ -108,10 +110,16 @@ describe('SubscriptionsView', () => {
     wrapper.unmount()
   })
 
-  it('unsubscribes from a sender and marks the row done', async () => {
+  it('unsubscribes from a sender and takes it off the list', async () => {
     let finish
     const fetchMock = stubFetch({
-      list: () => ok({ subscriptions: [subscription()] }),
+      list: () =>
+        ok({
+          subscriptions: [
+            subscription(),
+            subscription({ address: 'other@example.com', name: 'Other', messageId: 'message-2' }),
+          ],
+        }),
       act: () => new Promise((resolve) => (finish = resolve)),
     })
     const wrapper = await mountView()
@@ -134,10 +142,10 @@ describe('SubscriptionsView', () => {
       action: 'unsubscribe',
       allow_ai: true,
     })
-    const row = wrapper.get('.subscriptions-row')
-    expect(row.classes()).toContain('is-unsubscribed')
-    expect(row.get('.subscriptions-status').text()).toMatch(/^Unsubscribed \d/)
-    expect(row.find('button').exists()).toBe(false)
+    // Only the other sender is left; the empty message is for an empty list.
+    const rows = wrapper.findAll('.subscriptions-row')
+    expect(rows.map((row) => row.get('.subscriptions-name').text())).toEqual(['Other'])
+    expect(wrapper.find('.subscriptions-empty').exists()).toBe(false)
     expect(notify).toHaveBeenCalledWith('Unsubscribed from Daily Bites.')
     wrapper.unmount()
   })
@@ -177,7 +185,6 @@ describe('SubscriptionsView', () => {
     expect(link.attributes('href')).toBe('https://example.com/leave')
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toBe('noopener noreferrer')
-    expect(wrapper.get('.subscriptions-row').classes()).not.toContain('is-unsubscribed')
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('Could not unsubscribe'), 'error')
     wrapper.unmount()
   })
@@ -202,7 +209,7 @@ describe('SubscriptionsView', () => {
     wrapper.unmount()
   })
 
-  it('shows senders already unsubscribed from, and offers it again if they kept sending', async () => {
+  it('leaves out senders already unsubscribed from, unless they kept sending', async () => {
     stubFetch({
       list: () =>
         ok({
@@ -217,14 +224,27 @@ describe('SubscriptionsView', () => {
         }),
     })
     const wrapper = await mountView()
-    const [done, persistent] = wrapper.findAll('.subscriptions-row')
+    const rows = wrapper.findAll('.subscriptions-row')
 
-    expect(done.get('.subscriptions-status').text()).toBe('Unsubscribed 21 Nov 2026')
-    expect(done.find('button').exists()).toBe(false)
-    expect(persistent.get('.subscriptions-status').text()).toBe(
+    expect(rows.map((row) => row.get('.subscriptions-name').text())).toEqual(['Persistent'])
+    expect(rows[0].get('.subscriptions-status').text()).toBe(
       'Unsubscribed 1 Nov 2026, still sending',
     )
-    expect(persistent.get('button').text()).toBe('Unsubscribe')
+    expect(rows[0].get('button').text()).toBe('Unsubscribe')
+    wrapper.unmount()
+  })
+
+  it('shows the empty message once the last sender is unsubscribed from', async () => {
+    stubFetch({
+      list: () => ok({ subscriptions: [subscription()] }),
+      act: () => ok({ status: 'unsubscribed', method: 'one-click' }),
+    })
+    const wrapper = await mountView()
+    await wrapper.get('.subscriptions-row button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.subscriptions-row')).toHaveLength(0)
+    expect(wrapper.get('.subscriptions-empty').exists()).toBe(true)
     wrapper.unmount()
   })
 })
