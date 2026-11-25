@@ -10,7 +10,7 @@ import {
   appendRecipient,
   completedRecipients,
   currentRecipientToken,
-  recipientsValid,
+  messageRecipientsValid,
 } from '../lib/recipients'
 import {
   snippetRecipientValues,
@@ -18,6 +18,7 @@ import {
   unresolvedSnippetWarning,
 } from '../lib/snippetVariables'
 import { scheduleChoices } from '../utils/schedule'
+import ComposerCopies from './ComposerCopies.vue'
 import ComposerEditor from './ComposerEditor.vue'
 import ScheduleMenu from './ScheduleMenu.vue'
 import ShareAvailability from './ShareAvailability.vue'
@@ -40,7 +41,9 @@ const contactSuggestions = computed(() => {
   return filterContacts(pool, currentRecipientToken(store.composerTo))
 })
 
-const composerToValid = computed(() => recipientsValid(store.composerTo))
+const composerRecipientsValid = computed(() =>
+  messageRecipientsValid(store.composerTo, store.composerCc, store.composerBcc),
+)
 const recipientValues = computed(() => snippetRecipientValues(store.composerTo, store.contacts))
 const unresolvedFields = computed(() =>
   unresolvedSnippetFields(store.composerHtml, store.composerTextArea),
@@ -56,7 +59,7 @@ const isSendDisabled = computed(
     store.composerSnippetPreviewOpen ||
     store.composerAvailabilityPreviewOpen ||
     store.pendingAttachmentUploads > 0 ||
-    !composerToValid.value ||
+    !composerRecipientsValid.value ||
     !store.composerTextArea.trim(),
 )
 
@@ -213,6 +216,7 @@ function onComposerEscape() {
 const composerToRef = ref(null)
 const composerSubjectRef = ref(null)
 const composerBodyRef = ref(null)
+const composerCopiesRef = ref(null)
 watch(
   () => [store.isComposerActive, store.composerTabKey],
   ([active]) => {
@@ -220,6 +224,29 @@ watch(
   },
   { immediate: true },
 )
+
+// "+ cc" and "+ bcc" are on offer while the subject or a recipient field has
+// the focus, which it does when the window opens. Writing the message puts
+// them away, along with a line that was added and left empty.
+const headerFocused = ref(false)
+
+function onHeaderFocusOut(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) headerFocused.value = false
+}
+
+// Tab runs subject, to, cc, bcc, body, skipping the lines that are not shown.
+function focusAfterTo() {
+  if (!composerCopiesRef.value?.focusFirst()) composerBodyRef.value?.focus()
+}
+
+function focusBeforeBody() {
+  if (!composerCopiesRef.value?.focusLast()) composerToRef.value?.focus()
+}
+
+function onCopiesExit(direction) {
+  if (direction === 'forward') composerBodyRef.value?.focus()
+  else composerToRef.value?.focus()
+}
 
 function onDocumentClick(event) {
   const target = event.target instanceof Element ? event.target : null
@@ -235,6 +262,8 @@ function onDocumentClick(event) {
 watch(
   () => [
     store.composerTo,
+    store.composerCc,
+    store.composerBcc,
     store.composerSubject,
     store.composerTextArea,
     store.composerHtml,
@@ -272,72 +301,87 @@ onUnmounted(() => {
     :data-save-state="store.composerSaveState"
     @keydown.esc.stop="onComposerEscape"
   >
-    <div class="composer-draft-row">
-      <div class="composer-draft-title">
-        <input
-          ref="composerSubjectRef"
-          v-model="composerSubject"
-          class="composer-subject-inline"
-          placeholder="Hello"
-          @keydown.tab.exact.prevent="composerToRef?.focus()"
-        />
-        <span class="composer-draft-to">to</span>
-        <span class="composer-to-wrap">
+    <div class="composer-header" @focusin="headerFocused = true" @focusout="onHeaderFocusOut">
+      <div class="composer-draft-row">
+        <div class="composer-draft-title">
           <input
-            ref="composerToRef"
-            v-model="store.composerTo"
-            class="composer-to-inline"
-            type="email"
-            multiple
-            autocomplete="off"
-            placeholder="name@example.com, name2@example.com"
-            title="Send to several people by separating addresses with commas"
-            @focus="openContactSuggest"
-            @input="openContactSuggest"
-            @blur="closeContactSuggest"
-            @keydown.tab.exact.prevent="composerBodyRef?.focus()"
-            @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
-            @keydown.down.prevent="moveContactHighlight(1)"
-            @keydown.up.prevent="moveContactHighlight(-1)"
-            @keydown.enter="onContactEnter"
+            ref="composerSubjectRef"
+            v-model="composerSubject"
+            class="composer-subject-inline"
+            placeholder="Hello"
+            @keydown.tab.exact.prevent="composerToRef?.focus()"
           />
-          <div v-if="contactSuggestions.length" class="composer-suggestions">
-            <div
-              v-for="(contact, i) in contactSuggestions"
-              :key="contact.address"
-              class="suggestion-item"
-              :class="{ highlighted: i === contactHighlight }"
-              @mousedown.prevent="selectContact(contact.address)"
-              @mouseenter="contactHighlight = i"
-            >
-              <span class="material-symbols-outlined text-purple">person</span>
-              <span class="composer-suggest-text">
-                <span v-if="contact.name" class="composer-suggest-name">{{ contact.name }}</span>
-                <span class="composer-suggest-address">{{ contact.address }}</span>
-              </span>
+          <span class="composer-draft-to">to</span>
+          <span class="composer-to-wrap">
+            <input
+              ref="composerToRef"
+              v-model="store.composerTo"
+              class="composer-to-inline"
+              type="email"
+              multiple
+              autocomplete="off"
+              placeholder="name@example.com, name2@example.com"
+              title="Send to several people by separating addresses with commas"
+              @focus="openContactSuggest"
+              @input="openContactSuggest"
+              @blur="closeContactSuggest"
+              @keydown.tab.exact.prevent="focusAfterTo"
+              @keydown.shift.tab.prevent="composerSubjectRef?.focus()"
+              @keydown.down.prevent="moveContactHighlight(1)"
+              @keydown.up.prevent="moveContactHighlight(-1)"
+              @keydown.enter="onContactEnter"
+            />
+            <div v-if="contactSuggestions.length" class="composer-suggestions">
+              <div
+                v-for="(contact, i) in contactSuggestions"
+                :key="contact.address"
+                class="suggestion-item"
+                :class="{ highlighted: i === contactHighlight }"
+                @mousedown.prevent="selectContact(contact.address)"
+                @mouseenter="contactHighlight = i"
+              >
+                <span class="material-symbols-outlined text-purple">person</span>
+                <span class="composer-suggest-text">
+                  <span v-if="contact.name" class="composer-suggest-name">{{ contact.name }}</span>
+                  <span class="composer-suggest-address">{{ contact.address }}</span>
+                </span>
+              </div>
             </div>
-          </div>
-        </span>
+          </span>
+        </div>
+        <div class="composer-window-actions">
+          <button
+            class="composer-icon-btn"
+            title="Minimise to a tab"
+            aria-label="Minimise composer"
+            tabindex="-1"
+            @click="store.minimizeComposer"
+          >
+            <span class="material-symbols-outlined">horizontal_rule</span>
+          </button>
+          <button
+            class="composer-icon-btn"
+            title="Close"
+            aria-label="Close composer"
+            tabindex="-1"
+            @click="store.closeComposer"
+          >
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
       </div>
-      <div class="composer-window-actions">
-        <button
-          class="composer-icon-btn"
-          title="Minimise to a tab"
-          aria-label="Minimise composer"
-          tabindex="-1"
-          @click="store.minimizeComposer"
-        >
-          <span class="material-symbols-outlined">horizontal_rule</span>
-        </button>
-        <button
-          class="composer-icon-btn"
-          title="Close"
-          aria-label="Close composer"
-          tabindex="-1"
-          @click="store.closeComposer"
-        >
-          <span class="material-symbols-outlined">close</span>
-        </button>
+      <div class="composer-copies">
+        <!-- Keyed by the message: a line added for one and left empty does
+             not carry over to the next one the window shows. -->
+        <ComposerCopies
+          ref="composerCopiesRef"
+          :key="store.composerTabKey ?? ''"
+          v-model:cc="store.composerCc"
+          v-model:bcc="store.composerBcc"
+          :contacts="store.contacts"
+          :editing="headerFocused"
+          @exit="onCopiesExit"
+        />
       </div>
     </div>
     <!-- Saves that work stay silent. This warns only when neither the account
@@ -384,7 +428,7 @@ onUnmounted(() => {
           @update:text="store.composerTextArea = $event"
           @preview-state="store.composerSnippetPreviewOpen = $event"
           @generate="store.openAiDraft()"
-          @focus-prev="composerToRef?.focus()"
+          @focus-prev="focusBeforeBody"
         />
         <ShareAvailability
           @insert="composerBodyRef?.insertAvailability($event)"

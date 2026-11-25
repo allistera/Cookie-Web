@@ -515,6 +515,8 @@ export function localApiPlugin(mode) {
         const scheduledSend = {
           id: `stub-scheduled-${randomUUID()}`,
           toAddresses: body.to,
+          ccAddresses: body.cc ?? '',
+          bccAddresses: body.bcc ?? '',
           subject: body.subject,
           text: body.text,
           html: body.html ?? null,
@@ -3131,6 +3133,8 @@ export function localApiPlugin(mode) {
     const id = segments[1] ?? null
     const fromBody = (body) => ({
       to: String(body.to ?? ''),
+      cc: String(body.cc ?? ''),
+      bcc: String(body.bcc ?? ''),
       subject: String(body.subject ?? ''),
       text: String(body.text ?? ''),
       html: body.html ?? null,
@@ -3147,7 +3151,7 @@ export function localApiPlugin(mode) {
       ),
     })
     const isEmpty = (draft) =>
-      !draft.to.trim() &&
+      !(draft.to + draft.cc + draft.bcc).trim() &&
       !draft.subject.trim() &&
       !draft.text.trim() &&
       draft.attachments.length === 0

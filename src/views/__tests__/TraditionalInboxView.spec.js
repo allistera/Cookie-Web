@@ -2407,8 +2407,9 @@ describe('TraditionalInboxView reply send button', () => {
     await wrapper.find('.ni-row').trigger('click')
 
     await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
+    // The original's Cc list stays on Cc; the heading names who is written to.
     expect(wrapper.get('.ni-reply-header span:last-child').text()).toBe(
-      'Reply all to Sender today-1, Bea, cara@example.com',
+      'Reply all to Sender today-1, Bea',
     )
     expect(wrapper.get('.ni-reply-header .material-symbols-outlined').text()).toBe('reply_all')
 
@@ -2419,10 +2420,55 @@ describe('TraditionalInboxView reply send button', () => {
 
     expect(store.sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
-        to: 'sender-today-1@example.com, bea@example.com, cara@example.com',
+        to: 'sender-today-1@example.com, bea@example.com',
+        cc: 'cara@example.com',
         subject: 'Re: Subject today-1',
         replyToMessageId: 'today-1',
       }),
+    )
+  })
+
+  it('shows the reply-all Cc list on a Cc line that can be edited', async () => {
+    seedGroupEmail()
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    vi.spyOn(store, 'loadContacts').mockResolvedValue()
+    wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+    await wrapper.get('.ni-reader [title="Reply all"]').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.find('[data-copy="cc"] input').exists()).toBe(true))
+    const cc = wrapper.get('[data-copy="cc"] input')
+    expect(cc.element.value).toBe('cara@example.com')
+    await cc.setValue('cara@example.com, dev@example.com')
+
+    const editor = wrapper.find('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = 'Sounds good!'
+    await editor.trigger('input')
+    await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
+
+    // jsdom drops the space after the comma in an email input's value.
+    const sent = expect.stringMatching(/^cara@example\.com, ?dev@example\.com$/)
+    expect(store.sendMail).toHaveBeenCalledWith(expect.objectContaining({ cc: sent }))
+  })
+
+  it('adds a Bcc to a plain reply and blocks Send while it is not an address', async () => {
+    vi.spyOn(store, 'sendMail').mockResolvedValue({})
+    vi.spyOn(store, 'loadContacts').mockResolvedValue()
+    const sendButton = await openReplyBox()
+
+    await vi.waitFor(() => expect(wrapper.find('[aria-label="Add Bcc"]').exists()).toBe(true))
+    await wrapper.get('[aria-label="Add Bcc"]').trigger('click')
+    await nextTick()
+    const bcc = wrapper.get('[data-copy="bcc"] input')
+    await bcc.setValue('finance')
+    expect(sendButton.attributes()).toHaveProperty('disabled')
+
+    await bcc.setValue('finance@example.com')
+    expect(sendButton.attributes()).not.toHaveProperty('disabled')
+    await sendButton.trigger('click')
+
+    expect(store.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ cc: '', bcc: 'finance@example.com' }),
     )
   })
 
@@ -2443,7 +2489,7 @@ describe('TraditionalInboxView reply send button', () => {
 
     await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
     expect(store.sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'sender-today-1@example.com' }),
+      expect.objectContaining({ to: 'sender-today-1@example.com', cc: '' }),
     )
   })
 
@@ -2520,7 +2566,8 @@ describe('TraditionalInboxView reply send button', () => {
     wrapper.findComponent({ name: 'ComposerEditor' }).vm.$emit('generate')
     await nextTick()
 
-    expect(store.composerTo).toBe('sender-today-1@example.com, bea@example.com, cara@example.com')
+    expect(store.composerTo).toBe('sender-today-1@example.com, bea@example.com')
+    expect(store.composerCc).toBe('cara@example.com')
     expect(store.composerReplyToMessageId).toBe('today-1')
     expect(store.openComposer).toHaveBeenCalled()
   })

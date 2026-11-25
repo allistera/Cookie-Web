@@ -1,5 +1,6 @@
-// Helpers for the composer "to" field, which holds a comma-separated list of
-// recipient addresses (send to several people by adding a comma).
+// Helpers for the composer's recipient fields (To, Cc and Bcc), each of which
+// holds a comma-separated list of addresses (send to several people by adding
+// a comma).
 
 // The trimmed, non-empty addresses in the field.
 export function parseRecipients(value) {
@@ -21,6 +22,13 @@ export function recipientsValid(value) {
     list.length <= MAX_RECIPIENTS &&
     list.every((address) => address.includes('@'))
   )
+}
+
+// True when the message can go out as addressed: a valid To line, optional Cc
+// and Bcc lines that hold only addresses, and no more than MAX_RECIPIENTS
+// across the three (the send API counts them together).
+export function messageRecipientsValid(to, cc, bcc) {
+  return recipientsValid(to) && recipientsValid([to, cc, bcc].join())
 }
 
 // The address fragment the user is currently typing (after the last comma).

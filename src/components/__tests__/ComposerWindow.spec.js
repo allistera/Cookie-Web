@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
@@ -239,5 +239,93 @@ describe('ComposerWindow AI prompt', () => {
     await nextTick()
     expect(wrapper.find('.composer-ai-inline').exists()).toBe(false)
     wrapper.unmount()
+  })
+})
+
+describe('ComposerWindow Cc and Bcc', () => {
+  let wrapper
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  afterEach(() => wrapper?.unmount())
+
+  function openComposer() {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    store.composerTo = 'priya@example.com'
+    store.composerTextArea = 'Hello'
+    wrapper = mount(ComposerWindow, { attachTo: document.body })
+    return store
+  }
+
+  it('offers the lines while the header has the focus and puts them away after', async () => {
+    openComposer()
+    expect(wrapper.find('.composer-copy-add').exists()).toBe(false)
+
+    await wrapper.get('.composer-subject-inline').trigger('focusin')
+    expect(wrapper.findAll('.composer-copy-add')).toHaveLength(2)
+
+    // Focus moving within the header keeps them; leaving it does not.
+    await wrapper
+      .get('.composer-header')
+      .trigger('focusout', { relatedTarget: wrapper.get('.composer-to-inline').element })
+    expect(wrapper.findAll('.composer-copy-add')).toHaveLength(2)
+    await wrapper.get('.composer-header').trigger('focusout', { relatedTarget: null })
+    expect(wrapper.find('.composer-copy-add').exists()).toBe(false)
+  })
+
+  it('keeps a filled line and drops an empty one when the header loses the focus', async () => {
+    const store = openComposer()
+    await wrapper.get('.composer-subject-inline').trigger('focusin')
+    await wrapper.get('[aria-label="Add Cc"]').trigger('click')
+    await wrapper.get('[aria-label="Add Bcc"]').trigger('click')
+    await nextTick()
+    await wrapper.get('[data-copy="cc"] input').setValue('dana@example.com')
+    expect(store.composerCc).toBe('dana@example.com')
+
+    await wrapper.get('.composer-header').trigger('focusout', { relatedTarget: null })
+    expect(wrapper.find('[data-copy="cc"] input').exists()).toBe(true)
+    expect(wrapper.find('[data-copy="bcc"]').exists()).toBe(false)
+  })
+
+  it('blocks Send while a Cc or Bcc entry is not an address', async () => {
+    const store = openComposer()
+    const send = () => wrapper.get('.composer-send-btn-split').attributes()
+    expect(send()).not.toHaveProperty('disabled')
+
+    store.composerCc = 'dana'
+    await nextTick()
+    expect(send()).toHaveProperty('disabled')
+
+    store.composerCc = 'dana@example.com'
+    store.composerBcc = 'finance@example.com'
+    await nextTick()
+    expect(send()).not.toHaveProperty('disabled')
+  })
+
+  it('starts the next message without a line left empty in the last one', async () => {
+    const store = openComposer()
+    store.composerTabKey = 'compose:1'
+    await nextTick()
+    await wrapper.get('.composer-subject-inline').trigger('focusin')
+    await wrapper.get('[aria-label="Add Cc"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-copy="cc"]').exists()).toBe(true)
+
+    store.composerTabKey = 'compose:2'
+    await nextTick()
+    expect(wrapper.find('[data-copy="cc"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Add Cc"]').exists()).toBe(true)
+  })
+
+  it('tabs from "to" into a line that is shown', async () => {
+    const store = openComposer()
+    store.composerCc = 'dana@example.com'
+    await nextTick()
+
+    await wrapper.get('.composer-to-inline').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(wrapper.get('[data-copy="cc"] input').element)
   })
 })

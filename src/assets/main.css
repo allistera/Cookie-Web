@@ -2624,6 +2624,7 @@ button.ni-attachment:hover {
 
 /* Inline reply box */
 .ni-reply-box {
+  position: relative;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 16px 20px;
@@ -2632,12 +2633,14 @@ button.ni-attachment:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow: hidden;
   flex-shrink: 0;
 }
 
+/* Clipped only while it opens and closes: at rest the Cc and Bcc contact
+   suggestions drop below the box. */
 .ni-reply-enter-active,
 .ni-reply-leave-active {
+  overflow: hidden;
   transition:
     max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.25s ease,
@@ -2660,6 +2663,7 @@ button.ni-attachment:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  padding-right: 88px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -2673,6 +2677,30 @@ button.ni-attachment:hover {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-secondary);
+}
+
+/* The reply box's Cc and Bcc lines follow its heading's size; "+ cc" and
+   "+ bcc" sit at the right of the heading's own line, which keeps clear of
+   them. */
+.ni-reply-box .composer-copy-row,
+.ni-reply-box .composer-copy-input {
+  font-size: 14px;
+}
+
+.ni-reply-box .composer-copy-label {
+  color: var(--text-secondary);
+}
+
+.ni-reply-box .composer-copy-links {
+  top: 17px;
+  right: 20px;
+  left: auto;
+}
+
+/* Holds the lines without becoming a row of the box itself: with no line
+   shown it would otherwise add an empty gap under the heading. */
+.ni-reply-copies {
+  display: contents;
 }
 
 /* The reply body reuses .composer-editor (the compose window's rich editor);
@@ -3429,7 +3457,8 @@ body:has(.window-dock) .ni-reader {
   color: var(--text-primary);
 }
 
-.composer-to-inline {
+.composer-to-inline,
+.composer-copy-input {
   flex-grow: 1;
   min-width: 0;
   border: none;
@@ -3447,6 +3476,62 @@ body:has(.window-dock) .ni-reader {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* Cc and Bcc lines (components/ComposerCopies.vue). In the composer they
+   start in the title row's bottom padding: each line moves the message down
+   by its own height, while the "+ cc" and "+ bcc" links float in the gap
+   above the message, so offering them moves nothing. */
+.composer-copies {
+  position: relative;
+  margin-top: -8px;
+  padding: 0 24px 8px;
+}
+
+.composer-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.composer-copy-label {
+  color: var(--text-primary);
+}
+
+.composer-copy-remove .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.composer-copy-links {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 24px;
+  display: flex;
+  gap: 14px;
+}
+
+/* A status line straight under the header would sit beneath floating links. */
+.composer-copies:has(+ .composer-save-status) .composer-copy-links {
+  position: static;
+}
+
+.composer-copy-add {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-stack);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--text-secondary);
+}
+
+.composer-copy-add:hover {
+  color: var(--text-primary);
 }
 
 .composer-suggestions {

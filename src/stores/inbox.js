@@ -32,7 +32,7 @@ import {
   TASKS_API_URL,
 } from '../lib/apiWorkers'
 import { localToday } from '../lib/localDate'
-import { recipientsValid } from '../lib/recipients'
+import { messageRecipientsValid } from '../lib/recipients'
 import { sanitizeEmailHtml } from '../lib/sanitizeEmailHtml'
 import { plainTextToHtml, htmlToText } from '../lib/composeHtml'
 
@@ -870,6 +870,8 @@ export const useInboxStore = defineStore('inbox', {
     composerSnippetPreviewOpen: false,
     composerAvailabilityPreviewOpen: false,
     composerTo: '',
+    composerCc: '',
+    composerBcc: '',
     composerSubject: '',
     composerTextArea: '', // plain-text body (innerText of the rich editor)
     composerHtml: '', // rich HTML body from the WYSIWYG editor
@@ -1072,7 +1074,7 @@ export const useInboxStore = defineStore('inbox', {
     draftCount: (state) => state.drafts.length + state.draftRecoveries.length,
     // Nothing written yet: at most the signature a fresh message starts with.
     isComposerBlank: (state) =>
-      !state.composerTo.trim() &&
+      !(state.composerTo + state.composerCc + state.composerBcc).trim() &&
       !state.composerSubject.trim() &&
       !state.composerAttachments.length &&
       state.composerTextArea.replace(/\s+/g, '') ===
@@ -3235,6 +3237,8 @@ export const useInboxStore = defineStore('inbox', {
       this.isComposerActive = false
       this.composerSessionId += 1
       this.composerTo = ''
+      this.composerCc = ''
+      this.composerBcc = ''
       this.composerSubject = ''
       this.composerHtml = ''
       this.composerTextArea = ''
@@ -3558,6 +3562,8 @@ export const useInboxStore = defineStore('inbox', {
       this.composerSnippetPreviewOpen = false
       this.composerAvailabilityPreviewOpen = false
       this.composerTo = ''
+      this.composerCc = ''
+      this.composerBcc = ''
       this.composerSubject = ''
       this.composerTextArea = ''
       this.composerHtml = ''
@@ -3800,6 +3806,8 @@ export const useInboxStore = defineStore('inbox', {
       const entry = {
         id: draft.id,
         to: draft.to ?? '',
+        cc: draft.cc ?? '',
+        bcc: draft.bcc ?? '',
         subject: draft.subject ?? '',
         text: draft.text ?? '',
         html: draft.html ?? null,
@@ -3854,6 +3862,8 @@ export const useInboxStore = defineStore('inbox', {
       if (!isCurrent()) throw new Error('The signed-in account changed')
       const payload = {
         to: draft.to ?? '',
+        cc: draft.cc ?? '',
+        bcc: draft.bcc ?? '',
         subject: draft.subject ?? '',
         text: draft.text ?? '',
         html: draft.html ?? null,
@@ -3914,6 +3924,8 @@ export const useInboxStore = defineStore('inbox', {
       if (!this.isComposerActive) return null
       return {
         to: this.composerTo,
+        cc: this.composerCc,
+        bcc: this.composerBcc,
         subject: this.composerSubject,
         text: this.composerTextArea,
         html: this.composerHtml,
@@ -3951,6 +3963,8 @@ export const useInboxStore = defineStore('inbox', {
       this.composerRecoveryId = null
       this.composerSendIdentity = null
       this.composerTo = draft.to ?? ''
+      this.composerCc = draft.cc ?? ''
+      this.composerBcc = draft.bcc ?? ''
       this.composerSubject = draft.subject ?? ''
       this.composerTextArea = draft.text ?? ''
       this.composerHtml = draft.html ?? ''
@@ -4287,6 +4301,8 @@ export const useInboxStore = defineStore('inbox', {
       this.noteDraftVersion(draft)
       this.composerSessionId += 1
       this.composerTo = draft.to ?? ''
+      this.composerCc = draft.cc ?? ''
+      this.composerBcc = draft.bcc ?? ''
       this.composerSubject = draft.subject ?? ''
       this.composerTextArea = draft.text ?? ''
       this.composerHtml = draft.html ?? ''
@@ -4315,6 +4331,8 @@ export const useInboxStore = defineStore('inbox', {
       if (message.owner !== undefined && message.owner !== this.composeOwnerSub) return null
       this.setComposerAside()
       this.composerTo = message.to
+      this.composerCc = message.cc ?? ''
+      this.composerBcc = message.bcc ?? ''
       this.composerSubject = message.subject
       this.composerTextArea = message.text
       this.composerHtml = message.html
@@ -4538,7 +4556,11 @@ export const useInboxStore = defineStore('inbox', {
       if (this.isSendingEmail || this.pendingSend) return
       if (this.composerSendIdentity?.outgoing?.sendAt) return this.sendEmailLater()
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return
-      if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return
+      if (
+        !messageRecipientsValid(this.composerTo, this.composerCc, this.composerBcc) ||
+        !this.composerTextArea.trim()
+      )
+        return
       const unresolved = unresolvedSnippetFields(this.composerHtml, this.composerTextArea)
       if (unresolved.length) {
         this.notify(unresolvedSnippetWarning(unresolved), 'error')
@@ -4546,6 +4568,8 @@ export const useInboxStore = defineStore('inbox', {
       }
       const draft = normalizeOutgoingDraft({
         to: this.composerTo,
+        cc: this.composerCc,
+        bcc: this.composerBcc,
         subject: this.composerSubject,
         text: this.composerTextArea,
         html: this.composerHtml,
@@ -4670,7 +4694,11 @@ export const useInboxStore = defineStore('inbox', {
     async sendEmailLater(sendAt, label) {
       if (this.isSendingEmail || this.pendingSend) return false
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return false
-      if (!recipientsValid(this.composerTo) || !this.composerTextArea.trim()) return false
+      if (
+        !messageRecipientsValid(this.composerTo, this.composerCc, this.composerBcc) ||
+        !this.composerTextArea.trim()
+      )
+        return false
       const originalSendAt = this.composerSendIdentity?.outgoing?.sendAt
       if (originalSendAt) {
         sendAt = originalSendAt
@@ -4683,6 +4711,8 @@ export const useInboxStore = defineStore('inbox', {
       }
       const draft = normalizeOutgoingDraft({
         to: this.composerTo,
+        cc: this.composerCc,
+        bcc: this.composerBcc,
         subject: this.composerSubject,
         text: this.composerTextArea,
         html: this.composerHtml,
@@ -4812,6 +4842,8 @@ export const useInboxStore = defineStore('inbox', {
       this.restoreComposerMessage({
         owner,
         to: canceled.toAddresses,
+        cc: canceled.ccAddresses,
+        bcc: canceled.bccAddresses,
         subject: canceled.subject,
         text: html === (canceled.html ?? '') ? canceled.text : htmlToText(html),
         html: html || plainTextToHtml(canceled.text),
