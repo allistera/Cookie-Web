@@ -23,11 +23,12 @@ test('the reader blocks a tracking image and tells the reader so', async ({ page
   const notice = page.locator('.ni-email-trackers-notice')
   await expect(notice).toHaveText(/This email contained a tracking image, which was blocked\./)
 
-  // The real image is still there to show; the pixel is gone from the frame.
+  // The fixture email is Important, so the reader loads its images at once
+  // rather than asking: the real image is there to show, the pixel is gone.
+  await expect(page.locator('.ni-email-images-notice:not(.ni-email-trackers-notice)')).toHaveCount(
+    0,
+  )
   const frame = page.frameLocator('iframe[title="Email content"]')
   await expect(frame.locator('img')).toHaveCount(1)
   await expect(frame.locator('img')).toHaveAttribute('src', 'https://news.example/logo.png')
-  await page.locator('.ni-email-images-notice').getByRole('button', { name: 'Show images' }).click()
-  await expect(frame.locator('img')).toHaveCount(1)
-  await expect(notice).toBeVisible()
 })
