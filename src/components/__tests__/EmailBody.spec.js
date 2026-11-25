@@ -136,6 +136,60 @@ describe('EmailBody', () => {
     expect(embeddedOnly.find('.ni-email-images-notice').exists()).toBe(false)
   })
 
+  it('takes tracking images out of the frame and says so, even when images are shown', () => {
+    const wrapper = mount(EmailBody, {
+      props: {
+        html:
+          '<p>Hello</p><img src="https://news.example/logo.png" width="600" height="120">' +
+          '<img src="https://news.example/track/open.php?u=1" width="1" height="1" alt="">',
+        showImages: true,
+      },
+    })
+
+    const notice = wrapper.find('.ni-email-trackers-notice')
+    expect(notice.exists()).toBe(true)
+    expect(notice.text()).toContain('This email contained a tracking image, which was blocked.')
+    // Trusted mail still loads its real images.
+    expect(wrapper.find('.ni-email-images-notice:not(.ni-email-trackers-notice)').exists()).toBe(
+      false,
+    )
+    const srcdoc = wrapper.find('iframe').attributes('srcdoc')
+    expect(srcdoc).toContain('logo.png')
+    expect(srcdoc).not.toContain('track/open.php')
+    expect(srcdoc).toMatch(/img-src data: cid: https: http:/)
+
+    const several = mount(EmailBody, {
+      props: {
+        html:
+          '<img src="https://t.example/a" width="1" height="1">' +
+          '<img src="https://t.example/b" style="width:0px;height:0px">' +
+          '<p>Body</p>',
+      },
+    })
+    expect(several.find('.ni-email-trackers-notice').text()).toContain(
+      'This email contained 2 tracking images, which were blocked.',
+    )
+  })
+
+  it('offers no "Show images" when the only remote image was a tracker', () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: '<p>Hello</p><img src="https://t.example/o.gif" width="1" height="1">' },
+    })
+    expect(wrapper.find('.ni-email-trackers-notice').exists()).toBe(true)
+    expect(wrapper.find('.ni-email-images-notice:not(.ni-email-trackers-notice)').exists()).toBe(
+      false,
+    )
+    expect(wrapper.find('iframe').attributes('srcdoc')).not.toContain('o.gif')
+  })
+
+  it('shows no tracking notice for ordinary images', () => {
+    const wrapper = mount(EmailBody, {
+      props: { html: '<img src="https://news.example/logo.png" width="600" height="120">' },
+    })
+    expect(wrapper.find('.ni-email-trackers-notice').exists()).toBe(false)
+    expect(wrapper.find('.ni-email-images-notice').exists()).toBe(true)
+  })
+
   it('loads remote images from the start when showImages is set', () => {
     const wrapper = mount(EmailBody, {
       props: { html: '<img src="https://tracker.example/logo.png">', showImages: true },
