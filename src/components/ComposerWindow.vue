@@ -320,7 +320,7 @@ onUnmounted(() => {
               type="email"
               multiple
               autocomplete="off"
-              placeholder="name@example.com, name2@example.com"
+              placeholder="name@example.com"
               title="Send to several people by separating addresses with commas"
               @focus="openContactSuggest"
               @input="openContactSuggest"
