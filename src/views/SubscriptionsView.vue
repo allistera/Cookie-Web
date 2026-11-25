@@ -93,78 +93,88 @@ onMounted(load)
 
 <template>
   <div class="subscriptions-view" data-testid="subscriptions-view">
-    <header class="subscriptions-header">
-      <h1>Subscriptions</h1>
-      <p class="subscriptions-subtitle">
-        Newsletters and mailing lists that send you mail, newest first. Unsubscribing asks the
-        sender to stop; mail you already have stays where it is.
-      </p>
-    </header>
+    <div class="subscriptions-page">
+      <header class="subscriptions-header">
+        <h1>Subscriptions</h1>
+        <p class="subscriptions-subtitle">
+          Newsletters and mailing lists that send you mail, newest first. Unsubscribing asks the
+          sender to stop; mail you already have stays where it is.
+        </p>
+      </header>
 
-    <!-- Loading, then error, then empty: the empty message must never stand
-         in for a request that is still running or that failed. -->
-    <div
-      v-if="isLoading"
-      class="subscriptions-loading"
-      role="status"
-      aria-label="Loading subscriptions"
-    >
-      <div class="spinner"></div>
-    </div>
-
-    <div v-else-if="loadError" class="subscriptions-error" role="alert">
-      <p>{{ loadError }}</p>
-      <button type="button" class="btn btn-secondary" @click="load">Try again</button>
-    </div>
-
-    <div v-else-if="!subscriptions.length" class="subscriptions-empty">
-      No mail in this mailbox offers a way to unsubscribe.
-    </div>
-
-    <ul v-else class="subscriptions-list">
-      <li
-        v-for="subscription in subscriptions"
-        :key="subscription.address"
-        class="subscriptions-row"
-        :class="{ 'is-unsubscribed': !canUnsubscribe(subscription) }"
+      <!-- Loading, then error, then empty: the empty message must never stand
+           in for a request that is still running or that failed. -->
+      <div
+        v-if="isLoading"
+        class="subscriptions-loading"
+        role="status"
+        aria-label="Loading subscriptions"
       >
-        <div class="subscriptions-info">
-          <span class="subscriptions-name">{{ senderName(subscription) }}</span>
-          <span class="subscriptions-meta">
-            <template v-if="subscription.name">{{ subscription.address }} · </template
-            >{{ emailCount(subscription) }} · last
-            {{ formatDate(subscription.lastReceivedAt) }}
+        <div class="spinner"></div>
+      </div>
+
+      <div v-else-if="loadError" class="subscriptions-error" role="alert">
+        <p>{{ loadError }}</p>
+        <button type="button" class="btn btn-secondary" @click="load">Try again</button>
+      </div>
+
+      <div v-else-if="!subscriptions.length" class="subscriptions-empty">
+        No mail in this mailbox offers a way to unsubscribe.
+      </div>
+
+      <ul v-else class="subscriptions-list">
+        <li
+          v-for="subscription in subscriptions"
+          :key="subscription.address"
+          class="subscriptions-row"
+          :class="{ 'is-unsubscribed': !canUnsubscribe(subscription) }"
+        >
+          <div class="subscriptions-info">
+            <span class="subscriptions-name">{{ senderName(subscription) }}</span>
+            <span class="subscriptions-meta">
+              <template v-if="subscription.name">{{ subscription.address }} · </template
+              >{{ emailCount(subscription) }} · last
+              {{ formatDate(subscription.lastReceivedAt) }}
+            </span>
+          </div>
+          <span v-if="subscription.unsubscribedAt" class="subscriptions-status">
+            {{ unsubscribedLabel(subscription) }}
           </span>
-        </div>
-        <span v-if="subscription.unsubscribedAt" class="subscriptions-status">
-          {{ unsubscribedLabel(subscription) }}
-        </span>
-        <a
-          v-if="manualLinks.has(subscription.address)"
-          class="subscriptions-action"
-          :href="manualLinks.get(subscription.address)"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open unsubscribe page
-        </a>
-        <button
-          v-else-if="canUnsubscribe(subscription)"
-          type="button"
-          class="subscriptions-action"
-          :disabled="pending.has(subscription.address)"
-          :aria-label="`Unsubscribe from ${senderName(subscription)}`"
-          @click="unsubscribe(subscription)"
-        >
-          {{ pending.has(subscription.address) ? 'Unsubscribing…' : 'Unsubscribe' }}
-        </button>
-      </li>
-    </ul>
+          <a
+            v-if="manualLinks.has(subscription.address)"
+            class="subscriptions-action"
+            :href="manualLinks.get(subscription.address)"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open unsubscribe page
+          </a>
+          <button
+            v-else-if="canUnsubscribe(subscription)"
+            type="button"
+            class="subscriptions-action"
+            :disabled="pending.has(subscription.address)"
+            :aria-label="`Unsubscribe from ${senderName(subscription)}`"
+            @click="unsubscribe(subscription)"
+          >
+            {{ pending.has(subscription.address) ? 'Unsubscribing…' : 'Unsubscribe' }}
+          </button>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* .main-content clips what overflows it, so the view scrolls itself. The
+   scroller spans the panel, keeping the scrollbar at the panel's edge. */
 .subscriptions-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.subscriptions-page {
   max-width: 760px;
   margin: 0 auto;
   padding: 32px 24px;

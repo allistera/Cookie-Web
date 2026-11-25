@@ -54,64 +54,74 @@ async function cancel(scheduledSend) {
 
 <template>
   <div class="scheduled-sends-view">
-    <header class="scheduled-sends-header">
-      <h1>Scheduled</h1>
-      <p class="scheduled-sends-subtitle">
-        Mail queued to send later. Cancel any time before it goes out to edit or discard it.
-      </p>
-    </header>
+    <div class="scheduled-sends-page">
+      <header class="scheduled-sends-header">
+        <h1>Scheduled</h1>
+        <p class="scheduled-sends-subtitle">
+          Mail queued to send later. Cancel any time before it goes out to edit or discard it.
+        </p>
+      </header>
 
-    <!-- Loading, then error, then empty: the empty message must never stand
-         in for a request that is still running or that failed. -->
-    <div
-      v-if="store.isScheduledSendsLoading && !store.isScheduledSendsLoaded"
-      class="scheduled-sends-loading"
-      role="status"
-      aria-label="Loading scheduled mail"
-    >
-      <div class="spinner"></div>
-    </div>
+      <!-- Loading, then error, then empty: the empty message must never stand
+           in for a request that is still running or that failed. -->
+      <div
+        v-if="store.isScheduledSendsLoading && !store.isScheduledSendsLoaded"
+        class="scheduled-sends-loading"
+        role="status"
+        aria-label="Loading scheduled mail"
+      >
+        <div class="spinner"></div>
+      </div>
 
-    <div v-else-if="store.scheduledSendsError" class="scheduled-sends-error" role="alert">
-      <p>{{ store.scheduledSendsError }}</p>
-      <button type="button" class="btn btn-secondary" @click="store.loadScheduledSends()">
-        Try again
-      </button>
-    </div>
-
-    <div v-else-if="!store.scheduledSends.length" class="scheduled-sends-empty">
-      Nothing is scheduled to send later.
-    </div>
-
-    <ul v-else class="scheduled-sends-list">
-      <li v-for="item in store.scheduledSends" :key="item.id" class="scheduled-sends-row">
-        <div class="scheduled-sends-info">
-          <span class="scheduled-sends-subject">{{ item.subject || '(no subject)' }}</span>
-          <span class="scheduled-sends-to">To: {{ item.toAddresses }}</span>
-        </div>
-        <span
-          class="scheduled-sends-time"
-          :class="{ 'is-failed': item.status === 'failed' || item.status === 'uncertain' }"
-        >
-          {{ statusLabel(item) }}
-        </span>
-        <button
-          type="button"
-          class="scheduled-sends-cancel"
-          :disabled="
-            cancellingIds.has(item.id) || Boolean(item.status && item.status !== 'pending')
-          "
-          @click="cancel(item)"
-        >
-          Cancel
+      <div v-else-if="store.scheduledSendsError" class="scheduled-sends-error" role="alert">
+        <p>{{ store.scheduledSendsError }}</p>
+        <button type="button" class="btn btn-secondary" @click="store.loadScheduledSends()">
+          Try again
         </button>
-      </li>
-    </ul>
+      </div>
+
+      <div v-else-if="!store.scheduledSends.length" class="scheduled-sends-empty">
+        Nothing is scheduled to send later.
+      </div>
+
+      <ul v-else class="scheduled-sends-list">
+        <li v-for="item in store.scheduledSends" :key="item.id" class="scheduled-sends-row">
+          <div class="scheduled-sends-info">
+            <span class="scheduled-sends-subject">{{ item.subject || '(no subject)' }}</span>
+            <span class="scheduled-sends-to">To: {{ item.toAddresses }}</span>
+          </div>
+          <span
+            class="scheduled-sends-time"
+            :class="{ 'is-failed': item.status === 'failed' || item.status === 'uncertain' }"
+          >
+            {{ statusLabel(item) }}
+          </span>
+          <button
+            type="button"
+            class="scheduled-sends-cancel"
+            :disabled="
+              cancellingIds.has(item.id) || Boolean(item.status && item.status !== 'pending')
+            "
+            @click="cancel(item)"
+          >
+            Cancel
+          </button>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* .main-content clips what overflows it, so the view scrolls itself. The
+   scroller spans the panel, keeping the scrollbar at the panel's edge. */
 .scheduled-sends-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.scheduled-sends-page {
   max-width: 720px;
   margin: 0 auto;
   padding: 32px 24px;

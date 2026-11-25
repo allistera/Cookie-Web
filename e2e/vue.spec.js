@@ -1066,6 +1066,18 @@ test('Composer "Send Later" queues a scheduled send instead of sending immediate
   expect(sendRequestBody.sendAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
 })
 
+test('Scheduled scrolls when it is taller than the window', async ({ page }) => {
+  // Short enough that even the empty page does not fit.
+  await page.setViewportSize({ width: 1280, height: 200 })
+  await page.goto('/scheduled')
+
+  const view = page.locator('.scheduled-sends-view')
+  await expect(view.locator('.scheduled-sends-empty')).toBeAttached()
+  await view.hover()
+  await page.mouse.wheel(0, 2000)
+  await expect.poll(() => view.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+})
+
 test('A sent-message follow-up reminder persists across reload and can be cleared', async ({
   page,
 }) => {
