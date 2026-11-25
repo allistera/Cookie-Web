@@ -102,14 +102,13 @@ describe('ComposerCopies', () => {
     expect(wrapper.emitted('exit')).toEqual([['back']])
   })
 
-  it('puts away lines that were added and left empty', async () => {
+  it('puts away lines that were added and left empty once editing stops', async () => {
     mountCopies({ cc: 'dana@example.com' })
     await addLink('Bcc').trigger('click')
     await nextTick()
     expect(line('bcc').exists()).toBe(true)
 
-    wrapper.vm.collapse()
-    await nextTick()
+    await wrapper.setProps({ editing: false })
     expect(line('bcc').exists()).toBe(false)
     expect(line('cc').exists()).toBe(true)
   })

@@ -3,7 +3,7 @@
 // under the heading of the reader's reply box. A line shows once it is added
 // ("+ cc", "+ bcc") or holds an address. Each is a comma-separated list like
 // the "to" field, with the same contact suggestions.
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 import { filterContacts } from '../lib/contactSuggest'
 import { appendRecipient, completedRecipients, currentRecipientToken } from '../lib/recipients'
@@ -13,7 +13,8 @@ const props = defineProps({
   bcc: { type: String, default: '' },
   contacts: { type: Array, default: () => [] },
   // Whether the "+ cc" and "+ bcc" links and the remove buttons are on offer:
-  // the composer shows them while its header has the focus.
+  // the composer shows them while its header has the focus. When it stops, a
+  // line that was added and left empty is put away with them.
   editing: { type: Boolean, default: true },
 })
 
@@ -30,6 +31,15 @@ const added = reactive({ cc: false, bcc: false })
 const shown = computed(() => KINDS.filter((kind) => added[kind] || props[kind].trim()))
 const offered = computed(() =>
   props.editing ? KINDS.filter((kind) => !shown.value.includes(kind)) : [],
+)
+
+watch(
+  () => props.editing,
+  (editing) => {
+    if (editing) return
+    added.cc = false
+    added.bcc = false
+  },
 )
 
 const inputs = {}
@@ -117,11 +127,6 @@ function onTab(kind, event) {
 }
 
 defineExpose({
-  // Puts away the lines that were added and left empty.
-  collapse() {
-    added.cc = false
-    added.bcc = false
-  },
   focusFirst: () => focusLine(shown.value[0]),
   focusLast: () => focusLine(shown.value.at(-1)),
 })

@@ -220,9 +220,6 @@ const composerCopiesRef = ref(null)
 watch(
   () => [store.isComposerActive, store.composerTabKey],
   ([active]) => {
-    // Another message is in the window now: a Cc or Bcc line added for the
-    // last one and left empty does not carry over.
-    composerCopiesRef.value?.collapse()
     if (active) nextTick(() => composerSubjectRef.value?.focus())
   },
   { immediate: true },
@@ -234,9 +231,7 @@ watch(
 const headerFocused = ref(false)
 
 function onHeaderFocusOut(event) {
-  if (event.currentTarget.contains(event.relatedTarget)) return
-  headerFocused.value = false
-  composerCopiesRef.value?.collapse()
+  if (!event.currentTarget.contains(event.relatedTarget)) headerFocused.value = false
 }
 
 // Tab runs subject, to, cc, bcc, body, skipping the lines that are not shown.
@@ -376,8 +371,11 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="composer-copies">
+        <!-- Keyed by the message: a line added for one and left empty does
+             not carry over to the next one the window shows. -->
         <ComposerCopies
           ref="composerCopiesRef"
+          :key="store.composerTabKey ?? ''"
           v-model:cc="store.composerCc"
           v-model:bcc="store.composerBcc"
           :contacts="store.contacts"

@@ -2446,9 +2446,9 @@ describe('TraditionalInboxView reply send button', () => {
     await editor.trigger('input')
     await wrapper.find('.ni-reply-footer .btn-primary').trigger('click')
 
-    expect(store.sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({ cc: 'cara@example.com, dev@example.com' }),
-    )
+    // jsdom drops the space after the comma in an email input's value.
+    const sent = expect.stringMatching(/^cara@example\.com, ?dev@example\.com$/)
+    expect(store.sendMail).toHaveBeenCalledWith(expect.objectContaining({ cc: sent }))
   })
 
   it('adds a Bcc to a plain reply and blocks Send while it is not an address', async () => {

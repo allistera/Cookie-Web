@@ -305,6 +305,21 @@ describe('ComposerWindow Cc and Bcc', () => {
     expect(send()).not.toHaveProperty('disabled')
   })
 
+  it('starts the next message without a line left empty in the last one', async () => {
+    const store = openComposer()
+    store.composerTabKey = 'compose:1'
+    await nextTick()
+    await wrapper.get('.composer-subject-inline').trigger('focusin')
+    await wrapper.get('[aria-label="Add Cc"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-copy="cc"]').exists()).toBe(true)
+
+    store.composerTabKey = 'compose:2'
+    await nextTick()
+    expect(wrapper.find('[data-copy="cc"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Add Cc"]').exists()).toBe(true)
+  })
+
   it('tabs from "to" into a line that is shown', async () => {
     const store = openComposer()
     store.composerCc = 'dana@example.com'
