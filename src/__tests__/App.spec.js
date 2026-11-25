@@ -33,6 +33,7 @@ beforeEach(() => {
       { path: '/', name: 'ai-inbox', component: { template: '<div />' } },
       { path: '/inbox', name: 'traditional-inbox', component: { template: '<div />' } },
       { path: '/search', name: 'search', component: { template: '<div />' } },
+      { path: '/subscriptions', name: 'subscriptions', component: { template: '<div />' } },
       { path: '/calendar', name: 'calendar', component: { template: '<div />' } },
       { path: '/documents', name: 'documents', component: { template: '<div />' } },
       { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
@@ -291,16 +292,31 @@ describe('application shell', () => {
     const [areas, boxes] = wrapper
       .findAll('.left-sidebar .sidebar-nav')
       .map((nav) => nav.findAll('.nav-text').map((node) => node.text()))
-    expect(areas).toEqual(['AI Today', 'Paper Trail', 'The Feed', 'New senders'])
+    expect(areas).toEqual(['AI Today', 'Paper Trail', 'The Feed', 'Subscriptions', 'New senders'])
     expect(boxes).toEqual(['Inbox', 'More'])
     store.screeningCount = 0
     await nextTick()
     expect(
       wrapper
         .findAll('.left-sidebar .sidebar-nav .nav-text')
-        .slice(0, 4)
+        .slice(0, 5)
         .map((node) => node.text()),
-    ).toEqual(['AI Today', 'Paper Trail', 'The Feed', 'Inbox'])
+    ).toEqual(['AI Today', 'Paper Trail', 'The Feed', 'Subscriptions', 'Inbox'])
+  })
+
+  it('opens Subscriptions from the Areas list', async () => {
+    await render()
+    const item = () =>
+      wrapper
+        .findAll('.left-sidebar .nav-item')
+        .find((node) => node.find('.nav-text').text() === 'Subscriptions')
+    expect(item().classes()).not.toContain('active')
+    await item().trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('subscriptions')
+    expect(item().classes()).toContain('active')
+    // Still the mail app: the mail sidebar stays.
+    expect(wrapper.find('.left-sidebar').exists()).toBe(true)
   })
 
   it("opens The Feed as today's Newsletters, apart from the Newsletters label itself", async () => {

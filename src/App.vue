@@ -893,6 +893,15 @@ onUnmounted(() => {
               <span class="material-symbols-outlined" aria-hidden="true">auto_stories</span>
               <span class="nav-text">The Feed</span>
             </router-link>
+            <!-- Every sender whose mail offers a way to unsubscribe. -->
+            <router-link
+              to="/subscriptions"
+              class="nav-item"
+              :class="{ active: route.name === 'subscriptions' }"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">unsubscribe</span>
+              <span class="nav-text">Subscriptions</span>
+            </router-link>
             <!-- New senders only shows while it holds mail (the count arrives
                  with the inbox state), or while it is open. -->
             <router-link
