@@ -2065,10 +2065,12 @@ function isAvailabilityDialogEvent(event) {
 function onKeydown(e) {
   // The teleported reply dialog owns its keys, including Escape and shortcuts.
   if (isAvailabilityDialogEvent(e)) return
-  // The command palette, composer, and modal dialogs own Escape while open.
+  // The command palette, composer, and modal dialogs own Escape while open,
+  // and a field being typed in (a reply) keeps the reader it belongs to.
   // Otherwise Escape unchecks the multi-select first; a second press closes the reader.
   if (
     e.key === 'Escape' &&
+    !isTypingTarget(e.target) &&
     !store.isCommandPaletteOpen &&
     !store.isComposerActive &&
     !document.querySelector('dialog[open], [aria-modal="true"]')
