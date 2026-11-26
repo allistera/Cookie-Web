@@ -275,6 +275,14 @@ watch(
   },
 )
 
+// The editor ignores a new model value while focused (so typing is not
+// clobbered), and a conflict usually lands mid-typing; replace it outright,
+// as the reply box does, so the screen shows the body that will be sent.
+watch(
+  () => store.composerConflictAdoptions,
+  () => composerBodyRef.value?.replaceContent(store.composerHtml),
+)
+
 // A closing tab never runs the pending debounce, and 'hidden' is the last
 // event a mobile browser reliably delivers before backgrounding the page.
 function onVisibilityChange() {

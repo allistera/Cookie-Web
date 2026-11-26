@@ -897,6 +897,9 @@ export const useInboxStore = defineStore('inbox', {
     // { session, draft } with the server's draft, for the reply box (which
     // owns its own content) to load in place of what it holds.
     replyDraftConflict: null,
+    // Counts composer conflict adoptions, so the composer window can put the
+    // adopted body into its editor even while the caret is in it.
+    composerConflictAdoptions: 0,
     // Identifies one composing session — one message being written. Bumped
     // whenever a surface starts a new message or hands the current one off to
     // a send. Uploads and saves capture it and refuse to apply their result to
@@ -3971,6 +3974,7 @@ export const useInboxStore = defineStore('inbox', {
       this.composerReplyToMessageId = draft.replyToMessageId ?? null
       this.composerFollowUpAt = draft.followUpAt ?? null
       this.composerAttachments = draft.attachments ?? []
+      this.composerConflictAdoptions += 1
       this.notify(
         'This draft changed in another tab. Showing the latest version; your local edits are kept in Drafts.',
       )

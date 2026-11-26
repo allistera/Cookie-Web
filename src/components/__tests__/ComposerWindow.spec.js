@@ -329,3 +329,35 @@ describe('ComposerWindow Cc and Bcc', () => {
     expect(document.activeElement).toBe(wrapper.get('[data-copy="cc"] input').element)
   })
 })
+
+describe('ComposerWindow draft conflict', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('shows the adopted body in the editor even while the caret is in it', async () => {
+    const store = useInboxStore()
+    vi.spyOn(store, 'notify').mockImplementation(() => {})
+    store.isComposerActive = true
+    store.composerDraftId = 'draft-1'
+    store.composerHtml = '<p>Local words</p>'
+    const wrapper = mount(ComposerWindow, { attachTo: document.body })
+    // Opening focuses the subject on the next tick; then the user clicks in.
+    await nextTick()
+    const editor = wrapper.get('.composer-editor').element
+    editor.focus()
+
+    store.adoptConflictingComposerDraft(store.composerSessionId, {
+      id: 'draft-1',
+      to: 'alice@example.com',
+      text: 'Other tab',
+      html: '<p>Other tab</p>',
+    })
+    await nextTick()
+
+    expect(document.activeElement).toBe(editor)
+    expect(editor.innerHTML).toBe('<p>Other tab</p>')
+    expect(store.composerHtml).toBe('<p>Other tab</p>')
+    wrapper.unmount()
+  })
+})
