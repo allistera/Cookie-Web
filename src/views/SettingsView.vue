@@ -32,6 +32,7 @@ const AiTodaySettings = lazyComponent(() => import('../components/AiTodaySetting
 const CategorySettings = lazyComponent(() => import('../components/CategorySettings.vue'))
 const TaskLabelSettings = lazyComponent(() => import('../components/TaskLabelSettings.vue'))
 const McpClientSettings = lazyComponent(() => import('../components/McpClientSettings.vue'))
+const AgentSendSettings = lazyComponent(() => import('../components/AgentSendSettings.vue'))
 const TodoistSettings = lazyComponent(() => import('../components/TodoistSettings.vue'))
 const NtfySettings = lazyComponent(() => import('../components/NtfySettings.vue'))
 
@@ -1276,6 +1277,7 @@ function toggleRuleEnabled(rule) {
           </section>
 
           <McpClientSettings v-if="activeSection === 'mcp-clients'" />
+          <AgentSendSettings v-if="activeSection === 'mcp-clients'" />
 
           <CategorySettings v-if="activeSection === 'categories'" />
 

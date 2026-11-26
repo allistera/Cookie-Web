@@ -1,6 +1,11 @@
 <script setup>
 import { ref } from 'vue'
+import { SEND_API_URL } from '../lib/apiWorkers'
 import { useInboxStore } from '../stores/inbox'
+
+// The send Worker mints the code itself, as it later consumes it, so the
+// browser calls it directly rather than through the /api/send proxy.
+const CONFIRMATION_URL = `${SEND_API_URL}/send/confirmation`
 
 const store = useInboxStore()
 const confirmation = ref('')
@@ -14,11 +19,16 @@ async function createConfirmation() {
   confirmation.value = ''
   expiresAt.value = ''
   try {
-    const headers = await store.authHeaders({ 'Content-Type': 'application/json' })
-    const response = await fetch('/api/send?resource=confirmation', { method: 'POST', headers })
+    const headers = await store.authHeaders()
+    const response = await fetch(CONFIRMATION_URL, { method: 'POST', headers })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new Error(body.error || 'Could not create a send confirmation')
+      throw new Error(
+        body.error ||
+          (response.status === 429
+            ? 'Too many confirmations. Wait a minute, then try again.'
+            : 'Could not create a send confirmation'),
+      )
     }
     confirmation.value = String(body.confirmation || '')
     expiresAt.value = String(body.expiresAt || '')
