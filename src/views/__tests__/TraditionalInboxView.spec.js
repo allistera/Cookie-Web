@@ -2178,6 +2178,21 @@ describe('TraditionalInboxView reply send button', () => {
     expect(consoleError).toHaveBeenCalledWith('Failed to send reply:', expect.any(Error))
   })
 
+  it('tells the user to check the recipients when the reply is rejected', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(store, 'sendMail').mockRejectedValue(
+      Object.assign(new Error('Rejected'), { code: 'DELIVERY_REJECTED' }),
+    )
+    const sendButton = await openReplyBox()
+
+    await sendButton.trigger('click')
+    await vi.waitFor(() => {
+      expect(store.toasts.at(-1)?.message).toBe(
+        'The reply was rejected. Check the recipients, then send it again.',
+      )
+    })
+  })
+
   it('inserts a picked emoji as an emoticon in the reply body', async () => {
     vi.spyOn(store, 'sendMail').mockResolvedValue({})
     const sendButton = await openReplyBox()
