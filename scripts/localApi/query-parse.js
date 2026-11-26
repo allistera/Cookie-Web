@@ -100,7 +100,7 @@ export function parseDocumentSearchQuery(raw) {
 // search operator set: every mail operator parseSearchQuery understands,
 // plus is:starred, which only cookie-web-tasks' document search parser knew
 // about before. tag: and is:starred are the two operators meaningful to both
-// indexes (see MAIL_ONLY_FILTER_KEYS below for the rest).
+// indexes; the rest apply to mail only.
 const FEDERATED_OPERATOR_RE = /(from|sender|to|tag|has|before|after|in|is):("[^"]*"|\S+)/gi
 
 /** @param {string} raw */
@@ -147,16 +147,4 @@ export function parseFederatedSearchQuery(raw) {
     .trim()
 
   return { text, filters }
-}
-
-// Filters meaningful only to mail — a document has no sender, recipients,
-// attachments, sent date, or folder. When scope=all sees one of these, the
-// documents leg of the federated query is dropped entirely rather than run
-// with the operator silently ignored (which would just return every
-// document as if the operator weren't there).
-export const MAIL_ONLY_FILTER_KEYS = ['from', 'to', 'hasAttachment', 'before', 'after', 'in']
-
-/** @param {Record<string, any>} filters */
-export function hasMailOnlyFilters(filters) {
-  return MAIL_ONLY_FILTER_KEYS.some((key) => key in filters)
 }
