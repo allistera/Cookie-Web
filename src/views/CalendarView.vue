@@ -1080,6 +1080,10 @@ function parseRepeatDays(recurrenceRule) {
 // The email a Mail "Add to calendar" draft came from, kept until its dialog
 // closes so the saved event can be linked back to it.
 let newEventSourceMessageId = null
+// The start and end editEvent put in the form, and the event's real length.
+// The end field cannot show a time on a later day, so an event that runs past
+// midnight keeps its length unless one of the two times is changed.
+let editedEventTimes = null
 
 // Neither opener may replace the dialog while a save/delete is in flight: the
 // request closes the dialog when it finishes, which would discard the new one.
@@ -1087,6 +1091,7 @@ function openNewEvent(prefill) {
   if (eventSaving.value) return
   editingEventId.value = null
   editingEvent.value = null
+  editedEventTimes = null
   eventFormReadOnly.value = false
   newEventSourceMessageId = prefill?.sourceMessageId ?? null
   eventCreationMode.value = prefill ? 'advanced' : 'ai'
@@ -1158,6 +1163,8 @@ function editEvent(event) {
     repeatUntil: parseRepeatUntil(event.recurrenceRule),
     repeatDays: parseRepeatDays(event.recurrenceRule),
   }
+  const { start, end } = eventForm.value
+  editedEventTimes = { start, end, duration: Number(event.duration) }
   showNewEvent.value = true
 }
 
@@ -1229,6 +1236,7 @@ function closeNewEvent() {
   eventForm.value = null
   editingEventId.value = null
   editingEvent.value = null
+  editedEventTimes = null
   newEventSourceMessageId = null
   eventAiInput.value = ''
   eventAiError.value = ''
@@ -1314,7 +1322,11 @@ async function saveEvent() {
     return
   }
   const keepsAllDay = Boolean(allDay && start === '00:00' && end === '23:59')
-  const duration = keepsAllDay ? DAY_MINUTES : Math.max(endMinutes - startMinutes, SNAP_MINUTES)
+  const original = editingEventId.value ? editedEventTimes : null
+  const keepsDuration = original?.duration > 0 && start === original.start && end === original.end
+  let duration = Math.max(endMinutes - startMinutes, SNAP_MINUTES)
+  if (keepsAllDay) duration = DAY_MINUTES
+  else if (keepsDuration) duration = original.duration
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
   const calendar = eventForm.value.calendar || defaultCalendarId()

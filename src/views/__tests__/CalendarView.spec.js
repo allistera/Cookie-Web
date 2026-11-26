@@ -232,8 +232,11 @@ function mockCalendarApi({
   googleError = null,
   defaultCalendarId = null,
   tasks = SEED_TASKS,
+  extraEvents = [],
 } = {}) {
-  let events = [...SEED_EVENTS, ...(google ? GOOGLE_EVENTS : [])].map((event) => ({ ...event }))
+  let events = [...SEED_EVENTS, ...(google ? GOOGLE_EVENTS : []), ...extraEvents].map((event) => ({
+    ...event,
+  }))
   let calendars = [...SEED_CALENDARS, ...(google ? GOOGLE_CALENDARS : [])].map((calendar) => ({
     ...calendar,
   }))
@@ -1546,6 +1549,65 @@ describe('CalendarView', () => {
     expect(writes[0][1].method).toBe('PATCH')
     expect(JSON.parse(writes[0][1].body).id).toBe('standup')
     expect(wrapper.find('.new-event-dialog').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the length of an event past midnight when only its title is edited', async () => {
+    mockCalendarApi({
+      extraEvents: [
+        {
+          id: 'late-show',
+          title: 'Late show',
+          date: '2026-07-24',
+          start: '22:00',
+          duration: 180,
+          calendar: 'personal',
+        },
+        {
+          id: 'conference',
+          title: 'Conference',
+          date: '2026-07-24',
+          start: '09:00',
+          duration: 2 * 1440 + 480,
+          calendar: 'work',
+        },
+      ],
+    })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const patches = () =>
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(
+          ([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'PATCH',
+        )
+        .map(([, options]) => JSON.parse(options.body))
+    async function editTitle(title, nextTitle, nextEnd) {
+      const chip = wrapper.findAll('.day-event').find((event) => event.text().includes(title))
+      await chip.trigger('click')
+      // The end field can only hold a time on the event's first day.
+      expect(wrapper.findAll('input[type="time"]')[1].element.value).toBe('23:59')
+      await wrapper.get('.new-event-title-input').setValue(nextTitle)
+      if (nextEnd) await wrapper.findAll('input[type="time"]')[1].setValue(nextEnd)
+      await wrapper.get('.new-event-create').trigger('click')
+      await flushPromises()
+      return patches().at(-1)
+    }
+
+    expect(await editTitle('Late show', 'Late show (encore)')).toMatchObject({
+      id: 'late-show',
+      start: '22:00',
+      duration: 180,
+    })
+    expect(await editTitle('Conference', 'Summit')).toMatchObject({
+      id: 'conference',
+      start: '09:00',
+      duration: 2 * 1440 + 480,
+    })
+    // A changed end time is still read from the fields.
+    expect(await editTitle('Summit', 'Summit', '17:00')).toMatchObject({
+      id: 'conference',
+      duration: 480,
+    })
     wrapper.unmount()
   })
 
