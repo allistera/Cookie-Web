@@ -313,16 +313,29 @@ function mountEditor() {
   })
 }
 
+// Leaving the page (or hiding it: iOS Safari and the installed app may never
+// fire pagehide) must send the edit now, not arm the store's 800 ms timer,
+// which a closing tab never reaches. Only an edit still on its way is sent;
+// a refused or offline-queued save is left for its own Retry path.
+async function flushOnLeave() {
+  await flushPendingBlocks()
+  if (documents.saveState === 'saving') await documents.flushPendingSave()
+}
 function onPageHide() {
-  void flushPendingBlocks()
+  void flushOnLeave()
+}
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') void flushOnLeave()
 }
 
 onMounted(() => {
   mountEditor()
   window.addEventListener('pagehide', onPageHide)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('pagehide', onPageHide)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   const activeEditor = editor
   headingCollapse?.destroy()
   headingCollapse = null

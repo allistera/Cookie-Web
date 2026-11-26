@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DocumentEditor from '../DocumentEditor.vue'
+import { useDocumentsStore } from '../../stores/documents'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -57,5 +58,41 @@ describe('DocumentEditor', () => {
       id: 'doc-1',
       blocks: [expect.objectContaining({ type: 'paragraph', data: { text: 'Last edit' } })],
     })
+  })
+
+  it('hands the blocks over and sends the pending save when the page is hidden', async () => {
+    const store = useDocumentsStore()
+    const flush = vi.spyOn(store, 'flushPendingSave').mockResolvedValue(true)
+    const onSave = vi.fn()
+    const wrapper = mount(DocumentEditor, {
+      attachTo: document.body,
+      props: {
+        doc: { id: 'doc-1', title: 'Doc', blocks: [{ type: 'paragraph', data: { text: 'Old' } }] },
+        onSave,
+        onDirty: () => store.markContentDirty(),
+      },
+    })
+    await vi.waitFor(() =>
+      expect(wrapper.get('.document-blocks').attributes('aria-busy')).toBe('false'),
+    )
+    const paragraph = wrapper.get('.ce-paragraph').element
+    paragraph.textContent = 'Last edit'
+    paragraph.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    await vi.waitFor(() => expect(store.saveState).toBe('saving'), { timeout: 2000 })
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    try {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => expect(flush).toHaveBeenCalled())
+    } finally {
+      delete document.visibilityState
+    }
+
+    expect(onSave).toHaveBeenCalledWith({
+      id: 'doc-1',
+      blocks: [expect.objectContaining({ type: 'paragraph', data: { text: 'Last edit' } })],
+    })
+    expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(flush.mock.invocationCallOrder[0])
+    wrapper.unmount()
   })
 })
