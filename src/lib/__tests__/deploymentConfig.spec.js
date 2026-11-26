@@ -90,22 +90,24 @@ describe('content security policy', () => {
     expect(policy['img-src']).toContain('https://*.vercel-storage.com')
   })
 
-  it.each([
-    ['script-src', ['https://vercel.live']],
-    ['connect-src', ['https://vercel.live', 'wss://ws-us3.pusher.com']],
-    ['frame-src', ['https://vercel.live']],
-    ['style-src', ['https://vercel.live']],
-    ['font-src', ['https://vercel.live', 'https://assets.vercel.com']],
-  ])('allows the Vercel Toolbar resources in %s', (directive, sources) => {
-    expect(csp()[directive]).toEqual(expect.arrayContaining(sources))
+  // The Vercel Toolbar needs its own script, frame, style, font and socket
+  // origins. The app does not use it, so none of them is allowed.
+  it('does not open the policy to the Vercel Toolbar', () => {
+    const sources = Object.values(csp()).flat()
+    for (const origin of [
+      'https://vercel.live',
+      'wss://ws-us3.pusher.com',
+      'https://assets.vercel.com',
+    ]) {
+      expect(sources).not.toContain(origin)
+    }
   })
 
-  it('keeps script execution restricted to the app and Vercel Toolbar', () => {
+  it('keeps script execution restricted to the app', () => {
     const policy = csp()
-    expect(policy['script-src']).toEqual(["'self'", 'https://vercel.live'])
+    expect(policy['script-src']).toEqual(["'self'"])
     expect(policy['object-src']).toEqual(["'none'"])
     expect(policy['frame-ancestors']).toEqual(["'none'"])
-    // The existing HTTPS image policy already covers Vercel Toolbar images.
     expect(policy['img-src']).toEqual(expect.arrayContaining(['https:', 'data:', 'blob:']))
   })
 })
