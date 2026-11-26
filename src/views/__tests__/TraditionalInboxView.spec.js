@@ -425,6 +425,22 @@ describe('automatic priority reply drafts', () => {
     wrapper.unmount()
   })
 
+  it('does not save a generated draft again just for opening it', async () => {
+    store.drafts = [{ ...draft }]
+    const schedule = vi.spyOn(store, 'scheduleReplyDraftSave').mockImplementation(() => {})
+    const wrapper = mountView()
+    store.openReader(store.traditionalEmails[0])
+    await flushPromises()
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+    expect(schedule).not.toHaveBeenCalled()
+
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+    editor.element.innerHTML = '<p>My edited reply</p>'
+    await editor.trigger('input')
+    expect(schedule).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('does not replace a reply the user has already started', async () => {
     const wrapper = mountView()
     store.openReader(store.traditionalEmails[0])
