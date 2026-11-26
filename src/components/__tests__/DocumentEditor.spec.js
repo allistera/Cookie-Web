@@ -95,4 +95,24 @@ describe('DocumentEditor', () => {
     expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(flush.mock.invocationCallOrder[0])
     wrapper.unmount()
   })
+
+  it('hands title and tag edits to its save handler', async () => {
+    const onSave = vi.fn()
+    const wrapper = mount(DocumentEditor, {
+      attachTo: document.body,
+      props: { doc: { id: 'doc-1', title: 'Doc', tags: ['home'], blocks: [] }, onSave },
+    })
+    await vi.waitFor(() =>
+      expect(wrapper.get('.document-blocks').attributes('aria-busy')).toBe('false'),
+    )
+
+    const title = wrapper.get('.document-title')
+    title.element.textContent = 'Renamed'
+    await title.trigger('input')
+    await wrapper.get('button.document-tag').trigger('click')
+
+    expect(onSave).toHaveBeenCalledWith({ id: 'doc-1', title: 'Renamed' })
+    expect(onSave).toHaveBeenCalledWith({ id: 'doc-1', tags: [] })
+    wrapper.unmount()
+  })
 })

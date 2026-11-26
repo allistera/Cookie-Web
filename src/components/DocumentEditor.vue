@@ -90,10 +90,10 @@ const props = defineProps({
   // highlight only appears there too, so it never implies a regular
   // document's line is doing something it isn't.
   isDailyNote: { type: Boolean, default: false },
-  // `@save` arrives as a prop rather than a declared emit (emit('save') still
-  // reaches it while mounted): the unmount flush reads Editor.js
-  // asynchronously, and Vue drops emits from an unmounted component, so block
-  // saves call the handler directly.
+  // `@save` arrives as a prop rather than a declared emit: the unmount flush
+  // reads Editor.js asynchronously, and Vue drops emits from an unmounted
+  // component, so every save (blocks, title, tags, emoji) calls the handler
+  // directly.
   onSave: { type: Function, default: null },
 })
 const emit = defineEmits(['dirty'])
@@ -360,7 +360,7 @@ watch(
 )
 
 function onTitleInput(event) {
-  emit('save', { id: props.doc.id, title: event.target.textContent ?? '' })
+  props.onSave?.({ id: props.doc.id, title: event.target.textContent ?? '' })
 }
 
 function addTag() {
@@ -379,12 +379,12 @@ function addTag() {
   }
   tagDraft.value = ''
   tags.value = [...tags.value, tag]
-  emit('save', { id: props.doc.id, tags: tags.value })
+  props.onSave?.({ id: props.doc.id, tags: tags.value })
 }
 
 function removeTag(tag) {
   tags.value = tags.value.filter((candidate) => candidate !== tag)
-  emit('save', { id: props.doc.id, tags: tags.value })
+  props.onSave?.({ id: props.doc.id, tags: tags.value })
 }
 
 // Enter in the title moves into the body, like paper.
@@ -450,7 +450,7 @@ async function exportToPDF() {
         label="Change document icon"
         :emoji="doc.emoji || '🔹'"
         icons
-        @select="emit('save', { id: doc.id, emoji: $event })"
+        @select="props.onSave?.({ id: doc.id, emoji: $event })"
       />
       <h1
         ref="titleEl"
