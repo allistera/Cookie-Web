@@ -414,6 +414,11 @@ const ATTACHMENT_UPLOAD_CONCURRENCY = 3
 // one per keystroke. The composer and the inline reply box each get their own
 // timer: both can be open at once, on different drafts.
 const DRAFT_AUTOSAVE_DELAY_MS = 800
+// Typing writes the local recovery copy at most this often; closing, hiding,
+// leaving the window and sending write it at once (flushComposerRecovery).
+const RECOVERY_WRITE_DELAY_MS = 200
+// The composer's newest unwritten recovery: { snapshot, session, timer }.
+let pendingRecovery = null
 let composerDraftTimer = null
 let replyDraftTimer = null
 // Autosaves for one surface run one at a time. Without this, the debounce
@@ -3576,6 +3581,7 @@ export const useInboxStore = defineStore('inbox', {
     // a message that is on its way out. Returns the snapshot it saved.
     closeComposer({ save = true } = {}) {
       clearTimeout(composerDraftTimer)
+      this.flushComposerRecovery()
       // The save can queue behind one still in flight, and by then the fields
       // below are cleared: it carries a snapshot of this message.
       const snapshot = save ? this.composerDraftSnapshot() : null
@@ -3689,6 +3695,11 @@ export const useInboxStore = defineStore('inbox', {
 
     persistComposerRecovery(snapshot, session = this.composerSessionId) {
       if (!snapshot) return Promise.resolve(null)
+      // This write is at least as new as a queued one for the same copy.
+      if (snapshot.recoveryId && pendingRecovery?.snapshot.recoveryId === snapshot.recoveryId) {
+        clearTimeout(pendingRecovery.timer)
+        pendingRecovery = null
+      }
       const owner = snapshot.owner ?? this.composeOwnerSub
       if (!owner || owner !== this.composeOwnerSub) return Promise.resolve(null)
       const generation = this.composeGeneration
@@ -3752,6 +3763,10 @@ export const useInboxStore = defineStore('inbox', {
 
     async discardComposerRecovery(recoveryId, owner = this.composeOwnerSub, revision) {
       if (!recoveryId || !owner) return
+      if (pendingRecovery?.snapshot.recoveryId === recoveryId) {
+        clearTimeout(pendingRecovery.timer)
+        pendingRecovery = null
+      }
       if (owner === this.composeOwnerSub) {
         const settled =
           revision ?? this.draftRecoveries.find((entry) => entry.id === recoveryId)?.revision
@@ -4088,12 +4103,31 @@ export const useInboxStore = defineStore('inbox', {
       const session = this.composerSessionId
       const snapshot = this.composerDraftSnapshot()
       if (unchangedSinceLoad(session, snapshot)) return
-      this.persistComposerRecovery(snapshot, session)
+      // The id is fixed now, so every snapshot until the write names the
+      // same recovery copy.
+      if (snapshot && !snapshot.recoveryId && this.composeOwnerSub) {
+        snapshot.recoveryId = this.composerRecoveryId = newRecoveryId()
+      }
+      clearTimeout(pendingRecovery?.timer)
+      pendingRecovery = snapshot && {
+        snapshot,
+        session,
+        timer: setTimeout(() => this.flushComposerRecovery(), RECOVERY_WRITE_DELAY_MS),
+      }
       clearTimeout(composerDraftTimer)
       composerDraftTimer = setTimeout(
         () => this.saveComposerDraft(session),
         DRAFT_AUTOSAVE_DELAY_MS,
       )
+    },
+
+    // Writes the queued recovery copy now (the composer window lost focus).
+    flushComposerRecovery() {
+      const pending = pendingRecovery
+      if (!pending) return Promise.resolve(null)
+      clearTimeout(pending.timer)
+      pendingRecovery = null
+      return this.persistComposerRecovery(pending.snapshot, pending.session)
     },
 
     // Called when the composer closes or the tab is hidden: the pending

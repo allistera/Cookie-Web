@@ -291,6 +291,12 @@ function onVisibilityChange() {
   }
 }
 
+// Typing writes the local recovery copy on a short debounce; leaving the
+// window writes it at once.
+function onComposerFocusOut(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) store.flushComposerRecovery()
+}
+
 onMounted(() => {
   document.addEventListener('click', onDocumentClick)
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -308,6 +314,7 @@ onUnmounted(() => {
     :class="{ active: store.isComposerActive, 'ai-active': store.isAiDraftActive }"
     :data-save-state="store.composerSaveState"
     @keydown.esc.stop="onComposerEscape"
+    @focusout="onComposerFocusOut"
   >
     <div class="composer-header" @focusin="headerFocused = true" @focusout="onHeaderFocusOut">
       <div class="composer-draft-row">
