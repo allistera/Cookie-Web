@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { dateKey, meetingLink, monthGrid, normalizeCalendarEvent } from '../utils/calendarDates'
+import { eventDaySegments } from '../utils/calendarEventSegments'
 import { assignLanes } from '../utils/calendarLanes'
 import { useInboxStore } from '../stores/inbox'
 import { useTaskItemsStore } from '../stores/taskItems'
@@ -135,13 +136,16 @@ async function loadEvents() {
   try {
     const headers = await store.authHeaders()
     if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return
-    const response = await fetch(calendarEventsUrl(key, key), { headers })
+    // From the day before: an event that runs past midnight leaves its
+    // remainder on this day.
+    const response = await fetch(calendarEventsUrl(addDays(key, -1), key), { headers })
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
     if (disposed || seq !== request || !isCalendarSessionCurrent(session)) return
     events.value = (Array.isArray(body.events) ? body.events : [])
-      .filter((event) => event.date === key)
       .map(normalizeCalendarEvent)
+      .flatMap(eventDaySegments)
+      .filter((event) => event.date === key)
     truncated.value = Boolean(body.truncated)
     loadFailed.value = false
   } catch (error) {
@@ -268,7 +272,8 @@ const upNext = computed(() => {
 // --- Details --------------------------------------------------------------
 const openEvent = ref(null)
 const openEventDetails = computed(() => {
-  const event = openEvent.value
+  // A day's piece of an event past midnight shows the whole event.
+  const event = openEvent.value?.segmentOf ?? openEvent.value
   if (!event) return null
   const start = minutesOf(event.start)
   return {

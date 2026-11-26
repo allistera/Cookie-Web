@@ -1,5 +1,7 @@
 <script setup>
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
+import { eventDaySegments } from '../utils/calendarEventSegments'
+import { addDays } from '../lib/taskSchedule'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useDocumentsStore } from '../stores/documents'
@@ -90,11 +92,16 @@ async function loadEvents() {
   const key = selectedKey.value
   try {
     const headers = await store.authHeaders()
-    const response = await fetch(calendarEventsUrl(key, key), { headers })
+    // From the day before: an event that runs past midnight leaves its
+    // remainder on this day, drawn from 00:00.
+    const response = await fetch(calendarEventsUrl(addDays(key, -1), key), { headers })
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
     if (seq !== eventsSeq || selectedKey.value !== key) return
-    events.value = (body.events ?? []).map(normalizeCalendarEvent)
+    events.value = (body.events ?? [])
+      .map(normalizeCalendarEvent)
+      .flatMap(eventDaySegments)
+      .filter((event) => event.date === key)
     eventsTruncated.value = Boolean(body.truncated)
   } catch (error) {
     if (seq !== eventsSeq) return
