@@ -8,6 +8,11 @@ import { useDocumentsStore } from '../stores/documents'
 import { confirmDocumentDelete, confirmFolderDelete } from '../lib/documentDeleteConfirmation'
 import { folderBreadcrumb, hasDraggedFiles } from '../lib/documentFiles'
 import { flattenDocumentsTree } from '../lib/documentsTree'
+import {
+  EMAIL_ATTACHMENTS_FOLDER,
+  EMAIL_ATTACHMENTS_ROUTE,
+  EMAIL_ATTACHMENTS_TITLE,
+} from '../lib/emailAttachments'
 import { getStoredExpandedFolderIds, saveExpandedFolderIds } from '../lib/documentsSidebarFolders'
 
 const store = useDocumentsStore()
@@ -310,6 +315,15 @@ function onDragEnd() {
       @dragleave="onDragLeave"
       @drop="onDrop(treeDropTarget($event), $event)"
     >
+      <!-- The built-in folder of the mailbox's files, ahead of the person's own. -->
+      <router-link
+        :to="EMAIL_ATTACHMENTS_ROUTE"
+        class="nav-item email-attachments-item"
+        :class="{ active: !route.params.id && route.query.folder === EMAIL_ATTACHMENTS_FOLDER }"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">attach_file</span>
+        <span class="nav-text">{{ EMAIL_ATTACHMENTS_TITLE }}</span>
+      </router-link>
       <VirtualList class="document-tree-window" :items="treeRows">
         <template #default="{ item: row }">
           <div

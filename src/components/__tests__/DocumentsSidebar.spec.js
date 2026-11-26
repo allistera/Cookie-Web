@@ -126,6 +126,20 @@ describe('DocumentsSidebar', () => {
     expect(treeText).not.toContain('Plan')
   })
 
+  it('links to the Email attachments folder and marks it while it is open', async () => {
+    push.mockRestore()
+    const wrapper = mountSidebar()
+    await flushPromises()
+    const link = wrapper.get('.email-attachments-item')
+    expect(link.text()).toContain('Email attachments')
+    expect(link.attributes('href')).toBe('/documents?folder=email-attachments')
+    expect(link.classes()).not.toContain('active')
+
+    await router.push({ path: '/documents', query: { folder: 'email-attachments' } })
+    await flushPromises()
+    expect(link.classes()).toContain('active')
+  })
+
   it('expanding a folder reveals nested docs, collapsing hides them again', async () => {
     const wrapper = mountSidebar()
     await flushPromises()

@@ -16,12 +16,14 @@ import DocumentCalendarSidebar from '../components/DocumentCalendarSidebar.vue'
 import { useCalendarRail } from '../composables/useCalendarRail'
 import DocumentIcon from '../components/DocumentIcon.vue'
 import DocumentsBrowser from '../components/DocumentsBrowser.vue'
+import EmailAttachmentsFolder from '../components/EmailAttachmentsFolder.vue'
 import FilePreview from '../components/FilePreview.vue'
 import { useBucketCandidate } from '../composables/useBucketCandidate'
 import { documentBucketItem } from '../lib/bucketItems'
 import { documentContentKey, requestDocumentChat } from '../lib/documentAi'
 import { confirmDocumentDelete } from '../lib/documentDeleteConfirmation'
 import { hasDraggedFiles } from '../lib/documentFiles'
+import { EMAIL_ATTACHMENTS_FOLDER } from '../lib/emailAttachments'
 
 // The dashboard only needs document metadata. Keep Editor.js and its tools out
 // of that route payload until a specific document is actually opened.
@@ -264,11 +266,18 @@ const activeTag = computed(() => {
   const value = Array.isArray(route.query.tag) ? route.query.tag[0] : route.query.tag
   return String(value ?? '')
 })
-const currentFolderId = computed(() => {
+const requestedFolderId = computed(() => {
   const value = Array.isArray(route.query.folder) ? route.query.folder[0] : route.query.folder
-  const id = String(value ?? '')
+  return String(value ?? '')
+})
+// The built-in Email attachments folder lists the mailbox's files; it is not
+// a folder of the workspace, so nothing can be created in or dropped on it.
+const showEmailAttachments = computed(() => requestedFolderId.value === EMAIL_ATTACHMENTS_FOLDER)
+const currentFolderId = computed(() => {
+  const id = requestedFolderId.value
+  if (!id || showEmailAttachments.value) return null
   // An unknown or foreign folder id falls back to the root once folders are known.
-  if (!id || (store.isLoaded && !store.folders.some((folder) => folder.id === id))) return null
+  if (store.isLoaded && !store.folders.some((folder) => folder.id === id)) return null
   return id
 })
 // The folder browser is the default; starred, tag and search cut across
@@ -283,7 +292,11 @@ const showBrowser = computed(
 // open document is left alone: the editor handles what is dropped into it.
 const fileDropActive = ref(false)
 function acceptsFileDrop(event) {
-  return !route.params.id && !route.params.fileId && hasDraggedFiles(event)
+  if (route.params.id || route.params.fileId) return false
+  // Starred, tag and search lists replace the folder browser, Email
+  // attachments included, and upload into the root.
+  if (showEmailAttachments.value && showBrowser.value) return false
+  return hasDraggedFiles(event)
 }
 function onFileDragOver(event) {
   if (!acceptsFileDrop(event)) return
@@ -625,7 +638,8 @@ function onEditorSave(payload) {
         </div>
       </header>
 
-      <DocumentsBrowser v-if="showBrowser" :folder-id="currentFolderId" />
+      <EmailAttachmentsFolder v-if="showBrowser && showEmailAttachments" />
+      <DocumentsBrowser v-else-if="showBrowser" :folder-id="currentFolderId" />
 
       <template v-else>
         <div v-if="store.isLoading && !store.isLoaded" class="documents-loading">

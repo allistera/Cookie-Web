@@ -2954,7 +2954,7 @@ export function localApiPlugin(mode) {
   }
 
   // cookie-web-messages:
-  // /messages[/attachment|calendar-invite|contacts|contact-insights|subscriptions]
+  // /messages[/attachment|attachments|calendar-invite|contacts|contact-insights|subscriptions]
   const handleWorkerMessagesApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
@@ -2964,6 +2964,16 @@ export function localApiPlugin(mode) {
       const { fixtureSubscriptions } = await import('./fixtures/subscriptions.js')
       const { unsubscribedSenders } = fixtureMailboxState(req, res)
       return json(res, { subscriptions: fixtureSubscriptions(unsubscribedSenders) })
+    }
+    if (sub === 'attachments') {
+      const { fixtureEmailAttachments } = await import('./fixtures/emailAttachments.js')
+      return json(
+        res,
+        fixtureEmailAttachments({
+          direction: url.searchParams.get('direction') ?? '',
+          embedded: url.searchParams.get('embedded') === '1',
+        }),
+      )
     }
     if (sub === 'contacts') {
       const { fixtureEmails } = await import('./fixtures/emails.js')

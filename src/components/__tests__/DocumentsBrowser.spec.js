@@ -97,15 +97,56 @@ describe('DocumentsBrowser', () => {
     await flushPromises()
     const items = wrapper.findAll('.browser-item')
     expect(items.map((item) => item.attributes('data-kind'))).toEqual([
+      'email-attachments',
       'folder',
       'file',
       'document',
     ])
-    expect(items[0].text()).toContain('Work')
-    expect(items[1].text()).toContain('brief.pdf')
-    expect(items[1].text()).toContain('PDF')
+    expect(items[1].text()).toContain('Work')
+    expect(items[2].text()).toContain('brief.pdf')
+    expect(items[2].text()).toContain('PDF')
     expect(wrapper.find('.documents-browser').classes()).toContain('layout-grid')
     expect(store.loadFiles).toHaveBeenCalledWith(null, { force: false })
+  })
+
+  it('pins the Email attachments folder first in the root and opens it', async () => {
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    const folder = wrapper.get('.browser-item[data-kind="email-attachments"]')
+    expect(folder.text()).toContain('Email attachments')
+    expect(folder.text()).toContain('Folder')
+    // It lists the mailbox's files, so there is nothing to rename, move or delete.
+    expect(folder.find('.item-menu-btn').exists()).toBe(false)
+    expect(folder.attributes('draggable')).toBeUndefined()
+
+    await folder.trigger('dblclick')
+    expect(push).toHaveBeenLastCalledWith({
+      path: '/documents',
+      query: { folder: 'email-attachments' },
+    })
+    push.mockClear()
+    await folder.trigger('keydown', { key: 'Enter' })
+    expect(push).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the Email attachments folder out of every other folder', async () => {
+    const wrapper = mountBrowser('f-work')
+    await flushPromises()
+    expect(wrapper.find('.browser-item[data-kind="email-attachments"]').exists()).toBe(false)
+  })
+
+  it('shows the Email attachments folder in a workspace that has nothing else', async () => {
+    store.folders = []
+    store.documents = []
+    store.loadFiles.mockImplementation(async () => {
+      store.filePages.root = { ids: [], loaded: true, loading: false, error: null }
+    })
+    const wrapper = mountBrowser(null)
+    await flushPromises()
+    expect(wrapper.findAll('.browser-item')).toHaveLength(1)
+    expect(wrapper.get('.browser-empty').text()).toBe(
+      'No documents or files yet. Create a document or drop files here.',
+    )
   })
 
   it('switches to the list layout and remembers it', async () => {
