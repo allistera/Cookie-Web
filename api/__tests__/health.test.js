@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createHandler } from '../health.js'
+import { createHandler, HEALTH_CACHE_MS } from '../health.js'
 import { createHealthChecks, HEALTH_TIMEOUT_MS, runHealthChecks } from '../_lib/health.js'
 import { responseRecorder } from './sendTestResponse.js'
 
@@ -43,6 +43,37 @@ describe('GET /api/health', () => {
     })({ method: 'HEAD' }, res)
     expect(res.statusCode).toBe(503)
     expect(res.body).toBeUndefined()
+  })
+  it('answers from one run for 30 seconds, then probes again', async () => {
+    let clock = 1_000
+    let healthy = true
+    const database = vi.fn(async () => {
+      if (!healthy) throw new Error('down')
+    })
+    const handler = createHandler({ checks: { database }, now: () => clock })
+    const get = async (method = 'GET') => {
+      const res = responseRecorder()
+      await handler({ method }, res)
+      return res
+    }
+    const [first, second] = await Promise.all([get(), get()])
+    healthy = false
+    clock += HEALTH_CACHE_MS - 1
+    const cached = await get('HEAD')
+    expect(database).toHaveBeenCalledOnce()
+    expect([first.statusCode, second.statusCode, cached.statusCode]).toEqual([200, 200, 200])
+    expect(JSON.parse(second.body)).toEqual({
+      status: 'ok',
+      checks: { database: { status: 'ok' } },
+    })
+    clock += 1
+    const fresh = await get()
+    expect(database).toHaveBeenCalledTimes(2)
+    expect(fresh.statusCode).toBe(503)
+    expect(JSON.parse(fresh.body)).toEqual({
+      status: 'degraded',
+      checks: { database: { status: 'error' } },
+    })
   })
   it.each(['POST', 'PUT', 'DELETE', 'OPTIONS'])('rejects %s without probing', async (method) => {
     const database = vi.fn()
