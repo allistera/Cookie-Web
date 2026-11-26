@@ -2612,7 +2612,10 @@ export function localApiPlugin(mode) {
       // with the fixture standing in for Todoist: any token but "bad-token"
       // connects a fixture account, and each sync mirrors the same small
       // workspace — one project with a section, two tasks under it and one
-      // Inbox task — upserting by todoistId the way the Worker does.
+      // Inbox task — upserting by todoistId the way the Worker does. A task
+      // completed here stays completed across a sync: the Worker tells
+      // Todoist about it (todoistPush.js), which then stops listing it as
+      // open.
       const emptyTodoist = () => ({
         configured: true,
         connected: false,
@@ -2666,7 +2669,7 @@ export function localApiPlugin(mode) {
             }
             state.taskItems.push(item)
           }
-          Object.assign(item, fields, { completedAt: null })
+          Object.assign(item, fields)
           return item
         }
         const work = upsertProject('td-project-1', 'Todoist Work')
@@ -2714,6 +2717,7 @@ export function localApiPlugin(mode) {
             completed: 0,
             removed: 0,
             skipped: 0,
+            pushed: 0,
           },
         }
         return json(res, { todoist: state.todoist })
