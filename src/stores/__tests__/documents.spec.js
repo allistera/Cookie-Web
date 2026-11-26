@@ -778,6 +778,46 @@ describe('documents store', () => {
     expect(JSON.parse(patches[1][1].body).updatedAt).toBe('t1')
   })
 
+  it('shows a renamed document title at once and keeps it after the PATCH', async () => {
+    store.documents = structuredClone(DOCS)
+    store.openDoc = { ...structuredClone(DOCS[0]), blocks: [] }
+    let resolve
+    stubFetch({
+      PATCH: (url, body) =>
+        new Promise((done) => (resolve = () => done(ok({ document: { ...DOCS[0], ...body } })))),
+    })
+
+    const rename = store.updateDocumentMeta('d-1', { title: 'Renamed' })
+    expect(store.documents.find((doc) => doc.id === 'd-1').title).toBe('Renamed')
+    await vi.waitFor(() => expect(resolve).toBeDefined())
+    resolve()
+    await rename
+
+    expect(store.documents.find((doc) => doc.id === 'd-1').title).toBe('Renamed')
+    expect(store.openDoc.title).toBe('Renamed')
+  })
+
+  it('rolls back a failed rename without touching a title saved from the editor', async () => {
+    store.documents = structuredClone(DOCS)
+    stubFetch({ PATCH: () => fail() })
+
+    await store.updateDocumentMeta('d-1', { title: 'Renamed' })
+    expect(store.documents.find((doc) => doc.id === 'd-1').title).toBe('Plan')
+
+    let resolve
+    stubFetch({
+      PATCH: (url, body) =>
+        new Promise((done) => (resolve = () => done(ok({ document: { ...DOCS[0], ...body } })))),
+    })
+    const star = store.toggleStar('d-1')
+    store.documents.find((doc) => doc.id === 'd-1').title = 'Typed'
+    await vi.waitFor(() => expect(resolve).toBeDefined())
+    resolve()
+    await star
+
+    expect(store.documents.find((doc) => doc.id === 'd-1').title).toBe('Typed')
+  })
+
   it('does not roll back a newer meta change when an older PATCH fails', async () => {
     store.documents = structuredClone(DOCS)
     const responses = []

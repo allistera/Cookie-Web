@@ -1060,12 +1060,7 @@ export const useDocumentsStore = defineStore('documents', {
       metaRequests.set(toRaw(this), requests)
       let state = requests.get(id)
       if (!state) {
-        state = {
-          confirmed: { starred: row.starred, folder_id: row.folder_id, emoji: row.emoji },
-          pending: new Map(),
-          versions: {},
-          seq: 0,
-        }
+        state = { confirmed: {}, pending: new Map(), versions: {}, seq: 0 }
         requests.set(id, state)
       }
       const seq = ++state.seq
@@ -1073,6 +1068,12 @@ export const useDocumentsStore = defineStore('documents', {
       if (patch.starred !== undefined) fields.starred = patch.starred
       if (patch.folderId !== undefined) fields.folder_id = patch.folderId
       if (patch.emoji !== undefined) fields.emoji = patch.emoji
+      if (patch.title !== undefined) fields.title = patch.title
+      // Only fields this method changes are rolled back or reapplied, so a
+      // title typed in the editor meanwhile is never overwritten by a star.
+      for (const key of Object.keys(fields)) {
+        if (!Object.hasOwn(state.confirmed, key)) state.confirmed[key] = row[key]
+      }
       state.pending.set(seq, fields)
       const beforeOptimistic = { ...row }
       Object.assign(row, fields)
