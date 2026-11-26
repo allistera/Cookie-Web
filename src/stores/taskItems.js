@@ -114,7 +114,6 @@ export const useTaskItemsStore = defineStore('taskItems', {
     openDetailId: null,
     isLoading: false,
     loadSeq: 0,
-    historyRevision: 0,
     // Action asked for by the command palette: 'new-task' and 'add-divider'
     // (TasksView owns the list) or 'new-project' (TasksSidebar owns the
     // inline project row). The owner consumes it, on mount too if it was
@@ -130,9 +129,9 @@ export const useTaskItemsStore = defineStore('taskItems', {
 
   actions: {
     // Explicit external sync invalidation, separate from ordinary list reads.
-    invalidateHistory() {
-      this.historyRevision++
-    },
+    // It changes no state: subscribeTaskMutations (lib/taskMutationRefresh.js)
+    // observes the call and refreshes what shows the tasks.
+    invalidateHistory() {},
     // Delegates so a dead session is recognised in one place: it sends the
     // person to sign in rather than letting each store report a generic
     // failure against a session that will never work again.
