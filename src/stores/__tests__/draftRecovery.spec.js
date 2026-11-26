@@ -205,10 +205,35 @@ describe('durable draft recovery', () => {
     await vi.waitFor(() => expect(finish).toBeDefined())
     store.composerTextArea = 'A newer sentence'
     store.scheduleComposerDraftSave()
+    store.flushComposerRecovery()
     await drainDraftRecoveryWrites()
     finish('server-draft')
     await saving
     expect((await loadDraftRecoveries('alice'))[0].snapshot.text).toBe('A newer sentence')
+  })
+
+  it('writes the recovery copy once typing pauses, naming it at the first keystroke', async () => {
+    const persist = vi.spyOn(store, 'persistComposerRecovery')
+    store.scheduleComposerDraftSave()
+    const recoveryId = store.composerRecoveryId
+    expect(recoveryId).toBeTruthy()
+    store.composerTextArea = 'Keep my latest words, and these'
+    store.scheduleComposerDraftSave()
+    expect(store.composerRecoveryId).toBe(recoveryId)
+    expect(persist).not.toHaveBeenCalled()
+
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1))
+    await drainDraftRecoveryWrites()
+    const [record] = await loadDraftRecoveries('alice')
+    expect(record.id).toBe(recoveryId)
+    expect(record.snapshot.text).toBe('Keep my latest words, and these')
+  })
+
+  it('writes a queued recovery copy at once when the composer closes', async () => {
+    store.scheduleComposerDraftSave()
+    store.closeComposer({ save: false })
+    await drainDraftRecoveryWrites()
+    expect((await loadDraftRecoveries('alice'))[0].snapshot.text).toBe('Keep my latest words')
   })
 
   it('keeps local words when a conflict adopts the server version', async () => {
@@ -236,6 +261,7 @@ describe('durable draft recovery', () => {
     expect((await loadDraftRecoveries('alice'))[0].snapshot.text).toBe('Keep my latest words')
     store.composerTextArea = 'Editing the server version'
     store.scheduleComposerDraftSave()
+    store.flushComposerRecovery()
     await drainDraftRecoveryWrites()
     expect(await loadDraftRecoveries('alice')).toHaveLength(2)
   })

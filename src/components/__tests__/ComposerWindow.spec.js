@@ -361,3 +361,26 @@ describe('ComposerWindow draft conflict', () => {
     wrapper.unmount()
   })
 })
+
+describe('ComposerWindow recovery copy', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('writes the queued recovery copy when the focus leaves the window', async () => {
+    const store = useInboxStore()
+    store.isComposerActive = true
+    const flush = vi.spyOn(store, 'flushComposerRecovery').mockResolvedValue(null)
+    const outside = document.createElement('button')
+    document.body.append(outside)
+    const wrapper = mount(ComposerWindow, { attachTo: document.body })
+    const subject = wrapper.get('.composer-subject-inline')
+
+    await subject.trigger('focusout', { relatedTarget: wrapper.get('.composer-editor').element })
+    expect(flush).not.toHaveBeenCalled()
+    await subject.trigger('focusout', { relatedTarget: outside })
+    expect(flush).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+    outside.remove()
+  })
+})
