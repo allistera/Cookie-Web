@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
+import { setAuth0Client } from '../../auth0-client'
+import { SUGGEST_DELAY_MS } from '../../lib/smartCompose'
 import ComposerEditor from '../ComposerEditor.vue'
 
 function setCaret(node, offset) {
@@ -375,5 +377,87 @@ describe('ComposerEditor code blocks', () => {
     const event = pressEnter(editor)
 
     expect(event.defaultPrevented).toBe(false)
+  })
+})
+
+describe('ComposerEditor writing suggestions', () => {
+  let wrapper
+
+  beforeEach(() => {
+    // No Auth0 client, matching stubbed-auth mode.
+    setAuth0Client(null)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ suggestion: ' your email.' })),
+    )
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  // Mounts the editor and types `text` into it, then waits out the pause
+  // after which a suggestion is asked for.
+  async function writeAndPause(text, props = { smartCompose: { subject: 'Kitchen' } }) {
+    wrapper = mount(ComposerEditor, { attachTo: document.body, props })
+    await vi.dynamicImportSettled()
+    vi.useFakeTimers()
+    const editor = wrapper.find('.composer-editor')
+    editor.element.textContent = text
+    setCaret(editor.element.firstChild, text.length)
+    await editor.trigger('input')
+    await vi.advanceTimersByTimeAsync(SUGGEST_DELAY_MS)
+    return editor
+  }
+
+  it('shows the suggested words without making them part of the message', async () => {
+    const editor = await writeAndPause('Thanks for')
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      text: 'Thanks for',
+      subject: 'Kitchen',
+    })
+    expect(editor.find('.composer-ghost').attributes('data-suggestion')).toBe(' your email.')
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Thanks for')
+
+    // Anything that makes the editor report its content while the suggestion
+    // is on show reports the message alone.
+    wrapper.vm.insertText('!')
+
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Thanks for!')
+    expect(wrapper.emitted('update:text').at(-1)[0]).toBe('Thanks for!')
+    expect(editor.find('.composer-ghost').exists()).toBe(false)
+  })
+
+  it('adds the suggested words to the message on Tab', async () => {
+    const editor = await writeAndPause('Thanks for')
+
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    editor.element.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(wrapper.emitted('update:modelValue').at(-1)[0]).toBe('Thanks for your email.')
+    expect(wrapper.emitted('update:text').at(-1)[0]).toBe('Thanks for your email.')
+    expect(editor.find('.composer-ghost').exists()).toBe(false)
+  })
+
+  it('does not suggest while the slash menu is open', async () => {
+    const editor = await writeAndPause('Thanks /he', {
+      smartCompose: {},
+      snippets: [{ id: 'hello', name: 'hello-world', html: '<p>Hello</p>' }],
+    })
+
+    expect(wrapper.find('.composer-slash-menu').exists()).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(editor.find('.composer-ghost').exists()).toBe(false)
+  })
+
+  it('never asks in an editor that was not given a message to suggest for', async () => {
+    await writeAndPause('Thanks for', {})
+
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

@@ -3804,6 +3804,32 @@ body:has(.window-dock) .ni-reader {
   overflow-wrap: anywhere;
 }
 
+/* A writing suggestion: an empty span after the caret whose words are drawn
+   from its attribute, so they are never part of the message's text. */
+.composer-ghost {
+  cursor: pointer;
+  user-select: none;
+}
+
+.composer-ghost::before {
+  content: attr(data-suggestion);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.composer-ghost::after {
+  content: 'Tab';
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  white-space: nowrap;
+}
+
 .composer-slash-menu {
   position: absolute;
   min-width: 240px;
@@ -4696,6 +4722,11 @@ body:has(.window-dock) .ni-reader {
   letter-spacing: -0.015em;
   color: var(--text-primary);
   margin-bottom: 12px;
+}
+
+/* A second heading further down the same section. */
+.settings-subsection-title {
+  margin-top: 28px;
 }
 
 /* Calendar management */

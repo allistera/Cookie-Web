@@ -59,7 +59,7 @@ describe('browser error monitoring', () => {
       maskAllText: true,
       maskAllInputs: true,
       blockAllMedia: true,
-      maskAttributes: ['title', 'placeholder', 'aria-label', 'alt'],
+      maskAttributes: ['title', 'placeholder', 'aria-label', 'alt', 'data-suggestion'],
       block: ['.ni-email-frame'],
       beforeAddRecordingEvent: expect.any(Function),
     })

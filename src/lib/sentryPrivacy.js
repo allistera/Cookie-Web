@@ -279,7 +279,9 @@ export function createSentryOptions(app, dsn, { browserTracingIntegration, repla
         maskAllText: true,
         maskAllInputs: true,
         blockAllMedia: true,
-        maskAttributes: ['title', 'placeholder', 'aria-label', 'alt'],
+        // data-suggestion holds the composer's writing suggestion, which is
+        // drawn from that attribute rather than from text.
+        maskAttributes: ['title', 'placeholder', 'aria-label', 'alt', 'data-suggestion'],
         block: ['.ni-email-frame'],
         beforeAddRecordingEvent: sanitizeRecordingEvent,
       }),

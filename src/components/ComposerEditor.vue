@@ -15,6 +15,10 @@ const props = defineProps({
   hideGenerate: { type: Boolean, default: false },
   snippets: { type: Array, default: () => [] },
   recipientValues: { type: Object, default: () => ({}) },
+  // What the message is about ({ subject, to, replyToMessageId }), for the
+  // writing suggestions. Left out, the editor never asks for any (the
+  // signature and snippet editors).
+  smartCompose: { type: Object, default: null },
 })
 const emit = defineEmits([
   'update:modelValue',
@@ -457,9 +461,13 @@ function normalizeEmoji() {
 }
 
 let lastEmittedHtml = null
+// The writing suggestions (lib/smartCompose.js), loaded once the editor is up.
+let suggestions = null
 
 function emitUpdate() {
   if (!editorRef.value) return
+  // A suggestion on show is not part of the message until it is accepted.
+  suggestions?.hide()
   normalizeEmoji()
   const html = editorRef.value.innerHTML
   lastEmittedHtml = html
@@ -557,9 +565,23 @@ onMounted(() => {
     editorRef.value.innerHTML = sanitizeEmailHtml(props.modelValue)
     if (normalizeEmoji()) emitUpdate()
   }
+  if (!props.smartCompose) return
+  import('../lib/smartCompose')
+    .then(({ createSmartCompose }) => {
+      if (!editorRef.value) return
+      suggestions = createSmartCompose({
+        editor: editorRef.value,
+        context: () => props.smartCompose,
+        blocked: () => menuOpen.value,
+        insertText,
+      })
+    })
+    // Without the chunk there are no suggestions; writing carries on.
+    .catch(() => {})
 })
 
 onUnmounted(() => {
+  suggestions?.destroy()
   releasePreviewBackground()
   if (previewSnippet.value) emit('previewState', false)
 })
