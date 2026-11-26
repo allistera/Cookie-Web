@@ -34,8 +34,13 @@ const END_HOUR = 19
 const HOUR_HEIGHT = 56
 const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
 
-const today = new Date()
-const todayKey = dateKey(today)
+// Read again every minute, so a tab left open overnight moves the today
+// mark on to the new day.
+const now = ref(new Date())
+const todayKey = computed(() => dateKey(now.value))
+const nowTimer = setInterval(() => {
+  now.value = new Date()
+}, 60_000)
 const selectedKey = computed(() => dateKey(props.date))
 
 // Independent from props.date: the mini calendar can be browsed to other
@@ -110,6 +115,7 @@ async function loadEvents() {
 }
 onBeforeUnmount(() => {
   eventsSeq += 1
+  clearInterval(nowTimer)
 })
 watch(calendarOwnerSession, () => {
   loadCalendars()

@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentCalendarSidebar from '../DocumentCalendarSidebar.vue'
@@ -166,6 +167,24 @@ it('draws the part of an event from the day before that runs into this day', asy
   expect(offsite.top).toBe('0px')
   expect(offsite.height).toBe(`${11 * 56}px`)
   wrapper.unmount()
+})
+
+it('moves the today mark on when the clock passes midnight', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  try {
+    vi.setSystemTime(new Date(2026, 7, 13, 23, 59, 30))
+    mockApi()
+    const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
+    await flushPromises()
+    expect(wrapper.get('.mini-month-day.today').text()).toBe('13')
+
+    vi.advanceTimersByTime(60_000)
+    await nextTick()
+    expect(wrapper.get('.mini-month-day.today').text()).toBe('14')
+    wrapper.unmount()
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('shows partial schedule notices from a truncated response', async () => {
