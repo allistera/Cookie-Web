@@ -52,8 +52,12 @@ test('the calendar sidebar is closed by default, opens from the header, and stay
 }) => {
   await page.clock.setFixedTime(new Date(2026, 10, 3, 13, 47))
   await page.route(`${CALENDAR_API_URL}/calendar-events?*`, (route) => {
-    const from = new URL(route.request().url()).searchParams.get('from')
-    route.fulfill({ json: { events: EVENTS.filter((event) => event.date === from) } })
+    // The window starts the day before the rail's day; events start inside it.
+    const params = new URL(route.request().url()).searchParams
+    const [from, to] = [params.get('from'), params.get('to')]
+    route.fulfill({
+      json: { events: EVENTS.filter((event) => event.date >= from && event.date <= to) },
+    })
   })
   // A task due that day sits among the events, as on the Calendar view.
   await page.route(`${TASKS_API_URL}/task-items?view=calendar*`, (route) =>

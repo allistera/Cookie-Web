@@ -8,6 +8,10 @@ import { useDocumentsStore } from '../../stores/documents'
 
 import { CALENDAR_API_URL } from '../../lib/apiWorkers'
 
+// The day's events window starts the day before, for an event that runs past
+// midnight.
+const eventsUrl = (day, dayBefore) => calendarEventsUrl(dayBefore, day)
+
 const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const EVENTS = [
   {
@@ -39,7 +43,7 @@ function mockApi() {
           json: async () => ({ calendars: [{ id: 'work', name: 'Work', color: '#4f7c6b' }] }),
         }
       }
-      if (url === calendarEventsUrl('2026-08-13', '2026-08-13')) {
+      if (url === eventsUrl('2026-08-13', '2026-08-12')) {
         return { ok: true, json: async () => ({ events: EVENTS }) }
       }
       return { ok: true, json: async () => ({ events: [] }) }
@@ -60,7 +64,7 @@ describe('DocumentCalendarSidebar', () => {
     const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-08-13', '2026-08-13'), {
+    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-08-13', '2026-08-12'), {
       headers: {},
     })
     expect(wrapper.get('.sidebar-all-day-chip').text()).toBe('Company Holiday')
@@ -102,7 +106,7 @@ describe('DocumentCalendarSidebar', () => {
     await wrapper.setProps({ date: new Date(2026, 7, 14) })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-08-14', '2026-08-14'), {
+    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-08-14', '2026-08-13'), {
       headers: {},
     })
     expect(wrapper.get('.mini-month-day.selected').text()).toBe('14')
@@ -127,6 +131,41 @@ describe('DocumentCalendarSidebar', () => {
       before + 1,
     )
   })
+})
+
+it('draws the part of an event from the day before that runs into this day', async () => {
+  mockApi()
+  const real = fetch.getMockImplementation()
+  fetch.mockImplementation(async (url) =>
+    url === eventsUrl('2026-08-13', '2026-08-12')
+      ? {
+          ok: true,
+          json: async () => ({
+            events: [
+              { id: 'lunch', title: 'Lunch', date: '2026-08-12', start: '12:00', duration: 60 },
+              {
+                id: 'offsite',
+                title: 'Offsite',
+                date: '2026-08-12',
+                start: '09:00',
+                duration: 1440 + 600,
+              },
+              ...EVENTS,
+            ],
+          }),
+        }
+      : real(url),
+  )
+  const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
+  await flushPromises()
+
+  const titles = wrapper.findAll('.sidebar-event').map((event) => event.text())
+  expect(titles).toEqual(['Offsite', 'Standup'])
+  // From the top of the 8 AM grid to 7 PM, where the event ends.
+  const offsite = wrapper.findAll('.sidebar-event')[0].element.style
+  expect(offsite.top).toBe('0px')
+  expect(offsite.height).toBe(`${11 * 56}px`)
+  wrapper.unmount()
 })
 
 it('shows partial schedule notices from a truncated response', async () => {

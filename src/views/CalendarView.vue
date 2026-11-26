@@ -1,5 +1,6 @@
 <script setup>
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
+import { eventDaySegments, isContinuationSegment } from '../utils/calendarEventSegments'
 import { gapLabel, gapsBetween } from '../utils/calendarGaps'
 import { assignLanes } from '../utils/calendarLanes'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -626,8 +627,15 @@ const visibleEvents = computed(() =>
 // a compact banner rather than being positioned by start time/duration in
 // the hourly grid — that's what previously made one stretch across the
 // entire visible timeline.
-const timedVisibleEvents = computed(() => visibleEvents.value.filter((event) => !event.allDay))
-const allDayVisibleEvents = computed(() => visibleEvents.value.filter((event) => event.allDay))
+// What the day, week and month grids draw: an event running past midnight
+// appears on each day it covers. Conflicts and counts read whole events.
+const visibleEventSegments = computed(() => visibleEvents.value.flatMap(eventDaySegments))
+const timedVisibleEvents = computed(() =>
+  visibleEventSegments.value.filter((event) => !event.allDay),
+)
+const allDayVisibleEvents = computed(() =>
+  visibleEventSegments.value.filter((event) => event.allDay),
+)
 
 // The real current week (anchored on referenceDate/"today"), independent of
 // whatever day/week/month the user has navigated to — the "Auto-scheduled"
@@ -984,7 +992,7 @@ const isCurrentMonth = (date) => date.getMonth() === selectedDate.value.getMonth
 // the 42-cell month grid made that O(42×N) on every render.
 const visibleEventsByDate = computed(() => {
   const byDate = new Map()
-  for (const event of visibleEvents.value) {
+  for (const event of visibleEventSegments.value) {
     const bucket = byDate.get(event.date)
     if (bucket) bucket.push(event)
     else byDate.set(event.date, [event])
@@ -1123,8 +1131,10 @@ function toggleRepeatDay(code) {
     : [...days, code]
 }
 
-function editEvent(event) {
+function editEvent(item) {
   if (eventSaving.value) return
+  // A day's piece of an event past midnight opens the whole event.
+  const event = item.segmentOf ?? item
   // A task has its own panel rather than the event dialog.
   if (event.kind === 'task') {
     openTask(event.taskId)
@@ -1612,9 +1622,10 @@ let moveClickSuppressed = false
 
 // A repeating Cookie event is one series, so dragging one occurrence would
 // move them all; that stays a deliberate edit in the dialog. A task running
-// past midnight shows its remainder on the next day, which is not a start.
+// past midnight shows its remainder on the next day, which is not a start;
+// the same goes for an event's pieces after its first day.
 function canMoveEvent(event) {
-  if (movingIds.has(event.id)) return false
+  if (movingIds.has(event.id) || isContinuationSegment(event)) return false
   if (event.kind === 'task') return !event.id.endsWith(':continuation')
   return !event.recurrenceRule && writableCalendars.value.some(({ id }) => id === event.calendar)
 }
@@ -1623,9 +1634,11 @@ function beginEventMove(event, item) {
   if (event.button !== 0 || !canMoveEvent(item.event)) return
   const lane = event.currentTarget.parentElement
   const rect = lane.getBoundingClientRect()
-  const start = timeStringToMinutes(item.event.start)
+  // The first day's piece of an event past midnight moves the whole event.
+  const moved = item.event.segmentOf ?? item.event
+  const start = timeStringToMinutes(moved.start)
   moveDraft.value = {
-    event: item.event,
+    event: moved,
     lane,
     // Where on the lane the event was picked up; the lane may be scrolled
     // under the pointer before it is put down.
@@ -1636,7 +1649,7 @@ function beginEventMove(event, item) {
     // The event stays inside the day; one already running past midnight can
     // stay where it is or come in.
     earliest: 0,
-    latest: Math.max(DAY_MINUTES - Number(item.event.duration), start),
+    latest: Math.max(DAY_MINUTES - Number(moved.duration), start),
     dragging: false,
   }
   window.addEventListener('mousemove', onEventMove)
@@ -2051,7 +2064,9 @@ onUnmounted(() => {
                   @click="openDayEvent(item.event)"
                 >
                   <span class="day-event-label">
-                    <span class="day-event-time">{{ eventTimeRange(item.event) }}</span>
+                    <span class="day-event-time">{{
+                      eventTimeRange(item.event.segmentOf ?? item.event)
+                    }}</span>
                     <span class="day-event-title">
                       <span
                         v-if="item.event.kind === 'task'"

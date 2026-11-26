@@ -8,6 +8,7 @@ import { useCalendarRailCalendars } from '../../composables/useCalendarRailCalen
 import { useInboxStore } from '../../stores/inbox'
 import { useTaskItemsStore } from '../../stores/taskItems'
 import { CALENDAR_API_URL, TASKS_API_URL } from '../../lib/apiWorkers'
+import { addDays } from '../../lib/taskSchedule'
 
 const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const TODAY = '2026-11-03'
@@ -60,6 +61,14 @@ const EVENTS = {
   ],
 }
 
+// The day's events window, from the day before for an event that runs past
+// midnight; the API returns the events that start inside it.
+const eventsUrl = (day) => calendarEventsUrl(addDays(day, -1), day)
+const eventsStartingIn = (from, to) =>
+  Object.values(EVENTS)
+    .flat()
+    .filter((event) => event.date >= from && event.date <= to)
+
 // The day's tasks window: from the day before, for a task that runs past
 // midnight, with done tasks included.
 const tasksUrl = (day, dayBefore) =>
@@ -92,8 +101,13 @@ function mockApi() {
       if (String(url).startsWith(`${TASKS_API_URL}/task-items`)) {
         return { ok: true, json: async () => ({ items: taskItems }) }
       }
-      for (const [day, events] of Object.entries(EVENTS)) {
-        if (url === calendarEventsUrl(day, day)) return { ok: true, json: async () => ({ events }) }
+      for (const day of Object.keys(EVENTS)) {
+        if (url === eventsUrl(day)) {
+          return {
+            ok: true,
+            json: async () => ({ events: eventsStartingIn(addDays(day, -1), day) }),
+          }
+        }
       }
       return { ok: true, json: async () => ({ events: [] }) }
     }),
@@ -139,7 +153,7 @@ describe('CalendarRail', () => {
   it("opens on today and shows the day's all-day and timed events", async () => {
     await render()
 
-    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl(TODAY, TODAY), { headers: {} })
+    expect(fetch).toHaveBeenCalledWith(eventsUrl(TODAY), { headers: {} })
     expect(wrapper.get('.cr-title').text()).toContain('Today')
     expect(wrapper.get('.cr-all-day-chip').text()).toBe('Bin collection')
     expect(wrapper.findAll('.cr-event').map((e) => e.find('strong').text())).toEqual([
@@ -195,7 +209,7 @@ describe('CalendarRail', () => {
     await wrapper.get('[aria-label="Next day"]').trigger('click')
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-11-04', '2026-11-04'), {
+    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-11-04'), {
       headers: {},
     })
     expect(wrapper.get('.cr-title').text()).not.toContain('Today')
@@ -223,7 +237,7 @@ describe('CalendarRail', () => {
   it('follows a pinned day such as an open daily note', async () => {
     await render({ date: new Date(2026, 10, 4) })
 
-    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-11-04', '2026-11-04'), {
+    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-11-04'), {
       headers: {},
     })
     await wrapper.setProps({ date: new Date(2026, 10, 3) })
@@ -317,6 +331,35 @@ describe('CalendarRail', () => {
     expect(remainder.element.style.height).toBe('46px')
   })
 
+  it("shows the rest of an event that ran past the day before's midnight", async () => {
+    const late = {
+      id: 'late-show',
+      title: 'Late show',
+      date: '2026-11-02',
+      start: '22:00',
+      duration: 180,
+      calendar: 'work',
+    }
+    const answer = fetch.getMockImplementation()
+    fetch.mockImplementation(async (url) =>
+      url === eventsUrl(TODAY)
+        ? { ok: true, json: async () => ({ events: [late, ...EVENTS[TODAY]] }) }
+        : answer(url),
+    )
+    await render()
+
+    const remainder = wrapper.findAll('.cr-event').find((item) => item.text().includes('Late show'))
+    // Midnight to 01:00 on a 48px hour, less the 2px gap.
+    expect(remainder.element.style.top).toBe('0px')
+    expect(remainder.element.style.height).toBe('46px')
+    await remainder.trigger('click')
+    const details = wrapper.get('.cr-details')
+    expect(details.text()).toMatch(/10:00\sPM – 1:00\sAM/)
+    await details.get('.cr-secondary').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({ date: '2026-11-02', event: 'late-show' })
+  })
+
   it('keeps the events when the tasks cannot be loaded', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const answer = fetch.getMockImplementation()
@@ -335,9 +378,7 @@ describe('CalendarRail', () => {
   it('reads the tasks again when one is changed elsewhere on the page', async () => {
     await render()
     expect(wrapper.findAll('.cr-all-day-chip')).toHaveLength(1)
-    const eventRequests = fetch.mock.calls.filter(
-      ([url]) => url === calendarEventsUrl(TODAY, TODAY),
-    ).length
+    const eventRequests = fetch.mock.calls.filter(([url]) => url === eventsUrl(TODAY)).length
 
     taskItems = TASKS
     useTaskItemsStore().invalidateHistory()
@@ -345,9 +386,7 @@ describe('CalendarRail', () => {
 
     expect(wrapper.findAll('.cr-all-day-chip')).toHaveLength(3)
     // Only the tasks are fetched again.
-    expect(
-      fetch.mock.calls.filter(([url]) => url === calendarEventsUrl(TODAY, TODAY)),
-    ).toHaveLength(eventRequests)
+    expect(fetch.mock.calls.filter(([url]) => url === eventsUrl(TODAY))).toHaveLength(eventRequests)
   })
 
   it('lists every calendar with Tasks last, in colour', async () => {
@@ -428,8 +467,7 @@ describe('CalendarRail', () => {
   // Returning to the tab fires both events; one fetch of the day is enough.
   it('refreshes once when the tab becomes visible and focused together', async () => {
     await render()
-    const dayRequests = () =>
-      fetch.mock.calls.filter(([url]) => url === calendarEventsUrl(TODAY, TODAY)).length
+    const dayRequests = () => fetch.mock.calls.filter(([url]) => url === eventsUrl(TODAY)).length
     const before = dayRequests()
 
     document.dispatchEvent(new Event('visibilitychange'))

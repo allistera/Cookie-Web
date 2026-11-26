@@ -697,6 +697,55 @@ describe('CalendarView', () => {
     expect(wrapper.find('.all-day-event.task-event').exists()).toBe(false)
   })
 
+  it('draws an event past midnight on each day it covers and opens the whole event', async () => {
+    mockCalendarApi({
+      extraEvents: [
+        {
+          id: 'late-show',
+          title: 'Late show',
+          date: '2026-07-24',
+          start: '22:00',
+          duration: 180,
+          calendar: 'personal',
+        },
+      ],
+    })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const chip = () =>
+      wrapper
+        .findAll('.day-event:not(.drag-preview)')
+        .find((item) => item.text().includes('Late show'))
+    expect(Number.parseFloat(chip().element.style.width)).toBeCloseTo((2 / 24) * 100, 3)
+
+    await wrapper.get('[aria-label="Next period"]').trigger('click')
+    await flushPromises()
+    const rest = chip()
+    expect(rest.element.style.left).toBe('0%')
+    expect(Number.parseFloat(rest.element.style.width)).toBeCloseTo((1 / 24) * 100, 3)
+    expect(rest.get('.day-event-time').text()).toBe('10:00 PM – 1:00 AM')
+
+    // The remainder is not where the event starts, so it cannot be dragged.
+    mockDayLane(wrapper.get('.day-event-lane').element)
+    await rest.trigger('mousedown', { clientX: 120, button: 0 })
+    await rest.trigger('mousemove', { clientX: 320, button: 0 })
+    expect(wrapper.find('.day-event.move-preview').exists()).toBe(false)
+    await rest.trigger('mouseup', { clientX: 320, button: 0 })
+    // Opening it opens the event itself, from its first day.
+    await rest.trigger('click')
+    expect(wrapper.get('input[type="date"]').element.value).toBe('2026-07-24')
+    expect(wrapper.findAll('input[type="time"]')[0].element.value).toBe('22:00')
+    await wrapper.get('.new-event-cancel').trigger('click')
+
+    await wrapper.get('.calendar-view-tabs button:nth-child(2)').trigger('click')
+    expect(
+      wrapper.findAll('.week-event').filter((item) => item.text().includes('Late show')),
+    ).toHaveLength(2)
+    await wrapper.get('.calendar-view-tabs button:nth-child(3)').trigger('click')
+    const days = wrapper.findAll('.month-day').filter((day) => day.text().includes('Late show'))
+    expect(days.map((day) => day.get('.month-date').text())).toEqual(['24', '25'])
+    wrapper.unmount()
+  })
+
   it('covers the events window with task requests within the API limit', async () => {
     await mountCalendar()
     const urls = fetch.mock.calls.map(([url]) => String(url))
