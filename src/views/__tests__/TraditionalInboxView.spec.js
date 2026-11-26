@@ -2791,6 +2791,20 @@ describe('TraditionalInboxView multi-select', () => {
     wrapper.unmount()
   })
 
+  it('Escape in the reply being typed leaves the reader open', async () => {
+    const wrapper = mountView({ attachTo: document.body })
+    await wrapper.find('.ni-row').trigger('click')
+    await wrapper.get('.ni-email-card [title="Reply"]').trigger('click')
+    const editor = wrapper.get('.ni-reply-box .composer-editor').element
+
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+
+    expect(store.openEmailId).not.toBeNull()
+    expect(wrapper.find('.ni-reply-box').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('Escape clears the selection first and only then closes the reader', async () => {
     const wrapper = mountView()
     await wrapper.findAll('.ni-row')[2].trigger('click')
