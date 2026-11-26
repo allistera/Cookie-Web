@@ -11,7 +11,7 @@ import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useContactInsightsStore } from './stores/contactInsights'
 import { clearOfflineData, setOfflineOwner } from './lib/offlineCache'
 import { drainDraftRecoveryWrites } from './lib/draftRecovery'
-import { installOutboxSync, outboxPending, syncOutbox } from './lib/outbox'
+import { installOutboxSync, outboxPending, refreshOutboxPending, syncOutbox } from './lib/outbox'
 import { isOnline } from './lib/connectivity'
 import { clearCachedMail } from './lib/serviceWorker'
 import { loadMaterialSymbols } from './lib/iconFont'
@@ -350,11 +350,25 @@ function openSettings() {
   router.push({ name: 'settings', params: { section: 'account' } })
 }
 
+// Logging out deletes the outbox with the rest of the offline data, so
+// changes still waiting in it get one more chance to go out first, and any
+// that stay are counted in the confirmation.
+async function unsentChangeCount() {
+  if (isOnline.value) await syncOutbox({ prepare: loadOfflineStores }).catch(() => {})
+  return refreshOutboxPending().catch(() => outboxPending.value)
+}
+
 async function handleLogout() {
+  const unsent = await unsentChangeCount()
+  const losses = [
+    store.draftRecoveries.length ? 'Some drafts are saved only on this device.' : '',
+    unsent === 1 ? '1 change has not been sent yet.' : '',
+    unsent > 1 ? `${unsent} changes have not been sent yet.` : '',
+  ].filter(Boolean)
   if (
-    store.draftRecoveries.length &&
+    losses.length &&
     !window.confirm(
-      'Some drafts are saved only on this device. Logging out removes these local copies. Log out anyway?',
+      `${losses.join(' ')} Logging out removes them from this device. Log out anyway?`,
     )
   )
     return
