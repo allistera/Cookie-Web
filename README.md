@@ -300,10 +300,10 @@ Vercel stores browser build values. The GitHub Actions workflow in this reposito
 
 ### Browser monitoring and Vercel configuration
 
-The page Content Security Policy permits the Vercel Toolbar's documented script,
-connection, frame, style, and font origins, including its Pusher WebSocket. This
-supports the toolbar when Vercel injects it in production or preview deployments.
-See [Vercel's toolbar CSP requirements](https://vercel.com/docs/vercel-toolbar/managing-toolbar#content-security-policy).
+The page Content Security Policy does not allow the Vercel Toolbar's origins:
+scripts load only from the app's own origin, which is what the decision to keep
+Auth0 refresh tokens in localStorage relies on. Keep the toolbar switched off
+for this project in Vercel, or it logs CSP errors where Vercel injects it.
 
 The browser uses [`@sentry/vue`](https://docs.sentry.io/platforms/javascript/guides/vue/)
 for errors, page-load/navigation performance, request timings, Web Vitals, and
@@ -453,9 +453,7 @@ npx playwright install chromium firefox
 `npm run test:e2e` runs Chromium only; CI also runs Firefox. Run `npx playwright test --project=firefox` to check Firefox locally, or `npm run test:e2e:all` for both. Pass a specific file path to narrow a run when iterating.
 
 `e2e/console-errors.spec.js` fails on console errors or uncaught exceptions during
-main-route startup and app switching. It also checks an injected toolbar script
-URL under the real deployment CSP. These checks use fixture APIs and a mocked
-toolbar response; browser extensions and live Sentry delivery are outside their
+main-route startup and app switching. These checks use fixture APIs; browser extensions and live Sentry delivery are outside their
 scope. Run the file with `npm run test:e2e -- e2e/console-errors.spec.js`.
 
 ## Delivery and operations
