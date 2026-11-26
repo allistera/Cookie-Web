@@ -1926,7 +1926,9 @@ async function sendReply() {
         ? 'Delivery needs confirmation before retrying. Your reply is kept in Drafts.'
         : error.code === 'DELIVERY_PENDING'
           ? 'Delivery is still being checked. Retry this unchanged reply to check its status.'
-          : 'Failed to send reply. Please try again.',
+          : error.code === 'DELIVERY_REJECTED'
+            ? 'The reply was rejected. Check the recipients, then send it again.'
+            : 'Failed to send reply. Please try again.',
       'error',
     )
     if (payload.owner !== store.composeOwnerSub) return

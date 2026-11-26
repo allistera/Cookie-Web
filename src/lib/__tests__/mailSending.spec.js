@@ -216,3 +216,49 @@ it('sends the Cc and Bcc lines only when someone is on them', async () => {
   expect(bodies[2]).not.toHaveProperty('cc')
   expect(bodies[2]).not.toHaveProperty('bcc')
 })
+
+function failedSend(status, code) {
+  return { ok: false, status, json: async () => ({ error: 'Not sent', code }) }
+}
+
+it.each([422, 503])(
+  'releases the identity when the provider rejects the email (status %i)',
+  async (status) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(failedSend(status, 'DELIVERY_REJECTED'))
+      .mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = { authHeaders: async () => ({}) }
+    const draft = { to: 'typo@example.con', subject: 'Hello', text: 'Body' }
+
+    await expect(sendMail.call(store, draft)).rejects.toMatchObject({ code: 'DELIVERY_REJECTED' })
+    expect(draft.sendIdentity).toBeNull()
+
+    draft.to = 'right@example.com'
+    await sendMail.call(store, draft)
+    const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+    expect(bodies[1].to).toBe('right@example.com')
+    expect(bodies[1].requestId).not.toBe(bodies[0].requestId)
+  },
+)
+
+it('keeps the identity when nothing reached the provider, so the retry is the same request', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(failedSend(503, 'DELIVERY_NOT_SENT'))
+    .mockResolvedValue({ ok: true, json: async () => ({}) })
+  vi.stubGlobal('fetch', fetchMock)
+  const store = { authHeaders: async () => ({}) }
+  const draft = { to: 'recipient@example.com', subject: 'Hello', text: 'Body' }
+
+  await expect(sendMail.call(store, draft)).rejects.toMatchObject({ code: 'DELIVERY_NOT_SENT' })
+  expect(draft.sendIdentity).toBeTruthy()
+  await expect(sendMail.call(store, { ...draft, text: 'Edited' })).rejects.toMatchObject({
+    code: 'DELIVERY_CONFLICT',
+  })
+
+  await sendMail.call(store, draft)
+  const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+  expect(bodies[1].requestId).toBe(bodies[0].requestId)
+})

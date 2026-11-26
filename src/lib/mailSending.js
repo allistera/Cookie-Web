@@ -155,9 +155,15 @@ export async function sendMail(draft) {
     const result = await response.json().catch(() => ({}))
     // Deterministic 4xx rejections (excluding delivery uncertainty codes) mean
     // the server refused the message before delivery; release the identity so
-    // the user can edit and resend instead of hitting a permanent lockout.
+    // the user can edit and resend instead of hitting a permanent lockout. A
+    // provider rejection is final whatever its status: retrying the same
+    // request would only replay it. DELIVERY_NOT_SENT (503) keeps the identity
+    // so its retry stays idempotent.
     const uncertainCodes = new Set(['DELIVERY_PENDING', 'DELIVERY_UNCERTAIN', 'DELIVERY_CONFLICT'])
-    if (response.status >= 400 && response.status < 500 && !uncertainCodes.has(result.code)) {
+    if (
+      result.code === 'DELIVERY_REJECTED' ||
+      (response.status >= 400 && response.status < 500 && !uncertainCodes.has(result.code))
+    ) {
       releaseIdentity(this, ownerSub, draft, identity)
     }
     assertOwner()

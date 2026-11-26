@@ -3231,6 +3231,29 @@ describe('Inbox Store', () => {
       expect(consoleError).toHaveBeenCalledWith('Failed to send email:', expect.any(Error))
     })
 
+    it.each([
+      [
+        422,
+        'DELIVERY_REJECTED',
+        'The email was rejected. Check the recipients, then send it again.',
+      ],
+      [503, 'DELIVERY_NOT_SENT', 'Sending was not confirmed. Retry this unchanged draft.'],
+    ])('explains a %i %s failure', async (status, code, message) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: false, status, json: async () => ({ code }) }),
+      )
+      const store = useInboxStore()
+      armComposer(store)
+
+      store.sendEmail()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(store.isComposerActive).toBe(true)
+      expect(store.toasts.at(-1)?.message).toBe(message)
+    })
+
     it('does not queue a second send while one is already pending', () => {
       stubSendOk()
       const store = useInboxStore()
