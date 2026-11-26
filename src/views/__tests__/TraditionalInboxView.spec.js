@@ -5317,6 +5317,27 @@ describe('TraditionalInboxView list and reader action coverage', () => {
     expect(store.adoptLateComposerDraft).toHaveBeenCalledWith(store.composerSessionId, 'late-draft')
   })
 
+  it('gives the composer the row of a reply save still in flight at /generate', async () => {
+    let finishSave
+    const persist = vi.spyOn(store, 'persistDraft').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    vi.spyOn(store, 'openAiDraft').mockImplementation(() => {})
+    await reply()
+    store.saveReplyDraft({ to: 'sender-one@example.com', subject: 'Re: one', text: 'Hi' })
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1))
+
+    wrapper.findComponent({ name: 'ComposerEditor' }).vm.$emit('generate')
+    await nextTick()
+    finishSave('reply-row')
+    await flushPromises()
+
+    expect(store.composerDraftId).toBe('reply-row')
+  })
+
   it('reports when saving a failed reply after navigation also fails', async () => {
     let fail
     vi.spyOn(store, 'sendMail').mockImplementation(

@@ -1771,6 +1771,10 @@ function generateReplyDraft() {
   store.composerSendIdentity = store.replySendIdentity
   // The composer now owns this draft row and keeps autosaving into it.
   const replyDraftId = store.consumeReplyDraft()
+  // The reply's first save may still be in flight; its row is this
+  // message's, so it goes to the composer once it lands. Taken now, because
+  // discardReply() consumes the reply again and would replace the handoff.
+  const handoff = replyDraftId ? null : store.settleReplyHandoff()
   if (replyDraftId) handledReplyDrafts.add(replyDraftId)
   store.composerDraftId = replyDraftId
   pendingReplyDraft.value = null
@@ -1779,9 +1783,6 @@ function generateReplyDraft() {
   discardReply()
   store.openComposer()
   store.openAiDraft()
-  // The reply's first save may still be in flight; its row is this
-  // message's, so it goes to the composer once it lands.
-  const handoff = replyDraftId ? null : store.settleReplyHandoff()
   if (handoff) {
     const session = store.composerSessionId
     handoff.then((lateId) => store.adoptLateComposerDraft(session, lateId))
