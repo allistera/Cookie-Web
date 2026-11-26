@@ -178,6 +178,14 @@ function showsRemoteImages(email) {
   )
 }
 
+// An earlier message in the open conversation is trusted on its own merits:
+// its listed row when loaded, otherwise whether its sender was accepted.
+function threadMessageShowsImages(message) {
+  const row = store.emailById(message.id)
+  if (row) return showsRemoteImages(row)
+  return senders.known[normalizeSender(message.from_address)] === 'accepted'
+}
+
 // Important is exclusive: whatever Important holds appears in no other tab,
 // so an email is never listed twice. A category tab therefore only shows the
 // rest of its category, and never a Due Today group.
@@ -3279,7 +3287,7 @@ onUnmounted(() => {
               v-else
               :message="message"
               :expanded="expandedThreadIds.has(message.id)"
-              :show-images="showsRemoteImages(openEmail)"
+              :show-images="threadMessageShowsImages(message)"
               @toggle="toggleThreadMessage(message.id)"
               @keydown="forwardEmailKeydown"
             />
