@@ -40,9 +40,12 @@ export function bundleBudgetPlugin() {
         // moved up by 2 KB. The Subscriptions sidebar item and its route
         // (about 410 bytes) found Vercel's build about 300 bytes under and
         // took it 110 over, so both budgets that carry the entry moved up by
-        // 1 KB again.
+        // 1 KB again. The fixes from the 26 November 2026 code review (the
+        // logout check for unsent changes, the rejected-send message and the
+        // composer's conflict and recovery handling, about 1.4 KB) put
+        // Vercel's build about 0.3 KB over, so the entry moved up by 2 KB.
         const budget = chunk.isEntry
-          ? 534_000
+          ? 536_000
           : // The inbox view statically imports the entry, so it carries the
             // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
             // Sentry debug IDs. With the window dock's share of the entry and
@@ -61,8 +64,12 @@ export function bundleBudgetPlugin() {
             // moved up by 10 KB. Blocking tracking images in the reader (the
             // detector and its notice, 1.7 KB) found Vercel's build 1.4 KB
             // under and took it 0.3 KB over, so the view moved up by 2 KB.
+            // The fixes from the 26 November 2026 code review (its share of
+            // the entry's growth, the wider tracking-image rule and the
+            // reader's own fixes) put Vercel's build 1.3 KB over, so the view
+            // moved up by 3 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 679_000
+            ? 682_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
