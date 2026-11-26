@@ -23,6 +23,8 @@ const KINDS = [
   [/^image\//u, 'Image', 'image'],
   [/^application\/pdf$/u, 'PDF', 'picture_as_pdf'],
   [/spreadsheet|excel|csv/u, 'Spreadsheet', 'table_chart'],
+  // Ahead of Text: an invitation arrives as text/calendar.
+  [/calendar|\/ics$/u, 'Calendar', 'calendar_month'],
   [/^text\/|word|document|rtf/u, 'Text', 'description'],
   [/zip|tar|gzip|compressed|7z|rar/u, 'Archive', 'folder_zip'],
   [/^audio\//u, 'Audio', 'audio_file'],

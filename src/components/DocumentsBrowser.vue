@@ -15,6 +15,7 @@ import {
   isPreviewable,
 } from '../lib/documentFiles'
 import { getStoredLayout, saveLayout } from '../lib/documentsLayout'
+import { EMAIL_ATTACHMENTS_ROUTE, EMAIL_ATTACHMENTS_TITLE } from '../lib/emailAttachments'
 
 // One folder at a time: its subfolders, documents and uploaded files as
 // cards or rows. Documents come from the store's existing per-folder page;
@@ -102,6 +103,20 @@ watch(
 
 function folderRoute(id) {
   return id ? { path: '/documents', query: { folder: id } } : { path: '/documents' }
+}
+
+// The built-in Email attachments folder sits first in the root. It lists the
+// mailbox's files rather than holding anything, so it has no menu, cannot be
+// renamed or deleted and takes no drops.
+const isRoot = computed(() => (props.folderId ?? null) === null)
+const isEmpty = computed(() => !items.value.length && !uploads.value.length)
+function openEmailAttachments() {
+  return router.push(EMAIL_ATTACHMENTS_ROUTE)
+}
+function onEmailAttachmentsKeydown(event) {
+  if (event.key !== 'Enter') return
+  event.preventDefault()
+  void openEmailAttachments()
 }
 
 async function download(file) {
@@ -343,14 +358,25 @@ function detail(entry) {
       <button type="button" @click="load(true)">Retry</button>
     </p>
 
-    <div v-if="loading && !items.length && !uploads.length" class="documents-loading">
-      <div class="spinner"></div>
-    </div>
-    <p v-else-if="!items.length && !uploads.length" class="browser-empty">
-      This folder is empty. Create a document or drop files here.
-    </p>
+    <ul v-if="isRoot || !isEmpty" class="browser-items" :aria-busy="loading">
+      <li
+        v-if="isRoot"
+        class="browser-item"
+        :class="{ selected: selectedId === 'email-attachments' }"
+        data-kind="email-attachments"
+        tabindex="0"
+        @click="selectedId = 'email-attachments'"
+        @dblclick="openEmailAttachments"
+        @keydown="onEmailAttachmentsKeydown"
+      >
+        <span class="item-icon item-folder material-symbols-outlined" aria-hidden="true"
+          >folder</span
+        >
+        <span class="item-name">{{ EMAIL_ATTACHMENTS_TITLE }}</span>
+        <span class="item-kind">Folder</span>
+        <span class="item-detail">From your email</span>
+      </li>
 
-    <ul v-else class="browser-items" :aria-busy="loading">
       <li
         v-for="upload in uploads"
         :key="upload.id"
@@ -502,6 +528,17 @@ function detail(entry) {
         </span>
       </li>
     </ul>
+
+    <div v-if="loading && isEmpty" class="documents-loading">
+      <div class="spinner"></div>
+    </div>
+    <p v-else-if="isEmpty" class="browser-empty">
+      {{
+        isRoot
+          ? 'No documents or files yet. Create a document or drop files here.'
+          : 'This folder is empty. Create a document or drop files here.'
+      }}
+    </p>
 
     <div v-if="offset > 0 || hasOlder" class="browser-pagination">
       <button

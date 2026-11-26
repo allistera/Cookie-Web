@@ -42,6 +42,7 @@ async function mountAt(path, editor = true) {
       plugins: [router],
       stubs: {
         DocumentsBrowser: true,
+        EmailAttachmentsFolder: true,
         FilePreview: true,
         DocumentCalendarSidebar: true,
         NewDocumentDialog: true,
@@ -271,6 +272,27 @@ describe('DocumentsView', () => {
     await flushPromises()
     expect(upload).not.toHaveBeenCalled()
     expect(view.classes()).not.toContain('file-drop-active')
+    wrapper.unmount()
+  })
+
+  it('shows the Email attachments folder in place of the folder browser', async () => {
+    const upload = vi.spyOn(store, 'uploadDropped').mockResolvedValue()
+    const wrapper = await mountAt('/documents?folder=email-attachments')
+    expect(wrapper.find('email-attachments-folder-stub').exists()).toBe(true)
+    expect(wrapper.find('documents-browser-stub').exists()).toBe(false)
+
+    // It is a list of the mailbox's files, not somewhere a file can be put.
+    const view = wrapper.get('.documents-view')
+    const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')] }
+    await view.trigger('dragover', { dataTransfer })
+    await view.trigger('drop', { dataTransfer })
+    expect(view.classes()).not.toContain('file-drop-active')
+    expect(upload).not.toHaveBeenCalled()
+
+    await router.push('/documents')
+    await flushPromises()
+    expect(wrapper.find('email-attachments-folder-stub').exists()).toBe(false)
+    expect(wrapper.get('documents-browser-stub').attributes('folder-id')).toBeUndefined()
     wrapper.unmount()
   })
 
