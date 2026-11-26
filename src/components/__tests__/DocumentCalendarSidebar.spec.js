@@ -3,7 +3,7 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentCalendarSidebar from '../DocumentCalendarSidebar.vue'
-import { calendarEventsUrl, useCalendars } from '../../composables/useCalendars'
+import { calendarEventsUrl, setCalendarsOwner, useCalendars } from '../../composables/useCalendars'
 import { useInboxStore } from '../../stores/inbox'
 import { useDocumentsStore } from '../../stores/documents'
 
@@ -200,4 +200,29 @@ it('shows partial schedule notices from a truncated response', async () => {
   await flushPromises()
   expect(wrapper.get('[role="status"]').text()).toContain('Some events could not be shown')
   wrapper.unmount()
+})
+
+it('drops a load that the account changed under before it was sent', async () => {
+  mockApi()
+  let release
+  const gate = new Promise((resolve) => (release = resolve))
+  let changed = false
+  useInboxStore().authHeaders.mockImplementation(async () => {
+    if (!changed) await gate
+    return {}
+  })
+  // A day of its own: sidebars other tests left mounted reload on the change too.
+  const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 20) } })
+  await flushPromises()
+
+  changed = true
+  setCalendarsOwner('someone-else')
+  release()
+  await flushPromises()
+
+  // Only the new account's load reached the network.
+  const loads = fetch.mock.calls.filter(([url]) => url === eventsUrl('2026-08-20', '2026-08-19'))
+  expect(loads).toHaveLength(1)
+  wrapper.unmount()
+  setCalendarsOwner(null)
 })
