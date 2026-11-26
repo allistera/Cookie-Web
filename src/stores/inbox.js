@@ -2070,16 +2070,6 @@ export const useInboxStore = defineStore('inbox', {
       }
     },
 
-    // Invalidates an in-flight search without changing the currently displayed
-    // results. Used when the same header input is submitted to mailbox Q&A.
-    cancelPendingSearch() {
-      if (!searchAbortController) return
-      searchAbortController.abort()
-      searchAbortController = null
-      this.listSeq++
-      this.isRefreshing = false
-    },
-
     // Leaves search mode and reloads the full inbox. Bumping listSeq also
     // invalidates any search or load still in flight.
     clearSearch() {
@@ -4201,11 +4191,6 @@ export const useInboxStore = defineStore('inbox', {
         () => this.saveReplyDraft(draft, session),
         DRAFT_AUTOSAVE_DELAY_MS,
       )
-    },
-
-    flushReplyDraft(draft) {
-      clearTimeout(replyDraftTimer)
-      return this.saveReplyDraft(draft)
     },
 
     // Navigation captures the departing draft before the next reader adopts
