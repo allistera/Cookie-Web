@@ -126,11 +126,14 @@ describe('file downloads and navigation', () => {
       vi.spyOn(store, 'fetchFileBlob').mockResolvedValue(new Blob(['zip']))
       const downloads = []
       vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
-        downloads.push({ href: this.href, name: this.download })
+        downloads.push({ href: this.href, name: this.download, attached: this.isConnected })
       })
       wrapper = mount(FilePreview, { props: { fileId: 'zip' }, global: { plugins: [router] } })
       await flushPromises()
-      expect(downloads).toEqual([{ href: 'blob:preview', name: name || 'download' }])
+      expect(downloads).toEqual([
+        { href: 'blob:preview', name: name || 'download', attached: true },
+      ])
+      expect(document.querySelector('a[download]')).toBeNull()
       expect(wrapper.text()).toContain('Its download has started.')
       await vi.advanceTimersByTimeAsync(1000)
       expect(revoke).toHaveBeenCalledWith('blob:preview')
