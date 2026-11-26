@@ -372,9 +372,15 @@ async function handleLogout() {
     )
   )
     return
+  const owner = store.composeOwnerSub
   setOfflineOwner(null)
   setCalendarsOwner(null)
   store.setComposeOwner(null)
+  // The dock's stored tabs name this account's subjects and senders; with no
+  // owner set any more, nothing writes them back.
+  await import('./lib/dockTabStorage.js')
+    .then(({ writeDockTabs }) => writeDockTabs(owner, []))
+    .catch(() => {})
   savedViewsStore.setOwner(null)
   outOfOfficeStore.setOwner(null)
   sendersStore.setOwner(null)
