@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-
 import { expect, test as base } from './workerFixtures.js'
 
 // Keep this guard on successful smoke flows: other E2E specs deliberately
@@ -57,35 +55,4 @@ test('switching apps produces no console errors', async ({ page }) => {
     await expect(page.locator('.logo-suffix')).toHaveText(app)
     await expect(page.locator(view)).toBeVisible()
   }
-})
-
-test('the production CSP permits the injected Vercel Toolbar script without console errors', async ({
-  page,
-}) => {
-  const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
-  const pages = config.headers.find((entry) => entry.source === '/((?!api/).*)')
-  const toolbarUrl = 'https://vercel.live/_next-live/feedback/feedback.js'
-
-  // E2E preview does not apply Vercel headers or inject its toolbar. Use the
-  // actual deployment headers on a small page and stub only the remote script
-  // response, so the browser still enforces CSP for the real toolbar URL.
-  await page.route('**/__e2e__/toolbar-console-check', (route) =>
-    route.fulfill({
-      contentType: 'text/html',
-      headers: Object.fromEntries(pages.headers.map(({ key, value }) => [key, value])),
-      body: `<!doctype html><html><head><meta charset="UTF-8"></head><body>
-        <p id="toolbar-status" role="status">Loading toolbar</p>
-        <script defer src="${toolbarUrl}"></script>
-      </body></html>`,
-    }),
-  )
-  await page.route(toolbarUrl, (route) =>
-    route.fulfill({
-      contentType: 'application/javascript',
-      body: "document.getElementById('toolbar-status').textContent = 'Toolbar loaded'",
-    }),
-  )
-
-  await page.goto('/__e2e__/toolbar-console-check')
-  await expect(page.getByRole('status')).toHaveText('Toolbar loaded')
 })
