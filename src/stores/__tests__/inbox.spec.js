@@ -6537,10 +6537,47 @@ describe('draft optimistic concurrency', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useInboxStore()
     await store.openDraft({ id: DRAFT_ID, to: 'a@b.com', text: 'Body', updatedAt: V1 })
+    store.composerTextArea = 'Body, edited'
 
     await store.saveComposerDraft()
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).expectedUpdatedAt).toBe(V1)
+  })
+
+  it('does not save a draft it opened until something in it changes', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ draft: { id: DRAFT_ID, updatedAt: V2 } }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    await store.openDraft({ id: DRAFT_ID, to: 'a@b.com', text: 'Body', updatedAt: V1 })
+
+    store.scheduleComposerDraftSave()
+    await store.flushComposerDraft()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    store.composerSubject = 'Now with a subject'
+    await store.flushComposerDraft()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Changed back to what was opened, it still differs from the saved row.
+    store.composerSubject = ''
+    await store.flushComposerDraft()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not save a draft it opened when it is closed unchanged', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useInboxStore()
+    await store.openDraft({ id: DRAFT_ID, to: 'a@b.com', text: 'Body', updatedAt: V1 })
+
+    store.closeComposer()
+    await store.flushComposerDraft()
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('adopts the server draft and says so when another tab changed it', async () => {

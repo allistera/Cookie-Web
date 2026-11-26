@@ -3,6 +3,7 @@ import { computed, ref, nextTick, onMounted, onUnmounted, onWatcherCleanup, watc
 import { useRoute, useRouter } from 'vue-router'
 import {
   useInboxStore,
+  draftContentKey,
   isInboxRow,
   inboxTabForCategory,
   isImportantCategory,
@@ -1793,6 +1794,9 @@ function generateReplyDraft() {
 // openEmailId on: rebuilding the payload at that point would file the reply
 // against whichever email was opened next.
 const pendingReplyDraft = ref(null)
+// What a saved reply draft held when it filled the reply box, and that reply
+// session: saving it back unchanged would only reorder Drafts.
+let loadedReply = null
 
 watch(
   () => [store.openEmailId, store.drafts, store.isComposerActive, store.composerDraftId],
@@ -1835,6 +1839,7 @@ watch(
     replyFollowUpAt.value = draft.followUpAt || null
     isAiReply.value = true
     isReplyOpen.value = true
+    loadedReply = { session: store.replySessionId, key: draftContentKey(replyDraftPayload()) }
   },
   { immediate: true },
 )
@@ -1875,7 +1880,12 @@ watch(
   ],
   () => {
     if (!isReplyOpen.value) return
-    pendingReplyDraft.value = replyDraftPayload()
+    const payload = replyDraftPayload()
+    if (loadedReply?.session === store.replySessionId) {
+      if (loadedReply.key === draftContentKey(payload)) return
+      loadedReply = null
+    }
+    pendingReplyDraft.value = payload
     store.scheduleReplyDraftSave(pendingReplyDraft.value)
   },
 )

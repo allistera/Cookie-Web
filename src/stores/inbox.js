@@ -449,6 +449,33 @@ let latestReplySave = { ticket: 0, session: -1 }
 // draft: saves queued before that carry the content it replaced.
 let composerAdoptions = 0
 let replyAdoptions = 0
+// The content a draft had when openDraft() put it in the composer, and that
+// session. Until something differs, saving it again would only bump the
+// row's updated_at and reorder Drafts. Cleared by the first real change.
+let composerLoaded = null
+
+// The user-visible content of a draft snapshot, for comparing two of them.
+export function draftContentKey(draft) {
+  return JSON.stringify([
+    draft.to ?? '',
+    draft.cc ?? '',
+    draft.bcc ?? '',
+    draft.subject ?? '',
+    draft.text ?? '',
+    draft.html ?? '',
+    draft.replyToMessageId ?? null,
+    draft.followUpAt ?? null,
+    (draft.attachments ?? []).map((attachment) => attachment.id),
+  ])
+}
+
+function unchangedSinceLoad(session, draft) {
+  if (!composerLoaded || !draft) return false
+  if (composerLoaded.session === session && composerLoaded.key === draftContentKey(draft))
+    return true
+  if (composerLoaded.session === session) composerLoaded = null
+  return false
+}
 let recoveryRevision = 0
 // Optimistic concurrency for PATCH /drafts/:id: the updatedAt of the version
 // this client last received for each draft, sent back as expectedUpdatedAt so
@@ -4030,6 +4057,7 @@ export const useInboxStore = defineStore('inbox', {
     },
 
     saveComposerDraft(session = this.composerSessionId, draft = this.composerDraftSnapshot()) {
+      if (unchangedSinceLoad(session, draft)) return composerSaveChain
       const recovery = this.persistComposerRecovery(draft, session)
       composerSavesPending += 1
       const ticket = ++composerSaveTicket
@@ -4058,7 +4086,9 @@ export const useInboxStore = defineStore('inbox', {
       // Captured now, not when the timer fires: by then the composer may hold
       // a different message entirely.
       const session = this.composerSessionId
-      this.persistComposerRecovery(this.composerDraftSnapshot(), session)
+      const snapshot = this.composerDraftSnapshot()
+      if (unchangedSinceLoad(session, snapshot)) return
+      this.persistComposerRecovery(snapshot, session)
       clearTimeout(composerDraftTimer)
       composerDraftTimer = setTimeout(
         () => this.saveComposerDraft(session),
@@ -4318,6 +4348,10 @@ export const useInboxStore = defineStore('inbox', {
       this.composerSendIdentity = null
       this.composerSaveState = 'saved'
       this.isComposerActive = true
+      composerLoaded = {
+        session: this.composerSessionId,
+        key: draftContentKey(this.composerDraftSnapshot()),
+      }
       // A tab restored after a refresh stands for this draft: the composer
       // takes that tab rather than a new one.
       this.claimComposerTab(
