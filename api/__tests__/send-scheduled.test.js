@@ -7,7 +7,6 @@ describe('legacy resource routing', () => {
     ['scheduled', 'GET'],
     ['scheduled', 'DELETE'],
     ['follow-up', 'PATCH'],
-    ['flush', 'POST'],
   ])('maps %s %s to the Worker clean path', async (resource, method) => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ ok: true }))
     const res = responseRecorder()
@@ -24,7 +23,8 @@ describe('legacy resource routing', () => {
   it.each([
     ['unknown', 'POST', 404],
     ['scheduled', 'POST', 405],
-    ['flush', 'GET', 405],
+    // The scheduled-send-flusher Worker calls the send Worker directly.
+    ['flush', 'POST', 404],
   ])('rejects %s %s', async (resource, method, status) => {
     const fetch = vi.fn()
     const res = responseRecorder()
