@@ -39,7 +39,7 @@ test('the service worker keeps the shell and recently read mail available offlin
   await expect(page.locator('#traditionalInboxView')).toBeVisible()
   const shellUrls = await page.evaluate(async () => {
     const cache = await caches.open('cookie-shell-v1')
-    return (await cache.keys()).map((request) => new URL(request.url).pathname)
+    return (await cache.keys()).map(({ url }) => `${new URL(url).pathname}${new URL(url).search}`)
   })
   expect(shellUrls).toContain('/')
   // Navigations are cached only under '/', never per URL (so Auth0 callback
@@ -49,6 +49,8 @@ test('the service worker keeps the shell and recently read mail available offlin
   // it main.css keeps every icon hidden for an offline start.
   expect(shellUrls).toContain('/fonts/material-symbols-outlined.css')
   expect(shellUrls).toContain('/fonts/material-symbols-outlined.woff2')
+  // The reader frame's bridge is kept at the versioned URL it is loaded by.
+  expect(shellUrls).toContainEqual(expect.stringMatching(/^\/email-body-bridge\.js\?v=\d+$/))
 
   const onlineBody = await page.evaluate(async () => {
     const response = await fetch('/api/messages?id=fixture-1')

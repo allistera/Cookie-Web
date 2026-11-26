@@ -26,10 +26,10 @@ const SHELL_URLS = [
   // an offline start renders every icon hidden by main.css.
   '/fonts/material-symbols-outlined.css',
   '/fonts/material-symbols-outlined.woff2',
-  // Unversioned bridge script loaded inside email reader iframes: precaching
-  // it here ensures SW updates refresh it instead of pinning a stale copy in
-  // the cache-first runtime cache across deploys.
-  '/email-body-bridge.js',
+  // The script the email reader frame loads, at the exact URL it requests
+  // (emailBodyBridgeUrl in src/components/EmailBody.vue), so a cache match
+  // finds it. Bump the ?v= here with that one.
+  '/email-body-bridge.js?v=3',
 ]
 const STATIC_DESTINATIONS = new Set(['font', 'image', 'manifest', 'script', 'style'])
 
@@ -211,9 +211,9 @@ function entryAssetUrls(html) {
 }
 
 // Keeps the untrimmed shell cache bounded: anything that is neither a
-// SHELL_URL nor an entry asset of the cached "/" document (a previous
-// deployment's bundle, a navigation cached per URL by an earlier worker)
-// is dropped.
+// SHELL_URL nor an entry asset of the cached "/" document, query included (a
+// previous deployment's bundle, a navigation cached per URL by an earlier
+// worker), is dropped.
 async function pruneShellCache() {
   const cache = await caches.open(SHELL_CACHE)
   const shell = await cache.match('/')
@@ -223,7 +223,7 @@ async function pruneShellCache() {
     keys
       .filter((key) => {
         const url = new URL(key.url)
-        return url.search !== '' || !keep.has(url.pathname)
+        return !keep.has(`${url.pathname}${url.search}`)
       })
       .map((key) => cache.delete(key)),
   )
