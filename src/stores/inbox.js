@@ -4747,9 +4747,9 @@ export const useInboxStore = defineStore('inbox', {
 
     // Composer analog of scheduleEmail (inbound snooze): queues the current
     // draft to go out later instead of now. Validation mirrors sendEmail; the
-    // actual delivery happens server-side once scheduled_for is due — see
-    // POST /api/send?resource=flush, called on an interval by the
-    // scheduled-send-flusher Worker cron in Cookie-Worker.
+    // actual delivery happens server-side once scheduled_for is due: the
+    // scheduled-send-flusher Worker in Cookie-Worker calls the send Worker
+    // on an interval.
     async sendEmailLater(sendAt, label) {
       if (this.isSendingEmail || this.pendingSend) return false
       if (this.composerSnippetPreviewOpen || this.composerAvailabilityPreviewOpen) return false
