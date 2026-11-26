@@ -11,6 +11,15 @@ import { useContactInsightsStore } from '../stores/contactInsights'
 import { useSidebarWidth } from '../composables/useSidebarWidth'
 import { useBucketsStore } from '../stores/buckets'
 import { useCalendarRail } from '../composables/useCalendarRail'
+import { IDBFactory } from 'fake-indexeddb'
+import { createOfflineDb, setOfflineDb } from '../lib/offlineDb'
+import {
+  enqueueOutbox,
+  pendingOutboxEntries,
+  registerOutboxHandler,
+  resetOutboxForTests,
+} from '../lib/outbox'
+import { noteNetworkFailure, resetConnectivityForTests } from '../lib/connectivity'
 
 let wrapper
 let router
@@ -226,6 +235,54 @@ describe('application shell', () => {
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  describe('logout with changes waiting in the outbox', () => {
+    beforeEach(() => {
+      setOfflineDb(createOfflineDb({ indexedDB: new IDBFactory() }))
+      auth.user.value = { sub: 'auth0|alice' }
+      resetOutboxForTests()
+    })
+    afterEach(() => {
+      setOfflineDb(null)
+      resetConnectivityForTests()
+    })
+
+    it('counts the unsent changes in the confirmation when offline', async () => {
+      await render()
+      await enqueueOutbox({ kind: 'test-patch', key: 'a', payload: { title: 'A' } })
+      await enqueueOutbox({ kind: 'test-patch', key: 'b', payload: { title: 'B' } })
+      noteNetworkFailure()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      await wrapper.get('.profile-trigger').trigger('click')
+      await wrapper.get('.logout-btn').trigger('click')
+      await vi.waitFor(() =>
+        expect(confirm).toHaveBeenCalledWith(
+          '2 changes have not been sent yet. Logging out removes them from this device. Log out anyway?',
+        ),
+      )
+      expect(auth.logout).not.toHaveBeenCalled()
+      expect(await pendingOutboxEntries('test-patch')).toHaveLength(2)
+    })
+
+    it('sends queued changes before logging out when online', async () => {
+      await render()
+      const sent = []
+      registerOutboxHandler('test-patch', async (payload) => {
+        sent.push(payload)
+      })
+      await enqueueOutbox({ kind: 'test-patch', key: 'a', payload: { title: 'A' } })
+      // The shell's own loads fail at the network in this test, which marks
+      // the app offline.
+      resetConnectivityForTests()
+      const confirm = vi.spyOn(window, 'confirm')
+      await wrapper.get('.profile-trigger').trigger('click')
+      await wrapper.get('.logout-btn').trigger('click')
+      await flushPromises()
+      await vi.waitFor(() => expect(auth.logout).toHaveBeenCalled())
+      expect(sent).toEqual([{ title: 'A' }])
+      expect(confirm).not.toHaveBeenCalled()
+    })
   })
 
   it('debounces header search, preserves scope, and clears when leaving search', async () => {
