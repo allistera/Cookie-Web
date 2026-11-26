@@ -464,6 +464,8 @@ describe('SettingsView', () => {
     expect(commands).toContain('codex mcp login cookie')
     expect(instructions.text()).toContain('Authenticate')
     expect(instructions.text()).toContain('cookie_list_labels')
+    // MCP tool descriptions send the owner here for a send confirmation.
+    expect(wrapper.get('[data-testid="agent-section"] h3').text()).toBe('Connected agents')
   })
 
   it('filters the grouped navigation by setting name', async () => {

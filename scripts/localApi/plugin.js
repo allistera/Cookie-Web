@@ -3261,6 +3261,15 @@ export function localApiPlugin(mode) {
   // entry per invitation, replaced on every answer and removed by a decline.
   const handleWorkerSendApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
+    // One-use code an MCP agent passes with cookie_send_email (Settings ->
+    // MCP clients -> Connected agents). Valid for ten minutes on the Worker.
+    if (url.pathname === '/send/confirmation') {
+      if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+      return json(res, {
+        confirmation: randomBytes(32).toString('hex'),
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      })
+    }
     if (url.pathname !== '/send/invitation-reply') return json(res, { error: 'Not Found' }, 404)
     if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
     const body = await readBody(req)

@@ -28,10 +28,13 @@ describe('agent send confirmations', () => {
     wrapper = mount(AgentSendSettings)
     await wrapper.get('button').trigger('click')
     await flushPromises()
-    expect(fetchMock).toHaveBeenCalledWith('/api/send?resource=confirmation', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://send-api.infinitywave.online/send/confirmation',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test-token' },
+      },
+    )
     expect(wrapper.get('code').text()).toBe('one-use-code')
     expect(wrapper.text()).toContain('Expires 2026-10-21T12:10:00Z')
     await wrapper.findAll('button')[1].trigger('click')
@@ -51,6 +54,19 @@ describe('agent send confirmations', () => {
     expect(wrapper.get('[role=alert]').text()).toBe(message)
     expect(wrapper.get('button').element.disabled).toBe(false)
     expect(wrapper.find('code').exists()).toBe(false)
+  })
+
+  it('asks the user to wait when confirmations are created too quickly', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) }),
+    )
+    wrapper = mount(AgentSendSettings)
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role=alert]').text()).toBe(
+      'Too many confirmations. Wait a minute, then try again.',
+    )
   })
 
   it('recovers from an unreadable response without showing an empty code', async () => {
