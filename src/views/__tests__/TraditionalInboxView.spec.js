@@ -2089,6 +2089,32 @@ describe('TraditionalInboxView reading panel', () => {
     expect(wrapper.get('.ni-thread-message').text()).toContain('The first message')
   })
 
+  it('shows images in an earlier message only when its own sender is trusted', async () => {
+    store.traditionalEmails[0].isPriority = true
+    useSendersStore().known['friend@example.com'] = 'accepted'
+    store.messageBodies.set('today-1', {
+      html: null,
+      text: 'Body',
+      thread: [
+        { id: 'older', from_address: 'stranger@example.com', sent_at: '2026-01-01' },
+        { id: 'today-1', from_address: 'sender-today-1@example.com', sent_at: '2026-01-02' },
+        { id: 'newer', from_address: 'Friend@Example.com', sent_at: '2026-01-03' },
+      ],
+      attachments: [],
+    })
+    const wrapper = mountView()
+    await wrapper.find('.ni-row').trigger('click')
+
+    const shown = wrapper
+      .findAllComponents({ name: 'ThreadMessage' })
+      .map((message) => [message.props('message').id, message.props('showImages')])
+    expect(shown).toEqual([
+      ['newer', true],
+      ['older', false],
+    ])
+    wrapper.unmount()
+  })
+
   it('Expand all opens every other message and Collapse all closes them', async () => {
     store.messageBodies.set('today-1', {
       html: null,
