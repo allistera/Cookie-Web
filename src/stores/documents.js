@@ -1081,6 +1081,15 @@ export const useDocumentsStore = defineStore('documents', {
         const { document } = await this.request('PATCH', { body: { id, ...patch } })
         if (document.updated_at && String(document.updated_at) > String(row.updated_at ?? ''))
           row.updated_at = document.updated_at
+        // The open document's next content save sends its own updated_at as
+        // the conflict check, so it must see this PATCH's newer one too.
+        const open = this.openDoc?.id === id ? this.openDoc : null
+        if (
+          open &&
+          document.updated_at &&
+          String(document.updated_at) > String(open.updated_at ?? '')
+        )
+          open.updated_at = document.updated_at
         for (const key of Object.keys(fields)) {
           if (seq > (state.versions[key] ?? 0)) {
             state.confirmed[key] = Object.hasOwn(document, key) ? document[key] : fields[key]

@@ -760,6 +760,24 @@ describe('documents store', () => {
     expect(store.documents.find((doc) => doc.id === 'd-1').starred).toBe(false)
   })
 
+  it('sends the open document its starred PATCH updated_at on the next content save', async () => {
+    store.documents = structuredClone(DOCS)
+    store.openDoc = { ...structuredClone(DOCS[0]), blocks: [] }
+    const fetchMock = stubFetch({
+      PATCH: (url, body) =>
+        ok({ document: { ...DOCS[0], ...body, updated_at: body.starred ? 't1' : 't2' } }),
+    })
+
+    await store.toggleStar('d-1')
+    expect(store.openDoc.updated_at).toBe('t1')
+
+    store.scheduleContentSave('d-1', { blocks: [{ type: 'paragraph', data: { text: 'Hi' } }] })
+    expect(await store.flushPendingSave()).toBe(true)
+
+    const patches = fetchMock.mock.calls.filter(([, options]) => options.method === 'PATCH')
+    expect(JSON.parse(patches[1][1].body).updatedAt).toBe('t1')
+  })
+
   it('does not roll back a newer meta change when an older PATCH fails', async () => {
     store.documents = structuredClone(DOCS)
     const responses = []
