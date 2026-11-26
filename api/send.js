@@ -10,7 +10,6 @@ const METHODS = {
   send: ['POST'],
   scheduled: ['GET', 'DELETE'],
   'follow-up': ['PATCH'],
-  flush: ['POST'],
 }
 
 export function createHandler(overrides = {}) {
