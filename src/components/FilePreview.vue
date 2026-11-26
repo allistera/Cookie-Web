@@ -31,7 +31,11 @@ function download(blob) {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = file.value?.name || 'download'
+  // Attached first, as in DocumentsBrowser: some browsers ignore a click on
+  // an anchor that is not in the document.
+  document.body.appendChild(anchor)
   anchor.click()
+  anchor.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
