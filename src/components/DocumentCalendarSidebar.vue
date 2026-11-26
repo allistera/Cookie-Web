@@ -5,7 +5,13 @@ import { addDays } from '../lib/taskSchedule'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
 import { useDocumentsStore } from '../stores/documents'
-import { calendarEventsUrl, calendarOwnerSession, useCalendars } from '../composables/useCalendars'
+import {
+  calendarEventsUrl,
+  calendarOwnerSession,
+  calendarSession,
+  isCalendarSessionCurrent,
+  useCalendars,
+} from '../composables/useCalendars'
 
 // Read-only day view docked next to a daily note (Daily/<year>/<month>/DD-MM-YY):
 // a NotePlan-style mini month calendar plus that day's Cookie events, so the
@@ -95,21 +101,26 @@ let eventsSeq = 0
 async function loadEvents() {
   const seq = ++eventsSeq
   const key = selectedKey.value
+  // As the other calendar fetches: a newer load, an unmount or a change of
+  // account drops this one, before the request as well as after it.
+  const session = calendarSession()
+  const superseded = () => seq !== eventsSeq || !isCalendarSessionCurrent(session)
   try {
     const headers = await store.authHeaders()
+    if (superseded()) return
     // From the day before: an event that runs past midnight leaves its
     // remainder on this day, drawn from 00:00.
     const response = await fetch(calendarEventsUrl(addDays(key, -1), key), { headers })
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
-    if (seq !== eventsSeq || selectedKey.value !== key) return
+    if (superseded() || selectedKey.value !== key) return
     events.value = (body.events ?? [])
       .map(normalizeCalendarEvent)
       .flatMap(eventDaySegments)
       .filter((event) => event.date === key)
     eventsTruncated.value = Boolean(body.truncated)
   } catch (error) {
-    if (seq !== eventsSeq) return
+    if (superseded()) return
     console.error('Failed to load the daily note calendar sidebar:', error)
   }
 }
@@ -118,6 +129,9 @@ onBeforeUnmount(() => {
   clearInterval(nowTimer)
 })
 watch(calendarOwnerSession, () => {
+  // The previous account's day is not shown while the new one loads.
+  events.value = []
+  eventsTruncated.value = false
   loadCalendars()
   loadEvents()
 })
