@@ -146,7 +146,7 @@ watch(
         class="drawer-input"
         :placeholder="store.chatHistory.length ? 'Ask a follow-up...' : 'Ask about your mail...'"
         v-model="inputVal"
-        @keydown.enter="handleSend"
+        @keydown.enter="!$event.isComposing && handleSend()"
       />
       <button class="drawer-send-btn" title="Send" aria-label="Send message" @click="handleSend">
         <span class="material-symbols-outlined">send</span>

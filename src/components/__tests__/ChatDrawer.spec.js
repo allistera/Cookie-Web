@@ -204,6 +204,18 @@ describe('chat drawer actions', () => {
     expect(ask).toHaveBeenLastCalledWith('Follow up')
   })
 
+  it('does not send on the Enter that ends an IME composition', async () => {
+    const ask = vi.spyOn(store, 'askAssistant').mockImplementation(() => {})
+    wrapper = mountDrawer()
+    const input = wrapper.get('input')
+    await input.setValue('請求書')
+    await input.trigger('keydown', { key: 'Enter', isComposing: true })
+    expect(ask).not.toHaveBeenCalled()
+    expect(input.element.value).toBe('請求書')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(ask).toHaveBeenCalledWith('請求書')
+  })
+
   it('scrolls appended and streamed replies into view and displays loading state', async () => {
     store.isChatDrawerActive = true
     wrapper = mountDrawer()
