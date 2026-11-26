@@ -237,6 +237,23 @@ describe('application shell', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it("removes the account's stored dock tabs on logout", async () => {
+    auth.user.value = { sub: 'auth0|alice' }
+    localStorage.setItem(
+      'cookie.dockTabs.auth0|alice',
+      JSON.stringify({ savedAt: Date.now(), tabs: [{ kind: 'email', item: { id: 'm1' } }] }),
+    )
+    localStorage.setItem('cookie.dockTabs.auth0|bob', '{}')
+    await render()
+    await vi.dynamicImportSettled()
+    await wrapper.get('.profile-trigger').trigger('click')
+    await wrapper.get('.logout-btn').trigger('click')
+    await vi.waitFor(() => expect(auth.logout).toHaveBeenCalled())
+    expect(localStorage.getItem('cookie.dockTabs.auth0|alice')).toBeNull()
+    expect(localStorage.getItem('cookie.dockTabs.auth0|bob')).toBe('{}')
+    localStorage.clear()
+  })
+
   describe('logout with changes waiting in the outbox', () => {
     beforeEach(() => {
       setOfflineDb(createOfflineDb({ indexedDB: new IDBFactory() }))
