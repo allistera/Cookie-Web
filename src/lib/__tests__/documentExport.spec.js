@@ -4,6 +4,7 @@ import {
   convertBlocksToMarkdown,
   prepareExportBlocks,
   downloadMarkdown,
+  sanitizeEditorBlocks,
   sanitizeFilename,
 } from '../documentExport'
 
@@ -310,5 +311,70 @@ describe('document export boundaries', () => {
     expect(sanitizeFilename('A / B:*?')).toBe('A-B')
     expect(sanitizeFilename('<>:*?')).toBe('document')
     expect(sanitizeFilename('a'.repeat(120))).toHaveLength(100)
+  })
+})
+
+describe('sanitizeEditorBlocks', () => {
+  it('strips scripts, event handlers, styles and javascript: links from text blocks', () => {
+    const [paragraph, header] = sanitizeEditorBlocks([
+      block('paragraph', {
+        text: '<b>Bold</b><script>alert(1)</script><img src="x" onerror="alert(1)"><a href="javascript:alert(1)">bad</a>',
+      }),
+      block('header', {
+        text: '<span style="position:fixed;inset:0">Head</span> <a href="https://example.com" onclick="x()">ok</a>',
+        level: 2,
+      }),
+    ])
+
+    expect(paragraph.data.text).toBe('<b>Bold</b><a>bad</a>')
+    expect(header.data).toEqual({ text: 'Head <a href="https://example.com">ok</a>', level: 2 })
+  })
+
+  it('sanitises list items at every depth and in both list formats', () => {
+    const [nested, legacy] = sanitizeEditorBlocks([
+      block('list', {
+        style: 'checklist',
+        items: [
+          {
+            content: '<i>One</i><img src="https://tracker.example/p.gif">',
+            meta: { checked: true },
+            items: [{ content: '<u onmouseover="x()">Two</u>', meta: {}, items: [] }],
+          },
+        ],
+      }),
+      block('list', { style: 'unordered', items: ['<em>Old</em><iframe src="x"></iframe>'] }),
+    ])
+
+    expect(nested.data.items).toEqual([
+      {
+        content: '<i>One</i>',
+        meta: { checked: true },
+        items: [{ content: '<u>Two</u>', meta: {}, items: [] }],
+      },
+    ])
+    expect(legacy.data.items).toEqual(['<em>Old</em>'])
+  })
+
+  it('passes other block types and non-string fields through untouched', () => {
+    const code = block('code', { code: '<script>kept as code</script>', language: 'html' })
+    const toc = block('toc', {})
+    const odd = block('paragraph', { text: 42 })
+    const blocks = [code, toc, odd, block('list', { items: [7, null] }), null]
+
+    const result = sanitizeEditorBlocks(blocks)
+
+    expect(result[0]).toBe(code)
+    expect(result[1]).toBe(toc)
+    expect(result[2].data.text).toBe(42)
+    expect(result[3].data.items).toEqual([7, null])
+    expect(result[4]).toBeNull()
+  })
+
+  it('does not change the blocks it is given', () => {
+    const blocks = [block('paragraph', { text: '<a href="javascript:x()">x</a>' })]
+
+    sanitizeEditorBlocks(blocks)
+
+    expect(blocks[0].data.text).toBe('<a href="javascript:x()">x</a>')
   })
 })

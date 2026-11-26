@@ -31,6 +31,7 @@ import {
   convertBlocksToHTML,
   downloadPDF,
   downloadMarkdown,
+  sanitizeEditorBlocks,
   sanitizeFilename,
 } from '../lib/documentExport'
 
@@ -269,8 +270,11 @@ function mountEditor() {
   editor?.destroy?.()
   // Pinia wraps document rows in reactive proxies. Editor.js tools may clone
   // their input internally, and structuredClone cannot copy a Vue Proxy, so
-  // hand the editor a plain JSON snapshot of the persisted block data.
-  const blocks = Array.isArray(props.doc.blocks) ? JSON.parse(JSON.stringify(props.doc.blocks)) : []
+  // hand the editor a plain JSON snapshot of the persisted block data, with
+  // its inline HTML sanitised (display only: nothing is saved back for it).
+  const blocks = Array.isArray(props.doc.blocks)
+    ? sanitizeEditorBlocks(JSON.parse(JSON.stringify(props.doc.blocks)))
+    : []
   editor = new EditorJS({
     holder: holder.value,
     data: { blocks },

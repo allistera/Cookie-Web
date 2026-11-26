@@ -25,6 +25,43 @@ function inline(value) {
   })
 }
 
+// Editor.js renders stored block HTML as is, and the Worker (and the MCP
+// write tool) store whatever HTML a writer sent. Before blocks reach the
+// editor, the text of paragraphs, headings and list items (at every depth)
+// goes through the same inline allow-list as the export. Anything that is not
+// a string — and every other block type — is passed through untouched. The
+// result is a copy for display only; the stored blocks are not changed.
+function inlineText(value) {
+  return String(value) === value ? inline(value) : value
+}
+function sanitizeListItems(items) {
+  if (!Array.isArray(items)) return items
+  return items.map((item) => {
+    if (String(item) === item) return inline(item)
+    if (Object(item) !== item || Array.isArray(item)) return item
+    const copy = { ...item }
+    if (Object.hasOwn(copy, 'content')) copy.content = inlineText(copy.content)
+    if (Object.hasOwn(copy, 'text')) copy.text = inlineText(copy.text)
+    if (Object.hasOwn(copy, 'items')) copy.items = sanitizeListItems(copy.items)
+    return copy
+  })
+}
+export function sanitizeEditorBlocks(blocks) {
+  if (!Array.isArray(blocks)) return []
+  return blocks.map((block) => {
+    const data = block?.data
+    if (Object(data) !== data || Array.isArray(data)) return block
+    if (block.type === 'paragraph' || block.type === 'header') {
+      if (!Object.hasOwn(data, 'text')) return block
+      return { ...block, data: { ...data, text: inlineText(data.text) } }
+    }
+    if (block.type === 'list' && Object.hasOwn(data, 'items')) {
+      return { ...block, data: { ...data, items: sanitizeListItems(data.items) } }
+    }
+    return block
+  })
+}
+
 function itemText(item) {
   return item?.content ?? item?.text ?? item ?? ''
 }
