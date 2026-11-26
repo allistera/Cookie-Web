@@ -137,6 +137,21 @@ describe('TodoistSettings', () => {
     expect(useTaskLabelsStore().isLoaded).toBe(true)
   })
 
+  it('says how many completions the last run sent to Todoist', async () => {
+    stubFetch({
+      'GET /tasks/todoist': () =>
+        jsonResponse({
+          todoist: { ...synced, lastSyncSummary: { ...synced.lastSyncSummary, pushed: 3 } },
+        }),
+    })
+    const wrapper = mount(TodoistSettings)
+    await flushPromises()
+
+    expect(wrapper.get('.todoist-status').text()).toContain(
+      '2 projects, 1 section, 14 open tasks (1 completed, 3 sent to Todoist).',
+    )
+  })
+
   it('reports a rejected token and keeps the form', async () => {
     stubFetch({
       'GET /tasks/todoist': () => jsonResponse({ todoist: disconnected }),

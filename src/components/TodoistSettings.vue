@@ -6,7 +6,8 @@ import { useTodoistStore } from '../stores/todoist'
 // Settings > Tasks > Todoist. One connection: paste the personal API token,
 // choose whether the hourly sync runs and what it mirrors (projects, tasks,
 // or both), sync on demand, or disconnect. The token itself never comes back
-// from the Worker; only its last characters do.
+// from the Worker; only its last characters do. Todoist is mirrored into
+// Tasks; the one thing sent back is whether a mirrored task is done.
 const store = useTodoistStore()
 
 const tokenDraft = ref('')
@@ -48,6 +49,8 @@ const summaryText = computed(() => {
   if (Number(summary.completed ?? 0) > 0) changes.push(`${summary.completed} completed`)
   if (Number(summary.removed ?? 0) > 0) changes.push(`${summary.removed} removed`)
   if (Number(summary.skipped ?? 0) > 0) changes.push(`${summary.skipped} skipped`)
+  // Completions made here that the run passed on to Todoist.
+  if (Number(summary.pushed ?? 0) > 0) changes.push(`${summary.pushed} sent to Todoist`)
   return `${parts.join(', ')}${changes.length ? ` (${changes.join(', ')})` : ''}.`
 })
 
@@ -112,8 +115,10 @@ onMounted(load)
     <p class="settings-section-hint">
       Mirror your Todoist projects, their sections and open tasks into Tasks. Todoist stays the
       source of truth: changes made there arrive every hour between 07:00 and 20:00 in your Todoist
-      time zone, or whenever you sync now. Tasks you add in Cookie are left alone. Choose below
-      whether projects, tasks or both are mirrored.
+      time zone, or whenever you sync now. Completing a mirrored task here completes it in Todoist
+      too, and marking it not done reopens it there; other edits to a mirrored task are replaced by
+      the next sync. Tasks you add in Cookie are left alone. Choose below whether projects, tasks or
+      both are mirrored.
     </p>
 
     <p v-if="store.isLoading && !store.isLoaded" class="todoist-muted">Checking Todoist…</p>
@@ -189,7 +194,8 @@ onMounted(load)
           />
           <small>
             In Todoist, open Settings → Integrations → Developer and copy the API token. Cookie
-            stores it encrypted and only reads from your account.
+            stores it encrypted, reads your account with it, and changes only whether a task is
+            done.
           </small>
         </label>
         <div class="todoist-form-actions">
@@ -250,7 +256,8 @@ onMounted(load)
           <span>
             <strong>Sync tasks</strong>
             <small>
-              Mirror your open tasks and sections. When off, tasks already here are left alone.
+              Mirror your open tasks and sections. When off, tasks already here are left alone and
+              nothing is sent to Todoist.
             </small>
           </span>
           <input
