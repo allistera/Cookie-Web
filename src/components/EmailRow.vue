@@ -73,7 +73,11 @@ function followUpTitle(followUpAt) {
         aria-hidden="true"
         >auto_awesome</span
       >
-      <span class="ni-subject-text">{{ email.subject }}</span>
+      <!-- Subject in bold, then a sentence or two of preview beneath it. -->
+      <span class="ni-subject-lines">
+        <span class="ni-subject-text">{{ email.subject }}</span>
+        <span v-if="email.preview" class="ni-preview">{{ email.preview }}</span>
+      </span>
     </div>
     <div class="ni-row-labels">
       <span

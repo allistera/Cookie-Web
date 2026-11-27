@@ -841,6 +841,7 @@ describe('Inbox Store', () => {
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
         snippet: 'Hi Allister, following up...',
+        preview: 'Hi Allister, following up...',
         body: undefined,
         sentAt: sentAt.toISOString(),
         date: '10:04 am',
@@ -5244,6 +5245,16 @@ describe('Inbox Store', () => {
       await expect(store.saveSpamRetention(0)).rejects.toThrow('400')
       expect(store.spamRetentionDays).toBe(30)
     })
+  })
+
+  it('mapEmailRow previews a row with the AI line, or the snippet without one', () => {
+    const sentAt = new Date().toISOString()
+    const base = { id: 'a', sent_at: sentAt, snippet: 'Hi, following up on our call.' }
+    expect(mapEmailRow({ ...base, ai_preview: ' Framing starts Monday. ' }).preview).toBe(
+      'Framing starts Monday.',
+    )
+    expect(mapEmailRow({ ...base, ai_preview: null }).preview).toBe('Hi, following up on our call.')
+    expect(mapEmailRow({ id: 'a', sent_at: sentAt }).preview).toBe('')
   })
 
   it('mapEmailRow exposes the spam verdict as isSpam', () => {

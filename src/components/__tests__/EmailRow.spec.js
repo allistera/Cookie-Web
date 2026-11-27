@@ -27,6 +27,18 @@ describe('EmailRow', () => {
     expect(row.attributes('aria-label')).toContain('Quarterly numbers')
   })
 
+  it('shows the preview under the subject, and no empty line without one', () => {
+    const withPreview = mountRow({
+      email: { ...email, preview: 'Revenue is up 4%. Sign off by Friday.' },
+    })
+    const lines = withPreview.get('.ni-subject-lines')
+    expect(lines.get('.ni-subject-text').text()).toBe('Quarterly numbers')
+    expect(lines.get('.ni-preview').text()).toBe('Revenue is up 4%. Sign off by Friday.')
+    expect(lines.element.lastElementChild.classList.contains('ni-preview')).toBe(true)
+
+    expect(mountRow().find('.ni-preview').exists()).toBe(false)
+  })
+
   it('marks the row the arrow keys are on', () => {
     expect(mountRow().get('.ni-row').classes()).not.toContain('highlighted')
     expect(mountRow({ highlighted: true }).get('.ni-row').classes()).toContain('highlighted')
