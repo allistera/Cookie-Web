@@ -176,15 +176,15 @@ export async function sendMail(draft) {
     // request would only replay it. DELIVERY_NOT_SENT (503) keeps the identity
     // so its retry stays idempotent.
     const uncertainCodes = new Set(['DELIVERY_PENDING', 'DELIVERY_UNCERTAIN', 'DELIVERY_CONFLICT'])
-    if (
+    const released =
       result.code === 'DELIVERY_REJECTED' ||
       (response.status >= 400 && response.status < 500 && !uncertainCodes.has(result.code))
-    ) {
-      releaseIdentity(this, ownerSub, draft, identity)
-    }
+    if (released) releaseIdentity(this, ownerSub, draft, identity)
     assertOwner()
     const error = new Error(result.error || `POST /send responded ${response.status}`)
     error.code = result.code
+    // The message may be edited and sent again as a new request.
+    error.released = released
     throw error
   }
   // Release the consumed requestId before assertOwner() so an account switch
