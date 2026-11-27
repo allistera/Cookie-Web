@@ -17,6 +17,7 @@ const SECTIONS = [
       { keys: ['U'], label: 'Undo the last action' },
       { keys: ['B'], label: 'Pin the open email, document, task or event to the bucket' },
       { keys: [']'], label: 'Show or hide the calendar sidebar' },
+      { keys: ['['], label: 'Show or hide the tasks sidebar' },
     ],
   },
   {
