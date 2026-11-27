@@ -47,6 +47,11 @@ function isPastEvent(event) {
   end.setMinutes(end.getMinutes() + (Number(event.duration) || 0))
   return end <= calendarNow.value
 }
+// A piece of an event that started on an earlier day opens the event itself.
+function calendarLink(event) {
+  const { date, id } = event.segmentOf ?? event
+  return { name: 'calendar', query: { date, event: id } }
+}
 function eventCalendarName(event) {
   return calendarById.value.get(event.calendar)?.name ?? ''
 }
@@ -368,7 +373,7 @@ onUnmounted(() => {
             <div class="todo-actions">
               <RouterLink
                 class="action-pill-btn"
-                :to="{ name: 'calendar', query: { date: event.date, event: event.id } }"
+                :to="calendarLink(event)"
                 :aria-label="`Open in Calendar: ${event.title}`"
               >
                 <span class="material-symbols-outlined">open_in_new</span>

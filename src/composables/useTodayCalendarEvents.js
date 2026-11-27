@@ -1,6 +1,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox'
+import { addDays } from '../lib/taskSchedule'
 import { dateKey, normalizeCalendarEvent } from '../utils/calendarDates'
+import { eventDaySegments } from '../utils/calendarEventSegments'
 import { calendarEventsUrl, calendarSession, isCalendarSessionCurrent } from './useCalendars'
 
 // Today's calendar events: the next-event chip beside the inbox tabs and the
@@ -27,13 +29,14 @@ let inFlight = null
 
 const todayKey = computed(() => dateKey(now.value))
 
-// Today's events only (the window asked for is one day, but the account
-// could change under a response), all-day ones first, then by start time.
+// Today's events only, including the part of one that started on an earlier
+// day and runs into today, all-day ones first, then by start time.
 const todayEvents = computed(() => {
   const today = todayKey.value
   return events.value
-    .filter((event) => event.date === today)
     .map(normalizeCalendarEvent)
+    .flatMap(eventDaySegments)
+    .filter((event) => event.date === today)
     .sort(
       (left, right) =>
         Number(right.allDay) - Number(left.allDay) ||
@@ -68,7 +71,9 @@ async function fetchToday() {
   try {
     const headers = await store.authHeaders()
     if (!consumers || seq !== request || !isCalendarSessionCurrent(session)) return
-    const response = await fetch(calendarEventsUrl(today, today), { headers })
+    // From a week before, as the calendar rail asks: an event that runs past
+    // midnight, or over several days, leaves its remainder on today.
+    const response = await fetch(calendarEventsUrl(addDays(today, -7), today), { headers })
     if (!response.ok) throw new Error('Calendar unavailable')
     const body = await response.json()
     if (!consumers || seq !== request || !isCalendarSessionCurrent(session)) return
