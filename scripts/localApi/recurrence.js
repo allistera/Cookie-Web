@@ -242,6 +242,7 @@ export function expandEventsPage(events, now = new Date(), range = null) {
 }
 
 /**
+ * @internal
  * @param {any[]} events
  * @param {Date} [now]
  * @param {{from: string, to: string} | null} [range]

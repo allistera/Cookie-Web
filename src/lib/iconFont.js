@@ -8,7 +8,6 @@
 // to regenerate the woff2 and its stylesheet from the same names. The script
 // also adds the document icon set (DOCUMENT_ICON_NAMES in documentIcons.js),
 // which is kept out of this module so the startup bundle does not carry it.
-/** @internal */
 export const MATERIAL_SYMBOL_NAMES = [
   'add',
   'add_reaction',
