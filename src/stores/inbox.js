@@ -4758,7 +4758,9 @@ export const useInboxStore = defineStore('inbox', {
               ? 'Delivery is being confirmed. Retry this unchanged draft shortly.'
               : error.code === 'DELIVERY_REJECTED'
                 ? 'The email was rejected. Check the recipients, then send it again.'
-                : 'Sending was not confirmed. Retry this unchanged draft.',
+                : error.released
+                  ? 'The email was not sent. Check it, then send it again.'
+                  : 'Sending was not confirmed. Retry this unchanged draft.',
           'error',
         )
         draft.restoredSession = this.restoreComposerMessage(draft, draft.draftId)

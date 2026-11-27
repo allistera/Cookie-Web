@@ -182,9 +182,13 @@ it('scopes ownerless retry caches to the account and abandons quotes loaded acro
   vi.stubGlobal('fetch', fetchMock)
   const store = { authHeaders: async () => ({}), composeOwnerSub: 'first' }
   const message = { to: 'a@example.com', subject: 'Hi', text: 'Body' }
-  await expect(sendMail.call(store, { ...message })).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
+  await expect(sendMail.call(store, { ...message })).rejects.toMatchObject({
+    code: 'DELIVERY_PENDING',
+  })
   store.composeOwnerSub = 'second'
-  await expect(sendMail.call(store, { ...message })).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
+  await expect(sendMail.call(store, { ...message })).rejects.toMatchObject({
+    code: 'DELIVERY_PENDING',
+  })
   const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body))
   expect(bodies[0].requestId).not.toBe(bodies[1].requestId)
 
@@ -262,3 +266,52 @@ it('keeps the identity when nothing reached the provider, so the retry is the sa
   const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
   expect(bodies[1].requestId).toBe(bodies[0].requestId)
 })
+
+// The send Worker's error contract (Cookie-Worker docs/delivery-and-search-recovery.md,
+// "Send error contract"). Release frees the request id so the message can be
+// edited and sent as a new request; retry and surface keep it, so the only
+// way forward is the same unchanged request.
+const SEND_ERROR_CONTRACT = [
+  [422, 'DELIVERY_REJECTED', 'release'],
+  [503, 'DELIVERY_NOT_SENT', 'retry'],
+  [503, 'DELIVERY_PENDING', 'retry'],
+  [502, 'DELIVERY_PENDING', 'retry'],
+  [409, 'DELIVERY_UNCERTAIN', 'surface'],
+  [409, 'DELIVERY_CONFLICT', 'surface'],
+  [409, 'DELIVERY_REQUEST_ID_REQUIRED', 'release'],
+  [403, 'SEND_CONFIRMATION_REQUIRED', 'release'],
+  [503, 'SEND_CONFIRMATION_UNAVAILABLE', 'retry'],
+  [400, undefined, 'release'],
+  [401, undefined, 'release'],
+  [403, undefined, 'release'],
+  [404, undefined, 'release'],
+  [413, undefined, 'release'],
+  [415, undefined, 'release'],
+  [429, undefined, 'release'],
+  [500, undefined, 'retry'],
+  [502, undefined, 'retry'],
+  [503, undefined, 'retry'],
+]
+
+it.each(SEND_ERROR_CONTRACT)(
+  'follows the contract for %i %s (%s)',
+  async (status, code, action) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(failedSend(status, code))
+      .mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = { authHeaders: async () => ({}) }
+    const draft = { to: 'recipient@example.com', subject: 'Hello', text: 'Body' }
+
+    const error = await sendMail.call(store, draft).catch((caught) => caught)
+    const kept = action !== 'release'
+    expect(error).toMatchObject({ code, released: !kept })
+    expect(Boolean(draft.sendIdentity)).toBe(kept)
+
+    // Sending again is the same request only while the identity is kept.
+    await sendMail.call(store, draft)
+    const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
+    expect(bodies[1].requestId === bodies[0].requestId).toBe(kept)
+  },
+)

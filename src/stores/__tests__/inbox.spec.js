@@ -3238,6 +3238,24 @@ describe('Inbox Store', () => {
         'The email was rejected. Check the recipients, then send it again.',
       ],
       [503, 'DELIVERY_NOT_SENT', 'Sending was not confirmed. Retry this unchanged draft.'],
+      [503, 'DELIVERY_PENDING', 'Delivery is being confirmed. Retry this unchanged draft shortly.'],
+      [
+        409,
+        'DELIVERY_UNCERTAIN',
+        'Delivery needs confirmation. Check with the recipient before sending another copy.',
+      ],
+      [
+        409,
+        'DELIVERY_CONFLICT',
+        'Delivery needs confirmation. Check with the recipient before sending another copy.',
+      ],
+      [
+        409,
+        'DELIVERY_REQUEST_ID_REQUIRED',
+        'The email was not sent. Check it, then send it again.',
+      ],
+      [429, undefined, 'The email was not sent. Check it, then send it again.'],
+      [500, undefined, 'Sending was not confirmed. Retry this unchanged draft.'],
     ])('explains a %i %s failure', async (status, code, message) => {
       vi.spyOn(console, 'error').mockImplementation(() => {})
       vi.stubGlobal(
