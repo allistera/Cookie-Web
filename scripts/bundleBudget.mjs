@@ -67,9 +67,13 @@ export function bundleBudgetPlugin() {
             // The fixes from the 26 November 2026 code review (its share of
             // the entry's growth, the wider tracking-image rule and the
             // reader's own fixes) put Vercel's build 1.3 KB over, so the view
-            // moved up by 3 KB.
+            // moved up by 3 KB. The follow-up to that review (the send timeout
+            // and pending rule that moved here from the retired Vercel
+            // function, the paused recovery copy of the reply box and the
+            // per-day event pieces of the today list) put Vercel's build
+            // 2.7 KB over, so the view moved up by 4 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 682_000
+            ? 686_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
