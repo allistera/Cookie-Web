@@ -6,6 +6,7 @@ import {
   EMAILS_API_URL,
   MESSAGES_API_URL,
   SEARCH_API_URL,
+  SEND_API_URL,
   TASKS_API_URL,
 } from '../src/lib/apiWorkers.js'
 
@@ -913,7 +914,7 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
   const requestStarted = new Promise((resolve) => {
     notifyRequestStarted = resolve
   })
-  await page.route('**/api/send', async (route) => {
+  await page.route(`${SEND_API_URL}/send`, async (route) => {
     sendRequests += 1
     notifyRequestStarted()
     await new Promise((resolve) => {
@@ -946,7 +947,7 @@ test('Composer disables Send while an email is being sent', async ({ page }) => 
 
 test('Composer offers Cc and Bcc from its header and sends both lines', async ({ page }) => {
   let sendRequestBody
-  await page.route('**/api/send', async (route) => {
+  await page.route(`${SEND_API_URL}/send`, async (route) => {
     sendRequestBody = route.request().postDataJSON()
     await route.fulfill({
       contentType: 'application/json',
@@ -994,7 +995,7 @@ test('Composer offers Cc and Bcc from its header and sends both lines', async ({
 
 test('The reply box takes a Cc line beside its heading', async ({ page }) => {
   let sendRequestBody
-  await page.route('**/api/send', async (route) => {
+  await page.route(`${SEND_API_URL}/send`, async (route) => {
     sendRequestBody = route.request().postDataJSON()
     await route.fulfill({
       contentType: 'application/json',
@@ -1023,7 +1024,7 @@ test('Composer "Send Later" queues a scheduled send instead of sending immediate
   await freezeClockToMidweek(page)
 
   let sendRequestBody
-  await page.route('**/api/send', async (route) => {
+  await page.route(`${SEND_API_URL}/send`, async (route) => {
     sendRequestBody = route.request().postDataJSON()
     await route.fulfill({
       status: 201,
@@ -1837,7 +1838,7 @@ for (const width of [1280, 390]) {
       await route.fallback()
     })
     page.on('request', (request) => {
-      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/send') sends++
+      if (request.method() === 'POST' && request.url() === `${SEND_API_URL}/send`) sends++
     })
     await page.goto('/inbox?open=fixture-1')
     await page.locator('.ni-email-card [title="Reply"]').click()
@@ -1898,7 +1899,7 @@ test('Important reply draft is ready above the email, keeps edits on reload, and
   })
   let sends = 0
   page.on('request', (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/send') sends++
+    if (request.method() === 'POST' && request.url() === `${SEND_API_URL}/send`) sends++
   })
   await page.goto('/inbox')
   await page.locator('.ni-row', { hasText: 'City Construction' }).click()
@@ -2521,7 +2522,7 @@ test('Command palette Mark Done archives the open email', async ({ page }) => {
 
 test("Pressing 'u' cancels a queued send and restores its draft", async ({ page }) => {
   let sendRequests = 0
-  await page.route('**/api/send', async (route) => {
+  await page.route(`${SEND_API_URL}/send`, async (route) => {
     sendRequests += 1
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'sent' }) })
   })

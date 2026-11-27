@@ -1,6 +1,6 @@
 # Cookie-Web
 
-Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only two residual functions, `api/health.js` and `api/send.js`.
+Cookie is a private, AI-assisted email application. The Vue frontend, served from Vercel, and Auth0-protected Cloudflare Workers provide inbox browsing, search, labels, AI compose, mailbox Q&A, and outbound mail. Vercel runs only one residual function, `api/health.js`.
 
 System-wide architecture, component, data-model, AI, and operations guides live in [Cookie Documentation](https://allistera.github.io/Cookie-Docs/).
 
@@ -16,7 +16,7 @@ URL when you want keyword-only results.
 
 | Repository                                                  | Responsibility                                                                       |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Cookie-Web                                                  | Vue browser client and two residual Vercel functions                                 |
+| Cookie-Web                                                  | Vue browser client and one residual Vercel function                                  |
 | [Cookie-Worker](https://github.com/allistera/Cookie-Worker) | Cloudflare Workers for the API, inbound mail and scheduled jobs; database migrations |
 | [Cookie-iOS](https://github.com/allistera/Cookie-iOS)       | Native SwiftUI client of the Cookie-Web API                                          |
 | [Cookie-Docs](https://github.com/allistera/Cookie-Docs)     | Blume/MDX documentation site for the whole system                                    |
@@ -222,16 +222,16 @@ inbox, a queued star and its replay.
 
 ## Technology
 
-| Area            | Technology                                        |
-| --------------- | ------------------------------------------------- |
-| UI              | Vue 3, Pinia, Vue Router, Vite                    |
-| Hosting and API | Vercel (static + `/api/send`), Cloudflare Workers |
-| Authentication  | Auth0                                             |
-| Database        | Supabase Postgres                                 |
-| Realtime        | Supabase Realtime broadcast                       |
-| Search          | Meilisearch, self-hosted (hybrid)                 |
-| AI              | OpenAI Responses API                              |
-| Outbound email  | Resend                                            |
+| Area            | Technology                                          |
+| --------------- | --------------------------------------------------- |
+| UI              | Vue 3, Pinia, Vue Router, Vite                      |
+| Hosting and API | Vercel (static + `/api/health`), Cloudflare Workers |
+| Authentication  | Auth0                                               |
+| Database        | Supabase Postgres                                   |
+| Realtime        | Supabase Realtime broadcast                         |
+| Search          | Meilisearch, self-hosted (hybrid)                   |
+| AI              | OpenAI Responses API                                |
+| Outbound email  | Resend                                              |
 
 ## Local development
 
@@ -294,7 +294,7 @@ The main runtime variables are:
 
 `ENRICHER_RUN_URL` and `ENRICHER_TRIGGER_TOKEN` used to live here (read by this app's own `/api/tasks`). That handler and its `_lib` dependents were removed once the browser SPA started calling the `cookie-web-tasks` Cloudflare Worker directly instead — those two now belong to that Worker's own Cloudflare config (Cookie-Worker repo), not Vercel's.
 
-The `/api/send` compatibility adapter now forwards to `cookie-web-send`. Composer attachments are posted by the browser straight to that Worker's `POST /send/attachments` route and removed with `DELETE /send/attachments/:id`, the same calls the iOS app makes, so Vercel no longer needs Blob storage or database settings for uploads. Set delivery credentials and the flush token on that Worker; deploy its follow-up support before deploying this adapter. Web request IDs survive failed sends and are renewed after successful delivery. Migration `0065_task_subtree_projects.sql` repairs task descendants left in old projects and adds a parent lookup index.
+The browser calls `cookie-web-send` directly, the same calls the iOS app makes: `POST /send` sends or schedules a message, `GET` and `DELETE /send/scheduled` list and cancel Send Later mail, `PATCH /send/follow-up` sets a reminder, and composer attachments are posted to `POST /send/attachments` and removed with `DELETE /send/attachments/:id`. Vercel has no send function and needs no Blob storage or delivery settings. Set delivery credentials and the flush token on that Worker. A send that gets no answer within 25 seconds is reported as `DELIVERY_PENDING` and keeps its request ID, so a retry of the unchanged message is safe. Web request IDs survive failed sends and are renewed after successful delivery. Migration `0065_task_subtree_projects.sql` repairs task descendants left in old projects and adds a parent lookup index.
 
 Vercel stores browser build values. The GitHub Actions workflow in this repository uses no secrets.
 
@@ -666,8 +666,7 @@ application timers cover route readiness, reader readiness, message-body loading
 search, and `jsonRequest` operations across stores. The fixed `operation` label
 identifies these timings; counts include both completed and failed attempts.
 These are operation timings, not a count of every network fetch or user action.
-The API Workers independently measure their HTTP and background handler calls;
-the Vercel send proxy handler does not have a server-side Sentry client.
+The API Workers independently measure their HTTP and background handler calls.
 
 Up to 100 early timing observations are buffered while the lazy SDK loads.
 Development, E2E, and builds without a DSN do not collect metrics. The metric

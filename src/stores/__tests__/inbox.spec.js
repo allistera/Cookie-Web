@@ -894,7 +894,7 @@ describe('Inbox Store', () => {
 
     await store.loadInboxState()
     expect(store.scheduledSendCount).toBe(2)
-    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain('/api/send?resource=scheduled')
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(`${SEND_API_URL}/send/scheduled`)
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -2929,7 +2929,7 @@ describe('Inbox Store', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       expect(fetchMock).toHaveBeenCalledTimes(1)
-      expect(fetchMock.mock.calls[0][0]).toBe('/api/send')
+      expect(fetchMock.mock.calls[0][0]).toBe(`${SEND_API_URL}/send`)
       expect(store.pendingSend).toBeNull()
       expect(store.toasts.at(-1)?.message).toBe('Email sent.')
     })
@@ -2992,7 +2992,7 @@ describe('Inbox Store', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       // The reply first loads the original to quote it, then sends.
-      const [, sendOptions] = fetchMock.mock.calls.find(([url]) => url === '/api/send')
+      const [, sendOptions] = fetchMock.mock.calls.find(([url]) => url === `${SEND_API_URL}/send`)
       expect(JSON.parse(sendOptions.body).replyToMessageId).toBe(
         '11111111-1111-1111-1111-111111111111',
       )
@@ -3277,7 +3277,7 @@ describe('Inbox Store', () => {
       store.composerTextArea = 'Checking in.'
     }
 
-    it('POSTs sendAt to /api/send and closes the composer without a countdown', async () => {
+    it('POSTs sendAt to the send Worker and closes the composer without a countdown', async () => {
       const scheduledSend = {
         id: 'sched-1',
         toAddresses: 'someone@example.com',
@@ -3299,7 +3299,7 @@ describe('Inbox Store', () => {
       expect(store.isComposerActive).toBe(false)
       expect(fetchMock).toHaveBeenCalledTimes(1)
       const [url, options] = fetchMock.mock.calls[0]
-      expect(url).toBe('/api/send')
+      expect(url).toBe(`${SEND_API_URL}/send`)
       expect(JSON.parse(options.body)).toMatchObject({
         to: 'someone@example.com',
         subject: 'Hello',
@@ -3451,7 +3451,7 @@ describe('Inbox Store', () => {
       await store.loadScheduledSends()
 
       expect(fetchMock).toHaveBeenCalledTimes(1)
-      expect(fetchMock.mock.calls[0][0]).toBe('/api/send?resource=scheduled')
+      expect(fetchMock.mock.calls[0][0]).toBe(`${SEND_API_URL}/send/scheduled`)
       expect(store.scheduledSends).toEqual(scheduledSends)
     })
 
@@ -3476,7 +3476,7 @@ describe('Inbox Store', () => {
       await store.cancelScheduledSend({ id: 'sched-1' })
 
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/send?resource=scheduled',
+        `${SEND_API_URL}/send/scheduled`,
         expect.objectContaining({ method: 'DELETE' }),
       )
       expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ id: 'sched-1' })
@@ -4235,13 +4235,15 @@ describe('Inbox Store', () => {
       followUpAt: '2026-08-20T09:00:00.000Z',
     })
 
-    expect(fetch).toHaveBeenCalledWith('/api/send', {
+    expect(fetch).toHaveBeenCalledWith(`${SEND_API_URL}/send`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-access-token',
       },
       body: expect.any(String),
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
     })
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
       to: 'someone@example.com',
@@ -4277,7 +4279,7 @@ describe('Inbox Store', () => {
 
     expect(inboxEmail.followUpAt).toBe('2026-08-20T09:00:00.000Z')
     expect(sentEmail.followUpAt).toBe('2026-08-20T09:00:00.000Z')
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/send?resource=follow-up', {
+    expect(fetchMock).toHaveBeenLastCalledWith(`${SEND_API_URL}/send/follow-up`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -4301,7 +4303,17 @@ describe('Inbox Store', () => {
     const store = useInboxStore()
     await expect(
       store.sendMail({ to: 'someone@example.com', subject: 'S', text: 'T' }),
-    ).rejects.toThrow('POST /api/send responded 502')
+    ).rejects.toThrow('POST /send responded 502')
+  })
+
+  it('reports delivery as pending when the send Worker cannot be reached', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const store = useInboxStore()
+    const draft = { to: 'someone@example.com', subject: 'S', text: 'T' }
+    await expect(store.sendMail(draft)).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
+    // The identity is kept, so the retry is the same request.
+    expect(draft.sendIdentity?.requestId).toBeTruthy()
   })
 
   it('persists read state and updates the unread count', async () => {

@@ -1,5 +1,7 @@
 import { test, expect } from './workerFixtures.js'
 
+import { SEND_API_URL } from '../src/lib/apiWorkers.js'
+
 // The fixture AI Worker (scripts/localApi/plugin.js) continues "Thanks for"
 // with " your email." and offers nothing for any other text.
 
@@ -34,7 +36,7 @@ test('the composer suggests the next words and Tab writes them', async ({ page }
 
 test('a suggestion that is not accepted never reaches the sent message', async ({ page }) => {
   let sendRequestBody
-  await page.route('**/api/send', async (route) => {
+  await page.route(`${SEND_API_URL}/send`, async (route) => {
     sendRequestBody = route.request().postDataJSON()
     await route.fulfill({
       contentType: 'application/json',

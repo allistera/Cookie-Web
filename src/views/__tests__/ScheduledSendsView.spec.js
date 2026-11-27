@@ -3,16 +3,17 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ScheduledSendsView from '../ScheduledSendsView.vue'
 import { useInboxStore } from '../../stores/inbox'
+import { SEND_API_URL } from '../../lib/apiWorkers'
 
 // scheduledSends is mutated in place by the DELETE branch so a cancel in one
 // test step is reflected the next time GET is (re-)read, mirroring the real
 // API's persisted state.
 function stubFetch(scheduledSends) {
   const fetchMock = vi.fn(async (url, options = {}) => {
-    if (url === '/api/send?resource=scheduled' && (!options.method || options.method === 'GET')) {
+    if (url === `${SEND_API_URL}/send/scheduled` && (!options.method || options.method === 'GET')) {
       return { ok: true, json: async () => ({ scheduledSends: [...scheduledSends] }) }
     }
-    if (url === '/api/send?resource=scheduled' && options.method === 'DELETE') {
+    if (url === `${SEND_API_URL}/send/scheduled` && options.method === 'DELETE') {
       const { id } = JSON.parse(options.body)
       const index = scheduledSends.findIndex((item) => item.id === id)
       const [removed] = scheduledSends.splice(index, 1)
@@ -191,7 +192,7 @@ describe('ScheduledSendsView', () => {
 
     expect(wrapper.text()).toContain('Nothing is scheduled to send later.')
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/send?resource=scheduled',
+      `${SEND_API_URL}/send/scheduled`,
       expect.objectContaining({ method: 'DELETE' }),
     )
 

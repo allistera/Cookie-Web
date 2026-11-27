@@ -49,7 +49,7 @@ export default defineConfig(({ mode, command }) => {
     plugins: [
       vue(),
       vueDevTools(),
-      localApiPlugin(mode),
+      localApiPlugin(),
       bundleBudgetPlugin(),
       sentry.upload && sentryVitePlugin(sentry.pluginOptions),
     ],
