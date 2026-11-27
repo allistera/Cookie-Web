@@ -1,5 +1,6 @@
 // Date text for the document editor's "/" Date block: "Monday - 4th September".
 
+/** @internal */
 export function ordinalDay(day) {
   if (day % 100 >= 11 && day % 100 <= 13) return `${day}th`
   return `${day}${['th', 'st', 'nd', 'rd'][day % 10] ?? 'th'}`

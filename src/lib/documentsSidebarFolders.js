@@ -1,6 +1,7 @@
 const EXPANDED_FOLDERS_KEY = 'cookie-documents-expanded-folders'
 const MAX_STORED_IDS = 500
 
+/** @internal */
 export function sanitizeStoredFolderIds(value) {
   if (!Array.isArray(value)) return []
   const ids = []

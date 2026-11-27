@@ -15,6 +15,7 @@ const GUARDED_KEYS = new Set(['Backspace', 'Delete', 'Enter'])
  *
  * @param {{ getBlocksCount(): number, getBlockByIndex(index: number): any }} blocks
  * @returns {{ index: number, level: number, text: string, element: HTMLElement }[]}
+ * @internal
  */
 export function collectHeadings(blocks) {
   const headings = []

@@ -5,6 +5,7 @@ function resolveNavigator(nav) {
   return nav ?? globalThis.navigator ?? null
 }
 
+/** @internal */
 export function appBadgeSupported(nav = resolveNavigator()) {
   return Boolean(nav && 'setAppBadge' in nav && 'clearAppBadge' in nav)
 }

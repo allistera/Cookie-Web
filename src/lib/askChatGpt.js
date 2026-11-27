@@ -3,6 +3,7 @@
 // parameter is undocumented but stable; the server rejects very long URLs, so
 // the body is capped before encoding.
 const CHATGPT_URL = 'https://chatgpt.com/'
+/** @internal */
 export const MAX_PROMPT_BODY_CHARS = 6000
 const TRUNCATED_NOTE = '[Email truncated]'
 
@@ -34,6 +35,7 @@ function promptRecipients(list) {
 const BLOCK_SELECTOR =
   'p, div, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre, table, ul, ol, hr, section, article, header, footer'
 
+/** @internal */
 export function htmlToPromptText(html) {
   if (!html) return ''
   const doc = new DOMParser().parseFromString(html, 'text/html')

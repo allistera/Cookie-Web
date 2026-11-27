@@ -135,6 +135,7 @@ export function useTodayCalendarEvents() {
 // Test-only, like useCalendars' reset: the list is a real singleton, and a
 // spec that leaves a consumer mounted would otherwise hand its events to the
 // next test.
+/** @internal */
 export function resetTodayCalendarEventsForTests() {
   request += 1
   events.value = []

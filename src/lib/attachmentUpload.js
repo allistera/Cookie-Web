@@ -3,8 +3,10 @@ import { MAX_ATTACHMENT_BYTES } from './attachmentLimits'
 
 // The same route the iOS composer posts to, so both clients share one upload
 // contract, rate limit and ownership rule on the send Worker.
+/** @internal */
 export const ATTACHMENTS_URL = `${SEND_API_URL}/send/attachments`
 
+/** @internal */
 export function attachmentSizeError(file) {
   const reportedSize = file?.size
   if (reportedSize === null || reportedSize === undefined) return 'That file could not be read.'

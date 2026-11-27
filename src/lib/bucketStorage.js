@@ -1,5 +1,6 @@
 const STORAGE_PREFIX = 'cookie.bucket.'
 
+/** @internal */
 export function bucketStorageKey(owner) {
   return `${STORAGE_PREFIX}${owner}`
 }
@@ -27,6 +28,7 @@ function parsedItem(raw) {
 }
 
 // Anything that does not read as a bucket for this account is dropped here.
+/** @internal */
 export function parseBucket(raw, owner) {
   if (!raw || Array.isArray(raw) || !owner || raw.owner !== owner) return null
   const createdAt = Number(raw.createdAt)

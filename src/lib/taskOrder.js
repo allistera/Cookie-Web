@@ -14,6 +14,7 @@ export const TASKS_DRAG_TYPE = 'application/x-cookie-tasks'
 
 // Position first, then creation time and id as stable tiebreaks, the same
 // order the server lists a project in.
+/** @internal */
 export function compareByPosition(a, b) {
   const byPosition = (a.position ?? 0) - (b.position ?? 0)
   if (byPosition) return byPosition
@@ -49,6 +50,7 @@ function compareByDueThenPosition(a, b) {
 // server's order for a filter list. Today's own arrangement (todayPosition)
 // plays no part, so a day re-arranged in Today reads the same here as in
 // the projects the rows live in.
+/** @internal */
 export function compareByDueDateThenPosition(a, b) {
   // Undated after every date, however far off that date is.
   if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1

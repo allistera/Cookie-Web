@@ -11,6 +11,7 @@ let overridden = false
 // Replaces the lazily-created client with an explicit one — tests inject a
 // fake token source here (or null for the E2E-style stubbed-auth behavior)
 // instead of mocking this module.
+/** @internal */
 export function setAuth0Client(instance) {
   client = instance
   overridden = true

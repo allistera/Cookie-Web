@@ -15,6 +15,7 @@ import {
   MCP_API_URL,
 } from '../../src/lib/apiWorkers.js'
 
+/** @internal */
 export const HEALTH_TIMEOUT_MS = 3000
 
 // Fixed project endpoints; caller input never selects probe destinations.

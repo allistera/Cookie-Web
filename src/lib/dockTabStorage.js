@@ -12,8 +12,10 @@ import { onScopeDispose, watch } from 'vue'
 
 const STORAGE_PREFIX = 'cookie.dockTabs.'
 
+/** @internal */
 export const DOCK_TABS_TTL_MS = 60 * 60 * 1000
 
+/** @internal */
 export function dockTabsStorageKey(owner) {
   return `${STORAGE_PREFIX}${owner}`
 }
@@ -29,6 +31,7 @@ function tabDraft(tab, store) {
 }
 
 // What to store for the tabs the store holds, in their order.
+/** @internal */
 export function storableDockTabs(store) {
   const stored = []
   for (const tab of store.dockTabs) {
@@ -67,6 +70,7 @@ function restoredTab(raw) {
   return null
 }
 
+/** @internal */
 export function readDockTabs(owner, now = Date.now()) {
   if (!owner) return []
   try {

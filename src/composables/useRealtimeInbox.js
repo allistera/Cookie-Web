@@ -12,19 +12,23 @@ const NOTIFICATION_CLAIM_RETRIES = 60
 // A tab hidden for less than this was alt-tabbed, not frozen: its Realtime
 // channel stayed up and delivered every ping, so resuming has nothing to
 // catch up on. Browsers only start freezing background tabs after minutes.
+/** @internal */
 export const RESUME_REFRESH_AFTER_MS = 60_000
 
 // Pings are coalesced into at most one refresh per interval, hidden tab or
 // not, so a burst of pings costs the API a refetch every few seconds, not one
 // per ping.
+/** @internal */
 export const BROADCAST_REFRESH_INTERVAL_MS = 5000
 // While the channel is not SUBSCRIBED, the inbox is refreshed at this interval
 // and the join is retried with a fresh token, so mail still arrives when
 // realtime is down.
+/** @internal */
 export const REALTIME_FALLBACK_INTERVAL_MS = 3 * 60 * 1000
 // Each INSERT ping may name an event to claim. Cap how many claims one refresh
 // may POST, so a burst of pings cannot flood the notification endpoint. Real
 // inserts rarely burst past it.
+/** @internal */
 export const MAX_PENDING_NOTIFICATION_EVENTS = 10
 const PING_OPS = new Set(['INSERT', 'UPDATE', 'DELETE'])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

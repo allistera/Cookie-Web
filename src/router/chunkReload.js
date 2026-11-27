@@ -17,6 +17,7 @@ import {
 
 // Reloads to `href` unless a stale-chunk reload already happened within the
 // cooldown. Returns whether it reloaded.
+/** @internal */
 export function reloadForStaleChunk(
   href,
   {

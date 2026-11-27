@@ -3,6 +3,7 @@
 // name doubles as the accessible label and is always searchable.
 
 const RECENT_KEY = 'cookie.recentEmoji'
+/** @internal */
 export const RECENT_LIMIT = 16
 
 const GROUPS = [
@@ -273,12 +274,14 @@ function parseItem(line) {
   return { char, name, keywords: `${name} ${extra.trim()}`.toLowerCase() }
 }
 
+/** @internal */
 export const EMOJI_GROUPS = GROUPS.map((group) => ({
   id: group.id,
   title: group.title,
   items: group.items.map(parseItem),
 }))
 
+/** @internal */
 export const ALL_EMOJI = EMOJI_GROUPS.flatMap((group) => group.items)
 
 const BY_CHAR = new Map(ALL_EMOJI.map((emoji) => [emoji.char, emoji]))

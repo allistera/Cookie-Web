@@ -12,6 +12,7 @@ import { authHeaders } from './authHeaders'
 
 // On unless switched off in Settings. Kept in this browser only, like the
 // other per-device display choices.
+/** @internal */
 export const SMART_COMPOSE_STORAGE_KEY = 'cookie.smartCompose.off'
 
 export function smartComposeEnabled() {
@@ -31,6 +32,7 @@ export function setSmartComposeEnabled(enabled) {
   }
 }
 
+/** @internal */
 export async function requestSuggestion(body, signal) {
   const response = await fetch(`${AI_API_URL}/compose-suggest`, {
     method: 'POST',
@@ -44,9 +46,11 @@ export async function requestSuggestion(body, signal) {
 }
 
 // How long the writer has to stop typing before a suggestion is asked for.
+/** @internal */
 export const SUGGEST_DELAY_MS = 400
 // After a refusal (the per-minute allowance, an outage, no connection) the
 // editor stops asking for a while rather than failing on every pause.
+/** @internal */
 export const SUGGEST_PAUSE_MS = 60_000
 const MIN_TEXT_CHARS = 3
 const MAX_TEXT_CHARS = 1500

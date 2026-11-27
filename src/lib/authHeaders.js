@@ -31,6 +31,7 @@ const redirecting = new WeakSet()
 // this document first; if the person is still here after this (they chose
 // "Stay" on a leave-page prompt, or the navigation was cancelled), the latch
 // is released so a later failure can send them to sign in again.
+/** @internal */
 export const REDIRECT_LATCH_MS = 5000
 
 /**

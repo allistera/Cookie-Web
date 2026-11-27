@@ -120,6 +120,7 @@ export async function pendingOutboxEntries(kind) {
 // handler is not registered yet (its store module has not loaded) is kept
 // and skipped; see syncOutbox. An entry edited while its request was in
 // flight (its revision moved on) is kept too, and sent in a further pass.
+/** @internal */
 export function flushOutbox() {
   const owner = offlineOwner()
   if (flushing && flushingOwner === owner) return flushing
@@ -272,6 +273,7 @@ export function installOutboxSync({
   }
 }
 
+/** @internal */
 export function resetOutboxForTests() {
   handlers.clear()
   pending.value = 0

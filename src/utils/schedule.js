@@ -7,6 +7,7 @@ function atMorning(date) {
   return result
 }
 
+/** @internal */
 export function tomorrowMorning(now = new Date()) {
   const result = atMorning(now)
   result.setDate(result.getDate() + 1)
@@ -17,6 +18,7 @@ const MINUTE_MS = 60 * 1000
 
 // Returns null in the final minute of the day, when the 23:59 clamp would be
 // in the past or no real time away.
+/** @internal */
 export function laterToday(now = new Date()) {
   const result = new Date(now)
   result.setHours(result.getHours() + LATER_TODAY_HOURS, 0, 0, 0)
@@ -27,6 +29,7 @@ export function laterToday(now = new Date()) {
   return result - now >= MINUTE_MS ? result : null
 }
 
+/** @internal */
 export function thisWeekendMorning(now = new Date()) {
   const result = atMorning(now)
   const daysUntilSaturday = (6 - result.getDay() + 7) % 7
@@ -37,6 +40,7 @@ export function thisWeekendMorning(now = new Date()) {
   return result
 }
 
+/** @internal */
 export function nextWeekMorning(now = new Date()) {
   const result = atMorning(now)
   const daysUntilNextMonday = (8 - result.getDay()) % 7 || 7

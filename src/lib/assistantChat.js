@@ -15,6 +15,7 @@ const MAX_CONVERSATION_MESSAGES = 30
 // until it opens with one of the person's questions: a tool result whose
 // request was cut away is rejected by the model, and an answer without its
 // question is noise.
+/** @internal */
 export function trimConversation(messages, max = MAX_CONVERSATION_MESSAGES) {
   let start = Math.max(0, messages.length - max)
   while (start < messages.length && messages[start].role !== 'user') start += 1
@@ -28,6 +29,7 @@ const SEARCH_LABELS = {
 }
 
 // What the drawer shows while Meilisearch runs a search for the model.
+/** @internal */
 export function searchingLabel(index) {
   return SEARCH_LABELS[String(index ?? '')] ?? 'Searching…'
 }
@@ -38,11 +40,13 @@ export function sourceIcon(source) {
   return SOURCE_ICONS[String(source?.index ?? '')] ?? 'search'
 }
 
+/** @internal */
 export const MAX_SOURCES = 12
 
 // One answer may come from several searches; the chips show each cited item
 // once, in the order it was first cited, capped so a chatty search round does
 // not fill the drawer with chips.
+/** @internal */
 export function mergeSources(existing, incoming) {
   const merged = [...existing]
   const seen = new Set(existing.map((source) => `${source.index}/${source.id}`))
@@ -58,6 +62,7 @@ export function mergeSources(existing, incoming) {
 // Reads the chat Worker's server-sent events (`data: <json>` blocks) from a
 // response body and hands each parsed event to `onEvent`, which returns
 // false to stop reading early (the caller moved on to a newer question).
+/** @internal */
 export async function readAssistantEvents(body, onEvent) {
   const reader = body?.getReader()
   if (!reader) throw new Error('Assistant stream unavailable')
@@ -80,6 +85,7 @@ export async function readAssistantEvents(body, onEvent) {
 // items ("1.", "2)", "-", "•"). With two or more cited emails that is the
 // assistant enumerating mail, which the inbox list shows better than a
 // drawer bubble.
+/** @internal */
 export function isEmailList(text, sources) {
   if (mailSourcesOf(sources).length < 2) return false
   const items = String(text ?? '')
@@ -88,12 +94,14 @@ export function isEmailList(text, sources) {
   return items.length >= 2
 }
 
+/** @internal */
 export function mailSourcesOf(sources) {
   return (sources ?? []).filter((source) => source.index === 'messages' && source.id)
 }
 
 // How many of an answer's cited emails the inbox list shows: the chat Worker
 // cites at most ten per search, and the search Worker reads up to twenty ids.
+/** @internal */
 export const MAX_LISTED_EMAILS = 20
 
 // The rows for an answer's listed emails, from the search Worker by id and in

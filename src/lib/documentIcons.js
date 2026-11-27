@@ -347,14 +347,17 @@ function parseItem(line) {
   }
 }
 
+/** @internal */
 export const DOCUMENT_ICON_GROUPS = GROUPS.map((group) => ({
   id: group.id,
   title: group.title,
   items: group.items.map(parseItem),
 }))
 
+/** @internal */
 export const ALL_DOCUMENT_ICONS = DOCUMENT_ICON_GROUPS.flatMap((group) => group.items)
 
+/** @internal */
 export const DOCUMENT_ICON_NAMES = ALL_DOCUMENT_ICONS.map((icon) => icon.name)
 const KNOWN_ICON_NAMES = new Set(DOCUMENT_ICON_NAMES)
 

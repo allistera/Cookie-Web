@@ -16,7 +16,10 @@ const TOOLBOX_ICON = `
 
 const INDENT = '  '
 
-/** Plain data for a code block: `{ code, language }`, tolerant of old `{ code }` rows. */
+/**
+ * Plain data for a code block: `{ code, language }`, tolerant of old `{ code }` rows.
+ * @internal
+ */
 export function normalizeCodeBlock(data) {
   return {
     code: String(data?.code ?? ''),

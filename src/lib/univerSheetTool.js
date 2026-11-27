@@ -122,6 +122,7 @@ function loadUniver() {
 // changes what save() would serialize, so only that should mark the document
 // dirty and schedule an autosave. CommandType comes from the lazily loaded
 // presets bundle, so it is passed in rather than imported here.
+/** @internal */
 export function isSnapshotMutation(command, CommandType) {
   return command?.type === CommandType.MUTATION
 }

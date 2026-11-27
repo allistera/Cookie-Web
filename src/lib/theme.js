@@ -5,6 +5,7 @@
 // to 'system'; it always holds a concrete resolved theme.
 
 const THEME_KEY = 'cookie-theme'
+/** @internal */
 export const THEME_OPTIONS = ['light', 'dark', 'system']
 const DEFAULT_THEME = 'system'
 
@@ -28,6 +29,7 @@ export function resolveTheme(preference = getStoredTheme()) {
   return darkMediaQuery()?.matches ? 'dark' : 'light'
 }
 
+/** @internal */
 export function applyResolvedTheme(preference = getStoredTheme()) {
   document.documentElement.setAttribute('data-theme', resolveTheme(preference))
 }

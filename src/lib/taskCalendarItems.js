@@ -16,6 +16,7 @@ const WHOLE_DAY_MINUTES = 24 * 60
 
 /**
  * @param {{ id: string, projectId?: string | null, content: string, dueDate: string, dueTime?: string | null, durationMinutes?: number | null, priority?: number | null, completedAt?: string | null }} task
+ * @internal
  */
 export function taskToCalendarItem(task) {
   const timed = Boolean(task.dueTime)

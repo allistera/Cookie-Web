@@ -5,7 +5,9 @@ import { MAX_UPLOAD_BYTES } from './documentFiles'
 
 // Mirrors cookie-web-tasks/src/taskComments.js: the same text cap as a task
 // description and the same 25 MB file cap as a Documents upload.
+/** @internal */
 export const MAX_COMMENT_LENGTH = 10000
+/** @internal */
 export const MAX_ATTACHMENT_BYTES = MAX_UPLOAD_BYTES
 
 const STAMP = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' })

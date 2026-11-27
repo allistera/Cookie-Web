@@ -7,6 +7,7 @@ import { createSharedLoad } from '../lib/sharedLoad'
 import { calendarOwnerSession, registerCalendarReset } from './calendarOwner'
 
 export const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
+/** @internal */
 export const CALENDAR_EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
 // Google Calendar connection management (Settings → Calendars); the Worker
 // lists the chosen Google calendars in /calendars and merges their events
@@ -183,6 +184,7 @@ registerCalendarReset(resetCalendarsState)
 // components/views against a per-test fake backend need a way to clear the
 // "already loaded" flag between tests, or a later test's mount would reuse
 // an earlier test's cached list instead of hitting its own fake backend.
+/** @internal */
 export function resetCalendarsStateForTests() {
   resetCalendarsState()
 }

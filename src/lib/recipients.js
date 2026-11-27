@@ -15,6 +15,7 @@ export function parseRecipients(value) {
 const MAX_RECIPIENTS = 20
 
 // True when there are 1–20 recipients and every one looks like an address.
+/** @internal */
 export function recipientsValid(value) {
   const list = parseRecipients(value)
   return (

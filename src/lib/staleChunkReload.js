@@ -11,6 +11,7 @@
 // because it was never cached, and a reload would only lose the page the
 // person is on: the error is left to surface instead.
 
+/** @internal */
 export const RELOAD_KEY = 'cookie-chunk-reload'
 const RELOAD_COOLDOWN_MS = 30_000
 

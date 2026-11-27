@@ -7,6 +7,7 @@ import { calendarSession } from './useCalendars'
 //
 // The list is a disclosure, open by default; folding it is remembered in this
 // browser only, like the rail's open state.
+/** @internal */
 export const CALENDAR_RAIL_LIST_STORAGE_KEY = 'cookie.calendarRail.calendarsOpen'
 
 function readListOpen() {

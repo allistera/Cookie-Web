@@ -48,6 +48,7 @@ export async function writeOfflineCache(name, value, owner = offlineOwner()) {
   }
 }
 
+/** @internal */
 export function removeOfflineCache(name, owner = offlineOwner()) {
   return getOfflineDb().delete(CACHE_STORE, cacheKey(name, owner))
 }

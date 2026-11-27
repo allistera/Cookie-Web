@@ -1,6 +1,7 @@
 import { sanitizeMetric } from './sentryMetrics'
 import { isChunkLoadError, isReloadingForStaleChunk } from './staleChunkReload'
 
+/** @internal */
 export const SENTRY_TUNNEL_PATH = '/monitoring'
 
 const errorTypes = new Set([
@@ -36,6 +37,7 @@ function sanitizeFrame(frame) {
 
 // Allowlist the outgoing shape: arbitrary exception messages, contexts, extras,
 // tags, fingerprints and nested exception/frame fields can all contain mail.
+/** @internal */
 export function sanitizeEvent(event, hint) {
   // A deploy left this tab with stale chunk URLs and a reload is already on
   // its way (staleChunkReload, router/chunkReload). The failed import, and
@@ -120,12 +122,14 @@ const numericAttributes = new Set([
   'sentry.exclusive_time',
 ])
 
+/** @internal */
 export function sanitizeSpanStart(options) {
   return { ...options, name: routeNames.has(options.name) ? options.name : 'web' }
 }
 
 // v11 streams spans separately from error events; beforeSend does not sanitize
 // them. Keep timing and numeric Web Vitals, never URLs, DOM text, or span links.
+/** @internal */
 export function sanitizeSpan(span) {
   const source = span.attributes ?? {}
   const op = operations.has(source['sentry.op']) ? source['sentry.op'] : 'browser'
@@ -206,6 +210,7 @@ function sanitizeBreadcrumbMessage(category, message) {
   return String(message).replace(/\[[^\]]*\]/g, '')
 }
 
+/** @internal */
 export function sanitizeRecordingEvent(event) {
   if (event.type === rrwebMetaEvent) {
     return { ...event, data: { ...event.data, href: `${window.location.origin}/` } }
@@ -238,6 +243,7 @@ export function sanitizeRecordingEvent(event) {
 // Replay segments are prepared outside beforeSend. Keep the identifiers that
 // stitch segments, errors and traces together; drop the page URLs, request
 // context and anything else the scope attached.
+/** @internal */
 export function sanitizeReplayEvent(event) {
   if (event.type !== 'replay_event') return event
   return {

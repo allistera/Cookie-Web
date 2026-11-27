@@ -8,6 +8,7 @@ export function browserNotificationPermission() {
   return browserNotificationsSupported() ? globalThis.Notification.permission : 'unsupported'
 }
 
+/** @internal */
 export function browserNotificationPreferenceKey(userId) {
   return userId ? `${PREFERENCE_KEY_PREFIX}${userId}` : null
 }
