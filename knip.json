@@ -1,11 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["index.html!", "api/*.js!", "scripts/*.{js,mjs}", "scripts/localApi/plugin.js"],
+  "entry": ["index.html!", "api/*.js!", "scripts/*.{js,mjs}!", "scripts/localApi/plugin.js!"],
   "project": [
     "src/**/*.{js,vue}!",
     "api/**/*.js!",
     "!api/**/__tests__/**!",
-    "scripts/**/*.{js,mjs}",
+    "scripts/**/*.{js,mjs}!",
+    "!scripts/**/__tests__/**!",
     "e2e/**/*.js"
   ]
 }
