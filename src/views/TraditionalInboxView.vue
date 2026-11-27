@@ -2276,9 +2276,23 @@ function onDocumentClick(e) {
   closeReader()
 }
 
+// Typing writes the reply's local recovery copy on a short debounce; leaving
+// the reply box or the page writes it at once.
+function onReplyBoxFocusOut(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) store.flushReplyRecovery()
+}
+
+function onPageHide(event) {
+  if (event.type === 'pagehide' || document.visibilityState === 'hidden') {
+    store.flushReplyRecovery()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
   document.addEventListener('click', onDocumentClick)
+  document.addEventListener('visibilitychange', onPageHide)
+  window.addEventListener('pagehide', onPageHide)
 })
 onUnmounted(() => {
   replyGenerationSeq += 1
@@ -2286,6 +2300,8 @@ onUnmounted(() => {
   if (pendingReplyDraft.value) store.leaveReplyDraft(pendingReplyDraft.value)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('visibilitychange', onPageHide)
+  window.removeEventListener('pagehide', onPageHide)
 })
 </script>
 
@@ -2999,7 +3015,7 @@ onUnmounted(() => {
              so the reply sits next to the newest message rather than under the
              oldest. -->
         <Transition name="ni-reply">
-          <div class="ni-reply-box" v-if="isReplyOpen">
+          <div class="ni-reply-box" v-if="isReplyOpen" @focusout="onReplyBoxFocusOut">
             <div class="ni-reply-header">
               <span class="material-symbols-outlined">{{
                 isReplyAll ? 'reply_all' : 'reply'
