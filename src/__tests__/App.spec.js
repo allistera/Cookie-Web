@@ -11,6 +11,7 @@ import { useContactInsightsStore } from '../stores/contactInsights'
 import { useSidebarWidth } from '../composables/useSidebarWidth'
 import { useBucketsStore } from '../stores/buckets'
 import { useCalendarRail } from '../composables/useCalendarRail'
+import { useTasksRail } from '../composables/useTasksRail'
 import { IDBFactory } from 'fake-indexeddb'
 import { createOfflineDb, setOfflineDb } from '../lib/offlineDb'
 import {
@@ -61,6 +62,7 @@ afterEach(async () => {
   document.body.innerHTML = ''
   useSidebarWidth().resetWidth()
   useCalendarRail().setOpen(false)
+  useTasksRail().setOpen(false)
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -504,6 +506,47 @@ describe('application shell', () => {
     await flushPromises()
     expect(trigger().exists()).toBe(false)
     await key(']')
+    expect(useCalendarRail().isOpen.value).toBe(false)
+  })
+
+  it('toggles the tasks rail from the header and the [ key on Mail and Documents', async () => {
+    await render('/inbox')
+    const trigger = () => wrapper.find('.tasks-rail-trigger')
+    expect(trigger().attributes('aria-pressed')).toBe('false')
+    expect(trigger().attributes('aria-label')).toBe('Show tasks')
+
+    await trigger().trigger('click')
+    await flushPromises()
+    expect(useTasksRail().isOpen.value).toBe(true)
+    expect(trigger().attributes('aria-label')).toBe('Hide tasks')
+
+    await key('[')
+    expect(useTasksRail().isOpen.value).toBe(false)
+
+    await router.push('/documents')
+    await flushPromises()
+    expect(trigger().exists()).toBe(true)
+
+    for (const path of ['/tasks', '/calendar']) {
+      await router.push(path)
+      await flushPromises()
+      expect(trigger().exists()).toBe(false)
+      await key('[')
+      expect(useTasksRail().isOpen.value).toBe(false)
+    }
+  })
+
+  it('shows one rail at a time: opening either puts the other away', async () => {
+    await render('/inbox')
+    await wrapper.get('.tasks-rail-trigger').trigger('click')
+    expect(useTasksRail().isOpen.value).toBe(true)
+
+    await wrapper.get('.calendar-rail-trigger').trigger('click')
+    expect(useCalendarRail().isOpen.value).toBe(true)
+    expect(useTasksRail().isOpen.value).toBe(false)
+
+    await key('[')
+    expect(useTasksRail().isOpen.value).toBe(true)
     expect(useCalendarRail().isOpen.value).toBe(false)
   })
 

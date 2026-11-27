@@ -23,6 +23,7 @@ import { useAuth } from './composables/useAuth'
 import { useBucketPin } from './composables/useBucketCandidate'
 import { setCalendarsOwner } from './composables/calendarOwner'
 import { useCalendarRail } from './composables/useCalendarRail'
+import { useTasksRail } from './composables/useTasksRail'
 import { useRealtimeInbox } from './composables/useRealtimeInbox'
 import { useTitleUnreadBadge } from './composables/useTitleUnreadBadge'
 import { useAppBadge } from './composables/useAppBadge'
@@ -46,6 +47,7 @@ const SavedViewsSidebar = lazyComponent(() => import('./components/SavedViewsSid
 const SavedViewEditor = lazyComponent(() => import('./components/SavedViewEditor.vue'))
 const BucketPanel = lazyComponent(() => import('./components/BucketPanel.vue'))
 const CalendarRail = lazyComponent(() => import('./components/CalendarRail.vue'))
+const TasksRail = lazyComponent(() => import('./components/TasksRail.vue'))
 
 const store = useInboxStore()
 const searchStore = useSearchStore()
@@ -95,6 +97,16 @@ const calendarRailAvailable = computed(() =>
   ['email', 'documents', 'tasks'].includes(activeApp.value),
 )
 const showCalendarRail = computed(() => calendarRailAvailable.value && calendarRail.isOpen.value)
+// Today's and the Inbox's tasks, docked in the same place. Mail and Documents
+// only: Tasks is the full view. One rail shows at a time, so opening either
+// puts the other away.
+const tasksRail = useTasksRail()
+const tasksRailAvailable = computed(() => ['email', 'documents'].includes(activeApp.value))
+const showTasksRail = computed(() => tasksRailAvailable.value && tasksRail.isOpen.value)
+function toggleRail(rail, other) {
+  if (!rail.isOpen.value) other.setOpen(false)
+  rail.toggle()
+}
 // An open daily note pins the rail to the note's day. The documents store
 // lives in a lazy chunk, so it is only imported once Documents is visited.
 const documentsStoreRef = shallowRef(null)
@@ -122,22 +134,25 @@ function isEditableTarget(event) {
   return Boolean(target.closest('input, textarea, select, [contenteditable]'))
 }
 
-function onCalendarRailKeydown(event) {
+// ] shows or hides the calendar rail, [ the tasks rail.
+function onRailKeydown(event) {
+  const calendar = event.key === ']'
   if (
-    event.key !== ']' ||
+    (!calendar && event.key !== '[') ||
     event.repeat ||
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
     isEditableTarget(event) ||
-    !calendarRailAvailable.value ||
+    !(calendar ? calendarRailAvailable : tasksRailAvailable).value ||
     store.isCommandPaletteOpen ||
     store.isShortcutsHelpOpen
   ) {
     return
   }
   event.preventDefault()
-  calendarRail.toggle()
+  if (calendar) toggleRail(calendarRail, tasksRail)
+  else toggleRail(tasksRail, calendarRail)
 }
 
 const otherApps = computed(() =>
@@ -328,7 +343,7 @@ function onGlobalKeydown(event) {
   onCommandPaletteKeydown(event)
   onShortcutsHelpKeydown(event)
   onBucketKeydown(event)
-  onCalendarRailKeydown(event)
+  onRailKeydown(event)
 }
 
 // The bucket clears itself after its time (three days unless changed).
@@ -812,6 +827,18 @@ onUnmounted(() => {
             <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
           </button>
           <button
+            v-if="tasksRailAvailable"
+            type="button"
+            class="tasks-rail-trigger"
+            :class="{ active: tasksRail.isOpen.value }"
+            :aria-pressed="tasksRail.isOpen.value"
+            :aria-label="tasksRail.isOpen.value ? 'Hide tasks' : 'Show tasks'"
+            title="Tasks ([)"
+            @click="toggleRail(tasksRail, calendarRail)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
+          </button>
+          <button
             v-if="calendarRailAvailable"
             type="button"
             class="calendar-rail-trigger"
@@ -819,7 +846,7 @@ onUnmounted(() => {
             :aria-pressed="calendarRail.isOpen.value"
             :aria-label="calendarRail.isOpen.value ? 'Hide calendar' : 'Show calendar'"
             title="Calendar (])"
-            @click="calendarRail.toggle()"
+            @click="toggleRail(calendarRail, tasksRail)"
           >
             <span class="material-symbols-outlined" aria-hidden="true">calendar_month</span>
           </button>
@@ -1090,6 +1117,7 @@ onUnmounted(() => {
           :date="calendarRailDate"
           @close="calendarRail.setOpen(false)"
         />
+        <TasksRail v-if="showTasksRail" :key="user?.sub" @close="tasksRail.setOpen(false)" />
 
         <!-- Assistant chat drawer -->
         <ChatDrawer v-if="chatDrawerLoaded" />
@@ -1217,9 +1245,10 @@ onUnmounted(() => {
   font-size: 20px;
 }
 
-/* Calendar rail and AI chat toggles: plain icon buttons that tint while their
-   panel shows. */
+/* Calendar rail, tasks rail and AI chat toggles: plain icon buttons that tint
+   while their panel shows. */
 .calendar-rail-trigger,
+.tasks-rail-trigger,
 .ai-chat-trigger {
   width: 36px;
   height: 36px;
@@ -1234,30 +1263,34 @@ onUnmounted(() => {
 }
 
 .calendar-rail-trigger:hover,
+.tasks-rail-trigger:hover,
 .ai-chat-trigger:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
 .calendar-rail-trigger.active,
+.tasks-rail-trigger.active,
 .ai-chat-trigger.active {
   background: var(--accent-soft);
   color: var(--text-blue);
 }
 
 .calendar-rail-trigger:focus-visible,
+.tasks-rail-trigger:focus-visible,
 .ai-chat-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .calendar-rail-trigger .material-symbols-outlined,
+.tasks-rail-trigger .material-symbols-outlined,
 .ai-chat-trigger .material-symbols-outlined {
   font-size: 21px;
 }
 
 /* The AI chat button tints with the assistant's own colour while the drawer
-   is open. Both buttons leave the header on narrow screens, where it has no
+   is open. These buttons leave the header on narrow screens, where it has no
    room to spare; the search page's "Ask the assistant" still opens the
    drawer there. */
 .ai-chat-trigger.active {
@@ -1267,6 +1300,7 @@ onUnmounted(() => {
 
 @media (max-width: 760px) {
   .calendar-rail-trigger,
+  .tasks-rail-trigger,
   .ai-chat-trigger {
     display: none;
   }
