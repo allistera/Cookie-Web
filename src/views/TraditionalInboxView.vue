@@ -465,7 +465,12 @@ const virtualMailRows = computed(() =>
       : []),
   ]),
 )
-const estimateMailRow = (row) => (row.kind === 'group' ? 56 : 40)
+// A first guess until VirtualList measures the row: a row with a preview
+// line under its subject is taller than one without.
+const estimateMailRow = (row) => {
+  if (row.kind === 'group') return 56
+  return row.email.preview ? 58 : 40
+}
 
 const flatEmails = computed(() => emailGroups.value.flatMap((g) => g.emails))
 

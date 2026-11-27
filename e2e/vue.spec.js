@@ -1107,6 +1107,28 @@ test('A sent-message follow-up reminder persists across reload and can be cleare
   await expect(page.locator('.ni-reader [title="Remind me if no reply"]')).toBeVisible()
 })
 
+test('Inbox rows show a preview under a bold subject', async ({ page }) => {
+  await page.goto('/inbox')
+
+  // The classifier's preview says what the subject leaves out.
+  const cityRow = page.locator('.ni-row', { hasText: 'City Construction' })
+  await expect(cityRow.locator('.ni-subject-text')).toHaveCSS('font-weight', '600')
+  await expect(cityRow.locator('.ni-preview')).toHaveText(
+    'The bay window was redesigned to light the kitchen and nook. Approve the placement to lock it in this week.',
+  )
+  await expect(cityRow.locator('.ni-preview')).toHaveCSS('font-weight', '400')
+
+  // Read mail keeps the bold subject, and mail with no written preview
+  // shows the start of its body instead.
+  await page.locator('.ni-group-header', { hasText: 'Yesterday' }).click()
+  const tourRow = page.locator('.ni-row', { hasText: 'Univ of State Tours' })
+  await expect(tourRow).not.toHaveClass(/unread/)
+  await expect(tourRow.locator('.ni-subject-text')).toHaveCSS('font-weight', '600')
+  await expect(tourRow.locator('.ni-preview')).toContainText(
+    'Thank you for scheduling a campus visit.',
+  )
+})
+
 test('Clicking an inbox email slides in the reading panel', async ({ page }) => {
   await page.goto('/inbox')
 

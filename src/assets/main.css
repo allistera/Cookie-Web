@@ -1828,6 +1828,31 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Mail list rows stack the subject, always bold, over its preview. */
+.ni-subject-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ni-subject-lines .ni-subject-text {
+  font-weight: 600;
+}
+
+/* A sentence or two: up to two lines, regular weight even on unread rows. */
+.ni-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
 .ni-ai-generated-icon {
   flex-shrink: 0;
   color: var(--gemini-purple);

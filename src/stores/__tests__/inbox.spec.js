@@ -5246,6 +5246,16 @@ describe('Inbox Store', () => {
     })
   })
 
+  it('mapEmailRow previews a row with the AI line, or the snippet without one', () => {
+    const sentAt = new Date().toISOString()
+    const base = { id: 'a', sent_at: sentAt, snippet: 'Hi, following up on our call.' }
+    expect(mapEmailRow({ ...base, ai_preview: ' Framing starts Monday. ' }).preview).toBe(
+      'Framing starts Monday.',
+    )
+    expect(mapEmailRow({ ...base, ai_preview: null }).preview).toBe('Hi, following up on our call.')
+    expect(mapEmailRow({ id: 'a', sent_at: sentAt }).preview).toBe('')
+  })
+
   it('mapEmailRow exposes the spam verdict as isSpam', () => {
     const sentAt = '2026-07-13T12:00:00.000Z'
     expect(mapEmailRow({ id: 'a', sent_at: sentAt, spam_verdict: 'spam' }).isSpam).toBe(true)

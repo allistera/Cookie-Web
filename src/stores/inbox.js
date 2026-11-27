@@ -644,6 +644,10 @@ export function mapEmailRow(message) {
     },
     subject: message.subject,
     snippet: message.snippet,
+    // The line under the subject in the list: the classifier's preview of
+    // what the subject leaves out, or the start of the body for mail that
+    // has none (sent mail, and mail received before previews were written).
+    preview: String(message.ai_preview ?? '').trim() || String(message.snippet ?? '').trim(),
     body: message.body_text,
     sentAt: message.sent_at,
     date: formatEmailDate(message.sent_at),

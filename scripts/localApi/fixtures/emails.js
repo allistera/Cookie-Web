@@ -50,6 +50,10 @@ const rows = [
     subject: 'Revised Floor Plan - Natural Light adjustments',
     snippet:
       'Hi Allister, following up on our call yesterday, we modified the bay window design...',
+    // What mail-app-ingest's classifier writes for the list; rows without
+    // one fall back to the snippet, as mail received before previews does.
+    ai_preview:
+      'The bay window was redesigned to light the kitchen and nook. Approve the placement to lock it in this week.',
     body_text:
       'Hi Allister, following up on our call yesterday, we modified the bay window design to bring more natural light into the kitchen and breakfast nook.\n\nThe revised floor plan is attached. If the new window placement works for you, we can lock it in with the framing crew this week.',
     ageMs: 0.5 * HOUR,
