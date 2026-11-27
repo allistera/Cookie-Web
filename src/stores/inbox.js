@@ -415,10 +415,20 @@ const ATTACHMENT_UPLOAD_CONCURRENCY = 3
 // timer: both can be open at once, on different drafts.
 const DRAFT_AUTOSAVE_DELAY_MS = 800
 // Typing writes the local recovery copy at most this often; closing, hiding,
-// leaving the window and sending write it at once (flushComposerRecovery).
+// leaving the window and sending write it at once (flushRecovery).
 const RECOVERY_WRITE_DELAY_MS = 200
-// The composer's newest unwritten recovery: { snapshot, session, timer }.
-let pendingRecovery = null
+// The newest unwritten recovery of each surface ('composer', 'reply'):
+// { snapshot, session, timer }.
+const pendingRecoveries = new Map()
+// A write or discard of a recovery copy supersedes its queued write.
+function dropPendingRecovery(recoveryId) {
+  if (!recoveryId) return
+  for (const [surface, pending] of pendingRecoveries) {
+    if (pending.snapshot.recoveryId !== recoveryId) continue
+    clearTimeout(pending.timer)
+    pendingRecoveries.delete(surface)
+  }
+}
 let composerDraftTimer = null
 let replyDraftTimer = null
 // Autosaves for one surface run one at a time. Without this, the debounce
@@ -3686,10 +3696,7 @@ export const useInboxStore = defineStore('inbox', {
     persistComposerRecovery(snapshot, session = this.composerSessionId) {
       if (!snapshot) return Promise.resolve(null)
       // This write is at least as new as a queued one for the same copy.
-      if (snapshot.recoveryId && pendingRecovery?.snapshot.recoveryId === snapshot.recoveryId) {
-        clearTimeout(pendingRecovery.timer)
-        pendingRecovery = null
-      }
+      dropPendingRecovery(snapshot.recoveryId)
       const owner = snapshot.owner ?? this.composeOwnerSub
       if (!owner || owner !== this.composeOwnerSub) return Promise.resolve(null)
       const generation = this.composeGeneration
@@ -3753,10 +3760,7 @@ export const useInboxStore = defineStore('inbox', {
 
     async discardComposerRecovery(recoveryId, owner = this.composeOwnerSub, revision) {
       if (!recoveryId || !owner) return
-      if (pendingRecovery?.snapshot.recoveryId === recoveryId) {
-        clearTimeout(pendingRecovery.timer)
-        pendingRecovery = null
-      }
+      dropPendingRecovery(recoveryId)
       if (owner === this.composeOwnerSub) {
         const settled =
           revision ?? this.draftRecoveries.find((entry) => entry.id === recoveryId)?.revision
@@ -4093,17 +4097,8 @@ export const useInboxStore = defineStore('inbox', {
       const session = this.composerSessionId
       const snapshot = this.composerDraftSnapshot()
       if (unchangedSinceLoad(session, snapshot)) return
-      // The id is fixed now, so every snapshot until the write names the
-      // same recovery copy.
-      if (snapshot && !snapshot.recoveryId && this.composeOwnerSub) {
-        snapshot.recoveryId = this.composerRecoveryId = newRecoveryId()
-      }
-      clearTimeout(pendingRecovery?.timer)
-      pendingRecovery = snapshot && {
-        snapshot,
-        session,
-        timer: setTimeout(() => this.flushComposerRecovery(), RECOVERY_WRITE_DELAY_MS),
-      }
+      this.queueRecovery('composer', snapshot, session)
+      if (snapshot?.recoveryId) this.composerRecoveryId = snapshot.recoveryId
       clearTimeout(composerDraftTimer)
       composerDraftTimer = setTimeout(
         () => this.saveComposerDraft(session),
@@ -4111,13 +4106,37 @@ export const useInboxStore = defineStore('inbox', {
       )
     },
 
-    // Writes the queued recovery copy now (the composer window lost focus).
-    flushComposerRecovery() {
-      const pending = pendingRecovery
+    // Queues the recovery write for one surface. The id is fixed now, so
+    // every snapshot until the write names the same recovery copy.
+    queueRecovery(surface, snapshot, session) {
+      clearTimeout(pendingRecoveries.get(surface)?.timer)
+      pendingRecoveries.delete(surface)
+      if (!snapshot) return
+      if (!snapshot.recoveryId && this.composeOwnerSub) snapshot.recoveryId = newRecoveryId()
+      pendingRecoveries.set(surface, {
+        snapshot,
+        session,
+        timer: setTimeout(() => this.flushRecovery(surface), RECOVERY_WRITE_DELAY_MS),
+      })
+    },
+
+    // Writes a surface's queued recovery copy now.
+    flushRecovery(surface) {
+      const pending = pendingRecoveries.get(surface)
       if (!pending) return Promise.resolve(null)
       clearTimeout(pending.timer)
-      pendingRecovery = null
+      pendingRecoveries.delete(surface)
       return this.persistComposerRecovery(pending.snapshot, pending.session)
+    },
+
+    // The composer window lost focus.
+    flushComposerRecovery() {
+      return this.flushRecovery('composer')
+    },
+
+    // The reply box lost focus, or the page is being hidden.
+    flushReplyRecovery() {
+      return this.flushRecovery('reply')
     },
 
     // Called when the composer closes or the tab is hidden: the pending
@@ -4184,7 +4203,7 @@ export const useInboxStore = defineStore('inbox', {
     scheduleReplyDraftSave(draft) {
       const session = this.replySessionId
       const snapshot = { ...draft, recoveryId: this.replyRecoveryId, draftId: this.replyDraftId }
-      this.persistComposerRecovery(snapshot, -1)
+      this.queueRecovery('reply', snapshot, -1)
       this.replyRecoveryId = snapshot.recoveryId ?? null
       clearTimeout(replyDraftTimer)
       replyDraftTimer = setTimeout(
@@ -4247,6 +4266,9 @@ export const useInboxStore = defineStore('inbox', {
 
     consumeReplyDraft() {
       clearTimeout(replyDraftTimer)
+      // Send and discard settle the queued copy first; a handoff to the
+      // composer keeps it.
+      this.flushReplyRecovery()
       const session = this.replySessionId
       this.replySessionId += 1
       const draftId = this.replyDraftId

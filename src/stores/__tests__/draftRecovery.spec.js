@@ -236,6 +236,37 @@ describe('durable draft recovery', () => {
     expect((await loadDraftRecoveries('alice'))[0].snapshot.text).toBe('Keep my latest words')
   })
 
+  it('writes the inline reply recovery copy once typing pauses, and at once when it is sent', async () => {
+    const persist = vi.spyOn(store, 'persistComposerRecovery')
+    const reply = { text: 'Quick reply', html: '<p>Quick reply</p>', replyToMessageId: 'm1' }
+    store.scheduleReplyDraftSave(reply)
+    const recoveryId = store.replyRecoveryId
+    expect(recoveryId).toBeTruthy()
+    store.scheduleReplyDraftSave({ ...reply, text: 'Quick reply, longer' })
+    expect(store.replyRecoveryId).toBe(recoveryId)
+    expect(persist).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1))
+    await drainDraftRecoveryWrites()
+    let [record] = await loadDraftRecoveries('alice')
+    expect(record.id).toBe(recoveryId)
+    expect(record.snapshot.text).toBe('Quick reply, longer')
+
+    store.scheduleReplyDraftSave({ ...reply, text: 'Quick reply, final' })
+    store.consumeReplyDraft()
+    expect(persist).toHaveBeenCalledTimes(2)
+    await drainDraftRecoveryWrites()
+    ;[record] = await loadDraftRecoveries('alice')
+    expect(record.snapshot.text).toBe('Quick reply, final')
+  })
+
+  it('drops a queued reply recovery copy when the reply is discarded', async () => {
+    const persist = vi.spyOn(store, 'persistComposerRecovery')
+    store.scheduleReplyDraftSave({ text: 'Throw away', replyToMessageId: 'm1' })
+    await store.discardComposerRecovery(store.replyRecoveryId)
+    store.flushReplyRecovery()
+    expect(persist).not.toHaveBeenCalled()
+  })
+
   it('keeps local words when a conflict adopts the server version', async () => {
     store.composerDraftId = 'd1'
     vi.spyOn(store, 'authHeaders').mockResolvedValue({})

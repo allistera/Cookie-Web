@@ -179,6 +179,21 @@ describe('inline AI reply button', () => {
     await flushPromises()
   }
 
+  it('writes the reply recovery copy when the focus leaves the reply box or the page hides', async () => {
+    const flush = vi.spyOn(store, 'flushReplyRecovery').mockResolvedValue(null)
+    const outside = document.createElement('button')
+    document.body.append(outside)
+    const editor = wrapper.get('.ni-reply-box .composer-editor')
+
+    await editor.trigger('focusout', { relatedTarget: wrapper.get('.ni-reply-box button').element })
+    expect(flush).not.toHaveBeenCalled()
+    await editor.trigger('focusout', { relatedTarget: outside })
+    expect(flush).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new Event('pagehide'))
+    expect(flush).toHaveBeenCalledTimes(2)
+    outside.remove()
+  })
+
   it('inserts an editable response to the current email and schedules autosave without sending', async () => {
     const save = vi.spyOn(store, 'scheduleReplyDraftSave')
     await typeReply('Please ask about the price.')
