@@ -108,9 +108,9 @@ async function loadEvents() {
   try {
     const headers = await store.authHeaders()
     if (superseded()) return
-    // From the day before: an event that runs past midnight leaves its
-    // remainder on this day, drawn from 00:00.
-    const response = await fetch(calendarEventsUrl(addDays(key, -1), key), { headers })
+    // From a week before: an event that runs past midnight, or over several
+    // days, leaves its remainder on this day, drawn from 00:00.
+    const response = await fetch(calendarEventsUrl(addDays(key, -7), key), { headers })
     if (!response.ok) throw new Error(`GET calendar-events responded ${response.status}`)
     const body = await response.json()
     if (superseded() || selectedKey.value !== key) return

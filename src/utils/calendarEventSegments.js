@@ -4,18 +4,18 @@ const DAY_MINUTES = 24 * 60
 // A runaway duration must not turn into thousands of rows.
 const MAX_SEGMENTS = 366
 
-// The calendar draws a timed event on its start date only. One that runs past
-// midnight is split into a piece per day it covers, as tasks are
-// (taskToCalendarItems): the first keeps the event's id and start, the rest
-// start at 00:00 under `${id}:${date}`. Every piece carries the whole event as
-// `segmentOf`, so opening, moving or editing one acts on the event itself.
+// The calendar draws an event on its start date only. One that runs past
+// midnight, timed or all-day, is split into a piece per day it covers, as
+// tasks are (taskToCalendarItems): the first keeps the event's id and start,
+// the rest start at 00:00 under `${id}:${date}`. Every piece carries the whole
+// event as `segmentOf`, so opening, moving or editing one acts on the event
+// itself.
 export function eventDaySegments(event) {
-  if (event.allDay) return [event]
   const [hour, minute] = String(event.start ?? '')
     .split(':')
     .map(Number)
   const total = Number(event.duration)
-  let start = hour * 60 + minute
+  let start = event.allDay ? 0 : hour * 60 + minute
   if (!(start + total > DAY_MINUTES)) return [event]
   const segments = []
   let date = event.date

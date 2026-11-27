@@ -8,10 +8,11 @@ import { useInboxStore } from '../../stores/inbox'
 import { useDocumentsStore } from '../../stores/documents'
 
 import { CALENDAR_API_URL } from '../../lib/apiWorkers'
+import { addDays } from '../../lib/taskSchedule'
 
-// The day's events window starts the day before, for an event that runs past
-// midnight.
-const eventsUrl = (day, dayBefore) => calendarEventsUrl(dayBefore, day)
+// The day's events window starts a week before, for an event that runs past
+// midnight or over several days.
+const eventsUrl = (day) => calendarEventsUrl(addDays(day, -7), day)
 
 const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 const EVENTS = [
@@ -44,7 +45,7 @@ function mockApi() {
           json: async () => ({ calendars: [{ id: 'work', name: 'Work', color: '#4f7c6b' }] }),
         }
       }
-      if (url === eventsUrl('2026-08-13', '2026-08-12')) {
+      if (url === eventsUrl('2026-08-13')) {
         return { ok: true, json: async () => ({ events: EVENTS }) }
       }
       return { ok: true, json: async () => ({ events: [] }) }
@@ -65,7 +66,7 @@ describe('DocumentCalendarSidebar', () => {
     const wrapper = mount(DocumentCalendarSidebar, { props: { date: new Date(2026, 7, 13) } })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-08-13', '2026-08-12'), {
+    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-08-13'), {
       headers: {},
     })
     expect(wrapper.get('.sidebar-all-day-chip').text()).toBe('Company Holiday')
@@ -107,7 +108,7 @@ describe('DocumentCalendarSidebar', () => {
     await wrapper.setProps({ date: new Date(2026, 7, 14) })
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-08-14', '2026-08-13'), {
+    expect(fetch).toHaveBeenCalledWith(eventsUrl('2026-08-14'), {
       headers: {},
     })
     expect(wrapper.get('.mini-month-day.selected').text()).toBe('14')
@@ -138,7 +139,7 @@ it('draws the part of an event from the day before that runs into this day', asy
   mockApi()
   const real = fetch.getMockImplementation()
   fetch.mockImplementation(async (url) =>
-    url === eventsUrl('2026-08-13', '2026-08-12')
+    url === eventsUrl('2026-08-13')
       ? {
           ok: true,
           json: async () => ({
@@ -221,7 +222,7 @@ it('drops a load that the account changed under before it was sent', async () =>
   await flushPromises()
 
   // Only the new account's load reached the network.
-  const loads = fetch.mock.calls.filter(([url]) => url === eventsUrl('2026-08-20', '2026-08-19'))
+  const loads = fetch.mock.calls.filter(([url]) => url === eventsUrl('2026-08-20'))
   expect(loads).toHaveLength(1)
   wrapper.unmount()
   setCalendarsOwner(null)
