@@ -28,6 +28,7 @@ export function createKanbanLane(title, overrides = {}) {
   return { id: createId(), title, tasks: [], ...overrides }
 }
 
+/** @internal */
 export function createDefaultKanbanBoard() {
   return { lanes: DEFAULT_LANE_TITLES.map((title) => createKanbanLane(title)) }
 }

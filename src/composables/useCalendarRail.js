@@ -3,6 +3,7 @@ import { readonly, ref } from 'vue'
 // The calendar rail docked on the right of Mail, Documents and Tasks. Closed
 // by default; the open/closed choice is kept in this browser only (no
 // cross-device sync), so a private window or cleared storage starts closed.
+/** @internal */
 export const CALENDAR_RAIL_STORAGE_KEY = 'cookie.calendarRail.open'
 
 function readStored() {

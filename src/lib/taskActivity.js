@@ -54,6 +54,7 @@ function quoted(text) {
 // One sentence for one changed field: "Title changed from “A” to “B”",
 // "Due date set to 2026-10-20", "Labels cleared". A description's text is
 // not repeated (it can run to pages); a reorder has no values worth reading.
+/** @internal */
 export function describeChange(field, change, lookups) {
   const label = FIELD_LABELS[field] || field
   if (ORDER_FIELDS.has(field)) return 'Reordered'

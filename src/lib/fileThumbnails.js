@@ -16,6 +16,7 @@ export function hasThumbnail(mimeType) {
   return type.startsWith('image/') && isPreviewable(type)
 }
 
+/** @internal */
 export function createThumbnailCache({
   createUrl = (blob) => URL.createObjectURL(blob),
   revokeUrl = (url) => URL.revokeObjectURL(url),

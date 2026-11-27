@@ -432,11 +432,17 @@ Migration numbers mentioned in this README (`0113_calendar_invitations.sql` and 
 
 ```sh
 npm run lint
+npm run knip
 npm run test:unit -- --run
 npm run test:coverage
 npm run build
 npm run test:e2e
 ```
+
+`npm run knip` fails on unused files, dependencies and exports. Its second,
+production-mode pass leaves tests out, so code that only its own tests import is
+reported. A helper that is used in its own file and also tested directly carries
+a `/** @internal */` tag, which that pass ignores.
 
 CI measures all JavaScript and Vue application source under `src/` and `api/`,
 including files not imported by tests. Test files are excluded. Coverage is

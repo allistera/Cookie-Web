@@ -37,6 +37,7 @@ async function queueTaskPatch(id, payload) {
 // Outbox kind for task edits made while the tasks Worker was unreachable.
 // The payload is the PATCH body itself ({ id, ...fields }), so later edits
 // to the same task coalesce over earlier ones.
+/** @internal */
 export const TASK_PATCH = 'task-patch'
 
 // Whether a task belongs on the list for `project` ('today', 'inbox', a
@@ -65,6 +66,7 @@ function belongsToList(item, project, items, today = localToday()) {
 // would. A recurring task's completion (its payload carries the recurrence
 // fields) is left to the server, which advances the due date; the row stays
 // as the live list keeps it.
+/** @internal */
 export function applyQueuedTaskChanges(items, entries, project = null) {
   if (!entries.length) return items
   const changes = new Map(entries.map(({ payload }) => [payload.id, payload]))

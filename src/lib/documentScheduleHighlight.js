@@ -11,7 +11,9 @@ import { matchTimeLine } from './dailyEventLines'
 // reads or writes editor content, only toggles classes on the already-
 // rendered nodes, so it's safe to call on every keystroke without
 // disturbing the caret or undo history.
+/** @internal */
 export const SCHEDULE_LINE_CLASS = 'is-schedule-line'
+/** @internal */
 export const SCHEDULE_CHECKBOX_CLASS = 'is-schedule-checkbox'
 
 function matches(el) {

@@ -1,3 +1,4 @@
+/** @internal */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 // Editor.js image-tool uploader: upload(file) resolves to the stored URL, and

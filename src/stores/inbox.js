@@ -51,6 +51,7 @@ import { unresolvedSnippetFields, unresolvedSnippetWarning } from '../lib/snippe
 // the messages Worker was unreachable. The payload is the PATCH body itself:
 // { id, ...changes }, so later changes to the same message coalesce over
 // earlier ones.
+/** @internal */
 export const MESSAGE_PATCH = 'message-patch'
 
 // Lays queued message changes over the raw rows of a cached list page, so a
@@ -58,6 +59,7 @@ export const MESSAGE_PATCH = 'message-patch'
 // On an inbox page (inboxPage), rows a queued change archived or snoozed
 // into the future leave the list the way the live inbox drops them; the
 // folders that list Done and Snoozed mail keep them.
+/** @internal */
 export function applyQueuedMessageChanges(
   rows,
   entries,
@@ -764,6 +766,7 @@ function assignChangedFields(target, row) {
 // (the open email) survives a partial page too: openEmailFromSearch puts an
 // older row at the top, out of page order, and dropping it would close the
 // reader.
+/** @internal */
 export function mergeInboxPage(
   existing,
   incoming,

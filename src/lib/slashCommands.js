@@ -2,6 +2,7 @@
 // component maps each id to an action (formatting via document.execCommand, or
 // emitting the AI "generate" event). Filtering is a pure function so it can be
 // unit-tested without the DOM.
+/** @internal */
 export const SLASH_COMMANDS = [
   {
     id: 'generate',

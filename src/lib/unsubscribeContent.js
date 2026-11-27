@@ -20,6 +20,7 @@ function decodedForMatching(value) {
   }
 }
 
+/** @internal */
 export function bridgeCandidateIsPlausible(candidate) {
   const href = String(candidate?.href ?? '')
   if (!href || href.length > MAX_HREF_LENGTH) return false

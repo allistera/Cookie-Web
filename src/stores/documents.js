@@ -37,12 +37,14 @@ const pageLoads = new WeakMap()
 const todayNoteOpens = new WeakMap()
 // Latest updateDocumentMeta call per document id, per store; see there.
 const metaRequests = new WeakMap()
+/** @internal */
 export const documentPageKey = (scope = {}) =>
   JSON.stringify([scope.folder ?? null, Boolean(scope.starred), scope.tag || null])
 
 // Outbox kind for document edits made while the tasks Worker was
 // unreachable. The payload is the PATCH body ({ id, title?, blocks?, tags?,
 // emoji?, updatedAt }), so later edits to the same document coalesce.
+/** @internal */
 export const DOCUMENT_PATCH = 'document-patch'
 const RECENT_DOCUMENTS_INDEX = 'documents:recent'
 const MAX_CACHED_DOCUMENTS = 20

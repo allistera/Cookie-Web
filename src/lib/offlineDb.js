@@ -11,6 +11,7 @@ const DB_VERSION = 1
 export const CACHE_STORE = 'cache'
 export const OUTBOX_STORE = 'outbox'
 
+/** @internal */
 export function createOfflineDb({ indexedDB = globalThis.indexedDB ?? null, name = DB_NAME } = {}) {
   let opening = null
 
@@ -194,6 +195,7 @@ export function getOfflineDb() {
 
 // Tests hand in a database over fake-indexeddb here rather than mocking the
 // module; null restores the lazily created default.
+/** @internal */
 export function setOfflineDb(db) {
   instance = db
 }

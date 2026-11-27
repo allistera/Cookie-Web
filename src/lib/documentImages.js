@@ -60,6 +60,7 @@ export function resolveDocumentImageUrl(url, { now = Date.now, getHeaders = auth
   return entry.promise.then(({ url: signedUrl }) => signedUrl)
 }
 
+/** @internal */
 export function clearDocumentImageCache() {
   signed.clear()
 }

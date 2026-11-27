@@ -10,7 +10,10 @@ const EXPAND_ICON = `
     <polyline points="6 9 12 15 18 9"/>
   </svg>`
 
-/** @param {string | null | undefined} docId */
+/**
+ * @param {string | null | undefined} docId
+ * @internal
+ */
 export function loadCollapsedHeadings(docId) {
   if (!docId) return new Set()
   try {
@@ -24,6 +27,7 @@ export function loadCollapsedHeadings(docId) {
 /**
  * @param {string | null | undefined} docId
  * @param {Set<string>} collapsed
+ * @internal
  */
 export function saveCollapsedHeadings(docId, collapsed) {
   if (!docId) return
@@ -44,6 +48,7 @@ export function saveCollapsedHeadings(docId, collapsed) {
  * @param {{ id: string, level: number | null }[]} outline blocks in order; level is null for non-headings
  * @param {Set<string>} collapsed
  * @returns {Map<string, string>} hidden block id -> id of the heading hiding it
+ * @internal
  */
 export function hiddenBlocks(outline, collapsed) {
   const hidden = new Map()

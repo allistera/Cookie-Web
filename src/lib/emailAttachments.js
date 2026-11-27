@@ -74,6 +74,7 @@ export function attachmentSummary(attachment) {
 
 // "From Northwind Billing", "To Sam Carter and 2 others", or nothing when the
 // mail names nobody.
+/** @internal */
 export function correspondentLabel(attachment) {
   const person = attachment.correspondent
   if (!person) return ''

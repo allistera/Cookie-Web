@@ -55,7 +55,10 @@ const LANGUAGE_ALIASES = {
   plsql: 'sql',
 }
 
-/** Maps a language hint from any source onto a supported language id. */
+/**
+ * Maps a language hint from any source onto a supported language id.
+ * @internal
+ */
 export function codeLanguageFromHint(hint) {
   const id = String(hint ?? '')
     .trim()
@@ -143,6 +146,7 @@ const FENCE = /^(`{3,}|~{3,})[ \t]*([\w#+.-]*)[^\n]*\n([\s\S]*?)\n?\1[ \t]*$/
  * clipboard holds ordinary text that Editor.js should paste as usual.
  *
  * @param {DataTransfer | null | undefined} clipboard
+ * @internal
  */
 export function readCodePaste(clipboard) {
   if (!clipboard) return null

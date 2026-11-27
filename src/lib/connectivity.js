@@ -59,6 +59,7 @@ export function installConnectivityListeners(target = globalThis.window) {
   }
 }
 
+/** @internal */
 export function resetConnectivityForTests() {
   online.value = globalThis.navigator?.onLine ?? true
   reconnectListeners.clear()

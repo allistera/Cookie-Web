@@ -14,6 +14,7 @@ const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', '
 
 // A YYYY-MM-DD string as a local Date at midnight; null when malformed or
 // not a real day (2026-02-30 rolls over, so it is refused).
+/** @internal */
 export function dateFromIso(iso) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''))
   if (!match) return null
@@ -26,6 +27,7 @@ export function dateFromIso(iso) {
 
 // The local calendar day of a Date as YYYY-MM-DD, built from local parts so
 // an evening in a zone behind UTC does not read as tomorrow.
+/** @internal */
 export function toIso(date) {
   const pad = (value) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
@@ -39,6 +41,7 @@ export function addDays(iso, days) {
 }
 
 // "Sat 24 Oct", with the year when it is not this one.
+/** @internal */
 export function formatDay(iso, today) {
   const date = dateFromIso(iso)
   if (!date) return ''
@@ -48,6 +51,7 @@ export function formatDay(iso, today) {
 
 // What a due date reads as on the chip: Today, Tomorrow, Yesterday, Someday,
 // or the day.
+/** @internal */
 export function describeDueDate(iso, today) {
   if (!iso) return 'No date'
   if (isSomeday(iso)) return 'Someday'
@@ -110,6 +114,7 @@ export function scheduleShortcuts(today) {
 }
 
 // One month as Monday-first weeks of YYYY-MM-DD (null outside the month).
+/** @internal */
 export function monthGrid(year, month) {
   const first = new Date(year, month - 1, 1)
   const label = MONTH_YEAR.format(first)
