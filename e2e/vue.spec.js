@@ -366,7 +366,7 @@ test('Clicking an event opens it prefilled for editing, with a Delete button', a
 
   const titleInput = dialog.getByRole('textbox', { name: 'Event title' })
   await expect(titleInput).toHaveValue('Standup')
-  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
+  await expect(dialog.locator('input[type="date"]').first()).toHaveValue('2026-07-24')
   const timeInputs = dialog.locator('input[type="time"]')
   await expect(timeInputs.nth(0)).toHaveValue('09:00')
   await expect(timeInputs.nth(1)).toHaveValue('09:30')
@@ -408,7 +408,9 @@ test('Dragging on the day timeline opens New event with the date, start, and end
 
   const dialog = page.getByRole('dialog', { name: 'New event' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
+  await expect(dialog.locator('input[type="date"]').first()).toHaveValue('2026-07-24')
+  // The end date starts on the same day.
+  await expect(dialog.locator('input[type="date"]').nth(1)).toHaveValue('2026-07-24')
   const timeInputs = dialog.locator('input[type="time"]')
   await expect(timeInputs.nth(0)).toHaveValue('11:00')
   await expect(timeInputs.nth(1)).toHaveValue('12:00')
@@ -1184,7 +1186,7 @@ test('Reader offers to add a detected email event to Calendar with details prefi
   await expect(dialog.getByRole('textbox', { name: 'Event title' })).toHaveValue(
     `${tourDateText} guided tour`,
   )
-  await expect(dialog.locator('input[type="date"]')).toHaveValue(tourDateValue)
+  await expect(dialog.locator('input[type="date"]').first()).toHaveValue(tourDateValue)
   await expect(dialog.locator('input[type="time"]').nth(0)).toHaveValue('10:00')
   await expect(dialog.locator('input[type="time"]').nth(1)).toHaveValue('11:00')
   await expect(dialog.getByRole('textbox', { name: 'Event description' })).toHaveValue(
@@ -2492,7 +2494,7 @@ test("The '/' command palette Create Event opens the dialog from any route", asy
   await expect(aiInput).toBeFocused()
   await expect(dialog.getByRole('button', { name: 'Advanced' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Advanced' }).click()
-  await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-07-24')
+  await expect(dialog.locator('input[type="date"]').first()).toHaveValue('2026-07-24')
 })
 
 test('Command palette Mark Done archives the open email', async ({ page }) => {

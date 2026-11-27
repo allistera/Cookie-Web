@@ -930,6 +930,11 @@ const timeStringToMinutes = (value) => {
   return hour * 60 + minute
 }
 
+// Whole days from one YYYY-MM-DD to another. Both parse as UTC midnight, so a
+// clock change between them does not cost an hour.
+const daysBetween = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000)
+const shiftDateKey = (key, days) => dateKey(addDays(new Date(`${key}T00:00:00`), days))
+
 // The slot drawn on a surface while something is dragged over it: the range
 // dragged out for a new event, or the time a Someday task from the row hangs
 // over.
@@ -1088,10 +1093,6 @@ function parseRepeatDays(recurrenceRule) {
 // The email a Mail "Add to calendar" draft came from, kept until its dialog
 // closes so the saved event can be linked back to it.
 let newEventSourceMessageId = null
-// The start and end editEvent put in the form, and the event's real length.
-// The end field cannot show a time on a later day, so an event that runs past
-// midnight keeps its length unless one of the two times is changed.
-let editedEventTimes = null
 
 // Neither opener may replace the dialog while a save/delete is in flight: the
 // request closes the dialog when it finishes, which would discard the new one.
@@ -1099,29 +1100,40 @@ function openNewEvent(prefill) {
   if (eventSaving.value) return
   editingEventId.value = null
   editingEvent.value = null
-  editedEventTimes = null
   eventFormReadOnly.value = false
   newEventSourceMessageId = prefill?.sourceMessageId ?? null
   eventCreationMode.value = prefill ? 'advanced' : 'ai'
   eventAiInput.value = ''
   eventAiError.value = ''
   const prefillDate = prefill?.date
+  const date =
+    prefillDate instanceof Date ? dateKey(prefillDate) : prefillDate || dateKey(selectedDate.value)
+  const start = prefill?.start ?? (prefill ? minutesToTimeString(prefill.startMinutes) : '14:00')
+  const end = prefill?.end ?? (prefill ? minutesToTimeString(prefill.endMinutes) : '14:30')
   eventForm.value = {
     title: prefill?.title || '',
     description: prefill?.description || '',
     location: prefill?.location || '',
-    date:
-      prefillDate instanceof Date
-        ? dateKey(prefillDate)
-        : prefillDate || dateKey(selectedDate.value),
-    start: prefill?.start ?? (prefill ? minutesToTimeString(prefill.startMinutes) : '14:00'),
-    end: prefill?.end ?? (prefill ? minutesToTimeString(prefill.endMinutes) : '14:30'),
+    date,
+    start,
+    // A suggested 23:00 to 01:00 ends the next day.
+    endDate: end < start ? shiftDateKey(date, 1) : date,
+    end,
     calendar: defaultCalendarId(),
     repeat: 'none',
     repeatUntil: '',
     repeatDays: [],
   }
   showNewEvent.value = true
+}
+
+// Moving the start date moves the end date with it, so the event keeps its
+// length.
+function moveEventDate(date) {
+  const form = eventForm.value
+  const days = daysBetween(form.date, date)
+  if (Number.isFinite(days) && form.endDate) form.endDate = shiftDateKey(form.endDate, days)
+  form.date = date
 }
 
 function toggleRepeatDay(code) {
@@ -1151,30 +1163,27 @@ function editEvent(item) {
   eventFormReadOnly.value = !writableCalendars.value.some(
     (calendar) => calendar.id === event.calendar,
   )
-  const startMinutes = timeStringToMinutes(event.start)
-  const rawEndMinutes = startMinutes + Number(event.duration || 0)
+  const date = event.seriesDate ?? event.date
+  const duration = Math.max(Number(event.duration) || 0, 0)
+  // An all-day event shows 00:00 to 23:59 on its last day; saving those times
+  // keeps it all-day.
+  const endMinutes = event.allDay
+    ? Math.max(Math.ceil(duration / DAY_MINUTES), 1) * DAY_MINUTES - 1
+    : timeStringToMinutes(event.start) + duration
   eventForm.value = {
     title: event.title,
     description: event.description || '',
     location: event.location || '',
-    date: event.seriesDate ?? event.date,
+    date,
     start: event.start,
-    // An all-day event's 1440-minute duration (or an overnight event crossing
-    // midnight) would overflow into an invalid >= 24:00 <input type="time">
-    // value; clamp the editable end clock time to 23:59 and preserve allDay on
-    // save unless the user explicitly changes the times.
-    end:
-      event.allDay || rawEndMinutes >= DAY_MINUTES
-        ? '23:59'
-        : minutesToTimeString(Math.max(rawEndMinutes, startMinutes)),
+    endDate: shiftDateKey(date, Math.floor(endMinutes / DAY_MINUTES)),
+    end: minutesToTimeString(endMinutes % DAY_MINUTES),
     allDay: Boolean(event.allDay),
     calendar: event.calendar,
     repeat: parseRepeatFrequency(event.recurrenceRule),
     repeatUntil: parseRepeatUntil(event.recurrenceRule),
     repeatDays: parseRepeatDays(event.recurrenceRule),
   }
-  const { start, end } = eventForm.value
-  editedEventTimes = { start, end, duration: Number(event.duration) }
   showNewEvent.value = true
 }
 
@@ -1246,7 +1255,6 @@ function closeNewEvent() {
   eventForm.value = null
   editingEventId.value = null
   editingEvent.value = null
-  editedEventTimes = null
   newEventSourceMessageId = null
   eventAiInput.value = ''
   eventAiError.value = ''
@@ -1323,20 +1331,20 @@ async function saveEvent() {
   if (eventSaving.value) return
   const title = eventForm.value.title.trim()
   if (!title) return
-  const { date, start, end, allDay, location, description, repeat, repeatUntil, repeatDays } =
-    eventForm.value
+  const { date, endDate, start, end, allDay } = eventForm.value
+  const { location, description, repeat, repeatUntil, repeatDays } = eventForm.value
   const startMinutes = start ? timeStringToMinutes(start) : NaN
-  const endMinutes = end ? timeStringToMinutes(end) : NaN
+  const endMinutes = end ? daysBetween(date, endDate) * DAY_MINUTES + timeStringToMinutes(end) : NaN
   if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
     store.notify('Choose a valid start and end time.', 'error')
     return
   }
+  if (endMinutes < startMinutes) {
+    store.notify('Choose an end after the start.', 'error')
+    return
+  }
   const keepsAllDay = Boolean(allDay && start === '00:00' && end === '23:59')
-  const original = editingEventId.value ? editedEventTimes : null
-  const keepsDuration = original?.duration > 0 && start === original.start && end === original.end
-  let duration = Math.max(endMinutes - startMinutes, SNAP_MINUTES)
-  if (keepsAllDay) duration = DAY_MINUTES
-  else if (keepsDuration) duration = original.duration
+  const duration = keepsAllDay ? endMinutes + 1 : Math.max(endMinutes - startMinutes, SNAP_MINUTES)
   const trimmedLocation = location.trim() || null
   const trimmedDescription = description.trim() || null
   const calendar = eventForm.value.calendar || defaultCalendarId()
@@ -2461,11 +2469,25 @@ onUnmounted(() => {
             <div class="new-event-datetime">
               <label class="new-event-field new-event-datetime-field">
                 <span>Date</span>
-                <input v-model="eventForm.date" type="date" :disabled="eventFormReadOnly" />
+                <input
+                  :value="eventForm.date"
+                  type="date"
+                  :disabled="eventFormReadOnly"
+                  @input="moveEventDate($event.target.value)"
+                />
               </label>
               <label class="new-event-field new-event-datetime-field">
                 <span>Start</span>
                 <input v-model="eventForm.start" type="time" :disabled="eventFormReadOnly" />
+              </label>
+              <label class="new-event-field new-event-datetime-field">
+                <span>End date</span>
+                <input
+                  v-model="eventForm.endDate"
+                  type="date"
+                  :min="eventForm.date"
+                  :disabled="eventFormReadOnly"
+                />
               </label>
               <label class="new-event-field new-event-datetime-field">
                 <span>End</span>
@@ -3851,7 +3873,8 @@ onUnmounted(() => {
 }
 
 .new-event-datetime {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 24px;
 }
@@ -4216,10 +4239,6 @@ onUnmounted(() => {
 
   .new-event-description-input {
     font-size: 16px;
-  }
-
-  .new-event-datetime {
-    flex-direction: column;
   }
 
   .new-event-dialog-actions {

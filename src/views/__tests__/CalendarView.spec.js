@@ -1601,7 +1601,7 @@ describe('CalendarView', () => {
     wrapper.unmount()
   })
 
-  it('keeps the length of an event past midnight when only its title is edited', async () => {
+  it('fills the real end of an event past midnight and reads its length from the end date', async () => {
     mockCalendarApi({
       extraEvents: [
         {
@@ -1630,33 +1630,126 @@ describe('CalendarView', () => {
           ([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'PATCH',
         )
         .map(([, options]) => JSON.parse(options.body))
-    async function editTitle(title, nextTitle, nextEnd) {
+    async function edit(title, { nextTitle = title, end, endDate } = {}) {
       const chip = wrapper.findAll('.day-event').find((event) => event.text().includes(title))
       await chip.trigger('click')
-      // The end field can only hold a time on the event's first day.
-      expect(wrapper.findAll('input[type="time"]')[1].element.value).toBe('23:59')
       await wrapper.get('.new-event-title-input').setValue(nextTitle)
-      if (nextEnd) await wrapper.findAll('input[type="time"]')[1].setValue(nextEnd)
+      if (endDate) await wrapper.findAll('input[type="date"]')[1].setValue(endDate)
+      if (end) await wrapper.findAll('input[type="time"]')[1].setValue(end)
       await wrapper.get('.new-event-create').trigger('click')
       await flushPromises()
       return patches().at(-1)
     }
 
-    expect(await editTitle('Late show', 'Late show (encore)')).toMatchObject({
+    const late = wrapper.findAll('.day-event').find((event) => event.text().includes('Late show'))
+    await late.trigger('click')
+    expect(wrapper.findAll('input[type="date"]').map((input) => input.element.value)).toEqual([
+      '2026-07-24',
+      '2026-07-25',
+    ])
+    expect(wrapper.findAll('input[type="time"]').map((input) => input.element.value)).toEqual([
+      '22:00',
+      '01:00',
+    ])
+    await wrapper.get('.new-event-cancel').trigger('click')
+
+    expect(await edit('Late show', { nextTitle: 'Late show (encore)' })).toMatchObject({
       id: 'late-show',
+      date: '2026-07-24',
       start: '22:00',
       duration: 180,
     })
-    expect(await editTitle('Conference', 'Summit')).toMatchObject({
+    // Only the end time changes: the event still ends the next day.
+    expect(await edit('Late show', { end: '02:30' })).toMatchObject({
+      id: 'late-show',
+      duration: 270,
+    })
+    expect(await edit('Conference', { nextTitle: 'Summit' })).toMatchObject({
       id: 'conference',
       start: '09:00',
       duration: 2 * 1440 + 480,
     })
-    // A changed end time is still read from the fields.
-    expect(await editTitle('Summit', 'Summit', '17:00')).toMatchObject({
+    expect(await edit('Summit', { endDate: '2026-07-24', end: '17:00' })).toMatchObject({
       id: 'conference',
       duration: 480,
     })
+    wrapper.unmount()
+  })
+
+  it('keeps a multi-day all-day event whole when only its title is edited', async () => {
+    mockCalendarApi({
+      extraEvents: [
+        {
+          id: 'trip',
+          title: 'Trip',
+          date: '2026-07-24',
+          start: '00:00',
+          duration: 3 * 1440,
+          allDay: true,
+          calendar: 'personal',
+        },
+      ],
+    })
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const chip = wrapper.findAll('.all-day-event').find((el) => el.text().includes('Trip'))
+    await chip.trigger('click')
+    expect(wrapper.findAll('input[type="date"]')[1].element.value).toBe('2026-07-26')
+    await wrapper.get('.new-event-title-input').setValue('Road trip')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+    const patch = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'PATCH')
+      .map(([, options]) => JSON.parse(options.body))
+      .at(-1)
+    expect(patch).toMatchObject({ id: 'trip', allDay: true, duration: 3 * 1440 })
+    wrapper.unmount()
+  })
+
+  it('creates an overnight event, moving the end date with the start date', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    await wrapper.get('.calendar-sidebar-create').trigger('click')
+    await wrapper.get('.new-event-advanced').trigger('click')
+    await wrapper.get('.new-event-title-input').setValue('Night flight')
+    const dates = () => wrapper.findAll('input[type="date"]')
+    const times = () => wrapper.findAll('input[type="time"]')
+    expect(dates()[1].element.value).toBe(dates()[0].element.value)
+    await dates()[0].setValue('2026-07-27')
+    expect(dates()[1].element.value).toBe('2026-07-27')
+    await dates()[1].setValue('2026-07-28')
+    await dates()[0].setValue('2026-07-26')
+    expect(dates()[1].element.value).toBe('2026-07-27')
+    await times()[0].setValue('23:00')
+    await times()[1].setValue('06:30')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, options]) => url === EVENTS_ENDPOINT && options?.method === 'POST')
+    expect(JSON.parse(post[1].body)).toMatchObject({
+      title: 'Night flight',
+      date: '2026-07-26',
+      start: '23:00',
+      duration: 450,
+    })
+    wrapper.unmount()
+  })
+
+  it('refuses an end before the start', async () => {
+    const wrapper = await mountCalendar({ attachTo: document.body })
+    const standup = wrapper.findAll('.day-event').find((event) => event.text().includes('Standup'))
+    await standup.trigger('click')
+    await wrapper.findAll('input[type="date"]')[1].setValue('2026-07-23')
+    await wrapper.get('.new-event-create').trigger('click')
+    await flushPromises()
+    expect(useInboxStore().notify).toHaveBeenCalledWith('Choose an end after the start.', 'error')
+    const writes = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url, options]) => url === EVENTS_ENDPOINT && ['POST', 'PATCH'].includes(options?.method),
+      )
+    expect(writes).toHaveLength(0)
+    expect(wrapper.find('.new-event-dialog').exists()).toBe(true)
     wrapper.unmount()
   })
 
