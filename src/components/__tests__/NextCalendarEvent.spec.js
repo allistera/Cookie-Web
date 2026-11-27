@@ -70,7 +70,7 @@ describe('NextCalendarEvent', () => {
     expect(wrapper.text()).toContain('16:30')
     expect(wrapper.text()).toContain('Sprint planning')
     expect(wrapper.text()).toContain('in 28 min')
-    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-10-09', '2026-10-09'), {
+    expect(fetch).toHaveBeenCalledWith(calendarEventsUrl('2026-10-02', '2026-10-09'), {
       headers: { Authorization: 'test' },
     })
   })
@@ -122,7 +122,7 @@ describe('NextCalendarEvent', () => {
     vi.setSystemTime(new Date(2026, 9, 9, 23, 59, 50))
     await render()
     await vi.advanceTimersByTimeAsync(15_000)
-    expect(fetch).toHaveBeenLastCalledWith(calendarEventsUrl('2026-10-10', '2026-10-10'), {
+    expect(fetch).toHaveBeenLastCalledWith(calendarEventsUrl('2026-10-03', '2026-10-10'), {
       headers: { Authorization: 'test' },
     })
     wrapper.unmount()

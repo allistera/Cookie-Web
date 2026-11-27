@@ -822,7 +822,7 @@ describe("Today's Events card", () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url) => {
-        if (url === calendarEventsUrl(TODAY, TODAY))
+        if (url === calendarEventsUrl('2026-10-27', TODAY))
           return { ok: true, json: async () => ({ events }) }
         if (url === CALENDARS_ENDPOINT) return { ok: true, json: async () => ({ calendars }) }
         return { ok: true, json: async () => ({}) }
@@ -894,6 +894,24 @@ describe("Today's Events card", () => {
     // The to-dos keep their own card and counter.
     expect(rowsOf(wrapper)).toHaveLength(1)
     expect(wrapper.get('.ai-greeting').text()).toContain('1 to-dos')
+  })
+
+  it('lists the part of an event that started on an earlier day', async () => {
+    respond([
+      event('trip', 'Trip', '00:00', { date: '2026-10-31', duration: 6 * 1440 }),
+      event('night', 'Night shift', '22:00', { date: '2026-11-02', duration: 10 * 60 }),
+      event('past', 'Past trip', '00:00', { date: '2026-10-28', duration: 2 * 1440 }),
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    const rows = wrapper.get('[data-testid="event-rows"]').findAll('.todo-row')
+    expect(rows.map((row) => row.get('strong').text())).toEqual(['Trip', 'Night shift'])
+    expect(rows.map((row) => row.get('.event-time').text())).toEqual(['All day', '00:00 – 08:00'])
+    expect(rows[1].classes()).toContain('event-row-past')
+    expect(rows[1].get('a.action-pill-btn').attributes('href')).toBe(
+      '/calendar?date=2026-11-02&event=night',
+    )
   })
 
   it('shows no card without events and never asks for the calendar list', async () => {
