@@ -4,7 +4,8 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import ShareAvailability from '../ShareAvailability.vue'
 import { useInboxStore } from '../../stores/inbox'
-import { resetCalendarsStateForTests, setCalendarsOwner } from '../../composables/useCalendars'
+import { setCalendarsOwner } from '../../composables/calendarOwner'
+import { resetCalendarsStateForTests } from '../../composables/useCalendars'
 
 const calendar = { id: '11111111-1111-1111-1111-111111111111', name: 'Work' }
 let wrapper

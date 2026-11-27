@@ -98,7 +98,7 @@ function tracks(element, urls) {
   return remote.length > 0 && (isPixelSized(element) || remote.some(isTrackerUrl))
 }
 
-export function isTrackingImage(img) {
+function isTrackingImage(img) {
   return tracks(img, [img.getAttribute('src') ?? '', ...srcsetUrls(img.getAttribute('srcset'))])
 }
 

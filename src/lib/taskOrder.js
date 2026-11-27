@@ -35,7 +35,7 @@ export function orderAfterDrop(ids, draggedId, targetId, place) {
 
 // Today's order: due date, then the day's own arrangement (rows never
 // arranged there come after those that were), then position.
-export function compareByDueThenPosition(a, b) {
+function compareByDueThenPosition(a, b) {
   if (!a.dueDate !== !b.dueDate) return a.dueDate ? -1 : 1
   const byDue = String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''))
   if (byDue) return byDue
@@ -66,7 +66,7 @@ export function sortForList(items, loadedProject) {
 
 // How far apart two rows that shared a position are pushed; the same step
 // the server uses.
-export const POSITION_TIE_STEP = 0.001
+const POSITION_TIE_STEP = 0.001
 
 // The positions `ids` carry after a reorder, keyed by id: the values those
 // rows hold now, sorted, any ties pushed apart, dealt out in the new order —

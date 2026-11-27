@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 import BucketPanel from '../BucketPanel.vue'
-import { bucketStorageKey } from '../../lib/bucketItems'
+import { bucketStorageKey } from '../../lib/bucketStorage'
 import { useBucketsStore } from '../../stores/buckets'
 import { useInboxStore } from '../../stores/inbox'
 

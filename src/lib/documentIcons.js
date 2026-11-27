@@ -8,7 +8,7 @@
 // underscores as spaces doubles as the accessible label and is always
 // searchable.
 
-export const DOCUMENT_ICON_PREFIX = 'ms:'
+const DOCUMENT_ICON_PREFIX = 'ms:'
 // Mirrors the Worker's validation (cookie-web-tasks cleanEmoji).
 const ICON_NAME_PATTERN = /^[a-z0-9_]{1,64}$/
 

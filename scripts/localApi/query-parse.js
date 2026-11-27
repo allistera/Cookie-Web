@@ -20,7 +20,7 @@ const OPERATOR_RE = /(from|sender|to|tag|has|before|after|in):("[^"]*"|\S+)/gi
 // there is no alphanumeric word to match. Words are reduced to letters/digits,
 // so the `:*` we append is the only tsquery operator — the value is safe to
 // hand to to_tsquery without injection risk.
-export function buildPrefixQuery(text) {
+function buildPrefixQuery(text) {
   const words = text.match(/[\p{L}\p{N}]+/gu)
   if (!words || words.length === 0) return null
   return words.map((w, i) => (i === words.length - 1 ? `${w}:*` : w)).join(' & ')

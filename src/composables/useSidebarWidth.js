@@ -9,7 +9,7 @@ export const SIDEBAR_MAX_WIDTH = 480
 // null until the user resizes, so each sidebar keeps its own default width.
 const width = ref(null)
 
-export function clampSidebarWidth(value) {
+function clampSidebarWidth(value) {
   return Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value)))
 }
 

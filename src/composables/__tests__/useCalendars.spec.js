@@ -12,7 +12,8 @@ describe('useCalendars', () => {
   // tests so they don't leak into each other.
   beforeEach(async () => {
     vi.resetModules()
-    ;({ CALENDARS_ENDPOINT, useCalendars, setCalendarsOwner } = await import('../useCalendars'))
+    ;({ CALENDARS_ENDPOINT, useCalendars } = await import('../useCalendars'))
+    ;({ setCalendarsOwner } = await import('../calendarOwner'))
     authHeaders = vi.fn().mockResolvedValue({})
     notify = vi.fn()
   })

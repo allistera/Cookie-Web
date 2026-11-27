@@ -10,7 +10,7 @@ import { useTaskLabelsStore } from './taskLabels'
 
 const ENDPOINT = `${TASKS_API_URL}/tasks/todoist`
 
-export const emptyTodoistSettings = () => ({
+const emptyTodoistSettings = () => ({
   configured: false,
   connected: false,
   enabled: false,

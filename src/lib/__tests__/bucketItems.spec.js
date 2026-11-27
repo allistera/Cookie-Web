@@ -1,21 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  BUCKET_DEFAULT_ICON,
   bucketExpiryLabel,
-  bucketItemKey,
   bucketItemRoute,
   bucketItemSubtitle,
-  bucketStorageKey,
   documentBucketItem,
   emailBucketItem,
   eventBucketItem,
+  taskBucketItem,
+} from '../bucketItems'
+import {
+  BUCKET_DEFAULT_ICON,
+  bucketItemKey,
+  bucketStorageKey,
   parseBucket,
   readBucket,
   removeBucket,
-  taskBucketItem,
   writeBucket,
-} from '../bucketItems'
+} from '../bucketStorage'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR

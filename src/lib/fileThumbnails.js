@@ -7,7 +7,7 @@
 
 import { isPreviewable } from './documentFiles'
 
-export const MAX_CACHED_THUMBNAILS = 40
+const MAX_CACHED_THUMBNAILS = 40
 
 // Only the sniffed image types: the Worker serves nothing else inline, and
 // the browser should not render a file the server would not.

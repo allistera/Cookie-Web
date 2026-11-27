@@ -9,7 +9,7 @@ import { SEARCH_API_URL } from './apiWorkers'
 // the search tool calls and results Meilisearch hands back to be replayed
 // (two or more per search). Thirty keeps several turns of context without
 // the request growing without bound; the Worker refuses more than forty.
-export const MAX_CONVERSATION_MESSAGES = 30
+const MAX_CONVERSATION_MESSAGES = 30
 
 // Drops the oldest messages until the conversation fits, then keeps dropping
 // until it opens with one of the person's questions: a tool result whose

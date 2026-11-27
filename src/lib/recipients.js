@@ -12,7 +12,7 @@ export function parseRecipients(value) {
 
 // Mirrors the send Worker's MAX_OUTBOUND_RECIPIENTS so an over-long list disables
 // Send immediately instead of failing after the undo countdown.
-export const MAX_RECIPIENTS = 20
+const MAX_RECIPIENTS = 20
 
 // True when there are 1–20 recipients and every one looks like an address.
 export function recipientsValid(value) {

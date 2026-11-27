@@ -57,7 +57,7 @@ export function parseCalendarInvitation(payload) {
   }
 }
 
-export function invitationOrganizer(invitation) {
+function invitationOrganizer(invitation) {
   return invitation.organizerName || invitation.organizerAddress
 }
 
