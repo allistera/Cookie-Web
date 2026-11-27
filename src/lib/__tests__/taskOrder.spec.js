@@ -5,7 +5,6 @@ import {
   compareByPosition,
   dealPositions,
   orderAfterDrop,
-  sortByPosition,
   sortForList,
 } from '../taskOrder'
 
@@ -38,16 +37,15 @@ describe('a saved filter list', () => {
   })
 })
 
-describe('sortByPosition', () => {
-  it('orders by position, then creation time, then id, without mutating', () => {
+describe('compareByPosition', () => {
+  it('orders by position, then creation time, then id', () => {
     const items = [
       { id: 'c', position: 2, createdAt: '2026-01-01' },
       { id: 'b', position: 1, createdAt: '2026-01-02' },
       { id: 'a', position: 1, createdAt: '2026-01-01' },
       { id: 'd', position: 1, createdAt: '2026-01-01' },
     ]
-    expect(sortByPosition(items).map((row) => row.id)).toEqual(['a', 'd', 'b', 'c'])
-    expect(items.map((row) => row.id)).toEqual(['c', 'b', 'a', 'd'])
+    expect(items.sort(compareByPosition).map((row) => row.id)).toEqual(['a', 'd', 'b', 'c'])
   })
 
   it('treats a missing position as zero', () => {

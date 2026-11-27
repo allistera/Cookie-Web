@@ -22,10 +22,6 @@ export function compareByPosition(a, b) {
   return String(a.id).localeCompare(String(b.id))
 }
 
-export function sortByPosition(items) {
-  return [...items].sort(compareByPosition)
-}
-
 // The ids in their new order after `draggedId` is dropped `place` ('before'
 // or 'after') the `targetId` row. Null when the target is not in the list.
 export function orderAfterDrop(ids, draggedId, targetId, place) {
