@@ -3,7 +3,7 @@
 // a colour of its own. The server (cookie-web-tasks) enforces the same 1..4
 // range and default; this is the one place the UI names the levels.
 
-export const DEFAULT_PRIORITY = 4
+const DEFAULT_PRIORITY = 4
 
 export const PRIORITIES = [
   { value: 1, label: 'Priority 1', short: 'P1', color: '#d1453b' },

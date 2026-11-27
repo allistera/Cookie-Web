@@ -1,7 +1,7 @@
 // The Feed lists the newsletters received today, whether or not they have
 // been marked done. Membership is the Newsletters label, so the list is that
 // label's folder (which spans Done) narrowed to today's mail.
-export const FEED_LABEL = 'Newsletters'
+const FEED_LABEL = 'Newsletters'
 
 export const FEED_ROUTE = {
   path: '/inbox',

@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 // actions - exported so this stays the single source of truth for the path.
 import { CALENDAR_API_URL } from '../lib/apiWorkers'
 import { createSharedLoad } from '../lib/sharedLoad'
-import { calendarOwnerSession, registerCalendarReset, setCalendarsOwner } from './calendarOwner'
+import { calendarOwnerSession, registerCalendarReset } from './calendarOwner'
 
 export const CALENDARS_ENDPOINT = `${CALENDAR_API_URL}/calendars`
 export const CALENDAR_EVENTS_ENDPOINT = `${CALENDAR_API_URL}/calendar-events`
@@ -54,7 +54,7 @@ const calendarLoads = createSharedLoad()
 const LOADS = {}
 const generation = ref(0)
 
-export { calendarOwnerSession, setCalendarsOwner }
+export { calendarOwnerSession }
 
 export const calendarSession = () => generation.value
 export const isCalendarSessionCurrent = (session) => session === generation.value

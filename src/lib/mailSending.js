@@ -49,7 +49,7 @@ async function replyQuoteFor(store, replyToMessageId) {
   })
 }
 
-export async function prepareMailSend(store, draft) {
+async function prepareMailSend(store, draft) {
   const assertAccount = accountGuard(store, draft)
   assertAccount()
   // Recovery metadata stays in this browser. Only the API contract enters

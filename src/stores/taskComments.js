@@ -28,7 +28,7 @@ function newThread() {
 // The thread's order is the server's: by time, then id. Every merge sorts,
 // so an entry added while a page was in flight, or ahead of a later page,
 // sits where its stamp puts it rather than where it happened to arrive.
-export function sortComments(comments) {
+function sortComments(comments) {
   return [...comments].sort(
     (a, b) =>
       String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')) ||

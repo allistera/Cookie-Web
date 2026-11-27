@@ -1,7 +1,5 @@
 import { SEND_API_URL } from './apiWorkers'
-import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from './attachmentLimits'
-
-export { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS }
+import { MAX_ATTACHMENT_BYTES } from './attachmentLimits'
 
 // The same route the iOS composer posts to, so both clients share one upload
 // contract, rate limit and ownership rule on the send Worker.

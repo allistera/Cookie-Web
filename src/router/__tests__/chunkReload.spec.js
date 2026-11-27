@@ -3,13 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
-import { RELOAD_KEY } from '../../lib/staleChunkReload'
-import {
-  installRouterChunkReload,
-  isChunkLoadError,
-  lazyComponent,
-  reloadForStaleChunk,
-} from '../chunkReload'
+import { isChunkLoadError, RELOAD_KEY } from '../../lib/staleChunkReload'
+import { installRouterChunkReload, lazyComponent, reloadForStaleChunk } from '../chunkReload'
 
 function makeStorage(initial = {}) {
   const data = { ...initial }

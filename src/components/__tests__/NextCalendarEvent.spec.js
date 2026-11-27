@@ -4,7 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import NextCalendarEvent from '../NextCalendarEvent.vue'
 import { useInboxStore } from '../../stores/inbox'
-import { calendarEventsUrl, setCalendarsOwner } from '../../composables/useCalendars'
+import { setCalendarsOwner } from '../../composables/calendarOwner'
+import { calendarEventsUrl } from '../../composables/useCalendars'
 
 const event = (title, start, extra = {}) => ({
   id: title,

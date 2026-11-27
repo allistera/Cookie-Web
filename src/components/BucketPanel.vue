@@ -5,10 +5,10 @@ import {
   BUCKET_TTL_CHOICES,
   bucketExpiryLabel,
   bucketItemIcon,
-  bucketItemKey,
   bucketItemRoute,
   bucketItemSubtitle,
 } from '../lib/bucketItems'
+import { bucketItemKey } from '../lib/bucketStorage'
 import { useBucketsStore } from '../stores/buckets'
 import { useInboxStore } from '../stores/inbox'
 

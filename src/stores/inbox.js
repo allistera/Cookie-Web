@@ -224,7 +224,7 @@ function inboxFetchSeq() {
  * cleared. Entries settled before the fetch that the page no longer lists are
  * confirmed gone and cleared too, keeping the log bounded.
  */
-export function dropPendingRemovals(rows, fetchSeq) {
+function dropPendingRemovals(rows, fetchSeq) {
   const kept = rows.filter((row) => {
     const entry = inboxRemovals.get(row.id)
     if (!entry) return true
@@ -401,7 +401,7 @@ const DONE_PAGE_SIZE = 100
 
 // Local calendar day of a timestamp. Done-page trimming and the view's day
 // groups must agree on this definition of "day".
-export function localDayKey(sentAt) {
+function localDayKey(sentAt) {
   const date = new Date(sentAt)
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
 }

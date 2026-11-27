@@ -45,7 +45,7 @@ export const TASK_PATCH = 'task-patch'
 // offline overlay. A saved filter's rules live in the filters store, so
 // here a filter list keeps every row; belongsToLoadedList, which can reach
 // the store, is the one that applies them.
-export function belongsToList(item, project, items, today = localToday()) {
+function belongsToList(item, project, items, today = localToday()) {
   if (project === null) return false
   if (item.parentId) return items.some((row) => row.id === item.parentId)
   if (isFilterProject(project)) return true

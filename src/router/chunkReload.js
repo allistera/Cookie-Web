@@ -15,8 +15,6 @@ import {
   recordStaleChunkReload,
 } from '../lib/staleChunkReload'
 
-export { isChunkLoadError }
-
 // Reloads to `href` unless a stale-chunk reload already happened within the
 // cooldown. Returns whether it reloaded.
 export function reloadForStaleChunk(

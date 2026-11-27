@@ -1,7 +1,11 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { BUCKET_DEFAULT_ICON, BUCKET_DEFAULT_TTL_MS, bucketStorageKey } from '../../lib/bucketItems'
+import {
+  BUCKET_DEFAULT_ICON,
+  BUCKET_DEFAULT_TTL_MS,
+  bucketStorageKey,
+} from '../../lib/bucketStorage'
 import { useBucketsStore } from '../buckets'
 
 const DAY = 24 * 60 * 60 * 1000

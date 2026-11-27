@@ -4,7 +4,7 @@ export function bucketStorageKey(owner) {
   return `${STORAGE_PREFIX}${owner}`
 }
 
-export const BUCKET_KINDS = ['email', 'document', 'task', 'event']
+const BUCKET_KINDS = ['email', 'document', 'task', 'event']
 
 export const BUCKET_DEFAULT_ICON = 'ms:work'
 

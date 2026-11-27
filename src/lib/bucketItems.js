@@ -8,29 +8,6 @@
 // unless the panel's "Clears in" control says otherwise.
 
 import { isSomeday } from './taskSomeday.js'
-import {
-  BUCKET_DEFAULT_ICON,
-  BUCKET_DEFAULT_TTL_MS,
-  BUCKET_KINDS,
-  bucketItemKey,
-  bucketStorageKey,
-  parseBucket,
-  readBucket,
-  removeBucket,
-  writeBucket,
-} from './bucketStorage.js'
-
-export {
-  BUCKET_DEFAULT_ICON,
-  BUCKET_DEFAULT_TTL_MS,
-  BUCKET_KINDS,
-  bucketItemKey,
-  bucketStorageKey,
-  parseBucket,
-  readBucket,
-  removeBucket,
-  writeBucket,
-}
 
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarFeeds from '../CalendarFeeds.vue'
 import { useInboxStore } from '../../stores/inbox'
-import { setCalendarsOwner } from '../../composables/useCalendars'
+import { setCalendarsOwner } from '../../composables/calendarOwner'
 import { CALENDAR_API_URL } from '../../lib/apiWorkers'
 
 const calendars = [{ id: 'work', name: 'Work', color: '#4f7c6b' }]

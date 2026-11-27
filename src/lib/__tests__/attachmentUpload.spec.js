@@ -1,12 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { SEND_API_URL } from '../apiWorkers'
-import {
-  ATTACHMENTS_URL,
-  attachmentSizeError,
-  MAX_ATTACHMENT_BYTES,
-  uploadAttachment,
-} from '../attachmentUpload'
+import { MAX_ATTACHMENT_BYTES } from '../attachmentLimits'
+import { ATTACHMENTS_URL, attachmentSizeError, uploadAttachment } from '../attachmentUpload'
 
 function fakeFile(name, size, type = 'application/pdf') {
   return { name, size, type }
