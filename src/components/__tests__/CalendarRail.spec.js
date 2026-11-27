@@ -61,9 +61,10 @@ const EVENTS = {
   ],
 }
 
-// The day's events window, from the day before for an event that runs past
-// midnight; the API returns the events that start inside it.
-const eventsUrl = (day) => calendarEventsUrl(addDays(day, -1), day)
+// The day's events window, from a week before for an event that runs past
+// midnight or over several days; the API returns the events that start inside
+// it.
+const eventsUrl = (day) => calendarEventsUrl(addDays(day, -7), day)
 const eventsStartingIn = (from, to) =>
   Object.values(EVENTS)
     .flat()
@@ -105,7 +106,7 @@ function mockApi() {
         if (url === eventsUrl(day)) {
           return {
             ok: true,
-            json: async () => ({ events: eventsStartingIn(addDays(day, -1), day) }),
+            json: async () => ({ events: eventsStartingIn(addDays(day, -7), day) }),
           }
         }
       }

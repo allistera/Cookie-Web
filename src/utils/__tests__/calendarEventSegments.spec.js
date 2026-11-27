@@ -4,11 +4,21 @@ import { eventDaySegments, isContinuationSegment } from '../calendarEventSegment
 const event = (fields) => ({ id: 'e', title: 'Event', date: '2026-07-24', ...fields })
 
 describe('eventDaySegments', () => {
-  it('leaves an event that ends by midnight, and an all-day one, whole', () => {
+  it('leaves an event that ends by midnight, and a one-day all-day one, whole', () => {
     const evening = event({ start: '21:00', duration: 180 })
-    const holiday = event({ start: '00:00', duration: 2880, allDay: true })
+    const holiday = event({ start: '00:00', duration: 1440, allDay: true })
     expect(eventDaySegments(evening)).toEqual([evening])
     expect(eventDaySegments(holiday)).toEqual([holiday])
+  })
+
+  it('gives a multi-day all-day event a whole-day piece on each day', () => {
+    const trip = event({ start: '00:00', duration: 2880, allDay: true })
+    const segments = eventDaySegments(trip)
+    expect(segments.map(({ id, date, allDay, duration }) => [id, date, allDay, duration])).toEqual([
+      ['e', '2026-07-24', true, 1440],
+      ['e:2026-07-25', '2026-07-25', true, 1440],
+    ])
+    expect(segments[1].segmentOf).toBe(trip)
   })
 
   it('splits an overnight event at midnight', () => {
