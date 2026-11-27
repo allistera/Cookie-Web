@@ -841,6 +841,7 @@ describe('Inbox Store', () => {
         recipients: { to: [], cc: [] },
         subject: 'Revised Floor Plan',
         snippet: 'Hi Allister, following up...',
+        preview: 'Hi Allister, following up...',
         body: undefined,
         sentAt: sentAt.toISOString(),
         date: '10:04 am',
