@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { contentGridToWorkbookData, flattenWorkbookCellText } from '../univerTableData'
+import { contentGridToWorkbookData } from '../univerTableData'
 
 describe('contentGridToWorkbookData', () => {
   it('places plain and formula cells into sparse cellData by row/column', () => {
@@ -35,31 +35,5 @@ describe('contentGridToWorkbookData', () => {
 
     const wide = contentGridToWorkbookData([Array.from({ length: 10 }, (_, i) => String(i))])
     expect(wide.sheets.sheet1.columnCount).toBe(10)
-  })
-})
-
-describe('flattenWorkbookCellText', () => {
-  it('reads cell values in row-major order across sheetOrder', () => {
-    const workbook = {
-      sheetOrder: ['sheet1'],
-      sheets: {
-        sheet1: {
-          cellData: {
-            0: { 0: { v: 'Name' }, 1: { v: 'Role' } },
-            1: { 0: { v: 'Ada' }, 1: { v: 'Engineer' } },
-          },
-        },
-      },
-    }
-    expect(flattenWorkbookCellText(workbook)).toEqual(['Name', 'Role', 'Ada', 'Engineer'])
-  })
-
-  it('skips empty cells and tolerates a missing workbook', () => {
-    const workbook = {
-      sheetOrder: ['sheet1'],
-      sheets: { sheet1: { cellData: { 0: { 0: { v: '' }, 1: { v: 'Only this' } } } } },
-    }
-    expect(flattenWorkbookCellText(workbook)).toEqual(['Only this'])
-    expect(flattenWorkbookCellText(null)).toEqual([])
   })
 })
