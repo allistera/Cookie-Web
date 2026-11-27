@@ -20,8 +20,8 @@
 <text x="117.0" y="174.0" font-size="16" fill="#273153">Vue 3 browser app</text>
 <text x="117.0" y="194.0" font-size="16" fill="#273153">Static build on Vercel</text>
 <rect x="270" y="152" width="238" height="52" rx="8" fill="#414e86" stroke="#aeb8d1"/>
-<text x="389.0" y="174.0" font-size="16" fill="white">Auth0-protected Workers</text>
-<text x="389.0" y="194.0" font-size="16" fill="white">and /api/send on Vercel</text>
+<text x="389.0" y="174.0" font-size="16" fill="white">Auth0-protected</text>
+<text x="389.0" y="194.0" font-size="16" fill="white">Cloudflare Workers</text>
 <path d="M117 259V207" stroke="#65769a" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
 <rect x="16" y="260" width="498" height="52" rx="8" fill="white" stroke="#aeb8d1"/>
 <text x="265.0" y="282.0" font-size="16" fill="#273153">Supabase Realtime • private channel</text>

@@ -15,7 +15,7 @@ it('reuses the identity after an uncertain failure, then permits an intentional 
     text: 'Same content',
     attachments: [{ id: 'attachment-id', filename: 'notes.pdf' }],
   }
-  await expect(sendMail.call(store, message)).rejects.toThrow('Network lost')
+  await expect(sendMail.call(store, message)).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
   await sendMail.call(store, message)
   await sendMail.call(store, message)
   const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body))
@@ -111,7 +111,7 @@ it('persists a frozen request before dispatch and reuses it after a reload', asy
     text: 'Reply',
     replyToMessageId: REPLY_TO,
   }
-  await expect(sendMail.call(store, draft)).rejects.toThrow('Network lost')
+  await expect(sendMail.call(store, draft)).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
   const firstBody = fetchMock.mock.calls[0][1].body
   const reloadedStore = {
     ...store,
@@ -130,7 +130,7 @@ it('does not mint a new request when an unresolved recovered draft has been edit
   vi.stubGlobal('fetch', fetchMock)
   const store = { authHeaders: async () => ({}) }
   const draft = { to: 'a@example.com', subject: 'Hi', text: 'First' }
-  await expect(sendMail.call(store, draft)).rejects.toThrow('Network lost')
+  await expect(sendMail.call(store, draft)).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
   draft.text = 'Changed'
   await expect(sendMail.call(store, draft)).rejects.toMatchObject({ code: 'DELIVERY_CONFLICT' })
   expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -182,9 +182,9 @@ it('scopes ownerless retry caches to the account and abandons quotes loaded acro
   vi.stubGlobal('fetch', fetchMock)
   const store = { authHeaders: async () => ({}), composeOwnerSub: 'first' }
   const message = { to: 'a@example.com', subject: 'Hi', text: 'Body' }
-  await expect(sendMail.call(store, { ...message })).rejects.toThrow('Network lost')
+  await expect(sendMail.call(store, { ...message })).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
   store.composeOwnerSub = 'second'
-  await expect(sendMail.call(store, { ...message })).rejects.toThrow('Network lost')
+  await expect(sendMail.call(store, { ...message })).rejects.toMatchObject({ code: 'DELIVERY_PENDING' })
   const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body))
   expect(bodies[0].requestId).not.toBe(bodies[1].requestId)
 

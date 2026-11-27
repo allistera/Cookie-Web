@@ -1,5 +1,4 @@
 import healthHandler from '../../api/health.js'
-import process from 'node:process'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { URL } from 'node:url'
@@ -36,10 +35,9 @@ function cleanTaskText(value, max) {
   return text || null
 }
 
-// Serves /api/emails locally, where Vercel's serverless functions don't run.
-// E2E mode (and dev without DATABASE_URL) answers from fixtures; otherwise the
-// real Vercel handler runs against Postgres.
-export function localApiPlugin(mode) {
+// Serves the local fixture API and the /__e2e__/* Worker fixtures, answered
+// from per-session fixture state.
+export function localApiPlugin() {
   const fixtureThreadId = (messageId) =>
     String(messageId ?? '').startsWith('fixture-1')
       ? 'fixture-thread-1'
@@ -433,116 +431,96 @@ export function localApiPlugin(mode) {
     req.url = `/emails${resource === 'state' ? '/state' : ''}${url.search}`
     return handleWorkerEmailsApi(req, res)
   }
-  // Mirrors api/send.js's three concerns: an immediate send (default),
-  // resource=scheduled (list/cancel a "Send Later" queue), and resource=flush
-  // (what the Cookie-Worker cron calls) — all against the per-session
-  // fixture state instead of Postgres/Resend.
-  const handleSend = async (req, res) => {
-    if (mode === 'e2e' || !process.env.DATABASE_URL) {
-      const resource = new URL(req.url, 'http://localhost').searchParams.get('resource')
-      const state = fixtureMailboxState(req, res)
-      res.setHeader('Content-Type', 'application/json')
+  // cookie-web-send's mail routes: POST /send (send now or later),
+  // GET/DELETE /send/scheduled (the "Send Later" queue) and PATCH
+  // /send/follow-up, all against the per-session fixture state.
+  const handleSend = async (req, res, resource) => {
+    const state = fixtureMailboxState(req, res)
+    res.setHeader('Content-Type', 'application/json')
 
-      if (resource === 'scheduled') {
-        if (req.method === 'GET') {
-          res.end(
-            JSON.stringify({
-              scheduledSends: state.scheduledSends.filter((item) => item.status === 'pending'),
-            }),
-          )
-          return
-        }
-        if (req.method === 'DELETE') {
-          let raw = ''
-          for await (const chunk of req) raw += chunk
-          const body = JSON.parse(raw || '{}')
-          const index = state.scheduledSends.findIndex(
-            (item) => item.id === body.id && item.status === 'pending',
-          )
-          if (index === -1) {
-            res.statusCode = 404
-            res.end(JSON.stringify({ error: 'Scheduled send not found or already sent' }))
-            return
-          }
-          const [scheduledSend] = state.scheduledSends.splice(index, 1)
-          res.end(JSON.stringify({ scheduledSend }))
-          return
-        }
-        res.statusCode = 405
-        res.end(JSON.stringify({ error: 'Method not allowed' }))
-        return
-      }
-
-      if (resource === 'flush') {
-        const now = Date.now()
-        let sent = 0
-        for (const item of state.scheduledSends) {
-          if (item.status === 'pending' && Date.parse(item.scheduledFor) <= now) {
-            item.status = 'sent'
-            sent += 1
-          }
-        }
-        res.end(JSON.stringify({ claimed: sent, sent, retried: 0, failed: 0 }))
-        return
-      }
-
-      let raw = ''
-      for await (const chunk of req) raw += chunk
-      const body = JSON.parse(raw || '{}')
-      if (resource === 'follow-up') {
-        if (req.method !== 'PATCH') {
-          res.statusCode = 405
-          res.end(JSON.stringify({ error: 'Method not allowed' }))
-          return
-        }
-        const exists = (await import('./fixtures/emails.js'))
-          .fixtureSentEmails()
-          .some((email) => email.id === body.messageId)
-        if (!exists) {
-          res.statusCode = 404
-          res.end(JSON.stringify({ error: 'Sent message not found' }))
-          return
-        }
-        if (body.followUpAt === null) state.followUps.delete(body.messageId)
-        else state.followUps.set(body.messageId, body.followUpAt)
+    if (resource === 'scheduled') {
+      if (req.method === 'GET') {
         res.end(
           JSON.stringify({
-            message: { id: body.messageId, followUpAt: body.followUpAt },
+            scheduledSends: state.scheduledSends.filter((item) => item.status === 'pending'),
           }),
         )
         return
       }
-      if (body.sendAt) {
-        const scheduledSend = {
-          id: `stub-scheduled-${randomUUID()}`,
-          toAddresses: body.to,
-          ccAddresses: body.cc ?? '',
-          bccAddresses: body.bcc ?? '',
-          subject: body.subject,
-          text: body.text,
-          html: body.html ?? null,
-          replyToMessageId: body.replyToMessageId ?? null,
-          scheduledFor: body.sendAt,
-          followUpAt: body.followUpAt ?? null,
-          status: 'pending',
+      if (req.method === 'DELETE') {
+        let raw = ''
+        for await (const chunk of req) raw += chunk
+        const body = JSON.parse(raw || '{}')
+        const index = state.scheduledSends.findIndex(
+          (item) => item.id === body.id && item.status === 'pending',
+        )
+        if (index === -1) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'Scheduled send not found or already sent' }))
+          return
         }
-        state.scheduledSends.push(scheduledSend)
-        res.statusCode = 201
+        const [scheduledSend] = state.scheduledSends.splice(index, 1)
         res.end(JSON.stringify({ scheduledSend }))
         return
       }
+      res.statusCode = 405
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
 
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}')
+    if (resource === 'follow-up') {
+      if (req.method !== 'PATCH') {
+        res.statusCode = 405
+        res.end(JSON.stringify({ error: 'Method not allowed' }))
+        return
+      }
+      const exists = (await import('./fixtures/emails.js'))
+        .fixtureSentEmails()
+        .some((email) => email.id === body.messageId)
+      if (!exists) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: 'Sent message not found' }))
+        return
+      }
+      if (body.followUpAt === null) state.followUps.delete(body.messageId)
+      else state.followUps.set(body.messageId, body.followUpAt)
       res.end(
         JSON.stringify({
-          id: 'e2e-fixture',
-          messageId: `stub-sent-${randomUUID()}`,
-          followUpScheduled: body.followUpAt ? true : undefined,
+          message: { id: body.messageId, followUpAt: body.followUpAt },
         }),
       )
       return
     }
-    const { default: handler } = await import('../../api/send.js')
-    await handler(req, res)
+    if (body.sendAt) {
+      const scheduledSend = {
+        id: `stub-scheduled-${randomUUID()}`,
+        toAddresses: body.to,
+        ccAddresses: body.cc ?? '',
+        bccAddresses: body.bcc ?? '',
+        subject: body.subject,
+        text: body.text,
+        html: body.html ?? null,
+        replyToMessageId: body.replyToMessageId ?? null,
+        scheduledFor: body.sendAt,
+        followUpAt: body.followUpAt ?? null,
+        status: 'pending',
+      }
+      state.scheduledSends.push(scheduledSend)
+      res.statusCode = 201
+      res.end(JSON.stringify({ scheduledSend }))
+      return
+    }
+
+    res.end(
+      JSON.stringify({
+        id: 'e2e-fixture',
+        messageId: `stub-sent-${randomUUID()}`,
+        followUpScheduled: body.followUpAt ? true : undefined,
+      }),
+    )
   }
   // cookie-web-receipts: /read-receipts (?token= pixel | ?messageIds= status).
   // Fixture-only, like the other migrated Workers — the real handler lives in
@@ -3255,12 +3233,17 @@ export function localApiPlugin(mode) {
     return json(res, { error: 'Method not allowed' }, 405)
   }
 
-  // cookie-web-send: /send/invitation-reply, the one send route the browser
-  // calls on the Worker's own origin with no proxy in front (sending itself
-  // goes through /api/send above). Mirrors invitationReply.js: one calendar
-  // entry per invitation, replaced on every answer and removed by a decline.
+  // cookie-web-send. /send/invitation-reply mirrors invitationReply.js: one
+  // calendar entry per invitation, replaced on every answer and removed by a
+  // decline.
   const handleWorkerSendApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
+    const mailRoute = {
+      '/send': 'send',
+      '/send/scheduled': 'scheduled',
+      '/send/follow-up': 'follow-up',
+    }[url.pathname]
+    if (mailRoute) return handleSend(req, res, mailRoute)
     // One-use code an MCP agent passes with cookie_send_email (Settings ->
     // MCP clients -> Connected agents). Valid for ten minutes on the Worker.
     if (url.pathname === '/send/confirmation') {
@@ -3327,7 +3310,6 @@ export function localApiPlugin(mode) {
     server.middlewares.use('/api/read-receipts', handleReadReceipts)
     server.middlewares.use('/api/calendar-events', handleCalendarEvents)
     server.middlewares.use('/api/emails', handleEmails)
-    server.middlewares.use('/api/send', handleSend)
     server.middlewares.use('/api/search', handleSearch)
     server.middlewares.use('/api/ask', handleAsk)
     server.middlewares.use('/api/compose', handleCompose)

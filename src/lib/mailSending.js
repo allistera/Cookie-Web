@@ -1,11 +1,14 @@
 import { toRaw } from 'vue'
 
+import { SEND_API_URL } from './apiWorkers'
 import { buildReplyQuote } from './forwardEmail'
 import { parseRecipients } from './recipients'
 
 // A failed send keeps its request identity so Retry is safe after an uncertain
 // network outcome. A confirmed send releases it, allowing intentional repeats.
 const requestIds = new WeakMap()
+// How long a send waits for the Worker before treating delivery as pending.
+const SEND_TIMEOUT_MS = 25_000
 
 function accountGuard(store, draft) {
   const owner = store.composeOwnerSub
@@ -146,11 +149,24 @@ export async function sendMail(draft) {
     throw error
   }
   assertOwner()
-  const response = await fetch('/api/send', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ...identity.outgoing, requestId: identity.requestId }),
-  })
+  let response
+  try {
+    response = await fetch(`${SEND_API_URL}/send`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...identity.outgoing, requestId: identity.requestId }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    })
+  } catch {
+    // No answer, so the mail may or may not have gone. The identity is kept
+    // and a retry of the unchanged message asks the Worker again.
+    const error = new Error(
+      'Delivery confirmation is unavailable. Retry the same unchanged message.',
+    )
+    error.code = 'DELIVERY_PENDING'
+    throw error
+  }
   if (!response.ok) {
     const result = await response.json().catch(() => ({}))
     // Deterministic 4xx rejections (excluding delivery uncertainty codes) mean
@@ -167,7 +183,7 @@ export async function sendMail(draft) {
       releaseIdentity(this, ownerSub, draft, identity)
     }
     assertOwner()
-    const error = new Error(result.error || `POST /api/send responded ${response.status}`)
+    const error = new Error(result.error || `POST /send responded ${response.status}`)
     error.code = result.code
     throw error
   }

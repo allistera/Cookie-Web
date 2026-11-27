@@ -3,8 +3,7 @@ import { ref } from 'vue'
 import { SEND_API_URL } from '../lib/apiWorkers'
 import { useInboxStore } from '../stores/inbox'
 
-// The send Worker mints the code itself, as it later consumes it, so the
-// browser calls it directly rather than through the /api/send proxy.
+// The send Worker mints the code itself, as it later consumes it.
 const CONFIRMATION_URL = `${SEND_API_URL}/send/confirmation`
 
 const store = useInboxStore()

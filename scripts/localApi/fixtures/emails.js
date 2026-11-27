@@ -248,7 +248,7 @@ const rows = [
 ]
 
 // Outbound copies in the same shape as GET /api/emails?folder=sent. The
-// recipients jsonb mirrors what api/send.js stores for real sent mail.
+// recipients jsonb mirrors what the send Worker stores for real sent mail.
 const sentRows = [
   {
     from_name: 'Allister',

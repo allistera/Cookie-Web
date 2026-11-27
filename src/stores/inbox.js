@@ -3101,7 +3101,7 @@ export const useInboxStore = defineStore('inbox', {
       const generation = this.composeGeneration
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       if (generation !== this.composeGeneration) return null
-      const response = await fetch('/api/send?resource=follow-up', {
+      const response = await fetch(`${SEND_API_URL}/send/follow-up`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ messageId: email.id, followUpAt }),
@@ -4873,7 +4873,7 @@ export const useInboxStore = defineStore('inbox', {
       try {
         const headers = await this.authHeaders()
         if (generation !== this.composeGeneration || seq !== scheduledSendsLoadSeq) return
-        const response = await fetch('/api/send?resource=scheduled', { headers })
+        const response = await fetch(`${SEND_API_URL}/send/scheduled`, { headers })
         if (!response.ok) throw new Error(`GET scheduled sends responded ${response.status}`)
         const { scheduledSends } = await response.json()
         if (generation !== this.composeGeneration || seq !== scheduledSendsLoadSeq) return
@@ -4903,7 +4903,7 @@ export const useInboxStore = defineStore('inbox', {
       if (!isCurrent()) return false
       const headers = await this.authHeaders({ 'Content-Type': 'application/json' })
       if (!isCurrent()) return false
-      const response = await fetch('/api/send?resource=scheduled', {
+      const response = await fetch(`${SEND_API_URL}/send/scheduled`, {
         method: 'DELETE',
         headers,
         body: JSON.stringify({ id: scheduledSend.id }),

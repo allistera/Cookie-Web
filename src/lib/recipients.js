@@ -10,7 +10,7 @@ export function parseRecipients(value) {
     .filter(Boolean)
 }
 
-// Mirrors api/send.js's MAX_OUTBOUND_RECIPIENTS so an over-long list disables
+// Mirrors the send Worker's MAX_OUTBOUND_RECIPIENTS so an over-long list disables
 // Send immediately instead of failing after the undo countdown.
 export const MAX_RECIPIENTS = 20
 

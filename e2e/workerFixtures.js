@@ -21,9 +21,8 @@ import {
 // production Worker and 401s — which is what broke 28 of the 64 specs.
 //
 // ORIGINS below routes ten of the twelve; notifications and mcp are not
-// routed, and of the send Worker's routes only the invitation reply has a
-// fixture (sending goes through the same-origin /api/send, attachment uploads
-// are stubbed by the specs that need them).
+// routed, and of the send Worker's routes, attachment uploads have no fixture
+// (the specs that need them stub them).
 // Each origin is routed back to the dev/preview server's own fixture handlers
 // (the /__e2e__/* mounts in scripts/localApi/plugin.js), preserving method, path, query and
 // body. Going through the server rather than answering in-process is
