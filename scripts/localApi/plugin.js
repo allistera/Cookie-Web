@@ -3258,8 +3258,8 @@ export function localApiPlugin() {
       '/send/follow-up': 'follow-up',
     }[url.pathname]
     if (mailRoute) return handleSend(req, res, mailRoute)
-    // One-use code an MCP agent passes with cookie_send_email (Settings ->
-    // MCP clients -> Connected agents). Valid for ten minutes on the Worker.
+    // One-use code an MCP agent passes with cookie_send_email (Automations ->
+    // Connections -> Send confirmations). Valid for ten minutes on the Worker.
     if (url.pathname === '/send/confirmation') {
       if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
       return json(res, {

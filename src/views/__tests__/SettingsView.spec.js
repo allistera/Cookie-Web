@@ -403,13 +403,12 @@ describe('SettingsView', () => {
     const wrapper = await openView()
 
     const navItems = wrapper.findAll('.settings-nav-item').map((n) => n.text())
-    expect(navItems).toHaveLength(19)
+    expect(navItems).toHaveLength(18)
     for (const [i, name] of [
       'Account',
       'Appearance',
       'Notifications',
       'Personalisation',
-      'MCP clients',
       'AI Today',
       'Signature',
       'Snippets',
@@ -442,30 +441,16 @@ describe('SettingsView', () => {
     expect(wrapper.find('.label-table').exists()).toBe(false)
   })
 
-  it('opens MCP setup instructions from settings navigation', async () => {
+  it('sends the old MCP clients address to Automations, Connections', async () => {
     const wrapper = await openView()
-    const link = wrapper
-      .findAll('.settings-nav-item')
-      .find((item) => item.text().includes('MCP clients'))
-    await link.trigger('click')
-    await vi.dynamicImportSettled()
-    await flushPromises()
+    const replace = vi.spyOn(router, 'replace')
 
-    expect(wrapper.get('.settings-page-header').text()).toBe('MCP clients')
-    const instructions = wrapper.get('.mcp-settings')
-    const commands = instructions.findAll('pre code').map((code) => code.text())
-    expect(commands).toContain(
-      'claude mcp add --transport http --scope user --client-id rTBvArPhtT8s9dGwT8mODMphNrngYlHb --callback-port 8765 cookie https://mcp.infinitywave.online/mcp',
-    )
-    expect(commands).toContain('mcp_oauth_callback_port = 8766')
-    expect(commands).toContain(
-      'codex mcp add cookie --url https://mcp.infinitywave.online/mcp --oauth-client-id rTBvArPhtT8s9dGwT8mODMphNrngYlHb',
-    )
-    expect(commands).toContain('codex mcp login cookie')
-    expect(instructions.text()).toContain('Authenticate')
-    expect(instructions.text()).toContain('cookie_list_labels')
-    // MCP tool descriptions send the owner here for a send confirmation.
-    expect(wrapper.get('[data-testid="agent-section"] h3').text()).toBe('Connected agents')
+    await openPane(wrapper, 'mcp-clients')
+
+    expect(replace).toHaveBeenCalledWith('/automations/connections')
+    expect(
+      wrapper.findAll('.settings-nav-item').some((item) => item.text().includes('MCP clients')),
+    ).toBe(false)
   })
 
   it('filters the grouped navigation by setting name', async () => {

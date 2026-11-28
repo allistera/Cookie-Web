@@ -1,9 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import AutomationsConnections from '../AutomationsConnections.vue'
-import McpClientSettings from '../McpClientSettings.vue'
 
 const ENDPOINT = 'https://mcp.infinitywave.online/mcp'
 const CLIENT_ID = 'rTBvArPhtT8s9dGwT8mODMphNrngYlHb'
@@ -15,7 +15,7 @@ function mountGuide() {
     history: createMemoryHistory(),
     routes: [{ path: '/:path(.*)*', component: { template: '<div />' } }],
   })
-  return mount(AutomationsConnections, { global: { plugins: [router] } })
+  return mount(AutomationsConnections, { global: { plugins: [router, createPinia()] } })
 }
 
 const commands = (section) => section.findAll('pre').map((block) => block.text())
@@ -43,17 +43,6 @@ describe('AutomationsConnections', () => {
     expect(commands(connector)).toEqual([])
     expect(connector.text()).toContain('Add custom connector')
     expect(connector.text()).toContain(CLIENT_ID)
-  })
-
-  it('shows the same commands as Settings, MCP clients', () => {
-    const settings = mount(McpClientSettings)
-
-    expect(commands(settings)).toEqual([
-      CLAUDE,
-      'mcp_oauth_callback_port = 8766',
-      CODEX,
-      'codex mcp login cookie',
-    ])
   })
 
   it('copies a command and says so for a moment', async () => {
@@ -90,9 +79,12 @@ describe('AutomationsConnections', () => {
     expect(button.text()).not.toContain('Copied')
   })
 
-  it('links to Settings for send confirmations', () => {
-    const link = section(mountGuide(), 'connections-check').get('a')
+  it('holds the send confirmation button in its own card', () => {
+    const card = section(mountGuide(), 'connections-send')
 
-    expect(link.attributes('href')).toBe('/settings/mcp-clients')
+    expect(card.get('h2').text()).toBe('Send confirmations')
+    expect(card.get('[data-testid="send-confirmation"] button').text()).toBe(
+      'Create send confirmation',
+    )
   })
 })

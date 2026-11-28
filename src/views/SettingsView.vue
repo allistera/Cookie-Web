@@ -31,8 +31,6 @@ const SpamRetentionSettings = lazyComponent(() => import('../components/SpamRete
 const AiTodaySettings = lazyComponent(() => import('../components/AiTodaySettings.vue'))
 const CategorySettings = lazyComponent(() => import('../components/CategorySettings.vue'))
 const TaskLabelSettings = lazyComponent(() => import('../components/TaskLabelSettings.vue'))
-const McpClientSettings = lazyComponent(() => import('../components/McpClientSettings.vue'))
-const AgentSendSettings = lazyComponent(() => import('../components/AgentSendSettings.vue'))
 const TodoistSettings = lazyComponent(() => import('../components/TodoistSettings.vue'))
 const NtfySettings = lazyComponent(() => import('../components/NtfySettings.vue'))
 
@@ -74,6 +72,11 @@ const filteredSectionGroups = computed(() => {
 watch(
   () => route.params.section,
   (section) => {
+    // MCP clients moved to Automations > Connections; old links follow it.
+    if (section === 'mcp-clients') {
+      router.replace('/automations/connections')
+      return
+    }
     if (!sections.some((candidate) => candidate.id === section)) {
       router.replace({ name: 'settings', params: { section: 'account' } })
     }
@@ -1275,9 +1278,6 @@ function toggleRuleEnabled(rule) {
               </div>
             </form>
           </section>
-
-          <McpClientSettings v-if="activeSection === 'mcp-clients'" />
-          <AgentSendSettings v-if="activeSection === 'mcp-clients'" />
 
           <CategorySettings v-if="activeSection === 'categories'" />
 

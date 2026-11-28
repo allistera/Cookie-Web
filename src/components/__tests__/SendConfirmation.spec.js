@@ -1,7 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import AgentSendSettings from '../AgentSendSettings.vue'
+import SendConfirmation from '../SendConfirmation.vue'
 import { useInboxStore } from '../../stores/inbox'
 
 let wrapper
@@ -25,7 +25,7 @@ describe('agent send confirmations', () => {
     vi.stubGlobal('fetch', fetchMock)
     const writeText = vi.fn().mockResolvedValue()
     vi.stubGlobal('navigator', { clipboard: { writeText } })
-    wrapper = mount(AgentSendSettings)
+    wrapper = mount(SendConfirmation)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith(
@@ -48,7 +48,7 @@ describe('agent send confirmations', () => {
     [{}, 'Could not create a send confirmation'],
   ])('shows the server failure and enables retry: %j', async (body, message) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => body }))
-    wrapper = mount(AgentSendSettings)
+    wrapper = mount(SendConfirmation)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role=alert]').text()).toBe(message)
@@ -61,7 +61,7 @@ describe('agent send confirmations', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) }),
     )
-    wrapper = mount(AgentSendSettings)
+    wrapper = mount(SendConfirmation)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role=alert]').text()).toBe(
@@ -79,7 +79,7 @@ describe('agent send confirmations', () => {
         },
       }),
     )
-    wrapper = mount(AgentSendSettings)
+    wrapper = mount(SendConfirmation)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.find('code').exists()).toBe(false)
@@ -88,7 +88,7 @@ describe('agent send confirmations', () => {
 
   it('reports non-Error request failures', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue('offline'))
-    wrapper = mount(AgentSendSettings)
+    wrapper = mount(SendConfirmation)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role=alert]').text()).toBe('Could not create a send confirmation')
@@ -102,7 +102,7 @@ describe('agent send confirmations', () => {
     vi.stubGlobal('navigator', {
       clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
     })
-    wrapper = mount(AgentSendSettings)
+    wrapper = mount(SendConfirmation)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     await wrapper.findAll('button')[1].trigger('click')

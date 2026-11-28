@@ -11,6 +11,7 @@ import {
   MCP_CLIENT_ID,
   MCP_ENDPOINT,
 } from '../lib/mcpClients'
+import SendConfirmation from './SendConfirmation.vue'
 
 // The text most recently copied, so its button can say so for a moment.
 const copied = ref('')
@@ -196,11 +197,11 @@ async function copy(text) {
         reads and changes nothing. Read access covers listing, reading and searching; write access
         also covers changes, sending email included, so review what you grant when you sign in.
       </p>
-      <p>
-        Before an assistant can send an email it needs a one-off send confirmation from you. Create
-        one under
-        <router-link to="/settings/mcp-clients">Settings, MCP clients</router-link>.
-      </p>
+    </section>
+
+    <section class="connections-card" aria-labelledby="connections-send">
+      <h2 id="connections-send">Send confirmations</h2>
+      <SendConfirmation />
     </section>
 
     <section class="connections-card" aria-labelledby="connections-trouble">

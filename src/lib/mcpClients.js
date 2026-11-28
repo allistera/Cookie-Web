@@ -1,7 +1,7 @@
 import { MCP_API_URL } from './apiWorkers'
 
-// What an MCP client needs to reach Cookie's MCP server, shared by Settings >
-// MCP clients and Automations > Connections so the two cannot drift apart.
+// What an MCP client needs to reach Cookie's MCP server, shown on Automations >
+// Connections.
 // Keep aligned with Cookie-Worker README's "Connect a client" instructions.
 export const MCP_ENDPOINT = `${MCP_API_URL}/mcp`
 
