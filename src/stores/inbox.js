@@ -3849,6 +3849,8 @@ export const useInboxStore = defineStore('inbox', {
     // with what autosave just wrote, without another round trip. Newest
     // first, matching GET /drafts.
     rememberDraft(draft) {
+      // What a save does not send stays as the list already has it.
+      const known = this.drafts.find((entry) => entry.id === draft.id)
       const entry = {
         id: draft.id,
         to: draft.to ?? '',
@@ -3858,10 +3860,8 @@ export const useInboxStore = defineStore('inbox', {
         text: draft.text ?? '',
         html: draft.html ?? null,
         replyToMessageId: draft.replyToMessageId ?? null,
-        isAiGenerated:
-          draft.isAiGenerated ??
-          this.drafts.find((entry) => entry.id === draft.id)?.isAiGenerated ??
-          false,
+        isAiGenerated: draft.isAiGenerated ?? known?.isAiGenerated ?? false,
+        isStarred: draft.isStarred ?? known?.isStarred ?? false,
         followUpAt: draft.followUpAt ?? null,
         attachments: (draft.attachments ?? []).map((attachment) => ({ ...attachment })),
         updatedAt: draft.updatedAt ?? new Date().toISOString(),

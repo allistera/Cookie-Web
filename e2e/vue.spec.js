@@ -2602,6 +2602,20 @@ test('Drafts folder sits under Sent only while a draft exists', async ({ page })
   const draftRow = page.locator('.ni-row.drafts-row', { hasText: 'Half-written' })
   await expect(draftRow).toBeVisible()
   await expect(page.locator('.ni-title h1')).toHaveText('Drafts')
+  // A star keeps the draft from the 30-day deletion, and the server holds it.
+  await expect(page.locator('.drafts-retention-note')).toContainText('30 days')
+  const star = page.getByRole('button', { name: 'Star Half-written', exact: true })
+  await expect(star).toHaveAttribute('aria-pressed', 'false')
+  const starred = page.waitForResponse(
+    (response) => response.url().endsWith('/star') && response.request().method() === 'PUT',
+  )
+  await star.click()
+  expect((await starred).ok()).toBe(true)
+  // Starring does not also open the draft.
+  await expect(composer).toHaveCount(0)
+  await page.reload()
+  await expect(star).toHaveAttribute('aria-pressed', 'true')
+
   await draftRow.hover()
   await page.getByRole('button', { name: 'Discard Half-written', exact: true }).click()
   await expect(page.locator('.drafts-row')).toHaveCount(0)

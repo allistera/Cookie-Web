@@ -16,6 +16,7 @@ beforeEach(() => {
 afterEach(() => {
   wrapper?.unmount()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('drafts page', () => {
@@ -125,5 +126,55 @@ describe('drafts page', () => {
     expect(close).toHaveBeenCalledWith({ save: false })
     // Neither Discard click reached the row and opened the copy again.
     expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  function stubStar(response) {
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({ Authorization: 'Bearer token' })
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('says when drafts are deleted, and stars one to keep it without opening it', async () => {
+    store.drafts = [{ id: 'draft-1', subject: 'Hello' }]
+    const fetchMock = stubStar({ ok: true, status: 200, json: async () => ({}) })
+    const open = vi.spyOn(store, 'openDraft').mockResolvedValue()
+    wrapper = mount(DraftsView)
+    expect(wrapper.get('.drafts-retention-note').text()).toContain('deleted 30 days after')
+    const star = wrapper.get('.drafts-star')
+    expect(star.attributes('aria-label')).toBe('Star Hello')
+    expect(star.attributes('aria-pressed')).toBe('false')
+
+    await star.trigger('click')
+    await flushPromises()
+
+    expect(open).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toContain('/drafts/draft-1/star')
+    expect(options.method).toBe('PUT')
+    expect(JSON.parse(options.body)).toEqual({ starred: true })
+    expect(star.attributes('aria-pressed')).toBe('true')
+    expect(star.classes()).toContain('starred')
+    // An autosave sends no star, so the list keeps the one it has.
+    store.rememberDraft({ id: 'draft-1', subject: 'Hello again' })
+    expect(store.drafts[0].isStarred).toBe(true)
+  })
+
+  it.each([
+    [500, true, 'Failed to remove the star from the draft.'],
+    [404, false, 'That draft no longer exists.'],
+  ])('undoes a star change the server answers with %s', async (status, listed, message) => {
+    store.drafts = [{ id: 'draft-1', subject: 'Hello', isStarred: true }]
+    stubStar({ ok: false, status, json: async () => ({}) })
+    const notify = vi.spyOn(store, 'notify').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    wrapper = mount(DraftsView)
+
+    await wrapper.get('.drafts-star').trigger('click')
+    await flushPromises()
+
+    expect(notify).toHaveBeenCalledWith(message, 'error')
+    expect(store.drafts.map((draft) => draft.isStarred)).toEqual(listed ? [true] : [])
   })
 })

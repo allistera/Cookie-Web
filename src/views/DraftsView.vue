@@ -1,9 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { DRAFT_RETENTION_DAYS, saveDraftStar } from '../lib/draftStar'
 import { formatEmailDate, useInboxStore } from '../stores/inbox'
 
 const store = useInboxStore()
 const discardingIds = ref(new Set())
+const starringIds = ref(new Set())
 
 onMounted(() => {
   store.loadDrafts({ force: true })
@@ -56,8 +58,44 @@ const draftRows = computed(() =>
     attachments: attachmentCount(draft),
     attachmentLabel: attachmentTitle(draft),
     updatedLabel: formatUpdatedAt(draft.updatedAt),
+    starred: Boolean(draft.isStarred),
   })),
 )
+
+// Shows the star on the listed draft, wherever an autosave may have moved it.
+function showStar(draftId, isStarred) {
+  const index = store.drafts.findIndex((entry) => entry.id === draftId)
+  if (index === -1) return
+  store.applyDraftEdit({ kind: 'keep', entry: { ...store.drafts[index], isStarred }, index })
+}
+
+// One request per draft at a time, so two quick presses cannot arrive at the
+// server in the other order.
+async function toggleStar(draft) {
+  if (starringIds.value.has(draft.id)) return
+  starringIds.value = new Set(starringIds.value).add(draft.id)
+  const starred = !draft.isStarred
+  showStar(draft.id, starred)
+  try {
+    await saveDraftStar(await store.authHeaders(), draft.id, starred)
+  } catch (error) {
+    console.error('Failed to star draft:', error)
+    if (error.status === 404) {
+      store.forgetDraft(draft.id)
+      store.notify('That draft no longer exists.', 'error')
+    } else {
+      showStar(draft.id, !starred)
+      store.notify(
+        starred ? 'Failed to star draft.' : 'Failed to remove the star from the draft.',
+        'error',
+      )
+    }
+  } finally {
+    const next = new Set(starringIds.value)
+    next.delete(draft.id)
+    starringIds.value = next
+  }
+}
 
 async function discard(draft) {
   if (discardingIds.value.has(draft.id)) return
@@ -164,6 +202,10 @@ function discardRecovery(record) {
         <h2 v-if="store.draftRecoveries.length" class="ni-group-header drafts-group">
           Saved to your account
         </h2>
+        <p class="drafts-note drafts-retention-note">
+          Drafts are deleted {{ DRAFT_RETENTION_DAYS }} days after their last edit. Star a draft to
+          keep it.
+        </p>
         <div
           v-for="row in draftRows"
           :key="row.draft.id"
@@ -175,7 +217,22 @@ function discardRecovery(record) {
           @keydown.enter.self.prevent="store.openDraft(row.draft)"
           @keydown.space.self.prevent="store.openDraft(row.draft)"
         >
-          <div class="ni-lead"></div>
+          <div class="ni-lead">
+            <button
+              type="button"
+              class="ni-action-btn drafts-star"
+              :class="{ starred: row.starred }"
+              :title="row.starred ? 'Remove star' : 'Star to keep'"
+              :aria-label="`Star ${row.draft.subject || 'draft'}`"
+              :aria-pressed="row.starred ? 'true' : 'false'"
+              :disabled="starringIds.has(row.draft.id)"
+              @click.stop="toggleStar(row.draft)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">{{
+                row.starred ? 'star' : 'star_border'
+              }}</span>
+            </button>
+          </div>
           <div class="ni-sender">{{ row.recipient }}</div>
           <div class="ni-subject">
             <span class="ni-subject-text">
@@ -223,6 +280,28 @@ function discardRecovery(record) {
   padding: 4px 16px 8px;
   color: var(--text-secondary);
   font-size: 12.5px;
+}
+
+/* The star is how a draft is kept, so it is always in reach rather than among
+   the actions that only show on hover. Recovery rows keep the same indent. */
+.drafts-row .ni-lead {
+  justify-content: center;
+  width: 24px;
+}
+
+.drafts-star {
+  width: 24px;
+  height: 24px;
+  margin: -2px 0;
+}
+
+.drafts-star .material-symbols-outlined {
+  font-size: 18px;
+}
+
+/* Filled as well as coloured, so a kept draft stands out at a glance. */
+.drafts-star.starred .material-symbols-outlined {
+  font-variation-settings: 'FILL' 1;
 }
 
 .drafts-preview {
