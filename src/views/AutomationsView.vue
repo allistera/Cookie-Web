@@ -6,16 +6,21 @@ import { automationSection } from '../lib/automations'
 import { lazyComponent } from '../router/chunkReload'
 
 const AssistantChatPage = lazyComponent(() => import('../components/AssistantChatPage.vue'))
+const AutomationsConnections = lazyComponent(
+  () => import('../components/AutomationsConnections.vue'),
+)
 
 const route = useRoute()
 const section = computed(() => automationSection(route.params.section))
 </script>
 
 <template>
-  <!-- Chat is Cookie Assistant on a page of its own; every other Automations
-       page is a titled, empty page for now. -->
+  <!-- Chat is Cookie Assistant on a page of its own and Connections explains
+       how to connect an MCP client; every other Automations page is a titled,
+       empty page for now. -->
   <div class="automations-view" data-testid="automations-view">
     <AssistantChatPage v-if="section.id === 'chat'" />
+    <AutomationsConnections v-else-if="section.id === 'connections'" />
     <div v-else class="automations-page">
       <h1>{{ section.label }}</h1>
     </div>

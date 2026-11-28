@@ -17,7 +17,7 @@ test('Automations opens from the app switcher and shows an empty page per sideba
   const title = page.getByTestId('automations-view').getByRole('heading')
   await expect(title).toHaveText('Dashboard')
 
-  for (const name of ['Connections', 'Templates', 'Dashboard']) {
+  for (const name of ['Templates', 'Dashboard']) {
     await sidebar.getByRole('link', { name, exact: true }).click()
     await expect(title).toHaveText(name)
   }
@@ -95,4 +95,36 @@ test('Chat is Cookie Assistant on a page: ask, follow up, start again', async ({
   await expect(chat.getByRole('heading', { name: 'What can I help with?' })).toBeVisible()
   await expect(chat.locator('.assistant-chat-msg')).toHaveCount(0)
   await expect(input).toBeFocused()
+})
+
+test('Connections gives the Claude and Codex commands for the MCP server', async ({ page }) => {
+  await page.goto('/automations/connections')
+
+  const guide = page.getByTestId('automations-connections')
+  await expect(guide.getByRole('heading', { level: 1 })).toHaveText('Connections')
+  await expect(guide.getByRole('heading', { level: 2 })).toHaveText([
+    'Server details',
+    'Claude Code',
+    'Claude desktop app and claude.ai',
+    'Codex',
+    'Check the connection',
+    'If sign-in fails',
+  ])
+
+  const claude = guide.getByRole('region', { name: 'Claude Code' })
+  await expect(claude.locator('pre')).toHaveText(
+    /^claude mcp add --transport http --scope user --client-id \S+ --callback-port 8765 cookie https:\/\/mcp\.infinitywave\.online\/mcp$/,
+  )
+  const codex = guide.getByRole('region', { name: 'Codex' })
+  await expect(codex.locator('pre')).toHaveText([
+    'mcp_oauth_callback_port = 8766',
+    /^codex mcp add cookie --url https:\/\/mcp\.infinitywave\.online\/mcp --oauth-client-id \S+$/,
+    'codex mcp login cookie',
+  ])
+
+  await expect(codex.getByRole('button', { name: 'Copy Codex login command' })).toBeVisible()
+
+  // Send confirmations stay in Settings; the guide links there.
+  await guide.getByRole('link', { name: 'Settings, MCP clients' }).click()
+  await expect(page).toHaveURL(/\/settings\/mcp-clients$/)
 })
