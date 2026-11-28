@@ -33,6 +33,61 @@ test('Automations opens from the app switcher on the dashboard and reaches each 
   await expect(title).toHaveText('Create Automation')
 })
 
+test('an automation is created from its template, run now, switched off and deleted', async ({
+  page,
+}) => {
+  // Two overdue tasks for the run to move, and one due later that stays put.
+  for (const [content, dueDate] of [
+    ['Renew passport', '2026-01-05'],
+    ['Call the bank', '2026-02-10'],
+    ['Book flights', '2099-01-01'],
+  ]) {
+    await page.request.post('/__e2e__/tasks-api/task-items', { data: { content, dueDate } })
+  }
+
+  await page.goto('/automations/templates')
+  const gallery = page.getByTestId('automations-templates')
+  await gallery.getByRole('link', { name: /Reschedule Overdue Tasks to Today/ }).click()
+  await expect(page).toHaveURL(/\/automations\/new\?job=reschedule_overdue$/)
+
+  const form = page.getByTestId('automations-create')
+  await expect(form.getByRole('radio', { name: /Reschedule Overdue Tasks to Today/ })).toBeChecked()
+  await form.getByLabel('Time', { exact: true }).fill('06:30')
+  await form.getByRole('checkbox', { name: 'Sat' }).uncheck()
+  await form.getByRole('checkbox', { name: 'Sun' }).uncheck()
+  await expect(form.getByRole('status')).toContainText('Weekdays at 06:30')
+  await form.getByRole('button', { name: 'Create automation' }).click()
+
+  await expect(page).toHaveURL(/\/automations$/)
+  const dashboard = page.getByTestId('automations-dashboard')
+  const row = dashboard.getByTestId('dashboard-automation')
+  await expect(row).toContainText('Reschedule Overdue Tasks to Today')
+  await expect(row).toContainText('Weekdays at 06:30 · Next run')
+  await expect(dashboard.getByRole('status')).toHaveText('No automation runs yet.')
+
+  await row.getByRole('button', { name: /^Run .* now$/ }).click()
+  const run = dashboard.getByTestId('dashboard-run')
+  await expect(run).toHaveCount(1)
+  await expect(run).toContainText('Moved 2 overdue tasks to today.')
+  // A second run finds nothing left to move.
+  await row.getByRole('button', { name: /^Run .* now$/ }).click()
+  await expect(run).toHaveCount(2)
+  await expect(run.first()).toContainText('Nothing was overdue.')
+
+  await row.getByRole('checkbox').uncheck()
+  await expect(row).toContainText('Switched off')
+  // The automation and its activity are still there after a reload.
+  await page.reload()
+  await expect(row).toContainText('Switched off')
+  await expect(run).toHaveCount(2)
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await row.getByRole('button', { name: /^Delete / }).click()
+  await expect(row).toHaveCount(0)
+  await expect(dashboard.getByText('You have no automations yet.')).toBeVisible()
+  await expect(dashboard.getByRole('status')).toHaveText('No automation runs yet.')
+})
+
 const sse = (events) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
 
 test('Chat is Cookie Assistant on a page: ask, follow up, start again', async ({ page }) => {

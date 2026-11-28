@@ -4,6 +4,7 @@ import { test as base } from '@playwright/test'
 
 import {
   AI_API_URL,
+  AUTOMATIONS_API_URL,
   CALENDAR_API_URL,
   DRAFTS_API_URL,
   EMAILS_API_URL,
@@ -15,12 +16,12 @@ import {
   TASKS_API_URL,
 } from '../src/lib/apiWorkers.js'
 
-// The app talks to twelve Cloudflare Workers at absolute cross-origin URLs
+// The app talks to thirteen Cloudflare Workers at absolute cross-origin URLs
 // (src/lib/apiWorkers.js). Nothing same-origin can intercept those, and e2e
 // mode holds no bearer token, so left alone every one of them reaches the real
 // production Worker and 401s — which is what broke 28 of the 64 specs.
 //
-// ORIGINS below routes ten of the twelve; notifications and mcp are not
+// ORIGINS below routes eleven of the thirteen; notifications and mcp are not
 // routed, and of the send Worker's routes, attachment uploads have no fixture
 // (the specs that need them stub them).
 // Each origin is routed back to the dev/preview server's own fixture handlers
@@ -40,6 +41,7 @@ const ORIGINS = [
   [CALENDAR_API_URL, '/__e2e__/calendar-api'],
   [DRAFTS_API_URL, '/__e2e__/drafts-api'],
   [SEND_API_URL, '/__e2e__/send-api'],
+  [AUTOMATIONS_API_URL, '/__e2e__/automations-api'],
 ]
 
 // That server state is keyed by a cookie so parallel workers never share a

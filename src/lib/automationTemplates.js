@@ -1,5 +1,6 @@
 // The automation ideas shown on Automations > Templates. Hard-coded for now:
-// nothing here runs yet, and a card only leads to Create Automation.
+// a card leads to Create Automation, and only a template that names a `job`
+// can be set up there.
 
 // The Cookie apps a template touches, shown as the icons on its card.
 export const TEMPLATE_APPS = {
@@ -33,6 +34,9 @@ export const TEMPLATE_GROUPS = [
       },
       {
         id: 'reschedule-overdue',
+        // The one idea that can be set up so far: its card opens Create
+        // Automation on this job (lib/automationJobs.js).
+        job: 'reschedule_overdue',
         title: 'Reschedule Overdue Tasks to Today',
         description:
           'At midnight, moves every overdue task to today so each day starts with a clean slate, leaving repeating schedules as they are.',
