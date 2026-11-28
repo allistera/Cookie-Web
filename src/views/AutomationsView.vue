@@ -9,6 +9,7 @@ const AssistantChatPage = lazyComponent(() => import('../components/AssistantCha
 const AutomationsConnections = lazyComponent(
   () => import('../components/AutomationsConnections.vue'),
 )
+const AutomationsCreate = lazyComponent(() => import('../components/AutomationsCreate.vue'))
 const AutomationsDashboard = lazyComponent(() => import('../components/AutomationsDashboard.vue'))
 const AutomationsTemplates = lazyComponent(() => import('../components/AutomationsTemplates.vue'))
 
@@ -17,18 +18,16 @@ const section = computed(() => automationSection(route.params.section))
 </script>
 
 <template>
-  <!-- Dashboard greets and lists what the automations did, Connections
-       explains how to connect an MCP client, Templates is a gallery of ideas
-       and Chat is Cookie Assistant on a page of its own. Create Automation is
-       a titled, empty page for now. -->
+  <!-- Dashboard greets and lists the automations and what they did,
+       Connections explains how to connect an MCP client, Templates is a
+       gallery of ideas, Chat is Cookie Assistant on a page of its own and
+       Create Automation sets one up. -->
   <div class="automations-view" data-testid="automations-view">
     <AssistantChatPage v-if="section.id === 'chat'" />
     <AutomationsConnections v-else-if="section.id === 'connections'" />
     <AutomationsTemplates v-else-if="section.id === 'templates'" />
-    <AutomationsDashboard v-else-if="section.id === 'dashboard'" />
-    <div v-else class="automations-page">
-      <h1>{{ section.label }}</h1>
-    </div>
+    <AutomationsCreate v-else-if="section.id === 'new'" />
+    <AutomationsDashboard v-else />
   </div>
 </template>
 
@@ -39,18 +38,5 @@ const section = computed(() => automationSection(route.params.section))
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-}
-
-.automations-page {
-  width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 32px 24px;
-}
-
-.automations-page h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
 }
 </style>

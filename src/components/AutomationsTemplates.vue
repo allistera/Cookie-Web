@@ -5,11 +5,16 @@ import { useRouter } from 'vue-router'
 import { NEW_AUTOMATION_SECTION, automationRoute } from '../lib/automations'
 import { TEMPLATE_APPS, searchTemplateGroups } from '../lib/automationTemplates'
 
-// A gallery of automation ideas. The list is hard-coded and nothing runs yet:
-// a card, the questions button and the prompt box all lead to Create
-// Automation.
+// A gallery of automation ideas. The list is hard-coded: a card, the
+// questions button and the prompt box all lead to Create Automation, where
+// only the ideas Cookie can already run are offered.
 const router = useRouter()
 const createRoute = automationRoute(NEW_AUTOMATION_SECTION)
+
+// A template Cookie can already run opens Create Automation on its job.
+function templateRoute(template) {
+  return template.job ? { path: createRoute, query: { job: template.job } } : createRoute
+}
 
 const query = ref('')
 const groups = computed(() => searchTemplateGroups(query.value))
@@ -83,7 +88,7 @@ function submitPrompt() {
 
           <ul class="templates-row" :class="{ expanded: expanded.has(group.id) }">
             <li v-for="template in group.templates" :key="template.id">
-              <router-link class="templates-card" :to="createRoute">
+              <router-link class="templates-card" :to="templateRoute(template)">
                 <span class="templates-apps">
                   <span
                     v-for="app in template.apps"

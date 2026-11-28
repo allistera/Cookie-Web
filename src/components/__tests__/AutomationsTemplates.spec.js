@@ -61,6 +61,11 @@ describe('AutomationsTemplates', () => {
     )
     const first = wrapper.get('.templates-card')
     expect(first.attributes('href')).toBe('/automations/new')
+    // The one idea Cookie can already run opens Create Automation on its job.
+    const runnable = wrapper
+      .findAll('.templates-card')
+      .find((card) => card.text().includes('Reschedule Overdue Tasks to Today'))
+    expect(runnable.attributes('href')).toBe('/automations/new?job=reschedule_overdue')
     expect(first.findAll('.templates-app').map((app) => app.attributes('title'))).toEqual([
       'Email',
       'Calendar',

@@ -78,6 +78,8 @@ export function localApiPlugin() {
         taskLabels: [],
         taskFilters: { revision: 0, filters: [] },
         todoist: null,
+        automations: [],
+        automationRuns: [],
         drafts: [],
         composePreferences: { revision: 0, signatureHtml: '', snippets: [] },
         savedViews: { revision: 0, views: [] },
@@ -2711,7 +2713,9 @@ export function localApiPlugin() {
       const body = await readBody(req)
       const hasToken = Object.hasOwn(body, 'token')
       const hasEnabled = Object.hasOwn(body, 'enabled')
-      if (!hasToken && !hasEnabled) {
+      // What a run mirrors, switched separately (Settings > Tasks > Todoist).
+      const hasSyncTasks = Object.hasOwn(body, 'syncTasks')
+      if (!hasToken && !hasEnabled && !hasSyncTasks) {
         return json(res, { error: 'A token or an enabled flag is required' }, 400)
       }
       if (hasToken) {
@@ -2734,7 +2738,9 @@ export function localApiPlugin() {
         return json(res, { todoist: state.todoist })
       }
       if (!connected) return json(res, { error: 'Connect Todoist first' }, 404)
-      state.todoist = { ...connected, enabled: Boolean(body.enabled) }
+      state.todoist = { ...connected }
+      if (hasEnabled) state.todoist.enabled = Boolean(body.enabled)
+      if (hasSyncTasks) state.todoist.syncTasks = Boolean(body.syncTasks)
       return json(res, { todoist: state.todoist })
     }
     if (sub === 'refresh') {
@@ -3302,6 +3308,138 @@ export function localApiPlugin() {
     })
   }
 
+  // cookie-web-automations: the person's automations and their runs
+  // (Cookie-Worker/workers/cookie-web-automations). The one built-in job,
+  // reschedule_overdue, follows the Worker's rules on this session's fixture
+  // tasks: today is the date in the automation's own time zone, and a
+  // Todoist mirror is left alone only while the connection syncs tasks.
+  // Nothing here runs on a schedule: a run happens only through
+  // POST /automations/run.
+  const AUTOMATION_NAMES = { reschedule_overdue: 'Reschedule Overdue Tasks to Today' }
+  const AUTOMATION_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+  const fixtureTrigger = (input) => {
+    const days = Array.isArray(input?.days)
+      ? AUTOMATION_DAYS.filter((day) => input.days.includes(day))
+      : []
+    if (
+      input?.type !== 'schedule' ||
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(input.time ?? '')) ||
+      !days.length ||
+      !String(input.timeZone ?? '').trim()
+    ) {
+      return null
+    }
+    try {
+      new Intl.DateTimeFormat('en-CA', { timeZone: String(input.timeZone).trim() })
+    } catch {
+      return null
+    }
+    return { type: 'schedule', time: input.time, days, timeZone: String(input.timeZone).trim() }
+  }
+  // The fixture's next run is tomorrow at the schedule's time in UTC: close
+  // enough to show a "Next run" line without the Worker's time-zone maths.
+  const fixtureNextRun = (trigger) => {
+    const [hour, minute] = trigger.time.split(':').map(Number)
+    const next = new Date()
+    next.setUTCDate(next.getUTCDate() + 1)
+    next.setUTCHours(hour, minute, 0, 0)
+    return next.toISOString()
+  }
+  const handleWorkerAutomationsApi = async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    const state = fixtureMailboxState(req, res)
+    if (url.pathname === '/automation-runs') {
+      if (req.method !== 'GET') return json(res, { error: 'Method not allowed' }, 405)
+      return json(res, { runs: state.automationRuns })
+    }
+    if (url.pathname === '/automations/run') {
+      if (req.method !== 'POST') return json(res, { error: 'Method not allowed' }, 405)
+      const { id } = await readBody(req)
+      const automation = state.automations.find((row) => row.id === id)
+      if (!automation) return json(res, { error: 'Automation not found' }, 404)
+      // en-CA writes a date as YYYY-MM-DD.
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: automation.trigger.timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+      const overdue = state.taskItems.filter(
+        (item) =>
+          item.kind !== 'divider' && !item.completedAt && item.dueDate && item.dueDate < today,
+      )
+      const syncsTasks = Boolean(state.todoist?.connected) && state.todoist.syncTasks !== false
+      const mirrored = overdue.filter((item) => item.todoistId && syncsTasks)
+      const own = overdue.filter((item) => !mirrored.includes(item))
+      for (const item of own) item.dueDate = today
+      const counted = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
+      const notes = mirrored.length
+        ? [
+            `Left ${counted(mirrored.length, 'Todoist task')} as ${mirrored.length === 1 ? 'it is' : 'they are'}.`,
+          ]
+        : []
+      const run = {
+        id: randomUUID(),
+        automationId: automation.id,
+        automationName: automation.name,
+        trigger: 'manual',
+        status: 'succeeded',
+        summary: [
+          own.length
+            ? `Moved ${counted(own.length, 'overdue task')} to today.`
+            : 'Nothing was overdue.',
+          ...notes,
+        ].join(' '),
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      }
+      state.automationRuns.unshift(run)
+      return json(res, { run })
+    }
+    if (url.pathname !== '/automations') return json(res, { error: 'Not Found' }, 404)
+    if (req.method === 'GET') return json(res, { automations: state.automations })
+    if (!['POST', 'PATCH', 'DELETE'].includes(req.method)) {
+      return json(res, { error: 'Method not allowed' }, 405)
+    }
+    const body = await readBody(req)
+    if (req.method === 'POST') {
+      const trigger = fixtureTrigger(body.trigger)
+      if (!Object.hasOwn(AUTOMATION_NAMES, body.handler)) {
+        return json(res, { error: 'handler is not a known automation' }, 400)
+      }
+      if (!trigger) return json(res, { error: 'trigger must be a schedule' }, 400)
+      const automation = {
+        id: randomUUID(),
+        name: AUTOMATION_NAMES[body.handler],
+        handler: body.handler,
+        trigger,
+        enabled: true,
+        nextRunAt: fixtureNextRun(trigger),
+        createdAt: new Date().toISOString(),
+      }
+      state.automations.push(automation)
+      return json(res, { automation }, 201)
+    }
+    const automation = state.automations.find((row) => row.id === body.id)
+    if (!automation) return json(res, { error: 'Automation not found' }, 404)
+    if (req.method === 'DELETE') {
+      state.automations = state.automations.filter((row) => row !== automation)
+      state.automationRuns = state.automationRuns.filter(
+        (run) => run.automationId !== automation.id,
+      )
+      res.statusCode = 204
+      return res.end()
+    }
+    if (Object.hasOwn(body, 'enabled')) automation.enabled = Boolean(body.enabled)
+    if (Object.hasOwn(body, 'trigger')) {
+      const trigger = fixtureTrigger(body.trigger)
+      if (!trigger) return json(res, { error: 'trigger must be a schedule' }, 400)
+      automation.trigger = trigger
+    }
+    automation.nextRunAt = automation.enabled ? fixtureNextRun(automation.trigger) : null
+    return json(res, { automation })
+  }
+
   // Same-origin adapter for the legacy /api/messages?resource=… shape. The
   // service worker (public/sw.js) caches recent mail from this path in
   // e2e/dev — production uses the cross-origin messages Worker — but the
@@ -3339,6 +3477,7 @@ export function localApiPlugin() {
     server.middlewares.use('/__e2e__/search-api', handleWorkerSearchApi)
     server.middlewares.use('/__e2e__/calendar-api', handleWorkerCalendarApi)
     server.middlewares.use('/__e2e__/drafts-api', handleWorkerDraftsApi)
+    server.middlewares.use('/__e2e__/automations-api', handleWorkerAutomationsApi)
   }
   return {
     name: 'local-api',
