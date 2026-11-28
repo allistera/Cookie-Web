@@ -8,6 +8,9 @@ test('Automations opens from the app switcher and shows an empty page per sideba
   await page.getByRole('menuitem', { name: 'Automations' }).click()
 
   await expect(page).toHaveURL(/\/automations$/)
+  // The switcher menu is hover-driven and the pointer is still parked on it,
+  // over the sidebar; park the mouse elsewhere so it cannot take the clicks.
+  await page.mouse.move(0, 400)
   await expect(page.locator('.logo-suffix')).toHaveText('Automations')
   const sidebar = page.getByRole('complementary', { name: 'Automations sidebar' })
   const title = page.getByTestId('automations-view').getByRole('heading')
