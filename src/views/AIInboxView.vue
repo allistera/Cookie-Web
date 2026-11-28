@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuth } from '../composables/useAuth'
+import { greetingNameOf } from '../lib/greetingName'
 import { useCalendars } from '../composables/useCalendars'
 import { useTodayCalendarEvents } from '../composables/useTodayCalendarEvents'
 import { useInboxStore } from '../stores/inbox'
@@ -119,17 +120,7 @@ const completingTaskIds = ref(new Set())
 const tasks = computed(() => store.tasks.filter((t) => !completingTaskIds.value.has(t.id)))
 const activeCount = computed(() => tasks.value.length)
 
-// Auth0 fills `name` with the email address when the identity provider has no
-// real name for the account, and "Hi allisteraall@gmail.com" reads like a form
-// letter. Prefer the claims that carry an actual name, and greet without one
-// rather than print an address.
-const greetingName = computed(() => {
-  const claims = user.value ?? {}
-  const named = [claims.given_name, claims.nickname, claims.name]
-    .map((claim) => String(claim ?? '').trim())
-    .find((claim) => claim && !claim.includes('@'))
-  return named ? named.split(/\s+/)[0] : ''
-})
+const greetingName = computed(() => greetingNameOf(user.value))
 
 // Presets for both reschedule menus below (Later today/Tomorrow/This
 // weekend/Next week) - recomputed each time a menu opens so the dates are

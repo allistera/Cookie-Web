@@ -9,6 +9,7 @@ const AssistantChatPage = lazyComponent(() => import('../components/AssistantCha
 const AutomationsConnections = lazyComponent(
   () => import('../components/AutomationsConnections.vue'),
 )
+const AutomationsDashboard = lazyComponent(() => import('../components/AutomationsDashboard.vue'))
 const AutomationsTemplates = lazyComponent(() => import('../components/AutomationsTemplates.vue'))
 
 const route = useRoute()
@@ -16,13 +17,15 @@ const section = computed(() => automationSection(route.params.section))
 </script>
 
 <template>
-  <!-- Chat is Cookie Assistant on a page of its own, Connections explains how
-       to connect an MCP client and Templates is a gallery of ideas; every
-       other Automations page is a titled, empty page for now. -->
+  <!-- Dashboard greets and lists what the automations did, Connections
+       explains how to connect an MCP client, Templates is a gallery of ideas
+       and Chat is Cookie Assistant on a page of its own. Create Automation is
+       a titled, empty page for now. -->
   <div class="automations-view" data-testid="automations-view">
     <AssistantChatPage v-if="section.id === 'chat'" />
     <AutomationsConnections v-else-if="section.id === 'connections'" />
     <AutomationsTemplates v-else-if="section.id === 'templates'" />
+    <AutomationsDashboard v-else-if="section.id === 'dashboard'" />
     <div v-else class="automations-page">
       <h1>{{ section.label }}</h1>
     </div>

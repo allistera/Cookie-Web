@@ -1,7 +1,7 @@
 import { expect, test } from './workerFixtures.js'
 import { SEARCH_API_URL } from '../src/lib/apiWorkers.js'
 
-test('Automations opens from the app switcher and shows an empty page per sidebar item', async ({
+test('Automations opens from the app switcher on the dashboard and reaches each page', async ({
   page,
 }) => {
   await page.goto('/')
@@ -14,13 +14,19 @@ test('Automations opens from the app switcher and shows an empty page per sideba
   await page.mouse.move(0, 400)
   await expect(page.locator('.logo-suffix')).toHaveText('Automations')
   const sidebar = page.getByRole('complementary', { name: 'Automations sidebar' })
-  const title = page.getByTestId('automations-view').getByRole('heading')
-  await expect(title).toHaveText('Dashboard')
+  const title = page.getByTestId('automations-view').getByRole('heading', { level: 1 })
+  const dashboard = page.getByTestId('automations-dashboard')
+  await expect(title).toHaveText(/^Good (morning|afternoon|evening), Allister\.$/)
+  await expect(dashboard.getByRole('status')).toHaveText('No automation runs yet.')
+  await expect(dashboard.getByRole('link', { name: /Open ChatGPT/ })).toHaveAttribute(
+    'href',
+    /^https:\/\/chatgpt\.com\/\?prompt=Every\+Friday/,
+  )
 
   await sidebar.getByRole('link', { name: 'Connections', exact: true }).click()
-  await expect(title.first()).toHaveText('Connections')
+  await expect(title).toHaveText('Connections')
   await sidebar.getByRole('link', { name: 'Dashboard', exact: true }).click()
-  await expect(title).toHaveText('Dashboard')
+  await expect(dashboard).toBeVisible()
 
   await sidebar.getByRole('link', { name: 'Create Automation' }).click()
   await expect(page).toHaveURL(/\/automations\/new$/)

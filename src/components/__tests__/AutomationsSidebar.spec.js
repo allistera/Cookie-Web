@@ -1,7 +1,9 @@
+import { AUTH0_INJECTION_KEY } from '@auth0/auth0-vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 
 import AutomationsSidebar from '../AutomationsSidebar.vue'
 import AutomationsView from '../../views/AutomationsView.vue'
@@ -12,18 +14,31 @@ const Shell = {
   template: '<div><AutomationsSidebar /><router-view /></div>',
 }
 
+// Each page is a lazy chunk, so a navigation needs its import to land.
+async function settle() {
+  await flushPromises()
+  await vi.dynamicImportSettled()
+  await flushPromises()
+}
+
 async function mountAt(path) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/automations/:section?', name: 'automations', component: AutomationsView }],
   })
   await router.push(path)
-  const wrapper = mount(Shell, { global: { plugins: [router, createPinia()] } })
-  await flushPromises()
+  const wrapper = mount(Shell, {
+    global: {
+      plugins: [router, createPinia()],
+      provide: { [AUTH0_INJECTION_KEY]: { user: ref({ name: 'Allister' }) } },
+    },
+  })
+  await settle()
   return wrapper
 }
 
 const heading = (wrapper) => wrapper.get('[data-testid="automations-view"] h1').text()
+const onDashboard = (wrapper) => wrapper.find('[data-testid="automations-dashboard"]').exists()
 const activeItems = (wrapper) => wrapper.findAll('.nav-item.active').map((item) => item.text())
 
 describe('Automations', () => {
@@ -37,25 +52,23 @@ describe('Automations', () => {
       'Templates',
       'Chat',
     ])
-    expect(heading(wrapper)).toBe('Dashboard')
+    expect(onDashboard(wrapper)).toBe(true)
+    expect(heading(wrapper)).toMatch(/^Good (morning|afternoon|evening), Allister\.$/)
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Dashboard')])
   })
 
-  it.each([['Dashboard', '/automations']])(
-    'opens an empty %s page from the sidebar',
-    async (label, href) => {
-      const wrapper = await mountAt('/automations/new')
-      const link = wrapper.findAll('.nav-item').find((item) => item.text().endsWith(label))
+  it('opens the dashboard, not an empty page, from Dashboard', async () => {
+    const wrapper = await mountAt('/automations/new')
+    const link = wrapper.findAll('.nav-item').find((item) => item.text().endsWith('Dashboard'))
 
-      expect(link.attributes('href')).toBe(href)
-      await link.trigger('click')
-      await flushPromises()
+    expect(link.attributes('href')).toBe('/automations')
+    await link.trigger('click')
+    await settle()
 
-      expect(heading(wrapper)).toBe(label)
-      expect(activeItems(wrapper)).toEqual([expect.stringContaining(label)])
-      expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
-    },
-  )
+    expect(onDashboard(wrapper)).toBe(true)
+    expect(activeItems(wrapper)).toEqual([expect.stringContaining('Dashboard')])
+    expect(wrapper.find('.automations-page').exists()).toBe(false)
+  })
 
   it('opens the gallery of ideas, not an empty page, from Templates', async () => {
     const wrapper = await mountAt('/automations')
@@ -114,12 +127,13 @@ describe('Automations', () => {
     await flushPromises()
 
     expect(heading(wrapper)).toBe('Create Automation')
+    expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
     expect(activeItems(wrapper)).toEqual([])
   })
 
   it('shows Dashboard for a page that does not exist', async () => {
     const wrapper = await mountAt('/automations/nonsense')
 
-    expect(heading(wrapper)).toBe('Dashboard')
+    expect(onDashboard(wrapper)).toBe(true)
   })
 })
