@@ -3,15 +3,20 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { automationSection } from '../lib/automations'
+import { lazyComponent } from '../router/chunkReload'
+
+const AssistantChatPage = lazyComponent(() => import('../components/AssistantChatPage.vue'))
 
 const route = useRoute()
 const section = computed(() => automationSection(route.params.section))
 </script>
 
 <template>
-  <!-- Every Automations page is a titled, empty page for now. -->
+  <!-- Chat is Cookie Assistant on a page of its own; every other Automations
+       page is a titled, empty page for now. -->
   <div class="automations-view" data-testid="automations-view">
-    <div class="automations-page">
+    <AssistantChatPage v-if="section.id === 'chat'" />
+    <div v-else class="automations-page">
       <h1>{{ section.label }}</h1>
     </div>
   </div>
@@ -22,9 +27,12 @@ const section = computed(() => automationSection(route.params.section))
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .automations-page {
+  width: 100%;
   max-width: 760px;
   margin: 0 auto;
   padding: 32px 24px;
