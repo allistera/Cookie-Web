@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import AutomationsSidebar from '../AutomationsSidebar.vue'
 import AutomationsView from '../../views/AutomationsView.vue'
@@ -17,7 +18,7 @@ async function mountAt(path) {
     routes: [{ path: '/automations/:section?', name: 'automations', component: AutomationsView }],
   })
   await router.push(path)
-  const wrapper = mount(Shell, { global: { plugins: [router] } })
+  const wrapper = mount(Shell, { global: { plugins: [router, createPinia()] } })
   await flushPromises()
   return wrapper
 }
@@ -43,7 +44,6 @@ describe('Automations', () => {
   it.each([
     ['Connections', '/automations/connections'],
     ['Templates', '/automations/templates'],
-    ['Chat', '/automations/chat'],
     ['Dashboard', '/automations'],
   ])('opens an empty %s page from the sidebar', async (label, href) => {
     const wrapper = await mountAt('/automations/new')
@@ -56,6 +56,22 @@ describe('Automations', () => {
     expect(heading(wrapper)).toBe(label)
     expect(activeItems(wrapper)).toEqual([expect.stringContaining(label)])
     expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
+  })
+
+  it('opens Cookie Assistant, not an empty page, from Chat', async () => {
+    const wrapper = await mountAt('/automations')
+
+    await wrapper
+      .findAll('.nav-item')
+      .find((item) => item.text().endsWith('Chat'))
+      .trigger('click')
+    await flushPromises()
+    await vi.dynamicImportSettled()
+    await flushPromises()
+
+    expect(activeItems(wrapper)).toEqual([expect.stringContaining('Chat')])
+    expect(wrapper.find('.automations-page').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="Cookie Assistant"] h1').text()).toBe('What can I help with?')
   })
 
   it('opens an empty Create Automation page from the button', async () => {

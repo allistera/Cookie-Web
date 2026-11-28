@@ -40,6 +40,18 @@ export function sourceIcon(source) {
   return SOURCE_ICONS[String(source?.index ?? '')] ?? 'search'
 }
 
+// Assistant replies use lightweight markdown (**bold**, newline-separated
+// lines). Parse into plain-text segments the template renders itself — never
+// raw HTML — so message content can't inject markup.
+export function messageLines(text) {
+  return String(text)
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) =>
+      line.split(/\*\*(.+?)\*\*/g).map((part, i) => ({ text: part, bold: i % 2 === 1 })),
+    )
+}
+
 /** @internal */
 export const MAX_SOURCES = 12
 

@@ -2,7 +2,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInboxStore } from '../stores/inbox'
-import { sourceIcon } from '../lib/assistantChat'
+import { messageLines, sourceIcon } from '../lib/assistantChat'
 
 const store = useInboxStore()
 const router = useRouter()
@@ -22,18 +22,6 @@ watch(
   },
   { immediate: true },
 )
-
-// Assistant replies use lightweight markdown (**bold**, newline-separated
-// lines). Parse into plain-text segments the template renders itself — never
-// raw HTML — so message content can't inject markup.
-function messageLines(text) {
-  return String(text)
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) =>
-      line.split(/\*\*(.+?)\*\*/g).map((part, i) => ({ text: part, bold: i % 2 === 1 })),
-    )
-}
 
 // An answer that listed emails is now the inbox list's result set, so the
 // inbox is brought into view if another app is showing.
