@@ -146,6 +146,11 @@ Cookie-Worker lives in the separate [Cookie-Worker repository](https://github.co
   Send Later keep all three lines. Needs migration `0114_cc_bcc_recipients.sql`
   and the `cookie-web-send` and `cookie-web-drafts` Workers from Cookie-Worker;
   deploy those Workers first.
+- A draft that is not starred is deleted 30 days after its last edit, and the
+  deletion is permanent. The star on a row in Drafts keeps a draft; removing it
+  starts the 30 days again. Needs migration `0119_draft_retention.sql` and the
+  `cookie-web-drafts` and `mail-app-ingest` Workers from Cookie-Worker; deploy
+  those Workers first.
 - Oversized email threads show a clear summary size-limit message. During the
   current session, reopening or refreshing the same thread version does not
   repeat a rejected summary request; a new latest message allows another attempt.

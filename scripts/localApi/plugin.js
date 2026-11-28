@@ -3143,18 +3143,26 @@ export function localApiPlugin() {
     return json(res, { ok: true })
   }
 
-  // cookie-web-drafts: GET/POST /drafts, GET/PATCH/DELETE /drafts/:id. Keeps
-  // the Worker's whole-draft-replace semantics — an empty create is refused
-  // and a save that empties a draft deletes it — because the sidebar's
-  // Drafts folder keys off whether any row exists at all.
+  // cookie-web-drafts: GET/POST /drafts, GET/PATCH/DELETE /drafts/:id and
+  // PUT /drafts/:id/star. Keeps the Worker's whole-draft-replace semantics —
+  // an empty create is refused and a save that empties a draft deletes it —
+  // because the sidebar's Drafts folder keys off whether any row exists at all.
   const handleWorkerDraftsApi = async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const segments = url.pathname.split('/').filter(Boolean)
-    if (segments[0] !== 'drafts' || segments.length > 2) {
+    const isStar = segments.length === 3 && segments[2] === 'star'
+    if (segments[0] !== 'drafts' || (segments.length > 2 && !isStar)) {
       return json(res, { error: 'Not Found' }, 404)
     }
     const { drafts } = fixtureMailboxState(req, res)
     const id = segments[1] ?? null
+    if (isStar) {
+      if (req.method !== 'PUT') return json(res, { error: 'Method not allowed' }, 405)
+      const draft = drafts.find((entry) => entry.id === id)
+      if (!draft) return json(res, { error: 'Draft not found' }, 404)
+      draft.isStarred = Boolean((await readBody(req)).starred)
+      return json(res, { draft: { id, isStarred: draft.isStarred } })
+    }
     const fromBody = (body) => ({
       to: String(body.to ?? ''),
       cc: String(body.cc ?? ''),
@@ -3196,6 +3204,7 @@ export function localApiPlugin() {
               replyToMessageId: draft.replyToMessageId,
               updatedAt: draft.updatedAt,
               isAiGenerated: draft.isAiGenerated ?? false,
+              isStarred: draft.isStarred ?? false,
               isSummary: true,
               attachmentCount: draft.attachments.length,
             })),
@@ -3224,9 +3233,14 @@ export function localApiPlugin() {
       const index = drafts.findIndex((entry) => entry.id === id)
       if (index === -1) return json(res, { error: 'Draft not found' }, 404)
       const draft = fromBody(await readBody(req))
-      drafts.splice(index, 1)
+      const [previous] = drafts.splice(index, 1)
       if (isEmpty(draft)) return noContent()
-      const saved = { id, ...draft, updatedAt: new Date().toISOString() }
+      const saved = {
+        id,
+        ...draft,
+        isStarred: previous.isStarred ?? false,
+        updatedAt: new Date().toISOString(),
+      }
       drafts.unshift(saved)
       return json(res, { draft: { id: saved.id, updatedAt: saved.updatedAt } })
     }
