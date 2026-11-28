@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
 import AutomationsSidebar from '../AutomationsSidebar.vue'
+import { useAutomationsStore } from '../../stores/automations'
 import AutomationsView from '../../views/AutomationsView.vue'
 
 // The sidebar beside the view it drives, as App.vue lays them out.
@@ -27,9 +28,12 @@ async function mountAt(path) {
     routes: [{ path: '/automations/:section?', name: 'automations', component: AutomationsView }],
   })
   await router.push(path)
+  const pinia = createPinia()
+  // Dashboard reads the automations when it opens; there is no Worker here.
+  vi.spyOn(useAutomationsStore(pinia), 'load').mockResolvedValue(true)
   const wrapper = mount(Shell, {
     global: {
-      plugins: [router, createPinia()],
+      plugins: [router, pinia],
       provide: { [AUTH0_INJECTION_KEY]: { user: ref({ name: 'Allister' }) } },
     },
   })
@@ -57,7 +61,7 @@ describe('Automations', () => {
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Dashboard')])
   })
 
-  it('opens the dashboard, not an empty page, from Dashboard', async () => {
+  it('opens the dashboard from Dashboard', async () => {
     const wrapper = await mountAt('/automations/new')
     const link = wrapper.findAll('.nav-item').find((item) => item.text().endsWith('Dashboard'))
 
@@ -67,10 +71,9 @@ describe('Automations', () => {
 
     expect(onDashboard(wrapper)).toBe(true)
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Dashboard')])
-    expect(wrapper.find('.automations-page').exists()).toBe(false)
   })
 
-  it('opens the gallery of ideas, not an empty page, from Templates', async () => {
+  it('opens the gallery of ideas from Templates', async () => {
     const wrapper = await mountAt('/automations')
 
     await wrapper
@@ -82,13 +85,12 @@ describe('Automations', () => {
     await flushPromises()
 
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Templates')])
-    expect(wrapper.find('.automations-page').exists()).toBe(false)
     expect(wrapper.get('[data-testid="automations-templates"] h1').text()).toBe(
       'Find an automation that works for you',
     )
   })
 
-  it('opens the MCP setup guide, not an empty page, from Connections', async () => {
+  it('opens the MCP setup guide from Connections', async () => {
     const wrapper = await mountAt('/automations')
 
     await wrapper
@@ -100,11 +102,10 @@ describe('Automations', () => {
     await flushPromises()
 
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Connections')])
-    expect(wrapper.find('.automations-page').exists()).toBe(false)
     expect(wrapper.get('[data-testid="automations-connections"] h1').text()).toBe('Connections')
   })
 
-  it('opens Cookie Assistant, not an empty page, from Chat', async () => {
+  it('opens Cookie Assistant from Chat', async () => {
     const wrapper = await mountAt('/automations')
 
     await wrapper
@@ -116,18 +117,18 @@ describe('Automations', () => {
     await flushPromises()
 
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Chat')])
-    expect(wrapper.find('.automations-page').exists()).toBe(false)
     expect(wrapper.get('[aria-label="Cookie Assistant"] h1').text()).toBe('What can I help with?')
   })
 
-  it('opens an empty Create Automation page from the button', async () => {
+  it('opens the Create Automation form from the button', async () => {
     const wrapper = await mountAt('/automations')
 
     await wrapper.get('.compose-btn').trigger('click')
-    await flushPromises()
+    await settle()
 
     expect(heading(wrapper)).toBe('Create Automation')
-    expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
+    expect(wrapper.find('[data-testid="automations-create"]').exists()).toBe(true)
+    expect(onDashboard(wrapper)).toBe(false)
     expect(activeItems(wrapper)).toEqual([])
   })
 

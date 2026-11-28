@@ -78,9 +78,13 @@ export function bundleBudgetPlugin() {
             // 2.7 KB over, so the view moved up by 4 KB. The Automations
             // app's share of the entry (about 350 bytes) found Vercel's
             // build about 30 bytes under and took it about 0.3 KB over, so
-            // the view moved up by 1 KB.
+            // the view moved up by 1 KB. Creating and running automations is
+            // all in lazy chunks, but the entry names each new chunk in its
+            // preload map and carries the automations Worker's address
+            // (about 270 bytes), which found Vercel's build about 230 bytes
+            // under and took it about 50 over, so the view moved up by 1 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 687_000
+            ? 688_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
