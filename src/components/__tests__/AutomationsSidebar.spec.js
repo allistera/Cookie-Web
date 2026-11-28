@@ -41,20 +41,38 @@ describe('Automations', () => {
     expect(activeItems(wrapper)).toEqual([expect.stringContaining('Dashboard')])
   })
 
-  it.each([
-    ['Templates', '/automations/templates'],
-    ['Dashboard', '/automations'],
-  ])('opens an empty %s page from the sidebar', async (label, href) => {
-    const wrapper = await mountAt('/automations/new')
-    const link = wrapper.findAll('.nav-item').find((item) => item.text().endsWith(label))
+  it.each([['Dashboard', '/automations']])(
+    'opens an empty %s page from the sidebar',
+    async (label, href) => {
+      const wrapper = await mountAt('/automations/new')
+      const link = wrapper.findAll('.nav-item').find((item) => item.text().endsWith(label))
 
-    expect(link.attributes('href')).toBe(href)
-    await link.trigger('click')
+      expect(link.attributes('href')).toBe(href)
+      await link.trigger('click')
+      await flushPromises()
+
+      expect(heading(wrapper)).toBe(label)
+      expect(activeItems(wrapper)).toEqual([expect.stringContaining(label)])
+      expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
+    },
+  )
+
+  it('opens the gallery of ideas, not an empty page, from Templates', async () => {
+    const wrapper = await mountAt('/automations')
+
+    await wrapper
+      .findAll('.nav-item')
+      .find((item) => item.text().endsWith('Templates'))
+      .trigger('click')
+    await flushPromises()
+    await vi.dynamicImportSettled()
     await flushPromises()
 
-    expect(heading(wrapper)).toBe(label)
-    expect(activeItems(wrapper)).toEqual([expect.stringContaining(label)])
-    expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
+    expect(activeItems(wrapper)).toEqual([expect.stringContaining('Templates')])
+    expect(wrapper.find('.automations-page').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="automations-templates"] h1').text()).toBe(
+      'Find an automation that works for you',
+    )
   })
 
   it('opens the MCP setup guide, not an empty page, from Connections', async () => {

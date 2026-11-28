@@ -17,10 +17,10 @@ test('Automations opens from the app switcher and shows an empty page per sideba
   const title = page.getByTestId('automations-view').getByRole('heading')
   await expect(title).toHaveText('Dashboard')
 
-  for (const name of ['Templates', 'Dashboard']) {
-    await sidebar.getByRole('link', { name, exact: true }).click()
-    await expect(title).toHaveText(name)
-  }
+  await sidebar.getByRole('link', { name: 'Connections', exact: true }).click()
+  await expect(title.first()).toHaveText('Connections')
+  await sidebar.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  await expect(title).toHaveText('Dashboard')
 
   await sidebar.getByRole('link', { name: 'Create Automation' }).click()
   await expect(page).toHaveURL(/\/automations\/new$/)
@@ -131,4 +131,45 @@ test('Connections gives the Claude and Codex commands for the MCP server', async
       .getByRole('region', { name: 'Send confirmations' })
       .getByRole('button', { name: 'Create send confirmation' }),
   ).toBeVisible()
+})
+
+test('Templates is a gallery of ideas that can be searched and expanded', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/automations/templates')
+
+  const gallery = page.getByTestId('automations-templates')
+  await expect(gallery.getByRole('heading', { level: 1 })).toHaveText(
+    'Find an automation that works for you',
+  )
+  await expect(gallery.getByRole('heading', { level: 2 })).toHaveText([
+    'Staff picks',
+    'Push Notifications',
+    'Email',
+    'Calendar',
+    'Tasks',
+  ])
+  const picks = gallery.getByRole('region', { name: 'Staff picks' })
+  await expect(picks.getByRole('link')).toHaveCount(4)
+
+  // See all swaps the sideways row for a grid.
+  const row = picks.getByRole('list')
+  await expect(row).toHaveCSS('display', 'flex')
+  await picks.getByRole('button', { name: 'See all Staff picks' }).click()
+  await expect(row).toHaveCSS('display', 'grid')
+
+  // Search narrows every group and drops the empty ones.
+  await gallery.getByRole('searchbox', { name: 'Search ideas' }).fill('overdue')
+  await expect(gallery.getByRole('heading', { level: 2 })).toHaveText(['Staff picks'])
+  await expect(
+    gallery.getByRole('link', { name: /Reschedule Overdue Tasks to Today/ }),
+  ).toBeVisible()
+  await gallery.getByRole('searchbox', { name: 'Search ideas' }).fill('zzzz')
+  await expect(gallery.getByRole('status')).toHaveText('No ideas match “zzzz”.')
+
+  // The prompt box leads to Create Automation.
+  const send = gallery.getByRole('button', { name: 'Create automation' })
+  await expect(send).toBeDisabled()
+  await gallery.getByLabel('Describe an automation').fill('Archive old newsletters')
+  await send.click()
+  await expect(page).toHaveURL(/\/automations\/new$/)
 })
