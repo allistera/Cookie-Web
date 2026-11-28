@@ -376,6 +376,12 @@ export function useCommands() {
         run: () => router.push({ name: 'tasks' }),
       },
       {
+        id: 'go-automations',
+        title: 'Go to Automations',
+        icon: 'bolt',
+        run: () => router.push({ name: 'automations' }),
+      },
+      {
         id: 'go-starred',
         title: 'Go to Starred',
         icon: 'star',
