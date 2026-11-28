@@ -43,6 +43,7 @@ const ComposerWindow = lazyComponent(() => import('./components/ComposerWindow.v
 const WindowDock = lazyComponent(() => import('./components/WindowDock.vue'))
 const DocumentsSidebar = lazyComponent(() => import('./components/DocumentsSidebar.vue'))
 const TasksSidebar = lazyComponent(() => import('./components/TasksSidebar.vue'))
+const AutomationsSidebar = lazyComponent(() => import('./components/AutomationsSidebar.vue'))
 const SavedViewsSidebar = lazyComponent(() => import('./components/SavedViewsSidebar.vue'))
 const SavedViewEditor = lazyComponent(() => import('./components/SavedViewEditor.vue'))
 const BucketPanel = lazyComponent(() => import('./components/BucketPanel.vue'))
@@ -83,11 +84,13 @@ const APPS = {
   calendar: { label: 'Calendar', icon: 'calendar_month', to: '/calendar' },
   documents: { label: 'Documents', icon: 'description', to: '/documents' },
   tasks: { label: 'Tasks', icon: 'task_alt', to: '/tasks' },
+  automations: { label: 'Automations', icon: 'bolt', to: '/automations' },
 }
 const activeApp = computed(() => {
   if (route.name === 'calendar') return 'calendar'
   if (route.name === 'documents' || route.name === 'document-file') return 'documents'
   if (route.name === 'tasks') return 'tasks'
+  if (route.name === 'automations') return 'automations'
   return 'email'
 })
 // The read-only day calendar docked on the right (closed by default, kept
@@ -1097,7 +1100,10 @@ onUnmounted(() => {
         <!-- Tasks: its own sidebar replaces the mail one -->
         <TasksSidebar v-else-if="activeApp === 'tasks'" id="tasks-navigation" />
 
-        <SidebarResizer v-if="['email', 'documents', 'tasks'].includes(activeApp)" />
+        <!-- Automations: its pages are listed in its own sidebar -->
+        <AutomationsSidebar v-else-if="activeApp === 'automations'" />
+
+        <SidebarResizer v-if="activeApp !== 'calendar'" />
 
         <!-- MAIN CONTENT PANEL -->
         <main class="main-content">

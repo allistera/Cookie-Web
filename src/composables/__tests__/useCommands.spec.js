@@ -493,6 +493,9 @@ describe('useCommands', () => {
     byId['go-tasks'].run()
     expect(push).toHaveBeenCalledWith({ name: 'tasks' })
 
+    byId['go-automations'].run()
+    expect(push).toHaveBeenCalledWith({ name: 'automations' })
+
     byId['go-drafts'].run()
     expect(push).toHaveBeenCalledWith({ name: 'drafts' })
 

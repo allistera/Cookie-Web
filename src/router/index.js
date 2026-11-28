@@ -71,6 +71,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/automations/:section?',
+      name: 'automations',
+      component: () => import('../views/AutomationsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/settings/:section?',
       name: 'settings',
       component: () => import('../views/SettingsView.vue'),

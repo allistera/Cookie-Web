@@ -48,6 +48,11 @@ beforeEach(() => {
       { path: '/documents', name: 'documents', component: { template: '<div />' } },
       { path: '/tasks', name: 'tasks', component: { template: '<div />' } },
       {
+        path: '/automations/:section?',
+        name: 'automations',
+        component: { template: '<div />' },
+      },
+      {
         path: '/settings/:section',
         name: 'settings',
         meta: { layout: 'settings' },
@@ -196,10 +201,11 @@ describe('application shell', () => {
     ['/calendar', 'Calendar'],
     ['/documents', 'Documents'],
     ['/tasks', 'Tasks'],
+    ['/automations', 'Automations'],
   ])('selects the shell for %s', async (path, label) => {
     await render(path)
     expect(wrapper.get('.logo-suffix').text()).toBe(label)
-    expect(wrapper.findAll('.app-switcher-menu-item')).toHaveLength(3)
+    expect(wrapper.findAll('.app-switcher-menu-item')).toHaveLength(4)
   })
 
   it('toggles task navigation and closes it after navigation', async () => {

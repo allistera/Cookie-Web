@@ -44,8 +44,12 @@ export function bundleBudgetPlugin() {
         // logout check for unsent changes, the rejected-send message and the
         // composer's conflict and recovery handling, about 1.4 KB) put
         // Vercel's build about 0.3 KB over, so the entry moved up by 2 KB.
+        // The Automations app (its switcher item, sidebar branch and route,
+        // about 350 bytes) found Vercel's build about 280 bytes under and
+        // took it about 70 over, so both budgets that carry the entry moved
+        // up by 1 KB.
         const budget = chunk.isEntry
-          ? 536_000
+          ? 537_000
           : // The inbox view statically imports the entry, so it carries the
             // same Auth0 growth: 646 KB plain, about 654 KB with Vercel's
             // Sentry debug IDs. With the window dock's share of the entry and
@@ -71,9 +75,12 @@ export function bundleBudgetPlugin() {
             // and pending rule that moved here from the retired Vercel
             // function, the paused recovery copy of the reply box and the
             // per-day event pieces of the today list) put Vercel's build
-            // 2.7 KB over, so the view moved up by 4 KB.
+            // 2.7 KB over, so the view moved up by 4 KB. The Automations
+            // app's share of the entry (about 350 bytes) found Vercel's
+            // build about 30 bytes under and took it about 0.3 KB over, so
+            // the view moved up by 1 KB.
             id.endsWith('/views/TraditionalInboxView.vue')
-            ? 686_000
+            ? 687_000
             : id.endsWith('/components/DocumentEditor.vue') || chunk.name === 'DocumentEditor'
               ? 1_000_000
               : chunk.name === 'facade' &&
