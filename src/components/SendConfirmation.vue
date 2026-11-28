@@ -50,8 +50,9 @@ async function copyConfirmation() {
 </script>
 
 <template>
-  <section class="settings-section" data-testid="agent-section">
-    <h3 class="settings-section-title">Connected agents</h3>
+  <!-- The body of the Send confirmations card on Automations > Connections;
+       the card supplies the heading. -->
+  <div data-testid="send-confirmation">
     <p class="settings-section-hint">
       An agent with permission to send mail still needs a confirmation created here. Paste it into
       the agent for one email. It expires in ten minutes and cannot be reused for a different
@@ -66,5 +67,5 @@ async function copyConfirmation() {
       <span v-if="expiresAt">Expires {{ expiresAt }}</span>
     </p>
     <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
-  </section>
+  </div>
 </template>

@@ -108,6 +108,7 @@ test('Connections gives the Claude and Codex commands for the MCP server', async
     'Claude desktop app and claude.ai',
     'Codex',
     'Check the connection',
+    'Send confirmations',
     'If sign-in fails',
   ])
 
@@ -124,7 +125,10 @@ test('Connections gives the Claude and Codex commands for the MCP server', async
 
   await expect(codex.getByRole('button', { name: 'Copy Codex login command' })).toBeVisible()
 
-  // Send confirmations stay in Settings; the guide links there.
-  await guide.getByRole('link', { name: 'Settings, MCP clients' }).click()
-  await expect(page).toHaveURL(/\/settings\/mcp-clients$/)
+  // Send confirmations are created here, not in Settings.
+  await expect(
+    guide
+      .getByRole('region', { name: 'Send confirmations' })
+      .getByRole('button', { name: 'Create send confirmation' }),
+  ).toBeVisible()
 })
