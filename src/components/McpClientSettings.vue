@@ -1,12 +1,14 @@
 <script setup>
-import { MCP_API_URL } from '../lib/apiWorkers'
-
-const endpoint = `${MCP_API_URL}/mcp`
-// Public OAuth application identifier and registered callback ports; not a secret.
-// Keep aligned with Cookie-Worker README's "Connect a client" instructions.
-const clientId = 'rTBvArPhtT8s9dGwT8mODMphNrngYlHb'
-const claudeCommand = `claude mcp add --transport http --scope user --client-id ${clientId} --callback-port 8765 cookie ${endpoint}`
-const codexCommand = `codex mcp add cookie --url ${endpoint} --oauth-client-id ${clientId}`
+import {
+  CLAUDE_CODE_ADD_COMMAND as claudeCommand,
+  CLAUDE_CODE_CALLBACK_PORT,
+  CODEX_ADD_COMMAND as codexCommand,
+  CODEX_CALLBACK_PORT,
+  CODEX_CALLBACK_SETTING,
+  CODEX_LOGIN_COMMAND,
+  MCP_CLIENT_ID as clientId,
+  MCP_ENDPOINT as endpoint,
+} from '../lib/mcpClients'
 </script>
 
 <template>
@@ -35,7 +37,7 @@ const codexCommand = `codex mcp add cookie --url ${endpoint} --oauth-client-id $
       <li>
         In <code>~/.codex/config.toml</code>, add the following at the top level, before any
         <code>[section]</code> headings. If this setting already exists, update it:
-        <pre><code>mcp_oauth_callback_port = 8766</code></pre>
+        <pre><code>{{ CODEX_CALLBACK_SETTING }}</code></pre>
       </li>
       <li>
         Add Cookie from your terminal:
@@ -43,7 +45,7 @@ const codexCommand = `codex mcp add cookie --url ${endpoint} --oauth-client-id $
       </li>
       <li>
         Complete browser sign-in when prompted. If you still need to sign in, run:
-        <pre><code>codex mcp login cookie</code></pre>
+        <pre><code>{{ CODEX_LOGIN_COMMAND }}</code></pre>
       </li>
     </ol>
     <p>
@@ -66,9 +68,9 @@ const codexCommand = `codex mcp add cookie --url ${endpoint} --oauth-client-id $
     </p>
     <p>
       If sign-in fails, confirm you used the full URL ending in <code>/mcp</code> and the registered
-      callback port (8765 for Claude Code, 8766 for Codex). A forbidden (403) response can mean the
-      signed-in account has no Cookie mailbox. If Cookie is already configured, check the existing
-      entry before adding it again.
+      callback port ({{ CLAUDE_CODE_CALLBACK_PORT }} for Claude Code, {{ CODEX_CALLBACK_PORT }} for
+      Codex). A forbidden (403) response can mean the signed-in account has no Cookie mailbox. If
+      Cookie is already configured, check the existing entry before adding it again.
     </p>
   </section>
 </template>

@@ -42,7 +42,6 @@ describe('Automations', () => {
   })
 
   it.each([
-    ['Connections', '/automations/connections'],
     ['Templates', '/automations/templates'],
     ['Dashboard', '/automations'],
   ])('opens an empty %s page from the sidebar', async (label, href) => {
@@ -56,6 +55,22 @@ describe('Automations', () => {
     expect(heading(wrapper)).toBe(label)
     expect(activeItems(wrapper)).toEqual([expect.stringContaining(label)])
     expect(wrapper.get('.automations-page').element.children).toHaveLength(1)
+  })
+
+  it('opens the MCP setup guide, not an empty page, from Connections', async () => {
+    const wrapper = await mountAt('/automations')
+
+    await wrapper
+      .findAll('.nav-item')
+      .find((item) => item.text().endsWith('Connections'))
+      .trigger('click')
+    await flushPromises()
+    await vi.dynamicImportSettled()
+    await flushPromises()
+
+    expect(activeItems(wrapper)).toEqual([expect.stringContaining('Connections')])
+    expect(wrapper.find('.automations-page').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="automations-connections"] h1').text()).toBe('Connections')
   })
 
   it('opens Cookie Assistant, not an empty page, from Chat', async () => {
