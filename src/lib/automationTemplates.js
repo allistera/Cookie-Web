@@ -10,6 +10,7 @@ export const TEMPLATE_APPS = {
   notifications: { label: 'Notifications', icon: 'notifications' },
 }
 
+/** @internal */
 export const TEMPLATE_GROUPS = [
   {
     id: 'staff-picks',
