@@ -3,7 +3,7 @@ import { computed, onMounted } from 'vue'
 
 import { useAuth } from '../composables/useAuth'
 import { chatGptUrl } from '../lib/askChatGpt'
-import { formatMoment, scheduleLabel } from '../lib/automationJobs'
+import { automationWhen, formatMoment } from '../lib/automationJobs'
 import { NEW_AUTOMATION_SECTION, automationRoute } from '../lib/automations'
 import { greetingNameOf } from '../lib/greetingName'
 import { useAutomationsStore } from '../stores/automations'
@@ -38,12 +38,15 @@ const store = useAutomationsStore()
 // Read again on every visit: the schedule runs automations behind the page.
 onMounted(() => store.load())
 
-// "Every day at 00:00 · Next run Sun 29 Nov, 00:00", or that it is off.
-function whenLine(automation) {
-  const schedule = scheduleLabel(automation.trigger)
-  if (!automation.enabled) return `${schedule} · Switched off`
-  const next = formatMoment(automation.nextRunAt)
-  return next ? `${schedule} · Next run ${next}` : schedule
+// The checkbox flips as soon as it is clicked, before the Worker has agreed.
+// When the change is refused it goes back to what the automation still is:
+// a box left unticked would say "off" about an automation that keeps running.
+async function toggle(automation, event) {
+  const box = event.target
+  const changed = await store.setEnabled(automation.id, box.checked)
+  if (changed) return
+  const current = store.automations.find((row) => row.id === automation.id)
+  if (current) box.checked = current.enabled
 }
 
 function remove(automation) {
@@ -96,7 +99,7 @@ function remove(automation) {
         >
           <span class="dashboard-automation-text">
             <span class="dashboard-automation-name">{{ automation.name }}</span>
-            <span class="dashboard-automation-when">{{ whenLine(automation) }}</span>
+            <span class="dashboard-automation-when">{{ automationWhen(automation) }}</span>
           </span>
           <label class="dashboard-switch">
             <input
@@ -104,7 +107,7 @@ function remove(automation) {
               :checked="automation.enabled"
               :disabled="store.busy.includes(automation.id)"
               :aria-label="`${automation.name} is switched on`"
-              @change="store.setEnabled(automation.id, $event.target.checked)"
+              @change="toggle(automation, $event)"
             />
             On
           </label>

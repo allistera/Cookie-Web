@@ -4,6 +4,7 @@ import {
   AUTOMATION_JOBS,
   SCHEDULE_DAYS,
   automationJob,
+  automationWhen,
   formatMoment,
   localTimeZone,
   scheduleLabel,
@@ -75,5 +76,49 @@ describe('formatMoment', () => {
   it('writes nothing for a missing or unreadable time', () => {
     expect(formatMoment(null)).toBe('')
     expect(formatMoment('soon')).toBe('')
+  })
+
+  it('writes the time in the zone it is given', () => {
+    const midnightInLondon = '2026-11-29T00:00:00Z'
+
+    expect(formatMoment(midnightInLondon, 'Europe/London')).toMatch(/^Sun,? 29 Nov,? 00:00$/)
+    expect(formatMoment(midnightInLondon, 'America/New_York')).toMatch(/^Sat,? 28 Nov,? 19:00$/)
+  })
+
+  it('falls back to the person’s own zone for one the browser does not know', () => {
+    expect(formatMoment('2026-11-29T12:00:00Z', 'Mars/Olympus')).toBe(
+      formatMoment('2026-11-29T12:00:00Z'),
+    )
+  })
+})
+
+describe('automationWhen', () => {
+  const automation = {
+    enabled: true,
+    nextRunAt: '2026-11-29T00:00:00Z',
+    trigger: { type: 'schedule', time: '00:00', days: ALL_DAYS, timeZone: 'Europe/London' },
+  }
+
+  it('gives the schedule and the next run for someone in the schedule’s zone', () => {
+    expect(automationWhen(automation, 'Europe/London')).toMatch(
+      /^Every day at 00:00 · Next run Sun,? 29 Nov,? 00:00$/,
+    )
+  })
+
+  it('keeps both times in the schedule’s zone, and names it, for someone elsewhere', () => {
+    // In New York the next run is 19:00 on Saturday. Written that way beside
+    // "at 00:00" the line would contradict itself.
+    expect(automationWhen(automation, 'America/New_York')).toMatch(
+      /^Every day at 00:00 · Next run Sun,? 29 Nov,? 00:00 · Europe\/London time$/,
+    )
+  })
+
+  it('says an automation is switched off instead of naming a next run', () => {
+    const off = { ...automation, enabled: false, nextRunAt: null }
+
+    expect(automationWhen(off, 'Europe/London')).toBe('Every day at 00:00 · Switched off')
+    expect(automationWhen(off, 'Asia/Tokyo')).toBe(
+      'Every day at 00:00 · Switched off · Europe/London time',
+    )
   })
 })

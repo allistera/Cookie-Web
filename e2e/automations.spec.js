@@ -88,6 +88,119 @@ test('an automation is created from its template, run now, switched off and dele
   await expect(dashboard.getByRole('status')).toHaveText('No automation runs yet.')
 })
 
+// The date it is now in a time zone, as YYYY-MM-DD.
+const dateIn = (timeZone) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+
+const createAutomation = (page, timeZone) =>
+  page.request.post('/__e2e__/automations-api/automations', {
+    data: {
+      handler: 'reschedule_overdue',
+      trigger: {
+        type: 'schedule',
+        time: '00:00',
+        days: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+        timeZone,
+      },
+    },
+  })
+
+test('a run decides what is overdue by the date in the automation’s own time zone', async ({
+  page,
+}) => {
+  // These two zones are 26 hours apart, so the far-east one is always at
+  // least a day ahead: whatever the time, one task is due today in the west
+  // and already overdue in the east. That is the minute after local midnight
+  // for the eastern schedule, held still.
+  const WEST = 'Etc/GMT+12'
+  const EAST = 'Pacific/Kiritimati'
+  await page.request.post('/__e2e__/tasks-api/task-items', {
+    data: { content: 'Water the plants', dueDate: dateIn(WEST) },
+  })
+  await createAutomation(page, WEST)
+
+  await page.goto('/automations')
+  const dashboard = page.getByTestId('automations-dashboard')
+  const rows = dashboard.getByTestId('dashboard-automation')
+  // A schedule kept in another zone names it beside its times.
+  await expect(rows).toContainText('Every day at 00:00 · Next run')
+  await expect(rows).toContainText(`${WEST} time`)
+
+  await rows.getByRole('button', { name: /^Run .* now$/ }).click()
+  const runs = dashboard.getByTestId('dashboard-run')
+  await expect(runs.first()).toContainText('Nothing was overdue.')
+
+  await createAutomation(page, EAST)
+  await page.reload()
+  await expect(rows).toHaveCount(2)
+  await rows
+    .nth(1)
+    .getByRole('button', { name: /^Run .* now$/ })
+    .click()
+  await expect(runs).toHaveCount(2)
+  await expect(runs.first()).toContainText('Moved 1 overdue task to today.')
+
+  const { items } = await (
+    await page.request.get(`/__e2e__/tasks-api/task-items?project=today&date=${dateIn(EAST)}`)
+  ).json()
+  expect(items.map((item) => item.dueDate)).toEqual([dateIn(EAST)])
+})
+
+test('a run leaves Todoist tasks alone only while Todoist syncs tasks, and Tasks shows the move', async ({
+  page,
+}) => {
+  const todoist = '/__e2e__/tasks-api/tasks/todoist'
+  await page.request.put(todoist, { data: { token: 'fixture-token-1234' } })
+  await page.request.post(`${todoist}/sync`)
+  // The sync mirrors "Reply to the landlord" into the Inbox; make it overdue.
+  const { items } = await (
+    await page.request.get('/__e2e__/tasks-api/task-items?project=inbox')
+  ).json()
+  const mirror = items.find((item) => item.content === 'Reply to the landlord')
+  await page.request.patch('/__e2e__/tasks-api/task-items', {
+    data: { id: mirror.id, dueDate: '2026-01-05' },
+  })
+  await createAutomation(
+    page,
+    await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+  )
+
+  // Open the Inbox first, so Tasks holds the task with its old date.
+  await page.goto('/tasks?project=inbox')
+  const task = page.locator('.task-row', { hasText: 'Reply to the landlord' })
+  await expect(task.locator('.task-due.overdue')).toHaveCount(1)
+
+  // Moving between the apps inside the page keeps what Tasks has loaded.
+  const openApp = async (name) => {
+    await page.getByRole('button', { name: 'Switch Cookie app' }).hover()
+    await page.getByRole('menuitem', { name }).click()
+    await page.mouse.move(0, 400)
+  }
+  await openApp('Automations')
+  const dashboard = page.getByTestId('automations-dashboard')
+  const runs = dashboard.getByTestId('dashboard-run')
+  const runNow = dashboard.getByRole('button', { name: /^Run .* now$/ })
+  await runNow.click()
+  await expect(runs.first()).toContainText('Nothing was overdue. Left 1 Todoist task as it is.')
+
+  // With task syncing off, Todoist no longer owns the date and the task moves.
+  await page.request.put(todoist, { data: { syncTasks: false } })
+  await runNow.click()
+  await expect(runs).toHaveCount(2)
+  await expect(runs.first()).toContainText('Moved 1 overdue task to today.')
+
+  // Back in Tasks, the same list shows the new date rather than the rows it
+  // had loaded before the run.
+  await openApp('Tasks')
+  await expect(task).toBeVisible()
+  await expect(task.locator('.task-due.overdue')).toHaveCount(0)
+})
+
 const sse = (events) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
 
 test('Chat is Cookie Assistant on a page: ask, follow up, start again', async ({ page }) => {

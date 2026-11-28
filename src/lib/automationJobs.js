@@ -61,17 +61,50 @@ export function scheduleLabel(trigger) {
   return `${when} at ${trigger?.time ?? ''}`
 }
 
-const momentFormat = new Intl.DateTimeFormat('en-GB', {
+const MOMENT = {
   weekday: 'short',
   day: 'numeric',
   month: 'short',
   hour: '2-digit',
   minute: '2-digit',
   hourCycle: 'h23',
-})
+}
+const momentFormats = new Map()
 
-// "Sun 29 Nov, 00:00" in the person's own zone; '' for no time or a bad one.
-export function formatMoment(value) {
+function momentFormat(timeZone) {
+  if (!momentFormats.has(timeZone)) {
+    let format
+    try {
+      format = new Intl.DateTimeFormat('en-GB', { ...MOMENT, timeZone })
+    } catch {
+      // A zone this browser does not know: the person's own.
+      format = new Intl.DateTimeFormat('en-GB', MOMENT)
+    }
+    momentFormats.set(timeZone, format)
+  }
+  return momentFormats.get(timeZone)
+}
+
+// "Sun 29 Nov, 00:00"; '' for no time or a bad one. In `timeZone` when given
+// (a schedule's own zone), otherwise in the zone the person is in.
+export function formatMoment(value, timeZone) {
   const date = new Date(value ?? NaN)
-  return Number.isNaN(date.getTime()) ? '' : momentFormat.format(date)
+  return Number.isNaN(date.getTime()) ? '' : momentFormat(timeZone).format(date)
+}
+
+// An automation's schedule line on the Dashboard: "Every day at 00:00 · Next
+// run Sun 29 Nov, 00:00", or that it is switched off. The schedule keeps
+// time in the zone saved with it, so the next run is written in that zone
+// too and the two always agree; the zone is named whenever the person is
+// somewhere else, where neither time is their local one.
+export function automationWhen(automation, zone = localTimeZone()) {
+  const trigger = automation.trigger
+  const parts = [scheduleLabel(trigger)]
+  if (!automation.enabled) parts.push('Switched off')
+  else {
+    const next = formatMoment(automation.nextRunAt, trigger?.timeZone)
+    if (next) parts.push(`Next run ${next}`)
+  }
+  if (trigger?.timeZone && trigger.timeZone !== zone) parts.push(`${trigger.timeZone} time`)
+  return parts.join(' · ')
 }

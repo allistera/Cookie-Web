@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AUTOMATIONS_API_URL } from '../../lib/apiWorkers'
 import { useAutomationsStore } from '../automations'
 import { useInboxStore } from '../inbox'
+import { useTaskItemsStore } from '../taskItems'
 
 const TRIGGER = { type: 'schedule', time: '00:00', days: ['mon'], timeZone: 'Europe/London' }
 const AUTOMATION = {
@@ -28,6 +29,7 @@ const failure = (status, body) => ({ ok: false, status, json: async () => body }
 
 let store
 let notify
+let tasks
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -35,6 +37,10 @@ beforeEach(() => {
   vi.spyOn(store, 'authHeaders').mockResolvedValue({})
   notify = vi.spyOn(useInboxStore(), 'notify').mockImplementation(() => 1)
   vi.spyOn(console, 'error').mockImplementation(() => {})
+  // The tasks store a run refreshes; its own requests are not under test.
+  tasks = useTaskItemsStore()
+  vi.spyOn(tasks, 'loadItems').mockResolvedValue()
+  vi.spyOn(tasks, 'invalidateHistory')
 })
 
 afterEach(() => {
@@ -182,6 +188,87 @@ describe('automations store', () => {
 
     expect(store.runs.map((run) => run.id)).toEqual(['run-1', 'older'])
     expect(notify).toHaveBeenCalledWith('Moved 2 overdue tasks to today.', 'success')
+  })
+
+  it('reloads the task list that is open and tells whatever shows tasks, after a run', async () => {
+    tasks.loadedProject = 'today'
+    stubApi({ 'POST /automations/run': () => ok({ run: RUN }) })
+
+    await store.runNow(AUTOMATION.id)
+
+    expect(tasks.loadItems).toHaveBeenCalledWith('today', { force: true })
+    expect(tasks.invalidateHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads no task list when none has been opened, but still says tasks changed', async () => {
+    stubApi({ 'POST /automations/run': () => ok({ run: RUN }) })
+
+    await store.runNow(AUTOMATION.id)
+
+    expect(tasks.loadItems).not.toHaveBeenCalled()
+    expect(tasks.invalidateHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['a run that failed part-way', () => ok({ run: { ...RUN, status: 'failed' } })],
+    ['a run whose answer never arrived', () => failure(500, {})],
+  ])('reloads tasks after %s, which may already have moved some', async (_label, answer) => {
+    tasks.loadedProject = 'inbox'
+    stubApi({ 'POST /automations/run': answer })
+
+    await store.runNow(AUTOMATION.id)
+
+    expect(tasks.loadItems).toHaveBeenCalledWith('inbox', { force: true })
+    expect(tasks.invalidateHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not let a read that started before a delete bring the row back', async () => {
+    store.automations = [AUTOMATION]
+    store.isLoaded = true
+    // The first GET is held; the read made again after the delete sees the
+    // server as the delete left it.
+    let releaseStale
+    let reads = 0
+    stubApi({
+      'GET /automations': () => {
+        reads += 1
+        if (reads > 1) return ok({ automations: [] })
+        return new Promise((resolve) => {
+          releaseStale = () => resolve(ok({ automations: [AUTOMATION] }))
+        })
+      },
+      'GET /automation-runs': () => ok({ runs: [] }),
+      'DELETE /automations': () => ({ ok: true, status: 204 }),
+    })
+
+    const loading = store.load()
+    await vi.waitFor(() => expect(releaseStale).toBeTypeOf('function'))
+    expect(await store.remove(AUTOMATION.id)).toBe(true)
+    expect(store.automations).toEqual([])
+
+    releaseStale()
+    expect(await loading).toBe(true)
+
+    expect(store.automations).toEqual([])
+    expect(reads).toBe(2)
+  })
+
+  it.each([
+    ['a new automation', (s) => s.create({ handler: 'reschedule_overdue', trigger: TRIGGER })],
+    ['a switch', (s) => s.setEnabled(AUTOMATION.id, false)],
+    ['a run', (s) => s.runNow(AUTOMATION.id)],
+  ])('counts %s as a write a pending read must not overwrite', async (_label, write) => {
+    store.automations = [AUTOMATION]
+    stubApi({
+      'POST /automations': () => ok({ automation: { ...AUTOMATION, id: 'new' } }, 201),
+      'PATCH /automations': () => ok({ automation: { ...AUTOMATION, enabled: false } }),
+      'POST /automations/run': () => ok({ run: RUN }),
+    })
+    const before = store.writeSeq
+
+    await write(store)
+
+    expect(store.writeSeq).toBe(before + 1)
   })
 
   it('reports a run that failed as an error', async () => {

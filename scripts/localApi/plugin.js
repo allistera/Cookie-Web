@@ -2713,7 +2713,9 @@ export function localApiPlugin() {
       const body = await readBody(req)
       const hasToken = Object.hasOwn(body, 'token')
       const hasEnabled = Object.hasOwn(body, 'enabled')
-      if (!hasToken && !hasEnabled) {
+      // What a run mirrors, switched separately (Settings > Tasks > Todoist).
+      const hasSyncTasks = Object.hasOwn(body, 'syncTasks')
+      if (!hasToken && !hasEnabled && !hasSyncTasks) {
         return json(res, { error: 'A token or an enabled flag is required' }, 400)
       }
       if (hasToken) {
@@ -2736,7 +2738,9 @@ export function localApiPlugin() {
         return json(res, { todoist: state.todoist })
       }
       if (!connected) return json(res, { error: 'Connect Todoist first' }, 404)
-      state.todoist = { ...connected, enabled: Boolean(body.enabled) }
+      state.todoist = { ...connected }
+      if (hasEnabled) state.todoist.enabled = Boolean(body.enabled)
+      if (hasSyncTasks) state.todoist.syncTasks = Boolean(body.syncTasks)
       return json(res, { todoist: state.todoist })
     }
     if (sub === 'refresh') {
@@ -3306,9 +3310,11 @@ export function localApiPlugin() {
 
   // cookie-web-automations: the person's automations and their runs
   // (Cookie-Worker/workers/cookie-web-automations). The one built-in job,
-  // reschedule_overdue, moves this session's overdue fixture tasks to today
-  // and leaves Todoist mirrors alone, as the Worker does. Nothing here runs
-  // on a schedule: a run happens only through POST /automations/run.
+  // reschedule_overdue, follows the Worker's rules on this session's fixture
+  // tasks: today is the date in the automation's own time zone, and a
+  // Todoist mirror is left alone only while the connection syncs tasks.
+  // Nothing here runs on a schedule: a run happens only through
+  // POST /automations/run.
   const AUTOMATION_NAMES = { reschedule_overdue: 'Reschedule Overdue Tasks to Today' }
   const AUTOMATION_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
   const fixtureTrigger = (input) => {
@@ -3321,6 +3327,11 @@ export function localApiPlugin() {
       !days.length ||
       !String(input.timeZone ?? '').trim()
     ) {
+      return null
+    }
+    try {
+      new Intl.DateTimeFormat('en-CA', { timeZone: String(input.timeZone).trim() })
+    } catch {
       return null
     }
     return { type: 'schedule', time: input.time, days, timeZone: String(input.timeZone).trim() }
@@ -3346,12 +3357,19 @@ export function localApiPlugin() {
       const { id } = await readBody(req)
       const automation = state.automations.find((row) => row.id === id)
       if (!automation) return json(res, { error: 'Automation not found' }, 404)
-      const today = new Date().toISOString().slice(0, 10)
+      // en-CA writes a date as YYYY-MM-DD.
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: automation.trigger.timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
       const overdue = state.taskItems.filter(
         (item) =>
           item.kind !== 'divider' && !item.completedAt && item.dueDate && item.dueDate < today,
       )
-      const mirrored = overdue.filter((item) => item.todoistId && state.todoist?.connected)
+      const syncsTasks = Boolean(state.todoist?.connected) && state.todoist.syncTasks !== false
+      const mirrored = overdue.filter((item) => item.todoistId && syncsTasks)
       const own = overdue.filter((item) => !mirrored.includes(item))
       for (const item of own) item.dueDate = today
       const counted = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`

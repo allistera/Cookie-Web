@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
 import AutomationsDashboard from '../AutomationsDashboard.vue'
+import { localTimeZone } from '../../lib/automationJobs'
 import { greetingNameOf } from '../../lib/greetingName'
 import { useAutomationsStore } from '../../stores/automations'
 
@@ -16,7 +17,8 @@ const AUTOMATION = {
     type: 'schedule',
     time: '00:00',
     days: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
-    timeZone: 'Europe/London',
+    // Wherever the suite runs: a schedule made in the zone the person is in.
+    timeZone: localTimeZone(),
   },
   enabled: true,
   nextRunAt: '2026-11-29T12:00:00.000Z',
@@ -160,6 +162,7 @@ describe('AutomationsDashboard automations', () => {
 
   it('switches an automation off and runs it now through the store', async () => {
     const setEnabled = vi.spyOn(store, 'setEnabled').mockResolvedValue(true)
+    vi.spyOn(store, 'refreshTasks').mockResolvedValue()
     const runNow = vi.spyOn(store, 'runNow').mockResolvedValue(true)
     const wrapper = await mountLoaded()
 
@@ -170,6 +173,63 @@ describe('AutomationsDashboard automations', () => {
 
     expect(setEnabled).toHaveBeenCalledWith('automation-1', false)
     expect(runNow).toHaveBeenCalledWith('automation-1')
+  })
+
+  it('names the schedule’s time zone when the person is somewhere else', async () => {
+    const elsewhere = localTimeZone() === 'Pacific/Kiritimati' ? 'Etc/GMT+12' : 'Pacific/Kiritimati'
+    const wrapper = await mountLoaded([
+      { ...AUTOMATION, trigger: { ...AUTOMATION.trigger, timeZone: elsewhere } },
+    ])
+
+    expect(wrapper.get('.dashboard-automation-when').text()).toMatch(
+      new RegExp(`^Every day at 00:00 · Next run .* · ${elsewhere.replace('+', '\\+')} time$`),
+    )
+  })
+
+  it('puts the switch back when the Worker refuses the change', async () => {
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    vi.spyOn(store, 'notify').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })),
+    )
+    const wrapper = await mountLoaded()
+    const box = wrapper.get('.dashboard-switch input')
+
+    await box.setValue(false)
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ id: 'automation-1', enabled: false })
+    // The automation is still on, and the box says so again.
+    expect(store.automations[0].enabled).toBe(true)
+    expect(box.element.checked).toBe(true)
+    expect(box.element.disabled).toBe(false)
+    vi.unstubAllGlobals()
+  })
+
+  it('leaves the switch where the person put it once the Worker agrees', async () => {
+    vi.spyOn(store, 'authHeaders').mockResolvedValue({})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ automation: { ...AUTOMATION, enabled: false, nextRunAt: null } }),
+      })),
+    )
+    const wrapper = await mountLoaded()
+    const box = wrapper.get('.dashboard-switch input')
+
+    await box.setValue(false)
+    await flushPromises()
+
+    expect(box.element.checked).toBe(false)
+    expect(wrapper.get('.dashboard-automation-when').text()).toBe(
+      'Every day at 00:00 · Switched off',
+    )
+    vi.unstubAllGlobals()
   })
 
   it('holds an automation’s controls while a change to it is under way', async () => {
